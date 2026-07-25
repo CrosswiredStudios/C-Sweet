@@ -1,0 +1,91 @@
+@using CSweet.Contracts.Marketplace
+
+<MudCard Class="marketplace-agent-card h-100" Outlined="true" Elevation="0">
+    <MudCardContent>
+        <div class="marketplace-agent-card-heading">
+            <div class="marketplace-agent-icon">
+                <MudIcon Icon="@(Agent.IsFirstParty
+                    ? Icons.Material.Outlined.Verified
+                    : Icons.Material.Outlined.SmartToy)" />
+            </div>
+            <MudStack Row="true" Spacing="1" Class="marketplace-agent-badges">
+                @if (Agent.IsFirstParty)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Primary">C-Sweet</MudChip>
+                }
+                @if (Agent.IsFeatured)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                             Icon="@Icons.Material.Filled.Star">
+                        Featured
+                    </MudChip>
+                }
+            </MudStack>
+        </div>
+
+        <MudText Typo="Typo.overline" Color="Color.Secondary">
+            @Agent.Category · @Agent.PublisherName
+        </MudText>
+        <MudText Typo="Typo.h5" Class="marketplace-agent-name">@Agent.Name</MudText>
+        <MudText Color="Color.Secondary" Class="marketplace-agent-summary">@Agent.Summary</MudText>
+
+        <div class="marketplace-agent-capabilities" aria-label="@($"{Agent.Name} capabilities")">
+            @foreach (var capability in Agent.Capabilities.Take(4))
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                    @capability
+                </MudChip>
+            }
+        </div>
+
+        <div class="marketplace-agent-meta">
+            <MudText Typo="Typo.subtitle2">@PriceLabel</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                @(Agent.Rating.HasValue
+                    ? $"{Agent.Rating:0.0}/10 · {Agent.RatingCount} reviews"
+                    : Agent.IsFirstParty ? "First-party agent" : "Not yet rated")
+            </MudText>
+        </div>
+    </MudCardContent>
+    <MudCardActions Class="marketplace-agent-actions">
+        <MudButton Href="@Agent.ListingUrl"
+                   Target="_blank"
+                   Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   EndIcon="@Icons.Material.Outlined.OpenInNew">
+            @(Agent.IsFirstParty ? "View on GitHub" : "View listing")
+        </MudButton>
+        @if (!Agent.IsFirstParty &&
+             !string.Equals(Agent.RepositoryUrl, Agent.ListingUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            <MudButton Href="@Agent.RepositoryUrl" Target="_blank" Variant="Variant.Text">
+                Repository
+            </MudButton>
+        }
+    </MudCardActions>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired] public MarketplaceAgentResponse Agent { get; set; } = default!;
+
+    private string PriceLabel
+    {
+        get
+        {
+            if (Agent.PriceInCents is null)
+            {
+                return "Open source / free";
+            }
+
+            var amount = Agent.PriceInCents.Value / 100m;
+            return Agent.PricingModel switch
+            {
+                "MonthlyPerInstance" or "Monthly" => $"${amount:0.##} / month",
+                "TokenBased" => $"${amount:0.##} / {Agent.BillingUnitQuantity:N0} tokens",
+                "OneTimePerInstance" or "OneTime" => $"${amount:0.##} / instance",
+                "OneTimeUnlimited" => $"${amount:0.##} once",
+                _ => $"${amount:0.##}"
+            };
+        }
+    }
+}

@@ -1,4 +1,5 @@
 @page "/settings/agents"
+@layout SettingsLayout
 @implements IDisposable
 @using System.Text.Json
 @using CSweet.Contracts.Agents
@@ -12,9 +13,6 @@
 @inject NavigationManager Navigation
 
 <PageTitle>Agents - C-Sweet</PageTitle>
-
-<SettingsNavigation />
-<AgentSettingsNavigation />
 
 <div class="setup-shell agents-page">
     <MudPaper Elevation="0" Class="page-header">

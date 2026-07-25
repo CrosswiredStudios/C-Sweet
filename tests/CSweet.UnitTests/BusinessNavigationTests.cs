@@ -59,6 +59,7 @@ public sealed class BusinessNavigationTests
         Assert.Contains("/organizations/{OrganizationId:guid}/communications/{ChatId:guid}", RoutesFor<CSweet.UI.Pages.Communications>());
         Assert.Contains("/settings/llm-providers", RoutesFor<CSweet.UI.Pages.LlmProviders>());
         Assert.Contains("/settings/agents", RoutesFor<CSweet.UI.Pages.Agents>());
+        Assert.Contains("/settings/agents/marketplace", RoutesFor<CSweet.UI.Pages.AgentMarketplace>());
         Assert.Contains("/settings/agents/runtime", RoutesFor<CSweet.UI.Pages.AgentRuntimeSettings>());
         Assert.Contains("/settings/security", RoutesFor<CSweet.UI.Pages.AccountSecurity>());
 
@@ -69,6 +70,30 @@ public sealed class BusinessNavigationTests
         Assert.Contains("/configuration", legacyRoutes);
         Assert.Contains("/account/security", legacyRoutes);
         Assert.Contains("/organizations", legacyRoutes);
+    }
+
+    [Fact]
+    public void SettingsPages_UseTheSettingsDialogLayout()
+    {
+        Type[] settingsPages =
+        [
+            typeof(CSweet.UI.Pages.LlmProviders),
+            typeof(CSweet.UI.Pages.Agents),
+            typeof(CSweet.UI.Pages.AgentMarketplace),
+            typeof(CSweet.UI.Pages.AgentRuntimeSettings),
+            typeof(CSweet.UI.Pages.Plugins),
+            typeof(CSweet.UI.Pages.CommunicationSettings),
+            typeof(CSweet.UI.Pages.CommunicationProviderSetup),
+            typeof(CSweet.UI.Pages.AccountSecurity)
+        ];
+
+        Assert.All(settingsPages, page =>
+            Assert.Equal(
+                typeof(CSweet.UI.Layout.SettingsLayout),
+                page.GetCustomAttributes(typeof(LayoutAttribute), inherit: false)
+                    .Cast<LayoutAttribute>()
+                    .Single()
+                    .LayoutType));
     }
 
     private static IReadOnlyList<string> RoutesFor<T>() =>

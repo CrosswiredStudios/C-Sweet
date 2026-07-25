@@ -1,33 +1,60 @@
-@inject NavigationManager Navigation
-
 <nav class="settings-navigation" aria-label="Settings sections">
-    <MudButton Href="/settings/llm-providers" Variant="@LlmVariant" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AutoAwesome">
-        LLM Providers
-    </MudButton>
-    <MudButton Href="/settings/agents" Variant="@AgentsVariant" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.SmartToy">
-        Agents
-    </MudButton>
-    <MudButton Href="/settings/plugins" Variant="@PluginsVariant" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Extension">
-        Plugins
-    </MudButton>
-    <MudButton Href="/settings/security" Variant="@SecurityVariant" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Security">
-        Account Security
-    </MudButton>
-    <MudButton Href="/settings/communications" Variant="@CommunicationsVariant" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Forum">
-        Communications
-    </MudButton>
+    <MudNavMenu Bordered="false" Dense="true" Class="settings-nav-menu">
+        <MudText Typo="Typo.overline" Class="settings-nav-label">Models</MudText>
+        <MudNavLink Href="/settings/llm-providers"
+                    Match="NavLinkMatch.All"
+                    Icon="@Icons.Material.Outlined.AutoAwesome"
+                    aria-label="LLM providers"
+                    title="LLM providers">
+            LLM providers
+        </MudNavLink>
+
+        <MudText Typo="Typo.overline" Class="settings-nav-label">Agents</MudText>
+        <MudNavLink Href="/settings/agents"
+                    Match="NavLinkMatch.All"
+                    Icon="@Icons.Material.Outlined.SmartToy"
+                    aria-label="Installed agents"
+                    title="Installed agents">
+            Installed agents
+        </MudNavLink>
+        <MudNavLink Href="/settings/agents/marketplace"
+                    Match="NavLinkMatch.Prefix"
+                    Icon="@Icons.Material.Outlined.Storefront"
+                    aria-label="Agent marketplace"
+                    title="Agent marketplace">
+            Marketplace
+        </MudNavLink>
+        <MudNavLink Href="/settings/agents/runtime"
+                    Match="NavLinkMatch.Prefix"
+                    Icon="@Icons.Material.Outlined.Memory"
+                    aria-label="Agent runtime"
+                    title="Agent runtime">
+            Runtime
+        </MudNavLink>
+
+        <MudText Typo="Typo.overline" Class="settings-nav-label">Platform</MudText>
+        <MudNavLink Href="/settings/plugins"
+                    Match="NavLinkMatch.Prefix"
+                    Icon="@Icons.Material.Outlined.Extension"
+                    aria-label="Plugins"
+                    title="Plugins">
+            Plugins
+        </MudNavLink>
+        <MudNavLink Href="/settings/communications"
+                    Match="NavLinkMatch.Prefix"
+                    Icon="@Icons.Material.Outlined.Forum"
+                    aria-label="Communications"
+                    title="Communications">
+            Communications
+        </MudNavLink>
+
+        <MudText Typo="Typo.overline" Class="settings-nav-label">Account</MudText>
+        <MudNavLink Href="/settings/security"
+                    Match="NavLinkMatch.Prefix"
+                    Icon="@Icons.Material.Outlined.Security"
+                    aria-label="Security"
+                    title="Security">
+            Security
+        </MudNavLink>
+    </MudNavMenu>
 </nav>
-
-@code {
-    private Variant LlmVariant => VariantFor("/settings/llm-providers");
-    private Variant AgentsVariant => VariantFor("/settings/agents");
-    private Variant PluginsVariant => VariantFor("/settings/plugins");
-    private Variant SecurityVariant => VariantFor("/settings/security");
-    private Variant CommunicationsVariant => VariantFor("/settings/communications");
-
-    private Variant VariantFor(string path)
-    {
-        var current = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Trim('/').Split('?', '#')[0];
-        return current.StartsWith(path, StringComparison.OrdinalIgnoreCase) ? Variant.Filled : Variant.Text;
-    }
-}

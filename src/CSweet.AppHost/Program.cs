@@ -1,5 +1,16 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
+// Visual Studio can start the AppHost debug session without providing the
+// DEBUG_SESSION_INFO payload Aspire needs to launch child projects through the
+// IDE. In that case, force Aspire's normal process launcher so the projects
+// receive their required `dotnet run --project ...` arguments.
+if (OperatingSystem.IsWindows() &&
+    string.Equals(Environment.GetEnvironmentVariable("VSIDE"), "true", StringComparison.OrdinalIgnoreCase) &&
+    string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DEBUG_SESSION_INFO")))
+{
+    builder.Configuration["DEBUG_SESSION_PORT"] = null;
+}
+
 var postgresUserName = builder.AddParameterFromConfiguration(
     "postgres-username",
     "CSweet:Postgres:UserName");

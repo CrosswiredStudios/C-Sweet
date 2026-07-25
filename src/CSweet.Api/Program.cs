@@ -21,6 +21,11 @@ using CSweet.Application.Notifications;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.AddJsonFile(
+    "first-party-agents.json",
+    optional: false,
+    reloadOnChange: true);
+
 builder.AddServiceDefaults();
 builder.AddCSweetInfrastructure();
 builder.Services.AddChatGateway(builder.Configuration);

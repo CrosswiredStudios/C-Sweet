@@ -19,7 +19,8 @@ public sealed class AgentOnboardingCapabilityHandler(
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public bool CanHandle(string capability) => capability == AgentLifecycleCapabilities.CompleteOnboarding;
+    public bool CanHandle(string capability) =>
+        capability == CSweet.Contracts.Agents.AgentLifecycleCapabilities.CompleteOnboarding;
 
     public async IAsyncEnumerable<CapabilityResult> HandleAsync(
         AgentSession session,

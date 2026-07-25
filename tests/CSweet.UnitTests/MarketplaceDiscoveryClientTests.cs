@@ -77,7 +77,38 @@ public sealed class MarketplaceDiscoveryClientTests
         Assert.Equal(0, handler.RequestCount);
     }
 
-    private static MarketplaceDiscoveryClient Client(StubHandler handler, bool enabled)
+    [Fact]
+    public async Task First_party_agents_remain_available_when_marketplace_is_offline()
+    {
+        var handler = new StubHandler(new { });
+        var firstParty = new FirstPartyMarketplaceAgentOptions
+        {
+            Id = Guid.Parse("01fb264d-1cd9-4bc6-a5d2-08adc63a5f32"),
+            ListingSlug = "chief-of-staff",
+            Name = "Chief of Staff",
+            Summary = "Coordinates executive priorities.",
+            Category = "Leadership",
+            Capabilities = ["executive.operations", "workforce.plan"],
+            IsFeatured = true,
+            RepositoryUrl = "https://github.com/CrosswiredStudios/CSweet.Agent.ChiefOfStaff"
+        };
+        var client = Client(handler, enabled: false, [firstParty]);
+
+        var browse = await client.SearchAsync(new MarketplaceDiscoveryQuery());
+
+        Assert.False(browse.IsOnline);
+        var agent = Assert.Single(browse.Items);
+        Assert.True(agent.IsFirstParty);
+        Assert.True(agent.IsFeatured);
+        Assert.Equal("C-Sweet", agent.PublisherName);
+        Assert.Equal(agent, Assert.Single(browse.FirstPartyItems!));
+        Assert.Equal(0, handler.RequestCount);
+    }
+
+    private static MarketplaceDiscoveryClient Client(
+        StubHandler handler,
+        bool enabled,
+        List<FirstPartyMarketplaceAgentOptions>? firstPartyAgents = null)
     {
         var http = new HttpClient(handler)
         {
@@ -87,7 +118,8 @@ public sealed class MarketplaceDiscoveryClientTests
         {
             Enabled = enabled,
             BaseUrl = "https://marketplace.test/",
-            TimeoutSeconds = 5
+            TimeoutSeconds = 5,
+            FirstPartyAgents = firstPartyAgents ?? []
         }));
     }
 

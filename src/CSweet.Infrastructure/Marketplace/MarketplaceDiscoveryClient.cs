@@ -19,6 +19,21 @@ public sealed class MarketplaceOptions
 
     [Range(1, 60)]
     public int TimeoutSeconds { get; set; } = 10;
+
+    public List<FirstPartyMarketplaceAgentOptions> FirstPartyAgents { get; set; } = [];
+}
+
+public sealed class FirstPartyMarketplaceAgentOptions
+{
+    public Guid Id { get; set; }
+    public string ListingSlug { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
+    public string Category { get; set; } = "Operations";
+    public List<string> Capabilities { get; set; } = [];
+    public bool IsFeatured { get; set; }
+    public string RepositoryUrl { get; set; } = string.Empty;
+    public string DocumentationUrl { get; set; } = string.Empty;
 }
 
 public sealed class MarketplaceDiscoveryClient(
@@ -33,30 +48,62 @@ public sealed class MarketplaceDiscoveryClient(
         MarketplaceDiscoveryQuery query,
         CancellationToken cancellationToken = default)
     {
+        var firstPartyAgents = FirstPartyAgents();
         if (!options.Value.Enabled)
-            return Offline("The online C-Sweet Marketplace is disabled for this installation.");
+            return Offline(
+                "The online C-Sweet Marketplace is disabled for this installation.",
+                query,
+                firstPartyAgents);
 
         try
         {
             using var response = await http.GetAsync(BuildPath(query), cancellationToken);
             if (!response.IsSuccessStatusCode)
-                return Offline($"Marketplace discovery returned HTTP {(int)response.StatusCode}.");
+                return Offline(
+                    $"Marketplace discovery returned HTTP {(int)response.StatusCode}.",
+                    query,
+                    firstPartyAgents);
             var remote = await response.Content.ReadFromJsonAsync<RemoteDiscoveryResponse>(
                 cancellationToken: cancellationToken);
             if (remote is null)
-                return Offline("Marketplace discovery returned an empty response.");
+                return Offline(
+                    "Marketplace discovery returned an empty response.",
+                    query,
+                    firstPartyAgents);
+
+            var remoteItems = remote.Items.Select(Map).ToArray();
+            var matchingFirstParty = FilterFirstParty(firstPartyAgents, query);
+            var repositories = matchingFirstParty
+                .Select(x => x.RepositoryUrl)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var items = matchingFirstParty
+                .Concat(remoteItems.Where(x => !repositories.Contains(x.RepositoryUrl)))
+                .ToArray();
+
             return new MarketplaceDiscoveryResponse(
-                remote.Items.Select(Map).ToArray(),
-                remote.Total,
-                remote.Categories,
-                remote.PricingModels,
+                items,
+                remote.Total + matchingFirstParty.Count,
+                remote.Categories
+                    .Concat(firstPartyAgents.Select(x => x.Category))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(x => x)
+                    .ToArray(),
+                remote.PricingModels
+                    .Append("OpenSourceFree")
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(x => x)
+                    .ToArray(),
                 true,
-                null);
+                null,
+                firstPartyAgents);
         }
         catch (Exception exception) when (
             exception is HttpRequestException or TaskCanceledException or NotSupportedException)
         {
-            return Offline("The online C-Sweet Marketplace is currently unavailable.");
+            return Offline(
+                "The online C-Sweet Marketplace is currently unavailable.",
+                query,
+                firstPartyAgents);
         }
     }
 
@@ -153,8 +200,90 @@ public sealed class MarketplaceDiscoveryClient(
             item.RatingCount, item.IsFeatured, item.RepositoryUrl, item.DocumentationUrl,
             new Uri(http.BaseAddress!, item.ListingPath).ToString());
 
-    private static MarketplaceDiscoveryResponse Offline(string reason) =>
-        new([], 0, [], [], false, reason);
+    private IReadOnlyList<MarketplaceAgentResponse> FirstPartyAgents() =>
+        options.Value.FirstPartyAgents
+            .Where(x =>
+                x.Id != Guid.Empty &&
+                !string.IsNullOrWhiteSpace(x.ListingSlug) &&
+                !string.IsNullOrWhiteSpace(x.Name) &&
+                Uri.TryCreate(x.RepositoryUrl, UriKind.Absolute, out _))
+            .Select(x => new MarketplaceAgentResponse(
+                x.Id,
+                "crosswired-studios",
+                x.ListingSlug,
+                x.Name,
+                "C-Sweet",
+                x.Summary,
+                x.Category,
+                x.Capabilities,
+                "OpenSourceFree",
+                null,
+                1,
+                "USD",
+                null,
+                0,
+                x.IsFeatured,
+                x.RepositoryUrl,
+                string.IsNullOrWhiteSpace(x.DocumentationUrl)
+                    ? $"{x.RepositoryUrl}#readme"
+                    : x.DocumentationUrl,
+                x.RepositoryUrl,
+                true))
+            .ToArray();
+
+    private static IReadOnlyList<MarketplaceAgentResponse> FilterFirstParty(
+        IReadOnlyList<MarketplaceAgentResponse> agents,
+        MarketplaceDiscoveryQuery query)
+    {
+        IEnumerable<MarketplaceAgentResponse> filtered = agents;
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim();
+            filtered = filtered.Where(x =>
+                x.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                x.Summary.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                x.Category.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                x.Capabilities.Any(capability =>
+                    capability.Contains(search, StringComparison.OrdinalIgnoreCase)));
+        }
+        if (!string.IsNullOrWhiteSpace(query.Category))
+        {
+            filtered = filtered.Where(x =>
+                string.Equals(x.Category, query.Category.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+        if (!string.IsNullOrWhiteSpace(query.Capability))
+        {
+            filtered = filtered.Where(x =>
+                x.Capabilities.Any(capability =>
+                    capability.Contains(query.Capability.Trim(), StringComparison.OrdinalIgnoreCase)));
+        }
+        if (!string.IsNullOrWhiteSpace(query.PricingModel) &&
+            query.PricingModel is not ("OpenSourceFree" or "Free"))
+        {
+            filtered = [];
+        }
+
+        return filtered.Take(Math.Clamp(query.Take, 1, 100)).ToArray();
+    }
+
+    private static MarketplaceDiscoveryResponse Offline(
+        string reason,
+        MarketplaceDiscoveryQuery query,
+        IReadOnlyList<MarketplaceAgentResponse> firstPartyAgents)
+    {
+        var matchingFirstParty = FilterFirstParty(firstPartyAgents, query);
+        return new MarketplaceDiscoveryResponse(
+            matchingFirstParty,
+            matchingFirstParty.Count,
+            firstPartyAgents.Select(x => x.Category)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x)
+                .ToArray(),
+            ["OpenSourceFree"],
+            false,
+            reason,
+            firstPartyAgents);
+    }
 
     private sealed record RemoteDiscoveryResponse(
         IReadOnlyList<RemoteAgent> Items,

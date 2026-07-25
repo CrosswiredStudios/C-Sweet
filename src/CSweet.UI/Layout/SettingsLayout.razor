@@ -1,0 +1,55 @@
+@layout MainLayout
+@inherits LayoutComponentBase
+@inject IBusinessContext BusinessContext
+@inject NavigationManager Navigation
+
+<MudDialog Visible="true"
+           VisibleChanged="OnVisibilityChanged"
+           Options="_dialogOptions"
+           Class="settings-dialog">
+    <TitleContent>
+        <div class="settings-dialog-title">
+            <MudIcon Icon="@Icons.Material.Outlined.Settings" Color="Color.Primary" />
+            <div>
+                <MudText Typo="Typo.h6">Settings</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">C-Sweet administration</MudText>
+            </div>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <div class="settings-dialog-shell">
+            <aside class="settings-dialog-sidebar">
+                <SettingsNavigation />
+            </aside>
+            <main class="settings-dialog-content">
+                @Body
+            </main>
+        </div>
+    </DialogContent>
+</MudDialog>
+
+@code {
+    private readonly DialogOptions _dialogOptions = new()
+    {
+        FullScreen = true,
+        FullWidth = true,
+        CloseButton = true,
+        CloseOnEscapeKey = true,
+        CloseOnNavigation = false,
+        BackdropClick = false
+    };
+
+    private void OnVisibilityChanged(bool visible)
+    {
+        if (visible)
+        {
+            return;
+        }
+
+        var destination = BusinessContext.SelectedBusiness is { } business
+            ? $"/organizations/{business.Id}/command-center"
+            : "/";
+
+        Navigation.NavigateTo(destination);
+    }
+}

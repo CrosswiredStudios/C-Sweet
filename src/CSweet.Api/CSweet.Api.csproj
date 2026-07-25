@@ -25,4 +25,10 @@
     <InternalsVisibleTo Include="CSweet.UnitTests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Update="first-party-agents.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

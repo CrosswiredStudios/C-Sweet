@@ -1,11 +1,9 @@
 @page "/settings/agents/runtime"
+@layout SettingsLayout
 @using CSweet.Contracts.Setup
 @inject IAgentRuntimeSettingsApiClient AgentRuntimeSettingsApi
 
 <PageTitle>Agent Runtime - C-Sweet</PageTitle>
-
-<SettingsNavigation />
-<AgentSettingsNavigation Runtime="true" />
 
 <div class="setup-shell configuration-page">
     <MudPaper Elevation="0" Class="page-header">

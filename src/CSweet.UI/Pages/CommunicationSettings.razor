@@ -1,13 +1,13 @@
 @page "/settings/communications"
+@layout SettingsLayout
 @using CSweet.Contracts.Communications
 @inject IBusinessContext BusinessContext
 @inject HttpClient Http
 @implements IDisposable
 
 <PageTitle>Communications - C-Sweet Settings</PageTitle>
-<SettingsNavigation />
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="py-7">
+<MudContainer MaxWidth="MaxWidth.Large" Class="settings-page-container">
     <MudText Typo="Typo.h4">Communication surfaces</MudText>
     <MudText Color="Color.Secondary" Class="mb-6">
         C-Sweet's in-app inbox is always available. Connect additional surfaces for each company or disconnect them without deleting C-Sweet conversation history.
@@ -89,7 +89,7 @@
     private string? _message;
     private Severity _severity = Severity.Info;
     private Guid? OrganizationId => BusinessContext.SelectedBusiness?.Id;
-    private string DiscordSetupHref => $"/organizations/{OrganizationId}/communications/providers/discord";
+    private string DiscordSetupHref => $"/settings/communications/providers/discord/{OrganizationId}";
 
     protected override async Task OnInitializedAsync()
     {

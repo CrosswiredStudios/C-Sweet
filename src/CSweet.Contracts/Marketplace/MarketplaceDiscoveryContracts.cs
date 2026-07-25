@@ -18,7 +18,8 @@ public sealed record MarketplaceAgentResponse(
     bool IsFeatured,
     string RepositoryUrl,
     string DocumentationUrl,
-    string ListingUrl);
+    string ListingUrl,
+    bool IsFirstParty = false);
 
 public sealed record MarketplaceDiscoveryResponse(
     IReadOnlyList<MarketplaceAgentResponse> Items,
@@ -26,7 +27,8 @@ public sealed record MarketplaceDiscoveryResponse(
     IReadOnlyList<string> Categories,
     IReadOnlyList<string> PricingModels,
     bool IsOnline,
-    string? UnavailableReason);
+    string? UnavailableReason,
+    IReadOnlyList<MarketplaceAgentResponse>? FirstPartyItems = null);
 
 public sealed record MarketplaceDiscoveryQuery(
     string? Search = null,
