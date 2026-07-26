@@ -1446,13 +1446,18 @@ body { color: var(--cs-navy); }
 }
 
 .settings-navigation .mud-nav-link.active {
-    background: #fff;
-    color: var(--cs-navy);
+    background: rgba(255, 255, 255, .14);
+    color: #fff;
     font-weight: 700;
+    box-shadow: inset 3px 0 0 var(--cs-mint);
 }
 
 .settings-navigation .mud-nav-link.active .mud-nav-link-icon {
-    color: var(--cs-navy);
+    color: #fff;
+}
+
+.settings-navigation .mud-nav-link.active .mud-nav-link-text {
+    color: #fff !important;
 }
 
 .settings-dialog-content {
