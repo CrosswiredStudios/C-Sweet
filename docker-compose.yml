@@ -68,9 +68,11 @@ services:
       CSWEET_AGENT_PACKAGE_CACHE: /var/lib/csweet/agents/packages
       CSweet__ApiGateway__BrokerEndpoint: http://csweet-agenthost:8080
       CSweet__Secrets__FilePath: /state/provider-secrets.json
+      CSweet__GenAi__MediaRoot: /media
     volumes:
       - csweet-agent-packages:/var/lib/csweet/agents/packages:ro
       - csweet-provider-secrets:/state
+      - csweet-media:/media
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/health || exit 1"]
       interval: 10s
@@ -132,8 +134,10 @@ services:
       DOTNET_ENVIRONMENT: ${DOTNET_ENVIRONMENT:-Production}
       ConnectionStrings__Postgres: ${CSWEET_CONNECTIONSTRINGS__POSTGRES:-Host=postgres;Port=5432;Database=csweet;Username=csweet;Password=change-me-in-production}
       CSweet__Secrets__FilePath: /state/provider-secrets.json
+      CSweet__GenAi__MediaRoot: /media
     volumes:
       - csweet-provider-secrets:/state
+      - csweet-media:/media
 
   # ---------------------------------------------------------
   # Database (PostgreSQL)
@@ -165,6 +169,9 @@ volumes:
     driver: local
   csweet-provider-secrets:
     name: csweet-provider-secrets
+    driver: local
+  csweet-media:
+    name: csweet-media
     driver: local
 
 networks:

@@ -37,6 +37,7 @@ public sealed class PlatformCapabilityDispatcher(
 
     private static bool IsImplicitPlatformCapability(string capability) =>
         McpToolCatalog.IsGlobalCapability(capability) ||
+        capability is CSweet.Contracts.GenAi.GenAiCapabilities.JobRead or CSweet.Contracts.GenAi.GenAiCapabilities.JobCancel ||
         capability == AgentLifecycleCapabilities.CompleteOnboarding;
 
     private static async IAsyncEnumerable<CapabilityResult> Single(CapabilityResult result)

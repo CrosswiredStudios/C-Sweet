@@ -12,6 +12,7 @@ public sealed class SetupService : ISetupService
     [
         ("welcome", "Welcome", true),
         ("llm-provider", "LLM Provider", true),
+        ("genai-provider", "GenAI Provider", false),
         ("email-delivery", "Email Delivery", false),
         ("communications", "Communications", false),
         ("finish", "Finish", true)

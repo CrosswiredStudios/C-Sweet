@@ -809,6 +809,9 @@
     [Parameter, SupplyParameterFromQuery(Name = "repositoryUrl")]
     public string? SuggestedRepositoryUrl { get; set; }
 
+    [Parameter, SupplyParameterFromQuery(Name = "queueInstall")]
+    public bool QueueInstall { get; set; }
+
     [Parameter, SupplyParameterFromQuery(Name = "returnUrl")]
     public string? ReturnUrl { get; set; }
 
@@ -930,6 +933,11 @@
         {
             OpenImportDialog();
             _importRepositoryUrl = SuggestedRepositoryUrl;
+            if (QueueInstall)
+            {
+                await InvokeAsync(StateHasChanged);
+                await PreviewImportAsync();
+            }
         }
     }
 
@@ -973,7 +981,9 @@
 
             await Task.WhenAll(installationsTask, providersTask, usageTask, runtimeSettingsTask);
 
-            _installations = await installationsTask;
+            _installations = (await installationsTask)
+                .OrderByDescending(installation => installation.CreatedAt)
+                .ToList();
             _providerProfiles = await providersTask;
             _usageSummary = await usageTask;
             _runtimeSettings = await runtimeSettingsTask;
@@ -1106,7 +1116,7 @@
                     GrantedRequestedCapabilities = _approvedRequestedCapabilities.ToList()
                 },
                 _disposeCts.Token);
-            _installations = _installations.Append(installation).ToList();
+            _installations = _installations.Prepend(installation).ToList();
             _importDialogOpen = false;
             _isInstallingImport = false;
             await InvokeAsync(StateHasChanged);

@@ -27,6 +27,11 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
     public DbSet<LlmProviderProfile> LlmProviderProfiles => Set<LlmProviderProfile>();
     public DbSet<ModelCapabilityTest> ModelCapabilityTests => Set<ModelCapabilityTest>();
+    public DbSet<GenAiProviderProfile> GenAiProviderProfiles => Set<GenAiProviderProfile>();
+    public DbSet<GenAiOperationConfiguration> GenAiOperationConfigurations => Set<GenAiOperationConfiguration>();
+    public DbSet<GenAiOperationDefault> GenAiOperationDefaults => Set<GenAiOperationDefault>();
+    public DbSet<GenAiJob> GenAiJobs => Set<GenAiJob>();
+    public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
     public DbSet<OnboardingStep> OnboardingSteps => Set<OnboardingStep>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<AgentRunLog> AgentRunLogs => Set<AgentRunLog>();
@@ -372,6 +377,71 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 .WithMany()
                 .HasForeignKey(x => x.ProviderProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GenAiProviderProfile>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ProviderType).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(x => x.BaseUrl).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.ApiKeySecretName).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<GenAiOperationConfiguration>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OperationType).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ModelId).HasMaxLength(512);
+            entity.Property(x => x.TemplateJson).HasColumnType("text");
+            entity.Property(x => x.OutputSelector).HasMaxLength(512);
+            entity.Property(x => x.DefaultsJson).HasColumnType("text");
+            entity.HasOne(x => x.ProviderProfile).WithMany().HasForeignKey(x => x.ProviderProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.ProviderProfileId, x.OperationType, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<GenAiOperationDefault>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OperationType).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.HasIndex(x => x.OperationType).IsUnique();
+            entity.HasOne(x => x.OperationConfiguration).WithMany().HasForeignKey(x => x.OperationConfigurationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GenAiJob>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OperationType).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.PromptHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.RequestJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.ProviderJobId).HasMaxLength(512);
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(200);
+            entity.Property(x => x.ErrorCode).HasMaxLength(160);
+            entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
+            entity.Property(x => x.LeaseOwner).HasMaxLength(64);
+            entity.HasOne(x => x.OperationConfiguration).WithMany().HasForeignKey(x => x.OperationConfigurationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(x => new { x.AgentInstallationId, x.OperationType, x.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+            entity.HasIndex(x => new { x.Status, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<MediaAsset>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.FileName).HasMaxLength(255).IsRequired();
+            entity.Property(x => x.ContentType).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Sha256).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.StorageKey).HasMaxLength(512).IsRequired();
+            entity.HasIndex(x => x.StorageKey).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedAt });
+            entity.HasOne(x => x.GenAiJob).WithMany().HasForeignKey(x => x.GenAiJobId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<OnboardingStep>(entity =>

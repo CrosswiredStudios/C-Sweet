@@ -17,6 +17,8 @@ using CSweet.Infrastructure.Llm;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Planning;
 using CSweet.Infrastructure.Setup;
+using CSweet.Infrastructure.GenAi;
+using CSweet.Application.GenAi;
 using CSweet.Infrastructure.Security;
 using CSweet.Infrastructure.Marketplace;
 using CSweet.Application.Security;
@@ -148,6 +150,20 @@ public static class DependencyInjection
         builder.Services.AddScoped<IModelCatalogClient, ModelCatalogClient>();
         builder.Services.AddScoped<ILlmProviderProfileService, LlmProviderProfileService>();
         builder.Services.AddScoped<ILlmTokenUsageService, LlmTokenUsageService>();
+        builder.Services.AddHttpClient("GenAi", client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(5);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("CSweet-Core/1.0");
+        });
+        builder.Services.AddScoped<IGenAiProviderAdapter, ComfyUiLocalGenAiProviderAdapter>();
+        builder.Services.AddScoped<IGenAiProviderAdapter, ComfyUiCloudGenAiProviderAdapter>();
+        builder.Services.AddScoped<IGenAiProviderAdapter, OpenAiGenAiProviderAdapter>();
+        builder.Services.AddScoped<IGenAiProviderAdapter, GoogleGeminiGenAiProviderAdapter>();
+        builder.Services.AddScoped<IGenAiProviderAdapter, ReplicateGenAiProviderAdapter>();
+        builder.Services.AddScoped<IGenAiProviderProfileService, GenAiProviderProfileService>();
+        builder.Services.AddScoped<IGenAiJobService, GenAiJobService>();
+        builder.Services.AddSingleton<IMediaAssetStore, FileMediaAssetStore>();
+        builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
         builder.Services.AddScoped<IAgentRunLogWriter, AgentRunLogWriter>();
         builder.Services.AddScoped<IAgentRunner, AgentFrameworkAgentRunner>();
         builder.Services.AddScoped<IAgentWorkflowRunner, AgentFrameworkWorkflowRunner>();

@@ -1,0 +1,17 @@
+@page "/settings/genai-providers"
+@layout SettingsLayout
+
+<PageTitle>GenAI Providers - C-Sweet</PageTitle>
+
+<div class="setup-shell agents-page llm-providers-page">
+    <MudPaper Elevation="0" Class="page-header">
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Provider management</MudText>
+            <MudText Typo="Typo.h3">GenAI Providers</MudText>
+            <MudText Color="Color.Secondary">Manage approved image and video generation and editing providers.</MudText>
+        </div>
+    </MudPaper>
+    <MudPaper Elevation="1" Class="setup-card">
+        <GenAiProviderSetupStep ContextLabel="Generative media" ShowNavigation="false" />
+    </MudPaper>
+</div>

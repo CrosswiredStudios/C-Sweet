@@ -119,6 +119,29 @@ public sealed class AgentInstallationServiceTests
     }
 
     [Fact]
+    public async Task ListAsync_ReturnsNewestInstallationsFirst()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext);
+        var service = CreateService(dbContext);
+
+        var older = await service.InstallAsync(package.Id, ValidRequest());
+        var newer = await service.InstallAsync(
+            package.Id,
+            ValidRequest() with { BusinessId = "newer-business" });
+
+        (await dbContext.AgentInstallations.SingleAsync(x => x.Id == older.Id)).CreatedAt =
+            DateTimeOffset.UtcNow.AddDays(-1);
+        (await dbContext.AgentInstallations.SingleAsync(x => x.Id == newer.Id)).CreatedAt =
+            DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync();
+
+        var installations = await service.ListAsync();
+
+        Assert.Equal([newer.Id, older.Id], installations.Select(x => x.Id));
+    }
+
+    [Fact]
     public async Task InstallAsync_AllowsDistinctSameBusinessInstancesWhenManifestOptsIn()
     {
         await using var dbContext = CreateDbContext();

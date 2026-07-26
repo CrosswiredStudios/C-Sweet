@@ -31,6 +31,8 @@ builder.Services.AddHostedService<AgentOnboardingEventDispatcher>();
 builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService>();
 builder.Services.AddScoped<AgentEmployeeIdentityResolver>();
 builder.Services.AddScoped<PlatformLlmCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, PlatformGenAiCapabilityHandler>();
+builder.Services.AddHostedService<CSweet.Infrastructure.GenAi.GenAiJobWorker>();
 builder.Services.AddSingleton<IMemoryStore>(_ => new PostgreSqlMemoryStore(
     builder.Configuration.GetConnectionString("Postgres")
     ?? builder.Configuration.GetConnectionString("csweet")

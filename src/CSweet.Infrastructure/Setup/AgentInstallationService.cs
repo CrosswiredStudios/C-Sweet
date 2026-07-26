@@ -196,8 +196,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     {
         var installations = await InstallationQuery()
             .Where(x => x.PackageVersion!.PluginKind == PluginKind.Agent)
-            .OrderBy(x => x.PackageVersion!.AgentName)
-            .ThenBy(x => x.BusinessId)
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenBy(x => x.PackageVersion!.AgentName)
             .ToListAsync(cancellationToken);
         return installations.Select(ToResponse).ToList();
     }

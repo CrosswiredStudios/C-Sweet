@@ -17,6 +17,7 @@ using CSweet.Infrastructure.Communications;
 using CSweet.Api.Notifications;
 using CSweet.Api.Security;
 using CSweet.Api.Marketplace;
+using CSweet.Api.GenAi;
 using CSweet.Application.Notifications;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -135,6 +136,7 @@ app.MapHealthChecks("/health").AllowAnonymous();
 app.MapAuthenticationEndpoints();
 
 app.MapLlmProviderProfileEndpoints();
+app.MapGenAiEndpoints();
 app.MapSetupEndpoints();
 app.MapAgentRuntimeSettingsEndpoints();
 app.MapPlanningRunEndpoints();

@@ -1,0 +1,244 @@
+@using CSweet.Contracts.GenAi
+@using CSweet.Domain.Setup
+@inject IGenAiProviderApiClient Api
+
+<section class="provider-step" aria-labelledby="genai-provider-step-title">
+    <header class="provider-step-header">
+        <div>
+            <MudText Typo="Typo.overline">@ContextLabel</MudText>
+            <h1 id="genai-provider-step-title">Connect generative AI providers.</h1>
+            <p>Give approved agents least-privilege access to image and video generation or editing. This step is optional.</p>
+        </div>
+        <div class="provider-count"><strong>@_profiles.Count</strong><span>providers connected</span></div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <MudAlert Severity="@(_error ? Severity.Error : Severity.Info)" Variant="Variant.Outlined" Class="mb-4">@_message</MudAlert>
+    }
+
+    <div class="provider-workspace">
+        <section class="provider-roster">
+            <div class="provider-section-heading"><div><span class="provider-section-kicker">Your roster</span><h2>Connected providers</h2></div></div>
+            @if (_profiles.Count == 0)
+            {
+                <div class="provider-empty-state">
+                    <MudIcon Icon="@Icons.Material.Outlined.PermMedia" />
+                    <strong>No GenAI providers yet</strong>
+                    <span>Choose a preset or skip this optional step.</span>
+                </div>
+            }
+            else
+            {
+                @foreach (var profile in _profiles)
+                {
+                    <button type="button" class="@($"provider-roster-card {(profile.Id == _selectedId ? "active" : null)}")" @onclick="() => Select(profile)">
+                        <span class="provider-roster-icon"><MudIcon Icon="@Icons.Material.Outlined.AutoFixHigh" /></span>
+                        <span class="provider-roster-copy">
+                            <strong>@profile.Name</strong>
+                            <small>@profile.ProviderType · @profile.Operations.Count operation(s)</small>
+                        </span>
+                        <span class="provider-status-dot @(profile.LastSuccessfulConnectionAt.HasValue ? "online" : null)"></span>
+                    </button>
+                }
+            }
+        </section>
+
+        <section class="provider-connect">
+            <div class="provider-section-heading"><div><span class="provider-section-kicker">Connection</span><h2>@(_selectedId.HasValue ? "Edit provider" : "Add a provider")</h2></div></div>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Class="mb-4">
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.ComfyUiLocal))">ComfyUI Local</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.ComfyUiCloud))">Comfy Cloud</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.OpenAi))">OpenAI</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.GoogleGemini))">Google Gemini</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.Replicate))">Replicate</MudButton>
+            </MudStack>
+            <div class="setup-form-grid">
+                <MudTextField Label="Provider name" @bind-Value="_name" Variant="Variant.Outlined" />
+                <MudSelect T="GenAiProviderType" Label="Provider type" @bind-Value="_type" Variant="Variant.Outlined">
+                    @foreach (var type in Enum.GetValues<GenAiProviderType>()) { <MudSelectItem Value="@type">@type</MudSelectItem> }
+                </MudSelect>
+                <MudTextField Class="setup-form-wide" Label="Base URL" @bind-Value="_baseUrl" Variant="Variant.Outlined" />
+                <MudTextField Class="setup-form-wide" Label="API key" @bind-Value="_apiKey" InputType="InputType.Password"
+                              Placeholder="@(_hasApiKey ? "Saved key (leave blank to keep)" : null)" Variant="Variant.Outlined" />
+            </div>
+            <MudStack Row="true" Class="setup-actions">
+                @if (_selectedId.HasValue)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@_busy" OnClick="DeleteAsync">Delete</MudButton>
+                    <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="TestAsync">Test connection</MudButton>
+                }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_baseUrl))" OnClick="SaveAsync">
+                    @(_busy ? "Saving..." : "Save provider")
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="NewProvider">New</MudButton>
+            </MudStack>
+
+            @if (_selectedId.HasValue)
+            {
+                <MudDivider Class="my-6" />
+                <div class="provider-section-heading"><div><span class="provider-section-kicker">Approved operation</span><h2>Model or workflow</h2></div></div>
+                <div class="setup-form-grid">
+                    <MudSelect T="GenAiOperationType" Label="Least-privilege operation" @bind-Value="_operationType" Variant="Variant.Outlined">
+                        @foreach (var type in SupportedOperations) { <MudSelectItem Value="@type">@OperationLabel(type)</MudSelectItem> }
+                    </MudSelect>
+                    <MudTextField Label="Configuration name" @bind-Value="_operationName" Variant="Variant.Outlined" />
+                    <MudTextField Class="setup-form-wide" Label="Model ID" @bind-Value="_modelId" Variant="Variant.Outlined" />
+                    @if (_type is GenAiProviderType.ComfyUiLocal or GenAiProviderType.ComfyUiCloud or GenAiProviderType.Replicate)
+                    {
+                        <MudTextField Class="setup-form-wide" Label="@(_type == GenAiProviderType.Replicate ? "Prediction input template JSON" : "ComfyUI API workflow JSON")"
+                                      @bind-Value="_templateJson" Lines="8" Variant="Variant.Outlined" />
+                    }
+                    @if (_type is GenAiProviderType.ComfyUiLocal or GenAiProviderType.ComfyUiCloud or GenAiProviderType.Replicate)
+                    {
+                        <MudTextField Class="setup-form-wide" Label="@(_type == GenAiProviderType.Replicate ? "Output selector (for example: output)" : "Output node ID")"
+                                      @bind-Value="_outputSelector" Variant="Variant.Outlined" />
+                    }
+                </div>
+                <MudButton Variant="Variant.Filled" Color="Color.Secondary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_operationName))" OnClick="SaveOperationAsync">
+                    Save approved operation
+                </MudButton>
+                @if (SelectedProfile is { Operations.Count: > 0 })
+                {
+                    <MudList T="string" Dense="true" Class="mt-4">
+                        @foreach (var operation in SelectedProfile.Operations)
+                        {
+                            <MudListItem T="string" Value="@operation.Id.ToString()">
+                                @OperationLabel(operation.OperationType) — @operation.Name @(operation.IsDefault ? "(default)" : null)
+                                @if (!operation.IsDefault)
+                                {
+                                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => SetDefaultAsync(operation.Id))">Make default</MudButton>
+                                }
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            }
+        </section>
+    </div>
+
+    @if (ShowNavigation)
+    {
+        <footer class="provider-step-footer">
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" OnClick="OnBack">Back</MudButton>
+            <MudStack Row="true">
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_busy" OnClick="OnContinue">Skip for now</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward" Disabled="@_busy" OnClick="OnContinue">Continue</MudButton>
+            </MudStack>
+        </footer>
+    }
+</section>
+
+@code {
+    [Parameter] public string ContextLabel { get; set; } = "Step 3 of 6";
+    [Parameter] public bool ShowNavigation { get; set; } = true;
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback OnContinue { get; set; }
+
+    private List<GenAiProviderProfileResponse> _profiles = [];
+    private Guid? _selectedId;
+    private string _name = string.Empty;
+    private GenAiProviderType _type = GenAiProviderType.ComfyUiLocal;
+    private string _baseUrl = "http://host.docker.internal:8188";
+    private string? _apiKey;
+    private bool _hasApiKey;
+    private bool _busy;
+    private bool _error;
+    private string? _message;
+    private GenAiOperationType _operationType = GenAiOperationType.ImageGeneration;
+    private string _operationName = "Default image generation";
+    private string? _modelId;
+    private string? _templateJson;
+    private string? _outputSelector;
+
+    private GenAiProviderProfileResponse? SelectedProfile => _profiles.SingleOrDefault(x => x.Id == _selectedId);
+    private IReadOnlyList<GenAiOperationType> SupportedOperations => _type == GenAiProviderType.OpenAi
+        ? [GenAiOperationType.ImageGeneration, GenAiOperationType.ImageEditing]
+        : Enum.GetValues<GenAiOperationType>();
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _profiles = (await Api.ListAsync()).ToList();
+        if (_selectedId.HasValue && _profiles.All(x => x.Id != _selectedId)) NewProvider();
+    }
+
+    private void ApplyPreset(GenAiProviderType type)
+    {
+        NewProvider();
+        _type = type;
+        (_name, _baseUrl) = type switch
+        {
+            GenAiProviderType.ComfyUiLocal => ("ComfyUI Local", "http://host.docker.internal:8188"),
+            GenAiProviderType.ComfyUiCloud => ("Comfy Cloud", "https://cloud.comfy.org"),
+            GenAiProviderType.OpenAi => ("OpenAI", "https://api.openai.com"),
+            GenAiProviderType.GoogleGemini => ("Google Gemini", "https://generativelanguage.googleapis.com"),
+            GenAiProviderType.Replicate => ("Replicate", "https://api.replicate.com"),
+            _ => ("GenAI Provider", string.Empty)
+        };
+        _outputSelector = type == GenAiProviderType.Replicate ? "output" : null;
+    }
+
+    private void Select(GenAiProviderProfileResponse profile)
+    {
+        _selectedId = profile.Id; _name = profile.Name; _type = profile.ProviderType; _baseUrl = profile.BaseUrl;
+        _apiKey = null; _hasApiKey = profile.HasApiKey; _message = null;
+    }
+
+    private void NewProvider()
+    {
+        _selectedId = null; _name = string.Empty; _type = GenAiProviderType.ComfyUiLocal;
+        _baseUrl = "http://host.docker.internal:8188"; _apiKey = null; _hasApiKey = false; _message = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var saved = _selectedId.HasValue
+                ? await Api.UpdateAsync(_selectedId.Value, new(_name, _type, _baseUrl, _apiKey, !string.IsNullOrWhiteSpace(_apiKey), true))
+                : await Api.CreateAsync(new(_name, _type, _baseUrl, _apiKey));
+            await LoadAsync(); Select(_profiles.Single(x => x.Id == saved.Id)); _message = "Provider saved.";
+        });
+    }
+
+    private async Task TestAsync() => await RunAsync(async () =>
+    {
+        var result = await Api.TestAsync(_selectedId!.Value); _error = !result.Succeeded; _message = result.Message; await LoadAsync();
+    });
+
+    private async Task DeleteAsync() => await RunAsync(async () =>
+    {
+        await Api.DeleteAsync(_selectedId!.Value); NewProvider(); await LoadAsync(); _message = "Provider deleted.";
+    });
+
+    private async Task SaveOperationAsync() => await RunAsync(async () =>
+    {
+        await Api.SaveOperationAsync(_selectedId!.Value, null,
+            new(_operationType, _operationName, _modelId, _templateJson, _outputSelector, null, true));
+        await LoadAsync(); _message = "Approved operation saved.";
+    });
+
+    private async Task SetDefaultAsync(Guid id) => await RunAsync(async () =>
+    {
+        await Api.SetDefaultAsync(id); await LoadAsync(); _message = "Default operation updated.";
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true; _error = false; _message = null;
+        try { await action(); }
+        catch (Exception exception) { _error = true; _message = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private static string OperationLabel(GenAiOperationType type) => type switch
+    {
+        GenAiOperationType.ImageGeneration => "Image generation",
+        GenAiOperationType.ImageEditing => "Image editing",
+        GenAiOperationType.VideoGeneration => "Video generation",
+        GenAiOperationType.VideoEditing => "Video editing",
+        _ => type.ToString()
+    };
+}

@@ -8,6 +8,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddScoped<ISetupApiClient, SetupApiClient>();
         services.AddScoped<ILlmProviderApiClient, LlmProviderApiClient>();
+        services.AddScoped<IGenAiProviderApiClient, GenAiProviderApiClient>();
         services.AddScoped<IAgentRuntimeSettingsApiClient, AgentRuntimeSettingsApiClient>();
         services.AddScoped<IOrganizationApiClient, OrganizationApiClient>();
         services.AddScoped<IBusinessContext, BusinessContext>();

@@ -79,9 +79,10 @@
     [
         new(1, "welcome", "Welcome", "Start here"),
         new(2, "llm-provider", "LLM Providers", "Connect endpoints"),
-        new(3, "email-delivery", "Email Delivery", "Optional"),
-        new(4, "communications", "Communications", "Optional"),
-        new(5, "finish", "Finish", "Unlock app")
+        new(3, "genai-provider", "GenAI Providers", "Optional"),
+        new(4, "email-delivery", "Email Delivery", "Optional"),
+        new(5, "communications", "Communications", "Optional"),
+        new(6, "finish", "Finish", "Unlock app")
     ];
 
     private SetupStatusResponse? _status;
@@ -150,6 +151,7 @@
 
     private void BackToWelcome() => SelectStep("welcome");
     private void BackToProvider() => SelectStep("llm-provider");
+    private void BackToGenAiProvider() => SelectStep("genai-provider");
     private void BackToEmailDelivery() => SelectStep("email-delivery");
     private void BackToCommunications() => SelectStep("communications");
 
@@ -157,6 +159,7 @@
     {
         "welcome" => WelcomeStep,
         "llm-provider" => LlmProviderStep,
+        "genai-provider" => GenAiProviderStep,
         "email-delivery" => EmailDeliveryStep,
         "communications" => CommunicationsStep,
         "finish" => FinishStep,
@@ -171,9 +174,12 @@
                                                                          OnContinue="@ContinueFromProviderAsync"
                                                                          OnBack="@BackToWelcome" />;
 
+    private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep OnContinue="@ContinueFromGenAiProviderAsync"
+                                                                              OnBack="@BackToProvider" />;
+
     private RenderFragment EmailDeliveryStep => @<div class="setup-legacy-step">
         <div class="setup-step-heading">
-            <MudText Typo="Typo.overline" Color="Color.Primary">Step 3</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Step 4</MudText>
             <MudText Typo="Typo.h5">Email Delivery <MudChip T="string" Size="Size.Small">Optional</MudChip></MudText>
             <MudText Color="Color.Secondary">Configure SMTP for email verification, password recovery, and future invitations. You can safely skip this and return later.</MudText>
         </div>
@@ -193,7 +199,7 @@
         }
         @StepMessage()
         <footer class="email-step-actions">
-            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" OnClick="BackToProvider">Back</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" OnClick="BackToGenAiProvider">Back</MudButton>
             <div class="email-step-primary-actions">
                 <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="SkipEmailDeliveryAsync">Skip for now</MudButton>
                 <MudButton Variant="Variant.Filled"
@@ -213,7 +219,7 @@
 
     private RenderFragment FinishStep => @<div class="setup-legacy-step">
         <div class="setup-step-heading">
-            <MudText Typo="Typo.overline" Color="Color.Primary">Step 5</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Step 6</MudText>
             <MudText Typo="Typo.h5">Finish Setup</MudText>
             <MudText Color="Color.Secondary">Complete first-run setup and unlock business onboarding.</MudText>
         </div>
@@ -222,6 +228,7 @@
             @CapabilityRow("Required steps complete", RequiredPriorStepsComplete, required: true)
             @CapabilityRow("At least one provider connected", _profiles.Any(x => x.IsEnabled), required: true)
             @CapabilityRow("Provider model catalog verified", IsStepComplete("llm-provider"), required: true)
+            @CapabilityRow("GenAI provider setup reviewed", IsStepComplete("genai-provider"), required: false)
             @CapabilityRow("Email delivery tested", _emailSettings?.IsReady, required: false)
             @CapabilityRow("Communication setup reviewed", IsStepComplete("communications"), required: false)
         </div>
@@ -262,8 +269,11 @@
         }
 
         _providerProfileId = providerProfileId ?? _profiles.Last().Id;
-        await CompleteStepAsync("llm-provider", "email-delivery");
+        await CompleteStepAsync("llm-provider", "genai-provider");
     }
+
+    private Task ContinueFromGenAiProviderAsync() =>
+        CompleteStepAsync("genai-provider", "email-delivery");
 
     private void ApplyEmailSettings()
     {

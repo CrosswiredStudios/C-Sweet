@@ -48,18 +48,19 @@
         </div>
     </MudCardContent>
     <MudCardActions Class="marketplace-agent-actions">
-        <MudButton Href="@Agent.ListingUrl"
-                   Target="_blank"
+        <MudButton Href="@InstallHref"
                    Variant="Variant.Filled"
                    Color="Color.Primary"
-                   EndIcon="@Icons.Material.Outlined.OpenInNew">
-            @(Agent.IsFirstParty ? "View on GitHub" : "View listing")
+                   StartIcon="@Icons.Material.Outlined.Download">
+            Install
         </MudButton>
-        @if (!Agent.IsFirstParty &&
-             !string.Equals(Agent.RepositoryUrl, Agent.ListingUrl, StringComparison.OrdinalIgnoreCase))
+        @if (!string.IsNullOrWhiteSpace(Agent.ListingUrl))
         {
-            <MudButton Href="@Agent.RepositoryUrl" Target="_blank" Variant="Variant.Text">
-                Repository
+            <MudButton Href="@Agent.ListingUrl"
+                       Target="_blank"
+                       Variant="Variant.Text"
+                       EndIcon="@Icons.Material.Outlined.OpenInNew">
+                Details
             </MudButton>
         }
     </MudCardActions>
@@ -67,6 +68,9 @@
 
 @code {
     [Parameter, EditorRequired] public MarketplaceAgentResponse Agent { get; set; } = default!;
+
+    private string InstallHref =>
+        $"/settings/agents?repositoryUrl={Uri.EscapeDataString(Agent.RepositoryUrl)}&queueInstall=true";
 
     private string PriceLabel
     {

@@ -10,6 +10,7 @@ public sealed class FirstRunSetupGuardMiddleware
         "/api/auth",
         "/api/core",
         "/api/llm-provider-profiles",
+        "/api/genai-provider-profiles",
         "/api/plugins",
         "/api/model-capability-tests",
         "/api/organizations",
