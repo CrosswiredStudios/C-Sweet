@@ -9,229 +9,773 @@
             <h1 id="genai-provider-step-title">Connect generative AI providers.</h1>
             <p>Give approved agents least-privilege access to image and video generation or editing. This step is optional.</p>
         </div>
-        <div class="provider-count"><strong>@_profiles.Count</strong><span>providers connected</span></div>
+        <div class="provider-count" aria-live="polite">
+            <strong>@_profiles.Count</strong>
+            <span>@(_profiles.Count == 1 ? "provider connected" : "providers connected")</span>
+        </div>
     </header>
 
-    @if (!string.IsNullOrWhiteSpace(_message))
-    {
-        <MudAlert Severity="@(_error ? Severity.Error : Severity.Info)" Variant="Variant.Outlined" Class="mb-4">@_message</MudAlert>
-    }
-
     <div class="provider-workspace">
-        <section class="provider-roster">
-            <div class="provider-section-heading"><div><span class="provider-section-kicker">Your roster</span><h2>Connected providers</h2></div></div>
+        <section class="provider-roster" aria-labelledby="connected-genai-providers-title">
+            <div class="provider-section-heading">
+                <div>
+                    <span class="provider-section-kicker">Your roster</span>
+                    <h2 id="connected-genai-providers-title">Connected providers</h2>
+                </div>
+                @if (_profiles.Count > 0)
+                {
+                    <span class="provider-ready-badge">Ready to continue</span>
+                }
+            </div>
+
             @if (_profiles.Count == 0)
             {
                 <div class="provider-empty-state">
                     <MudIcon Icon="@Icons.Material.Outlined.PermMedia" />
-                    <strong>No GenAI providers yet</strong>
-                    <span>Choose a preset or skip this optional step.</span>
+                    <strong>Your provider roster is empty</strong>
+                    <span>Choose a service on the right, or skip this optional step.</span>
                 </div>
             }
             else
             {
-                @foreach (var profile in _profiles)
-                {
-                    <button type="button" class="@($"provider-roster-card {(profile.Id == _selectedId ? "active" : null)}")" @onclick="() => Select(profile)">
-                        <span class="provider-roster-icon"><MudIcon Icon="@Icons.Material.Outlined.AutoFixHigh" /></span>
-                        <span class="provider-roster-copy">
-                            <strong>@profile.Name</strong>
-                            <small>@profile.ProviderType · @profile.Operations.Count operation(s)</small>
-                        </span>
-                        <span class="provider-status-dot @(profile.LastSuccessfulConnectionAt.HasValue ? "online" : null)"></span>
-                    </button>
-                }
+                <div class="provider-list">
+                    @foreach (var profile in _profiles)
+                    {
+                        <article class="provider-list-item">
+                            <span class="provider-mark">@ProviderMark(profile.ProviderType)</span>
+                            <div class="provider-list-copy">
+                                <strong>@profile.Name</strong>
+                                <span>@ProviderTypeLabel(profile.ProviderType) · @ProviderConnectionLabel(profile)</span>
+                            </div>
+                            <div class="provider-list-state">
+                                <span class="provider-status @(profile.LastSuccessfulConnectionAt.HasValue ? "verified" : "saved")">
+                                    @(profile.LastSuccessfulConnectionAt.HasValue ? "Connected" : "Saved")
+                                </span>
+                                <button type="button"
+                                        class="provider-edit-button"
+                                        aria-label="Edit @profile.Name"
+                                        disabled="@_isBusy"
+                                        @onclick="() => EditProvider(profile)">
+                                    <MudIcon Icon="@Icons.Material.Outlined.Edit" />
+                                </button>
+                                <button type="button"
+                                        class="provider-delete-button"
+                                        aria-label="Delete @profile.Name"
+                                        disabled="@_isBusy"
+                                        @onclick="() => AskDeleteProvider(profile)">
+                                    <MudIcon Icon="@Icons.Material.Outlined.DeleteOutline" />
+                                </button>
+                            </div>
+                        </article>
+                    }
+                </div>
             }
         </section>
 
-        <section class="provider-connect">
-            <div class="provider-section-heading"><div><span class="provider-section-kicker">Connection</span><h2>@(_selectedId.HasValue ? "Edit provider" : "Add a provider")</h2></div></div>
-            <MudStack Row="true" Wrap="Wrap.Wrap" Class="mb-4">
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.ComfyUiLocal))">ComfyUI Local</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.ComfyUiCloud))">Comfy Cloud</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.OpenAi))">OpenAI</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.GoogleGemini))">Google Gemini</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ApplyPreset(GenAiProviderType.Replicate))">Replicate</MudButton>
-            </MudStack>
-            <div class="setup-form-grid">
-                <MudTextField Label="Provider name" @bind-Value="_name" Variant="Variant.Outlined" />
-                <MudSelect T="GenAiProviderType" Label="Provider type" @bind-Value="_type" Variant="Variant.Outlined">
-                    @foreach (var type in Enum.GetValues<GenAiProviderType>()) { <MudSelectItem Value="@type">@type</MudSelectItem> }
-                </MudSelect>
-                <MudTextField Class="setup-form-wide" Label="Base URL" @bind-Value="_baseUrl" Variant="Variant.Outlined" />
-                <MudTextField Class="setup-form-wide" Label="API key" @bind-Value="_apiKey" InputType="InputType.Password"
-                              Placeholder="@(_hasApiKey ? "Saved key (leave blank to keep)" : null)" Variant="Variant.Outlined" />
-            </div>
-            <MudStack Row="true" Class="setup-actions">
-                @if (_selectedId.HasValue)
-                {
-                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@_busy" OnClick="DeleteAsync">Delete</MudButton>
-                    <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="TestAsync">Test connection</MudButton>
-                }
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_baseUrl))" OnClick="SaveAsync">
-                    @(_busy ? "Saving..." : "Save provider")
-                </MudButton>
-                <MudButton Variant="Variant.Text" OnClick="NewProvider">New</MudButton>
-            </MudStack>
-
-            @if (_selectedId.HasValue)
-            {
-                <MudDivider Class="my-6" />
-                <div class="provider-section-heading"><div><span class="provider-section-kicker">Approved operation</span><h2>Model or workflow</h2></div></div>
-                <div class="setup-form-grid">
-                    <MudSelect T="GenAiOperationType" Label="Least-privilege operation" @bind-Value="_operationType" Variant="Variant.Outlined">
-                        @foreach (var type in SupportedOperations) { <MudSelectItem Value="@type">@OperationLabel(type)</MudSelectItem> }
-                    </MudSelect>
-                    <MudTextField Label="Configuration name" @bind-Value="_operationName" Variant="Variant.Outlined" />
-                    <MudTextField Class="setup-form-wide" Label="Model ID" @bind-Value="_modelId" Variant="Variant.Outlined" />
-                    @if (_type is GenAiProviderType.ComfyUiLocal or GenAiProviderType.ComfyUiCloud or GenAiProviderType.Replicate)
-                    {
-                        <MudTextField Class="setup-form-wide" Label="@(_type == GenAiProviderType.Replicate ? "Prediction input template JSON" : "ComfyUI API workflow JSON")"
-                                      @bind-Value="_templateJson" Lines="8" Variant="Variant.Outlined" />
-                    }
-                    @if (_type is GenAiProviderType.ComfyUiLocal or GenAiProviderType.ComfyUiCloud or GenAiProviderType.Replicate)
-                    {
-                        <MudTextField Class="setup-form-wide" Label="@(_type == GenAiProviderType.Replicate ? "Output selector (for example: output)" : "Output node ID")"
-                                      @bind-Value="_outputSelector" Variant="Variant.Outlined" />
-                    }
+        <section class="provider-picker" aria-labelledby="add-genai-provider-title">
+            <div class="provider-section-heading">
+                <div>
+                    <span class="provider-section-kicker">Add another</span>
+                    <h2 id="add-genai-provider-title">@(_showHosted ? "Choose a hosted provider" : "Choose a local runtime")</h2>
                 </div>
-                <MudButton Variant="Variant.Filled" Color="Color.Secondary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_operationName))" OnClick="SaveOperationAsync">
-                    Save approved operation
-                </MudButton>
-                @if (SelectedProfile is { Operations.Count: > 0 })
+            </div>
+
+            <div class="provider-mode-switch" role="group" aria-label="Provider location">
+                <button type="button"
+                        class="@(!_showHosted ? "selected" : null)"
+                        aria-pressed="@(!_showHosted)"
+                        disabled="@_isBusy"
+                        @onclick="() => SetProviderMode(false)">
+                    <MudIcon Icon="@Icons.Material.Outlined.Computer" />
+                    <span>
+                        <strong>Local</strong>
+                        <small>Runs on your hardware</small>
+                    </span>
+                </button>
+                <button type="button"
+                        class="@(_showHosted ? "selected" : null)"
+                        aria-pressed="@_showHosted"
+                        disabled="@_isBusy"
+                        @onclick="() => SetProviderMode(true)">
+                    <MudIcon Icon="@Icons.Material.Outlined.CloudQueue" />
+                    <span>
+                        <strong>Hosted</strong>
+                        <small>Connect with an API key</small>
+                    </span>
+                </button>
+            </div>
+
+            <div class="provider-choice-grid">
+                @foreach (var preset in ActivePresets)
                 {
-                    <MudList T="string" Dense="true" Class="mt-4">
-                        @foreach (var operation in SelectedProfile.Operations)
-                        {
-                            <MudListItem T="string" Value="@operation.Id.ToString()">
-                                @OperationLabel(operation.OperationType) — @operation.Name @(operation.IsDefault ? "(default)" : null)
-                                @if (!operation.IsDefault)
-                                {
-                                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => SetDefaultAsync(operation.Id))">Make default</MudButton>
-                                }
-                            </MudListItem>
-                        }
-                    </MudList>
+                    <button type="button"
+                            class="provider-choice @(IsActivePreset(preset) ? "selected" : null)"
+                            aria-pressed="@IsActivePreset(preset)"
+                            disabled="@_isBusy"
+                            @onclick="() => SelectPreset(preset)">
+                        <span class="provider-choice-mark">@preset.Mark</span>
+                        <span>
+                            <strong>@preset.DisplayName</strong>
+                            <small>@preset.Description</small>
+                        </span>
+                        <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+                    </button>
                 }
-            }
+            </div>
         </section>
     </div>
 
+    <MudDialog Visible="_editorOpen" VisibleChanged="OnEditorVisibilityChanged" Options="_editorDialogOptions">
+        <DialogContent>
+            <section class="provider-editor" aria-labelledby="genai-provider-editor-title">
+                <header class="provider-editor-header">
+                    <div class="provider-editor-title">
+                        <span class="provider-choice-mark">@(_activePreset?.Mark ?? ProviderMark(_providerType))</span>
+                        <div>
+                            <span class="provider-section-kicker">@(_editingProviderId is null ? "New connection" : "Edit connection")</span>
+                            <h2 id="genai-provider-editor-title">@(_activePreset?.DisplayName ?? ProviderTypeLabel(_providerType))</h2>
+                        </div>
+                    </div>
+                    <button type="button" class="provider-close-button" aria-label="Close provider form" disabled="@_isBusy" @onclick="CloseEditor">
+                        <MudIcon Icon="@Icons.Material.Filled.Close" />
+                    </button>
+                </header>
+
+                <div class="provider-form-grid">
+                    <MudTextField Label="Provider name"
+                                  @bind-Value="_providerName"
+                                  Variant="Variant.Outlined"
+                                  Disabled="@_isBusy" />
+                    <MudSelect T="GenAiProviderType"
+                               Label="Provider type"
+                               @bind-Value="_providerType"
+                               Variant="Variant.Outlined"
+                               Disabled="@_isBusy">
+                        @foreach (var type in Enum.GetValues<GenAiProviderType>())
+                        {
+                            <MudSelectItem Value="@type">@ProviderTypeLabel(type)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudTextField Class="provider-form-wide"
+                                  Label="Base URL"
+                                  @bind-Value="_baseUrl"
+                                  Variant="Variant.Outlined"
+                                  Disabled="@_isBusy"
+                                  Placeholder="@(_showHosted ? "https://api.example.com" : "http://host.docker.internal:8188")" />
+                    <MudTextField Class="provider-form-wide"
+                                  Label="@ApiKeyLabel"
+                                  @bind-Value="_apiKey"
+                                  InputType="InputType.Password"
+                                  Placeholder="@ApiKeyPlaceholder"
+                                  Variant="Variant.Outlined"
+                                  Disabled="@_isBusy"
+                                  autocomplete="off" />
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_editorMessage))
+                {
+                    <div class="provider-feedback @(_editorError ? "error" : "success")" role="status">
+                        <MudIcon Icon="@(_editorError ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.CheckCircle)" />
+                        <span>@_editorMessage</span>
+                    </div>
+                }
+
+                @if (_editingProviderId.HasValue)
+                {
+                    <section class="provider-operation-section" aria-labelledby="approved-operations-title">
+                        <div class="provider-section-heading">
+                            <div>
+                                <span class="provider-section-kicker">Least privilege</span>
+                                <h2 id="approved-operations-title">Approved operations</h2>
+                            </div>
+                            <MudButton Variant="Variant.Text"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Add"
+                                       Disabled="@_isBusy"
+                                       OnClick="NewOperation">
+                                New operation
+                            </MudButton>
+                        </div>
+
+                        @if (SelectedProfile?.Operations.Count > 0)
+                        {
+                            <div class="provider-operation-list">
+                                @foreach (var operation in SelectedProfile.Operations)
+                                {
+                                    <article class="provider-operation-item @(operation.Id == _editingOperationId ? "selected" : null)">
+                                        <button type="button" class="provider-operation-select" @onclick="() => EditOperation(operation)">
+                                            <span class="provider-operation-icon"><MudIcon Icon="@OperationIcon(operation.OperationType)" /></span>
+                                            <span>
+                                                <strong>@operation.Name</strong>
+                                                <small>@OperationLabel(operation.OperationType)@(operation.IsDefault ? " · Default" : null)</small>
+                                            </span>
+                                        </button>
+                                        @if (!operation.IsDefault)
+                                        {
+                                            <MudButton Variant="Variant.Text"
+                                                       Size="Size.Small"
+                                                       Disabled="@_isBusy"
+                                                       OnClick="@(() => SetDefaultAsync(operation.Id))">
+                                                Make default
+                                            </MudButton>
+                                        }
+                                    </article>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="provider-operation-empty">Add an approved model or workflow to define exactly what agents may use.</p>
+                        }
+
+                        <div class="provider-operation-form">
+                            <MudSelect T="GenAiOperationType"
+                                       Label="Least-privilege operation"
+                                       @bind-Value="_operationType"
+                                       Variant="Variant.Outlined"
+                                       Disabled="@_isBusy">
+                                @foreach (var type in SupportedOperations)
+                                {
+                                    <MudSelectItem Value="@type">@OperationLabel(type)</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudTextField Label="Configuration name"
+                                          @bind-Value="_operationName"
+                                          Variant="Variant.Outlined"
+                                          Disabled="@_isBusy" />
+                            <MudTextField Class="provider-form-wide"
+                                          Label="Model ID"
+                                          @bind-Value="_modelId"
+                                          Variant="Variant.Outlined"
+                                          Disabled="@_isBusy" />
+                            @if (UsesTemplate)
+                            {
+                                <MudTextField Class="provider-form-wide"
+                                              Label="@(_providerType == GenAiProviderType.Replicate ? "Prediction input template JSON" : "ComfyUI API workflow JSON")"
+                                              @bind-Value="_templateJson"
+                                              Lines="6"
+                                              Variant="Variant.Outlined"
+                                              Disabled="@_isBusy" />
+                                <MudTextField Class="provider-form-wide"
+                                              Label="@(_providerType == GenAiProviderType.Replicate ? "Output selector (for example: output)" : "Output node ID")"
+                                              @bind-Value="_outputSelector"
+                                              Variant="Variant.Outlined"
+                                              Disabled="@_isBusy" />
+                            }
+                            <div class="provider-operation-actions">
+                                <MudButton Variant="Variant.Filled"
+                                           Color="Color.Secondary"
+                                           Disabled="@(_isBusy || string.IsNullOrWhiteSpace(_operationName))"
+                                           OnClick="SaveOperationAsync">
+                                    @(_isBusy ? "Saving..." : _editingOperationId.HasValue ? "Save operation" : "Add operation")
+                                </MudButton>
+                            </div>
+                        </div>
+                    </section>
+                }
+
+                <footer class="provider-editor-actions">
+                    @if (_editingProviderId.HasValue)
+                    {
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Secondary"
+                                   Disabled="@(_isBusy || HasUnsavedConnectionChanges)"
+                                   OnClick="TestConnectionAsync">
+                            @(_isTesting ? "Testing..." : HasUnsavedConnectionChanges ? "Save before testing" : "Test connection")
+                        </MudButton>
+                    }
+                    <span class="provider-editor-spacer"></span>
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseEditor">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               EndIcon="@Icons.Material.Filled.ArrowForward"
+                               Disabled="@(_isBusy || !CanSaveProvider)"
+                               OnClick="SaveProviderAsync">
+                        @(_isBusy && !_isTesting ? "Saving..." : _editingProviderId is null ? "Connect provider" : "Save changes")
+                    </MudButton>
+                </footer>
+            </section>
+        </DialogContent>
+    </MudDialog>
+
+    <MudDialog Visible="_deleteDialogOpen" VisibleChanged="OnDeleteDialogVisibilityChanged" Options="_deleteDialogOptions">
+        <DialogContent>
+            <section class="provider-delete-dialog" aria-labelledby="genai-provider-delete-title">
+                <span class="provider-delete-icon" aria-hidden="true">
+                    <MudIcon Icon="@Icons.Material.Outlined.DeleteOutline" />
+                </span>
+                <div>
+                    <span class="provider-section-kicker">Remove connection</span>
+                    <h2 id="genai-provider-delete-title">Delete @(_providerPendingDelete?.Name)?</h2>
+                    <p>This removes the saved endpoint, its credentials, and its approved operations. You can reconnect it later.</p>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_deleteMessage))
+                {
+                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_deleteMessage</MudAlert>
+                }
+
+                <footer class="provider-editor-actions">
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseDeleteDialog">Keep provider</MudButton>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Error"
+                               StartIcon="@Icons.Material.Outlined.DeleteOutline"
+                               Disabled="@(_isBusy || _providerPendingDelete is null)"
+                               OnClick="DeleteProviderAsync">
+                        @(_isBusy ? "Deleting..." : "Delete provider")
+                    </MudButton>
+                </footer>
+            </section>
+        </DialogContent>
+    </MudDialog>
+
+    @if (_formSucceeded == true && !string.IsNullOrWhiteSpace(_formMessage))
+    {
+        <div class="provider-feedback success provider-save-announcement" role="status">
+            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" />
+            <span>@_formMessage Add another provider or continue when you’re ready.</span>
+        </div>
+    }
+
     @if (ShowNavigation)
     {
-        <footer class="provider-step-footer">
-            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" OnClick="OnBack">Back</MudButton>
-            <MudStack Row="true">
-                <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_busy" OnClick="OnContinue">Skip for now</MudButton>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward" Disabled="@_busy" OnClick="OnContinue">Continue</MudButton>
-            </MudStack>
+        <footer class="provider-step-actions">
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Secondary"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       Disabled="@_isBusy"
+                       OnClick="OnBack">
+                Back
+            </MudButton>
+            <div>
+                <span>@(_profiles.Count == 0
+                    ? "This step is optional"
+                    : $"{_profiles.Count} {(_profiles.Count == 1 ? "provider" : "providers")} connected")</span>
+                @if (_profiles.Count == 0)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="OnContinue">Skip for now</MudButton>
+                }
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           EndIcon="@Icons.Material.Filled.ArrowForward"
+                           Disabled="@_isBusy"
+                           OnClick="OnContinue">
+                    Continue
+                </MudButton>
+            </div>
         </footer>
     }
 </section>
 
 @code {
+    private static readonly IReadOnlyList<GenAiProviderPreset> LocalPresets =
+    [
+        new(GenAiProviderType.ComfyUiLocal, "ComfyUI Local", "Run image and video workflows on your hardware.", "http://host.docker.internal:8188", "CU")
+    ];
+
+    private static readonly IReadOnlyList<GenAiProviderPreset> HostedPresets =
+    [
+        new(GenAiProviderType.ComfyUiCloud, "Comfy Cloud", "Run hosted ComfyUI workflows.", "https://cloud.comfy.org", "CC"),
+        new(GenAiProviderType.OpenAi, "OpenAI", "Generate and edit images with OpenAI.", "https://api.openai.com", "OA"),
+        new(GenAiProviderType.GoogleGemini, "Google Gemini", "Generate and edit media with Gemini.", "https://generativelanguage.googleapis.com", "G"),
+        new(GenAiProviderType.Replicate, "Replicate", "Run hosted image and video models.", "https://api.replicate.com", "R")
+    ];
+
+    private readonly DialogOptions _editorDialogOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
+    private readonly DialogOptions _deleteDialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+
     [Parameter] public string ContextLabel { get; set; } = "Step 3 of 6";
     [Parameter] public bool ShowNavigation { get; set; } = true;
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public EventCallback OnContinue { get; set; }
 
     private List<GenAiProviderProfileResponse> _profiles = [];
-    private Guid? _selectedId;
-    private string _name = string.Empty;
-    private GenAiProviderType _type = GenAiProviderType.ComfyUiLocal;
-    private string _baseUrl = "http://host.docker.internal:8188";
+    private GenAiProviderPreset? _activePreset;
+    private Guid? _editingProviderId;
+    private bool _showHosted;
+    private bool _editorOpen;
+    private bool _deleteDialogOpen;
+    private GenAiProviderProfileResponse? _providerPendingDelete;
+    private string? _deleteMessage;
+    private bool _isBusy;
+    private bool _isTesting;
+    private bool _editorError;
+    private string? _editorMessage;
+    private bool? _formSucceeded;
+    private string? _formMessage;
+
+    private string _providerName = string.Empty;
+    private GenAiProviderType _providerType = GenAiProviderType.ComfyUiLocal;
+    private string _baseUrl = string.Empty;
     private string? _apiKey;
     private bool _hasApiKey;
-    private bool _busy;
-    private bool _error;
-    private string? _message;
+
+    private Guid? _editingOperationId;
     private GenAiOperationType _operationType = GenAiOperationType.ImageGeneration;
     private string _operationName = "Default image generation";
     private string? _modelId;
     private string? _templateJson;
     private string? _outputSelector;
 
-    private GenAiProviderProfileResponse? SelectedProfile => _profiles.SingleOrDefault(x => x.Id == _selectedId);
-    private IReadOnlyList<GenAiOperationType> SupportedOperations => _type == GenAiProviderType.OpenAi
+    private IReadOnlyList<GenAiProviderPreset> ActivePresets => _showHosted ? HostedPresets : LocalPresets;
+    private GenAiProviderProfileResponse? SelectedProfile => _profiles.SingleOrDefault(x => x.Id == _editingProviderId);
+    private IReadOnlyList<GenAiOperationType> SupportedOperations => _providerType == GenAiProviderType.OpenAi
         ? [GenAiOperationType.ImageGeneration, GenAiOperationType.ImageEditing]
         : Enum.GetValues<GenAiOperationType>();
+    private bool UsesTemplate => _providerType is GenAiProviderType.ComfyUiLocal or GenAiProviderType.ComfyUiCloud or GenAiProviderType.Replicate;
+    private bool RequiresApiKey => IsHosted(_providerType);
+    private bool HasUnsavedConnectionChanges =>
+        SelectedProfile is { } profile &&
+        (!string.Equals(_providerName.Trim(), profile.Name, StringComparison.Ordinal) ||
+         _providerType != profile.ProviderType ||
+         !string.Equals(_baseUrl.Trim(), profile.BaseUrl, StringComparison.OrdinalIgnoreCase) ||
+         !string.IsNullOrWhiteSpace(_apiKey));
+    private bool CanSaveProvider =>
+        !string.IsNullOrWhiteSpace(_providerName) &&
+        Uri.TryCreate(_baseUrl, UriKind.Absolute, out var uri) &&
+        uri.Scheme is "http" or "https" &&
+        (_editingProviderId.HasValue || !RequiresApiKey || !string.IsNullOrWhiteSpace(_apiKey));
+    private string ApiKeyLabel => _editingProviderId.HasValue && _hasApiKey
+        ? "New API key (leave blank to keep saved key)"
+        : RequiresApiKey ? "API key" : "API key (optional)";
+    private string? ApiKeyPlaceholder => _editingProviderId.HasValue && _hasApiKey
+        ? "Saved key"
+        : RequiresApiKey ? "Enter the provider API key" : "Leave blank if authentication is disabled";
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
     {
         _profiles = (await Api.ListAsync()).ToList();
-        if (_selectedId.HasValue && _profiles.All(x => x.Id != _selectedId)) NewProvider();
     }
 
-    private void ApplyPreset(GenAiProviderType type)
+    private void SetProviderMode(bool showHosted)
     {
-        NewProvider();
-        _type = type;
-        (_name, _baseUrl) = type switch
+        if (_isBusy || _showHosted == showHosted)
         {
-            GenAiProviderType.ComfyUiLocal => ("ComfyUI Local", "http://host.docker.internal:8188"),
-            GenAiProviderType.ComfyUiCloud => ("Comfy Cloud", "https://cloud.comfy.org"),
-            GenAiProviderType.OpenAi => ("OpenAI", "https://api.openai.com"),
-            GenAiProviderType.GoogleGemini => ("Google Gemini", "https://generativelanguage.googleapis.com"),
-            GenAiProviderType.Replicate => ("Replicate", "https://api.replicate.com"),
-            _ => ("GenAI Provider", string.Empty)
-        };
-        _outputSelector = type == GenAiProviderType.Replicate ? "output" : null;
+            return;
+        }
+
+        _showHosted = showHosted;
+        CloseEditor();
     }
 
-    private void Select(GenAiProviderProfileResponse profile)
+    private bool IsActivePreset(GenAiProviderPreset preset) =>
+        _editorOpen && _activePreset?.ProviderType == preset.ProviderType;
+
+    private void SelectPreset(GenAiProviderPreset preset)
     {
-        _selectedId = profile.Id; _name = profile.Name; _type = profile.ProviderType; _baseUrl = profile.BaseUrl;
-        _apiKey = null; _hasApiKey = profile.HasApiKey; _message = null;
+        _activePreset = preset;
+        _editingProviderId = null;
+        _providerType = preset.ProviderType;
+        _providerName = preset.ProviderName;
+        _baseUrl = preset.BaseUrl;
+        _apiKey = null;
+        _hasApiKey = false;
+        _editorMessage = null;
+        _editorError = false;
+        NewOperation();
+        _editorOpen = true;
     }
 
-    private void NewProvider()
+    private void EditProvider(GenAiProviderProfileResponse profile)
     {
-        _selectedId = null; _name = string.Empty; _type = GenAiProviderType.ComfyUiLocal;
-        _baseUrl = "http://host.docker.internal:8188"; _apiKey = null; _hasApiKey = false; _message = null;
+        _showHosted = IsHosted(profile.ProviderType);
+        _activePreset = LocalPresets.Concat(HostedPresets).FirstOrDefault(x => x.ProviderType == profile.ProviderType);
+        _editingProviderId = profile.Id;
+        _providerType = profile.ProviderType;
+        _providerName = profile.Name;
+        _baseUrl = profile.BaseUrl;
+        _apiKey = null;
+        _hasApiKey = profile.HasApiKey;
+        _editorMessage = profile.LastSuccessfulConnectionAt.HasValue
+            ? "This saved connection has been verified."
+            : "Test this saved connection before assigning it to agents.";
+        _editorError = false;
+        NewOperation();
+        _editorOpen = true;
     }
 
-    private async Task SaveAsync()
+    private void CloseEditor()
     {
-        await RunAsync(async () =>
+        if (_isBusy)
         {
-            var saved = _selectedId.HasValue
-                ? await Api.UpdateAsync(_selectedId.Value, new(_name, _type, _baseUrl, _apiKey, !string.IsNullOrWhiteSpace(_apiKey), true))
-                : await Api.CreateAsync(new(_name, _type, _baseUrl, _apiKey));
-            await LoadAsync(); Select(_profiles.Single(x => x.Id == saved.Id)); _message = "Provider saved.";
-        });
+            return;
+        }
+
+        _editorOpen = false;
+        _activePreset = null;
+        _editingProviderId = null;
+        _editorMessage = null;
+        NewOperation();
     }
 
-    private async Task TestAsync() => await RunAsync(async () =>
+    private void OnEditorVisibilityChanged(bool isVisible)
     {
-        var result = await Api.TestAsync(_selectedId!.Value); _error = !result.Succeeded; _message = result.Message; await LoadAsync();
-    });
+        if (isVisible)
+        {
+            _editorOpen = true;
+            return;
+        }
 
-    private async Task DeleteAsync() => await RunAsync(async () =>
-    {
-        await Api.DeleteAsync(_selectedId!.Value); NewProvider(); await LoadAsync(); _message = "Provider deleted.";
-    });
-
-    private async Task SaveOperationAsync() => await RunAsync(async () =>
-    {
-        await Api.SaveOperationAsync(_selectedId!.Value, null,
-            new(_operationType, _operationName, _modelId, _templateJson, _outputSelector, null, true));
-        await LoadAsync(); _message = "Approved operation saved.";
-    });
-
-    private async Task SetDefaultAsync(Guid id) => await RunAsync(async () =>
-    {
-        await Api.SetDefaultAsync(id); await LoadAsync(); _message = "Default operation updated.";
-    });
-
-    private async Task RunAsync(Func<Task> action)
-    {
-        _busy = true; _error = false; _message = null;
-        try { await action(); }
-        catch (Exception exception) { _error = true; _message = exception.Message; }
-        finally { _busy = false; }
+        CloseEditor();
     }
+
+    private async Task SaveProviderAsync()
+    {
+        if (!CanSaveProvider || _isBusy)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _formSucceeded = null;
+        _formMessage = null;
+        _editorMessage = null;
+
+        try
+        {
+            var wasNew = !_editingProviderId.HasValue;
+            _ = _editingProviderId.HasValue
+                ? await Api.UpdateAsync(_editingProviderId.Value, new(
+                    _providerName.Trim(),
+                    _providerType,
+                    _baseUrl.Trim(),
+                    string.IsNullOrWhiteSpace(_apiKey) ? null : _apiKey,
+                    ReplaceApiKey: !string.IsNullOrWhiteSpace(_apiKey),
+                    IsEnabled: true))
+                : await Api.CreateAsync(new(
+                    _providerName.Trim(),
+                    _providerType,
+                    _baseUrl.Trim(),
+                    string.IsNullOrWhiteSpace(_apiKey) ? null : _apiKey));
+
+            await LoadAsync();
+            _formSucceeded = true;
+            _formMessage = wasNew ? "Provider connected." : "Provider changes saved.";
+            _editorOpen = false;
+            _activePreset = null;
+            _editingProviderId = null;
+        }
+        catch (Exception exception)
+        {
+            _editorError = true;
+            _editorMessage = exception.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task TestConnectionAsync()
+    {
+        if (!_editingProviderId.HasValue || _isBusy)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _isTesting = true;
+        _editorMessage = null;
+
+        try
+        {
+            var result = await Api.TestAsync(_editingProviderId.Value);
+            _editorError = !result.Succeeded;
+            _editorMessage = result.Message;
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            _editorError = true;
+            _editorMessage = exception.Message;
+        }
+        finally
+        {
+            _isTesting = false;
+            _isBusy = false;
+        }
+    }
+
+    private void AskDeleteProvider(GenAiProviderProfileResponse profile)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        _providerPendingDelete = profile;
+        _deleteMessage = null;
+        _formSucceeded = null;
+        _formMessage = null;
+        _deleteDialogOpen = true;
+    }
+
+    private void CloseDeleteDialog()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        _deleteDialogOpen = false;
+        _providerPendingDelete = null;
+        _deleteMessage = null;
+    }
+
+    private void OnDeleteDialogVisibilityChanged(bool isVisible)
+    {
+        if (isVisible)
+        {
+            _deleteDialogOpen = true;
+            return;
+        }
+
+        CloseDeleteDialog();
+    }
+
+    private async Task DeleteProviderAsync()
+    {
+        if (_providerPendingDelete is null || _isBusy)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _deleteMessage = null;
+
+        try
+        {
+            await Api.DeleteAsync(_providerPendingDelete.Id);
+            await LoadAsync();
+            _deleteDialogOpen = false;
+            _providerPendingDelete = null;
+            _formSucceeded = true;
+            _formMessage = "Provider removed.";
+        }
+        catch (Exception exception)
+        {
+            _deleteMessage = exception.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void NewOperation()
+    {
+        _editingOperationId = null;
+        _operationType = GenAiOperationType.ImageGeneration;
+        _operationName = "Default image generation";
+        _modelId = null;
+        _templateJson = null;
+        _outputSelector = _providerType == GenAiProviderType.Replicate ? "output" : null;
+    }
+
+    private void EditOperation(GenAiOperationConfigurationResponse operation)
+    {
+        _editingOperationId = operation.Id;
+        _operationType = operation.OperationType;
+        _operationName = operation.Name;
+        _modelId = operation.ModelId;
+        _templateJson = operation.TemplateJson;
+        _outputSelector = operation.OutputSelector;
+        _editorMessage = null;
+    }
+
+    private async Task SaveOperationAsync()
+    {
+        if (!_editingProviderId.HasValue || string.IsNullOrWhiteSpace(_operationName) || _isBusy)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _editorMessage = null;
+
+        try
+        {
+            await Api.SaveOperationAsync(
+                _editingProviderId.Value,
+                _editingOperationId,
+                new(
+                    _operationType,
+                    _operationName.Trim(),
+                    string.IsNullOrWhiteSpace(_modelId) ? null : _modelId.Trim(),
+                    string.IsNullOrWhiteSpace(_templateJson) ? null : _templateJson,
+                    string.IsNullOrWhiteSpace(_outputSelector) ? null : _outputSelector.Trim(),
+                    DefaultsJson: null,
+                    IsEnabled: true));
+            await LoadAsync();
+            _editorError = false;
+            _editorMessage = _editingOperationId.HasValue ? "Approved operation updated." : "Approved operation added.";
+            NewOperation();
+        }
+        catch (Exception exception)
+        {
+            _editorError = true;
+            _editorMessage = exception.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task SetDefaultAsync(Guid operationId)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _editorMessage = null;
+
+        try
+        {
+            await Api.SetDefaultAsync(operationId);
+            await LoadAsync();
+            _editorError = false;
+            _editorMessage = "Default operation updated.";
+        }
+        catch (Exception exception)
+        {
+            _editorError = true;
+            _editorMessage = exception.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private static bool IsHosted(GenAiProviderType type) => type != GenAiProviderType.ComfyUiLocal;
+
+    private static string ProviderMark(GenAiProviderType type) => type switch
+    {
+        GenAiProviderType.ComfyUiLocal => "CU",
+        GenAiProviderType.ComfyUiCloud => "CC",
+        GenAiProviderType.OpenAi => "OA",
+        GenAiProviderType.GoogleGemini => "G",
+        GenAiProviderType.Replicate => "R",
+        _ => "AI"
+    };
+
+    private static string ProviderTypeLabel(GenAiProviderType type) => type switch
+    {
+        GenAiProviderType.ComfyUiLocal => "ComfyUI Local",
+        GenAiProviderType.ComfyUiCloud => "Comfy Cloud",
+        GenAiProviderType.OpenAi => "OpenAI",
+        GenAiProviderType.GoogleGemini => "Google Gemini",
+        GenAiProviderType.Replicate => "Replicate",
+        _ => type.ToString()
+    };
+
+    private static string ProviderConnectionLabel(GenAiProviderProfileResponse profile) =>
+        Uri.TryCreate(profile.BaseUrl, UriKind.Absolute, out var uri) ? uri.Host : profile.BaseUrl;
 
     private static string OperationLabel(GenAiOperationType type) => type switch
     {
@@ -241,4 +785,23 @@
         GenAiOperationType.VideoEditing => "Video editing",
         _ => type.ToString()
     };
+
+    private static string OperationIcon(GenAiOperationType type) => type switch
+    {
+        GenAiOperationType.ImageGeneration => Icons.Material.Outlined.Image,
+        GenAiOperationType.ImageEditing => Icons.Material.Outlined.AutoFixHigh,
+        GenAiOperationType.VideoGeneration => Icons.Material.Outlined.MovieCreation,
+        GenAiOperationType.VideoEditing => Icons.Material.Outlined.VideoSettings,
+        _ => Icons.Material.Outlined.PermMedia
+    };
+
+    private sealed record GenAiProviderPreset(
+        GenAiProviderType ProviderType,
+        string DisplayName,
+        string Description,
+        string BaseUrl,
+        string Mark)
+    {
+        public string ProviderName => DisplayName;
+    }
 }
