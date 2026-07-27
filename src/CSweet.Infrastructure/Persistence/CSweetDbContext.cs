@@ -45,6 +45,11 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<AgentBuildJob> AgentBuildJobs => Set<AgentBuildJob>();
     public DbSet<AgentRuntimeInstance> AgentRuntimeInstances => Set<AgentRuntimeInstance>();
     public DbSet<AgentRuntimeEvent> AgentRuntimeEvents => Set<AgentRuntimeEvent>();
+    public DbSet<McpAgentSession> McpAgentSessions => Set<McpAgentSession>();
+    public DbSet<AgentWorkItem> AgentWorkItems => Set<AgentWorkItem>();
+    public DbSet<AgentWorkAttempt> AgentWorkAttempts => Set<AgentWorkAttempt>();
+    public DbSet<AgentWorkProgress> AgentWorkProgress => Set<AgentWorkProgress>();
+    public DbSet<AgentCapabilityBinding> AgentCapabilityBindings => Set<AgentCapabilityBinding>();
     public DbSet<PluginOrganizationGrant> PluginOrganizationGrants => Set<PluginOrganizationGrant>();
     public DbSet<PluginSecret> PluginSecrets => Set<PluginSecret>();
 
@@ -532,6 +537,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasKey(x => x.Id);
             entity.Property(x => x.CommitSha).HasMaxLength(40).IsRequired();
             entity.Property(x => x.ManifestDigest).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CapabilityDescriptorsDigest).HasMaxLength(64).IsRequired();
             entity.Property(x => x.ManifestJson).HasColumnType("text").IsRequired();
             entity.Property(x => x.PluginKind).HasConversion<string>().HasMaxLength(40).IsRequired();
             entity.Property(x => x.ManifestFileName).HasMaxLength(80).IsRequired();
@@ -572,12 +578,11 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         modelBuilder.Entity<AgentInstallationGrant>(entity =>
         {
             entity.HasKey(x => x.Id);
-            entity.Property(x => x.CapabilitiesJson).HasColumnType("text").IsRequired();
-            entity.Property(x => x.RequestedCapabilitiesJson).HasColumnType("text").IsRequired();
-            entity.Property(x => x.SubscriptionsJson).HasColumnType("text").IsRequired();
-            entity.Property(x => x.PublicationsJson).HasColumnType("text").IsRequired();
-            entity.Property(x => x.PermissionsJson).HasColumnType("text").IsRequired();
             entity.Property(x => x.NetworkAccessJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.ProvidedCapabilitiesJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.RequiredCapabilitiesJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.EventSubscriptionsJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.ResourceLimitsJson).HasColumnType("text").IsRequired();
             entity.HasIndex(x => x.AgentInstallationId).IsUnique();
             entity.HasOne(x => x.AgentInstallation)
                 .WithOne(x => x.Grant)
@@ -660,7 +665,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasIndex(x => x.AgentInstallationId)
                 .HasDatabaseName("UX_AgentRuntimeInstances_ActiveInstallation")
                 .IsUnique()
-                .HasFilter("\"Status\" IN ('Queued', 'Starting', 'WaitingForBrokerRegistration', 'Running', 'CompletionReported', 'Stopping')");
+                .HasFilter("\"Status\" IN ('Queued', 'Starting', 'WaitingForMcpSession', 'Running', 'CompletionReported', 'Stopping')");
             entity.HasOne(x => x.AgentInstallation)
                 .WithMany(x => x.RuntimeInstances)
                 .HasForeignKey(x => x.AgentInstallationId)
@@ -678,6 +683,80 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 .WithMany(x => x.Events)
                 .HasForeignKey(x => x.AgentRuntimeInstanceId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<McpAgentSession>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.PackageDigest).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.AccessTokenHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.PreviousAccessTokenHash).HasMaxLength(64);
+            entity.Property(x => x.RevocationReason).HasMaxLength(1024);
+            entity.HasIndex(x => x.AccessTokenHash).IsUnique();
+            entity.HasIndex(x => new { x.RuntimeInstanceId, x.RevokedAt });
+            entity.HasOne(x => x.RuntimeInstance).WithMany()
+                .HasForeignKey(x => x.RuntimeInstanceId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.AgentInstallation).WithMany()
+                .HasForeignKey(x => x.AgentInstallationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AgentWorkItem>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(300).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.CausationId).HasMaxLength(128);
+            entity.Property(x => x.SourceType).HasMaxLength(80);
+            entity.Property(x => x.SourceId).HasMaxLength(200);
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.PayloadHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ResultHash).HasMaxLength(64);
+            entity.Property(x => x.LastError).HasMaxLength(2048);
+            entity.HasIndex(x => new { x.AgentInstallationId, x.Status, x.AvailableAt });
+            entity.HasIndex(x => new { x.AgentInstallationId, x.IdempotencyKey }).IsUnique();
+            entity.HasOne(x => x.AgentInstallation).WithMany()
+                .HasForeignKey(x => x.AgentInstallationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AgentWorkAttempt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.LeaseTokenHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CompletionHash).HasMaxLength(64);
+            entity.Property(x => x.Error).HasMaxLength(2048);
+            entity.HasIndex(x => new { x.AgentWorkItemId, x.Attempt }).IsUnique();
+            entity.HasIndex(x => new { x.RuntimeInstanceId, x.LeaseExpiresAt });
+            entity.HasOne(x => x.AgentWorkItem).WithMany(x => x.Attempts)
+                .HasForeignKey(x => x.AgentWorkItemId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.RuntimeInstance).WithMany()
+                .HasForeignKey(x => x.RuntimeInstanceId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AgentWorkProgress>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.AgentWorkAttemptId, x.Sequence }).IsUnique();
+            entity.HasOne(x => x.AgentWorkItem).WithMany(x => x.Progress)
+                .HasForeignKey(x => x.AgentWorkItemId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.AgentWorkAttempt).WithMany()
+                .HasForeignKey(x => x.AgentWorkAttemptId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AgentCapabilityBinding>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OrganizationId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Capability).HasMaxLength(300).IsRequired();
+            entity.HasIndex(x => new { x.RequesterInstallationId, x.Capability })
+                .IsUnique().HasFilter("\"RevokedAt\" IS NULL");
+            entity.HasOne(x => x.RequesterInstallation).WithMany()
+                .HasForeignKey(x => x.RequesterInstallationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.ProviderInstallation).WithMany()
+                .HasForeignKey(x => x.ProviderInstallationId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

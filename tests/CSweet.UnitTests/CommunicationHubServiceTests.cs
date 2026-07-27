@@ -21,7 +21,9 @@ public sealed class CommunicationHubServiceTests
         var engineer = User(organization.Id, "Ellis", OrganizationPermissionLevel.Contributor, department.Id);
         db.AddRange(organization, department, manager, designer, engineer);
         await db.SaveChangesAsync();
-        var service = CreateService(db);
+        var audit = new TestAuditEventWriter();
+        var service = new CommunicationHubService(
+            db, audit, new CSweet.Infrastructure.Core.ChatTurnService(db));
 
         var created = await service.CreateAsync(organization.Id, manager.Id,
             new CreateCommunicationChatRequest("product-launch", "Launch coordination", false, false,
@@ -40,6 +42,12 @@ public sealed class CommunicationHubServiceTests
         Assert.NotNull(messages);
         Assert.Single(messages);
         Assert.Equal("Drew", messages[0].SenderDisplayName);
+        var messageAudit = Assert.Single(
+            audit.Events, x => x.EventType == "communication.message.sent");
+        Assert.Equal(sent.Message.Id, messageAudit.EntityId);
+        Assert.Equal(designer.Id, messageAudit.Actor?.OrganizationUserId);
+        Assert.Contains(engineer.DisplayName, messageAudit.MetadataJson);
+        Assert.DoesNotContain("Design review is ready.", messageAudit.MetadataJson);
     }
 
     [Fact]

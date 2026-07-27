@@ -15,6 +15,21 @@
         </div>
     </header>
 
+    @if (_isDiscoveringLocalProviders)
+    {
+        <div class="provider-feedback checking provider-discovery-feedback" role="status">
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+            <span>Looking for LM Studio, Unsloth Studio, Ollama, and vLLM on this machine...</span>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_localDiscoveryMessage))
+    {
+        <div class="provider-feedback @_localDiscoveryFeedbackClass provider-discovery-feedback" role="status">
+            <MudIcon Icon="@(_localDiscoveryFailed ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.CheckCircle)" />
+            <span>@_localDiscoveryMessage</span>
+        </div>
+    }
+
     <div class="provider-workspace">
         <section class="provider-roster" aria-labelledby="connected-providers-title">
             <div class="provider-section-heading">
@@ -83,6 +98,17 @@
                     <span class="provider-section-kicker">Add another</span>
                     <h2 id="add-provider-title">@(_showHosted ? "Choose a hosted provider" : "Choose a local runtime")</h2>
                 </div>
+                @if (!_showHosted)
+                {
+                    <MudButton Variant="Variant.Text"
+                               Color="Color.Primary"
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Outlined.Refresh"
+                               Disabled="@_isDiscoveringLocalProviders"
+                               OnClick="DiscoverLocalProvidersAsync">
+                        @(_isDiscoveringLocalProviders ? "Scanning..." : "Scan again")
+                    </MudButton>
+                }
             </div>
 
             <div class="provider-mode-switch" role="group" aria-label="Provider location">
@@ -334,6 +360,12 @@
     [Parameter]
     public EventCallback OnBack { get; set; }
 
+    [Parameter]
+    public bool AutoDiscoverLocalProviders { get; set; }
+
+    [Parameter]
+    public EventCallback LocalProviderDiscoveryAttempted { get; set; }
+
     private IReadOnlyList<LlmProviderProfileResponse> _profiles = [];
     private LlmProviderSetupPreset? _activePreset;
     private Guid? _editingProviderId;
@@ -345,6 +377,10 @@
     private bool _showHosted;
     private bool _isBusy;
     private bool _isDiscovering;
+    private bool _isDiscoveringLocalProviders;
+    private bool _localDiscoveryFailed;
+    private string? _localDiscoveryMessage;
+    private string _localDiscoveryFeedbackClass = "checking";
     private bool? _catalogSucceeded;
     private string? _catalogMessage;
     private bool? _formSucceeded;
@@ -397,6 +433,92 @@
     {
         _profiles = Profiles;
         _selectedProviderId ??= SelectedProviderId ?? _profiles.LastOrDefault()?.Id;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !AutoDiscoverLocalProviders)
+        {
+            return;
+        }
+
+        await LocalProviderDiscoveryAttempted.InvokeAsync();
+        await DiscoverLocalProvidersAsync();
+    }
+
+    private async Task DiscoverLocalProvidersAsync()
+    {
+        if (_isDiscoveringLocalProviders)
+        {
+            return;
+        }
+
+        _isDiscoveringLocalProviders = true;
+        _localDiscoveryFailed = false;
+        _localDiscoveryMessage = null;
+        _localDiscoveryFeedbackClass = "checking";
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var discovery = await LlmProviderApi.DiscoverLocalAsync();
+            _profiles = discovery.Profiles;
+            _selectedProviderId ??= discovery.Results
+                .Where(result => result.Status == LocalLlmProviderDiscoveryStatuses.Added)
+                .Select(result => discovery.Profiles.FirstOrDefault(profile =>
+                    profile.ProviderType == result.ProviderType &&
+                    string.Equals(
+                        profile.BaseUrl.TrimEnd('/'),
+                        result.BaseUrl?.TrimEnd('/'),
+                        StringComparison.OrdinalIgnoreCase))?.Id)
+                .FirstOrDefault(id => id is not null)
+                ?? _profiles.LastOrDefault()?.Id;
+
+            await ProfilesChanged.InvokeAsync(_profiles);
+
+            var added = discovery.Results
+                .Where(result => result.Status == LocalLlmProviderDiscoveryStatuses.Added)
+                .Select(result => ProviderTypeLabel(result.ProviderType))
+                .ToList();
+            var configuredCount = discovery.Results.Count(result =>
+                result.Status == LocalLlmProviderDiscoveryStatuses.AlreadyConfigured);
+
+            if (added.Count > 0)
+            {
+                _localDiscoveryFeedbackClass = "success";
+                _localDiscoveryMessage = $"Connected {FormatProviderNames(added)} automatically.";
+            }
+            else if (configuredCount > 0)
+            {
+                _localDiscoveryMessage = "No new local providers found. Detected runtimes are already connected.";
+            }
+            else
+            {
+                _localDiscoveryMessage = "No local model runtimes found. Start one and scan again, or add an endpoint manually.";
+            }
+        }
+        catch
+        {
+            _localDiscoveryFailed = true;
+            _localDiscoveryFeedbackClass = "error";
+            _localDiscoveryMessage = "C-Sweet could not scan for local providers. You can scan again or add one manually.";
+        }
+        finally
+        {
+            _isDiscoveringLocalProviders = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string FormatProviderNames(IReadOnlyList<string> names)
+    {
+        return names.Count switch
+        {
+            0 => "local providers",
+            1 => names[0],
+            2 => $"{names[0]} and {names[1]}",
+            _ => $"{string.Join(", ", names.Take(names.Count - 1))}, and {names[^1]}"
+        };
     }
 
     private bool IsActivePreset(LlmProviderSetupPreset preset) =>

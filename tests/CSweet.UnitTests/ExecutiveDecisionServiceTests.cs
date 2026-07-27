@@ -15,7 +15,8 @@ public sealed class ExecutiveDecisionServiceTests
     {
         await using var db = CreateDb();
         var setup = await SeedAsync(db);
-        var service = new ExecutiveDecisionService(db, new ChatTurnService(db));
+        var audit = new TestAuditEventWriter();
+        var service = new ExecutiveDecisionService(db, new ChatTurnService(db), audit);
         var options = new[] { new CreateExecutiveDecisionOption("a", "Proceed", null), new CreateExecutiveDecisionOption("b", "Wait", null) };
 
         var first = await service.CreateAsync(new(setup.OrganizationId, setup.ConversationId, setup.TurnId,
@@ -33,7 +34,8 @@ public sealed class ExecutiveDecisionServiceTests
     {
         await using var db = CreateDb();
         var setup = await SeedAsync(db);
-        var service = new ExecutiveDecisionService(db, new ChatTurnService(db));
+        var audit = new TestAuditEventWriter();
+        var service = new ExecutiveDecisionService(db, new ChatTurnService(db), audit);
         var decision = await service.CreateAsync(new(setup.OrganizationId, setup.ConversationId, setup.TurnId,
             setup.InstallationId, "Choose", [new("a", "Proceed", null), new("b", "Wait", null)], "a", "decision"));
 
@@ -46,6 +48,9 @@ public sealed class ExecutiveDecisionServiceTests
         Assert.Equal(first.Turn?.Id, replay.Turn?.Id);
         Assert.Equal("Run a smaller pilot", replay.Decision?.FreeTextAnswer);
         Assert.Single(await db.ChatTurns.Where(x => x.Id != setup.TurnId).ToListAsync());
+        Assert.Single(audit.Events, x => x.EventType == "communication.user-input.requested");
+        Assert.Single(audit.Events, x => x.EventType == "communication.user-input.responded");
+        Assert.DoesNotContain("Run a smaller pilot", string.Join("", audit.Events.Select(x => x.MetadataJson)));
     }
 
     private static async Task<Setup> SeedAsync(CSweetDbContext db)

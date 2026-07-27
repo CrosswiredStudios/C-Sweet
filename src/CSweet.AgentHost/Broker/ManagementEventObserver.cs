@@ -1,5 +1,4 @@
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Agent.SDK;
 using CSweet.Application.Setup;
 using CSweet.Domain.Core;
@@ -9,12 +8,34 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
 
-public sealed class ManagementEventObserver(CSweetDbContext db, IAuditEventWriter audit) : IPlatformEventObserver
+public sealed class ManagementReportCapabilityHandler(CSweetDbContext db, IAuditEventWriter audit)
+    : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    public bool CanObserve(string eventType) => eventType is ManagementEvents.StatusReported or ManagementEvents.ResourceNeedReported;
+    public const string StatusReportCapability = "platform.management.status-report.v1";
+    public const string ResourceNeedCapability = "platform.management.resource-need-report.v1";
 
-    public async Task ObserveAsync(AgentSession session, PublishEvent publishedEvent, CancellationToken cancellationToken)
+    public bool CanHandle(string capability) =>
+        capability is StatusReportCapability or ResourceNeedCapability;
+
+    public async IAsyncEnumerable<CapabilityResult> HandleAsync(
+        AgentSession session,
+        RequestCapability request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await ProcessAsync(session, request, cancellationToken);
+        yield return new CapabilityResult
+        {
+            RequestId = request.RequestId,
+            Succeeded = true,
+            Payload = JsonPayload.FromUtf8("{\"accepted\":true}")
+        };
+    }
+
+    private async Task ProcessAsync(
+        AgentSession session,
+        RequestCapability publishedEvent,
+        CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(session.BusinessId, out var organizationId) || !Guid.TryParse(session.InstallationId, out var installationId)) return;
         var reporterId = await db.CoreOrganizationUsers.AsNoTracking()
@@ -22,7 +43,7 @@ public sealed class ManagementEventObserver(CSweetDbContext db, IAuditEventWrite
             .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken);
         if (reporterId is null) return;
 
-        if (publishedEvent.EventType == ManagementEvents.StatusReported)
+        if (publishedEvent.Capability == StatusReportCapability)
         {
             var report = JsonSerializer.Deserialize<ManagementStatusReport>(publishedEvent.Payload.Span, JsonOptions);
             if (report is null) return;
@@ -108,7 +129,7 @@ public sealed class ManagementEventObserver(CSweetDbContext db, IAuditEventWrite
                     {
                         Id = Guid.NewGuid(), OrganizationId = organizationId, ManagementCheckInRequestId = request.Id,
                         ManagementStatusReportId = record.Id, RecipientOrganizationUserId = recipient.Id,
-                        Channel = "AgentBroker", Status = "Pending",
+                        Channel = "AgentRuntime", Status = "Pending",
                         PayloadJson = JsonSerializer.Serialize(report, JsonOptions), CreatedAt = DateTimeOffset.UtcNow
                     });
                 }

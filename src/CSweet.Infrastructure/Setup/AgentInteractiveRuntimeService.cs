@@ -77,7 +77,7 @@ public sealed class AgentInteractiveRuntimeService(
         {
             AgentRuntimeStatus.Queued,
             AgentRuntimeStatus.Starting,
-            AgentRuntimeStatus.WaitingForBrokerRegistration,
+            AgentRuntimeStatus.WaitingForMcpSession,
             AgentRuntimeStatus.Running,
             AgentRuntimeStatus.CompletionReported,
             AgentRuntimeStatus.Stopping
@@ -100,7 +100,7 @@ public sealed class AgentInteractiveRuntimeService(
         {
             AgentRuntimeStatus.Queued => AgentRuntimeReadinessStages.Queued,
             AgentRuntimeStatus.Starting => AgentRuntimeReadinessStages.StartingContainer,
-            AgentRuntimeStatus.WaitingForBrokerRegistration => AgentRuntimeReadinessStages.WaitingForBroker,
+            AgentRuntimeStatus.WaitingForMcpSession => AgentRuntimeReadinessStages.WaitingForMcpSession,
             AgentRuntimeStatus.Running => AgentRuntimeReadinessStages.Ready,
             AgentRuntimeStatus.CompletionReported => AgentRuntimeReadinessStages.Stopping,
             AgentRuntimeStatus.Stopping => AgentRuntimeReadinessStages.Stopping,
@@ -117,7 +117,7 @@ public sealed class AgentInteractiveRuntimeService(
             runtime.Reason,
             runtime.QueuedAt,
             runtime.StartedAt,
-            runtime.BrokerRegisteredAt,
+            runtime.McpSessionEstablishedAt,
             IsReady: runtime.Status == AgentRuntimeStatus.Running,
             IsTerminal: AgentRuntimeInstance.IsTerminal(runtime.Status));
     }

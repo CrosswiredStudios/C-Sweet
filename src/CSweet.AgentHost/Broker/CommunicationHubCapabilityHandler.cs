@@ -1,11 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Agent.SDK;
 using CSweet.Application.Communications;
 using CSweet.Contracts.Communications;
 using CSweet.Infrastructure.Persistence;
-using Google.Protobuf;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -31,8 +29,7 @@ public sealed class CommunicationHubCapabilityHandler(
 
     private async Task<CapabilityResult> HandleCoreAsync(AgentSession session, RequestCapability request, CancellationToken token)
     {
-        if (!McpToolCatalog.IsGlobalCapability(request.Capability) &&
-            session.Grant.RequestedCapabilities?.Contains(request.Capability) != true)
+        if (!session.Grant.RequestedCapabilities.Contains(request.Capability))
             return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied,
                 $"The installation is not granted {request.Capability}.");
         if (!Guid.TryParse(session.BusinessId, out var organizationId) ||
@@ -165,13 +162,13 @@ public sealed class CommunicationHubCapabilityHandler(
     private static CapabilityResult Success<T>(string requestId, T payload) => new()
     {
         RequestId = requestId, Succeeded = true, ContentType = "application/json",
-        Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions))
+        Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions))
     };
 
     private static CapabilityResult Failure(string requestId, PlatformCapabilityErrorCode code, string message) => new()
     {
         RequestId = requestId, Succeeded = false, ContentType = "application/json", Error = message,
-        Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(new PlatformCapabilityError(code, message), JsonOptions))
+        Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new PlatformCapabilityError(code, message), JsonOptions))
     };
 
     private sealed record ChatReference(Guid? ChatId);

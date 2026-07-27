@@ -20,8 +20,8 @@ public sealed class AgentContainerRunnerTests
         var status = await runner.StartAsync(CreateRequest());
 
         Assert.Equal(AgentContainerState.Running, status.State);
-        Assert.Equal(["network", "inspect", "csweet-broker"], docker.Commands[0]);
-        Assert.Equal(["network", "connect", "--alias", "agenthost", "csweet-broker", "agenthost"], docker.Commands[1]);
+        Assert.Equal(["network", "inspect", "csweet-mcp"], docker.Commands[0]);
+        Assert.Equal(["network", "connect", "--alias", "agenthost", "csweet-mcp", "agenthost"], docker.Commands[1]);
         var args = docker.Commands[2];
         Assert.Contains("--read-only", args);
         Assert.Contains("ALL", args);
@@ -33,15 +33,15 @@ public sealed class AgentContainerRunnerTests
         Assert.DoesNotContain("--privileged", args);
         Assert.DoesNotContain(args, value => value.Contains("docker.sock", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(args, value => value.Contains("ConnectionStrings", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(16, args.Count(value => value == "--env"));
-        Assert.Contains("CSweet__Plugin__InstallationId=22222222-2222-2222-2222-222222222222", args);
-        Assert.Contains(args, value => value.StartsWith("CSweet__Plugin__BrokerEndpoint=", StringComparison.Ordinal));
-        Assert.DoesNotContain(args, value => value.StartsWith("CSWEET_MCP_ENDPOINT=", StringComparison.Ordinal));
+        Assert.Equal(14, args.Count(value => value == "--env"));
+        Assert.Contains("CSweet__Agent__InstallationId=22222222-2222-2222-2222-222222222222", args);
+        Assert.Contains("CSweet__Agent__McpEndpoint=http://agenthost:8081/mcp", args);
+        Assert.Contains("CSweet__Agent__WorkloadTokenFile=/run/secrets/csweet-workload-token", args);
         Assert.DoesNotContain(args, value => value.StartsWith("CSWEET_MCP_TOKEN=", StringComparison.Ordinal));
         Assert.Contains("com.csweet.agent-runtime=true", args);
         Assert.Contains("com.csweet.runtime-instance-id=11111111111111111111111111111111", args);
         Assert.Contains("/bin/bash", args);
-        var watchdogScript = Assert.Single(args, value => value.Contains("C-Sweet broker watchdog", StringComparison.Ordinal));
+        var watchdogScript = Assert.Single(args, value => value.Contains("C-Sweet MCP session watchdog", StringComparison.Ordinal));
         Assert.DoesNotContain('\r', watchdogScript);
     }
 
@@ -49,7 +49,7 @@ public sealed class AgentContainerRunnerTests
     public async Task StartAsync_CreatesMissingRuntimeNetworkBeforeContainer()
     {
         var docker = new FakeDockerCommandExecutor(
-            new DockerCommandResult(1, string.Empty, "network csweet-broker not found"),
+            new DockerCommandResult(1, string.Empty, "network csweet-mcp not found"),
             new DockerCommandResult(0, "network-id", string.Empty),
             new DockerCommandResult(0, string.Empty, string.Empty),
             new DockerCommandResult(0, "container-id\n", string.Empty),
@@ -58,35 +58,35 @@ public sealed class AgentContainerRunnerTests
 
         await runner.StartAsync(CreateRequest());
 
-        Assert.Equal(["network", "create", "--driver", "bridge", "--internal", "csweet-broker"], docker.Commands[1]);
-        Assert.Equal(["network", "connect", "--alias", "agenthost", "csweet-broker", "agenthost"], docker.Commands[2]);
+        Assert.Equal(["network", "create", "--driver", "bridge", "--internal", "csweet-mcp"], docker.Commands[1]);
+        Assert.Equal(["network", "connect", "--alias", "agenthost", "csweet-mcp", "agenthost"], docker.Commands[2]);
         Assert.Equal("run", docker.Commands[3][0]);
     }
 
     [Fact]
-    public async Task RemoveNetworkAsync_DetachesBrokerAndRemovesRuntimeNetwork()
+    public async Task RemoveNetworkAsync_DetachesMcpGatewayAndRemovesRuntimeNetwork()
     {
         var docker = new FakeDockerCommandExecutor(
             new DockerCommandResult(0, "[]", string.Empty),
             new DockerCommandResult(0, string.Empty, string.Empty),
-            new DockerCommandResult(0, "csweet-broker", string.Empty));
+            new DockerCommandResult(0, "csweet-mcp", string.Empty));
         var runner = new DockerAgentContainerRunner(docker, NullLogger<DockerAgentContainerRunner>.Instance);
 
-        await runner.RemoveNetworkAsync("csweet-broker", "agenthost");
+        await runner.RemoveNetworkAsync("csweet-mcp", "agenthost");
 
-        Assert.Equal(["network", "inspect", "csweet-broker"], docker.Commands[0]);
-        Assert.Equal(["network", "disconnect", "--force", "csweet-broker", "agenthost"], docker.Commands[1]);
-        Assert.Equal(["network", "rm", "csweet-broker"], docker.Commands[2]);
+        Assert.Equal(["network", "inspect", "csweet-mcp"], docker.Commands[0]);
+        Assert.Equal(["network", "disconnect", "--force", "csweet-mcp", "agenthost"], docker.Commands[1]);
+        Assert.Equal(["network", "rm", "csweet-mcp"], docker.Commands[2]);
     }
 
     [Fact]
     public async Task RemoveNetworkAsync_MissingNetworkIsAlreadyClean()
     {
         var docker = new FakeDockerCommandExecutor(
-            new DockerCommandResult(1, string.Empty, "Error: No such network: csweet-broker"));
+            new DockerCommandResult(1, string.Empty, "Error: No such network: csweet-mcp"));
         var runner = new DockerAgentContainerRunner(docker, NullLogger<DockerAgentContainerRunner>.Instance);
 
-        await runner.RemoveNetworkAsync("csweet-broker", "agenthost");
+        await runner.RemoveNetworkAsync("csweet-mcp", "agenthost");
 
         Assert.Single(docker.Commands);
     }
@@ -112,12 +112,12 @@ public sealed class AgentContainerRunnerTests
     }
 
     [Fact]
-    public void RuntimeOptions_DefaultToContainerizedBrokerGateway()
+    public void RuntimeOptions_DefaultToPrivateMcpGateway()
     {
         var options = new AgentRuntimeManagerOptions();
 
-        Assert.Equal("http://agenthost:8080", options.BrokerEndpoint);
-        Assert.Equal("agenthost", options.BrokerGatewayContainer);
+        Assert.Equal("http://agenthost:8081/mcp", options.McpEndpoint);
+        Assert.Equal("agenthost", options.McpGatewayContainer);
     }
 
     [Fact]
@@ -131,14 +131,14 @@ public sealed class AgentContainerRunnerTests
         var runner = new DockerAgentContainerRunner(docker, NullLogger<DockerAgentContainerRunner>.Instance);
         var request = CreateRequest() with
         {
-            BrokerEndpoint = "http://csweet-agenthost:8080",
-            BrokerGatewayContainer = "agenthost"
+            McpEndpoint = "http://csweet-agenthost:8081/mcp",
+            McpGatewayContainer = "agenthost"
         };
 
         await runner.StartAsync(request);
 
         Assert.Equal(
-            ["network", "connect", "--alias", "csweet-agenthost", "csweet-broker", "agenthost"],
+            ["network", "connect", "--alias", "csweet-agenthost", "csweet-mcp", "agenthost"],
             docker.Commands[1]);
     }
 
@@ -162,8 +162,8 @@ public sealed class AgentContainerRunnerTests
             docker,
             Options.Create(new AgentRuntimeManagerOptions
             {
-                BrokerWatchdogIntervalSeconds = 10,
-                BrokerDisconnectShutdownSeconds = 5
+                SessionWatchdogIntervalSeconds = 10,
+                SessionDisconnectShutdownSeconds = 5
             }),
             NullLogger<DockerAgentContainerRunner>.Instance);
 
@@ -173,7 +173,7 @@ public sealed class AgentContainerRunnerTests
     }
 
     [Fact]
-    public async Task StartAsync_CanDisableBrokerWatchdog()
+    public async Task StartAsync_CanDisableSessionWatchdog()
     {
         var docker = new FakeDockerCommandExecutor(
             new DockerCommandResult(0, "[]", string.Empty),
@@ -182,13 +182,13 @@ public sealed class AgentContainerRunnerTests
             new DockerCommandResult(0, InspectJson, string.Empty));
         var runner = new DockerAgentContainerRunner(
             docker,
-            Options.Create(new AgentRuntimeManagerOptions { BrokerWatchdogEnabled = false }),
+            Options.Create(new AgentRuntimeManagerOptions { SessionWatchdogEnabled = false }),
             NullLogger<DockerAgentContainerRunner>.Instance);
 
         await runner.StartAsync(CreateRequest());
 
         var args = docker.Commands[2];
-        Assert.Equal(11, args.Count(value => value == "--env"));
+        Assert.Equal(9, args.Count(value => value == "--env"));
         Assert.DoesNotContain("/bin/bash", args);
         Assert.Equal(["dotnet", "/app/Example.Agent.dll"], args.TakeLast(2));
     }
@@ -210,8 +210,8 @@ public sealed class AgentContainerRunnerTests
         Guid.Parse("22222222-2222-2222-2222-222222222222"),
         "com.example.agent", "business-1",
         "csweet-agent-test", "mcr.microsoft.com/dotnet/runtime:9.0",
-        "C:\\packages\\agent", "Example.Agent.dll", "http://agenthost:8080", "bounded-token",
-        "/app/csweet-plugin.json", "csweet-broker", 512, 50, 100, 600);
+        "C:\\packages\\agent", "Example.Agent.dll", "http://agenthost:8081/mcp", "bounded-token",
+        "/app/csweet-plugin.json", "csweet-mcp", 512, 50, 100, 600);
 
     private const string InspectJson = """
         {"Id":"container-id","Name":"/csweet-agent-test","State":{"Status":"running","ExitCode":0,"StartedAt":"2026-07-14T01:02:03Z","FinishedAt":"0001-01-01T00:00:00Z","Error":""}}

@@ -105,7 +105,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         ValidateGrant("required capabilities", request.GrantedRequestedCapabilities,
             AgentImportPreviewService.GrantRequiredCapabilities(manifest));
         ValidateGrant("subscriptions", request.GrantedSubscriptions, manifest.Events.Subscribes);
-        ValidateGrant("publications", request.GrantedPublications, manifest.Events.Publishes);
+        if (request.GrantedPublications.Count > 0)
+            throw new AgentInstallationException("Generic event publication grants are not supported in protocol v2.");
         if (request.GrantedPermissions.Count > 0)
             throw new AgentInstallationException("Legacy permission grants are not supported; grant typed required capabilities instead.");
         ValidateGrant("web access", request.GrantedNetworkAccess, AgentImportPreviewService.WebGrantTokens(manifest));
@@ -130,15 +131,20 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         {
             Id = Guid.NewGuid(),
             AgentInstallationId = installation.Id,
-            CapabilitiesJson = SerializeGrant(request.GrantedCapabilities),
-            RequestedCapabilitiesJson = SerializeGrant(request.GrantedRequestedCapabilities),
-            SubscriptionsJson = SerializeGrant(request.GrantedSubscriptions),
-            PublicationsJson = SerializeGrant(request.GrantedPublications),
-            PermissionsJson = SerializeGrant(request.GrantedPermissions),
             NetworkAccessJson = SerializeGrant(request.GrantedNetworkAccess),
             MaxRuntimeSeconds = request.MaxRuntimeSeconds,
             MemoryMb = request.MemoryMb,
             CpuPercent = request.CpuPercent,
+            ProvidedCapabilitiesJson = SerializeGrant(request.GrantedCapabilities),
+            RequiredCapabilitiesJson = SerializeGrant(request.GrantedRequestedCapabilities),
+            EventSubscriptionsJson = SerializeGrant(request.GrantedSubscriptions),
+            ResourceLimitsJson = JsonSerializer.Serialize(new
+            {
+                request.MaxRuntimeSeconds,
+                request.MemoryMb,
+                request.CpuPercent
+            }),
+            GrantRevision = 1,
             ApprovedAt = now
         };
         var schedule = new AgentSchedule
@@ -178,6 +184,13 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         installation.Grant = grant;
         installation.Schedule = schedule;
         _dbContext.AgentInstallations.Add(installation);
+        _dbContext.AgentCapabilityBindings.AddRange(await CreateCapabilityBindingsAsync(
+            installation,
+            request.GrantedRequestedCapabilities,
+            request.CapabilityBindings,
+            grant.GrantRevision,
+            now,
+            cancellationToken));
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         await _auditWriter.WriteAsync(
@@ -352,8 +365,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         staged.Grant = new AgentInstallationGrant
         {
             Id = Guid.NewGuid(), AgentInstallationId = staged.Id,
-            CapabilitiesJson = "[]", RequestedCapabilitiesJson = "[]", SubscriptionsJson = "[]",
-            PublicationsJson = "[]", PermissionsJson = "[]", NetworkAccessJson = "[]",
+            NetworkAccessJson = "[]",
+            ProvidedCapabilitiesJson = "[]",
+            RequiredCapabilitiesJson = "[]",
+            EventSubscriptionsJson = "[]",
+            ResourceLimitsJson = "{}",
             MaxRuntimeSeconds = installation.Grant!.MaxRuntimeSeconds,
             MemoryMb = installation.Grant.MemoryMb, CpuPercent = installation.Grant.CpuPercent
         };
@@ -419,7 +435,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         ValidateGrant("required capabilities", request.GrantedRequestedCapabilities,
             AgentImportPreviewService.GrantRequiredCapabilities(manifest));
         ValidateGrant("subscriptions", request.GrantedSubscriptions, manifest.Events.Subscribes);
-        ValidateGrant("publications", request.GrantedPublications, manifest.Events.Publishes);
+        if (request.GrantedPublications.Count > 0)
+            throw new AgentInstallationException("Generic event publication grants are not supported in protocol v2.");
         if (request.GrantedPermissions.Count > 0)
             throw new AgentInstallationException("Legacy permission grants are not supported.");
         ValidateGrant("web access", request.GrantedNetworkAccess, AgentImportPreviewService.WebGrantTokens(manifest));
@@ -434,14 +451,24 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         previous.Schedule!.IsEnabled = false;
         previous.Schedule.NextTickAt = null;
         previous.UpdatedAt = now;
+        await RevokeInstallationSessionsAsync(
+            previous.Id,
+            "The approved package revision changed.",
+            now,
+            cancellationToken);
 
         var grant = staged.Grant!;
-        grant.CapabilitiesJson = SerializeGrant(request.GrantedCapabilities);
-        grant.RequestedCapabilitiesJson = SerializeGrant(request.GrantedRequestedCapabilities);
-        grant.SubscriptionsJson = SerializeGrant(request.GrantedSubscriptions);
-        grant.PublicationsJson = SerializeGrant(request.GrantedPublications);
-        grant.PermissionsJson = "[]";
         grant.NetworkAccessJson = SerializeGrant(request.GrantedNetworkAccess);
+        grant.ProvidedCapabilitiesJson = SerializeGrant(request.GrantedCapabilities);
+        grant.RequiredCapabilitiesJson = SerializeGrant(request.GrantedRequestedCapabilities);
+        grant.EventSubscriptionsJson = SerializeGrant(request.GrantedSubscriptions);
+        grant.ResourceLimitsJson = JsonSerializer.Serialize(new
+        {
+            request.MaxRuntimeSeconds,
+            request.MemoryMb,
+            request.CpuPercent
+        });
+        grant.GrantRevision++;
         grant.MaxRuntimeSeconds = request.MaxRuntimeSeconds;
         grant.MemoryMb = request.MemoryMb;
         grant.CpuPercent = request.CpuPercent;
@@ -455,10 +482,93 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         staged.IsEnabled = true;
         staged.RevisionStatus = PluginRevisionStatus.Active;
         staged.UpdatedAt = now;
+        var previousBindings = await _dbContext.AgentCapabilityBindings
+            .Where(x => x.RequesterInstallationId == previous.Id && x.RevokedAt == null)
+            .ToListAsync(cancellationToken);
+        foreach (var binding in previousBindings)
+            binding.RevokedAt = now;
+        _dbContext.AgentCapabilityBindings.AddRange(await CreateCapabilityBindingsAsync(
+            staged,
+            request.GrantedRequestedCapabilities,
+            request.CapabilityBindings,
+            grant.GrantRevision,
+            now,
+            cancellationToken));
         await _dbContext.SaveChangesAsync(cancellationToken);
         await _auditWriter.WriteAsync("plugin-update.approved", nameof(AgentInstallation), staged.Id,
             $"Activated plugin revision {staged.RevisionNumber} after complete grant reapproval.", null, cancellationToken);
         return ToResponse(staged);
+    }
+
+    private async Task<IReadOnlyList<AgentCapabilityBinding>> CreateCapabilityBindingsAsync(
+        AgentInstallation requester,
+        IReadOnlyList<string> grantedRequiredCapabilities,
+        IReadOnlyDictionary<string, Guid> selections,
+        long grantRevision,
+        DateTimeOffset approvedAt,
+        CancellationToken cancellationToken)
+    {
+        var candidates = await _dbContext.AgentInstallations.AsNoTracking()
+            .Where(x => x.BusinessId == requester.BusinessId &&
+                        x.IsEnabled &&
+                        x.RevisionStatus == PluginRevisionStatus.Active)
+            .Include(x => x.PackageVersion)
+            .ToListAsync(cancellationToken);
+        var providedByInstallation = candidates.ToDictionary(
+            x => x.Id,
+            x => DeserializeManifest(x.PackageVersion!.ManifestJson).Provides
+                .Select(capability => capability.Name)
+                .ToHashSet(StringComparer.Ordinal));
+        var bindings = new List<AgentCapabilityBinding>();
+        foreach (var capability in grantedRequiredCapabilities.Distinct(StringComparer.Ordinal))
+        {
+            var providers = candidates
+                .Where(x => providedByInstallation[x.Id].Contains(capability))
+                .ToList();
+            if (providers.Count == 0)
+            {
+                if (selections.ContainsKey(capability))
+                    throw new AgentInstallationException(
+                        $"Capability binding '{capability}' does not identify an active provider in this organization.");
+                continue;
+            }
+
+            AgentInstallation provider;
+            if (selections.TryGetValue(capability, out var selectedId))
+            {
+                provider = providers.SingleOrDefault(x => x.Id == selectedId)
+                    ?? throw new AgentInstallationException(
+                        $"Selected provider for '{capability}' is not active in this organization or does not provide it.");
+            }
+            else if (providers.Count == 1)
+            {
+                provider = providers[0];
+            }
+            else
+            {
+                throw new AgentInstallationException(
+                    $"Capability '{capability}' has multiple providers. Select one installation explicitly.");
+            }
+
+            bindings.Add(new AgentCapabilityBinding
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = requester.BusinessId,
+                RequesterInstallationId = requester.Id,
+                Capability = capability,
+                ProviderInstallationId = provider.Id,
+                GrantRevision = grantRevision,
+                ApprovedAt = approvedAt
+            });
+        }
+
+        var unknownSelections = selections.Keys
+            .Except(grantedRequiredCapabilities, StringComparer.Ordinal)
+            .ToList();
+        if (unknownSelections.Count > 0)
+            throw new AgentInstallationException(
+                $"Capability binding selections are not granted: {string.Join(", ", unknownSelections)}.");
+        return bindings;
     }
 
     public async Task<AgentInstallationResponse> RunNowAsync(
@@ -493,6 +603,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         installation.Schedule!.IsEnabled = false;
         installation.Schedule.NextTickAt = null;
         installation.UpdatedAt = DateTimeOffset.UtcNow;
+        await RevokeInstallationSessionsAsync(
+            installation.Id,
+            "The installation was disabled.",
+            installation.UpdatedAt,
+            cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
         await WriteScheduleAuditAsync(installation, "agent-installation.disabled", cancellationToken);
         return ToResponse(installation);
@@ -566,6 +681,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             installation.Schedule.NextTickAt = null;
         }
         installation.UpdatedAt = DateTimeOffset.UtcNow;
+        await RevokeInstallationSessionsAsync(
+            installation.Id,
+            "The installation was removed.",
+            installation.UpdatedAt,
+            cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         await RemoveRuntimeContainersAsync(installation, cancellationToken);
@@ -730,7 +850,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 }
                 await _containers.RemoveNetworkAsync(
                     $"{_runtimeOptions.DockerNetworkName}-{runtime.Id:N}",
-                    _runtimeOptions.BrokerGatewayContainer,
+                    _runtimeOptions.McpGatewayContainer,
                     cleanupCancellation.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -953,6 +1073,22 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         return SerializeGrant(DeserializeGrant(grantedJson).Where(requestedSet.Contains).ToList());
     }
 
+    private async Task RevokeInstallationSessionsAsync(
+        Guid installationId,
+        string reason,
+        DateTimeOffset revokedAt,
+        CancellationToken cancellationToken)
+    {
+        var sessions = await _dbContext.McpAgentSessions
+            .Where(x => x.AgentInstallationId == installationId && x.RevokedAt == null)
+            .ToListAsync(cancellationToken);
+        foreach (var session in sessions)
+        {
+            session.RevokedAt = revokedAt;
+            session.RevocationReason = reason;
+        }
+    }
+
     private static IReadOnlyList<string> DeserializeGrant(string json) =>
         JsonSerializer.Deserialize<IReadOnlyList<string>>(json, SerializerOptions) ?? [];
 
@@ -973,10 +1109,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             package.PublisherName,
             package.CommitSha,
             installation.IsEnabled,
-            DeserializeGrant(grant.CapabilitiesJson),
-            DeserializeGrant(grant.SubscriptionsJson),
-            DeserializeGrant(grant.PublicationsJson),
-            DeserializeGrant(grant.PermissionsJson),
+            DeserializeGrant(grant.ProvidedCapabilitiesJson),
+            DeserializeGrant(grant.EventSubscriptionsJson),
+            [],
+            [],
             DeserializeGrant(grant.NetworkAccessJson),
             grant.MemoryMb,
             grant.CpuPercent,
@@ -1023,7 +1159,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         runtime.Reason,
         runtime.QueuedAt,
         runtime.StartedAt,
-        runtime.BrokerRegisteredAt,
+        runtime.McpSessionEstablishedAt,
         runtime.CompletionReportedAt,
         runtime.CompletedAt,
         runtime.Events.OrderBy(x => x.OccurredAt)

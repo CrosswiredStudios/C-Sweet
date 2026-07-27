@@ -195,17 +195,17 @@ public sealed class AgentInstallationServiceTests
             ManifestDigest = new string('b', 64),
             ManifestJson = JsonSerializer.Serialize(new
             {
-                manifestVersion = "1.0",
+                manifestVersion = "2.0",
                 kind = "agent",
                 id = current.AgentId,
                 name = current.AgentName,
                 version = "2.0.0",
                 publisher = new { id = "com.example", name = "Example" },
                 runtime = new { type = "dotnet-project" },
-                protocol = new { minimumVersion = "1.0", maximumVersion = "1.x" },
+                protocol = new { minimumVersion = "2.0", maximumVersion = "2.x" },
                 provides = Array.Empty<object>(),
                 requires = Array.Empty<object>(),
-                events = new { subscribes = Array.Empty<string>(), publishes = Array.Empty<string>() },
+                events = new { subscribes = Array.Empty<string>() },
                 webAccess = new { mode = "None", rules = Array.Empty<object>() }
             }),
             ManifestFileName = "csweet-plugin.json",
@@ -402,7 +402,7 @@ public sealed class AgentInstallationServiceTests
     {
         await using var dbContext = CreateDbContext();
         var package = await SeedAsync(dbContext);
-        var containers = new TestAgentContainerRunner(containerExists: true, logs: "agent connected to broker");
+        var containers = new TestAgentContainerRunner(containerExists: true, logs: "agent established MCP session");
         var service = CreateService(dbContext, containers);
         var installation = await service.InstallAsync(package.Id, ValidRequest());
         dbContext.AgentRuntimeInstances.Add(new AgentRuntimeInstance
@@ -417,7 +417,7 @@ public sealed class AgentInstallationServiceTests
 
         var run = Assert.Single(await service.ListRunsAsync(installation.Id));
 
-        Assert.Equal("agent connected to broker", run.LogExcerpt);
+        Assert.Equal("agent established MCP session", run.LogExcerpt);
     }
 
     private static InstallAgentRequest ValidRequest() => new(
@@ -427,7 +427,7 @@ public sealed class AgentInstallationServiceTests
         "Skip",
         ["research.execute.v1"],
         ["research.requested.v1"],
-        ["research.completed.v1"],
+        [],
         [],
         [],
         600,
@@ -468,20 +468,26 @@ public sealed class AgentInstallationServiceTests
             ManifestDigest = new string('a', 64),
             ManifestJson = JsonSerializer.Serialize(new
             {
-                manifestVersion = "1.0",
+                manifestVersion = "2.0",
                 kind = "agent",
                 id = "com.example.research-agent",
                 name = "Research Agent",
                 version = "1.2.3",
                 publisher = new { id = "com.example", name = "Example" },
                 runtime = new { type = "dotnet-project", supportsMultipleInstallations },
-                protocol = new { minimumVersion = "1.0", maximumVersion = "1.x" },
-                provides = new[] { new { name = "research.execute.v1" } },
+                protocol = new { minimumVersion = "2.0", maximumVersion = "2.x" },
+                provides = new[] { new {
+                    name = "research.execute.v1",
+                    description = "Execute research",
+                    inputSchema = new { type = "object" },
+                    outputSchema = new { type = "object" },
+                    executionTimeoutSeconds = 120,
+                    idempotency = "work-item"
+                } },
                 requires = Array.Empty<object>(),
                 events = new
                 {
-                    subscribes = new[] { "research.requested.v1" },
-                    publishes = new[] { "research.completed.v1" }
+                    subscribes = new[] { "research.requested.v1" }
                 },
                 webAccess = new { mode = "None", rules = Array.Empty<object>() }
             }),

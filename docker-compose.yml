@@ -42,6 +42,8 @@ services:
       dockerfile: docker/api.Dockerfile
     expose:
       - "8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,13 +68,14 @@ services:
       CSWEET_LLM__DEFAULT_BASE_URL: ${CSWEET_LLM__DEFAULT_BASE_URL:-http://host.docker.internal:1234/v1}
       CSWEET_LLM__DEFAULT_API_KEY: ${CSWEET_LLM__DEFAULT_API_KEY:-lm-studio}
       CSWEET_AGENT_PACKAGE_CACHE: /var/lib/csweet/agents/packages
-      CSweet__ApiGateway__BrokerEndpoint: http://csweet-agenthost:8080
       CSweet__Secrets__FilePath: /state/provider-secrets.json
       CSweet__GenAi__MediaRoot: /media
+      CSweet__AgentCatalog__LocalDirectoryPath: /var/lib/csweet/plugins/agents
     volumes:
       - csweet-agent-packages:/var/lib/csweet/agents/packages:ro
       - csweet-provider-secrets:/state
       - csweet-media:/media
+      - ${CSWEET_LOCAL_AGENTS_PATH:-./Plugins/Agents}:/var/lib/csweet/plugins/agents:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/health || exit 1"]
       interval: 10s
@@ -103,13 +106,13 @@ services:
       CSWEET_AGENT_PACKAGE_CACHE: /var/lib/csweet/agents/packages
       CSWEET_AGENT_SOURCE_VOLUME: csweet-agent-sources
       CSWEET_AGENT_PACKAGE_VOLUME: csweet-agent-packages
-      CSweet__AgentRuntime__BrokerEndpoint: http://csweet-agenthost:8080
+      CSweet__AgentRuntime__McpEndpoint: http://csweet-agenthost:8081/mcp
       CSweet__AgentRuntime__DockerNetworkName: csweet-runtime
       CSweet__AgentRuntime__CleanupContainersOnStartup: ${CSWEET_AGENT_RUNTIME_CLEANUP_ON_STARTUP:-true}
-      CSweet__AgentRuntime__BrokerWatchdogEnabled: ${CSWEET_AGENT_RUNTIME_BROKER_WATCHDOG_ENABLED:-true}
-      CSweet__AgentRuntime__BrokerWatchdogStartupGraceSeconds: ${CSWEET_AGENT_RUNTIME_BROKER_WATCHDOG_STARTUP_GRACE_SECONDS:-30}
-      CSweet__AgentRuntime__BrokerWatchdogIntervalSeconds: ${CSWEET_AGENT_RUNTIME_BROKER_WATCHDOG_INTERVAL_SECONDS:-10}
-      CSweet__AgentRuntime__BrokerDisconnectShutdownSeconds: ${CSWEET_AGENT_RUNTIME_BROKER_DISCONNECT_SHUTDOWN_SECONDS:-120}
+      CSweet__AgentRuntime__SessionWatchdogEnabled: ${CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_ENABLED:-true}
+      CSweet__AgentRuntime__SessionWatchdogStartupGraceSeconds: ${CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_STARTUP_GRACE_SECONDS:-30}
+      CSweet__AgentRuntime__SessionWatchdogIntervalSeconds: ${CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_INTERVAL_SECONDS:-10}
+      CSweet__AgentRuntime__SessionDisconnectShutdownSeconds: ${CSWEET_AGENT_RUNTIME_SESSION_DISCONNECT_SHUTDOWN_SECONDS:-120}
     group_add:
       - "${DOCKER_GID:-0}"
     volumes:
@@ -123,7 +126,7 @@ services:
       context: .
       dockerfile: docker/agenthost.Dockerfile
     expose:
-      - "8080"
+      - "8081"
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,9 +138,13 @@ services:
       ConnectionStrings__Postgres: ${CSWEET_CONNECTIONSTRINGS__POSTGRES:-Host=postgres;Port=5432;Database=csweet;Username=csweet;Password=change-me-in-production}
       CSweet__Secrets__FilePath: /state/provider-secrets.json
       CSweet__GenAi__MediaRoot: /media
+      CSweet__AgentCatalog__LocalDirectoryPath: /var/lib/csweet/plugins/agents
+      CSWEET_AGENT_SOURCE_ROOT: /var/lib/csweet/agents/sources
     volumes:
       - csweet-provider-secrets:/state
       - csweet-media:/media
+      - csweet-agent-sources:/var/lib/csweet/agents/sources
+      - ${CSWEET_LOCAL_AGENTS_PATH:-./Plugins/Agents}:/var/lib/csweet/plugins/agents:ro
 
   # ---------------------------------------------------------
   # Database (PostgreSQL)

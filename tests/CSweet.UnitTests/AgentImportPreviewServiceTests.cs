@@ -64,7 +64,7 @@ public class AgentImportPreviewServiceTests
     }
 
     [Fact]
-    public async Task PreviewAsync_OmitsGlobalToolsFromRequestedGrantApproval()
+    public async Task PreviewAsync_RequiresExplicitBaselineGrantApproval()
     {
         await using var dbContext = CreateDbContext();
         var manifest = ValidManifest().Replace(
@@ -79,7 +79,9 @@ public class AgentImportPreviewServiceTests
         var result = await service.PreviewAsync(new PreviewAgentImportRequest(
             "https://github.com/example/research-agent"));
 
-        Assert.Equal(["documents.read.v1"], result.RequestedCapabilities);
+        Assert.Equal(
+            ["documents.read.v1", PlatformCapabilities.UserInputRequest],
+            result.RequestedCapabilities);
     }
 
     [Fact]
@@ -153,7 +155,7 @@ public class AgentImportPreviewServiceTests
 
     private static string ValidManifest() => """
         {
-          "manifestVersion": "1.0",
+          "manifestVersion": "2.0",
           "kind": "agent",
           "id": "com.example.research-agent",
           "name": "Research Agent",
@@ -165,16 +167,15 @@ public class AgentImportPreviewServiceTests
             "targetFramework": "net10.0",
             "defaultActivationMode": "Periodic"
           },
-          "protocol": { "minimumVersion": "1.0", "maximumVersion": "1.x" },
+          "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },
           "provides": [
-            {"name":"research.execute.v1"},
-            {"name":"agent.configuration.describe.v1"},
-            {"name":"agent.configuration.update.v1"}
+            {"name":"research.execute.v1","description":"Execute research","inputSchema":{"type":"object","additionalProperties":false},"outputSchema":{"type":"object"},"executionTimeoutSeconds":120,"idempotency":"work-item"},
+            {"name":"agent.configuration.describe.v1","description":"Describe configuration","inputSchema":{"type":"object","additionalProperties":false},"outputSchema":{"type":"object"},"executionTimeoutSeconds":30,"idempotency":"work-item"},
+            {"name":"agent.configuration.update.v1","description":"Update configuration","inputSchema":{"type":"object"},"outputSchema":{"type":"object"},"executionTimeoutSeconds":30,"idempotency":"caller-key"}
           ],
           "requires": [{"name":"documents.read.v1","scope":"organization"}],
           "events": {
-            "subscribes": ["research.requested.v1"],
-            "publishes": ["research.completed.v1"]
+            "subscribes": ["research.requested.v1"]
           },
           "configuration": [
             {"key":"workspaceId","type":"string","label":"Workspace ID","required":true,"secret":false}

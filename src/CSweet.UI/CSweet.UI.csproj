@@ -6,12 +6,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CSweet.Agent.SDK" Condition="'$(UseLocalCSweetAgentSdk)' != 'true'" />
     <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="MudBlazor" />
     <PackageReference Include="Markdig" />
     <ProjectReference Include="..\CSweet.Contracts\CSweet.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseLocalCSweetAgentSdk)' == 'true'">
+    <ProjectReference Include="$(CSweetAgentSdkRepositoryRoot)\src\CSweet.Agent.SDK\CSweet.Agent.SDK.csproj" />
   </ItemGroup>
 
   <ItemGroup>

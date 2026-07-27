@@ -6,6 +6,7 @@ public sealed class AgentPackageVersion
     public Guid PackageSourceId { get; set; }
     public string CommitSha { get; set; } = string.Empty;
     public string ManifestDigest { get; set; } = string.Empty;
+    public string CapabilityDescriptorsDigest { get; set; } = string.Empty;
     public string ManifestJson { get; set; } = string.Empty;
     public PluginKind PluginKind { get; set; } = PluginKind.Agent;
     public string ManifestFileName { get; set; } = "csweet-plugin.json";

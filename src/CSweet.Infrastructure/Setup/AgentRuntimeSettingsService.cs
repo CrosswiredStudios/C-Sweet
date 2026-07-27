@@ -153,7 +153,7 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         AddPositiveError(request.DefaultContainerPidsLimit, "Default container PIDs limit", errors);
         AddPositiveError(request.DefaultContainerLogLimitMb, "Default container log limit", errors);
         AddPositiveError(request.ContainerStartTimeoutSeconds, "Container start timeout", errors);
-        AddPositiveError(request.BrokerRegistrationTimeoutSeconds, "Broker registration timeout", errors);
+        AddPositiveError(request.McpSessionTimeoutSeconds, "MCP session timeout", errors);
         AddPositiveError(request.ContainerStopGraceSeconds, "Container stop grace", errors);
         AddPositiveError(request.BuildTimeoutSeconds, "Build timeout", errors);
         AddPositiveError(request.BuildMemoryMb, "Build memory", errors);
@@ -205,7 +205,7 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         ApplyInt(request.DefaultContainerPidsLimit, v => settings.DefaultContainerPidsLimit = v);
         ApplyInt(request.DefaultContainerLogLimitMb, v => settings.DefaultContainerLogLimitMb = v);
         ApplyInt(request.ContainerStartTimeoutSeconds, v => settings.ContainerStartTimeoutSeconds = v);
-        ApplyInt(request.BrokerRegistrationTimeoutSeconds, v => settings.BrokerRegistrationTimeoutSeconds = v);
+        ApplyInt(request.McpSessionTimeoutSeconds, v => settings.McpSessionTimeoutSeconds = v);
         ApplyInt(request.ContainerStopGraceSeconds, v => settings.ContainerStopGraceSeconds = v);
         ApplyString(request.DefaultNetworkPolicy, v => settings.DefaultNetworkPolicy = v);
         ApplyBool(request.AllowPublicInternetByDefault, v => settings.AllowPublicInternetByDefault = v);
@@ -272,7 +272,7 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
             settings.DefaultContainerPidsLimit,
             settings.DefaultContainerLogLimitMb,
             settings.ContainerStartTimeoutSeconds,
-            settings.BrokerRegistrationTimeoutSeconds,
+            settings.McpSessionTimeoutSeconds,
             settings.ContainerStopGraceSeconds,
             settings.DefaultNetworkPolicy,
             settings.AllowPublicInternetByDefault,

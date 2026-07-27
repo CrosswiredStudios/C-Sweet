@@ -1,4 +1,5 @@
 using CSweet.Application.Core;
+using CSweet.Application.Agents;
 using CSweet.Application.Communications;
 using CSweet.Application.Notifications;
 using CSweet.Application.Auth;
@@ -21,6 +22,7 @@ using CSweet.Infrastructure.GenAi;
 using CSweet.Application.GenAi;
 using CSweet.Infrastructure.Security;
 using CSweet.Infrastructure.Marketplace;
+using CSweet.Infrastructure.Agents;
 using CSweet.Application.Security;
 using CSweet.Application.Marketplace;
 using Microsoft.EntityFrameworkCore;
@@ -149,6 +151,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ILlmConnectionTester, LlmConnectionTester>();
         builder.Services.AddScoped<IModelCatalogClient, ModelCatalogClient>();
         builder.Services.AddScoped<ILlmProviderProfileService, LlmProviderProfileService>();
+        builder.Services.AddScoped<ILocalLlmProviderDiscoveryService, LocalLlmProviderDiscoveryService>();
         builder.Services.AddScoped<ILlmTokenUsageService, LlmTokenUsageService>();
         builder.Services.AddHttpClient("GenAi", client =>
         {
@@ -182,6 +185,17 @@ public static class DependencyInjection
         });
         builder.Services.AddScoped<IMarketplaceDiscoveryService>(
             services => services.GetRequiredService<MarketplaceDiscoveryClient>());
+        builder.Services.AddOptions<AgentCatalogOptions>()
+            .Bind(builder.Configuration.GetSection(AgentCatalogOptions.SectionName));
+        builder.Services.AddScoped<IAgentCatalogProvider, InstalledAgentCatalogProvider>();
+        builder.Services.AddScoped<LocalDirectoryAgentCatalogProvider>();
+        builder.Services.AddScoped<IAgentCatalogProvider>(
+            services => services.GetRequiredService<LocalDirectoryAgentCatalogProvider>());
+        builder.Services.AddScoped<ILocalAgentSourceArchiveService>(
+            services => services.GetRequiredService<LocalDirectoryAgentCatalogProvider>());
+        builder.Services.AddScoped<IAgentCatalogProvider, FirstPartyAgentCatalogProvider>();
+        builder.Services.AddScoped<IAgentCatalogProvider, MarketplaceAgentCatalogProvider>();
+        builder.Services.AddScoped<IAgentCatalogService, AgentCatalogService>();
 
         // Planning services
         builder.Services.AddScoped<IPlanningRunService, PlanningRunService>();

@@ -1,5 +1,6 @@
 using CSweet.Domain.Setup;
 using CSweet.Application.Communications;
+using CSweet.Api.Communications;
 using CSweet.Application.Setup;
 using CSweet.Communications.Abstractions;
 using CSweet.Contracts.Communications;
@@ -16,6 +17,28 @@ namespace CSweet.UnitTests;
 public sealed class PluginPlatformTests
 {
     [Fact]
+    public void CommunicationRuntime_ResolvesDurableEventPublisher()
+    {
+        var services = new ServiceCollection();
+        services.AddDbContext<CSweetDbContext>(options =>
+            options.UseInMemoryDatabase(Guid.NewGuid().ToString()));
+        services.AddDataProtection().UseEphemeralDataProtectionProvider();
+        services.AddSingleton(TimeProvider.System);
+        services.AddCommunicationPluginRuntime();
+        services.AddScoped<ICommunicationEventPublisher, DurableCommunicationEventPublisher>();
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateOnBuild = true,
+            ValidateScopes = true
+        });
+        using var scope = provider.CreateScope();
+
+        Assert.IsType<DurableCommunicationEventPublisher>(
+            scope.ServiceProvider.GetRequiredService<ICommunicationEventPublisher>());
+    }
+
+    [Fact]
     public void ManifestReader_RejectsLegacyManifest()
     {
         var manifest = """{"id":"com.example.agent","name":"Example","version":"1.0.0"}"""u8.ToArray();
@@ -27,7 +50,7 @@ public sealed class PluginPlatformTests
     [Fact]
     public void ManifestReader_ReadsServiceKind()
     {
-        var manifest = """{"manifestVersion":"1.0","kind":"service","id":"com.example.chat","name":"Chat","version":"1.0.0"}"""u8.ToArray();
+        var manifest = """{"manifestVersion":"2.0","kind":"service","id":"com.example.chat","name":"Chat","version":"1.0.0","protocol":{"minimumVersion":"2.0","maximumVersion":"2.x"}}"""u8.ToArray();
 
         var result = new PluginManifestReader().Read(manifest, "csweet-plugin.json");
 

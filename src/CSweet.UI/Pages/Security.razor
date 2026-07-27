@@ -63,15 +63,16 @@
         <MudTable T="SecurityEventSummaryResponse" Items="_items" Dense="true" Hover="true" Breakpoint="Breakpoint.Md"
                   Loading="_loading" Class="security-audit-table mt-4" AriaLabel="Security events">
             <HeaderContent>
-                <MudTh>Time</MudTh><MudTh>Event</MudTh><MudTh>Actor</MudTh><MudTh>Direction</MudTh><MudTh>Outcome</MudTh><MudTh>Integrity</MudTh>
+                <MudTh>Time</MudTh><MudTh>Activity</MudTh><MudTh>Actor</MudTh><MudTh>Target</MudTh><MudTh>Direction</MudTh><MudTh>Outcome</MudTh><MudTh>Integrity</MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Time"><button class="security-event-link" @onclick="@(() => OpenDetailAsync(context.Id))">@FormatTime(context.OccurredAt)</button></MudTd>
-                <MudTd DataLabel="Event">
-                    <MudText Typo="Typo.body2"><strong>@context.EventType</strong></MudText>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Category · @context.Summary</MudText>
+                <MudTd DataLabel="Activity">
+                    <MudText Typo="Typo.body2"><strong>@ActivityLabel(context)</strong></MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.EventType · @context.Category</MudText>
                 </MudTd>
                 <MudTd DataLabel="Actor"><MudText Typo="Typo.body2">@context.ActorDisplayName</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@context.ActorKind</MudText></MudTd>
+                <MudTd DataLabel="Target">@Value(context.TargetDisplayName)</MudTd>
                 <MudTd DataLabel="Direction">@context.Direction</MudTd>
                 <MudTd DataLabel="Outcome"><MudChip T="string" Size="Size.Small" Color="@OutcomeColor(context.Outcome)">@context.Outcome</MudChip></MudTd>
                 <MudTd DataLabel="Integrity"><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@IntegrityColor(context.IntegrityStatus)">@context.IntegrityStatus</MudChip></MudTd>
@@ -101,11 +102,17 @@
                 <MudAlert Severity="Severity.Warning" Variant="Variant.Filled" Class="mb-3">Integrity status: @_detail.IntegrityStatus</MudAlert>
             }
             <dl class="security-event-details">
-                <dt>Event</dt><dd>@_detail.EventType</dd><dt>Outcome</dt><dd>@_detail.Outcome</dd>
-                <dt>Occurred</dt><dd>@FormatTime(_detail.OccurredAt)</dd><dt>Actor</dt><dd>@ActorLabel(_detail) (@_detail.ActorKind)</dd>
+                <dt>Event</dt><dd>@_detail.EventType</dd><dt>Summary</dt><dd>@Value(_detail.Summary)</dd>
+                <dt>Category</dt><dd>@_detail.Category</dd><dt>Direction / outcome</dt><dd>@_detail.Direction / @_detail.Outcome</dd>
+                <dt>Occurred</dt><dd>@FormatTime(_detail.OccurredAt)</dd><dt>Recorded</dt><dd>@FormatTime(_detail.RecordedAt)</dd>
+                <dt>Actor</dt><dd>@ActorLabel(_detail) (@_detail.ActorKind, @(_detail.IdentityVerified ? "verified" : "unverified"))</dd>
+                <dt>Organization user</dt><dd>@Value(_detail.ActorOrganizationUserId)</dd><dt>Application user</dt><dd>@Value(_detail.ActorApplicationUserId)</dd>
                 <dt>Agent ID</dt><dd>@Value(_detail.ActorAgentId)</dd><dt>Installation</dt><dd>@Value(_detail.ActorInstallationId)</dd>
-                <dt>Runtime</dt><dd>@Value(_detail.ActorRuntimeInstanceId)</dd><dt>Session</dt><dd>@Value(_detail.ActorSessionId)</dd>
-                <dt>Target</dt><dd>@Value(_detail.TargetDisplayName ?? _detail.TargetAgentId)</dd><dt>Correlation</dt><dd>@Value(_detail.CorrelationId)</dd>
+                <dt>Runtime / tick</dt><dd>@Value(_detail.ActorRuntimeInstanceId) / @Value(_detail.ActorTickId)</dd><dt>Session</dt><dd>@Value(_detail.ActorSessionId)</dd>
+                <dt>Package</dt><dd>@Value(_detail.ActorPackageId) @Value(_detail.ActorPackageVersion)</dd><dt>Remote peer</dt><dd>@Value(_detail.RemotePeer)</dd>
+                <dt>Target</dt><dd>@Value(_detail.TargetDisplayName ?? _detail.TargetAgentId) (@Value(_detail.TargetKind))</dd><dt>Target installation</dt><dd>@Value(_detail.TargetInstallationId)</dd>
+                <dt>Entity</dt><dd>@_detail.EntityType @Value(_detail.EntityId)</dd><dt>Content type</dt><dd>@Value(_detail.ContentType)</dd>
+                <dt>Correlation</dt><dd>@Value(_detail.CorrelationId)</dd>
                 <dt>Trace</dt><dd>@_detail.TraceId</dd><dt>Message/request</dt><dd>@Value(_detail.ExternalMessageId ?? _detail.ExternalRequestId)</dd>
                 <dt>Parent event</dt><dd>@Value(_detail.ParentEventId)</dd><dt>Child events</dt><dd>@(_detail.ChildEventIds.Count == 0 ? "—" : string.Join(", ", _detail.ChildEventIds))</dd>
                 <dt>Payload bytes</dt><dd>@Value(_detail.PayloadSize)</dd><dt>SHA-256</dt><dd class="security-hash">@Value(_detail.PayloadSha256)</dd>
@@ -127,8 +134,8 @@
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
-    private static readonly string[] Categories = ["BrokerConnection", "BrokerEvent", "BrokerCapability", "Mcp", "SecurityAccess", "Domain"];
-    private static readonly string[] Outcomes = ["Received", "Accepted", "Authorized", "Delivered", "Completed", "Denied", "Rejected", "Failed", "Dropped"];
+    private static readonly string[] Categories = ["AgentCapability", "AgentRuntime", "AgentWork", "Communication", "Mcp", "McpAgentRuntime", "BrokerConnection", "BrokerEvent", "BrokerCapability", "SecurityAccess", "Domain"];
+    private static readonly string[] Outcomes = ["Received", "Accepted", "Authorized", "Established", "Delivered", "Completed", "Denied", "Rejected", "Failed", "Dropped"];
     private static readonly string[] ActorKinds = ["Human", "Agent", "Platform", "Unknown"];
     private readonly List<SecurityEventSummaryResponse> _items = [];
     private string _range = "24h", _category = "", _outcome = "", _actorKind = "", _search = "";
@@ -171,6 +178,8 @@
     private Task OnActorChanged(string value) { _actorKind = value; return ReloadAsync(); }
     private async Task OnSearchKeyDown(KeyboardEventArgs args) { if (args.Key == "Enter") await ReloadAsync(); }
     private static string FormatTime(DateTimeOffset value) => value.ToLocalTime().ToString("g");
+    private static string ActivityLabel(SecurityEventSummaryResponse value) =>
+        string.IsNullOrWhiteSpace(value.Summary) ? value.EventType : value.Summary;
     private static string ActorLabel(SecurityEventDetailResponse value) => value.ActorDisplayName ?? value.ActorAgentId ?? value.ActorApplicationUserId?.ToString("D") ?? value.ActorKind;
     private static string Value(object? value) => value?.ToString() ?? "—";
     private static Color OutcomeColor(string value) => value is "Denied" or "Rejected" or "Failed" or "Dropped" ? Color.Error : value is "Received" or "Authorized" ? Color.Info : Color.Success;

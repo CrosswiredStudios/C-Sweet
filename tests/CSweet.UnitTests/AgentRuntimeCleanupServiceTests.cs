@@ -57,7 +57,7 @@ public sealed class AgentRuntimeCleanupServiceTests
                 Options.Create(new AgentRuntimeManagerOptions
                 {
                     DockerNetworkName = "cleanup-network",
-                    BrokerGatewayContainer = "cleanup-broker"
+                    McpGatewayContainer = "cleanup-gateway"
                 }),
                 NullLogger<AgentRuntimeCleanupService>.Instance);
 
@@ -68,7 +68,7 @@ public sealed class AgentRuntimeCleanupServiceTests
             Assert.Equal(1, result.BuildLogsRemoved);
             Assert.Equal(1, result.RuntimeHistoriesRemoved);
             Assert.Equal(2, runner.NetworkRemoves.Count);
-            Assert.All(runner.NetworkRemoves, removal => Assert.Equal("cleanup-broker", removal.BrokerGatewayContainer));
+            Assert.All(runner.NetworkRemoves, removal => Assert.Equal("cleanup-gateway", removal.McpGatewayContainer));
             Assert.False(Directory.Exists(workspace));
             Assert.False(File.Exists(logPath));
             Assert.Null(job.SourceWorkspacePath);
@@ -102,14 +102,14 @@ public sealed class AgentRuntimeCleanupServiceTests
     {
         var runtime = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = installationId, QueuedAt = at, ContainerId = containerId, WorkloadTokenHash = new string('0', 64) };
         runtime.TransitionTo(AgentRuntimeStatus.Starting, at);
-        runtime.TransitionTo(AgentRuntimeStatus.WaitingForBrokerRegistration, at);
+        runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, at);
         runtime.TransitionTo(AgentRuntimeStatus.Running, at);
         return runtime;
     }
 
     private sealed class CleanupRunner : IAgentContainerRunner
     {
-        public List<(string NetworkName, string BrokerGatewayContainer)> NetworkRemoves { get; } = [];
+        public List<(string NetworkName, string McpGatewayContainer)> NetworkRemoves { get; } = [];
         public Task<AgentContainerStatus> StartAsync(AgentContainerStartRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task StopAsync(string containerId, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<AgentContainerStatus?> InspectAsync(string containerId, CancellationToken cancellationToken = default) => Task.FromResult<AgentContainerStatus?>(new(containerId, containerId, AgentContainerState.Exited, 0, null, DateTimeOffset.UtcNow, null));

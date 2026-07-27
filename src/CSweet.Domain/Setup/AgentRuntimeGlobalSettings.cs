@@ -21,9 +21,9 @@ public sealed class AgentRuntimeGlobalSettings
     public int DefaultContainerPidsLimit { get; set; } = 100;
     public int DefaultContainerLogLimitMb { get; set; } = 10;
     public int ContainerStartTimeoutSeconds { get; set; } = 60;
-    public int BrokerRegistrationTimeoutSeconds { get; set; } = 30;
+    public int McpSessionTimeoutSeconds { get; set; } = 30;
     public int ContainerStopGraceSeconds { get; set; } = 15;
-    public string DefaultNetworkPolicy { get; set; } = "BrokerOnly";
+    public string DefaultNetworkPolicy { get; set; } = "McpOnly";
     public bool AllowPublicInternetByDefault { get; set; }
     public string AllowedPackageFeedHosts { get; set; } = string.Empty;
     public string BlockedNetworkCidrs { get; set; } = string.Empty;

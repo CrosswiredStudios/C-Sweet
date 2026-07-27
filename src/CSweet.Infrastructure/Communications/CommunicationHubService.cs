@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using CSweet.Application.Communications;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
@@ -341,7 +344,7 @@ public sealed class CommunicationHubService(
                 idempotencyKey: idempotencyKey,
                 cancellationToken: cancellationToken);
             if (started is null) return null;
-            return new CommunicationMessageSendResponse(
+            var response = new CommunicationMessageSendResponse(
                 new CommunicationHubMessageResponse(
                     started.UserMessage.Id,
                     started.UserMessage.Sequence,
@@ -353,6 +356,10 @@ public sealed class CommunicationHubService(
                     started.UserMessage.CreatedAt,
                     started.Turn.Id),
                 started.Turn);
+            await WriteMessageAuditAsync(
+                organizationId, actor, chat, response.Message,
+                started.UserMessage.CorrelationId, cancellationToken);
+            return response;
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -366,9 +373,81 @@ public sealed class CommunicationHubService(
         chat.UpdatedAt = now;
         db.CoreConversationMessages.Add(message);
         await db.SaveChangesAsync(cancellationToken);
-        return new CommunicationMessageSendResponse(
+        var sent = new CommunicationMessageSendResponse(
             new CommunicationHubMessageResponse(message.Id, message.Sequence, chat.Id, actor.Id, actor.DisplayName,
                 actor.EmployeeType.ToString(), message.Content, message.CreatedAt, message.ChatTurnId));
+        await WriteMessageAuditAsync(
+            organizationId, actor, chat, sent.Message, message.CorrelationId, cancellationToken);
+        return sent;
+    }
+
+    private async Task WriteMessageAuditAsync(
+        Guid organizationId,
+        OrganizationUser actor,
+        Conversation chat,
+        CommunicationHubMessageResponse message,
+        Guid correlationId,
+        CancellationToken cancellationToken)
+    {
+        var recipientIds = chat.Participants
+            .Where(x => x.LeftAt == null && x.OrganizationUserId != actor.Id)
+            .Select(x => x.OrganizationUserId)
+            .Distinct()
+            .ToList();
+        var recipients = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => recipientIds.Contains(x.Id))
+            .Select(x => new
+            {
+                x.Id,
+                x.DisplayName,
+                EmployeeType = x.EmployeeType.ToString(),
+                x.AgentInstallationId
+            })
+            .OrderBy(x => x.DisplayName)
+            .ToListAsync(cancellationToken);
+        var directRecipient = recipients.Count == 1 ? recipients[0] : null;
+        var targetName = directRecipient?.DisplayName ??
+            (!string.IsNullOrWhiteSpace(chat.Title) ? $"#{chat.Title}" : $"{recipients.Count} recipients");
+        var contentBytes = Encoding.UTF8.GetBytes(message.Content);
+
+        await audit.AppendAsync(new AuditEventWriteRequest(
+            "communication.message.sent",
+            "Communication",
+            "Outbound",
+            "Delivered",
+            organizationId,
+            "ConversationMessage",
+            message.Id,
+            $"{actor.DisplayName} sent a message to {targetName}.",
+            JsonSerializer.Serialize(new
+            {
+                chatId = chat.Id,
+                chatKind = chat.Kind.ToString(),
+                message.Sequence,
+                message.ChatTurnId,
+                recipients,
+                contentBytes = contentBytes.Length,
+                contentSha256 = Convert.ToHexString(SHA256.HashData(contentBytes))
+            }),
+            ExternalMessageId: message.Id.ToString("D"),
+            CorrelationId: correlationId.ToString("D"),
+            Actor: new AuditActor(
+                actor.EmployeeType == EmployeeType.Agent ? "Agent" : "Human",
+                true,
+                actor.ApplicationUserId,
+                actor.Id,
+                actor.DisplayName,
+                actor.EmployeeType == EmployeeType.Agent ? actor.DisplayName : null,
+                actor.AgentInstallationId),
+            Target: new AuditTarget(
+                directRecipient?.EmployeeType ?? "Conversation",
+                targetName,
+                directRecipient?.EmployeeType == EmployeeType.Agent.ToString()
+                    ? directRecipient.DisplayName
+                    : null,
+                directRecipient?.AgentInstallationId),
+            ContentType: "text/plain"),
+            cancellationToken);
     }
 
     private Task<OrganizationUser?> ActiveUserAsync(Guid organizationId, Guid userId, CancellationToken token) =>

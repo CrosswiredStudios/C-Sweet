@@ -19,7 +19,7 @@ public sealed class AgentRuntimeManager(
 {
     private const int MaximumAlwaysOnStartupAttempts = 3;
     private static readonly AgentRuntimeStatus[] ContainerActiveStatuses =
-    [AgentRuntimeStatus.Starting, AgentRuntimeStatus.WaitingForBrokerRegistration, AgentRuntimeStatus.Running, AgentRuntimeStatus.CompletionReported, AgentRuntimeStatus.Stopping];
+    [AgentRuntimeStatus.Starting, AgentRuntimeStatus.WaitingForMcpSession, AgentRuntimeStatus.Running, AgentRuntimeStatus.CompletionReported, AgentRuntimeStatus.Stopping];
 
     public async Task<bool> EnsureRuntimeQueuedAsync(
         Guid installationId,
@@ -255,9 +255,9 @@ public sealed class AgentRuntimeManager(
                 changed++;
                 continue;
             }
-            if (instance.Status == AgentRuntimeStatus.WaitingForBrokerRegistration && instance.StartedAt?.AddSeconds((await SettingsAsync(cancellationToken)).BrokerRegistrationTimeoutSeconds) <= now)
+            if (instance.Status == AgentRuntimeStatus.WaitingForMcpSession && instance.StartedAt?.AddSeconds((await SettingsAsync(cancellationToken)).McpSessionTimeoutSeconds) <= now)
             {
-                await StopAndFinishAsync(instance, AgentRuntimeStatus.BrokerRegistrationTimedOut, "Broker registration timed out.", now, cancellationToken);
+                await StopAndFinishAsync(instance, AgentRuntimeStatus.McpSessionTimedOut, "MCP session establishment timed out.", now, cancellationToken);
                 changed++;
                 continue;
             }
@@ -281,7 +281,7 @@ public sealed class AgentRuntimeManager(
                 changed++;
                 continue;
             }
-            if (instance.ContainerId is not null && instance.Status is AgentRuntimeStatus.WaitingForBrokerRegistration or AgentRuntimeStatus.Running)
+            if (instance.ContainerId is not null && instance.Status is AgentRuntimeStatus.WaitingForMcpSession or AgentRuntimeStatus.Running)
             {
                 var status = await containers.InspectAsync(instance.ContainerId, cancellationToken);
                 if (status is null || status.State is AgentContainerState.Exited or AgentContainerState.Dead)
@@ -342,9 +342,9 @@ public sealed class AgentRuntimeManager(
                 instance.RuntimeDeadlineAt = now.AddSeconds(instance.AgentInstallation!.Schedule!.MaxRuntimeSeconds);
                 Transition(
                     instance,
-                    AgentRuntimeStatus.WaitingForBrokerRegistration,
+                    AgentRuntimeStatus.WaitingForMcpSession,
                     now,
-                    $"Recovered running container {status.ContainerId}; awaiting broker registration at {options.Value.BrokerEndpoint}.");
+                    $"Recovered running container {status.ContainerId}; awaiting MCP session establishment at {options.Value.McpEndpoint}.");
                 await dbContext.SaveChangesAsync(cancellationToken);
                 return;
             }
@@ -513,21 +513,21 @@ public sealed class AgentRuntimeManager(
                     settings.DotNetRuntimeBaseImage,
                     package.TargetFramework),
                 package.PackagePath, entryAssembly,
-                options.Value.BrokerEndpoint, token, "/app/csweet-plugin.json", RuntimeNetworkName(instance),
+                options.Value.McpEndpoint, token, "/app/csweet-plugin.json", RuntimeNetworkName(instance),
                 installation.Grant.MemoryMb, installation.Grant.CpuPercent, settings.DefaultContainerPidsLimit,
                 installation.Schedule.MaxRuntimeSeconds,
-                null, options.Value.BrokerGatewayContainer), startTimeout.Token);
+                null, options.Value.McpGatewayContainer), startTimeout.Token);
             instance.ContainerId = status.ContainerId;
             instance.RuntimeDeadlineAt = now.AddSeconds(installation.Schedule.MaxRuntimeSeconds);
-            Transition(instance, AgentRuntimeStatus.WaitingForBrokerRegistration, DateTimeOffset.UtcNow,
-                $"Container {status.ContainerId} started on isolated runtime network; awaiting broker registration at {options.Value.BrokerEndpoint}.");
+            Transition(instance, AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow,
+                $"Container {status.ContainerId} started on isolated runtime network; awaiting MCP session establishment at {options.Value.McpEndpoint}.");
             AgentRuntimeMetrics.ContainerStarted();
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             await TryRemoveFailedStartAsync(instance, cancellationToken);
             instance.LogExcerpt =
-                $"Container launch timed out. Image: {settings.DotNetRuntimeBaseImage}; network: {options.Value.DockerNetworkName}; broker: {options.Value.BrokerEndpoint}.";
+                $"Container launch timed out. Image: {settings.DotNetRuntimeBaseImage}; network: {options.Value.DockerNetworkName}; MCP endpoint: {options.Value.McpEndpoint}.";
             Transition(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, "Container start timed out.");
         }
         catch (Exception exception) when (exception is AgentContainerException or InvalidOperationException)
@@ -535,13 +535,13 @@ public sealed class AgentRuntimeManager(
             logger.LogError(exception, "Failed to start runtime {RuntimeInstanceId}", instance.Id);
             await TryRemoveFailedStartAsync(instance, cancellationToken);
             instance.LogExcerpt =
-                $"Container launch failed. Image: {settings.DotNetRuntimeBaseImage}; network: {options.Value.DockerNetworkName}; broker: {options.Value.BrokerEndpoint}.{Environment.NewLine}{exception.Message}";
+                $"Container launch failed. Image: {settings.DotNetRuntimeBaseImage}; network: {options.Value.DockerNetworkName}; MCP endpoint: {options.Value.McpEndpoint}.{Environment.NewLine}{exception.Message}";
             Transition(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, exception.Message);
         }
         if (instance.Status == AgentRuntimeStatus.StartFailed)
             HandleAlwaysOnTermination(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, settings);
         await dbContext.SaveChangesAsync(cancellationToken);
-        if (instance.Status == AgentRuntimeStatus.WaitingForBrokerRegistration)
+        if (instance.Status == AgentRuntimeStatus.WaitingForMcpSession)
             await auditWriter.WriteAsync("agent-runtime.container.started", nameof(AgentRuntimeInstance), instance.Id,
                 $"Started container {instance.ContainerId} for installation {instance.AgentInstallationId}.", cancellationToken: cancellationToken);
         else if (instance.Status == AgentRuntimeStatus.StartFailed)
@@ -613,6 +613,14 @@ public sealed class AgentRuntimeManager(
             catch (AgentContainerException exception) { logger.LogWarning(exception, "Container cleanup failed for runtime {RuntimeInstanceId}", instance.Id); }
         }
         Transition(instance, terminal, DateTimeOffset.UtcNow, reason);
+        var sessions = await dbContext.McpAgentSessions
+            .Where(x => x.RuntimeInstanceId == instance.Id && x.RevokedAt == null)
+            .ToListAsync(cancellationToken);
+        foreach (var session in sessions)
+        {
+            session.RevokedAt = DateTimeOffset.UtcNow;
+            session.RevocationReason = $"Runtime ended as {terminal}.";
+        }
         if (terminal == AgentRuntimeStatus.Completed && instance.AgentInstallation?.Schedule is { } schedule)
             schedule.LastCompletedAt = DateTimeOffset.UtcNow;
         HandleAlwaysOnTermination(instance, terminal, DateTimeOffset.UtcNow, settings);
@@ -642,7 +650,7 @@ public sealed class AgentRuntimeManager(
         var eventType = status switch
         {
             AgentRuntimeStatus.Completed => "agent-runtime.completed",
-            AgentRuntimeStatus.RuntimeTimedOut or AgentRuntimeStatus.BrokerRegistrationTimedOut => "agent-runtime.timeout",
+            AgentRuntimeStatus.RuntimeTimedOut or AgentRuntimeStatus.McpSessionTimedOut => "agent-runtime.timeout",
             AgentRuntimeStatus.PolicyDenied => "agent-runtime.policy-denied",
             AgentRuntimeStatus.StartFailed or AgentRuntimeStatus.Failed or AgentRuntimeStatus.ExitedWithoutCompletion => "agent-runtime.failed",
             AgentRuntimeStatus.Cancelled => "agent-runtime.cancelled",
@@ -662,11 +670,11 @@ public sealed class AgentRuntimeManager(
         if (schedule?.ActivationMode != ActivationMode.AlwaysOn || !schedule.IsEnabled || instance.AgentInstallation?.IsEnabled != true)
             return;
 
-        var startupFailed = instance.BrokerRegisteredAt is null && terminal is
+        var startupFailed = instance.McpSessionEstablishedAt is null && terminal is
             AgentRuntimeStatus.StartFailed or
             AgentRuntimeStatus.Failed or
             AgentRuntimeStatus.ExitedWithoutCompletion or
-            AgentRuntimeStatus.BrokerRegistrationTimedOut;
+            AgentRuntimeStatus.McpSessionTimedOut;
         if (startupFailed)
         {
             schedule.ConsecutiveStartupFailures++;
@@ -696,6 +704,6 @@ public sealed class AgentRuntimeManager(
     private Task RemoveRuntimeNetworkAsync(AgentRuntimeInstance instance, CancellationToken cancellationToken)
         => containers.RemoveNetworkAsync(
             RuntimeNetworkName(instance),
-            options.Value.BrokerGatewayContainer,
+            options.Value.McpGatewayContainer,
             cancellationToken);
 }

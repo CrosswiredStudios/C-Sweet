@@ -35,6 +35,11 @@ public sealed class SecurityAuditService(
                 (x.Summary != null && x.Summary.Contains(search)) ||
                 (x.ActorDisplayName != null && x.ActorDisplayName.Contains(search)) ||
                 (x.ActorAgentId != null && x.ActorAgentId.Contains(search)) ||
+                (x.TargetDisplayName != null && x.TargetDisplayName.Contains(search)) ||
+                (x.TargetAgentId != null && x.TargetAgentId.Contains(search)) ||
+                x.EntityType.Contains(search) ||
+                (x.ExternalMessageId != null && x.ExternalMessageId.Contains(search)) ||
+                (x.ExternalRequestId != null && x.ExternalRequestId.Contains(search)) ||
                 (x.CorrelationId != null && x.CorrelationId.Contains(search)));
         }
 

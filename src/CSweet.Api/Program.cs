@@ -13,6 +13,7 @@ using CSweet.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Agents;
 using CSweet.Infrastructure.Communications;
 using CSweet.Api.Notifications;
 using CSweet.Api.Security;
@@ -29,8 +30,9 @@ builder.Configuration.AddJsonFile(
 
 builder.AddServiceDefaults();
 builder.AddCSweetInfrastructure();
+builder.Services.AddHostedService<AgentCatalogWarmupService>();
 builder.Services.AddChatGateway(builder.Configuration);
-builder.Services.AddCommunicationPluginBroker(builder.Configuration);
+builder.Services.AddCommunicationPluginRuntime();
 builder.Services.AddAgentManagement();
 builder.Services.AddAgentRateLimiting();
 builder.Services.AddHostedService<MemoryCaptureWorker>();
@@ -104,11 +106,13 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddProblemDetails();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IApplicationRealtimePublisher, SignalRApplicationRealtimePublisher>();
 builder.Services.AddHostedService<ApplicationRealtimeOutboxWorker>();
 
 var app = builder.Build();
+app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
 {
@@ -161,6 +165,7 @@ app.MapAgentManagementEndpoints();
 app.MapPluginManagementEndpoints();
 app.MapSecurityAuditEndpoints();
 app.MapMarketplaceDiscoveryEndpoints();
+app.MapAgentCatalogEndpoints();
 
 app.MapControllers();
 app.MapHub<AppEventsHub>("/hubs/app-events");

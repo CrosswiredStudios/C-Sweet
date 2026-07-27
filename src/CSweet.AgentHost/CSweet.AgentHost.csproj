@@ -4,7 +4,6 @@
     <PackageReference Include="CSweet.Agent.SDK" Condition="'$(UseLocalCSweetAgentSdk)' != 'true'" />
     <PackageReference Include="CSweet.Memory.Broker" Condition="'$(UseLocalCSweetMemory)' != 'true'" />
     <PackageReference Include="CSweet.Memory.PostgreSql" Condition="'$(UseLocalCSweetMemory)' != 'true'" />
-    <PackageReference Include="Grpc.AspNetCore" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
 
@@ -18,6 +17,13 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="CSweet.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\CSweet.Api\first-party-agents.json"
+             Link="first-party-agents.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

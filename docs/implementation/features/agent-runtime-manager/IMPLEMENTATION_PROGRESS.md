@@ -1,5 +1,10 @@
 # Agent Runtime Manager - Implementation Progress
 
+> **Superseded historical progress record.** Runtime transport and registration details below are
+> retained for provenance only. Use the
+> [MCP-only migration](../../../../Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md) and
+> [current architecture](../../../../Documentation/Architecture/MCP_AGENT_RUNTIME.md).
+
 Last updated: 2026-07-14
 
 ## Phase 1 - Global Agent Runtime Settings
@@ -171,3 +176,6 @@ Last updated: 2026-07-14
 - Run Now marks a persisted schedule as immediately due; Phase 6 adds the worker that claims and executes due schedules.
 - The external runtime E2E script requires a live stack and a public importable agent repository URL. It was not run
   during the Phase 9 verification pass because no repository target was supplied.
+# Superseded historical progress log
+
+> This progress log predates the MCP-only runtime. See [MCP Agent Runtime](../../../../Documentation/Architecture/MCP_AGENT_RUNTIME.md) for the maintained architecture.

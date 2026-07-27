@@ -1,13 +1,12 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Agent.SDK;
 using CSweet.Application.Setup;
 using CSweet.Application.Core;
+using CSweet.Application.Agents;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
-using Google.Protobuf;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
@@ -17,7 +16,8 @@ public sealed class WorkforcePlatformCapabilityHandler(
     IAuditEventWriter audit,
     IEnumerable<IWorkforceCatalogProvider> workforceCatalogs,
     IEnumerable<IBusinessPatternProvider> businessPatternProviders,
-    IHiringService? hiring = null) : IPlatformCapabilityHandler
+    IHiringService? hiring = null,
+    IAgentCatalogService? agentCatalog = null) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly HashSet<string> ExplicitFields = new(StringComparer.OrdinalIgnoreCase)
@@ -58,7 +58,15 @@ public sealed class WorkforcePlatformCapabilityHandler(
                 PlatformCapabilities.OrganizationSnapshotRead => Success(request.RequestId, await ReadSnapshotAsync(organizationId, token)),
                 PlatformCapabilities.BusinessPatternSearch => Success(request.RequestId, await SearchPatternsAsync(Read<BusinessPatternSearchRequest>(request), token)),
                 PlatformCapabilities.WorkstreamPlanPropose => await PersistProposalAsync<WorkstreamPlanProposalRequest>(request, organizationId, installationId, "workstream.create", "Create a managed workstream", "OrganizationalChange", token),
-                PlatformCapabilities.WorkforceSearch => Success(request.RequestId, await SearchWorkforceAsync(organizationId, Read<WorkforceSearchRequest>(request), token)),
+                PlatformCapabilities.WorkforceSearch => Success(request.RequestId, await SearchWorkforceAsync(
+                    organizationId,
+                    Read<WorkforceSearchRequest>(request),
+                    session.Grant.RequestedCapabilities?.Contains(AgentCatalogCapabilities.Search) == true,
+                    token)),
+                AgentCatalogCapabilities.Search => Success(request.RequestId, await SearchAgentsAsync(
+                    organizationId,
+                    Read<AvailableAgentSearchQuery>(request),
+                    token)),
                 PlatformCapabilities.WorkforcePlanPropose => await PersistProposalAsync<WorkforcePlanProposalRequest>(request, organizationId, installationId, "workforce-plan.apply", "Apply a workforce plan", "Hiring", token),
                 PlatformCapabilities.FinanceProfileRead => Success(request.RequestId, await ReadFinanceAsync(organizationId, token)),
                 PlatformCapabilities.FinanceProfileProposeUpdate => await PersistProposalAsync<FinancialProfileProposalRequest>(request, organizationId, installationId, "finance-profile.update", "Update financial operating goals or controls", "Financial", token),
@@ -239,7 +247,11 @@ public sealed class WorkforcePlatformCapabilityHandler(
         return new BusinessPatternSearchResponse(matches, matches.Count == 0, reason);
     }
 
-    private async Task<WorkforceSearchResponse> SearchWorkforceAsync(Guid organizationId, WorkforceSearchRequest request, CancellationToken token)
+    private async Task<WorkforceSearchResponse> SearchWorkforceAsync(
+        Guid organizationId,
+        WorkforceSearchRequest request,
+        bool includeAgentCatalog,
+        CancellationToken token)
     {
         var required = request.RequiredCapabilities.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidates = new List<CSweet.Agent.SDK.WorkforceCandidate>();
@@ -251,7 +263,10 @@ public sealed class WorkforcePlatformCapabilityHandler(
         {
             var capabilities = ReadList(worker.CapabilitiesJson);
             var missing = required.Except(capabilities, StringComparer.OrdinalIgnoreCase).ToList();
-            var source = assignedWorkerIds.Contains(worker.Id) ? "CurrentStaff" : "InstalledWorker";
+            var isCurrentStaff = assignedWorkerIds.Contains(worker.Id);
+            if (!isCurrentStaff && worker.WorkerType != WorkerType.Human && !includeAgentCatalog)
+                continue;
+            var source = isCurrentStaff ? "CurrentStaff" : "InstalledWorker";
             if (missing.Count > 0)
             {
                 rejected.Add(new RejectedWorkforceCandidate(worker.Id.ToString(), worker.Name, source, missing.Select(x => $"Missing capability {x}").ToList()));
@@ -273,27 +288,32 @@ public sealed class WorkforcePlatformCapabilityHandler(
                 source == "CurrentStaff" ? "Already on staff and meets all required capabilities." : "Installed locally and meets all required capabilities.", worker.RequiresHumanApproval));
         }
 
-        var installations = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).Include(x => x.Grant)
-            .Where(x => x.BusinessId == organizationId.ToString() && x.IsEnabled).ToListAsync(token);
-        var assignedInstallations = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.AgentInstallationId != null)
-            .Select(x => x.AgentInstallationId!.Value).ToListAsync(token);
-        foreach (var installation in installations.Where(x => !assignedInstallations.Contains(x.Id) && x.PackageVersion != null && x.Grant != null))
+        if (includeAgentCatalog)
         {
-            var capabilities = ReadList(installation.Grant!.CapabilitiesJson);
-            var missing = required.Except(capabilities, StringComparer.OrdinalIgnoreCase).ToList();
-            if (missing.Count > 0)
+            var installations = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).Include(x => x.Grant)
+                .Where(x => x.BusinessId == organizationId.ToString() && x.IsEnabled).ToListAsync(token);
+            var assignedInstallations = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.AgentInstallationId != null)
+                .Select(x => x.AgentInstallationId!.Value).ToListAsync(token);
+            foreach (var installation in installations.Where(x => !assignedInstallations.Contains(x.Id) && x.PackageVersion != null && x.Grant != null))
             {
-                rejected.Add(new RejectedWorkforceCandidate(installation.Id.ToString(), installation.PackageVersion!.AgentName, "InstalledPlugin", missing.Select(x => $"Missing capability {x}").ToList()));
-                continue;
+                var capabilities = ReadList(installation.Grant!.ProvidedCapabilitiesJson);
+                var missing = required.Except(capabilities, StringComparer.OrdinalIgnoreCase).ToList();
+                if (missing.Count > 0)
+                {
+                    rejected.Add(new RejectedWorkforceCandidate(installation.Id.ToString(), installation.PackageVersion!.AgentName, "InstalledPlugin", missing.Select(x => $"Missing capability {x}").ToList()));
+                    continue;
+                }
+                candidates.Add(new CSweet.Agent.SDK.WorkforceCandidate(installation.Id.ToString(), "InstalledPlugin", "LocalAgent", installation.PackageVersion!.AgentName,
+                    capabilities, [], null, request.Currency, 0.8m, "Installed agent plugin with all required capabilities.", true));
             }
-            candidates.Add(new CSweet.Agent.SDK.WorkforceCandidate(installation.Id.ToString(), "InstalledPlugin", "LocalAgent", installation.PackageVersion!.AgentName,
-                capabilities, [], null, request.Currency, 0.8m, "Installed agent plugin with all required capabilities.", true));
         }
 
         var marketplaceAvailable = false;
         var unavailableReasons = new List<string>();
         var providers = workforceCatalogs.OrderBy(x => x.CatalogKind).ToList();
-        var digitalProviders = providers.Where(x => x.CatalogKind is not WorkforceCatalogKind.HumanMarketplace).ToList();
+        var digitalProviders = includeAgentCatalog
+            ? providers.Where(x => x.CatalogKind is not WorkforceCatalogKind.HumanMarketplace).ToList()
+            : [];
         var humanProviders = providers.Where(x => x.CatalogKind is WorkforceCatalogKind.HumanMarketplace or WorkforceCatalogKind.HybridMarketplace).ToList();
         if (request.HumanRequired)
             marketplaceAvailable |= await SearchCatalogsAsync(humanProviders, request, candidates, rejected, unavailableReasons, token);
@@ -323,7 +343,7 @@ public sealed class WorkforcePlatformCapabilityHandler(
                 ExplanationJson = JsonSerializer.Serialize(new
                 {
                     candidate.ResourceType, candidate.Credentials, candidate.Rationale,
-                    candidate.RequiresSeparateApproval
+                    candidate.RequiresSeparateApproval, candidate.RepositoryUrl
                 }, JsonOptions)
             };
             db.WorkforceCandidates.Add(snapshot);
@@ -332,6 +352,56 @@ public sealed class WorkforcePlatformCapabilityHandler(
         if (opaque.Count > 0) await db.SaveChangesAsync(token);
         return new WorkforceSearchResponse(opaque, rejected, marketplaceAvailable,
             unavailableReasons.Count == 0 ? null : string.Join(" ", unavailableReasons));
+    }
+
+    private async Task<AvailableAgentSearchResult> SearchAgentsAsync(
+        Guid organizationId,
+        AvailableAgentSearchQuery request,
+        CancellationToken token)
+    {
+        var catalog = agentCatalog ?? throw new InvalidOperationException("The agent catalog service is unavailable.");
+        var result = await catalog.GetAvailableAgentsAsync(organizationId, request, token);
+        var materialized = new List<AvailableAgent>(result.Agents.Count);
+        foreach (var agent in result.Agents)
+        {
+            var source = agent.Source switch
+            {
+                AgentCatalogSource.Installed => "InstalledPlugin",
+                AgentCatalogSource.LocalDirectory => "LocalDirectoryCatalog",
+                AgentCatalogSource.FirstPartyCatalog => "CSweetEmbeddedCatalog",
+                AgentCatalogSource.Marketplace => "CSweetMarketplace",
+                _ => throw new InvalidOperationException("The agent catalog source is unsupported.")
+            };
+            var externalId = agent.InstallationId?.ToString("D") ?? agent.AgentReference;
+            var snapshot = new CSweet.Domain.Core.WorkforceCandidate
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = organizationId,
+                Source = source,
+                ExternalCandidateId = externalId,
+                DisplayName = agent.Name,
+                CapabilitiesJson = JsonSerializer.Serialize(agent.Capabilities, JsonOptions),
+                Score = agent.Score,
+                EstimatedCost = agent.Price,
+                Currency = agent.Currency,
+                IsHuman = false,
+                IsAvailable = agent.Availability is AgentAvailabilityState.AvailableToInstall or
+                    AgentAvailabilityState.InstalledEnabled,
+                ExplanationJson = JsonSerializer.Serialize(new
+                {
+                    ResourceType = "Agent",
+                    Credentials = Array.Empty<string>(),
+                    Rationale = $"{agent.Trust}. Catalog source: {agent.Source}.",
+                    RequiredGrants = Array.Empty<string>(),
+                    agent.RepositoryUrl,
+                    CatalogReference = agent.AgentReference
+                }, JsonOptions)
+            };
+            db.WorkforceCandidates.Add(snapshot);
+            materialized.Add(agent with { AgentReference = $"candidate:{snapshot.Id:N}" });
+        }
+        if (materialized.Count > 0) await db.SaveChangesAsync(token);
+        return new(materialized, result.Sources);
     }
 
     private static async Task<bool> SearchCatalogsAsync(
@@ -503,10 +573,10 @@ public sealed class WorkforcePlatformCapabilityHandler(
         return Math.Round(values.Count(x => !string.IsNullOrWhiteSpace(x)) / (decimal)values.Length, 2);
     }
     private static CapabilityResult Success<T>(string requestId, T payload) => new() { RequestId = requestId, Succeeded = true,
-        ContentType = "application/json", Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions)) };
+        ContentType = "application/json", Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions)) };
     private static CapabilityResult Failure(string requestId, PlatformCapabilityErrorCode code, string message) => new() { RequestId = requestId,
         Succeeded = false, ContentType = "application/json", Error = message,
-        Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(new PlatformCapabilityError(code, message), JsonOptions)) };
+        Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new PlatformCapabilityError(code, message), JsonOptions)) };
 
     private static class BuiltInPatterns
     {

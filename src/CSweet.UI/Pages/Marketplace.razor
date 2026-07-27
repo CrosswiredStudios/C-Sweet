@@ -1,16 +1,16 @@
 @page "/organizations/{OrganizationId:guid}/marketplace"
 @using System.Net.Http.Json
-@using CSweet.Contracts.Marketplace
+@using CSweet.Agent.SDK
 @inject HttpClient Http
 
-<PageTitle>Agent Marketplace - C-Sweet</PageTitle>
+<PageTitle>Agent Catalog - C-Sweet</PageTitle>
 
 <div class="command-center-shell">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.h3">Agent marketplace</MudText>
+            <MudText Typo="Typo.h3">Agent catalog</MudText>
             <MudText Color="Color.Secondary">
-                Browse the same live catalog the Chief of Staff uses for staffing suggestions.
+                Browse installed, local-directory, first-party, and marketplace agents through one catalog.
             </MudText>
         </div>
         <MudButton Href="@($"/organizations/{OrganizationId}/employees?tab=hiring")"
@@ -22,54 +22,38 @@
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudGrid>
-            <MudItem xs="12" md="5">
-                <MudTextField T="string" Label="Search agents, publishers, or capabilities"
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" Label="Search agents or capabilities"
                               @bind-Value="_search" Variant="Variant.Outlined"
                               Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Outlined.Search"
-                              Immediate="true" />
+                              AdornmentIcon="@Icons.Material.Outlined.Search" />
             </MudItem>
-            <MudItem xs="12" sm="6" md="3">
+            <MudItem xs="12" md="3">
+                <MudTextField T="string" Label="Role" @bind-Value="_role"
+                              Variant="Variant.Outlined" Placeholder="Product Manager" />
+            </MudItem>
+            <MudItem xs="12" md="3">
                 <MudSelect T="string" Label="Category" @bind-Value="_category"
                            Variant="Variant.Outlined" Clearable="true">
-                    @foreach (var category in _result?.Categories ?? [])
+                    @foreach (var category in Categories)
                     {
                         <MudSelectItem T="string" Value="@category">@category</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
-            <MudItem xs="12" sm="6" md="2">
-                <MudSelect T="string" Label="Pricing" @bind-Value="_pricing"
-                           Variant="Variant.Outlined" Clearable="true">
-                    @foreach (var pricing in _result?.PricingModels ?? [])
-                    {
-                        <MudSelectItem T="string" Value="@pricing">@PricingLabel(pricing)</MudSelectItem>
-                    }
-                </MudSelect>
-            </MudItem>
-            <MudItem xs="12" sm="6" md="2">
-                <MudNumericField T="decimal?" Label="Maximum price" @bind-Value="_maximumPrice"
-                                 Variant="Variant.Outlined" Min="0" Adornment="Adornment.Start"
-                                 AdornmentText="$" />
-            </MudItem>
-            <MudItem xs="12" sm="6" md="4">
-                <MudTextField T="string" Label="Required capability" @bind-Value="_capability"
-                              Variant="Variant.Outlined"
-                              Placeholder="for example research.market" />
-            </MudItem>
-            <MudItem xs="12" sm="6" md="3">
+            <MudItem xs="12" md="2">
                 <MudSelect T="string" Label="Sort" @bind-Value="_sort" Variant="Variant.Outlined">
                     <MudSelectItem T="string" Value="@("relevance")">Most relevant</MudSelectItem>
                     <MudSelectItem T="string" Value="@("rating")">Highest rated</MudSelectItem>
                     <MudSelectItem T="string" Value="@("price-low")">Lowest price</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("newest")">Newest</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("name")">Name</MudSelectItem>
                 </MudSelect>
             </MudItem>
-            <MudItem xs="12" md="5">
+            <MudItem xs="12">
                 <MudStack Row="true" Spacing="2">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                Disabled="_loading" OnClick="SearchAsync">
-                        Search marketplace
+                        Search catalog
                     </MudButton>
                     <MudButton Variant="Variant.Text" Disabled="_loading" OnClick="ClearAsync">
                         Clear filters
@@ -83,66 +67,32 @@
     {
         <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
     }
-    else if (_result is null || !_result.IsOnline)
-    {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            @(_result?.UnavailableReason ?? "The online marketplace is not configured.")
-            C-Sweet remains fully usable with installed and local agents while it is offline.
-        </MudAlert>
-    }
     else
     {
+        @foreach (var source in _result?.Sources.Where(x => !x.Available && !string.IsNullOrWhiteSpace(x.Message)) ?? [])
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
+                @source.Source: @source.Message
+            </MudAlert>
+        }
+
         <MudText Typo="Typo.subtitle1" Class="mb-3">
-            @_result.Total matching @(_result.Total == 1 ? "agent" : "agents")
+            @(_result?.Agents.Count ?? 0) matching @((_result?.Agents.Count ?? 0) == 1 ? "agent" : "agents")
         </MudText>
-        @if (_result.Items.Count == 0)
+        @if (_result?.Agents.Count is null or 0)
         {
             <MudPaper Class="pa-6" Elevation="0" Outlined="true">
                 <MudText Typo="Typo.h6">No matching agents</MudText>
-                <MudText Color="Color.Secondary">Try removing a capability, price, or category filter.</MudText>
+                <MudText Color="Color.Secondary">Try a broader role or search term.</MudText>
             </MudPaper>
         }
         else
         {
             <MudGrid>
-                @foreach (var agent in _result.Items)
+                @foreach (var agent in _result.Agents)
                 {
                     <MudItem xs="12" md="6" lg="4">
-                        <MudCard Class="h-100">
-                            <MudCardContent>
-                                <MudStack Spacing="2">
-                                    <div>
-                                        <MudText Typo="Typo.overline">@agent.Category · @agent.PublisherName</MudText>
-                                        <MudText Typo="Typo.h5">@agent.Name</MudText>
-                                    </div>
-                                    <MudText Color="Color.Secondary">@agent.Summary</MudText>
-                                    <MudStack Row="true" Spacing="1" Style="flex-wrap: wrap">
-                                        @foreach (var capability in agent.Capabilities.Take(6))
-                                        {
-                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
-                                                @capability
-                                            </MudChip>
-                                        }
-                                    </MudStack>
-                                    <MudStack Row="true" Justify="Justify.SpaceBetween">
-                                        <MudText Typo="Typo.subtitle1">@PriceLabel(agent)</MudText>
-                                        <MudText Typo="Typo.body2">
-                                            @(agent.Rating.HasValue ? $"{agent.Rating:0.0}/10 ({agent.RatingCount})" : "Not yet rated")
-                                        </MudText>
-                                    </MudStack>
-                                </MudStack>
-                            </MudCardContent>
-                            <MudCardActions>
-                                <MudButton Href="@agent.ListingUrl" Target="_blank"
-                                           Variant="Variant.Filled" Color="Color.Primary">
-                                    View marketplace listing
-                                </MudButton>
-                                <MudButton Href="@agent.RepositoryUrl" Target="_blank"
-                                           Variant="Variant.Text">
-                                    GitHub
-                                </MudButton>
-                            </MudCardActions>
-                        </MudCard>
+                        <MarketplaceAgentCard Agent="agent" />
                     </MudItem>
                 }
             </MudGrid>
@@ -153,14 +103,19 @@
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
 
-    private MarketplaceDiscoveryResponse? _result;
+    private AvailableAgentSearchResult? _result;
     private bool _loading;
     private string? _search;
+    private string? _role;
     private string? _category;
-    private string? _capability;
-    private string? _pricing;
-    private decimal? _maximumPrice;
     private string _sort = "relevance";
+
+    private IReadOnlyList<string> Categories => (_result?.Agents ?? [])
+        .Select(x => x.Category)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Order(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     protected override Task OnParametersSetAsync() => SearchAsync();
 
@@ -169,16 +124,13 @@
         _loading = true;
         try
         {
-            var query = new List<string>();
+            var query = new List<string> { $"sort={Uri.EscapeDataString(_sort)}", "limit=100" };
             Add("q", _search);
+            Add("role", _role);
             Add("category", _category);
-            Add("capability", _capability);
-            Add("pricing", _pricing);
-            Add("maxPrice", _maximumPrice?.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Add("sort", _sort);
-            _result = await Http.GetFromJsonAsync<MarketplaceDiscoveryResponse>(
-                "api/marketplace/agents" +
-                (query.Count == 0 ? string.Empty : $"?{string.Join('&', query)}"));
+            _result = await Http.GetFromJsonAsync<AvailableAgentSearchResult>(
+                $"api/core/organizations/{OrganizationId:D}/agents/available?{string.Join('&', query)}")
+                ?? Offline("The agent catalog returned an empty response.");
 
             void Add(string key, string? value)
             {
@@ -188,8 +140,7 @@
         }
         catch (HttpRequestException)
         {
-            _result = new([], 0, [], [], false,
-                "C-Sweet could not reach its marketplace discovery gateway.");
+            _result = Offline("C-Sweet could not reach the agent catalog.");
         }
         finally
         {
@@ -200,35 +151,12 @@
     private async Task ClearAsync()
     {
         _search = null;
+        _role = null;
         _category = null;
-        _capability = null;
-        _pricing = null;
-        _maximumPrice = null;
         _sort = "relevance";
         await SearchAsync();
     }
 
-    private static string PriceLabel(MarketplaceAgentResponse agent)
-    {
-        if (agent.PriceInCents is null) return "Open source / free";
-        var amount = agent.PriceInCents.Value / 100m;
-        return agent.PricingModel switch
-        {
-            "MonthlyPerInstance" or "Monthly" => $"${amount:0.##} / instance / month",
-            "TokenBased" => $"${amount:0.##} / {agent.BillingUnitQuantity:N0} tokens",
-            "OneTimePerInstance" or "OneTime" => $"${amount:0.##} / instance",
-            "OneTimeUnlimited" => $"${amount:0.##} once / unlimited",
-            _ => $"${amount:0.##}"
-        };
-    }
-
-    private static string PricingLabel(string pricing) => pricing switch
-    {
-        "OpenSourceFree" or "Free" => "Open source / free",
-        "MonthlyPerInstance" or "Monthly" => "Monthly per instance",
-        "TokenBased" => "Token based",
-        "OneTimePerInstance" or "OneTime" => "One time per instance",
-        "OneTimeUnlimited" => "One time, unlimited",
-        _ => pricing
-    };
+    private static AvailableAgentSearchResult Offline(string reason) =>
+        new([], [new(AgentCatalogSource.Marketplace, false, reason)]);
 }

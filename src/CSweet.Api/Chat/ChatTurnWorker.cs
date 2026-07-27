@@ -1,7 +1,8 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Agent.SDK;
 using CSweet.AI.Providers;
 using CSweet.Application.Core;
@@ -9,9 +10,10 @@ using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
 using CSweet.Domain.Core;
 using CSweet.Domain.Communications;
+using CSweet.Domain.Setup;
 using CSweet.Communications.Abstractions;
 using CSweet.Infrastructure.Persistence;
-using Google.Protobuf;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -20,7 +22,6 @@ namespace CSweet.Api.Chat;
 
 public sealed class ChatTurnWorker(
     IServiceScopeFactory scopeFactory,
-    IAgentBrokerClient broker,
     IChatStreamRouter outputRouter,
     IChatTurnEventRouter eventRouter,
     IOptions<ChatTurnOptions> options,
@@ -70,6 +71,8 @@ public sealed class ChatTurnWorker(
         var conversations = services.GetRequiredService<IConversationService>();
         var runtime = services.GetRequiredService<IAgentInteractiveRuntimeService>();
         var configurations = services.GetRequiredService<IAgentInstallationConfigurationService>();
+        var inbox = services.GetRequiredService<AgentWorkInbox>();
+        var audit = services.GetRequiredService<IAuditEventWriter>();
         var turn = await db.ChatTurns.Include(x => x.UserMessage).Include(x => x.Conversation)
             .SingleAsync(x => x.Id == turnId, stoppingToken);
         var conversation = turn.Conversation!;
@@ -162,20 +165,27 @@ public sealed class ChatTurnWorker(
                     providerId.Value, conversation.Id.ToString(), conversation.InitiatedByOrganizationUserId.ToString(), agentPrompt, null, turnId, turn.Attempt, turn.UserMessageId);
 
                 await PublishTraceAsync(turns, turnId, "model", "model.dispatched", "running", "Assistant dispatched",
-                    "The request was submitted to the agent broker.", new
+                    "The request was submitted as durable agent work.", new
                     {
                         providerProfileId = providerId,
                         model = GetConfiguredString(configuration, "llmModel"),
                         installationId
                     }, cancellationToken: hardTimeout.Token);
-                await broker.PublishEventAsync(new PublishEvent
-                {
-                    EventType = AgentChatEvents.UserMessageReceivedEvent,
-                    SchemaVersion = "2",
-                    Subject = $"agent-installation/{installationId}/conversation/{conversation.Id}/turn/{turnId}",
-                    ContentType = "application/json",
-                    Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions))
-                }, turnId.ToString("D"), hardTimeout.Token);
+                var work = await inbox.EnqueueAsync(
+                    conversation.OrganizationId.ToString("D"),
+                    installationId,
+                    CSweet.Domain.Setup.AgentWorkKind.Event,
+                    AgentChatEvents.UserMessageReceivedEvent,
+                    JsonSerializer.SerializeToElement(payload, JsonOptions),
+                    $"chat-turn:{turnId:D}:attempt:{turn.Attempt}",
+                    DateTimeOffset.UtcNow.Add(options.Value.HardTimeout),
+                    correlationId: turnId.ToString("D"),
+                    causationId: turn.UserMessageId.ToString("D"),
+                    sourceType: "chat-turn",
+                    sourceId: turnId.ToString("D"),
+                    maximumAttempts: 3,
+                    cancellationToken: hardTimeout.Token);
+                _ = PumpAgentWorkAsync(work.Id, turnId, turn.Attempt, hardTimeout.Token);
                 await turns.SetStatusAsync(turnId, ChatTurnStatus.Running.ToString(), cancellationToken: hardTimeout.Token);
 
                 var pendingOutput = new System.Text.StringBuilder();
@@ -255,32 +265,8 @@ public sealed class ChatTurnWorker(
             }
             catch (Exception exception) when (exception is not OperationCanceledException && output.Length == 0)
             {
-                bypassMemory = true;
-                fallbackReason = exception.Message;
-                logger.LogWarning(exception, "Agent path failed before producing output for turn {TurnId}; using memory-free provider fallback.", turnId);
-                await PublishTraceAsync(turns, turnId, "model", "model.fallback.started", "warning", "Using direct response fallback",
-                    memoryWasRecalled
-                        ? "The primary agent path failed before producing output. Retrying directly with the configured model and recalled context."
-                        : "The primary agent path failed before producing output. Retrying directly with the configured model and original message.",
-                    new { reason = exception.Message, memoryUsed = memoryWasRecalled }, cancellationToken: hardTimeout.Token);
-                using var fallbackTimeout = CancellationTokenSource.CreateLinkedTokenSource(hardTimeout.Token);
-                fallbackTimeout.CancelAfter(options.Value.DirectFallbackTimeout);
-                try
-                {
-                    output.Append(await StreamFallbackAsync(
-                        services,
-                        turns,
-                        turnId,
-                        providerId.Value,
-                        GetConfiguredString(configuration, "llmModel"),
-                        conversationPrompt,
-                        memoryWasRecalled,
-                        fallbackTimeout.Token));
-                }
-                catch (OperationCanceledException) when (fallbackTimeout.IsCancellationRequested && !hardTimeout.IsCancellationRequested)
-                {
-                    throw new TimeoutException($"The direct model fallback did not respond within {options.Value.DirectFallbackTimeout.TotalSeconds:g} seconds.");
-                }
+                logger.LogWarning(exception, "Agent work failed before producing output for turn {TurnId}.", turnId);
+                throw;
             }
 
             var assistant = await conversations.AppendMessageAsync(conversation.Id, ConversationRole.Assistant, output.ToString(), hardTimeout.Token);
@@ -289,6 +275,8 @@ public sealed class ChatTurnWorker(
             assistantEntity.SenderOrganizationUserId = turn.TargetAgentOrganizationUserId;
             await QueueCommunicationReplyAsync(db, turn, userMessage, assistantEntity, hardTimeout.Token);
             await db.SaveChangesAsync(hardTimeout.Token);
+            await AuditAssistantMessageAsync(
+                db, audit, conversation, turn, assistantEntity, hardTimeout.Token);
             await turns.SetStatusAsync(turnId, ChatTurnStatus.FinalizingMemory.ToString(), cancellationToken: hardTimeout.Token);
             var memoryWarning = bypassMemory;
             if (bypassMemory)
@@ -347,7 +335,7 @@ public sealed class ChatTurnWorker(
         {
             logger.LogError(exception, "Chat turn {TurnId} failed.", turnId);
             await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId, "turn_failed",
-                "I couldn't complete that request because the agent and the direct fallback were unavailable. Please try again.", CancellationToken.None);
+                "The agent couldn't complete that request. Please try again.", CancellationToken.None);
         }
         finally
         {
@@ -365,46 +353,69 @@ public sealed class ChatTurnWorker(
         TurnFailures.Add(1, new KeyValuePair<string, object?>("code", code));
     }
 
-    private async Task<string> StreamFallbackAsync(
-        IServiceProvider services,
-        IChatTurnService turns,
+    private async Task PumpAgentWorkAsync(
+        Guid workId,
         Guid turnId,
-        Guid providerId,
-        string? model,
-        string prompt,
-        bool memoryUsed,
+        int attempt,
         CancellationToken cancellationToken)
     {
-        var providerFactory = services.GetRequiredService<ILlmProviderFactory>();
-        using var chatClient = await providerFactory.CreateChatClientAsync(providerId, model, cancellationToken);
-        var messages = ChatPromptPolicy.BuildFallbackMessages(prompt);
-        var output = new System.Text.StringBuilder();
-
-        await turns.SetStatusAsync(turnId, ChatTurnStatus.Running.ToString(), cancellationToken: cancellationToken);
-        await foreach (var update in chatClient.GetStreamingResponseAsync(messages, options: null, cancellationToken))
+        long sequence = 0;
+        while (!cancellationToken.IsCancellationRequested)
         {
-            if (string.IsNullOrEmpty(update.Text)) continue;
-            output.Append(update.Text);
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var inbox = scope.ServiceProvider.GetRequiredService<AgentWorkInbox>();
+            var progress = await inbox.ReadProgressAfterAsync(workId, sequence, cancellationToken);
+            foreach (var record in progress)
+            {
+                sequence = record.Sequence;
+                var chunk = record.Value.Deserialize<AssistantResponseChunk>(JsonOptions);
+                if (chunk is null)
+                    continue;
+                outputRouter.Publish(
+                    turnId,
+                    new ChatStreamChunk(
+                        chunk.Sequence,
+                        chunk.Delta,
+                        chunk.IsFinal,
+                        chunk.Error,
+                        chunk.Kind,
+                        chunk.Metadata,
+                        chunk.Attempt == 0 ? attempt : chunk.Attempt));
+            }
+
+            var state = await inbox.ReadStateAsync(workId, cancellationToken);
+            if (state.Status == AgentWorkStatus.Completed)
+            {
+                if (state.Completion is { Succeeded: false })
+                    outputRouter.Publish(turnId, new ChatStreamChunk(
+                        checked((int)sequence + 1),
+                        state.Completion.Error ?? "Agent work failed.",
+                        true,
+                        "agent_work_failed",
+                        "error",
+                        Attempt: attempt));
+                else if (progress.All(x =>
+                             x.Value.Deserialize<AssistantResponseChunk>(JsonOptions)?.IsFinal != true))
+                    outputRouter.Publish(turnId, new ChatStreamChunk(
+                        checked((int)sequence + 1),
+                        string.Empty,
+                        true,
+                        Attempt: attempt));
+                return;
+            }
+            if (state.Status is AgentWorkStatus.Cancelled or AgentWorkStatus.DeadLetter)
+            {
+                outputRouter.Publish(turnId, new ChatStreamChunk(
+                    checked((int)sequence + 1),
+                    state.Error ?? "Agent work did not complete.",
+                    true,
+                    state.Status.ToString(),
+                    "error",
+                    Attempt: attempt));
+                return;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
         }
-
-        if (output.Length == 0) throw new InvalidOperationException("The direct model fallback returned an empty response.");
-        var rejectedControlSyntax = ChatPromptPolicy.ContainsToolControlSyntax(output.ToString());
-        var safeOutput = rejectedControlSyntax ? ChatPromptPolicy.RejectedFallbackResponse : output.ToString();
-        if (rejectedControlSyntax)
-        {
-            await PublishTraceAsync(turns, turnId, "model", "model.fallback.control_syntax_rejected", "warning", "Unsafe fallback output rejected",
-                "The direct fallback attempted to emit platform tool-control syntax, so a deterministic retry message was used.",
-                new { memoryUsed }, cancellationToken: cancellationToken);
-        }
-
-        await turns.AppendOutputAsync(turnId, safeOutput, cancellationToken);
-        await PublishTraceAsync(turns, turnId, "output", "output.delta", "running", "Assistant output",
-            safeOutput, new { source = "direct_provider_fallback", memoryUsed, rejectedControlSyntax }, cancellationToken: cancellationToken);
-
-        await PublishTraceAsync(turns, turnId, "model", "model.fallback.completed", "completed", "Direct response fallback completed",
-            memoryUsed ? "The configured model responded using the recalled context." : "The configured model responded using only the original user message.",
-            new { memoryUsed, rejectedControlSyntax }, cancellationToken: cancellationToken);
-        return safeOutput;
     }
 
     private async Task CompleteVisibleFailureAsync(
@@ -432,6 +443,13 @@ public sealed class ChatTurnWorker(
         assistantEntity.SenderOrganizationUserId = current.TargetAgentOrganizationUserId;
         await QueueCommunicationReplyAsync(db, current, current.UserMessage!, assistantEntity, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await AuditAssistantMessageAsync(
+            db,
+            services.GetRequiredService<IAuditEventWriter>(),
+            conversation,
+            current,
+            assistantEntity,
+            cancellationToken);
         await MarkMemoryCaptureBypassedAsync(db, assistant.Id, "Deterministic failure responses are excluded from memory.", cancellationToken);
 
         await PublishTraceAsync(turns, turnId, "memory", "capture.bypassed", "warning", "Memory capture bypassed",
@@ -478,76 +496,63 @@ public sealed class ChatTurnWorker(
         configuration?.Settings.TryGetValue(key, out var value) == true && value.ValueKind == JsonValueKind.String
             ? value.GetString() : null;
 
-    private async Task<CapabilityResult> InvokeConfigurationUpdateAsync(Guid installationId, AgentInstallationConfigurationSnapshot configuration, CancellationToken cancellationToken)
+    private async Task<AgentWorkCompletion> InvokeConfigurationUpdateAsync(
+        Guid installationId,
+        AgentInstallationConfigurationSnapshot configuration,
+        CancellationToken cancellationToken)
     {
-        var request = new CSweet.Contracts.Agents.UpdateAgentConfigurationRequest(configuration.Settings) { SchemaVersion = configuration.SchemaVersion };
-        return await broker.InvokeCapabilityAsync(new RequestCapability
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+        var inbox = scope.ServiceProvider.GetRequiredService<AgentWorkInbox>();
+        var organizationId = await db.AgentInstallations.AsNoTracking()
+            .Where(x => x.Id == installationId && x.IsEnabled)
+            .Select(x => x.BusinessId)
+            .SingleAsync(cancellationToken);
+        var work = await inbox.EnqueueAsync(
+            organizationId,
+            installationId,
+            CSweet.Domain.Setup.AgentWorkKind.Capability,
+            CSweet.Agent.SDK.AgentConfigurationCapabilities.Update,
+            JsonSerializer.SerializeToElement(
+                new CSweet.Agent.SDK.UpdateAgentConfigurationRequest(configuration.Settings),
+                JsonOptions),
+            $"configuration:{installationId:D}:{configuration.UpdatedAt.UtcTicks}",
+            DateTimeOffset.UtcNow.Add(options.Value.CapabilityRegistrationTimeout),
+            sourceType: "agent-configuration",
+            cancellationToken: cancellationToken);
+        while (true)
         {
-            Capability = CSweet.Contracts.Agents.AgentConfigurationCapabilities.Update,
-            TargetAgentId = $"installation:{installationId}",
-            ContentType = "application/json",
-            Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(request, JsonOptions))
-        }, Guid.NewGuid().ToString("N"), cancellationToken);
+            var state = await inbox.ReadStateAsync(work.Id, cancellationToken);
+            if (state.Status == AgentWorkStatus.Completed)
+                return state.Completion ?? new AgentWorkCompletion(false, null, "The configuration result was empty.");
+            if (state.Status is AgentWorkStatus.Cancelled or AgentWorkStatus.DeadLetter)
+                return new AgentWorkCompletion(false, null, state.Error ?? "Configuration work did not complete.");
+            await Task.Delay(options.Value.CapabilityRetryDelay, cancellationToken);
+        }
     }
 
-    private async Task<CapabilityResult> HydrateConfigurationAsync(
+    private async Task<AgentWorkCompletion> HydrateConfigurationAsync(
         IChatTurnService turns,
         Guid turnId,
         Guid installationId,
         AgentInstallationConfigurationSnapshot configuration,
         CancellationToken cancellationToken)
     {
-        var deadline = DateTimeOffset.UtcNow + options.Value.CapabilityRegistrationTimeout;
-        var waiting = false;
-
-        while (true)
-        {
-            var result = await InvokeConfigurationUpdateAsync(installationId, configuration, cancellationToken);
-            if (result.Succeeded || !IsCapabilityProviderTemporarilyUnavailable(result.Error))
-            {
-                if (result.Succeeded && waiting)
-                {
-                    await PublishTraceAsync(
-                        turns,
-                        turnId,
-                        "runtime",
-                        "runtime.capabilities.ready",
-                        "completed",
-                        "Agent connection ready",
-                        "The restarted agent registered its approved capabilities.",
-                        new { installationId },
-                        cancellationToken: cancellationToken);
-                }
-
-                return result;
-            }
-
-            if (DateTimeOffset.UtcNow >= deadline)
-            {
-                return result;
-            }
-
-            if (!waiting)
-            {
-                waiting = true;
-                await PublishTraceAsync(
-                    turns,
-                    turnId,
-                    "runtime",
-                    "runtime.capabilities.waiting",
-                    "running",
-                    "Waiting for agent connection",
-                    "The runtime is starting, but its broker capability session is not ready yet.",
-                    new { installationId, timeoutSeconds = options.Value.CapabilityRegistrationTimeout.TotalSeconds },
-                    cancellationToken: cancellationToken);
-            }
-
-            await Task.Delay(options.Value.CapabilityRetryDelay, cancellationToken);
-        }
+        await PublishTraceAsync(
+            turns,
+            turnId,
+            "runtime",
+            "runtime.configuration.queued",
+            "running",
+            "Applying agent configuration",
+            "Configuration was queued as durable work and will survive runtime reconnects.",
+            new { installationId },
+            cancellationToken: cancellationToken);
+        return await InvokeConfigurationUpdateAsync(
+            installationId,
+            configuration,
+            cancellationToken);
     }
-
-    private static bool IsCapabilityProviderTemporarilyUnavailable(string? error) =>
-        error?.StartsWith("No authorized agent", StringComparison.Ordinal) == true;
 
     private static async Task QueueCommunicationReplyAsync(CSweetDbContext db, ChatTurn turn, ConversationMessage? userMessage,
         ConversationMessage assistantMessage, CancellationToken cancellationToken)
@@ -576,6 +581,75 @@ public sealed class ChatTurnWorker(
             IdempotencyKey = envelope.IdempotencyKey, PayloadJson = JsonSerializer.Serialize(envelope),
             NextAttemptAt = now, CreatedAt = now, UpdatedAt = now
         });
+    }
+
+    private static async Task AuditAssistantMessageAsync(
+        CSweetDbContext db,
+        IAuditEventWriter audit,
+        Conversation conversation,
+        ChatTurn turn,
+        ConversationMessage message,
+        CancellationToken cancellationToken)
+    {
+        var actor = await db.CoreOrganizationUsers.AsNoTracking()
+            .SingleAsync(x => x.Id == turn.TargetAgentOrganizationUserId, cancellationToken);
+        var recipients = await (
+            from participant in db.ConversationParticipants.AsNoTracking()
+            join user in db.CoreOrganizationUsers.AsNoTracking()
+                on participant.OrganizationUserId equals user.Id
+            where participant.ConversationId == conversation.Id &&
+                  participant.LeftAt == null &&
+                  user.Id != actor.Id
+            orderby user.DisplayName
+            select new
+            {
+                user.Id,
+                user.DisplayName,
+                EmployeeType = user.EmployeeType.ToString(),
+                user.AgentInstallationId
+            }).ToListAsync(cancellationToken);
+        var directRecipient = recipients.Count == 1 ? recipients[0] : null;
+        var targetName = directRecipient?.DisplayName ??
+            (!string.IsNullOrWhiteSpace(conversation.Title)
+                ? $"#{conversation.Title}"
+                : $"{recipients.Count} recipients");
+        var contentBytes = Encoding.UTF8.GetBytes(message.Content);
+        await audit.AppendAsync(new AuditEventWriteRequest(
+            "communication.message.sent",
+            "Communication",
+            "Outbound",
+            "Delivered",
+            conversation.OrganizationId,
+            "ConversationMessage",
+            message.Id,
+            $"{actor.DisplayName} sent a message to {targetName}.",
+            JsonSerializer.Serialize(new
+            {
+                chatId = conversation.Id,
+                chatKind = conversation.Kind.ToString(),
+                chatTurnId = turn.Id,
+                recipients,
+                contentBytes = contentBytes.Length,
+                contentSha256 = Convert.ToHexString(SHA256.HashData(contentBytes))
+            }, JsonOptions),
+            ExternalMessageId: message.Id.ToString("D"),
+            CorrelationId: message.CorrelationId.ToString("D"),
+            Actor: new AuditActor(
+                "Agent",
+                true,
+                OrganizationUserId: actor.Id,
+                DisplayName: actor.DisplayName,
+                AgentId: actor.DisplayName,
+                InstallationId: actor.AgentInstallationId),
+            Target: new AuditTarget(
+                directRecipient?.EmployeeType ?? "Conversation",
+                targetName,
+                directRecipient?.EmployeeType == EmployeeType.Agent.ToString()
+                    ? directRecipient.DisplayName
+                    : null,
+                directRecipient?.AgentInstallationId),
+            ContentType: "text/plain"),
+            cancellationToken);
     }
 
     private sealed class FirstOutputTimeoutException(TimeSpan timeout) : TimeoutException(

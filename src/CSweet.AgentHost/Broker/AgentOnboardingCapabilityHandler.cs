@@ -1,11 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Agent.SDK;
 using CSweet.Contracts.Agents;
 using CSweet.Domain.Communications;
 using CSweet.Infrastructure.Persistence;
-using Google.Protobuf;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -91,7 +89,7 @@ public sealed class AgentOnboardingCapabilityHandler(
         RequestId = requestId,
         Succeeded = true,
         ContentType = "application/json",
-        Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions))
+        Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions))
     };
 
     private static CapabilityResult Failure(string requestId, string message) => new()
@@ -100,7 +98,7 @@ public sealed class AgentOnboardingCapabilityHandler(
         Succeeded = false,
         ContentType = "application/json",
         Error = message,
-        Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(
+        Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(
             new PlatformCapabilityError(PlatformCapabilityErrorCode.Denied, message), JsonOptions))
     };
 }

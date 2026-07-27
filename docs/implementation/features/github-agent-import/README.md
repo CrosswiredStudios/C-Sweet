@@ -1,5 +1,9 @@
 # GitHub Agent Import
 
+> **Superseded historical design.** This document describes the retired import/runtime contract.
+> Use the [MCP-only migration](../../../../Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md)
+> and [current architecture](../../../../Documentation/Architecture/MCP_AGENT_RUNTIME.md).
+
 ## Goal
 
 Allow a user to import an agent from a public GitHub repository by URL, inspect the agent's root
@@ -49,3 +53,6 @@ container settings, use the companion
 - The agent runs as an isolated workload and can only interact through the broker.
 - Network, filesystem, secret, MCP, and API access are mediated by platform-controlled adapters.
 - Revocation disables future runs without deleting historical artifacts or audit records.
+# Superseded historical design
+
+> This document describes the retired gRPC import/runtime model. See [MCP-only migration](../../../../Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md) for the current protocol-v2 policy.

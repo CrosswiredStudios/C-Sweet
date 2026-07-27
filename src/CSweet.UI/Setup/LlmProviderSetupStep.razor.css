@@ -60,6 +60,11 @@
     gap: clamp(1.5rem, 4vw, 3rem);
 }
 
+.provider-discovery-feedback {
+    margin-top: -1rem;
+    margin-bottom: 1.25rem;
+}
+
 .provider-roster {
     padding-right: clamp(1.5rem, 4vw, 3rem);
     border-right: 1px solid var(--cs-border);

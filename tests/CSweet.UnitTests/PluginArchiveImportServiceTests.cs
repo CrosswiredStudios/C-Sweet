@@ -71,11 +71,11 @@ public sealed class PluginArchiveImportServiceTests
 
     private static string Manifest() => """
         {
-          "manifestVersion":"1.0", "kind":"agent", "id":"com.example.test", "name":"Test", "version":"1.0.0",
+          "manifestVersion":"2.0", "kind":"agent", "id":"com.example.test", "name":"Test", "version":"1.0.0",
           "publisher":{"id":"com.example","name":"Example"},
           "runtime":{"type":"dotnet-project","projectPath":"src/Test/Test.csproj","targetFramework":"net10.0","defaultActivationMode":"Manual","maximumConcurrentJobs":1},
-          "protocol":{"minimumVersion":"1.0","maximumVersion":"1.x"},
-          "provides":[], "requires":[], "events":{"publishes":[],"subscribes":[]},
+          "protocol":{"minimumVersion":"2.0","maximumVersion":"2.x"},
+          "provides":[], "requires":[], "events":{"subscribes":[]},
           "configuration":[], "credentials":[], "webAccess":{"mode":"None","rules":[]}, "ui":[]
         }
         """;

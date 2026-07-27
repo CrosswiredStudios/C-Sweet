@@ -25,6 +25,16 @@
 
 ![A founder directing an AI-assisted company from a calm command center](assets/readme/csweet-hero.png)
 
+## Agent runtime documentation
+
+Protocol-v2 executable agents use the transport-neutral SDK over C-Sweet's private, outbound-only
+MCP runtime and durable work inbox:
+
+- [Architecture](Documentation/Architecture/MCP_AGENT_RUNTIME.md)
+- [Threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md)
+- [Implementation and migration](Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md)
+- [Operations runbook](Documentation/Operations/MCP_AGENT_RUNTIME_RUNBOOK.md)
+
 ## A company can start with one person
 
 Starting a business should not require you to already know how to run every department.
@@ -166,7 +176,7 @@ The repository also contains MAUI host foundations, plugin SDK contracts, unit a
 - PostgreSQL 17 and Entity Framework Core
 - Docker Compose and isolated Docker agent runtimes
 - OpenTelemetry for observability
-- Server-sent events and gRPC for streaming and broker communication
+- Server-sent events for browser streaming and private Streamable HTTP MCP for SDK-managed agent work
 
 </details>
 

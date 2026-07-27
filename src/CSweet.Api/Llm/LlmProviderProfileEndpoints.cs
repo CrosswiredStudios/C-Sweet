@@ -30,6 +30,13 @@ public static class LlmProviderProfileEndpoints
                 : Results.BadRequest(result);
         });
 
+        group.MapPost("/discover-local", async (
+            ILocalLlmProviderDiscoveryService discoveryService,
+            CancellationToken cancellationToken) =>
+        {
+            return Results.Ok(await discoveryService.DiscoverAsync(cancellationToken));
+        });
+
         group.MapPut("/{id:guid}", async (
             Guid id,
             UpdateLlmProviderProfileRequest request,

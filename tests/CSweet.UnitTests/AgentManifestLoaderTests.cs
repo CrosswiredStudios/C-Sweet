@@ -10,7 +10,7 @@ public class AgentManifestLoaderTests
         var manifestPath = Path.Combine(Path.GetTempPath(), $"csweet-agent-{Guid.NewGuid():N}.json");
         await File.WriteAllTextAsync(manifestPath, """
             {
-              "manifestVersion": "1.0",
+              "manifestVersion": "2.0",
               "id": "com.example.research-agent",
               "name": "Research Agent",
               "version": "1.2.3",
@@ -21,7 +21,7 @@ public class AgentManifestLoaderTests
                 "targetFramework": "net10.0",
                 "defaultActivationMode": "Periodic"
               },
-              "protocol": { "minimumVersion": "1.0", "maximumVersion": "1.x" }
+              "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" }
             }
             """);
 

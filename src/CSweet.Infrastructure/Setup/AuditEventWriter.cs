@@ -54,7 +54,16 @@ public sealed class AuditEventWriter : IAuditEventWriter
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
             IDbContextTransaction? transaction = null;
             if (db.Database.IsRelational())
-                transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+            {
+                // PostgreSQL's transaction-scoped advisory lock serializes writers for a
+                // single audit stream. Using Serializable as well can abort otherwise
+                // independent business transactions with SQLSTATE 40001 while they emit
+                // audit records through this separate DbContext.
+                var isolationLevel = db.Database.IsNpgsql()
+                    ? IsolationLevel.ReadCommitted
+                    : IsolationLevel.Serializable;
+                transaction = await db.Database.BeginTransactionAsync(isolationLevel, cancellationToken);
+            }
             await using (transaction)
             {
                 if (db.Database.IsNpgsql())
@@ -66,7 +75,10 @@ public sealed class AuditEventWriter : IAuditEventWriter
                     .OrderByDescending(x => x.Sequence)
                     .Select(x => x.RecordHash)
                     .FirstOrDefaultAsync(cancellationToken);
-                var now = DateTimeOffset.UtcNow;
+                // PostgreSQL stores timestamptz values with microsecond precision. Normalize
+                // before hashing so the material read back from the database is byte-for-byte
+                // equivalent to the material that was sealed.
+                var now = NormalizeTimestamp(DateTimeOffset.UtcNow);
                 var payload = request.Payload is { } body
                     ? AuditPayloadSanitizer.Capture(body, request.ContentType)
                     : null;
@@ -82,7 +94,9 @@ public sealed class AuditEventWriter : IAuditEventWriter
                     EntityId = request.EntityId,
                     Summary = CleanOptional(request.Summary, 1024),
                     MetadataJson = AuditPayloadSanitizer.RedactJson(request.MetadataJson),
-                    OccurredAt = request.OccurredAt ?? now,
+                    OccurredAt = request.OccurredAt.HasValue
+                        ? NormalizeTimestamp(request.OccurredAt.Value)
+                        : now,
                     CreatedAt = now,
                     TraceId = request.TraceId ?? ambient?.TraceId ?? Guid.NewGuid(),
                     ParentEventId = request.ParentEventId ?? ambient?.ParentEventId,
@@ -136,4 +150,10 @@ public sealed class AuditEventWriter : IAuditEventWriter
 
     private static string? CleanOptional(string? value, int maximum) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim()[..Math.Min(value.Trim().Length, maximum)];
+
+    public static DateTimeOffset NormalizeTimestamp(DateTimeOffset value)
+    {
+        var utc = value.ToUniversalTime();
+        return new DateTimeOffset(utc.Ticks - utc.Ticks % 10, TimeSpan.Zero);
+    }
 }

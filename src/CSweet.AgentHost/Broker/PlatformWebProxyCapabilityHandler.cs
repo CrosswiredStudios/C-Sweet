@@ -1,11 +1,9 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Plugins;
 using CSweet.Infrastructure.Persistence;
-using Google.Protobuf;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
@@ -38,8 +36,8 @@ public sealed class PlatformWebProxyCapabilityHandler(
         if (!Guid.TryParse(session.InstallationId, out var installationId))
             return Failure(request.RequestId, "The plugin installation identity is invalid.");
 
-        BrokerWebFetchRequest? input;
-        try { input = JsonSerializer.Deserialize<BrokerWebFetchRequest>(request.Payload.Span, JsonOptions); }
+        PlatformWebFetchRequest? input;
+        try { input = JsonSerializer.Deserialize<PlatformWebFetchRequest>(request.Payload.Span, JsonOptions); }
         catch (JsonException) { return Failure(request.RequestId, "The web proxy request is not valid JSON."); }
         if (input is null || !Uri.TryCreate(input.Url, UriKind.Absolute, out var initialUri))
             return Failure(request.RequestId, "An absolute HTTP(S) URL is required.");
@@ -67,6 +65,10 @@ public sealed class PlatformWebProxyCapabilityHandler(
                 .ToHashSet(StringComparer.Ordinal);
         }
         catch (JsonException) { return Failure(request.RequestId, "The approved web access policy is invalid."); }
+        var blockedCidrs = OutboundNetworkPolicy.ParseCidrs(
+            await db.AgentRuntimeGlobalSettings.AsNoTracking()
+                .Select(x => x.BlockedNetworkCidrs)
+                .SingleOrDefaultAsync(cancellationToken));
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -80,7 +82,7 @@ public sealed class PlatformWebProxyCapabilityHandler(
                     return await DeniedAsync(request.RequestId, installationId, current, "Destination is outside the approved web grant.", cancellationToken);
 
                 var addresses = await Dns.GetHostAddressesAsync(current.DnsSafeHost, timeout.Token);
-                if (addresses.Length == 0 || addresses.Any(IsForbiddenAddress))
+                if (addresses.Length == 0 || addresses.Any(x => OutboundNetworkPolicy.IsForbiddenAddress(x, blockedCidrs)))
                     return await DeniedAsync(request.RequestId, installationId, current, "Destination resolves to a private or reserved address.", cancellationToken);
 
                 using var handler = CreatePinnedHandler(current, addresses[0]);
@@ -99,7 +101,7 @@ public sealed class PlatformWebProxyCapabilityHandler(
                 if (!string.IsNullOrWhiteSpace(input.Credential))
                 {
                     var credential = manifest.Credentials.SingleOrDefault(x => x.Name == input.Credential);
-                    if (credential is null || !credential.AllowedOrigins.Contains(current.GetLeftPart(UriPartial.Authority), StringComparer.OrdinalIgnoreCase))
+                    if (credential is null || !OutboundNetworkPolicy.IsAllowedOrigin(current, credential.AllowedOrigins))
                         return Failure(request.RequestId, "The requested credential is not bound to this origin.");
                     var value = await secrets.GetAsync(installationId, input.Credential, timeout.Token);
                     if (string.IsNullOrWhiteSpace(value)) return Failure(request.RequestId, "The requested credential is not configured.");
@@ -117,7 +119,7 @@ public sealed class PlatformWebProxyCapabilityHandler(
                 var body = input.Method == "HEAD"
                     ? (Bytes: Array.Empty<byte>(), Truncated: false)
                     : await ReadBoundedAsync(response.Content, timeout.Token);
-                var result = new BrokerWebFetchResponse(
+                var result = new PlatformWebFetchResponse(
                     (int)response.StatusCode,
                     current.GetLeftPart(UriPartial.Path),
                     response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream",
@@ -136,7 +138,7 @@ public sealed class PlatformWebProxyCapabilityHandler(
         }
         catch (Exception exception) when (exception is HttpRequestException or SocketException or IOException)
         {
-            logger.LogWarning(exception, "Brokered web request failed for plugin {PluginId}.", session.AgentId);
+            logger.LogWarning(exception, "Platform web request failed for plugin {PluginId}.", session.AgentId);
             return Failure(request.RequestId, "The remote web request failed.");
         }
         return Failure(request.RequestId, "The web proxy request failed.");
@@ -153,9 +155,9 @@ public sealed class PlatformWebProxyCapabilityHandler(
             if (!grants.Contains(CSweet.Infrastructure.Setup.AgentImportPreviewService.WebGrantToken(rule))) continue;
             if (!string.Equals(rule.Protocol, "http", StringComparison.Ordinal) ||
                 !string.Equals(rule.Scheme, uri.Scheme, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(rule.Host, uri.DnsSafeHost, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(OutboundNetworkPolicy.NormalizeHost(rule.Host), OutboundNetworkPolicy.NormalizeHost(uri.DnsSafeHost), StringComparison.Ordinal) ||
                 rule.Port is not null && rule.Port != uri.Port ||
-                !uri.AbsolutePath.StartsWith(rule.PathPrefix, StringComparison.Ordinal) ||
+                !OutboundNetworkPolicy.IsPathWithinPrefix(uri.AbsolutePath, rule.PathPrefix) ||
                 !rule.Methods.Contains(method, StringComparer.Ordinal) ||
                 !string.Equals(rule.Credential, credential, StringComparison.Ordinal)) continue;
             return rule;
@@ -175,6 +177,8 @@ public sealed class PlatformWebProxyCapabilityHandler(
     {
         AllowAutoRedirect = false,
         AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+        MaxConnectionsPerServer = 2,
+        ConnectTimeout = TimeSpan.FromSeconds(10),
         ConnectCallback = async (context, token) =>
         {
             var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -186,19 +190,6 @@ public sealed class PlatformWebProxyCapabilityHandler(
             catch { socket.Dispose(); throw; }
         }
     };
-
-    private static bool IsForbiddenAddress(IPAddress address)
-    {
-        if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
-        if (IPAddress.IsLoopback(address) || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any)) return true;
-        var bytes = address.GetAddressBytes();
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-            return bytes[0] is 0 or 10 or 127 || bytes[0] == 169 && bytes[1] == 254 ||
-                   bytes[0] == 172 && bytes[1] is >= 16 and <= 31 || bytes[0] == 192 && bytes[1] == 168 ||
-                   bytes[0] >= 224 || bytes[0] == 100 && bytes[1] is >= 64 and <= 127;
-        return address.IsIPv6LinkLocal || address.IsIPv6Multicast ||
-               (bytes[0] & 0xfe) == 0xfc || address.Equals(IPAddress.IPv6Loopback);
-    }
 
     private static bool IsRedirect(HttpStatusCode status) => (int)status is 301 or 302 or 303 or 307 or 308;
 
@@ -218,10 +209,10 @@ public sealed class PlatformWebProxyCapabilityHandler(
         return (output.ToArray(), true);
     }
 
-    private static CapabilityResult Success(string requestId, BrokerWebFetchResponse response) => new()
+    private static CapabilityResult Success(string requestId, PlatformWebFetchResponse response) => new()
     {
         RequestId = requestId, Succeeded = true, ContentType = "application/json",
-        Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(response, JsonOptions))
+        Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(response, JsonOptions))
     };
 
     private static CapabilityResult Failure(string requestId, string error) => new()

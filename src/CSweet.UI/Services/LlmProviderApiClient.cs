@@ -21,6 +21,23 @@ public sealed class LlmProviderApiClient : ILlmProviderApiClient
             ?? [];
     }
 
+    public async Task<LocalLlmProviderDiscoveryResponse> DiscoverLocalAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            "api/llm-provider-profiles/discover-local",
+            content: null,
+            cancellationToken);
+
+        if (response.IsSuccessStatusCode)
+        {
+            return await response.Content.ReadFromJsonAsync<LocalLlmProviderDiscoveryResponse>(cancellationToken)
+                ?? throw new ApiClientException(response.StatusCode, "Local provider discovery response was empty.");
+        }
+
+        throw new ApiClientException(response.StatusCode, "Local provider discovery failed.");
+    }
+
     public async Task<PreviewModelCatalogResponse> PreviewModelCatalogAsync(
         PreviewModelCatalogRequest request,
         CancellationToken cancellationToken = default)

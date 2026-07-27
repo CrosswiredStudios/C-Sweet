@@ -1,9 +1,10 @@
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
-using IAgentBrokerClient = CSweet.Agent.SDK.IAgentBrokerClient;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
-using Google.Protobuf;
+using CSweet.Domain.Setup;
+using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
+using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Api.Agents;
 
@@ -175,7 +176,8 @@ public static class AgentManagementEndpoints
 
         group.MapGet("/installations/{installationId:guid}/configuration", async (
             Guid installationId,
-            IAgentBrokerClient broker,
+            AgentWorkInbox inbox,
+            CSweetDbContext db,
             IAgentInteractiveRuntimeService interactiveRuntime,
             IAgentInstallationConfigurationService configurations,
             CancellationToken cancellationToken) =>
@@ -187,8 +189,9 @@ public static class AgentManagementEndpoints
             }
 
             var result = await InvokeAgentConfigurationCapabilityAsync(
-                broker,
-                $"installation:{installationId}",
+                db,
+                inbox,
+                installationId,
                 AgentConfigurationCapabilities.Describe,
                 payload: [],
                 cancellationToken);
@@ -223,7 +226,8 @@ public static class AgentManagementEndpoints
         group.MapPost("/installations/{installationId:guid}/configuration", async (
             Guid installationId,
             UpdateAgentConfigurationRequest request,
-            IAgentBrokerClient broker,
+            AgentWorkInbox inbox,
+            CSweetDbContext db,
             IAgentInteractiveRuntimeService interactiveRuntime,
             IAgentInstallationConfigurationService configurations,
             CancellationToken cancellationToken) =>
@@ -236,8 +240,9 @@ public static class AgentManagementEndpoints
 
             var payload = JsonSerializer.SerializeToUtf8Bytes(request, SerializerOptions);
             var result = await InvokeAgentConfigurationCapabilityAsync(
-                broker,
-                $"installation:{installationId}",
+                db,
+                inbox,
+                installationId,
                 AgentConfigurationCapabilities.Update,
                 payload,
                 cancellationToken);
@@ -284,46 +289,51 @@ public static class AgentManagementEndpoints
         }
     }
 
-    private static async Task<CapabilityResult> InvokeAgentConfigurationCapabilityAsync(
-        IAgentBrokerClient broker,
-        string agentId,
+    private static async Task<AgentWorkCompletion> InvokeAgentConfigurationCapabilityAsync(
+        CSweetDbContext db,
+        AgentWorkInbox inbox,
+        Guid installationId,
         string capability,
         byte[] payload,
         CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(CapabilityTimeout);
-        var registrationDeadline = DateTimeOffset.UtcNow.Add(ProviderRegistrationGracePeriod);
-
+        var organizationId = await db.AgentInstallations.AsNoTracking()
+            .Where(x => x.Id == installationId && x.IsEnabled)
+            .Select(x => x.BusinessId)
+            .SingleAsync(timeout.Token);
+        var arguments = payload.Length == 0
+            ? JsonDocument.Parse("{}").RootElement.Clone()
+            : JsonDocument.Parse(payload).RootElement.Clone();
+        var work = await inbox.EnqueueAsync(
+            organizationId,
+            installationId,
+            AgentWorkKind.Capability,
+            capability,
+            arguments,
+            $"configuration-request:{Guid.NewGuid():N}",
+            DateTimeOffset.UtcNow.Add(CapabilityTimeout),
+            sourceType: "management-api",
+            cancellationToken: timeout.Token);
         while (true)
         {
-            var result = await broker.InvokeCapabilityAsync(
-                new RequestCapability
-                {
-                    Capability = capability,
-                    TargetAgentId = agentId,
-                    ContentType = "application/json",
-                    Payload = ByteString.CopyFrom(payload)
-                },
-                correlationId: Guid.NewGuid().ToString("N"),
-                timeout.Token);
-
-            if (result.Succeeded ||
-                !IsProviderRegistrationPending(result) ||
-                DateTimeOffset.UtcNow >= registrationDeadline)
-            {
-                return result;
-            }
-
+            var state = await inbox.ReadStateAsync(work.Id, timeout.Token);
+            if (state.Status == AgentWorkStatus.Completed)
+                return state.Completion ?? new AgentWorkCompletion(
+                    false,
+                    null,
+                    "The agent returned no configuration result.");
+            if (state.Status is AgentWorkStatus.Cancelled or AgentWorkStatus.DeadLetter)
+                return new AgentWorkCompletion(
+                    false,
+                    null,
+                    state.Error ?? "The configuration work did not complete.");
             await Task.Delay(ProviderRegistrationRetryDelay, timeout.Token);
         }
     }
 
-    private static bool IsProviderRegistrationPending(CapabilityResult result) =>
-        !result.Succeeded &&
-        result.Error.StartsWith("No authorized agent", StringComparison.Ordinal);
-
-    private static bool TryGetFailure(CapabilityResult result, out IResult failure)
+    private static bool TryGetFailure(AgentWorkCompletion result, out IResult failure)
     {
         if (!result.Succeeded)
         {
@@ -340,8 +350,8 @@ public static class AgentManagementEndpoints
         return false;
     }
 
-    private static T? Deserialize<T>(CapabilityResult result) =>
-        JsonSerializer.Deserialize<T>(
-            result.Payload.ToByteArray(),
-            SerializerOptions);
+    private static T? Deserialize<T>(AgentWorkCompletion result) =>
+        result.Value is { } value
+            ? value.Deserialize<T>(SerializerOptions)
+            : default;
 }

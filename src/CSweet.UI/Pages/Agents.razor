@@ -1868,7 +1868,7 @@
     };
 
     private static bool IsRuntimeActive(string? status) => status is
-        "Queued" or "Starting" or "WaitingForBrokerRegistration" or "Running" or "CompletionReported" or "Stopping";
+        "Queued" or "Starting" or "WaitingForMcpSession" or "Running" or "CompletionReported" or "Stopping";
 
     private static bool IsAlwaysOn(AgentInstallationResponse installation) =>
         string.Equals(installation.Schedule.ActivationMode, "AlwaysOn", StringComparison.Ordinal);

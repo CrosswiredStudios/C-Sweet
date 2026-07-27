@@ -1,6 +1,8 @@
 using System.Text.Json;
 using CSweet.Application.Core;
+using CSweet.Application.Agents;
 using CSweet.Application.Setup;
+using CSweet.Contracts.Agents;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
@@ -11,7 +13,12 @@ namespace CSweet.Infrastructure.Core;
 public sealed class HiringService(
     CSweetDbContext db,
     IOrganizationUserService organizationUsers,
-    IAuditEventWriter audit) : IHiringService
+    IAuditEventWriter audit,
+    IAgentImportPreviewService? importPreview = null,
+    IAgentInstallationService? agentInstallations = null,
+    IAgentCatalogService? agentCatalog = null,
+    ILocalAgentSourceArchiveService? localAgentArchives = null,
+    IPluginArchiveImportService? archiveImport = null) : IHiringService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -210,10 +217,80 @@ public sealed class HiringService(
         else if (candidate.Source == "InstalledPlugin")
         {
             var installationId = Guid.Parse(candidate.ExternalCandidateId);
+            var existingEmployee = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive,
+                cancellationToken);
+            if (existingEmployee is not null)
+            {
+                resultUserId = existingEmployee.Id;
+                goto CompleteWorkflow;
+            }
             var result = await organizationUsers.CreateAsync(organizationId, new CreateOrganizationUserRequest(
                 candidate.DisplayName, null, (int)OrganizationPermissionLevel.Contributor, (int)EmployeeType.Agent,
                 role.Id, null, snapshot.ReportsToOrganizationUserId, AgentInstallationId: installationId),
                 cancellationToken, applicationUserId);
+            if (!result.Succeeded || result.OrganizationUser is null)
+                throw new InvalidOperationException(result.Message);
+            resultUserId = result.OrganizationUser.Id;
+        }
+        else if (IsInstallableAgentCatalogSource(candidate.Source))
+        {
+            var embedded = snapshot.EmbeddedAgent
+                ?? throw new InvalidOperationException("The catalog agent installation snapshot is missing.");
+            var installationService = agentInstallations
+                ?? throw new InvalidOperationException("The agent installation service is unavailable.");
+            AgentInstallationResponse installation;
+            if (embedded.InstallationId.HasValue)
+            {
+                installation = await installationService.GetAsync(embedded.InstallationId.Value, cancellationToken)
+                    ?? throw new InvalidOperationException("The approved catalog agent installation no longer exists.");
+            }
+            else
+            {
+                installation = await installationService.InstallAsync(
+                    embedded.ImportId,
+                    new InstallAgentRequest(
+                        organizationId.ToString("D"),
+                        embedded.ActivationMode,
+                        300,
+                        "Skip",
+                        embedded.ProvidedCapabilities,
+                        embedded.Subscriptions,
+                        embedded.Publications,
+                        [],
+                        embedded.NetworkAccess,
+                        86_400,
+                        512,
+                        100)
+                    {
+                        GrantedRequestedCapabilities = embedded.RequestedCapabilities,
+                        PluginScope = "Organization"
+                    },
+                    cancellationToken);
+                embedded = embedded with { InstallationId = installation.Id };
+                snapshot = snapshot with { EmbeddedAgent = embedded };
+                workflow.PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            var existingEmployee = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive,
+                cancellationToken);
+            if (existingEmployee is not null)
+            {
+                resultUserId = existingEmployee.Id;
+                goto CompleteWorkflow;
+            }
+            var result = await organizationUsers.CreateAsync(organizationId, new CreateOrganizationUserRequest(
+                    installation.AgentName,
+                    null,
+                    (int)OrganizationPermissionLevel.Contributor,
+                    (int)EmployeeType.Agent,
+                    role.Id,
+                    null,
+                    snapshot.ReportsToOrganizationUserId,
+                    AgentInstallationId: installation.Id),
+                cancellationToken,
+                applicationUserId);
             if (!result.Succeeded || result.OrganizationUser is null)
                 throw new InvalidOperationException(result.Message);
             resultUserId = result.OrganizationUser.Id;
@@ -223,6 +300,7 @@ public sealed class HiringService(
             throw new InvalidOperationException("This candidate source cannot be hired until its installation or provider engagement succeeds.");
         }
 
+CompleteWorkflow:
         workflow.Status = ProposalStatus.Approved;
         workflow.ApprovedByOrganizationUserId = owner.Id;
         workflow.ResultOrganizationUserId = resultUserId;
@@ -242,20 +320,81 @@ public sealed class HiringService(
     {
         string? digest = null;
         IReadOnlyList<string> currentGrants = [];
+        IReadOnlyList<string> approvedRequiredGrants = requiredGrants
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        EmbeddedAgentInstallSnapshot? embeddedAgent = null;
         if (candidate.Source == "InstalledPlugin" && Guid.TryParse(candidate.ExternalCandidateId, out var installationId))
         {
             var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).Include(x => x.Grant)
                 .SingleAsync(x => x.Id == installationId, token);
             digest = installation.PackageVersion?.PackageDigest ?? installation.PackageVersion?.ManifestDigest;
-            currentGrants = ReadStrings(installation.Grant?.RequestedCapabilitiesJson);
+            currentGrants = ReadStrings(installation.Grant?.RequiredCapabilitiesJson);
             if (requiredGrants.Except(currentGrants, StringComparer.Ordinal).Any())
                 throw new InvalidOperationException("The installed agent does not currently have all required grants.");
+        }
+        else if (IsInstallableAgentCatalogSource(candidate.Source))
+        {
+            var metadata = ReadMetadata(candidate.ExplanationJson);
+            AgentImportPreviewResponse preview;
+            var isLocalArchive = candidate.Source == "LocalDirectoryCatalog";
+            if (isLocalArchive)
+            {
+                if (string.IsNullOrWhiteSpace(metadata.CatalogReference))
+                    throw new InvalidOperationException("The local agent candidate has no resolvable catalog reference.");
+                var archiveService = localAgentArchives
+                    ?? throw new InvalidOperationException("The local agent archive service is unavailable.");
+                var importer = archiveImport
+                    ?? throw new InvalidOperationException("The source archive import service is unavailable.");
+                var archive = await archiveService.CreateArchiveAsync(metadata.CatalogReference, token);
+                await using var stream = new MemoryStream(archive.Content, writable: false);
+                preview = await importer.PreviewSourceArchiveAsync(stream, archive.FileName, token);
+            }
+            else
+            {
+                var repositoryUrl = metadata.RepositoryUrl;
+                if (!string.IsNullOrWhiteSpace(metadata.CatalogReference) && agentCatalog is not null)
+                {
+                    var resolved = await agentCatalog.ResolveAsync(
+                        candidate.OrganizationId,
+                        metadata.CatalogReference,
+                        token);
+                    repositoryUrl = resolved?.RepositoryUrl;
+                }
+                if (string.IsNullOrWhiteSpace(repositoryUrl))
+                    throw new InvalidOperationException("The catalog agent candidate has no installable repository URL.");
+                var previewService = importPreview
+                    ?? throw new InvalidOperationException("The agent import preview service is unavailable.");
+                preview = await previewService.PreviewAsync(new PreviewAgentImportRequest(repositoryUrl), token);
+            }
+            ValidateCatalogPreview(preview, requiredGrants);
+
+            digest = preview.ManifestDigest;
+            currentGrants = preview.RequestedCapabilities
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            approvedRequiredGrants = currentGrants;
+            embeddedAgent = new EmbeddedAgentInstallSnapshot(
+                preview.ImportId,
+                preview.RepositoryUrl,
+                preview.CommitSha,
+                preview.ManifestDigest,
+                preview.AgentId,
+                string.IsNullOrWhiteSpace(preview.DefaultActivationMode)
+                    ? "AlwaysOn"
+                    : preview.DefaultActivationMode,
+                preview.Capabilities.Distinct(StringComparer.Ordinal).ToList(),
+                currentGrants,
+                preview.RequestedSubscriptions.Distinct(StringComparer.Ordinal).ToList(),
+                preview.RequestedPublications.Distinct(StringComparer.Ordinal).ToList(),
+                preview.RequestedNetworkAccess.Distinct(StringComparer.Ordinal).ToList(),
+                isLocalArchive);
         }
         var planId = candidate.WorkforcePlanId ?? throw new InvalidOperationException(
             "The candidate is not attached to a hiring recommendation.");
         var plan = await db.WorkforcePlans.AsNoTracking().SingleAsync(x => x.Id == planId, token);
         return new(roleTitle, reportsTo, plan.WorkstreamId, plan.Objective, candidate.EstimatedCost, candidate.Currency,
-            digest, requiredGrants.Distinct(StringComparer.Ordinal).ToList(), currentGrants);
+            digest, approvedRequiredGrants, currentGrants, embeddedAgent);
     }
 
     private async Task RevalidateAsync(Guid organizationId, WorkforceCandidate candidate, WorkflowSnapshot snapshot,
@@ -291,9 +430,40 @@ public sealed class HiringService(
             var digest = current.PackageVersion?.PackageDigest ?? current.PackageVersion?.ManifestDigest;
             if (!string.Equals(digest, snapshot.PackageDigest, StringComparison.Ordinal))
                 throw new InvalidOperationException("The agent package digest changed; create a new approval.");
-            var grants = ReadStrings(current.Grant?.RequestedCapabilitiesJson);
+            var grants = ReadStrings(current.Grant?.RequiredCapabilitiesJson);
             if (snapshot.RequiredGrants.Except(grants, StringComparer.Ordinal).Any())
                 throw new InvalidOperationException("The approved grants changed; create a new approval.");
+        }
+        else if (IsInstallableAgentCatalogSource(candidate.Source))
+        {
+            var embedded = snapshot.EmbeddedAgent
+                ?? throw new InvalidOperationException("The catalog agent installation snapshot is missing.");
+            if (embedded.IsLocalArchive)
+            {
+                var current = await db.AgentPackageVersions.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.Id == embedded.ImportId &&
+                    x.ManifestDigest == embedded.ManifestDigest &&
+                    x.AgentId == embedded.AgentId,
+                    token);
+                if (current is null)
+                    throw new InvalidOperationException(
+                        "The approved local agent snapshot changed or was removed; create a new approval.");
+            }
+            else
+            {
+                var previewService = importPreview
+                    ?? throw new InvalidOperationException("The agent import preview service is unavailable.");
+                var current = await previewService.PreviewAsync(
+                    new PreviewAgentImportRequest(embedded.RepositoryUrl, embedded.CommitSha),
+                    token);
+                if (!string.Equals(current.CommitSha, embedded.CommitSha, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(current.ManifestDigest, embedded.ManifestDigest, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(current.AgentId, embedded.AgentId, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "The catalog agent source changed after approval was staged; create a new approval.");
+                }
+            }
         }
         else if (candidate.Source == "CurrentStaff")
         {
@@ -337,8 +507,17 @@ public sealed class HiringService(
         return new(CandidateReference(candidate.Id), candidate.Source, candidate.DisplayName,
             metadata.ResourceType ?? (candidate.IsHuman ? "Human" : "Agent"), ReadStrings(candidate.CapabilitiesJson),
             metadata.Credentials, candidate.Score, candidate.EstimatedCost, candidate.Currency,
-            candidate.Source is "CurrentStaff" or "InstalledPlugin" ? "Platform verified" : "Provider supplied",
-            candidate.IsAvailable, candidate.Source == "InstalledPlugin" ? "Installed" : candidate.Source == "CurrentStaff" ? "On staff" : "Not installed",
+            candidate.Source is "CurrentStaff" or "InstalledPlugin" or "CSweetEmbeddedCatalog"
+                ? "Platform verified"
+                : "Provider supplied",
+            candidate.IsAvailable,
+            candidate.Source == "InstalledPlugin"
+                ? "Installed"
+                : candidate.Source == "CurrentStaff"
+                    ? "On staff"
+                    : candidate.Source == "CSweetEmbeddedCatalog"
+                        ? "Embedded source available"
+                        : "Not installed",
             metadata.RequiredGrants, metadata.Rationale ?? string.Empty);
     }
 
@@ -376,6 +555,22 @@ public sealed class HiringService(
         try { return JsonSerializer.Deserialize<CandidateMetadata>(json, JsonOptions) ?? new(); }
         catch (JsonException) { return new(); }
     }
+    private static bool IsInstallableAgentCatalogSource(string source) =>
+        source is "CSweetEmbeddedCatalog" or "CSweetMarketplace" or "LocalDirectoryCatalog";
+
+    private static void ValidateCatalogPreview(
+        AgentImportPreviewResponse preview,
+        IReadOnlyList<string> requiredGrants)
+    {
+        if (!preview.PluginKind.Equals("Agent", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The catalog source does not contain an agent plugin.");
+        if (preview.RequestedPermissions.Count > 0)
+            throw new InvalidOperationException("Catalog agents using legacy permissions cannot be installed through hiring.");
+        if (preview.RequestedNetworkAccess.Contains("all-public", StringComparer.Ordinal))
+            throw new InvalidOperationException("All-public web access requires a separate installation review.");
+        if (requiredGrants.Except(preview.RequestedCapabilities, StringComparer.Ordinal).Any())
+            throw new InvalidOperationException("The requested grant list contains capabilities not declared by the catalog agent.");
+    }
     private static string Required(string? value, int maximum, string name)
     {
         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException($"{name} is required.");
@@ -386,12 +581,29 @@ public sealed class HiringService(
 
     private sealed record WorkflowSnapshot(string RoleTitle, Guid? ReportsToOrganizationUserId, Guid? WorkstreamId,
         string Objective, decimal? Price, string? Currency, string? PackageDigest,
-        IReadOnlyList<string> RequiredGrants, IReadOnlyList<string> ApprovedGrants);
+        IReadOnlyList<string> RequiredGrants, IReadOnlyList<string> ApprovedGrants,
+        EmbeddedAgentInstallSnapshot? EmbeddedAgent = null);
+    private sealed record EmbeddedAgentInstallSnapshot(
+        Guid ImportId,
+        string RepositoryUrl,
+        string CommitSha,
+        string ManifestDigest,
+        string AgentId,
+        string ActivationMode,
+        IReadOnlyList<string> ProvidedCapabilities,
+        IReadOnlyList<string> RequestedCapabilities,
+        IReadOnlyList<string> Subscriptions,
+        IReadOnlyList<string> Publications,
+        IReadOnlyList<string> NetworkAccess,
+        bool IsLocalArchive = false,
+        Guid? InstallationId = null);
     private sealed record CandidateMetadata
     {
         public string? ResourceType { get; init; }
         public IReadOnlyList<string> Credentials { get; init; } = [];
         public string? Rationale { get; init; }
         public IReadOnlyList<string> RequiredGrants { get; init; } = [];
+        public string? RepositoryUrl { get; init; }
+        public string? CatalogReference { get; init; }
     }
 }

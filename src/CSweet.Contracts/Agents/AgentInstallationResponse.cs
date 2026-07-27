@@ -57,7 +57,7 @@ public sealed record AgentRuntimeRunResponse(
     string? Reason,
     DateTimeOffset QueuedAt,
     DateTimeOffset? StartedAt,
-    DateTimeOffset? BrokerRegisteredAt,
+    DateTimeOffset? McpSessionEstablishedAt,
     DateTimeOffset? CompletionReportedAt,
     DateTimeOffset? CompletedAt,
     IReadOnlyList<AgentRuntimeEventResponse> Events,

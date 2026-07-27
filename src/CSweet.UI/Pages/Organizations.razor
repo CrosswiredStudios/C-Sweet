@@ -571,6 +571,15 @@
                 _runtimeSettings = settingsResult.Settings ?? _runtimeSettings;
             }
 
+            if (_installedChief is null)
+            {
+                var installations = await AgentApi.ListInstallationsAsync();
+                _installedChief = BusinessOnboardingAgentInstallationSelector.FindReusable(
+                    installations,
+                    _agentPreview.ImportId,
+                    _agentPreview.AgentId);
+            }
+
             _installedChief ??= await AgentApi.InstallAsync(
                 _agentPreview.ImportId,
                 new InstallAgentRequest(

@@ -9,6 +9,12 @@
         <RouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
+    <Navigating>
+        <div class="d-flex flex-column align-center justify-center" style="min-height: 100vh">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            <MudText Typo="Typo.body1" Class="mt-4">Connecting to C-Sweet…</MudText>
+        </div>
+    </Navigating>
 </Router>
 
 @code {
@@ -19,10 +25,13 @@
 
     private async Task GuardNavigationAsync(Microsoft.AspNetCore.Components.Routing.NavigationContext context)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var cancellationToken = timeout.Token;
         try
         {
             var path = context.Path.Trim('/');
-            var auth = await AuthenticationApi.GetStatusAsync(context.CancellationToken);
+            var auth = await AuthenticationApi.GetStatusAsync(cancellationToken);
 
             if (auth.RegistrationOpen)
             {
@@ -39,7 +48,7 @@
                 return;
             }
 
-            var status = await Http.GetFromJsonAsync<SetupStatusResponse>("api/setup/status", context.CancellationToken);
+            var status = await Http.GetFromJsonAsync<SetupStatusResponse>("api/setup/status", cancellationToken);
 
             if (status is { IsFirstRunComplete: false })
             {

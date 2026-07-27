@@ -20,8 +20,8 @@ internal static class AgentInstallationConfigurationDefaults
             return;
 
         var requestedCapabilities = JsonSerializer.Deserialize<IReadOnlyList<string>>(
-            installation.Grant?.RequestedCapabilitiesJson ?? "[]") ?? [];
-        if (!requestedCapabilities.Contains(BrokerLlmCapabilities.ChatStream, StringComparer.Ordinal))
+            installation.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];
+        if (!requestedCapabilities.Contains(PlatformCapabilities.LlmChatStream, StringComparer.Ordinal))
             return;
 
         PluginManifest? manifest;

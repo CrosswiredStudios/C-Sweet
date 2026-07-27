@@ -9,7 +9,7 @@ namespace CSweet.Infrastructure.Setup;
 
 public sealed class AgentRuntimeSignalService(CSweetDbContext dbContext) : IAgentRuntimeSignalService
 {
-    public async Task RecordBrokerRegistrationAsync(Guid runtimeInstanceId, Guid tickId, Guid installationId, string workloadToken, CancellationToken cancellationToken = default)
+    public async Task RecordMcpSessionEstablishedAsync(Guid runtimeInstanceId, Guid tickId, Guid installationId, string workloadToken, CancellationToken cancellationToken = default)
     {
         var instance = await dbContext.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
@@ -20,19 +20,19 @@ public sealed class AgentRuntimeSignalService(CSweetDbContext dbContext) : IAgen
         var storedHash = Convert.FromHexString(instance.WorkloadTokenHash);
         if (!CryptographicOperations.FixedTimeEquals(presentedHash, storedHash))
             throw new InvalidOperationException("The runtime workload token is invalid.");
-        // A broker stream can reconnect while the same runtime is still running.
+        // An SDK MCP session can reconnect while the same runtime is still running.
         // Identity and workload-token validation above make this retry safe; rejecting it
         // leaves the durable runtime marked Running with no live broker session.
         if (instance.Status == AgentRuntimeStatus.Running)
             return;
-        if (instance.Status != AgentRuntimeStatus.WaitingForBrokerRegistration)
-            throw new InvalidOperationException("The runtime instance is not awaiting broker registration.");
+        if (instance.Status != AgentRuntimeStatus.WaitingForMcpSession)
+            throw new InvalidOperationException("The runtime instance is not awaiting MCP session establishment.");
         if (instance.AgentInstallation?.Schedule is { } schedule)
         {
             schedule.ConsecutiveStartupFailures = 0;
             schedule.AutomaticStartSuppressedAt = null;
         }
-        AddTransition(instance, AgentRuntimeStatus.Running, DateTimeOffset.UtcNow, "Broker registration accepted.");
+        AddTransition(instance, AgentRuntimeStatus.Running, DateTimeOffset.UtcNow, "MCP session established.");
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 

@@ -190,19 +190,29 @@
                     }
                     else if (field.Type == AgentConfigurationFieldTypes.LlmProvider)
                     {
-                        <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetProviderValue(field.Key, value))" Variant="Variant.Outlined">
+                        <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetProviderValueAsync(field.Key, value))" Variant="Variant.Outlined">
+                            <MudSelectItem T="string" Value="@string.Empty">Select a provider</MudSelectItem>
                             @foreach (var provider in _providerProfiles.Where(x => x.IsEnabled))
                             {
                                 <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
                             }
                         </MudSelect>
+                        @if (!string.IsNullOrWhiteSpace(ModelCatalogError(field)))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Error">@ModelCatalogError(field)</MudText>
+                        }
                     }
                     else if (field.Type == AgentConfigurationFieldTypes.LlmModel)
                     {
-                        <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined" Disabled="@(ConfigurationProvider(field) is null)">
-                            @if (ConfigurationProvider(field) is { } provider && !string.IsNullOrWhiteSpace(provider.DefaultChatModel))
+                        <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined" Disabled="@IsModelPickerDisabled(field)">
+                            <MudSelectItem T="string" Value="@string.Empty">@ModelPlaceholder(field)</MudSelectItem>
+                            @if (SelectedModelMissing(field))
                             {
-                                <MudSelectItem T="string" Value="@provider.DefaultChatModel">@provider.DefaultChatModel</MudSelectItem>
+                                <MudSelectItem T="string" Value="@ConfigurationString(field.Key)">@ConfigurationString(field.Key)</MudSelectItem>
+                            }
+                            @foreach (var model in ModelOptions(field))
+                            {
+                                <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
                             }
                         </MudSelect>
                     }

@@ -1,17 +1,18 @@
 @page "/settings/agents/marketplace"
 @layout SettingsLayout
-@using CSweet.Contracts.Marketplace
+@using System.Net.Http.Json
+@using CSweet.Agent.SDK
 @inject HttpClient Http
 
-<PageTitle>Agent Marketplace - C-Sweet</PageTitle>
+<PageTitle>Agent Catalog - C-Sweet</PageTitle>
 
 <div class="setup-shell agent-marketplace-page">
     <MudPaper Elevation="0" Class="page-header agent-marketplace-header">
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Build your agent workforce</MudText>
-            <MudText Typo="Typo.h3">Agent marketplace</MudText>
+            <MudText Typo="Typo.h3">Agent catalog</MudText>
             <MudText Color="Color.Secondary">
-                Discover trusted C-Sweet agents and browse the live CSweet.Market catalog.
+                Discover local, C-Sweet first-party, and marketplace agents through one catalog.
             </MudText>
         </div>
         <MudButton Variant="Variant.Outlined"
@@ -23,31 +24,40 @@
         </MudButton>
     </MudPaper>
 
-    @if (_loading && _showcase is null)
+    @if (_loading && _result is null)
     {
         <MudPaper Elevation="0" Outlined="true" Class="marketplace-loading">
             <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
             <div>
-                <MudText Typo="Typo.h6">Opening the marketplace</MudText>
-                <MudText Color="Color.Secondary">Loading featured and first-party agents…</MudText>
+                <MudText Typo="Typo.h6">Opening the agent catalog</MudText>
+                <MudText Color="Color.Secondary">Loading local, first-party, and marketplace agents…</MudText>
             </div>
         </MudPaper>
     }
     else
     {
-        @if (FeaturedAgents.Count > 0)
+        @foreach (var source in _result?.Sources.Where(x => !x.Available && !string.IsNullOrWhiteSpace(x.Message)) ?? [])
         {
-            <section class="marketplace-section marketplace-featured-section" aria-labelledby="featured-agents-heading">
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+                @source.Source: @source.Message Other catalog sources remain available.
+            </MudAlert>
+        }
+
+        @if (FirstPartyAgents.Count > 0)
+        {
+            <section class="marketplace-section" aria-labelledby="first-party-agents-heading">
                 <div class="marketplace-section-heading">
                     <div>
-                        <MudText Typo="Typo.overline" Color="Color.Primary">Curated for C-Sweet</MudText>
-                        <MudText Typo="Typo.h4" id="featured-agents-heading">Featured agents</MudText>
-                        <MudText Color="Color.Secondary">A strong place to start when expanding your agent workforce.</MudText>
+                        <MudText Typo="Typo.overline" Color="Color.Primary">Built by C-Sweet</MudText>
+                        <MudText Typo="Typo.h4" id="first-party-agents-heading">First-party agents</MudText>
+                        <MudText Color="Color.Secondary">
+                            Curated metadata backed by importable GitHub repositories.
+                        </MudText>
                     </div>
-                    <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" />
+                    <MudIcon Icon="@Icons.Material.Outlined.Verified" Color="Color.Primary" />
                 </div>
-                <div class="marketplace-card-grid marketplace-featured-grid">
-                    @foreach (var agent in FeaturedAgents)
+                <div class="marketplace-card-grid">
+                    @foreach (var agent in FirstPartyAgents)
                     {
                         <MarketplaceAgentCard Agent="agent" />
                     }
@@ -55,57 +65,16 @@
             </section>
         }
 
-        <section class="marketplace-section" aria-labelledby="first-party-agents-heading">
-            <div class="marketplace-section-heading">
-                <div>
-                    <MudText Typo="Typo.overline" Color="Color.Primary">Built by C-Sweet</MudText>
-                    <MudText Typo="Typo.h4" id="first-party-agents-heading">First-party agents</MudText>
-                    <MudText Color="Color.Secondary">
-                        C-Sweet branded roles designed to work together through the platform’s brokered capability model.
-                    </MudText>
-                </div>
-                <MudIcon Icon="@Icons.Material.Outlined.Verified" Color="Color.Primary" />
-            </div>
-
-            @if (FirstPartyAgents.Count == 0)
-            {
-                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                    No first-party agents are configured.
-                </MudAlert>
-            }
-            else
-            {
-                <div class="marketplace-card-grid">
-                    @foreach (var agent in FirstPartyAgents)
-                    {
-                        <MarketplaceAgentCard Agent="agent" />
-                    }
-                </div>
-            }
-        </section>
-
         <section class="marketplace-section" aria-labelledby="browse-agents-heading">
             <div class="marketplace-section-heading marketplace-browse-heading">
                 <div>
-                    <MudText Typo="Typo.overline" Color="Color.Primary">CSweet.Market</MudText>
-                    <MudText Typo="Typo.h4" id="browse-agents-heading">Browse all agents</MudText>
-                    <MudText Color="Color.Secondary">Search first-party and marketplace listings in one catalog.</MudText>
+                    <MudText Typo="Typo.overline" Color="Color.Primary">All available sources</MudText>
+                    <MudText Typo="Typo.h4" id="browse-agents-heading">Browse agents</MudText>
+                    <MudText Color="Color.Secondary">
+                        Search local-directory, first-party, and connected marketplace listings together.
+                    </MudText>
                 </div>
-                @if (_result?.IsOnline == true)
-                {
-                    <MudChip T="string" Color="Color.Success" Variant="Variant.Outlined"
-                             Icon="@Icons.Material.Outlined.CloudDone">
-                        Market connected
-                    </MudChip>
-                }
             </div>
-
-            @if (_result is { IsOnline: false })
-            {
-                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
-                    @_result.UnavailableReason First-party C-Sweet agents remain available while CSweet.Market is offline.
-                </MudAlert>
-            }
 
             <MudPaper Elevation="0" Outlined="true" Class="marketplace-filters">
                 <MudTextField T="string"
@@ -113,8 +82,9 @@
                               @bind-Value="_search"
                               Variant="Variant.Outlined"
                               Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Outlined.Search"
-                              Immediate="true" />
+                              AdornmentIcon="@Icons.Material.Outlined.Search" />
+                <MudTextField T="string" Label="Role" @bind-Value="_role"
+                              Variant="Variant.Outlined" Placeholder="Product Manager" />
                 <MudSelect T="string"
                            Label="Category"
                            @bind-Value="_category"
@@ -128,8 +98,8 @@
                 <MudSelect T="string" Label="Sort" @bind-Value="_sort" Variant="Variant.Outlined">
                     <MudSelectItem T="string" Value="@("relevance")">Most relevant</MudSelectItem>
                     <MudSelectItem T="string" Value="@("rating")">Highest rated</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("newest")">Newest</MudSelectItem>
                     <MudSelectItem T="string" Value="@("price-low")">Lowest price</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("name")">Name</MudSelectItem>
                 </MudSelect>
                 <div class="marketplace-filter-actions">
                     <MudButton Variant="Variant.Filled"
@@ -151,7 +121,7 @@
             }
 
             <MudText Typo="Typo.subtitle2" Class="mb-3">
-                @(_result?.Total ?? 0) matching @((_result?.Total ?? 0) == 1 ? "agent" : "agents")
+                @BrowseAgents.Count matching @(BrowseAgents.Count == 1 ? "agent" : "agents")
             </MudText>
 
             @if (BrowseAgents.Count == 0)
@@ -160,7 +130,7 @@
                     <MudIcon Icon="@Icons.Material.Outlined.SearchOff" Color="Color.Secondary" />
                     <div>
                         <MudText Typo="Typo.h6">No matching agents</MudText>
-                        <MudText Color="Color.Secondary">Try a broader search or remove the category filter.</MudText>
+                        <MudText Color="Color.Secondary">Try a broader role or search term.</MudText>
                     </div>
                 </MudPaper>
             }
@@ -178,72 +148,61 @@
 </div>
 
 @code {
-    private MarketplaceDiscoveryResponse? _showcase;
-    private MarketplaceDiscoveryResponse? _result;
+    private AvailableAgentSearchResult? _result;
     private bool _loading;
     private string? _search;
+    private string? _role;
     private string? _category;
     private string _sort = "relevance";
 
-    private IReadOnlyList<MarketplaceAgentResponse> FeaturedAgents =>
-        (_showcase?.Items ?? [])
-            .Where(x => x.IsFeatured)
-            .Take(3)
-            .ToArray();
+    private IReadOnlyList<AvailableAgent> FirstPartyAgents =>
+        (_result?.Agents ?? []).Where(x => x.Source == AgentCatalogSource.FirstPartyCatalog).ToArray();
 
-    private IReadOnlyList<MarketplaceAgentResponse> FirstPartyAgents =>
-        _showcase?.FirstPartyItems ??
-        (_showcase?.Items ?? []).Where(x => x.IsFirstParty).ToArray();
+    private IReadOnlyList<AvailableAgent> BrowseAgents => _result?.Agents ?? [];
 
-    private IReadOnlyList<MarketplaceAgentResponse> BrowseAgents => _result?.Items ?? [];
-    private IReadOnlyList<string> AvailableCategories => _showcase?.Categories ?? [];
+    private IReadOnlyList<string> AvailableCategories => (_result?.Agents ?? [])
+        .Select(x => x.Category)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Order(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadAsync(updateShowcase: true);
-    }
+    protected override Task OnInitializedAsync() => LoadAsync();
 
-    private Task SearchAsync() => LoadAsync(updateShowcase: false);
-    private Task RefreshAsync() => LoadAsync(updateShowcase: true);
+    private Task SearchAsync() => LoadAsync();
+    private Task RefreshAsync() => LoadAsync();
 
     private async Task ClearAsync()
     {
         _search = null;
+        _role = null;
         _category = null;
         _sort = "relevance";
-        await LoadAsync(updateShowcase: false);
+        await LoadAsync();
     }
 
-    private async Task LoadAsync(bool updateShowcase)
+    private async Task LoadAsync()
     {
         _loading = true;
         try
         {
-            var query = new List<string> { "take=100" };
+            var query = new List<string> { "limit=100", $"sort={Uri.EscapeDataString(_sort)}" };
             Add("q", _search);
+            Add("role", _role);
             Add("category", _category);
-            Add("sort", _sort);
-            var response = await Http.GetFromJsonAsync<MarketplaceDiscoveryResponse>(
-                $"api/marketplace/agents?{string.Join('&', query)}");
-
-            _result = response ?? Offline("The marketplace returned an empty response.");
-            if (updateShowcase || _showcase is null)
-            {
-                _showcase = _result;
-            }
+            _result = await Http.GetFromJsonAsync<AvailableAgentSearchResult>(
+                $"api/agents/available?{string.Join('&', query)}")
+                ?? Offline("The agent catalog returned an empty response.");
 
             void Add(string key, string? value)
             {
                 if (!string.IsNullOrWhiteSpace(value))
-                {
                     query.Add($"{key}={Uri.EscapeDataString(value)}");
-                }
             }
         }
         catch (Exception exception) when (exception is HttpRequestException or NotSupportedException)
         {
-            _result = Offline("C-Sweet could not reach its marketplace discovery gateway.");
-            _showcase ??= _result;
+            _result = Offline("C-Sweet could not reach the agent catalog.");
         }
         finally
         {
@@ -251,6 +210,6 @@
         }
     }
 
-    private static MarketplaceDiscoveryResponse Offline(string reason) =>
-        new([], 0, [], [], false, reason);
+    private static AvailableAgentSearchResult Offline(string reason) =>
+        new([], [new(AgentCatalogSource.Marketplace, false, reason)]);
 }

@@ -63,14 +63,14 @@ When running C-Sweet inside Docker and LM Studio on the host machine, use:
 http://host.docker.internal:1234/v1
 ```
 
-For Linux Docker hosts, the Compose file may need:
+The included Compose file maps this hostname to the Docker host on Linux:
 
 ```yaml
 extra_hosts:
   - "host.docker.internal:host-gateway"
 ```
 
-The setup wizard should prefer the Docker-safe value when it detects container mode.
+The setup wizard probes both addresses and prefers the Docker-safe value when it detects container mode.
 
 ## Required files (implemented)
 

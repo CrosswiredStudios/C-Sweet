@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Collections.Concurrent;
 using CSweet.Contracts.Llm;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Llm;
@@ -170,6 +171,61 @@ public class LlmProviderEndpointTests
         Assert.Equal(created.Id, configuration.DefaultChatProviderId);
     }
 
+    [Fact]
+    public async Task DiscoverLocal_AddsReachableProvidersAndIsIdempotent()
+    {
+        var handler = new SelectiveDiscoveryHandler();
+        await using var factory = CreateFactory(handler);
+        var client = factory.CreateClient();
+
+        var firstResponse = await client.PostAsync("/api/llm-provider-profiles/discover-local", content: null);
+        var first = await firstResponse.Content.ReadFromJsonAsync<LocalLlmProviderDiscoveryResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.NotNull(first);
+        Assert.Equal(2, first.Profiles.Count);
+        Assert.Equal(2, first.Results.Count(result => result.Status == LocalLlmProviderDiscoveryStatuses.Added));
+        Assert.Contains(first.Profiles, profile =>
+            profile.ProviderType == LlmProviderType.LmStudio &&
+            profile.DefaultChatModel == string.Empty);
+        Assert.Contains(first.Profiles, profile => profile.ProviderType == LlmProviderType.Ollama);
+        Assert.Contains(first.Results, result =>
+            result.ProviderType == LlmProviderType.UnslothStudio &&
+            result.Status == LocalLlmProviderDiscoveryStatuses.NotFound);
+        Assert.Contains(first.Results, result =>
+            result.ProviderType == LlmProviderType.Vllm &&
+            result.Status == LocalLlmProviderDiscoveryStatuses.NotFound);
+        Assert.Equal(8, handler.Requests.Count);
+        Assert.Contains(handler.Requests, uri => uri.Host == "localhost" && uri.Port == 1234);
+        Assert.Contains(handler.Requests, uri => uri.Host == "host.docker.internal" && uri.Port == 1234);
+
+        var secondResponse = await client.PostAsync("/api/llm-provider-profiles/discover-local", content: null);
+        var second = await secondResponse.Content.ReadFromJsonAsync<LocalLlmProviderDiscoveryResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        Assert.NotNull(second);
+        Assert.Equal(2, second.Profiles.Count);
+        Assert.DoesNotContain(second.Results, result => result.Status == LocalLlmProviderDiscoveryStatuses.Added);
+        Assert.Equal(2, second.Results.Count(result =>
+            result.Status == LocalLlmProviderDiscoveryStatuses.AlreadyConfigured));
+    }
+
+    [Fact]
+    public async Task DiscoverLocal_DoesNotSaveEmptyModelCatalogs()
+    {
+        await using var factory = CreateFactory(new EmptyCatalogHandler());
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/llm-provider-profiles/discover-local", content: null);
+        var result = await response.Content.ReadFromJsonAsync<LocalLlmProviderDiscoveryResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(result);
+        Assert.Empty(result.Profiles);
+        Assert.All(result.Results, item =>
+            Assert.Equal(LocalLlmProviderDiscoveryStatuses.NotFound, item.Status));
+    }
+
     private static async Task<LlmProviderProfileResponse> CreateProfileAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync(
@@ -192,9 +248,10 @@ public class LlmProviderEndpointTests
         return (await response.Content.ReadFromJsonAsync<LlmProviderProfileResponse>())!;
     }
 
-    private static WebApplicationFactory<Program> CreateFactory()
+    private static WebApplicationFactory<Program> CreateFactory(HttpMessageHandler? providerHandler = null)
     {
         var databaseName = Guid.NewGuid().ToString();
+        providerHandler ??= new FakeProviderHandler();
 
         return new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
@@ -208,12 +265,59 @@ public class LlmProviderEndpointTests
                         options.UseInMemoryDatabase(databaseName));
 
                     services.RemoveAll<OpenAiCompatibleProviderClient>();
-                    services.AddScoped(_ => new OpenAiCompatibleProviderClient(new HttpClient(new FakeProviderHandler())
+                    services.AddScoped(_ => new OpenAiCompatibleProviderClient(new HttpClient(providerHandler)
                     {
                         Timeout = TimeSpan.FromSeconds(5)
                     }));
                 });
             });
+    }
+
+    private sealed class SelectiveDiscoveryHandler : HttpMessageHandler
+    {
+        public ConcurrentBag<Uri> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri is not null)
+            {
+                Requests.Add(request.RequestUri);
+            }
+
+            if (request.RequestUri?.AbsolutePath.EndsWith("/models", StringComparison.OrdinalIgnoreCase) != true)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
+
+            return request.RequestUri.Port switch
+            {
+                1234 or 11434 => Task.FromResult(JsonResponse(new
+                {
+                    data = new[] { new { id = "local-model", owned_by = "local-runtime" } }
+                })),
+                8888 => Task.FromResult(JsonResponse(new { data = Array.Empty<object>() })),
+                8000 => TimeoutAsync(cancellationToken),
+                _ => Task.FromException<HttpResponseMessage>(new HttpRequestException("Provider unavailable."))
+            };
+        }
+
+        private static async Task<HttpResponseMessage> TimeoutAsync(CancellationToken cancellationToken)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+            return JsonResponse(new { data = Array.Empty<object>() });
+        }
+    }
+
+    private sealed class EmptyCatalogHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(JsonResponse(new { data = Array.Empty<object>() }));
+        }
     }
 
     private sealed class FakeProviderHandler : HttpMessageHandler
@@ -244,12 +348,13 @@ public class LlmProviderEndpointTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
         }
 
-        private static HttpResponseMessage JsonResponse(object body)
+    }
+
+    private static HttpResponseMessage JsonResponse(object body)
+    {
+        return new HttpResponseMessage(HttpStatusCode.OK)
         {
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json")
-            };
-        }
+            Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json")
+        };
     }
 }

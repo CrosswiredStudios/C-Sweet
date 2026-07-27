@@ -1,5 +1,5 @@
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
+using CSweet.Agent.SDK;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +10,7 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<AgentEmployeeIdentity?> ResolveAsync(
+    public async Task<AgentIdentity?> ResolveAsync(
         AgentSession session,
         CancellationToken cancellationToken = default)
     {
@@ -35,24 +35,21 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
             return null;
         }
 
-        var identity = new AgentEmployeeIdentity
-        {
-            EmployeeId = employee.Id.ToString("D"),
-            DisplayName = employee.DisplayName,
-            RoleId = employee.RoleId?.ToString("D") ?? string.Empty,
-            RoleName = employee.Role?.Name ?? string.Empty,
-            RoleDescription = employee.Role?.Description ?? string.Empty,
-            AuthorityLevel = employee.Role?.AuthorityLevel.ToString() ?? string.Empty,
-            ManagerEmployeeId = employee.ReportsToOrganizationUserId?.ToString("D") ?? string.Empty,
-            ManagerDisplayName = employee.ReportsToOrganizationUser?.DisplayName ?? string.Empty
-        };
-        identity.RoleResponsibilities.AddRange(ReadResponsibilities(employee.Role?.ResponsibilitiesJson));
-        return identity;
+        return new AgentIdentity(
+            employee.Id.ToString("D"),
+            employee.DisplayName,
+            employee.RoleId?.ToString("D"),
+            employee.Role?.Name,
+            employee.Role?.Description,
+            ReadResponsibilities(employee.Role?.ResponsibilitiesJson),
+            employee.Role?.AuthorityLevel.ToString(),
+            employee.ReportsToOrganizationUserId?.ToString("D"),
+            employee.ReportsToOrganizationUser?.DisplayName);
     }
 
     public static string ApplyToInstructions(
         AgentSession session,
-        AgentEmployeeIdentity identity,
+        AgentIdentity identity,
         string? agentInstructions)
     {
         var identityJson = JsonSerializer.Serialize(new

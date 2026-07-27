@@ -81,7 +81,7 @@ public sealed class CommunicationEventOutboxDispatcher(CSweetDbContext db) : ICo
             .ToListAsync(cancellationToken);
 
         return installations
-            .Where(x => DeserializeStrings(x.Grant?.SubscriptionsJson).Contains(eventType))
+            .Where(x => DeserializeStrings(x.Grant?.EventSubscriptionsJson).Contains(eventType))
             .Select(x => x.Id)
             .Distinct()
             .ToList();

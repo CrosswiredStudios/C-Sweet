@@ -19,7 +19,7 @@ public sealed record UpdateAgentRuntimeSettingsRequest(
     int? DefaultContainerPidsLimit = null,
     int? DefaultContainerLogLimitMb = null,
     int? ContainerStartTimeoutSeconds = null,
-    int? BrokerRegistrationTimeoutSeconds = null,
+    int? McpSessionTimeoutSeconds = null,
     int? ContainerStopGraceSeconds = null,
     string? DefaultNetworkPolicy = null,
     bool? AllowPublicInternetByDefault = null,

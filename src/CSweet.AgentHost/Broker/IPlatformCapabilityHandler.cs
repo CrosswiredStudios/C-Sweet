@@ -1,5 +1,3 @@
-using CSweet.Agent.Contracts.Grpc;
-
 namespace CSweet.AgentHost.Broker;
 
 public interface IPlatformCapabilityHandler
@@ -14,7 +12,7 @@ public interface IPlatformCapabilityHandler
 
 internal sealed class LlmPlatformCapabilityAdapter(PlatformLlmCapabilityHandler handler) : IPlatformCapabilityHandler
 {
-    public bool CanHandle(string capability) => capability == CSweet.Agent.SDK.BrokerLlmCapabilities.ChatStream;
+    public bool CanHandle(string capability) => capability == CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream;
     public IAsyncEnumerable<CapabilityResult> HandleAsync(AgentSession session, RequestCapability request, CancellationToken token) =>
         handler.StreamAsync(session, request, token);
 }

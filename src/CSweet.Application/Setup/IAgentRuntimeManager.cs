@@ -22,7 +22,7 @@ public interface IAgentRuntimeManager
 
 public interface IAgentRuntimeSignalService
 {
-    Task RecordBrokerRegistrationAsync(
+    Task RecordMcpSessionEstablishedAsync(
         Guid runtimeInstanceId,
         Guid tickId,
         Guid installationId,

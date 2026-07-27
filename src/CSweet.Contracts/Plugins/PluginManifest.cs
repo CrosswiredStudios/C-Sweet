@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace CSweet.Contracts.Plugins;
@@ -19,6 +20,16 @@ public sealed record PluginManifest
     public IReadOnlyList<PluginCredentialBinding> Credentials { get; init; } = [];
     public PluginWebAccess WebAccess { get; init; } = new();
     public IReadOnlyList<PluginUiContribution> Ui { get; init; } = [];
+    public PluginCatalogMetadata Catalog { get; init; } = new();
+}
+
+public sealed record PluginCatalogMetadata
+{
+    public string? Summary { get; init; }
+    public string? Category { get; init; }
+    public IReadOnlyList<string> RoleAliases { get; init; } = [];
+    public IReadOnlyList<string> Keywords { get; init; } = [];
+    public string? DocumentationUrl { get; init; }
 }
 
 public sealed record PluginPublisher
@@ -46,7 +57,13 @@ public sealed record PluginProtocol
 public sealed record PluginCapabilityDeclaration
 {
     public string Name { get; init; } = string.Empty;
-    public string? Description { get; init; }
+    public string Description { get; init; } = string.Empty;
+    public JsonElement InputSchema { get; init; }
+    public JsonElement OutputSchema { get; init; }
+    public int ExecutionTimeoutSeconds { get; init; } = 30;
+    public string Idempotency { get; init; } = "work-item";
+    public string RiskClass { get; init; } = "standard";
+    public string? DescriptorHash { get; init; }
 }
 
 public sealed record PluginCapabilityRequirement
@@ -113,7 +130,7 @@ public sealed record PluginUiContribution
     public string? Capability { get; init; }
 }
 
-public sealed record BrokerWebFetchRequest(
+public sealed record PlatformWebFetchRequest(
     string Url,
     string Method = "GET",
     IReadOnlyDictionary<string, string>? Headers = null,
@@ -121,14 +138,14 @@ public sealed record BrokerWebFetchRequest(
     byte[]? Body = null,
     string? ContentType = null);
 
-public sealed record BrokerWebFetchResponse(
+public sealed record PlatformWebFetchResponse(
     int StatusCode,
     string FinalUrl,
     string ContentType,
     byte[] Body,
     bool Truncated);
 
-public sealed record BrokerWebSocketRequest(
+public sealed record PlatformWebSocketRequest(
     string Operation,
     string? Url = null,
     string? ConnectionId = null,
@@ -136,7 +153,7 @@ public sealed record BrokerWebSocketRequest(
     string MessageType = "text",
     string? Credential = null);
 
-public sealed record BrokerWebSocketResponse(
+public sealed record PlatformWebSocketResponse(
     string ConnectionId,
     byte[]? Payload = null,
     string MessageType = "text",

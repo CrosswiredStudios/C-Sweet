@@ -64,7 +64,7 @@ Invoke-CSweetJson POST "/api/agents/installations/$($install.id)/run-now" | Out-
 
 Write-Host "[6/8] Waiting for runtime registration and completion"
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-$terminal = @("Completed", "StartFailed", "BrokerRegistrationTimedOut", "RuntimeTimedOut", "ExitedWithoutCompletion", "Failed", "Cancelled", "PolicyDenied")
+$terminal = @("Completed", "StartFailed", "McpSessionTimedOut", "RuntimeTimedOut", "ExitedWithoutCompletion", "Failed", "Cancelled", "PolicyDenied")
 do {
     Start-Sleep -Seconds 5
     $runs = @(Invoke-CSweetJson GET "/api/agents/installations/$($install.id)/runs")

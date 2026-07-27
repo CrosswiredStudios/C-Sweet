@@ -26,12 +26,16 @@ public sealed class MarketplaceOptions
 public sealed class FirstPartyMarketplaceAgentOptions
 {
     public Guid Id { get; set; }
+    public string AgentId { get; set; } = string.Empty;
     public string ListingSlug { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
     public string Category { get; set; } = "Operations";
     public List<string> Capabilities { get; set; } = [];
+    public List<string> RoleAliases { get; set; } = [];
+    public List<string> Keywords { get; set; } = [];
     public bool IsFeatured { get; set; }
+    public string Availability { get; set; } = "Available";
     public string RepositoryUrl { get; set; } = string.Empty;
     public string DocumentationUrl { get; set; } = string.Empty;
 }
@@ -117,13 +121,15 @@ public sealed class MarketplaceDiscoveryClient(
             MaximumPrice: request.MaximumBudget,
             Sort: "rating",
             Take: Math.Clamp(request.MaximumResults * 3, 1, 100)), cancellationToken);
-        if (!discovery.IsOnline)
+        var embeddedCatalogAvailable = discovery.FirstPartyItems is { Count: > 0 };
+        if (!discovery.IsOnline && !embeddedCatalogAvailable)
             return new WorkforceSearchResponse([], [], false, discovery.UnavailableReason);
 
         var accepted = new List<WorkforceCandidate>();
         var rejected = new List<RejectedWorkforceCandidate>();
         foreach (var agent in discovery.Items)
         {
+            var source = agent.IsFirstParty ? "CSweetEmbeddedCatalog" : "CSweetMarketplace";
             var missing = request.RequiredCapabilities
                 .Except(agent.Capabilities, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
@@ -140,7 +146,7 @@ public sealed class MarketplaceDiscoveryClient(
             if (reasons.Count > 0)
             {
                 rejected.Add(new RejectedWorkforceCandidate(
-                    agent.Id.ToString("D"), agent.Name, "CSweetMarketplace", reasons));
+                    agent.Id.ToString("D"), agent.Name, source, reasons));
                 continue;
             }
 
@@ -151,7 +157,7 @@ public sealed class MarketplaceDiscoveryClient(
                 0.55m + ratingScore * 0.35m + (agent.IsFeatured ? 0.05m : 0m));
             accepted.Add(new WorkforceCandidate(
                 agent.Id.ToString("D"),
-                "CSweetMarketplace",
+                source,
                 "Agent",
                 agent.Name,
                 agent.Capabilities,
@@ -159,18 +165,23 @@ public sealed class MarketplaceDiscoveryClient(
                 price,
                 agent.Currency,
                 score,
-                agent.Rating is { } scoreRating
+                agent.IsFirstParty
+                    ? $"Embedded first-party agent matched the requested capabilities. Its installable source is {agent.RepositoryUrl}"
+                    : agent.Rating is { } scoreRating
                     ? $"Marketplace listing matched the requested capabilities. Current six-month rating: {scoreRating:0.0}/10 from {agent.RatingCount} review(s). Review and acquire it at {agent.ListingUrl}"
                     : $"Marketplace listing matched the requested capabilities. Review and acquire it at {agent.ListingUrl}",
-                true));
+                true)
+            {
+                RepositoryUrl = agent.RepositoryUrl
+            });
         }
 
         return new WorkforceSearchResponse(
             accepted.OrderByDescending(x => x.Score)
                 .Take(Math.Clamp(request.MaximumResults, 1, 25)).ToArray(),
             rejected,
-            true,
-            null);
+            discovery.IsOnline || embeddedCatalogAvailable,
+            discovery.IsOnline ? null : discovery.UnavailableReason);
     }
 
     private string BuildPath(MarketplaceDiscoveryQuery query)

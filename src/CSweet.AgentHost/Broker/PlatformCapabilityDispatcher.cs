@@ -1,6 +1,4 @@
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Contracts.Agents;
-using Google.Protobuf;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -36,7 +34,6 @@ public sealed class PlatformCapabilityDispatcher(
     }
 
     private static bool IsImplicitPlatformCapability(string capability) =>
-        McpToolCatalog.IsGlobalCapability(capability) ||
         capability is CSweet.Contracts.GenAi.GenAiCapabilities.JobRead or CSweet.Contracts.GenAi.GenAiCapabilities.JobCancel ||
         capability == AgentLifecycleCapabilities.CompleteOnboarding;
 
@@ -52,6 +49,6 @@ public sealed class PlatformCapabilityDispatcher(
         Succeeded = false,
         ContentType = "application/json",
         Error = error,
-        Payload = ByteString.CopyFromUtf8("{\"isError\":true}")
+        Payload = JsonPayload.FromUtf8("{\"isError\":true}")
     };
 }

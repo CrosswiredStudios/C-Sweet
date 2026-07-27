@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CSweet.Application.Setup;
@@ -18,7 +20,7 @@ public sealed class DockerAgentContainerRunner(
         @"^csweet-agent-(?<runtime>[0-9a-f]{32})$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-    private const string BrokerWatchdogScript = """
+    private const string SessionWatchdogScript = """
         agent_assembly="$1"
         dotnet "$agent_assembly" &
         agent_pid=$!
@@ -31,22 +33,22 @@ public sealed class DockerAgentContainerRunner(
         trap stop_children TERM INT
 
         (
-          sleep "$CSWEET_BROKER_WATCHDOG_STARTUP_GRACE_SECONDS"
+          sleep "$CSWEET_SESSION_WATCHDOG_STARTUP_GRACE_SECONDS"
           failed_seconds=0
           while kill -0 "$agent_pid" 2>/dev/null; do
-            if bash -c ': > "/dev/tcp/$1/$2"' -- "$CSWEET_BROKER_HOST" "$CSWEET_BROKER_PORT" 2>/dev/null; then
+            if bash -c ': > "/dev/tcp/$1/$2"' -- "$CSWEET_MCP_HOST" "$CSWEET_MCP_PORT" 2>/dev/null; then
               failed_seconds=0
             else
-              failed_seconds=$((failed_seconds + CSWEET_BROKER_WATCHDOG_INTERVAL_SECONDS))
-              if [ "$failed_seconds" -ge "$CSWEET_BROKER_DISCONNECT_SHUTDOWN_SECONDS" ]; then
-                echo "C-Sweet broker watchdog: broker unreachable for ${failed_seconds}s; stopping agent." >&2
+              failed_seconds=$((failed_seconds + CSWEET_SESSION_WATCHDOG_INTERVAL_SECONDS))
+              if [ "$failed_seconds" -ge "$CSWEET_SESSION_DISCONNECT_SHUTDOWN_SECONDS" ]; then
+                echo "C-Sweet MCP session watchdog: gateway unreachable for ${failed_seconds}s; stopping agent." >&2
                 kill -TERM "$agent_pid" 2>/dev/null || true
                 sleep 5
                 kill -KILL "$agent_pid" 2>/dev/null || true
                 exit 0
               fi
             fi
-            sleep "$CSWEET_BROKER_WATCHDOG_INTERVAL_SECONDS"
+            sleep "$CSWEET_SESSION_WATCHDOG_INTERVAL_SECONDS"
           done
         ) &
         watchdog_pid=$!
@@ -70,16 +72,21 @@ public sealed class DockerAgentContainerRunner(
         CancellationToken cancellationToken = default)
     {
         ValidateStartRequest(request);
-        if (!Uri.TryCreate(request.BrokerEndpoint, UriKind.Absolute, out var brokerUri) ||
-            brokerUri.Scheme is not ("http" or "https") ||
-            string.IsNullOrWhiteSpace(brokerUri.Host))
+        if (!Uri.TryCreate(request.McpEndpoint, UriKind.Absolute, out var mcpUri) ||
+            mcpUri.Scheme is not ("http" or "https") ||
+            string.IsNullOrWhiteSpace(mcpUri.Host))
         {
             throw new AgentContainerException("The broker endpoint must be an absolute HTTP or HTTPS URI.");
         }
         var runtimeOptions = options.Value;
-        if (runtimeOptions.BrokerWatchdogEnabled) ValidateWatchdogOptions(runtimeOptions);
+        if (runtimeOptions.SessionWatchdogEnabled) ValidateWatchdogOptions(runtimeOptions);
         await EnsureNetworkAsync(request.NetworkName, cancellationToken);
-        await ConnectBrokerGatewayAsync(request, cancellationToken);
+        await ConnectMcpGatewayAsync(request, cancellationToken);
+        var workloadSecretPath = await WriteWorkloadSecretAsync(
+            runtimeOptions.WorkloadSecretDirectory,
+            request.RuntimeInstanceId,
+            request.WorkloadToken,
+            cancellationToken);
         var cpus = (request.CpuPercent / 100m).ToString("0.##", CultureInfo.InvariantCulture);
         var args = new List<string>
         {
@@ -98,37 +105,36 @@ public sealed class DockerAgentContainerRunner(
             "--pids-limit", request.PidsLimit.ToString(CultureInfo.InvariantCulture),
             "--tmpfs", $"/tmp:rw,nosuid,nodev,noexec,size=64m,uid={RuntimeUserId},gid={RuntimeUserId}",
             "--mount", CreatePackageMount(request.PackagePath),
+            "--mount", $"type=bind,source={workloadSecretPath},target=/run/secrets/csweet-workload-token,readonly",
             "--env", $"CSweet__Agent__RuntimeInstanceId={request.RuntimeInstanceId:D}",
             "--env", $"CSweet__Agent__TickId={request.TickId:D}",
             "--env", $"CSweet__Agent__InstallationId={request.InstallationId:D}",
             "--env", $"CSweet__Agent__BusinessId={request.BusinessId}",
-            "--env", $"CSweet__Agent__BrokerEndpoint={request.BrokerEndpoint}",
-            "--env", $"CSweet__Agent__WorkloadToken={request.WorkloadToken}",
+            "--env", $"CSweet__Agent__McpEndpoint={request.McpEndpoint}",
+            "--env", "CSweet__Agent__WorkloadTokenFile=/run/secrets/csweet-workload-token",
             "--env", $"CSweet__Agent__ManifestPath={request.ManifestPath}",
-            "--env", $"CSweet__Plugin__InstallationId={request.InstallationId:D}",
-            "--env", $"CSweet__Plugin__BrokerEndpoint={request.BrokerEndpoint}",
             "--env", "DOTNET_CLI_HOME=/tmp/dotnet",
             "--env", "DOTNET_NOLOGO=1",
         };
 
-        if (runtimeOptions.BrokerWatchdogEnabled)
+        if (runtimeOptions.SessionWatchdogEnabled)
         {
             args.AddRange([
-                "--env", $"CSWEET_BROKER_HOST={brokerUri.Host}",
-                "--env", $"CSWEET_BROKER_PORT={brokerUri.Port}",
-                "--env", $"CSWEET_BROKER_WATCHDOG_STARTUP_GRACE_SECONDS={runtimeOptions.BrokerWatchdogStartupGraceSeconds}",
-                "--env", $"CSWEET_BROKER_WATCHDOG_INTERVAL_SECONDS={runtimeOptions.BrokerWatchdogIntervalSeconds}",
-                "--env", $"CSWEET_BROKER_DISCONNECT_SHUTDOWN_SECONDS={runtimeOptions.BrokerDisconnectShutdownSeconds}"
+                "--env", $"CSWEET_MCP_HOST={mcpUri.Host}",
+                "--env", $"CSWEET_MCP_PORT={mcpUri.Port}",
+                "--env", $"CSWEET_SESSION_WATCHDOG_STARTUP_GRACE_SECONDS={runtimeOptions.SessionWatchdogStartupGraceSeconds}",
+                "--env", $"CSWEET_SESSION_WATCHDOG_INTERVAL_SECONDS={runtimeOptions.SessionWatchdogIntervalSeconds}",
+                "--env", $"CSWEET_SESSION_DISCONNECT_SHUTDOWN_SECONDS={runtimeOptions.SessionDisconnectShutdownSeconds}"
             ]);
         }
 
         args.Add(request.RuntimeImage);
-        if (runtimeOptions.BrokerWatchdogEnabled)
+        if (runtimeOptions.SessionWatchdogEnabled)
         {
             // Raw string literals retain the source file's line endings. Normalize before
             // passing the script to a Linux container so a Windows checkout cannot inject
             // carriage returns into shell commands or the agent assembly argument.
-            args.AddRange(["/bin/bash", "-c", NormalizeShellScript(BrokerWatchdogScript), "--", $"/app/{request.EntryAssembly}"]);
+            args.AddRange(["/bin/bash", "-c", NormalizeShellScript(SessionWatchdogScript), "--", $"/app/{request.EntryAssembly}"]);
         }
         else
         {
@@ -143,13 +149,13 @@ public sealed class DockerAgentContainerRunner(
         }
 
         logger.LogInformation(
-            "Starting agent container {ContainerName} for runtime {RuntimeInstanceId}, installation {InstallationId}, image {RuntimeImage}, network {NetworkName}, and broker {BrokerEndpoint}",
+            "Starting agent container {ContainerName} for runtime {RuntimeInstanceId}, installation {InstallationId}, image {RuntimeImage}, network {NetworkName}, and MCP endpoint {McpEndpoint}",
             request.ContainerName,
             request.RuntimeInstanceId,
             request.InstallationId,
             request.RuntimeImage,
             request.NetworkName,
-            request.BrokerEndpoint);
+            request.McpEndpoint);
         var result = await docker.ExecuteAsync(args, cancellationToken);
         if (result.ExitCode != 0)
         {
@@ -228,11 +234,11 @@ public sealed class DockerAgentContainerRunner(
 
     public async Task RemoveNetworkAsync(
         string networkName,
-        string brokerGatewayContainer,
+        string mcpGatewayContainer,
         CancellationToken cancellationToken = default)
     {
         ValidateNetworkName(networkName);
-        ValidateContainerId(brokerGatewayContainer);
+        ValidateContainerId(mcpGatewayContainer);
 
         var inspect = await docker.ExecuteAsync(["network", "inspect", networkName], cancellationToken);
         if (inspect.ExitCode != 0)
@@ -243,7 +249,7 @@ public sealed class DockerAgentContainerRunner(
         }
 
         var disconnect = await docker.ExecuteAsync(
-            ["network", "disconnect", "--force", networkName, brokerGatewayContainer],
+            ["network", "disconnect", "--force", networkName, mcpGatewayContainer],
             cancellationToken);
         if (disconnect.ExitCode != 0 &&
             !disconnect.StandardError.Contains("is not connected", StringComparison.OrdinalIgnoreCase) &&
@@ -262,6 +268,7 @@ public sealed class DockerAgentContainerRunner(
         }
 
         logger.LogInformation("Removed isolated agent runtime network {NetworkName}.", networkName);
+        DeleteWorkloadSecret(options.Value.WorkloadSecretDirectory, networkName);
     }
 
     public async Task<string> GetLogsAsync(string containerId, int maximumBytes, CancellationToken cancellationToken = default)
@@ -312,14 +319,14 @@ public sealed class DockerAgentContainerRunner(
         }
     }
 
-    private async Task ConnectBrokerGatewayAsync(AgentContainerStartRequest request, CancellationToken cancellationToken)
+    private async Task ConnectMcpGatewayAsync(AgentContainerStartRequest request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.BrokerGatewayContainer) ||
-            request.BrokerGatewayContainer.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.')))
+        if (string.IsNullOrWhiteSpace(request.McpGatewayContainer) ||
+            request.McpGatewayContainer.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.')))
             throw new AgentContainerException("A valid broker gateway container is required for the isolated runtime network.");
-        var brokerHost = new Uri(request.BrokerEndpoint).Host;
+        var mcpHost = new Uri(request.McpEndpoint).Host;
         var connect = await docker.ExecuteAsync([
-            "network", "connect", "--alias", brokerHost, request.NetworkName, request.BrokerGatewayContainer
+            "network", "connect", "--alias", mcpHost, request.NetworkName, request.McpGatewayContainer
         ], cancellationToken);
         if (connect.ExitCode != 0 && !connect.StandardError.Contains("already exists", StringComparison.OrdinalIgnoreCase))
             throw new AgentContainerException($"Docker could not attach the broker gateway to the isolated runtime network: {SanitizeError(connect.StandardError)}");
@@ -329,7 +336,7 @@ public sealed class DockerAgentContainerRunner(
     {
         if (request.MemoryMb <= 0 || request.CpuPercent <= 0 || request.PidsLimit <= 0 || request.MaxRuntimeSeconds <= 0)
             throw new AgentContainerException("Container resource and runtime limits must be positive.");
-        if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.BusinessId) || string.IsNullOrWhiteSpace(request.RuntimeImage) || string.IsNullOrWhiteSpace(request.NetworkName) || string.IsNullOrWhiteSpace(request.BrokerEndpoint) || string.IsNullOrWhiteSpace(request.WorkloadToken))
+        if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.BusinessId) || string.IsNullOrWhiteSpace(request.RuntimeImage) || string.IsNullOrWhiteSpace(request.NetworkName) || string.IsNullOrWhiteSpace(request.McpEndpoint) || string.IsNullOrWhiteSpace(request.WorkloadToken))
             throw new AgentContainerException("Runtime image, broker endpoint, workload token, and isolated network are required.");
         ValidateNetworkName(request.NetworkName);
         if (!Path.IsPathFullyQualified(request.PackagePath) || request.PackagePath.Contains(',', StringComparison.Ordinal))
@@ -344,12 +351,12 @@ public sealed class DockerAgentContainerRunner(
 
     private static void ValidateWatchdogOptions(AgentRuntimeManagerOptions runtimeOptions)
     {
-        if (runtimeOptions.BrokerWatchdogStartupGraceSeconds < 0 ||
-            runtimeOptions.BrokerWatchdogIntervalSeconds <= 0 ||
-            runtimeOptions.BrokerDisconnectShutdownSeconds < runtimeOptions.BrokerWatchdogIntervalSeconds)
+        if (runtimeOptions.SessionWatchdogStartupGraceSeconds < 0 ||
+            runtimeOptions.SessionWatchdogIntervalSeconds <= 0 ||
+            runtimeOptions.SessionDisconnectShutdownSeconds < runtimeOptions.SessionWatchdogIntervalSeconds)
         {
             throw new AgentContainerException(
-                "Broker watchdog timing must use a non-negative startup grace, a positive interval, and a disconnect timeout at least as long as the interval.");
+                "Session watchdog timing must use a non-negative startup grace, a positive interval, and a disconnect timeout at least as long as the interval.");
         }
     }
 
@@ -408,4 +415,62 @@ public sealed class DockerAgentContainerRunner(
             throw new AgentContainerException("The runtime package is outside the approved package cache.");
         return $"type=volume,source={volumeName},target=/app,volume-subpath={relative},readonly";
     }
+
+    private static async Task<string> WriteWorkloadSecretAsync(
+        string secretDirectory,
+        Guid runtimeInstanceId,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.GetFullPath(secretDirectory);
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"{runtimeInstanceId:N}.token");
+        if (OperatingSystem.IsWindows())
+        {
+            await File.WriteAllTextAsync(path, token, cancellationToken);
+            return path;
+        }
+
+        File.SetUnixFileMode(
+            directory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var temporaryPath = Path.Combine(directory, $"{runtimeInstanceId:N}.{Guid.NewGuid():N}.tmp");
+        await using (var stream = new FileStream(temporaryPath, new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+            Options = FileOptions.WriteThrough,
+            UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite
+        }))
+        {
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(token), cancellationToken);
+            await stream.FlushAsync(cancellationToken);
+        }
+        if (Chown(temporaryPath, RuntimeUserId, RuntimeUserId) != 0)
+        {
+            File.Delete(temporaryPath);
+            throw new AgentContainerException(
+                $"The workload secret could not be assigned to runtime user {RuntimeUserId}.");
+        }
+        File.SetUnixFileMode(temporaryPath, UnixFileMode.UserRead);
+        File.Move(temporaryPath, path, overwrite: true);
+        return path;
+    }
+
+    private static void DeleteWorkloadSecret(string secretDirectory, string networkName)
+    {
+        var suffix = networkName.Split('-').LastOrDefault();
+        if (suffix?.Length != 32 || !Guid.TryParseExact(suffix, "N", out var runtimeId))
+            return;
+        var directory = Path.GetFullPath(secretDirectory);
+        var path = Path.GetFullPath(Path.Combine(directory, $"{runtimeId:N}.token"));
+        if (!path.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            return;
+        if (File.Exists(path))
+            File.Delete(path);
+    }
+
+    [DllImport("libc", EntryPoint = "chown", SetLastError = true)]
+    private static extern int Chown(string path, int owner, int group);
 }

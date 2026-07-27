@@ -12,6 +12,11 @@ public static class AgentRuntimeMetrics
     private static readonly Counter<long> ContainerStops = Meter.CreateCounter<long>("csweet.agent.container.stops");
     private static readonly Counter<long> Outcomes = Meter.CreateCounter<long>("csweet.agent.runtime.outcomes");
     private static readonly Counter<long> CleanupItems = Meter.CreateCounter<long>("csweet.agent.cleanup.items");
+    private static readonly Counter<long> Sessions = Meter.CreateCounter<long>("csweet.agent.mcp.sessions");
+    private static readonly Counter<long> SessionDenials = Meter.CreateCounter<long>("csweet.agent.mcp.session.denials");
+    private static readonly Counter<long> WorkEvents = Meter.CreateCounter<long>("csweet.agent.work.events");
+    private static readonly Histogram<double> QueueLatency =
+        Meter.CreateHistogram<double>("csweet.agent.work.queue_latency", "s");
     private static readonly Histogram<double> RuntimeDuration = Meter.CreateHistogram<double>("csweet.agent.runtime.duration", "s");
 
     public static void Tick(string activationMode, string outcome) =>
@@ -31,5 +36,23 @@ public static class AgentRuntimeMetrics
     public static void Cleaned(string resource, int count)
     {
         if (count > 0) CleanupItems.Add(count, new KeyValuePair<string, object?>("resource", resource));
+    }
+
+    public static void Session(string operation) =>
+        Sessions.Add(1, new KeyValuePair<string, object?>("operation", operation));
+
+    public static void SessionDenied(string reason) =>
+        SessionDenials.Add(1, new KeyValuePair<string, object?>("reason", reason));
+
+    public static void Work(string operation, AgentWorkKind kind) =>
+        WorkEvents.Add(1,
+            new KeyValuePair<string, object?>("operation", operation),
+            new KeyValuePair<string, object?>("kind", kind.ToString()));
+
+    public static void WorkClaimed(AgentWorkKind kind, TimeSpan queueLatency)
+    {
+        Work("claimed", kind);
+        QueueLatency.Record(queueLatency.TotalSeconds,
+            new KeyValuePair<string, object?>("kind", kind.ToString()));
     }
 }

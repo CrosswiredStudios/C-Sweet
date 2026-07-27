@@ -1,4 +1,9 @@
-# Brokered MCP, structured questions, and hiring
+# Superseded: brokered MCP, structured questions, and hiring
+
+> **Superseded historical design.** This phase document describes the former agent transport and
+> must not be used for current implementation. See
+> [MCP-only agent runtime](Architecture/MCP_AGENT_RUNTIME.md) and
+> [the migration plan](Implementation/MCP_ONLY_AGENT_MIGRATION.md).
 
 ## Runtime contract
 

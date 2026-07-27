@@ -1,30 +1,29 @@
-@using CSweet.Contracts.Marketplace
+@using CSweet.Agent.SDK
 
 <MudCard Class="marketplace-agent-card h-100" Outlined="true" Elevation="0">
     <MudCardContent>
         <div class="marketplace-agent-card-heading">
             <div class="marketplace-agent-icon">
-                <MudIcon Icon="@(Agent.IsFirstParty
+                <MudIcon Icon="@(Agent.Source == AgentCatalogSource.FirstPartyCatalog
                     ? Icons.Material.Outlined.Verified
                     : Icons.Material.Outlined.SmartToy)" />
             </div>
             <MudStack Row="true" Spacing="1" Class="marketplace-agent-badges">
-                @if (Agent.IsFirstParty)
+                <MudChip T="string" Size="Size.Small"
+                         Color="@(Agent.Source == AgentCatalogSource.FirstPartyCatalog ? Color.Primary : Color.Default)">
+                    @SourceLabel
+                </MudChip>
+                @if (Agent.Availability is AgentAvailabilityState.InstalledEnabled or AgentAvailabilityState.InstalledDisabled)
                 {
-                    <MudChip T="string" Size="Size.Small" Color="Color.Primary">C-Sweet</MudChip>
-                }
-                @if (Agent.IsFeatured)
-                {
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                             Icon="@Icons.Material.Filled.Star">
-                        Featured
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                        @(Agent.Availability == AgentAvailabilityState.InstalledEnabled ? "Installed · enabled" : "Installed · disabled")
                     </MudChip>
                 }
             </MudStack>
         </div>
 
         <MudText Typo="Typo.overline" Color="Color.Secondary">
-            @Agent.Category · @Agent.PublisherName
+            @Agent.Category · @Agent.Publisher
         </MudText>
         <MudText Typo="Typo.h5" Class="marketplace-agent-name">@Agent.Name</MudText>
         <MudText Color="Color.Secondary" Class="marketplace-agent-summary">@Agent.Summary</MudText>
@@ -43,22 +42,35 @@
             <MudText Typo="Typo.caption" Color="Color.Secondary">
                 @(Agent.Rating.HasValue
                     ? $"{Agent.Rating:0.0}/10 · {Agent.RatingCount} reviews"
-                    : Agent.IsFirstParty ? "First-party agent" : "Not yet rated")
+                    : Agent.Trust)
             </MudText>
         </div>
     </MudCardContent>
     <MudCardActions Class="marketplace-agent-actions">
-        <MudButton Href="@InstallHref"
-                   Variant="Variant.Filled"
-                   Color="Color.Primary"
-                   StartIcon="@Icons.Material.Outlined.Download">
-            Install
-        </MudButton>
-        @if (!string.IsNullOrWhiteSpace(Agent.ListingUrl))
+        @if (Agent.Availability is AgentAvailabilityState.InstalledEnabled or AgentAvailabilityState.InstalledDisabled)
         {
-            <MudButton Href="@Agent.ListingUrl"
-                       Target="_blank"
-                       Variant="Variant.Text"
+            <MudButton Href="/settings/plugins" Variant="Variant.Filled" Color="Color.Primary">
+                Manage installation
+            </MudButton>
+        }
+        else if (!string.IsNullOrWhiteSpace(Agent.RepositoryUrl))
+        {
+            <MudButton Href="@InstallHref"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Outlined.Download">
+                Review and install
+            </MudButton>
+        }
+        else
+        {
+            <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">
+                Available for approved hiring
+            </MudChip>
+        }
+        @if (!string.IsNullOrWhiteSpace(DetailsHref))
+        {
+            <MudButton Href="@DetailsHref" Target="_blank" Variant="Variant.Text"
                        EndIcon="@Icons.Material.Outlined.OpenInNew">
                 Details
             </MudButton>
@@ -67,29 +79,22 @@
 </MudCard>
 
 @code {
-    [Parameter, EditorRequired] public MarketplaceAgentResponse Agent { get; set; } = default!;
+    [Parameter, EditorRequired] public AvailableAgent Agent { get; set; } = default!;
+
+    private string SourceLabel => Agent.Source switch
+    {
+        AgentCatalogSource.Installed => "Installed",
+        AgentCatalogSource.LocalDirectory => "Local directory",
+        AgentCatalogSource.FirstPartyCatalog => "C-Sweet first party",
+        AgentCatalogSource.Marketplace => "Marketplace",
+        _ => Agent.Source.ToString()
+    };
 
     private string InstallHref =>
-        $"/settings/agents?repositoryUrl={Uri.EscapeDataString(Agent.RepositoryUrl)}&queueInstall=true";
+        $"/settings/plugins?repositoryUrl={Uri.EscapeDataString(Agent.RepositoryUrl!)}";
 
-    private string PriceLabel
-    {
-        get
-        {
-            if (Agent.PriceInCents is null)
-            {
-                return "Open source / free";
-            }
+    private string? DetailsHref => Agent.DocumentationUrl ?? Agent.RepositoryUrl;
 
-            var amount = Agent.PriceInCents.Value / 100m;
-            return Agent.PricingModel switch
-            {
-                "MonthlyPerInstance" or "Monthly" => $"${amount:0.##} / month",
-                "TokenBased" => $"${amount:0.##} / {Agent.BillingUnitQuantity:N0} tokens",
-                "OneTimePerInstance" or "OneTime" => $"${amount:0.##} / instance",
-                "OneTimeUnlimited" => $"${amount:0.##} once",
-                _ => $"${amount:0.##}"
-            };
-        }
-    }
+    private string PriceLabel =>
+        Agent.Price is null ? "Open source / free" : $"{Agent.Price:0.##} {Agent.Currency}";
 }

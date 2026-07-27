@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <PackageId>CSweet.Plugin.SDK</PackageId>
-    <Description>Provider-neutral broker client facade for C-Sweet plugins.</Description>
+    <Description>Manifest and typed platform helpers for C-Sweet plugins running on CSweet.Agent.SDK.</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CSweet.Agent.SDK" Condition="'$(UseLocalCSweetAgentSdk)' != 'true'" />

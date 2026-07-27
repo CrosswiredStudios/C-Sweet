@@ -126,9 +126,10 @@ public sealed class CommunicationEventTests
         };
         var grant = new AgentInstallationGrant
         {
-            Id = Guid.NewGuid(), AgentInstallationId = installation.Id, SubscriptionsJson = JsonSerializer.Serialize(new[] { subscription }),
-            CapabilitiesJson = "[]", RequestedCapabilitiesJson = "[]", PublicationsJson = "[]",
-            PermissionsJson = "[]", NetworkAccessJson = "[]", ApprovedAt = DateTimeOffset.UtcNow
+            Id = Guid.NewGuid(), AgentInstallationId = installation.Id,
+            EventSubscriptionsJson = JsonSerializer.Serialize(new[] { subscription }),
+            ProvidedCapabilitiesJson = "[]", RequiredCapabilitiesJson = "[]",
+            NetworkAccessJson = "[]", ResourceLimitsJson = "{}", ApprovedAt = DateTimeOffset.UtcNow
         };
         installation.Grant = grant;
         return (installation, grant);

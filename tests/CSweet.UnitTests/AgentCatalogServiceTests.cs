@@ -1,0 +1,229 @@
+using System.Text.Json;
+using System.IO.Compression;
+using CSweet.Agent.SDK;
+using CSweet.Application.Agents;
+using CSweet.Domain.Setup;
+using CSweet.Infrastructure.Agents;
+using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+namespace CSweet.UnitTests;
+
+public sealed class AgentCatalogServiceTests
+{
+    [Fact]
+    public async Task Aggregate_DeduplicatesByAgentIdAndPrefersLocalSource()
+    {
+        var firstParty = Agent("first-party:1", AgentCatalogSource.FirstPartyCatalog);
+        var local = Agent("local:1", AgentCatalogSource.LocalDirectory);
+        var service = new AgentCatalogService(
+            [
+                new StubProvider(AgentCatalogSource.FirstPartyCatalog, firstParty),
+                new StubProvider(AgentCatalogSource.LocalDirectory, local)
+            ],
+            NullLogger<AgentCatalogService>.Instance);
+
+        var result = await service.GetAvailableAgentsAsync(
+            null,
+            new("Product Manager", RequiredCapabilities: ["product.strategy"]));
+
+        var agent = Assert.Single(result.Agents);
+        Assert.Equal(AgentCatalogSource.LocalDirectory, agent.Source);
+        Assert.Contains(AgentCatalogSource.FirstPartyCatalog, agent.AlternateSources);
+        Assert.Equal("com.csweet.product-manager", agent.AgentId);
+    }
+
+    [Fact]
+    public async Task LocalDirectory_DiscoversManifestWithoutExposingPathOrExecutingSource()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"csweet-agent-catalog-{Guid.NewGuid():N}");
+        var folder = Path.Combine(root, "ProductManager");
+        Directory.CreateDirectory(Path.Combine(folder, "src", "ProductManager"));
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(folder, "csweet-plugin.json"), Manifest());
+            await File.WriteAllTextAsync(Path.Combine(folder, "src", "ProductManager", "ProductManager.csproj"),
+                "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+            await File.WriteAllTextAsync(Path.Combine(folder, ".env"), "SECRET=do-not-copy");
+            Directory.CreateDirectory(Path.Combine(folder, "bin"));
+            await File.WriteAllTextAsync(Path.Combine(folder, "bin", "compiled.dll"), "not-source");
+            var provider = new LocalDirectoryAgentCatalogProvider(
+                new TestEnvironment(root),
+                Options.Create(new AgentCatalogOptions { LocalDirectoryPath = "." }),
+                new PluginManifestReader());
+
+            var result = await provider.SearchAsync(null, new(Role: "Product Manager"));
+
+            var agent = Assert.Single(result.Agents);
+            Assert.Equal(AgentCatalogSource.LocalDirectory, agent.Source);
+            Assert.StartsWith("local:com.csweet.product-manager:", agent.AgentReference);
+            Assert.DoesNotContain(root, JsonSerializer.Serialize(agent), StringComparison.OrdinalIgnoreCase);
+            Assert.Null(agent.RepositoryUrl);
+            Assert.Equal(["product.strategy", "product.discovery"], agent.Capabilities);
+
+            var snapshot = await provider.CreateArchiveAsync(agent.AgentReference);
+            using var stream = new MemoryStream(snapshot.Content);
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+            Assert.Contains(archive.Entries, x => x.FullName == "csweet-plugin.json");
+            Assert.DoesNotContain(archive.Entries, x => x.FullName.Contains(".env", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(archive.Entries, x => x.FullName.StartsWith("bin/", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InstalledProvider_IsOrganizationScoped()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var organizationId = Guid.NewGuid();
+        var otherOrganizationId = Guid.NewGuid();
+        db.AgentInstallations.AddRange(
+            Installation(organizationId, "Visible Agent"),
+            Installation(otherOrganizationId, "Hidden Agent"));
+        await db.SaveChangesAsync();
+        var provider = new InstalledAgentCatalogProvider(db);
+
+        var result = await provider.SearchAsync(organizationId, new());
+
+        var agent = Assert.Single(result.Agents);
+        Assert.Equal("Visible Agent", agent.Name);
+        Assert.Equal(AgentAvailabilityState.InstalledEnabled, agent.Availability);
+    }
+
+    private static AvailableAgent Agent(string reference, AgentCatalogSource source) => new(
+        reference,
+        "com.csweet.product-manager",
+        source,
+        [],
+        AgentAvailabilityState.AvailableToInstall,
+        null,
+        "Product Manager",
+        "Owns product strategy.",
+        "C-Sweet",
+        "Product",
+        ["Product Manager"],
+        ["product"],
+        ["product.strategy"],
+        null,
+        "USD",
+        null,
+        0,
+        null,
+        source == AgentCatalogSource.FirstPartyCatalog ? "https://github.com/example/product-manager" : null,
+        0.8m,
+        "Test");
+
+    private static AgentInstallation Installation(Guid organizationId, string name)
+    {
+        var source = new AgentPackageSource
+        {
+            Id = Guid.NewGuid(),
+            RepositoryUrl = $"https://github.com/example/{name.Replace(" ", "-", StringComparison.Ordinal).ToLowerInvariant()}",
+            RepositoryOwner = "example",
+            RepositoryName = name,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(),
+            PackageSourceId = source.Id,
+            PackageSource = source,
+            AgentId = $"com.example.{name.Replace(" ", "-", StringComparison.Ordinal).ToLowerInvariant()}",
+            AgentName = name,
+            Version = "1.0.0",
+            PublisherId = "com.example",
+            PublisherName = "Example",
+            PluginKind = PluginKind.Agent,
+            ManifestJson = Manifest(name),
+            CommitSha = new('a', 40),
+            ManifestDigest = new('b', 64),
+            RuntimeType = "dotnet-project",
+            ProjectPath = "src/ProductManager/ProductManager.csproj",
+            ImportedAt = DateTimeOffset.UtcNow
+        };
+        var installationId = Guid.NewGuid();
+        return new AgentInstallation
+        {
+            Id = installationId,
+            PackageVersion = package,
+            PackageVersionId = package.Id,
+            BusinessId = organizationId.ToString("D"),
+            IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active,
+            Grant = new AgentInstallationGrant
+            {
+                Id = Guid.NewGuid(),
+                AgentInstallationId = installationId,
+                ProvidedCapabilitiesJson = "[\"product.strategy\"]",
+                ApprovedAt = DateTimeOffset.UtcNow
+            }
+        };
+    }
+
+    private static string Manifest(string name = "Product Manager") => $$"""
+    {
+      "manifestVersion": "2.0",
+      "kind": "agent",
+      "id": "com.csweet.product-manager",
+      "name": "{{name}}",
+      "version": "1.0.0",
+      "publisher": { "id": "com.csweet", "name": "C-Sweet" },
+      "runtime": {
+        "type": "dotnet-project",
+        "projectPath": "src/ProductManager/ProductManager.csproj",
+        "targetFramework": "net10.0",
+        "defaultActivationMode": "Manual",
+        "maximumConcurrentJobs": 1
+      },
+      "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },
+      "provides": [
+        { "name": "product.strategy", "description": "Create product strategy", "inputSchema": { "type": "object" }, "outputSchema": { "type": "object" }, "executionTimeoutSeconds": 120, "idempotency": "work-item" },
+        { "name": "product.discovery", "description": "Run product discovery", "inputSchema": { "type": "object" }, "outputSchema": { "type": "object" }, "executionTimeoutSeconds": 120, "idempotency": "work-item" }
+      ],
+      "requires": [],
+      "events": { "subscribes": [] },
+      "catalog": {
+        "summary": "Owns product outcomes.",
+        "category": "Product",
+        "roleAliases": [ "Product Manager" ],
+        "keywords": [ "roadmap" ]
+      }
+    }
+    """;
+
+    private sealed class StubProvider(AgentCatalogSource source, params AvailableAgent[] agents)
+        : IAgentCatalogProvider
+    {
+        public AgentCatalogSource Source => source;
+
+        public Task<AgentCatalogProviderResult> SearchAsync(
+            Guid? organizationId,
+            AvailableAgentSearchQuery query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AgentCatalogProviderResult(agents, new(source, true)));
+
+        public Task<AvailableAgent?> ResolveAsync(
+            Guid? organizationId,
+            string agentReference,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(agents.FirstOrDefault(x => x.AgentReference == agentReference));
+    }
+
+    private sealed class TestEnvironment(string root) : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Development;
+        public string ApplicationName { get; set; } = "Tests";
+        public string ContentRootPath { get; set; } = root;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+}

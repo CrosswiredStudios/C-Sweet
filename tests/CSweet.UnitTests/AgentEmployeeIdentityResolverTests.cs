@@ -78,9 +78,9 @@ public sealed class AgentEmployeeIdentityResolverTests
 
         Assert.NotNull(identity);
         Assert.Equal("Avery", identity.DisplayName);
-        Assert.Empty(identity.RoleName);
+        Assert.True(string.IsNullOrEmpty(identity.RoleName));
         Assert.Empty(identity.RoleResponsibilities);
-        Assert.Empty(identity.ManagerEmployeeId);
+        Assert.True(string.IsNullOrEmpty(identity.ManagerEmployeeId));
     }
 
     private static CSweetDbContext CreateDb() => new(
@@ -109,6 +109,5 @@ public sealed class AgentEmployeeIdentityResolverTests
             new HashSet<string>(),
             new HashSet<string>(),
             new HashSet<string>(),
-            new HashSet<string>(),
-            new HashSet<string>()));
+            1));
 }

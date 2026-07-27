@@ -78,7 +78,7 @@ public sealed class MarketplaceDiscoveryClientTests
     }
 
     [Fact]
-    public async Task First_party_agents_remain_available_when_marketplace_is_offline()
+    public async Task First_party_agents_remain_browsable_and_hireable_when_marketplace_is_offline()
     {
         var handler = new StubHandler(new { });
         var firstParty = new FirstPartyMarketplaceAgentOptions
@@ -95,6 +95,14 @@ public sealed class MarketplaceDiscoveryClientTests
         var client = Client(handler, enabled: false, [firstParty]);
 
         var browse = await client.SearchAsync(new MarketplaceDiscoveryQuery());
+        var workforce = await client.SearchAsync(new WorkforceSearchRequest(
+            ["executive.operations", "workforce.plan"],
+            null,
+            null,
+            null,
+            "USD",
+            false,
+            null));
 
         Assert.False(browse.IsOnline);
         var agent = Assert.Single(browse.Items);
@@ -102,6 +110,12 @@ public sealed class MarketplaceDiscoveryClientTests
         Assert.True(agent.IsFeatured);
         Assert.Equal("C-Sweet", agent.PublisherName);
         Assert.Equal(agent, Assert.Single(browse.FirstPartyItems!));
+        var candidate = Assert.Single(workforce.Candidates);
+        Assert.True(workforce.MarketplaceAvailable);
+        Assert.Equal("CSweetEmbeddedCatalog", candidate.Source);
+        Assert.Equal(firstParty.RepositoryUrl, candidate.RepositoryUrl);
+        Assert.Contains(firstParty.RepositoryUrl, candidate.Rationale);
+        Assert.NotNull(workforce.UnavailableReason);
         Assert.Equal(0, handler.RequestCount);
     }
 

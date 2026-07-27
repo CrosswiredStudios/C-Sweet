@@ -2,6 +2,10 @@ using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Contracts.Communications;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Plugins;
+using CSweet.Domain.Setup;
+using CSweet.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -13,14 +17,9 @@ public enum McpToolExecutionPolicy
     PlatformOnly
 }
 
-/// <summary>
-/// Controls discovery separately from execution risk. Global tools are available to every
-/// authenticated, active installation without a manifest-requested capability grant.
-/// </summary>
 public enum McpToolAvailability
 {
     GrantRequired,
-    Global,
     PlatformOnly
 }
 
@@ -32,12 +31,24 @@ public sealed record McpToolDescriptor(
     JsonElement? OutputSchema,
     McpToolExecutionPolicy ExecutionPolicy,
     McpToolAvailability Availability = McpToolAvailability.GrantRequired,
-    bool ModelVisible = true);
+    bool ModelVisible = true,
+    Guid? ProviderInstallationId = null,
+    int ExecutionTimeoutSeconds = 30,
+    string RiskClass = "standard",
+    string ScopeResolver = "organization-and-installation",
+    int MaximumInputBytes = 64 * 1024,
+    int MaximumOutputBytes = 1024 * 1024,
+    string QuotaClass = "standard",
+    string ApprovalBehavior = "none",
+    string OwningService = "platform");
 
-public sealed class McpToolCatalog
+public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handlers)
 {
     private static readonly JsonElement EmptyInput = Schema("""
         { "type": "object", "properties": {}, "additionalProperties": false }
+        """);
+    private static readonly JsonElement ObjectOutput = Schema("""
+        { "type": "object" }
         """);
 
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
@@ -55,7 +66,9 @@ public sealed class McpToolCatalog
         Approval(PlatformCapabilities.WorkstreamPlanPropose, "propose_workstream_plan",
             "Propose a managed workstream with one accountable manager."),
         Read(PlatformCapabilities.WorkforceSearch, "search_workforce",
-            "Search current staff, installed agents, and connected workforce catalogs in platform policy order."),
+            "Search current staff and connected human workforce providers. Installable agent listings require the separate agent-catalog grant."),
+        Read(AgentCatalogCapabilities.Search, "get_available_agents",
+            "Search organization-installed, local-directory, first-party, and marketplace agents without importing, installing, hiring, or spending."),
         Approval(PlatformCapabilities.WorkforcePlanPropose, "propose_workforce_plan",
             "Propose a workforce plan without installing, hiring, contacting, or spending."),
         Read(PlatformCapabilities.FinanceProfileRead, "read_finance_profile",
@@ -68,7 +81,7 @@ public sealed class McpToolCatalog
             "Create a durable, separately gated action proposal."),
         Read(PlatformCapabilities.ManagementCycleRead, "read_management_cycle",
             "Read management cadence, executive briefing schedule, and quiet hours."),
-        GlobalWrite(CommunicationHubCapabilities.AskUser, "ask_user",
+        Write(CommunicationHubCapabilities.AskUser, "ask_user",
             "Ask the user one structured multiple-choice question with two to four mutually exclusive options. Put the recommended option first. The UI automatically adds Something else with a free-text response."),
         Read(HiringCapabilities.ListRecommendations, "list_hiring_recommendations",
             "Read this agent installation's role backlog in priority order."),
@@ -78,36 +91,129 @@ public sealed class McpToolCatalog
             "Stage a combined install-and-hire proposal for explicit organization-owner approval. This does not install or hire directly.")
     ];
 
+    static McpToolCatalog()
+    {
+        var duplicateNames = Tools.GroupBy(x => x.Name, StringComparer.Ordinal)
+            .Where(x => x.Count() > 1).Select(x => x.Key).ToArray();
+        var duplicateCapabilities = Tools.GroupBy(x => x.Capability, StringComparer.Ordinal)
+            .Where(x => x.Count() > 1).Select(x => x.Key).ToArray();
+        if (duplicateNames.Length > 0 || duplicateCapabilities.Length > 0)
+            throw new InvalidOperationException(
+                $"The capability registry contains duplicates. Tools: {string.Join(", ", duplicateNames)}; capabilities: {string.Join(", ", duplicateCapabilities)}.");
+        foreach (var tool in Tools)
+        {
+            RequireObjectSchema(tool.Capability, "input", tool.InputSchema);
+            JsonSchemaValidator.ValidateSchema(tool.InputSchema);
+            if (tool.OutputSchema is { } output)
+            {
+                RequireObjectSchema(tool.Capability, "output", output);
+                JsonSchemaValidator.ValidateSchema(output);
+            }
+        }
+    }
+
     public IReadOnlyList<McpToolDescriptor> List(IReadOnlySet<string> grantedCapabilities) =>
-        Tools.Where(tool => tool.ModelVisible &&
-                             tool.Availability != McpToolAvailability.PlatformOnly &&
-                             (tool.Availability == McpToolAvailability.Global ||
-                              grantedCapabilities.Contains(tool.Capability)))
+        Tools.Where(tool => tool.Availability != McpToolAvailability.PlatformOnly &&
+                             grantedCapabilities.Contains(tool.Capability))
+            .Concat(grantedCapabilities
+                .Where(capability => Tools.All(x => x.Capability != capability) &&
+                                     handlers.Any(x => x.CanHandle(capability)))
+                .Select(capability => new McpToolDescriptor(
+                    capability,
+                    ToToolName(capability),
+                    $"Invoke the granted C-Sweet capability {capability}.",
+                    Schema("""{"type":"object","additionalProperties":true}"""),
+                    ObjectOutput,
+                    McpToolExecutionPolicy.PlatformOnly,
+                    McpToolAvailability.GrantRequired,
+                    ModelVisible: false,
+                    OwningService: "platform")))
             .OrderBy(tool => tool.Name, StringComparer.Ordinal)
             .ToList();
 
     public McpToolDescriptor? Find(string name, IReadOnlySet<string> grantedCapabilities) =>
         List(grantedCapabilities).SingleOrDefault(tool => string.Equals(tool.Name, name, StringComparison.Ordinal));
 
-    public static IReadOnlySet<string> GlobalCapabilities { get; } = Tools
-        .Where(tool => tool.Availability == McpToolAvailability.Global)
-        .Select(tool => tool.Capability)
-        .ToHashSet(StringComparer.Ordinal);
+    public async Task<IReadOnlyList<McpToolDescriptor>> ListAsync(
+        AgentSession session,
+        CSweetDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var tools = List(session.Grant.RequiredCapabilities).ToList();
+        var requesterId = Guid.Parse(session.InstallationId);
+        var bindings = await db.AgentCapabilityBindings.AsNoTracking()
+            .Where(x => x.RequesterInstallationId == requesterId &&
+                        x.OrganizationId == session.BusinessId &&
+                        x.GrantRevision == session.Grant.Revision &&
+                        x.RevokedAt == null &&
+                        x.ProviderInstallation != null &&
+                        x.ProviderInstallation.IsEnabled &&
+                        x.ProviderInstallation.BusinessId == session.BusinessId &&
+                        x.ProviderInstallation.RevisionStatus == PluginRevisionStatus.Active)
+            .Include(x => x.ProviderInstallation!)
+                .ThenInclude(x => x.PackageVersion)
+            .ToListAsync(cancellationToken);
+        foreach (var binding in bindings)
+        {
+            if (!session.Grant.RequiredCapabilities.Contains(binding.Capability))
+                continue;
+            var manifest = JsonSerializer.Deserialize<PluginManifest>(
+                binding.ProviderInstallation!.PackageVersion!.ManifestJson,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            var declaration = manifest?.Provides.SingleOrDefault(
+                x => string.Equals(x.Name, binding.Capability, StringComparison.Ordinal));
+            if (declaration is null ||
+                declaration.InputSchema.ValueKind != JsonValueKind.Object ||
+                declaration.OutputSchema.ValueKind != JsonValueKind.Object)
+                continue;
+            JsonSchemaValidator.ValidateSchema(declaration.InputSchema);
+            JsonSchemaValidator.ValidateSchema(declaration.OutputSchema);
+            tools.Add(new McpToolDescriptor(
+                declaration.Name,
+                ToToolName(declaration.Name),
+                declaration.Description,
+                declaration.InputSchema,
+                declaration.OutputSchema,
+                McpToolExecutionPolicy.AdvisoryWrite,
+                ProviderInstallationId: binding.ProviderInstallationId,
+                ExecutionTimeoutSeconds: declaration.ExecutionTimeoutSeconds,
+                RiskClass: declaration.RiskClass,
+                ApprovalBehavior: "policy-dependent",
+                OwningService: $"provider:{manifest!.Id}"));
+        }
+        return tools
+            .GroupBy(x => x.Name, StringComparer.Ordinal)
+            .Select(x => x.Single())
+            .OrderBy(x => x.Name, StringComparer.Ordinal)
+            .ToList();
+    }
 
-    public static bool IsGlobalCapability(string capability) => GlobalCapabilities.Contains(capability);
+    public async Task<McpToolDescriptor?> FindAsync(
+        string name,
+        AgentSession session,
+        CSweetDbContext db,
+        CancellationToken cancellationToken) =>
+        (await ListAsync(session, db, cancellationToken))
+        .SingleOrDefault(tool => string.Equals(tool.Name, name, StringComparison.Ordinal));
 
     private static McpToolDescriptor Read(string capability, string name, string description) =>
-        new(capability, name, description, InputFor(capability), null, McpToolExecutionPolicy.ReadOnly);
+        new(capability, name, description, InputFor(capability), ObjectOutput, McpToolExecutionPolicy.ReadOnly,
+            RiskClass: "read-only", OwningService: OwnerFor(capability));
 
     private static McpToolDescriptor Write(string capability, string name, string description) =>
-        new(capability, name, description, InputFor(capability), null, McpToolExecutionPolicy.AdvisoryWrite);
-
-    private static McpToolDescriptor GlobalWrite(string capability, string name, string description) =>
-        new(capability, name, description, InputFor(capability), null, McpToolExecutionPolicy.AdvisoryWrite,
-            McpToolAvailability.Global);
+        new(capability, name, description, InputFor(capability), ObjectOutput, McpToolExecutionPolicy.AdvisoryWrite,
+            RiskClass: "reversible-write", ApprovalBehavior: "policy-dependent", OwningService: OwnerFor(capability));
 
     private static McpToolDescriptor Approval(string capability, string name, string description) =>
-        new(capability, name, description, InputFor(capability), null, McpToolExecutionPolicy.ApprovalCreating);
+        new(capability, name, description, InputFor(capability), ObjectOutput, McpToolExecutionPolicy.ApprovalCreating,
+            RiskClass: "approval-required", ApprovalBehavior: "always-create-approval", OwningService: OwnerFor(capability));
+
+    private static string OwnerFor(string capability) =>
+        capability.StartsWith("communication.", StringComparison.Ordinal) ? "communication-hub" :
+        capability.StartsWith("memory.", StringComparison.Ordinal) ? "memory" :
+        capability.Contains("hiring", StringComparison.Ordinal) ? "workforce" :
+        capability.StartsWith("platform.agent-catalog", StringComparison.Ordinal) ? "marketplace" :
+        "platform";
 
     private static JsonElement InputFor(string capability) => capability switch
     {
@@ -121,6 +227,9 @@ public sealed class McpToolCatalog
             """),
         PlatformCapabilities.WorkforceSearch => Schema("""
             {"type":"object","required":["requiredCapabilities","humanRequired"],"properties":{"requiredCapabilities":{"type":"array","items":{"type":"string"},"minItems":1},"requiredCredentials":{"type":["array","null"],"items":{"type":"string"}},"neededBy":{"type":["string","null"],"format":"date-time"},"maximumBudget":{"type":["number","null"],"minimum":0},"currency":{"type":["string","null"]},"humanRequired":{"type":"boolean"},"workstreamId":{"type":["string","null"]},"maximumResults":{"type":"integer","minimum":1,"maximum":25}},"additionalProperties":false}
+            """),
+        AgentCatalogCapabilities.Search => Schema("""
+            {"type":"object","properties":{"role":{"type":["string","null"],"maxLength":160},"searchString":{"type":["string","null"],"maxLength":500},"requiredCapabilities":{"type":["array","null"],"items":{"type":"string"}},"category":{"type":["string","null"],"maxLength":160},"maximumPrice":{"type":["number","null"],"minimum":0},"currency":{"type":["string","null"],"maxLength":8},"sort":{"type":["string","null"],"enum":["relevance","rating","price-low","name",null]},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}
             """),
         PlatformCapabilities.BusinessProfileUpdateExplicit => Schema("""
             {"type":"object","required":["expectedRevision","conversationId","messageId","userId","changes","idempotencyKey"],"properties":{"expectedRevision":{"type":"integer"},"conversationId":{"type":"string"},"messageId":{"type":"string"},"userId":{"type":"string"},"changes":{"type":"object"},"idempotencyKey":{"type":"string"}},"additionalProperties":false}
@@ -143,4 +252,23 @@ public sealed class McpToolCatalog
     };
 
     private static JsonElement Schema(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+    private static void RequireObjectSchema(string capability, string direction, JsonElement schema)
+    {
+        if (schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("type", out var type) ||
+            type.ValueKind != JsonValueKind.String ||
+            type.GetString() != "object")
+            throw new InvalidOperationException(
+                $"Capability '{capability}' has an invalid {direction} schema. Registry schemas must have an object root.");
+    }
+
+    private static string ToToolName(string capability)
+    {
+        var withoutVersion = capability.EndsWith(".v1", StringComparison.Ordinal)
+            ? capability[..^3]
+            : capability;
+        return string.Concat(withoutVersion.Select(x => char.IsLetterOrDigit(x) ? char.ToLowerInvariant(x) : '_'))
+            .Trim('_');
+    }
 }

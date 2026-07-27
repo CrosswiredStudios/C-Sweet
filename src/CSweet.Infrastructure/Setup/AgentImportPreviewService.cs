@@ -126,6 +126,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                 PackageSourceId = source.Id,
                 CommitSha = commitSha,
                 ManifestDigest = digest,
+                CapabilityDescriptorsDigest = CapabilityDescriptorsDigest(manifest),
                 ManifestJson = Encoding.UTF8.GetString(manifestBytes),
                 PluginKind = ParsePluginKind(pluginEnvelope.Kind),
                 ManifestFileName = pluginEnvelope.ManifestFileName,
@@ -220,17 +221,41 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             }
         }
 
+        if (!string.Equals(manifest.ManifestVersion, "2.0", StringComparison.Ordinal))
+            errors.Add("Executable plugins must use manifestVersion 2.0.");
         if (manifest.Protocol is null ||
             string.IsNullOrWhiteSpace(manifest.Protocol.MinimumVersion) ||
             string.IsNullOrWhiteSpace(manifest.Protocol.MaximumVersion))
         {
             errors.Add("Agent manifest protocol minimumVersion and maximumVersion are required.");
         }
+        else if (!string.Equals(manifest.Protocol.MinimumVersion, "2.0", StringComparison.Ordinal) ||
+                 !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
+        {
+            errors.Add("Executable plugins must require MCP runtime protocol 2.0 through 2.x.");
+        }
 
         AddListError(manifest.Provides.Select(x => x.Name).ToArray(), "provides", errors);
+        foreach (var capability in manifest.Provides)
+        {
+            if (string.IsNullOrWhiteSpace(capability.Description))
+                errors.Add($"provides capability '{capability.Name}' requires a description.");
+            if (capability.InputSchema.ValueKind != JsonValueKind.Object ||
+                capability.OutputSchema.ValueKind != JsonValueKind.Object)
+                errors.Add($"provides capability '{capability.Name}' requires object inputSchema and outputSchema values.");
+            if (capability.ExecutionTimeoutSeconds is < 1 or > 900)
+                errors.Add($"provides capability '{capability.Name}' executionTimeoutSeconds must be between 1 and 900.");
+            if (capability.Idempotency is not ("work-item" or "caller-key" or "none"))
+                errors.Add($"provides capability '{capability.Name}' idempotency is unsupported.");
+            var descriptorHash = DescriptorHash(capability);
+            if (!string.IsNullOrWhiteSpace(capability.DescriptorHash) &&
+                !string.Equals(capability.DescriptorHash, descriptorHash, StringComparison.OrdinalIgnoreCase))
+                errors.Add($"provides capability '{capability.Name}' descriptorHash does not match its canonical descriptor.");
+        }
         AddListError(manifest.Requires.Select(x => x.Name).ToArray(), "requires", errors);
         AddListError(manifest.Events.Subscribes, "events.subscribes", errors);
-        AddListError(manifest.Events.Publishes, "events.publishes", errors);
+        if (manifest.Events.Publishes.Count > 0)
+            errors.Add("events.publishes is not supported in protocol v2; use explicit capabilities or work progress.");
         ValidateConfigurationContract(manifest, errors);
         ValidateWebAccess(manifest, errors);
 
@@ -332,9 +357,34 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
 
     public static IReadOnlyList<string> GrantRequiredCapabilities(PluginManifest manifest) =>
         manifest.Requires.Select(x => x.Name)
-            .Where(capability => !PlatformCapabilities.Global.Contains(capability))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+
+    private static string CapabilityDescriptorsDigest(PluginManifest manifest)
+    {
+        var canonical = string.Join(
+            "\n",
+            manifest.Provides
+                .OrderBy(x => x.Name, StringComparer.Ordinal)
+                .Select(DescriptorHash));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
+            .ToLowerInvariant();
+    }
+
+    private static string DescriptorHash(PluginCapabilityDeclaration capability)
+    {
+        var canonical = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            capability.Name,
+            capability.Description,
+            inputSchema = capability.InputSchema,
+            outputSchema = capability.OutputSchema,
+            capability.ExecutionTimeoutSeconds,
+            capability.Idempotency,
+            capability.RiskClass
+        }, SerializerOptions);
+        return Convert.ToHexString(SHA256.HashData(canonical)).ToLowerInvariant();
+    }
 
     public static string WebGrantToken(PluginWebAccessRule rule)
     {

@@ -1,5 +1,9 @@
 # Legacy, Transitional, and Dead-Code Audit
 
+> **Superseded historical audit.** Its file counts and transport findings describe the pre-cutover
+> codebase. Use the [MCP-only migration](../../Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md)
+> and [current architecture](../../Documentation/Architecture/MCP_AGENT_RUNTIME.md) for current decisions.
+
 **Audit date:** 2026-07-19
 
 **Scope:** Production code, tests, project files, migrations, application assets, and current architecture documentation. Generated `bin`/`obj` content and vendored library contents were excluded from text searches.
@@ -231,3 +235,6 @@ The following items are not legacy baggage in the same sense:
 - A second isolated-output run compiled the complete unit-test dependency graph. Result: **239 passed, 1 failed, 0 skipped**. The sole failure was the repository-root path assumption described in finding 17.
 - The existing uncommitted runtime-related workspace changes were treated as user-owned and were not modified by this audit.
 - Reflection-only or externally consumed public APIs can evade static reference searches. No evidence of such consumers was found, and the proof-of-concept/no-customer premise makes removal reasonable, but each cleanup batch should still compile and run tests before commit.
+# Superseded historical audit
+
+> This audit is retained as historical evidence and names components removed by the MCP-only cutover. See [MCP-only migration](../../Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md) for current status.

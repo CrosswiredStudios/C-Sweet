@@ -1,8 +1,6 @@
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Application.GenAi;
 using CSweet.Contracts.GenAi;
-using Google.Protobuf;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -68,12 +66,12 @@ public sealed class PlatformGenAiCapabilityHandler(IGenAiJobService jobs) : IPla
     private static CapabilityResult Success<T>(string requestId, T value) => new()
     {
         RequestId = requestId, Succeeded = true, ContentType = "application/json",
-        Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions))
+        Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions))
     };
 
     private static CapabilityResult Failure(string requestId, string message) => new()
     {
         RequestId = requestId, Succeeded = false, ContentType = "application/json", Error = message,
-        Payload = ByteString.CopyFromUtf8("{\"isError\":true}")
+        Payload = JsonPayload.FromUtf8("{\"isError\":true}")
     };
 }

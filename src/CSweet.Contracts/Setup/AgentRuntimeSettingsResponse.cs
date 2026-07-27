@@ -20,7 +20,7 @@ public sealed record AgentRuntimeSettingsResponse(
     int DefaultContainerPidsLimit,
     int DefaultContainerLogLimitMb,
     int ContainerStartTimeoutSeconds,
-    int BrokerRegistrationTimeoutSeconds,
+    int McpSessionTimeoutSeconds,
     int ContainerStopGraceSeconds,
     string DefaultNetworkPolicy,
     bool AllowPublicInternetByDefault,

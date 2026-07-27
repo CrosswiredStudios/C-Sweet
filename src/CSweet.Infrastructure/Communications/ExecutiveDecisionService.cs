@@ -1,6 +1,9 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using CSweet.Application.Communications;
 using CSweet.Application.Core;
+using CSweet.Application.Setup;
 using CSweet.Contracts.Communications;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
@@ -8,7 +11,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Communications;
 
-public sealed class ExecutiveDecisionService(CSweetDbContext db, IChatTurnService turns) : IExecutiveDecisionService
+public sealed class ExecutiveDecisionService(
+    CSweetDbContext db,
+    IChatTurnService turns,
+    IAuditEventWriter? audit = null) : IExecutiveDecisionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -69,6 +75,42 @@ public sealed class ExecutiveDecisionService(CSweetDbContext db, IChatTurnServic
         }
         db.ExecutiveDecisions.Add(decision);
         await db.SaveChangesAsync(cancellationToken);
+        if (audit is not null)
+        {
+            var requestingAgent = await db.CoreOrganizationUsers.AsNoTracking()
+                .SingleAsync(x => x.OrganizationId == command.OrganizationId &&
+                    x.AgentInstallationId == command.RequestingInstallationId, cancellationToken);
+            var promptBytes = Encoding.UTF8.GetBytes(prompt);
+            await audit.AppendAsync(new AuditEventWriteRequest(
+                "communication.user-input.requested",
+                "Communication",
+                "Outbound",
+                "Accepted",
+                command.OrganizationId,
+                "ExecutiveDecision",
+                decision.Id,
+                $"{requestingAgent.DisplayName} requested input from the user.",
+                JsonSerializer.Serialize(new
+                {
+                    command.ConversationId,
+                    command.ChatTurnId,
+                    optionCount = options.Count,
+                    recommendedOptionId,
+                    promptBytes = promptBytes.Length,
+                    promptSha256 = Convert.ToHexString(SHA256.HashData(promptBytes))
+                }, JsonOptions),
+                ExternalRequestId: decision.Id.ToString("D"),
+                CorrelationId: command.ChatTurnId.ToString("D"),
+                Actor: new AuditActor(
+                    "Agent",
+                    true,
+                    OrganizationUserId: requestingAgent.Id,
+                    DisplayName: requestingAgent.DisplayName,
+                    AgentId: requestingAgent.DisplayName,
+                    InstallationId: command.RequestingInstallationId),
+                Target: new AuditTarget("User", "Conversation participants")),
+                cancellationToken);
+        }
         return ToCard(decision);
     }
 
@@ -153,6 +195,47 @@ public sealed class ExecutiveDecisionService(CSweetDbContext db, IChatTurnServic
         decision.NextChatTurnId = started.Turn.Id;
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        if (audit is not null)
+        {
+            var responder = await db.CoreOrganizationUsers.AsNoTracking()
+                .SingleAsync(x => x.Id == actorOrganizationUserId, cancellationToken);
+            var targetAgent = await db.CoreOrganizationUsers.AsNoTracking()
+                .SingleAsync(x => x.Id == targetAgentId.Value, cancellationToken);
+            var answerBytes = Encoding.UTF8.GetBytes(answer);
+            await audit.AppendAsync(new AuditEventWriteRequest(
+                "communication.user-input.responded",
+                "Communication",
+                "Outbound",
+                "Delivered",
+                organizationId,
+                "ExecutiveDecision",
+                decision.Id,
+                $"{responder.DisplayName} responded to {targetAgent.DisplayName}'s request.",
+                JsonSerializer.Serialize(new
+                {
+                    conversationId,
+                    decision.ChatTurnId,
+                    nextChatTurnId = started.Turn.Id,
+                    selectedOptionId = selected?.Id,
+                    usedFreeText = freeText is not null,
+                    answerBytes = answerBytes.Length,
+                    answerSha256 = Convert.ToHexString(SHA256.HashData(answerBytes))
+                }, JsonOptions),
+                ExternalRequestId: decision.Id.ToString("D"),
+                CorrelationId: started.Turn.Id.ToString("D"),
+                Actor: new AuditActor(
+                    "Human",
+                    true,
+                    responder.ApplicationUserId,
+                    responder.Id,
+                    responder.DisplayName),
+                Target: new AuditTarget(
+                    "Agent",
+                    targetAgent.DisplayName,
+                    targetAgent.DisplayName,
+                    targetAgent.AgentInstallationId)),
+                cancellationToken);
+        }
         return new(true, null, "Decision submitted.", ToCard(decision), started.Turn);
     }
 

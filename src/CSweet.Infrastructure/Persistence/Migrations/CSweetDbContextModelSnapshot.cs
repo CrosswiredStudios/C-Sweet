@@ -3127,6 +3127,48 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("AgentBuildJobs");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentCapabilityBinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Capability")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<long>("GrantRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("ProviderInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequesterInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProviderInstallationId");
+
+                    b.HasIndex("RequesterInstallationId", "Capability")
+                        .IsUnique()
+                        .HasFilter("\"RevokedAt\" IS NULL");
+
+                    b.ToTable("AgentCapabilityBindings");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.AgentInstallation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3223,12 +3265,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("ApprovedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("CapabilitiesJson")
+                    b.Property<int>("CpuPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EventSubscriptionsJson")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("CpuPercent")
-                        .HasColumnType("integer");
+                    b.Property<long>("GrantRevision")
+                        .HasColumnType("bigint");
 
                     b.Property<int>("MaxRuntimeSeconds")
                         .HasColumnType("integer");
@@ -3240,19 +3285,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("PermissionsJson")
+                    b.Property<string>("ProvidedCapabilitiesJson")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("PublicationsJson")
+                    b.Property<string>("RequiredCapabilitiesJson")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("RequestedCapabilitiesJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("SubscriptionsJson")
+                    b.Property<string>("ResourceLimitsJson")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -3336,6 +3377,11 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("BuiltAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CapabilityDescriptorsDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("CommitSha")
                         .IsRequired()
@@ -3544,9 +3590,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
-                    b.Property<int>("BrokerRegistrationTimeoutSeconds")
-                        .HasColumnType("integer");
-
                     b.Property<int>("BuildCpuPercent")
                         .HasColumnType("integer");
 
@@ -3640,6 +3683,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<int>("MaximumRepositorySizeMb")
                         .HasColumnType("integer");
 
+                    b.Property<int>("McpSessionTimeoutSeconds")
+                        .HasColumnType("integer");
+
                     b.Property<int>("MinimumTickFrequencySeconds")
                         .HasColumnType("integer");
 
@@ -3672,9 +3718,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("AgentInstallationId")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset?>("BrokerRegisteredAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -3700,6 +3743,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("LogExcerpt")
                         .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("McpSessionEstablishedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("QueuedAt")
                         .HasColumnType("timestamp with time zone");
@@ -3732,7 +3778,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasIndex("AgentInstallationId")
                         .IsUnique()
                         .HasDatabaseName("UX_AgentRuntimeInstances_ActiveInstallation")
-                        .HasFilter("\"Status\" IN ('Queued', 'Starting', 'WaitingForBrokerRegistration', 'Running', 'CompletionReported', 'Stopping')");
+                        .HasFilter("\"Status\" IN ('Queued', 'Starting', 'WaitingForMcpSession', 'Running', 'CompletionReported', 'Stopping')");
 
                     b.HasIndex("TickId")
                         .IsUnique();
@@ -3798,6 +3844,190 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("AgentSchedules");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentWorkAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentWorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("ClaimedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CompletionHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("LastProgressSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LeaseTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("RuntimeInstanceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentWorkItemId", "Attempt")
+                        .IsUnique();
+
+                    b.HasIndex("RuntimeInstanceId", "LeaseExpiresAt");
+
+                    b.ToTable("AgentWorkAttempts");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentWorkItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("AvailableAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CausationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("DeadlineAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<int>("MaximumAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<byte[]>("ProtectedPayload")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<byte[]>("ProtectedResult")
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("ResultHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SourceId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SourceType")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentInstallationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("AgentInstallationId", "Status", "AvailableAt");
+
+                    b.ToTable("AgentWorkItems");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentWorkProgress", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentWorkAttemptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentWorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("ProtectedValue")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SizeBytes")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentWorkItemId");
+
+                    b.HasIndex("AgentWorkAttemptId", "Sequence")
+                        .IsUnique();
+
+                    b.ToTable("AgentWorkProgress");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.AuditEvent", b =>
@@ -4271,6 +4501,77 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("LlmProviderProfiles");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.McpAgentSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccessTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("AgentInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EstablishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("GrantRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("LastRenewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("PackageDigest")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("PackageVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PreviousAccessTokenHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("PreviousTokenValidUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RevocationReason")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RuntimeInstanceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TickId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccessTokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("AgentInstallationId");
+
+                    b.HasIndex("RuntimeInstanceId", "RevokedAt");
+
+                    b.ToTable("McpAgentSessions");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.MediaAsset", b =>
@@ -5216,6 +5517,25 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("PackageVersion");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentCapabilityBinding", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", "ProviderInstallation")
+                        .WithMany()
+                        .HasForeignKey("ProviderInstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", "RequesterInstallation")
+                        .WithMany()
+                        .HasForeignKey("RequesterInstallationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ProviderInstallation");
+
+                    b.Navigation("RequesterInstallation");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.AgentInstallation", b =>
                 {
                     b.HasOne("CSweet.Domain.Setup.AgentPackageVersion", "PackageVersion")
@@ -5293,6 +5613,55 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("AgentInstallation");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentWorkAttempt", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentWorkItem", "AgentWorkItem")
+                        .WithMany("Attempts")
+                        .HasForeignKey("AgentWorkItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.AgentRuntimeInstance", "RuntimeInstance")
+                        .WithMany()
+                        .HasForeignKey("RuntimeInstanceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AgentWorkItem");
+
+                    b.Navigation("RuntimeInstance");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentWorkItem", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", "AgentInstallation")
+                        .WithMany()
+                        .HasForeignKey("AgentInstallationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AgentInstallation");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentWorkProgress", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentWorkAttempt", "AgentWorkAttempt")
+                        .WithMany()
+                        .HasForeignKey("AgentWorkAttemptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.AgentWorkItem", "AgentWorkItem")
+                        .WithMany("Progress")
+                        .HasForeignKey("AgentWorkItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AgentWorkAttempt");
+
+                    b.Navigation("AgentWorkItem");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.GenAiJob", b =>
                 {
                     b.HasOne("CSweet.Domain.Setup.GenAiOperationConfiguration", "OperationConfiguration")
@@ -5324,6 +5693,25 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("OperationConfiguration");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.McpAgentSession", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", "AgentInstallation")
+                        .WithMany()
+                        .HasForeignKey("AgentInstallationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.AgentRuntimeInstance", "RuntimeInstance")
+                        .WithMany()
+                        .HasForeignKey("RuntimeInstanceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AgentInstallation");
+
+                    b.Navigation("RuntimeInstance");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.MediaAsset", b =>
@@ -5460,6 +5848,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("CSweet.Domain.Setup.AgentRuntimeInstance", b =>
                 {
                     b.Navigation("Events");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentWorkItem", b =>
+                {
+                    b.Navigation("Attempts");
+
+                    b.Navigation("Progress");
                 });
 #pragma warning restore 612, 618
         }

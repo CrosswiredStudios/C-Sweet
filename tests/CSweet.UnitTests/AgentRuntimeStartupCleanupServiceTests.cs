@@ -17,7 +17,7 @@ public sealed class AgentRuntimeStartupCleanupServiceTests
         var service = CreateService(runner, new AgentRuntimeManagerOptions
         {
             DockerNetworkName = "csweet-runtime",
-            BrokerGatewayContainer = "agenthost"
+            McpGatewayContainer = "agenthost"
         });
 
         var removed = await service.CleanupAsync();
@@ -54,7 +54,7 @@ public sealed class AgentRuntimeStartupCleanupServiceTests
     {
         public bool WasListed { get; private set; }
         public List<string> Removed { get; } = [];
-        public List<(string NetworkName, string BrokerGatewayContainer)> NetworksRemoved { get; } = [];
+        public List<(string NetworkName, string McpGatewayContainer)> NetworksRemoved { get; } = [];
 
         public Task<IReadOnlyList<AgentManagedContainer>> ListManagedAsync(CancellationToken cancellationToken = default)
         {

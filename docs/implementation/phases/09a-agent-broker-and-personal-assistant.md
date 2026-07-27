@@ -1,5 +1,9 @@
 # Phase 9A - Agent Broker and Personal Assistant
 
+> **Superseded historical phase.** The transport and permission model below is retired. Use the
+> [MCP-only migration](../../../Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md) and
+> [current architecture](../../../Documentation/Architecture/MCP_AGENT_RUNTIME.md).
+
 ## Goal
 
 Introduce the first separately executable C-Sweet agent and the broker contract that future marketplace and GitHub-distributed agents will use.
@@ -184,3 +188,6 @@ Unit coverage verifies:
 - [ ] Community package signature verification is implemented.
 - [ ] Community agents execute inside a hardened sandbox.
 - [ ] Durable broker persistence is implemented.
+# Superseded historical design
+
+> This phase document records the retired gRPC agent runtime. The active design is [MCP Agent Runtime](../../../Documentation/Architecture/MCP_AGENT_RUNTIME.md) and must be used for current implementation decisions.

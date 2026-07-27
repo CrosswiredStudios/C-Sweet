@@ -53,7 +53,7 @@ public sealed class AgentRuntimeCleanupService(
                 if (status is not null) await containers.RemoveAsync(instance.ContainerId!, force: true, cancellationToken: cancellationToken);
                 await containers.RemoveNetworkAsync(
                     $"{runtimeOptions.Value.DockerNetworkName}-{instance.Id:N}",
-                    runtimeOptions.Value.BrokerGatewayContainer,
+                    runtimeOptions.Value.McpGatewayContainer,
                     cancellationToken);
                 instance.ContainerId = null;
                 removed++;

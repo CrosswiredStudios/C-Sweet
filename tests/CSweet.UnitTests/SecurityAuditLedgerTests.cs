@@ -46,6 +46,19 @@ public sealed class SecurityAuditLedgerTests
     }
 
     [Fact]
+    public void TimestampNormalization_UsesUtcPostgresMicrosecondPrecision()
+    {
+        var source = new DateTimeOffset(2026, 7, 26, 18, 30, 0, TimeSpan.FromHours(-7))
+            .AddTicks(123_456_7);
+
+        var normalized = AuditEventWriter.NormalizeTimestamp(source);
+
+        Assert.Equal(TimeSpan.Zero, normalized.Offset);
+        Assert.Equal(0, normalized.Ticks % 10);
+        Assert.Equal(source.ToUniversalTime().Ticks / 10, normalized.Ticks / 10);
+    }
+
+    [Fact]
     public async Task DbContext_RejectsAuditUpdateAndDelete()
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()

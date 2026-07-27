@@ -283,7 +283,7 @@ public class CoreServiceTests
         {
             Id = Guid.NewGuid(),
             AgentInstallationId = installation.Id,
-            RequestedCapabilitiesJson = $"[\"{BrokerLlmCapabilities.ChatStream}\"]",
+            RequiredCapabilitiesJson = $"[\"{PlatformCapabilities.LlmChatStream}\"]",
             ApprovedAt = DateTimeOffset.UtcNow
         };
         dbContext.AddRange(
@@ -833,9 +833,24 @@ public class CoreServiceTests
 
 public class TestAuditEventWriter : IAuditEventWriter
 {
+    public List<AuditEventWriteRequest> Events { get; } = [];
+
     public Task WriteAsync(string eventType, string entityTypeName, Guid? entityId = null, string? summary = null, string? metadataJson = null, CancellationToken cancellationToken = default)
     {
-        // No-op for unit tests
+        Events.Add(new AuditEventWriteRequest(
+            eventType,
+            EntityType: entityTypeName,
+            EntityId: entityId,
+            Summary: summary,
+            MetadataJson: metadataJson));
         return Task.CompletedTask;
+    }
+
+    public Task<Guid> AppendAsync(
+        AuditEventWriteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Events.Add(request);
+        return Task.FromResult(Guid.NewGuid());
     }
 }

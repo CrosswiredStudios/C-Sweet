@@ -3,7 +3,7 @@ using CSweet.Agent.SDK;
 using CSweet.Application.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Core;
-using Google.Protobuf;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
@@ -11,7 +11,6 @@ namespace CSweet.AgentHost.Broker;
 /// <summary>Drives management reviews from durable application state rather than model memory or process timers.</summary>
 public sealed class ManagementReviewScheduler(
     IServiceScopeFactory scopeFactory,
-    AgentSessionRegistry sessions,
     TimeProvider clock,
     ILogger<ManagementReviewScheduler> logger) : BackgroundService
 {
@@ -31,6 +30,7 @@ public sealed class ManagementReviewScheduler(
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+        var router = scope.ServiceProvider.GetRequiredService<AgentWorkRouter>();
         var audit = scope.ServiceProvider.GetRequiredService<IAuditEventWriter>();
         var now = clock.GetUtcNow();
         var cycles = await db.ManagementCycles.Where(x => x.IsEnabled).ToListAsync(cancellationToken);
@@ -63,12 +63,12 @@ public sealed class ManagementReviewScheduler(
             }
             var eventPayload = new ManagementReviewDueEvent(
                 cycle.Id, "ManagerRollup", periodStart, now, now.AddHours(2), cycle.TimeZone);
-            var count = sessions.PublishPlatformEvent(
+            var count = await router.EnqueueEventAsync(
                 cycle.OrganizationId.ToString("D"),
                 ManagementEvents.ReviewDue,
-                $"organization/{cycle.OrganizationId:D}/management-cycle/{cycle.Id:D}",
-                ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(eventPayload, JsonOptions)),
-                Guid.NewGuid().ToString("N"));
+                JsonSerializer.SerializeToElement(eventPayload, JsonOptions),
+                $"management-review:{cycle.Id:D}:{now.UtcTicks}",
+                cancellationToken: cancellationToken);
             cycle.NextReviewAt = NextWeekdayReview(now, cycle);
             await audit.WriteAsync("management-review.due", nameof(CSweet.Domain.Core.ManagementCycle), cycle.Id,
                 $"Management review became due and was offered to {count} connected agent(s).",
@@ -109,16 +109,19 @@ public sealed class ManagementReviewScheduler(
                     CreatedAt = now, DueAt = now.AddHours(2)
                 });
             var weeklyEvent = new ManagementReviewDueEvent(cycle.Id, "WeeklyLeadership", now.AddDays(-7), now, now.AddHours(2), cycle.TimeZone);
-            var count = sessions.PublishPlatformEvent(cycle.OrganizationId.ToString("D"), ManagementEvents.ReviewDue,
-                $"organization/{cycle.OrganizationId:D}/management-cycle/{cycle.Id:D}",
-                ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(weeklyEvent, JsonOptions)), Guid.NewGuid().ToString("N"));
+            var count = await router.EnqueueEventAsync(
+                cycle.OrganizationId.ToString("D"),
+                ManagementEvents.ReviewDue,
+                JsonSerializer.SerializeToElement(weeklyEvent, JsonOptions),
+                $"weekly-management-review:{cycle.Id:D}:{now:yyyyMMdd}",
+                cancellationToken: cancellationToken);
             await audit.WriteAsync("management-weekly-review.due", nameof(CSweet.Domain.Core.ManagementCycle), cycle.Id,
                 $"Weekly leadership and workforce review became due and was offered to {count} connected agent(s).",
                 cancellationToken: cancellationToken);
         }
         await QueueScheduledExecutiveBriefingsAsync(db, cycles, now, cancellationToken);
-        await DispatchExecutiveBriefingsAsync(db, now, cancellationToken);
-        await DispatchAgentManagerDeliveriesAsync(db, now, cancellationToken);
+        await DispatchExecutiveBriefingsAsync(db, router, now, cancellationToken);
+        await DispatchAgentManagerDeliveriesAsync(db, router, now, cancellationToken);
         var overdue = await db.ManagementCheckInRequests
             .Where(x => x.CheckInType != "ExecutiveBriefing" && x.Status == "Pending" && x.DueAt < now)
             .ToListAsync(cancellationToken);
@@ -180,7 +183,11 @@ public sealed class ManagementReviewScheduler(
         await db.SaveChangesAsync(token);
     }
 
-    private async Task DispatchExecutiveBriefingsAsync(CSweetDbContext db, DateTimeOffset now, CancellationToken token)
+    private async Task DispatchExecutiveBriefingsAsync(
+        CSweetDbContext db,
+        AgentWorkRouter router,
+        DateTimeOffset now,
+        CancellationToken token)
     {
         var requests = await db.ManagementCheckInRequests
             .Where(x => x.CheckInType == "ExecutiveBriefing" && (x.Status == "Pending" || x.Status == "AwaitingReport"))
@@ -210,9 +217,13 @@ public sealed class ManagementReviewScheduler(
             }
             var due = new ManagementReviewDueEvent(cycle.Id, "ExecutiveBriefing", request.CreatedAt.AddDays(-1), now,
                 request.DueAt, cycle.TimeZone) { RequestId = request.Id };
-            var count = sessions.PublishPlatformEvent(request.OrganizationId.ToString("D"), ManagementEvents.ReviewDue,
-                $"agent-installation/{installationId:D}/executive-briefing/{request.Id:D}",
-                ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(due, JsonOptions)), request.Id.ToString("N"), installationId.Value.ToString("D"));
+            var count = await router.EnqueueEventAsync(
+                request.OrganizationId.ToString("D"),
+                ManagementEvents.ReviewDue,
+                JsonSerializer.SerializeToElement(due, JsonOptions),
+                request.Id.ToString("N"),
+                installationId.Value,
+                cancellationToken: token);
             request.DispatchAttempts++;
             request.LastDispatchedAt = now;
             if (count > 0)
@@ -230,9 +241,13 @@ public sealed class ManagementReviewScheduler(
         await db.SaveChangesAsync(token);
     }
 
-    private async Task DispatchAgentManagerDeliveriesAsync(CSweetDbContext db, DateTimeOffset now, CancellationToken token)
+    private async Task DispatchAgentManagerDeliveriesAsync(
+        CSweetDbContext db,
+        AgentWorkRouter router,
+        DateTimeOffset now,
+        CancellationToken token)
     {
-        var deliveries = await db.ExecutiveBriefingDeliveries.Where(x => x.Channel == "AgentBroker" && x.Status == "Pending" &&
+        var deliveries = await db.ExecutiveBriefingDeliveries.Where(x => x.Channel == "AgentRuntime" && x.Status == "Pending" &&
                 (x.LastAttemptAt == null || x.LastAttemptAt <= now.AddMinutes(-5)))
             .OrderBy(x => x.CreatedAt).Take(100).ToListAsync(token);
         foreach (var delivery in deliveries)
@@ -257,9 +272,13 @@ public sealed class ManagementReviewScheduler(
                 failedRequest.Status = "DeliveryFailed";
                 continue;
             }
-            var count = sessions.PublishPlatformEvent(delivery.OrganizationId.ToString("D"), ManagementEvents.StatusReported,
-                $"agent-installation/{installationId:D}/executive-briefing/{delivery.ManagementCheckInRequestId:D}",
-                ByteString.CopyFromUtf8(delivery.PayloadJson), delivery.Id.ToString("N"), installationId.Value.ToString("D"));
+            var count = await router.EnqueueEventAsync(
+                delivery.OrganizationId.ToString("D"),
+                ManagementEvents.StatusReported,
+                JsonDocument.Parse(delivery.PayloadJson).RootElement.Clone(),
+                delivery.Id.ToString("N"),
+                installationId.Value,
+                cancellationToken: token);
             if (count > 0)
             {
                 delivery.Status = "Delivered"; delivery.DeliveredAt = now;

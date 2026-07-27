@@ -1,7 +1,5 @@
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Memory;
-using Google.Protobuf;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -45,7 +43,7 @@ public sealed class PlatformMemoryCapabilityHandler
             return Failure(request.RequestId, "The memory request exceeds the 1 MB limit.");
         if (!string.Equals(request.ContentType, "application/json", StringComparison.OrdinalIgnoreCase))
             return Failure(request.RequestId, "Platform memory requests must use application/json.");
-        if (session.Grant.RequestedCapabilities?.Contains(request.Capability) != true)
+        if (!session.Grant.RequestedCapabilities.Contains(request.Capability))
             return Failure(request.RequestId, $"The installation is not granted {request.Capability}.");
 
         try
@@ -221,17 +219,13 @@ public sealed class PlatformMemoryCapabilityHandler
             !string.IsNullOrWhiteSpace(session.MemoryEmployeeId) &&
             !string.Equals(partition.AgentId, session.MemoryEmployeeId, StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("Cross-employee memory access is forbidden.");
-        var area = partition.UserId is null ? "business" : "user";
-        var verb = action switch { MemoryAction.Read => "read", MemoryAction.Propose => "propose", _ => "manage" };
-        var permission = $"memory.{area}.{verb}";
-        if (!session.Grant.Permissions.Contains(permission))
-            throw new UnauthorizedAccessException($"The installation is not granted {permission}.");
+        _ = action; // Access level is represented by the explicit memory capability grant.
     }
 
     private static CapabilityResult Success(string requestId, byte[] payload) => new()
     {
         RequestId = requestId, Succeeded = true, ContentType = "application/json",
-        Payload = ByteString.CopyFrom(payload), HasMore = false
+        Payload = JsonPayload.From(payload), HasMore = false
     };
 
     private static CapabilityResult Failure(string requestId, string error) => new()

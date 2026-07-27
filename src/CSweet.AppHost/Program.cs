@@ -83,13 +83,11 @@ var agentHost = builder.AddDockerfile(
     .WithReference(postgres)
     .WaitFor(postgres)
     .WaitForCompletion(migrator);
-var agentHostEndpoint = agentHost.GetEndpoint("http");
+var agentHostEndpoint = agentHost.GetEndpoint("mcp");
 
 var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WithReference(postgres)
     .WithReference(agentHostEndpoint)
-    .WithEnvironment("CSweet__ApiGateway__BrokerEndpoint", agentHostEndpoint)
-    .WithEnvironment("CSweet__CommunicationPlugins__BrokerEndpoint", agentHostEndpoint)
     .WithEnvironment("CSweet__GenAi__MediaRoot", Path.Combine(localStateDirectory, "media"))
     .WithEnvironment("CSweet__Marketplace__Enabled", marketplaceEnabled)
     .WithEnvironment("CSweet__Marketplace__BaseUrl", marketplaceBaseUrl)
@@ -104,8 +102,6 @@ builder.AddProject<Projects.CSweet_App>("app", launchProfileName: appLaunchProfi
 
 builder.AddProject<Projects.CSweet_WorkerHost>("workerhost")
     .WithReference(api)
-    .WithReference(agentHostEndpoint)
-    .WithEnvironment("CSweet__CommunicationPlugins__BrokerEndpoint", agentHostEndpoint)
     .WithReference(postgres)
     .WaitFor(postgres)
     .WaitForCompletion(migrator)

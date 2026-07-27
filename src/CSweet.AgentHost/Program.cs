@@ -4,23 +4,27 @@ using Microsoft.EntityFrameworkCore;
 using CSweet.Application.Setup;
 using CSweet.Infrastructure.Setup;
 using CSweet.Infrastructure;
+using CSweet.Infrastructure.Agents;
 using CSweet.Memory;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.AddJsonFile(
+    Path.Combine(AppContext.BaseDirectory, "first-party-agents.json"),
+    optional: false,
+    reloadOnChange: false);
+
 builder.AddServiceDefaults();
-builder.Services.AddGrpc();
 builder.AddCSweetInfrastructure();
-builder.Services
-    .AddOptions<AgentBrokerPolicyOptions>()
-    .Bind(builder.Configuration.GetSection(AgentBrokerPolicyOptions.SectionName))
-    .ValidateOnStart();
-builder.Services.AddSingleton<ConfiguredAgentAuthorizationPolicy>();
-builder.Services.AddScoped<IAgentAuthorizationPolicy, PersistedAgentAuthorizationPolicy>();
-builder.Services.AddSingleton<AgentSessionRegistry>();
+builder.Services.AddHostedService<AgentCatalogWarmupService>();
 builder.Services.AddScoped<IPlatformCapabilityDispatcher, PlatformCapabilityDispatcher>();
 builder.Services.AddSingleton<McpToolCatalog>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<AgentWorkInbox>();
+builder.Services.AddScoped<AgentWorkRouter>();
+builder.Services.AddScoped<McpAgentSessionService>();
 builder.Services
     .AddOptions<AgentOnboardingDeliveryOptions>()
     .Bind(builder.Configuration.GetSection(AgentOnboardingDeliveryOptions.SectionName))
@@ -52,19 +56,37 @@ if (builder.Environment.IsDevelopment() &&
     builder.Services.AddScoped<CSweet.Agent.SDK.IWorkforceCatalogProvider, DevelopmentWorkforceMarketplaceProvider>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, CommunicationHubCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentOnboardingCapabilityHandler>();
-builder.Services.AddScoped<IPlatformEventObserver, ManagementEventObserver>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilityHandler>();
 builder.Services.AddScoped<IAgentMemoryIdentityResolver, AgentMemoryIdentityResolver>();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("mcp-session", httpContext =>
+        RateLimitPartition.GetSlidingWindowLimiter(
+            httpContext.Request.Headers["Mcp-Session-Id"].FirstOrDefault()
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown",
+            _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = 240,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 6,
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+});
 
 var app = builder.Build();
 
-app.MapGrpcService<AgentBrokerService>();
+app.UseRateLimiter();
 app.MapCSweetMcpGateway();
 app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Ok(new
 {
     service = "CSweet.AgentHost",
     status = "ok",
-    protocol = "csweet-plugin-v1"
+    protocol = "csweet-plugin-v2",
+    agentRuntime = "mcp-only"
 }));
 
 app.Run();

@@ -5,6 +5,17 @@ namespace CSweet.AI.Providers;
 
 public static class LlmProviderPresets
 {
+    public static IReadOnlyList<LlmProviderPreset> AllLocalhost()
+    {
+        return
+        [
+            LmStudioLocalhost(),
+            UnslothStudioLocalhost(),
+            OllamaLocalhost(),
+            VllmLocalhost()
+        ];
+    }
+
     public static LlmProviderPreset LmStudioLocalhost()
     {
         return new LlmProviderPreset

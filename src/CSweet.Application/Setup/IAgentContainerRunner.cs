@@ -7,7 +7,7 @@ public interface IAgentContainerRunner
     Task<AgentContainerStatus?> InspectAsync(string containerId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AgentManagedContainer>> ListManagedAsync(CancellationToken cancellationToken = default);
     Task RemoveAsync(string containerId, bool force = false, CancellationToken cancellationToken = default);
-    Task RemoveNetworkAsync(string networkName, string brokerGatewayContainer, CancellationToken cancellationToken = default);
+    Task RemoveNetworkAsync(string networkName, string mcpGatewayContainer, CancellationToken cancellationToken = default);
     Task<string> GetLogsAsync(string containerId, int maximumBytes, CancellationToken cancellationToken = default);
 }
 
@@ -21,7 +21,7 @@ public sealed record AgentContainerStartRequest(
     string RuntimeImage,
     string PackagePath,
     string EntryAssembly,
-    string BrokerEndpoint,
+    string McpEndpoint,
     string WorkloadToken,
     string ManifestPath,
     string NetworkName,
@@ -30,7 +30,7 @@ public sealed record AgentContainerStartRequest(
     int PidsLimit,
     int MaxRuntimeSeconds,
     string? PersistentDataVolumeName = null,
-    string BrokerGatewayContainer = "agenthost");
+    string McpGatewayContainer = "agenthost");
 
 public sealed record AgentContainerStatus(
     string ContainerId,

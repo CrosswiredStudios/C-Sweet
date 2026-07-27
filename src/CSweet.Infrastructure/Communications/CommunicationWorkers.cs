@@ -1,4 +1,5 @@
 using CSweet.Application.Communications;
+using CSweet.Application.Setup;
 using CSweet.Communications.Abstractions;
 using CSweet.Contracts.Communications;
 using CSweet.Domain.Communications;
@@ -20,7 +21,7 @@ public sealed class CommunicationDeliveryWorker(IServiceScopeFactory scopeFactor
             try
             {
                 using var scope = scopeFactory.CreateScope();
-                var processed = await ProcessOneAsync(scope.ServiceProvider, stoppingToken);
+                var processed = await ProcessOneAsync(scope.ServiceProvider, logger, stoppingToken);
                 if (!processed) await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
@@ -32,7 +33,10 @@ public sealed class CommunicationDeliveryWorker(IServiceScopeFactory scopeFactor
         }
     }
 
-    private static async Task<bool> ProcessOneAsync(IServiceProvider services, CancellationToken cancellationToken)
+    private static async Task<bool> ProcessOneAsync(
+        IServiceProvider services,
+        ILogger<CommunicationDeliveryWorker> logger,
+        CancellationToken cancellationToken)
     {
         var db = services.GetRequiredService<CSweetDbContext>();
         var now = DateTimeOffset.UtcNow;
@@ -135,7 +139,88 @@ public sealed class CommunicationDeliveryWorker(IServiceScopeFactory scopeFactor
         }
         delivery.LeaseOwner = null; delivery.LeaseUntil = null; delivery.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
+        if (delivery.Kind == CommunicationDeliveryKind.SendMessage)
+        {
+            try
+            {
+                await WriteDeliveryAuditAsync(
+                    services.GetRequiredService<IAuditEventWriter>(),
+                    db,
+                    delivery,
+                    cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                // Delivery has already committed. Audit unavailability must never cause an
+                // externally delivered message to be sent a second time.
+                logger.LogError(exception,
+                    "Communication delivery {DeliveryId} committed but its audit event could not be recorded.",
+                    delivery.Id);
+            }
+        }
         return true;
+    }
+
+    private static async Task WriteDeliveryAuditAsync(
+        IAuditEventWriter audit,
+        CSweetDbContext db,
+        CommunicationDelivery delivery,
+        CancellationToken cancellationToken)
+    {
+        var connection = delivery.ConnectionId.HasValue
+            ? await db.CommunicationConnections.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == delivery.ConnectionId.Value, cancellationToken)
+            : null;
+        var actor = delivery.OrganizationUserId.HasValue
+            ? await db.CoreOrganizationUsers.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == delivery.OrganizationUserId.Value, cancellationToken)
+            : null;
+        var delivered = delivery.Status == CommunicationDeliveryStatus.Delivered;
+        var terminalFailure = delivery.Status == CommunicationDeliveryStatus.DeadLettered;
+        var eventType = delivered
+            ? "communication.external-delivery.delivered"
+            : terminalFailure
+                ? "communication.external-delivery.failed"
+                : "communication.external-delivery.retry-scheduled";
+        var providerName = connection?.ProviderKey ?? "external provider";
+        await audit.AppendAsync(new AuditEventWriteRequest(
+            eventType,
+            "Communication",
+            "Outbound",
+            delivered ? "Delivered" : terminalFailure ? "Failed" : "Accepted",
+            delivery.OrganizationId,
+            "CommunicationDelivery",
+            delivery.Id,
+            delivered
+                ? $"{actor?.DisplayName ?? "C-Sweet"} delivered a message through {providerName}."
+                : terminalFailure
+                    ? $"Message delivery through {providerName} failed permanently."
+                    : $"Message delivery through {providerName} will be retried.",
+            JsonSerializer.Serialize(new
+            {
+                delivery.ConnectionId,
+                delivery.ConversationMessageId,
+                provider = connection?.ProviderKey,
+                connection?.WorkspaceExternalId,
+                delivery.Attempts,
+                status = delivery.Status.ToString()
+            }),
+            ExternalMessageId: delivery.ExternalReceiptId,
+            CorrelationId: delivery.ConversationMessageId?.ToString("D"),
+            Actor: actor is null
+                ? new AuditActor("Platform", true, DisplayName: "C-Sweet platform")
+                : new AuditActor(
+                    actor.EmployeeType == CSweet.Domain.Core.EmployeeType.Agent ? "Agent" : "Human",
+                    true,
+                    actor.ApplicationUserId,
+                    actor.Id,
+                    actor.DisplayName,
+                    actor.EmployeeType == CSweet.Domain.Core.EmployeeType.Agent ? actor.DisplayName : null,
+                    actor.AgentInstallationId),
+            Target: new AuditTarget("CommunicationProvider", providerName),
+            ErrorCode: delivered ? null : terminalFailure ? "delivery_dead_lettered" : "delivery_retry_scheduled",
+            ErrorMessage: delivered ? null : delivery.LastError),
+            cancellationToken);
     }
 
     private static Guid? ParseEmployeeId(string purpose)

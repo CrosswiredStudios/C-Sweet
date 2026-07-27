@@ -74,7 +74,7 @@
                         <MudNumericField T="int" Label="Default PIDs limit" @bind-Value="_defaultContainerPidsLimit" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Default log limit (MB)" @bind-Value="_defaultContainerLogLimitMb" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Start timeout (seconds)" @bind-Value="_containerStartTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Broker registration timeout (seconds)" @bind-Value="_brokerRegistrationTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="MCP session timeout (seconds)" @bind-Value="_mcpSessionTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Stop grace period (seconds)" @bind-Value="_containerStopGraceSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
                     </div>
                 </MudExpansionPanel>
@@ -82,7 +82,7 @@
                 <MudExpansionPanel Text="Network and storage" Class="configuration-expand-panel">
                     <div class="setup-form-grid">
                         <MudSelect T="string" Label="Default network policy" @bind-Value="_defaultNetworkPolicy" Variant="Variant.Outlined" Disabled="_isBusy">
-                            <MudSelectItem T="string" Value="@("BrokerOnly")">Broker only</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("McpOnly")">Private MCP only</MudSelectItem>
                         </MudSelect>
                         <MudCheckBox T="bool" Label="Allow public internet by default" @bind-Value="_allowPublicInternetByDefault" Disabled="_isBusy" />
                         <MudTextField Label="Allowed package feed hosts" @bind-Value="_allowedPackageFeedHosts" Variant="Variant.Outlined" Disabled="_isBusy" />
@@ -132,13 +132,13 @@
     private bool? _actionSucceeded;
     private string? _pageError, _actionMessage;
     private string _defaultActivationMode = "Periodic", _defaultOverlapPolicy = "Skip", _defaultRestartPolicy = "Never",
-        _defaultNetworkPolicy = "BrokerOnly", _allowedPackageFeedHosts = "", _blockedNetworkCidrs = "",
+        _defaultNetworkPolicy = "McpOnly", _allowedPackageFeedHosts = "", _blockedNetworkCidrs = "",
         _agentSourceRootPath = "", _agentPackageCachePath = "", _dotNetBuilderImage = "", _dotNetRuntimeBaseImage = "";
     private int _defaultTickFrequencySeconds, _minimumTickFrequencySeconds, _defaultMaxRuntimeSeconds,
         _globalMaxActiveContainers, _perBusinessMaxActiveContainers, _perInstallationMaxActiveContainers,
         _defaultContainerMemoryMb, _maximumContainerMemoryMb, _defaultContainerCpuPercent, _maximumContainerCpuPercent,
         _defaultContainerPidsLimit, _defaultContainerLogLimitMb, _containerStartTimeoutSeconds,
-        _brokerRegistrationTimeoutSeconds, _containerStopGraceSeconds, _buildTimeoutSeconds, _buildMemoryMb,
+        _mcpSessionTimeoutSeconds, _containerStopGraceSeconds, _buildTimeoutSeconds, _buildMemoryMb,
         _buildCpuPercent, _maximumRepositorySizeMb, _maximumBuildLogMb, _completedRuntimeRetentionDays,
         _failedRuntimeRetentionDays, _buildLogRetentionDays;
 
@@ -166,7 +166,7 @@
         _maximumContainerMemoryMb = s.MaximumContainerMemoryMb; _defaultContainerCpuPercent = s.DefaultContainerCpuPercent;
         _maximumContainerCpuPercent = s.MaximumContainerCpuPercent; _defaultContainerPidsLimit = s.DefaultContainerPidsLimit;
         _defaultContainerLogLimitMb = s.DefaultContainerLogLimitMb; _containerStartTimeoutSeconds = s.ContainerStartTimeoutSeconds;
-        _brokerRegistrationTimeoutSeconds = s.BrokerRegistrationTimeoutSeconds; _containerStopGraceSeconds = s.ContainerStopGraceSeconds;
+        _mcpSessionTimeoutSeconds = s.McpSessionTimeoutSeconds; _containerStopGraceSeconds = s.ContainerStopGraceSeconds;
         _defaultNetworkPolicy = s.DefaultNetworkPolicy; _allowPublicInternetByDefault = s.AllowPublicInternetByDefault;
         _allowedPackageFeedHosts = s.AllowedPackageFeedHosts; _blockedNetworkCidrs = s.BlockedNetworkCidrs;
         _agentSourceRootPath = s.AgentSourceRootPath; _agentPackageCachePath = s.AgentPackageCachePath;
@@ -189,7 +189,7 @@
                 _globalMaxActiveContainers, _perBusinessMaxActiveContainers, _perInstallationMaxActiveContainers,
                 _defaultContainerMemoryMb, _maximumContainerMemoryMb, _defaultContainerCpuPercent, _maximumContainerCpuPercent,
                 _defaultContainerPidsLimit, _defaultContainerLogLimitMb, _containerStartTimeoutSeconds,
-                _brokerRegistrationTimeoutSeconds, _containerStopGraceSeconds, _defaultNetworkPolicy,
+                _mcpSessionTimeoutSeconds, _containerStopGraceSeconds, _defaultNetworkPolicy,
                 _allowPublicInternetByDefault, _allowedPackageFeedHosts, _blockedNetworkCidrs, _agentSourceRootPath,
                 _agentPackageCachePath, _dotNetBuilderImage, _dotNetRuntimeBaseImage, _buildTimeoutSeconds,
                 _buildMemoryMb, _buildCpuPercent, _maximumRepositorySizeMb, _maximumBuildLogMb,

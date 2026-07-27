@@ -104,6 +104,7 @@
     private CommunicationSetupOptionsResponse? _communicationOptions;
 
     private Guid? _providerProfileId;
+    private bool _localProviderDiscoveryAttempted;
     private bool CanFinish => _status is not null && SetupWizardState.CanFinish(_status);
     private bool RequiredPriorStepsComplete => _status?.Steps.Where(x => x.IsRequired && x.Key != "finish").All(x => x.IsComplete) == true;
 
@@ -171,6 +172,8 @@
     private RenderFragment LlmProviderStep => @<LlmProviderSetupStep Profiles="@_profiles"
                                                                          SelectedProviderId="@_providerProfileId"
                                                                          ProfilesChanged="@HandleProfilesChangedAsync"
+                                                                         AutoDiscoverLocalProviders="@(!_localProviderDiscoveryAttempted)"
+                                                                         LocalProviderDiscoveryAttempted="@HandleLocalProviderDiscoveryAttempted"
                                                                          OnContinue="@ContinueFromProviderAsync"
                                                                          OnBack="@BackToWelcome" />;
 
@@ -259,6 +262,11 @@
     {
         _profiles = profiles;
         return Task.CompletedTask;
+    }
+
+    private void HandleLocalProviderDiscoveryAttempted()
+    {
+        _localProviderDiscoveryAttempted = true;
     }
 
     private async Task ContinueFromProviderAsync(Guid? providerProfileId)

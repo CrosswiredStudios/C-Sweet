@@ -1,10 +1,9 @@
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
-using CSweet.Agent.Contracts.Grpc;
 using CSweet.Agent.SDK;
 using CSweet.AI.Providers;
 using CSweet.Infrastructure.Persistence;
-using Google.Protobuf;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 
@@ -41,18 +40,18 @@ public sealed class PlatformLlmCapabilityHandler
             yield break;
         }
 
-        if (session.Grant.RequestedCapabilities?.Contains(BrokerLlmCapabilities.ChatStream) != true)
+        if (!session.Grant.RequestedCapabilities.Contains(PlatformChatCapabilities.ChatStream))
         {
             yield return Failure(request.RequestId,
-                $"The installation is not granted {BrokerLlmCapabilities.ChatStream}.");
+                $"The installation is not granted {PlatformChatCapabilities.ChatStream}.");
             yield break;
         }
 
-        BrokerLlmRequest? input = null;
+        PlatformChatRequest? input = null;
         var parseFailed = false;
         try
         {
-            input = JsonSerializer.Deserialize<BrokerLlmRequest>(request.Payload.Span, JsonOptions);
+            input = JsonSerializer.Deserialize<PlatformChatRequest>(request.Payload.Span, JsonOptions);
         }
         catch (JsonException)
         {
@@ -126,7 +125,11 @@ public sealed class PlatformLlmCapabilityHandler
                     tool.JsonSchema))
                 .ToList()
         };
-        var sequence = 0;
+        var responseText = new StringBuilder();
+        var responseContents = new List<PlatformChatContent>();
+        long? inputTokenCount = null;
+        long? outputTokenCount = null;
+        string? responseRole = null;
 
         IAsyncEnumerator<ChatResponseUpdate>? updates = null;
         string? providerError = null;
@@ -153,7 +156,7 @@ public sealed class PlatformLlmCapabilityHandler
         {
             _logger.LogWarning(
                 exception,
-                "Brokered LLM request {RequestId} failed for agent {AgentId}.",
+                "Platform LLM request {RequestId} failed for agent {AgentId}.",
                 request.RequestId,
                 session.AgentId);
             providerError = "The platform LLM provider could not complete the request.";
@@ -191,7 +194,7 @@ public sealed class PlatformLlmCapabilityHandler
                 {
                     _logger.LogWarning(
                         exception,
-                        "Brokered LLM stream {RequestId} failed for agent {AgentId}.",
+                        "Platform LLM stream {RequestId} failed for agent {AgentId}.",
                         request.RequestId,
                         session.AgentId);
                     providerError = "The platform LLM provider could not complete the request.";
@@ -209,21 +212,34 @@ public sealed class PlatformLlmCapabilityHandler
                 }
 
                 var usage = update.Contents.OfType<UsageContent>().FirstOrDefault()?.Details;
-                var contents = update.Contents
+                if (usage is not null)
+                {
+                    inputTokenCount = usage.InputTokenCount ?? inputTokenCount;
+                    outputTokenCount = usage.OutputTokenCount ?? outputTokenCount;
+                }
+                if (!string.IsNullOrEmpty(update.Text))
+                    responseText.Append(update.Text);
+                if (update.Role is not null)
+                    responseRole = update.Role.ToString();
+                responseContents.AddRange(update.Contents
                     .Where(content => content is TextContent or FunctionCallContent or FunctionResultContent)
-                    .Select(ToBrokerContent)
-                    .ToList();
-                var chunk = new BrokerLlmChunk(
-                    update.Text,
-                    usage?.InputTokenCount,
-                    usage?.OutputTokenCount,
-                    update.Role?.ToString(),
-                    contents);
-                yield return Success(request.RequestId, chunk, sequence++, hasMore: true);
+                    .Select(ToPlatformContent));
             }
         }
 
-        yield return Success(request.RequestId, new BrokerLlmChunk(null), sequence, hasMore: false);
+        // MCP tools/call has a single result. Aggregate provider updates here so the
+        // gateway does not discard every content chunk in favor of an empty terminal
+        // marker. The SDK still exposes this through its streaming authoring surface.
+        yield return Success(
+            request.RequestId,
+            new PlatformChatChunk(
+                responseText.Length == 0 ? null : responseText.ToString(),
+                inputTokenCount,
+                outputTokenCount,
+                responseRole,
+                responseContents),
+            sequence: 0,
+            hasMore: false);
     }
 
     private async Task<bool> IsModelApprovedAsync(
@@ -280,13 +296,13 @@ public sealed class PlatformLlmCapabilityHandler
         _ => ChatRole.User
     };
 
-    private static ChatMessage ToChatMessage(BrokerLlmMessage message) => new(
+    private static ChatMessage ToChatMessage(PlatformChatMessage message) => new(
         ParseRole(message.Role),
         message.Contents is { Count: > 0 }
             ? message.Contents.Select(ToAiContent).ToList()
             : [new TextContent(message.Text ?? string.Empty)]);
 
-    private static AIContent ToAiContent(BrokerLlmContent content) => content.Kind switch
+    private static AIContent ToAiContent(PlatformChatContent content) => content.Kind switch
     {
         "text" => new TextContent(content.Text ?? string.Empty),
         "function_call" when !string.IsNullOrWhiteSpace(content.CallId) &&
@@ -303,10 +319,10 @@ public sealed class PlatformLlmCapabilityHandler
             $"The broker request contains unsupported or incomplete '{content.Kind}' content.")
     };
 
-    private static BrokerLlmContent ToBrokerContent(AIContent content) => content switch
+    private static PlatformChatContent ToPlatformContent(AIContent content) => content switch
     {
-        TextContent text => new BrokerLlmContent("text", Text: text.Text),
-        FunctionCallContent call => new BrokerLlmContent(
+        TextContent text => new PlatformChatContent("text", Text: text.Text),
+        FunctionCallContent call => new PlatformChatContent(
             "function_call",
             CallId: call.CallId,
             Name: call.Name,
@@ -314,12 +330,12 @@ public sealed class PlatformLlmCapabilityHandler
                 argument => argument.Key,
                 argument => SerializeElement(argument.Value),
                 StringComparer.Ordinal)),
-        FunctionResultContent result => new BrokerLlmContent(
+        FunctionResultContent result => new PlatformChatContent(
             "function_result",
             CallId: result.CallId,
             Result: SerializeElement(result.Result)),
         _ => throw new NotSupportedException(
-            $"Brokered LLM responses do not support {content.GetType().Name} content.")
+            $"Platform LLM responses do not support {content.GetType().Name} content.")
     };
 
     private static JsonElement SerializeElement(object? value) =>
@@ -327,28 +343,28 @@ public sealed class PlatformLlmCapabilityHandler
             ? element.Clone()
             : JsonSerializer.SerializeToElement(value, value?.GetType() ?? typeof(object), JsonOptions);
 
-    private static int ContentSize(BrokerLlmContent content) =>
+    private static int ContentSize(PlatformChatContent content) =>
         (content.Text?.Length ?? 0) +
         (content.CallId?.Length ?? 0) +
         (content.Name?.Length ?? 0) +
         (content.Arguments?.Sum(argument => argument.Key.Length + argument.Value.GetRawText().Length) ?? 0) +
         (content.Result?.GetRawText().Length ?? 0);
 
-    private static int MessageSize(BrokerLlmMessage message) =>
+    private static int MessageSize(PlatformChatMessage message) =>
         message.Contents is { Count: > 0 }
             ? message.Contents.Sum(ContentSize)
             : message.Text?.Length ?? 0;
 
     private static CapabilityResult Success(
         string requestId,
-        BrokerLlmChunk chunk,
+        PlatformChatChunk chunk,
         int sequence,
         bool hasMore) => new()
     {
         RequestId = requestId,
         Succeeded = true,
         ContentType = "application/json",
-        Payload = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(chunk, JsonOptions)),
+        Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(chunk, JsonOptions)),
         Sequence = sequence,
         HasMore = hasMore
     };

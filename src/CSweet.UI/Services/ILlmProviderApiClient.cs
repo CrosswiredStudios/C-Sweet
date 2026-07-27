@@ -5,6 +5,7 @@ namespace CSweet.UI.Services;
 public interface ILlmProviderApiClient
 {
     Task<IReadOnlyList<LlmProviderProfileResponse>> ListAsync(CancellationToken cancellationToken = default);
+    Task<LocalLlmProviderDiscoveryResponse> DiscoverLocalAsync(CancellationToken cancellationToken = default);
     Task<PreviewModelCatalogResponse> PreviewModelCatalogAsync(PreviewModelCatalogRequest request, CancellationToken cancellationToken = default);
     Task<PreviewModelCatalogResponse> GetModelCatalogAsync(Guid providerProfileId, CancellationToken cancellationToken = default);
     Task<LlmProviderProfileResponse> CreateAsync(CreateLlmProviderProfileRequest request, CancellationToken cancellationToken = default);

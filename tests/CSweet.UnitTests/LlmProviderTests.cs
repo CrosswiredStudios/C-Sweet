@@ -45,9 +45,29 @@ public class LlmProviderTests
     [Fact]
     public void LocalProviderPresets_ReturnExpectedEndpoints()
     {
-        Assert.Equal("http://localhost:8888/v1", LlmProviderPresets.UnslothStudioLocalhost().BaseUrl);
-        Assert.Equal("http://localhost:11434/v1", LlmProviderPresets.OllamaLocalhost().BaseUrl);
-        Assert.Equal("http://localhost:8000/v1", LlmProviderPresets.VllmLocalhost().BaseUrl);
+        var presets = LlmProviderPresets.AllLocalhost();
+
+        Assert.Collection(
+            presets,
+            preset => AssertPreset(preset, LlmProviderType.LmStudio, "http://localhost:1234/v1", "lm-studio"),
+            preset => AssertPreset(preset, LlmProviderType.UnslothStudio, "http://localhost:8888/v1", "unsloth"),
+            preset => AssertPreset(preset, LlmProviderType.Ollama, "http://localhost:11434/v1", "ollama"),
+            preset => AssertPreset(preset, LlmProviderType.Vllm, "http://localhost:8000/v1", "vllm"));
+    }
+
+    private static void AssertPreset(
+        LlmProviderPreset preset,
+        LlmProviderType providerType,
+        string baseUrl,
+        string apiKey)
+    {
+        Assert.Equal(providerType, preset.ProviderType);
+        Assert.Equal(baseUrl, preset.BaseUrl);
+        Assert.Equal(apiKey, preset.ApiKeyPlaceholder);
+        Assert.True(preset.SupportsStreaming);
+        Assert.False(preset.SupportsToolCalling);
+        Assert.False(preset.SupportsStructuredOutput);
+        Assert.False(preset.SupportsVision);
     }
 
     [Fact]

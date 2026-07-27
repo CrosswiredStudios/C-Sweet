@@ -48,6 +48,9 @@ public partial class Employees
     private AgentRuntimeReadinessResponse? _configurationRuntime;
     private readonly Dictionary<Guid, AgentRuntimeReadinessResponse> _runtimeStatuses = [];
     private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
+    private readonly Dictionary<Guid, IReadOnlyList<string>> _providerModels = [];
+    private readonly HashSet<Guid> _loadingProviderModels = [];
+    private readonly Dictionary<Guid, string> _providerModelErrors = [];
     private readonly CancellationTokenSource _disposeCts = new();
     private CancellationTokenSource? _configurationCts;
     private CancellationTokenSource? _runtimeStatusCts;
@@ -86,7 +89,7 @@ public partial class Employees
     {
         AgentRuntimeReadinessStages.Queued => "Agent runtime queued...",
         AgentRuntimeReadinessStages.StartingContainer => "Starting agent container...",
-        AgentRuntimeReadinessStages.WaitingForBroker => "Connecting agent to C-Sweet...",
+        AgentRuntimeReadinessStages.WaitingForMcpSession => "Establishing secure agent session...",
         AgentRuntimeReadinessStages.Stopping => "Cleaning up the previous runtime...",
         AgentRuntimeReadinessStages.Ready => "Loading agent configuration...",
         _ => "Preparing agent runtime..."
@@ -190,7 +193,7 @@ public partial class Employees
             AgentRuntimeReadinessStages.Ready => "Online",
             AgentRuntimeReadinessStages.Queued => "Queued",
             AgentRuntimeReadinessStages.StartingContainer => "Starting",
-            AgentRuntimeReadinessStages.WaitingForBroker => "Connecting",
+            AgentRuntimeReadinessStages.WaitingForMcpSession => "Connecting",
             AgentRuntimeReadinessStages.Stopping => "Stopping",
             AgentRuntimeReadinessStages.Failed => "Failed",
             AgentRuntimeReadinessStages.Offline => "Offline",
@@ -203,7 +206,7 @@ public partial class Employees
             AgentRuntimeReadinessStages.Ready => Color.Success,
             AgentRuntimeReadinessStages.Queued or
             AgentRuntimeReadinessStages.StartingContainer or
-            AgentRuntimeReadinessStages.WaitingForBroker or
+            AgentRuntimeReadinessStages.WaitingForMcpSession or
             AgentRuntimeReadinessStages.Stopping => Color.Info,
             AgentRuntimeReadinessStages.Failed => Color.Error,
             _ => Color.Default
@@ -227,7 +230,7 @@ public partial class Employees
         Installation(employee)?.IsEnabled == true &&
         RuntimeStatus(employee)?.Stage is AgentRuntimeReadinessStages.Queued or
             AgentRuntimeReadinessStages.StartingContainer or
-            AgentRuntimeReadinessStages.WaitingForBroker or
+            AgentRuntimeReadinessStages.WaitingForMcpSession or
             AgentRuntimeReadinessStages.Stopping or
             AgentRuntimeReadinessStages.Ready;
 
@@ -244,7 +247,7 @@ public partial class Employees
                 ? Installation(employee)?.IsEnabled == false ? "Stopping" : "Running"
                 : RuntimeStatus(employee)?.Stage is AgentRuntimeReadinessStages.Queued or
                     AgentRuntimeReadinessStages.StartingContainer or
-                    AgentRuntimeReadinessStages.WaitingForBroker or
+                    AgentRuntimeReadinessStages.WaitingForMcpSession or
                     AgentRuntimeReadinessStages.Stopping
                     ? Installation(employee)?.IsEnabled == false ? "Stopping" : "Starting"
                     : "Start";
@@ -349,7 +352,7 @@ public partial class Employees
     private static Severity RuntimeRunSeverity(string status) => status switch
     {
         "Completed" or "Running" => Severity.Success,
-        "Queued" or "Starting" or "WaitingForBrokerRegistration" => Severity.Info,
+        "Queued" or "Starting" or "WaitingForMcpSession" => Severity.Info,
         "Cancelled" => Severity.Warning,
         _ => Severity.Error
     };
@@ -775,6 +778,7 @@ public partial class Employees
                     }
                     : null;
             }
+            await LoadConfiguredProviderModelsAsync(_configurationSchema, cancellationToken);
         }
         catch (OperationCanceledException) when (_configurationCts.IsCancellationRequested)
         {
@@ -836,7 +840,7 @@ public partial class Employees
     private decimal? ConfigurationNumber(string key) => _configurationValues.GetValueOrDefault(key) as decimal?;
     private void SetConfigurationValue(string key, object? value) => _configurationValues[key] = value;
 
-    private void SetProviderValue(string key, string value)
+    private async Task SetProviderValueAsync(string key, string value)
     {
         _configurationValues[key] = value;
         if (_configurationSchema is null)
@@ -844,12 +848,57 @@ public partial class Employees
             return;
         }
 
+        var provider = FindProvider(value);
+        if (provider is not null)
+        {
+            await LoadProviderModelsAsync(provider.Id, _disposeCts.Token);
+        }
+
         foreach (var modelField in _configurationSchema.Fields.Where(field =>
             field.Type == AgentConfigurationFieldTypes.LlmModel &&
             string.Equals(ConfigurationProviderFieldKey(field), key, StringComparison.Ordinal)))
         {
-            _configurationValues[modelField.Key] = FindProvider(value)?.DefaultChatModel ?? string.Empty;
+            var models = provider is null ? [] : ModelOptions(modelField);
+            _configurationValues[modelField.Key] = provider is null
+                ? string.Empty
+                : models.Contains(provider.DefaultChatModel, StringComparer.Ordinal)
+                    ? provider.DefaultChatModel
+                    : models.FirstOrDefault() ?? string.Empty;
         }
+    }
+
+    private bool IsModelPickerDisabled(AgentConfigurationField field) =>
+        ConfigurationProvider(field) is not { } provider ||
+        _loadingProviderModels.Contains(provider.Id);
+
+    private string ModelPlaceholder(AgentConfigurationField field) =>
+        ConfigurationProvider(field) is not { } provider
+            ? "Select a provider first"
+            : _loadingProviderModels.Contains(provider.Id)
+                ? "Loading models..."
+                : "Select a model";
+
+    private IReadOnlyList<string> ModelOptions(AgentConfigurationField field)
+    {
+        var provider = ConfigurationProvider(field);
+        if (provider is null)
+        {
+            return [];
+        }
+
+        var models = _providerModels.GetValueOrDefault(provider.Id) ?? [];
+        return models
+            .Append(provider.DefaultChatModel)
+            .Where(model => !string.IsNullOrWhiteSpace(model))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private bool SelectedModelMissing(AgentConfigurationField field)
+    {
+        var selected = ConfigurationString(field.Key);
+        return !string.IsNullOrWhiteSpace(selected) &&
+            !ModelOptions(field).Contains(selected, StringComparer.Ordinal);
     }
 
     private LlmProviderProfileResponse? ConfigurationProvider(AgentConfigurationField field) =>
@@ -865,6 +914,89 @@ public partial class Employees
         Guid.TryParse(providerId, out var id)
             ? _providerProfiles.FirstOrDefault(provider => provider.Id == id && provider.IsEnabled)
             : null;
+
+    private async Task LoadConfiguredProviderModelsAsync(
+        AgentConfigurationSchemaResponse schema,
+        CancellationToken cancellationToken)
+    {
+        var providerIds = schema.Fields
+            .Where(field => field.Type == AgentConfigurationFieldTypes.LlmProvider)
+            .Select(field => ConfigurationString(field.Key))
+            .Where(value => Guid.TryParse(value, out _))
+            .Select(Guid.Parse)
+            .Distinct()
+            .ToList();
+
+        await Task.WhenAll(providerIds.Select(providerId =>
+            LoadProviderModelsAsync(providerId, cancellationToken)));
+
+        foreach (var modelField in schema.Fields.Where(field =>
+                     field.Type == AgentConfigurationFieldTypes.LlmModel &&
+                     string.IsNullOrWhiteSpace(ConfigurationString(field.Key))))
+        {
+            var provider = ConfigurationProvider(modelField);
+            if (provider is null)
+            {
+                continue;
+            }
+
+            var models = ModelOptions(modelField);
+            _configurationValues[modelField.Key] =
+                models.Contains(provider.DefaultChatModel, StringComparer.Ordinal)
+                    ? provider.DefaultChatModel
+                    : models.FirstOrDefault() ?? string.Empty;
+        }
+    }
+
+    private async Task LoadProviderModelsAsync(Guid providerId, CancellationToken cancellationToken)
+    {
+        if ((_providerModels.ContainsKey(providerId) && !_providerModelErrors.ContainsKey(providerId)) ||
+            !_loadingProviderModels.Add(providerId))
+        {
+            return;
+        }
+
+        _providerModelErrors.Remove(providerId);
+        try
+        {
+            var result = await LlmProviderApi.GetModelCatalogAsync(providerId, cancellationToken);
+            if (!result.Succeeded)
+            {
+                _providerModelErrors[providerId] =
+                    result.Message ?? "Models could not be loaded from this provider.";
+                _providerModels[providerId] = [];
+                return;
+            }
+
+            _providerModels[providerId] = result.Models
+                .Select(model => model.Id)
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _providerModelErrors[providerId] = exception.Message;
+            _providerModels[providerId] = [];
+        }
+        finally
+        {
+            _loadingProviderModels.Remove(providerId);
+        }
+    }
+
+    private string? ModelCatalogError(AgentConfigurationField providerField)
+    {
+        var provider = FindProvider(ConfigurationString(providerField.Key));
+        return provider is not null &&
+               _providerModelErrors.TryGetValue(provider.Id, out var error)
+            ? error
+            : null;
+    }
 
     private async Task<Guid?> ResolveAgentWorkerAsync()
     {

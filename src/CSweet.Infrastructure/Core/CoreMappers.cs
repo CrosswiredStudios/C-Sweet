@@ -45,7 +45,7 @@ internal static class CoreMappers
         {
             ApplicationUserId = user.ApplicationUserId,
             AgentInstallationId = user.AgentInstallationId,
-            SupportsAgentConfiguration = user.AgentInstallation?.Grant?.CapabilitiesJson.Contains(
+            SupportsAgentConfiguration = user.AgentInstallation?.Grant?.ProvidedCapabilitiesJson.Contains(
                 $"\"{AgentConfigurationCapabilities.Describe}\"",
                 StringComparison.Ordinal) == true,
             IsActive = user.IsActive,
