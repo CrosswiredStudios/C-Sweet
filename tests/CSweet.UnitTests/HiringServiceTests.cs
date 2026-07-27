@@ -37,8 +37,40 @@ public sealed class HiringServiceTests
         var backlog = await service.ListRecommendationsForInstallationAsync(organizationId, firstInstallationId);
 
         Assert.Collection(backlog,
-            item => { Assert.Equal("Product Manager", item.Title); Assert.Equal(1, item.Priority); Assert.Empty(item.Candidates); },
+            item =>
+            {
+                Assert.Equal("Product Manager", item.Title);
+                Assert.Equal(1, item.Priority);
+                Assert.Empty(item.Candidates);
+                Assert.Equal(
+                    $"/organizations/{organizationId:D}/marketplace?role=Product%20Manager",
+                    item.HiringUrl);
+            },
             item => { Assert.Equal("QA Engineer", item.Title); Assert.Equal(20, item.Priority); Assert.Empty(item.Candidates); });
+
+        var hired = new OrganizationUser
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            DisplayName = "Product Manager",
+            EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Contributor,
+            CreatedAt = now
+        };
+        db.CoreOrganizationUsers.Add(hired);
+        await db.SaveChangesAsync();
+        var productManager = backlog[0];
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ResolveRecommendationAsync(
+            organizationId,
+            secondInstallationId,
+            new(productManager.Id, hired.Id, "wrong-owner")));
+        await service.ResolveRecommendationAsync(
+            organizationId,
+            firstInstallationId,
+            new(productManager.Id, hired.Id, "employee-hired"));
+        Assert.DoesNotContain(
+            await service.ListRecommendationsForInstallationAsync(organizationId, firstInstallationId),
+            x => x.Id == productManager.Id);
     }
 
     [Fact]
@@ -174,6 +206,81 @@ public sealed class HiringServiceTests
         Assert.Equal("C-Sweet Product Manager", organizationUsers.CreatedRequest?.DisplayName);
     }
 
+    [Fact]
+    public async Task MarketplacePreview_UsesCatalogImportAndSharedConfirmationOrchestrator()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var applicationUserId = Guid.NewGuid();
+        db.CoreOrganizations.Add(new Organization
+        {
+            Id = organizationId, Name = "Product Company", CreatedAt = now, UpdatedAt = now
+        });
+        db.CoreOrganizationUsers.Add(new OrganizationUser
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            ApplicationUserId = applicationUserId,
+            DisplayName = "Owner",
+            EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner,
+            CreatedAt = now
+        });
+        await db.SaveChangesAsync();
+        var repositoryUrl = "https://github.com/CrosswiredStudios/CSweet.Agent.ProductManager";
+        var agent = new CSweet.Agent.SDK.AvailableAgent(
+            "first-party:product-manager",
+            "com.csweet.product-manager",
+            CSweet.Agent.SDK.AgentCatalogSource.FirstPartyCatalog,
+            [],
+            CSweet.Agent.SDK.AgentAvailabilityState.AvailableToInstall,
+            null,
+            "C-Sweet Product Manager",
+            "Own product outcomes.",
+            "C-Sweet",
+            "Product",
+            ["Product Manager"],
+            ["product"],
+            ["product.strategy"],
+            null,
+            null,
+            null,
+            0,
+            null,
+            repositoryUrl,
+            .99m,
+            "First-party verified");
+        var import = new RecordingImportPreview(repositoryUrl);
+        var installations = new RecordingInstallationService(organizationId);
+        var organizationUsers = new RecordingOrganizationUserService();
+        var service = new HiringService(
+            db,
+            organizationUsers,
+            new TestAuditEventWriter(),
+            import,
+            installations,
+            new RecordingAgentCatalog(agent));
+        IAgentHireOrchestrator orchestrator = service;
+
+        var preview = await orchestrator.PreviewAsync(
+            organizationId,
+            applicationUserId,
+            new("first-party:product-manager", "Product Manager", null, "marketplace-preview"));
+        var confirmed = await orchestrator.ConfirmAsync(
+            organizationId,
+            preview.WorkflowId,
+            applicationUserId,
+            new("marketplace-confirm"));
+
+        Assert.Equal("Pending", preview.Status);
+        Assert.Equal("Approved", confirmed?.Status);
+        Assert.Equal(Guid.Empty, confirmed?.RecommendationId);
+        Assert.Equal(2, import.Requests.Count);
+        Assert.Equal(1, installations.InstallCount);
+        Assert.Equal(installations.InstallationId, organizationUsers.CreatedRequest?.AgentInstallationId);
+    }
+
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
@@ -216,6 +323,23 @@ public sealed class HiringServiceTests
                 RequestedCapabilities = RequestedCapabilities
             });
         }
+    }
+
+    private sealed class RecordingAgentCatalog(CSweet.Agent.SDK.AvailableAgent agent)
+        : CSweet.Application.Agents.IAgentCatalogService
+    {
+        public Task<CSweet.Agent.SDK.AvailableAgentSearchResult> GetAvailableAgentsAsync(
+            Guid? organizationId,
+            CSweet.Agent.SDK.AvailableAgentSearchQuery query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new CSweet.Agent.SDK.AvailableAgentSearchResult([agent], []));
+
+        public Task<CSweet.Agent.SDK.AvailableAgent?> ResolveAsync(
+            Guid? organizationId,
+            string agentReference,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<CSweet.Agent.SDK.AvailableAgent?>(
+                string.Equals(agent.AgentReference, agentReference, StringComparison.Ordinal) ? agent : null);
     }
 
     private sealed class RecordingInstallationService(Guid organizationId) : IAgentInstallationService
@@ -301,7 +425,8 @@ public sealed class HiringServiceTests
             Guid organizationId,
             CreateOrganizationUserRequest request,
             CancellationToken cancellationToken = default,
-            Guid? hiringApplicationUserId = null)
+            Guid? hiringApplicationUserId = null,
+            string hiringSource = "Manual")
         {
             CreatedRequest = request;
             return Task.FromResult(new CoreActionResponse(

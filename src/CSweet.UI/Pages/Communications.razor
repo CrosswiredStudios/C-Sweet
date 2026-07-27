@@ -116,7 +116,43 @@
                     }
                     @foreach (var message in _messages)
                     {
-                        <article class="hub-message @(message.SenderOrganizationUserId == _hub.CurrentOrganizationUserId ? "mine" : null)">
+                        @if (message.MessageType == CommunicationMessageTypes.SystemAction)
+                        {
+                            <article class="hub-system-action-message" aria-label="Suggested action">
+                                <div class="hub-system-action-icon">
+                                    <MudIcon Icon="@Icons.Material.Outlined.RocketLaunch" />
+                                </div>
+                                <div class="hub-system-action-content">
+                                    <span>SUGGESTED ACTION</span>
+                                    @if (message.Actions is { Count: > 0 })
+                                    {
+                                        <strong>@message.Actions[0].Label</strong>
+                                        @if (!string.IsNullOrWhiteSpace(message.Actions[0].Description))
+                                        {
+                                            <p>@message.Actions[0].Description</p>
+                                        }
+                                        <div class="hub-system-action-buttons">
+                                            @foreach (var action in message.Actions)
+                                            {
+                                                <MudButton Href="@action.NavigationUri"
+                                                           Variant="Variant.Filled"
+                                                           Color="Color.Primary"
+                                                           EndIcon="@Icons.Material.Outlined.ArrowForward">
+                                                    @action.Label
+                                                </MudButton>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <strong>@message.Content</strong>
+                                    }
+                                </div>
+                            </article>
+                        }
+                        else
+                        {
+                            <article class="hub-message @(message.SenderOrganizationUserId == _hub.CurrentOrganizationUserId ? "mine" : null)">
                             <div class="hub-avatar @AvatarClass(message.SenderEmployeeType)">@Initials(message.SenderDisplayName)</div>
                             <div class="hub-message-body">
                                 <div class="hub-message-meta">
@@ -130,7 +166,25 @@
                                         @ThinkingButton(messageTurn)
                                     }
                                 </div>
-                                 <ChatMarkdown Content="@message.Content" />
+                                <ChatMarkdown Content="@message.Content" />
+                                @if (message.Actions is { Count: > 0 })
+                                {
+                                    <div class="hub-message-actions" aria-label="Suggested actions">
+                                        @foreach (var action in message.Actions)
+                                        {
+                                            <MudButton Href="@action.NavigationUri"
+                                                       Variant="Variant.Filled"
+                                                       Color="Color.Primary"
+                                                       StartIcon="@Icons.Material.Outlined.RocketLaunch">
+                                                @action.Label
+                                            </MudButton>
+                                            @if (!string.IsNullOrWhiteSpace(action.Description))
+                                            {
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@action.Description</MudText>
+                                            }
+                                        }
+                                    </div>
+                                }
                                 @if (message.Decision is { } decision)
                                 {
                                     <section class="executive-decision-card" aria-label="Question">
@@ -186,7 +240,8 @@
                                     </section>
                                 }
                             </div>
-                        </article>
+                            </article>
+                        }
                     }
                     @foreach (var pending in ActiveTurns)
                     {

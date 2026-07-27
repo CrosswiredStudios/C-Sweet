@@ -1,7 +1,9 @@
 @page "/organizations/{OrganizationId:guid}/marketplace"
 @using System.Net.Http.Json
 @using CSweet.Agent.SDK
+@using CSweet.Contracts.Core
 @inject HttpClient Http
+@inject NavigationManager Navigation
 
 <PageTitle>Agent Catalog - C-Sweet</PageTitle>
 
@@ -92,7 +94,7 @@
                 @foreach (var agent in _result.Agents)
                 {
                     <MudItem xs="12" md="6" lg="4">
-                        <MarketplaceAgentCard Agent="agent" />
+                        <MarketplaceAgentCard Agent="agent" ReviewHireRequested="ReviewHireAsync" />
                     </MudItem>
                 }
             </MudGrid>
@@ -100,8 +102,72 @@
     }
 </div>
 
+<MudDialog @bind-Visible="_reviewOpen" Options="_dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h5">Review and hire @_preview?.AgentName</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_reviewBusy)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        @if (!string.IsNullOrWhiteSpace(_reviewError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_reviewError</MudAlert>
+        }
+        @if (_preview is not null)
+        {
+            <MudStack Spacing="2">
+                <MudText><strong>Role:</strong> @_preview.RoleTitle</MudText>
+                <MudText><strong>Source:</strong> @_preview.Source · @_preview.Trust</MudText>
+                <MudText><strong>Price:</strong> @(_preview.Price.HasValue ? $"{_preview.Price:0.##} {_preview.Currency}" : "No listed cost")</MudText>
+                <MudText Color="Color.Secondary">@_preview.InstallationConsequence</MudText>
+                <MudSelect T="Guid?" Label="Reports to" @bind-Value="_reportsToId"
+                           Variant="Variant.Outlined" Clearable="true" Disabled="_reviewBusy">
+                    @foreach (var manager in _people)
+                    {
+                        <MudSelectItem T="Guid?" Value="@manager.Id">@manager.DisplayName</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudText Typo="Typo.subtitle2">Capabilities</MudText>
+                <div class="marketplace-agent-capabilities">
+                    @foreach (var capability in _preview.Capabilities)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@capability</MudChip>
+                    }
+                </div>
+                @if (_preview.RequestedCapabilities.Count > 0)
+                {
+                    <MudText Typo="Typo.subtitle2">Requested platform access</MudText>
+                    <MudText Typo="Typo.body2">@string.Join(", ", _preview.RequestedCapabilities)</MudText>
+                }
+                @if (_preview.Subscriptions.Count > 0)
+                {
+                    <MudText Typo="Typo.subtitle2">Event subscriptions</MudText>
+                    <MudText Typo="Typo.body2">@string.Join(", ", _preview.Subscriptions)</MudText>
+                }
+                @if (_preview.NetworkAccess.Count > 0)
+                {
+                    <MudText Typo="Typo.subtitle2">Network access</MudText>
+                    <MudText Typo="Typo.body2">@string.Join(", ", _preview.NetworkAccess)</MudText>
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="CloseReview" Disabled="_reviewBusy">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_reviewBusy || _preview is null)"
+                   OnClick="ConfirmHireAsync">
+            Approve and hire
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
+    [SupplyParameterFromQuery(Name = "role")]
+    public string? RequestedRole { get; set; }
 
     private AvailableAgentSearchResult? _result;
     private bool _loading;
@@ -109,6 +175,15 @@
     private string? _role;
     private string? _category;
     private string _sort = "relevance";
+    private string? _appliedRouteRole;
+    private bool _reviewOpen;
+    private bool _reviewBusy;
+    private string? _reviewError;
+    private MarketplaceHirePreviewResponse? _preview;
+    private AvailableAgent? _selectedAgent;
+    private Guid? _reportsToId;
+    private IReadOnlyList<OrganizationUserResponse> _people = [];
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
 
     private IReadOnlyList<string> Categories => (_result?.Agents ?? [])
         .Select(x => x.Category)
@@ -117,7 +192,15 @@
         .Order(StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
-    protected override Task OnParametersSetAsync() => SearchAsync();
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.Equals(_appliedRouteRole, RequestedRole, StringComparison.Ordinal))
+        {
+            _appliedRouteRole = RequestedRole;
+            _role = string.IsNullOrWhiteSpace(RequestedRole) ? null : RequestedRole.Trim();
+        }
+        await SearchAsync();
+    }
 
     private async Task SearchAsync()
     {
@@ -159,4 +242,94 @@
 
     private static AvailableAgentSearchResult Offline(string reason) =>
         new([], [new(AgentCatalogSource.Marketplace, false, reason)]);
+
+    private async Task ReviewHireAsync(AvailableAgent agent)
+    {
+        _selectedAgent = agent;
+        _reviewOpen = true;
+        _reviewBusy = true;
+        _reviewError = null;
+        _preview = null;
+        try
+        {
+            _people = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
+                $"api/core/organizations/{OrganizationId:D}/users") ?? [];
+            await LoadPreviewAsync();
+        }
+        catch (Exception exception)
+        {
+            _reviewError = exception.Message;
+        }
+        finally
+        {
+            _reviewBusy = false;
+        }
+    }
+
+    private async Task LoadPreviewAsync()
+    {
+        if (_selectedAgent is null) return;
+        var role = string.IsNullOrWhiteSpace(_role)
+            ? _selectedAgent.RoleAliases.FirstOrDefault() ?? _selectedAgent.Name
+            : _role.Trim();
+        var response = await Http.PostAsJsonAsync(
+            $"api/core/organizations/{OrganizationId:D}/hiring/marketplace/preview",
+            new PreviewMarketplaceHireRequest(
+                _selectedAgent.AgentReference,
+                role,
+                _reportsToId,
+                $"marketplace-preview:{Guid.NewGuid():N}"));
+        if (!response.IsSuccessStatusCode)
+        {
+            var failure = await response.Content.ReadFromJsonAsync<MarketplaceApiError>();
+            throw new InvalidOperationException(failure?.Message ?? "The agent hire could not be prepared.");
+        }
+        _preview = await response.Content.ReadFromJsonAsync<MarketplaceHirePreviewResponse>()
+            ?? throw new InvalidOperationException("The Marketplace hire preview was empty.");
+    }
+
+    private async Task ConfirmHireAsync()
+    {
+        if (_preview is null) return;
+        _reviewBusy = true;
+        _reviewError = null;
+        try
+        {
+            if (_preview.ReportsToOrganizationUserId != _reportsToId)
+            {
+                await LoadPreviewAsync();
+                if (_preview is null) return;
+            }
+            var response = await Http.PostAsJsonAsync(
+                $"api/core/organizations/{OrganizationId:D}/hiring/workflows/{_preview.WorkflowId:D}/confirm",
+                new ConfirmHiringWorkflowRequest($"marketplace-confirm:{_preview.WorkflowId:D}"));
+            if (!response.IsSuccessStatusCode)
+            {
+                var failure = await response.Content.ReadFromJsonAsync<MarketplaceApiError>();
+                throw new InvalidOperationException(failure?.Message ?? "The hire could not be completed.");
+            }
+            _reviewOpen = false;
+            _preview = null;
+            _selectedAgent = null;
+            Navigation.NavigateTo($"/organizations/{OrganizationId:D}/employees");
+        }
+        catch (Exception exception)
+        {
+            _reviewError = exception.Message;
+        }
+        finally
+        {
+            _reviewBusy = false;
+        }
+    }
+
+    private void CloseReview()
+    {
+        _reviewOpen = false;
+        _preview = null;
+        _selectedAgent = null;
+        _reviewError = null;
+    }
+
+    private sealed record MarketplaceApiError(string? Error, string? Message);
 }

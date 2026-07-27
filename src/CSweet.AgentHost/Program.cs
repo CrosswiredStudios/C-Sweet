@@ -32,6 +32,7 @@ builder.Services
     .ValidateOnStart();
 builder.Services.AddHostedService<ManagementReviewScheduler>();
 builder.Services.AddHostedService<AgentOnboardingEventDispatcher>();
+builder.Services.AddHostedService<AgentPlatformEventDispatcher>();
 builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService>();
 builder.Services.AddScoped<AgentEmployeeIdentityResolver>();
 builder.Services.AddScoped<PlatformLlmCapabilityHandler>();

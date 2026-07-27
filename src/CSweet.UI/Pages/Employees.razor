@@ -46,13 +46,9 @@
         else
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
-                The Chief of Staff ranks current staff, installed agents, and live marketplace agents when the online catalog is connected.
+                Agents maintain a prioritized list of roles worth hiring next.
                 <MudLink Href="@($"/organizations/{OrganizationId}/marketplace")">Browse the agent marketplace</MudLink>.
             </MudAlert>
-            @if (!string.IsNullOrWhiteSpace(_hiringMessage))
-            {
-                <MudAlert Severity="@(_hiringError ? Severity.Error : Severity.Success)" Class="mb-4">@_hiringMessage</MudAlert>
-            }
             @if (_hiringDashboard?.Recommendations.Count is null or 0)
             {
                 <MudPaper Class="pa-6" Elevation="0" Outlined="true">
@@ -65,42 +61,20 @@
                 <MudStack Spacing="3">
                     @foreach (var recommendation in _hiringDashboard!.Recommendations)
                     {
-                        var workflow = _hiringDashboard.Workflows.FirstOrDefault(x => x.RecommendationId == recommendation.Id);
                         <MudPaper Class="@($"pa-5 hiring-recommendation {(Recommendation == recommendation.Id ? "highlighted" : string.Empty)}")" Elevation="0" Outlined="true">
                             <MudStack Spacing="2">
                                 <div class="hiring-heading">
                                     <div><MudText Typo="Typo.overline">Priority @recommendation.Priority · @recommendation.Status</MudText><MudText Typo="Typo.h5">@recommendation.Title</MudText><MudText Color="Color.Secondary">@recommendation.Objective</MudText></div>
-                                    @if (workflow?.Status == "Pending")
-                                    {
-                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_confirmingHire"
-                                                   OnClick="@(() => ConfirmHireAsync(workflow.Id))">Approve hire</MudButton>
-                                    }
+                                    <MudButton Href="@recommendation.HiringUrl" Variant="Variant.Filled"
+                                               Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Storefront">
+                                        Browse candidates
+                                    </MudButton>
                                 </div>
-                                @foreach (var candidate in recommendation.Candidates)
+                                @if (!string.IsNullOrWhiteSpace(recommendation.SuggestedBy))
                                 {
-                                    <div class="hiring-candidate @(candidate.CandidateReference == recommendation.RecommendedCandidateReference ? "recommended" : null)">
-                                        <div><strong>@candidate.DisplayName</strong>
-                                            @if (candidate.CandidateReference == recommendation.RecommendedCandidateReference) { <span>RECOMMENDED</span> }
-                                            <small>@candidate.Source · @candidate.InstallationState · @candidate.Trust</small>
-                                        </div>
-                                        <div class="hiring-price">@(candidate.Price.HasValue ? $"{candidate.Price:0.##} {candidate.Currency}" : "No listed cost")<small>@($"Fit {candidate.FitScore:P0}")</small></div>
-                                        <p>@candidate.Rationale</p>
-                                        <div class="hiring-chips">@foreach (var capability in candidate.Capabilities.Take(6)) { <span>@capability</span> }</div>
-                                        @if (candidate.RequiredGrants.Count > 0) { <small>Required grants: @string.Join(", ", candidate.RequiredGrants)</small> }
-                                    </div>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Suggested by @recommendation.SuggestedBy</MudText>
                                 }
-                                @if (recommendation.Candidates.Count == 0)
-                                {
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Candidate sourcing has not started. This role remains on the staffing backlog.</MudText>
-                                }
-                                else if (workflow is null)
-                                {
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">The agent has not staged an approval workflow yet.</MudText>
-                                }
-                                else if (workflow.Status != "Pending")
-                                {
-                                    <MudAlert Severity="Severity.Success" Dense="true">@workflow.Message</MudAlert>
-                                }
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">Candidate sourcing, security review, installation, and approval continue in Marketplace.</MudText>
                             </MudStack>
                         </MudPaper>
                     }

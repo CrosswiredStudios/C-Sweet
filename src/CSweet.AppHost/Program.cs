@@ -97,6 +97,7 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WaitForCompletion(migrator);
 
 builder.AddProject<Projects.CSweet_App>("app", launchProfileName: appLaunchProfile)
+    .WithHttpEndpoint(port: 5097, name: "http")
     .WithReference(api)
     .WaitFor(api);
 

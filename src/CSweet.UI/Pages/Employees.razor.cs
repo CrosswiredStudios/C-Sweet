@@ -72,9 +72,6 @@ public partial class Employees
     private int _graphDegrees = 2;
     private EmployeeDirectoryFilter _directoryFilter = new();
     private HiringDashboardResponse? _hiringDashboard;
-    private bool _confirmingHire;
-    private bool _hiringError;
-    private string? _hiringMessage;
     private bool IsHiringTab => string.Equals(Tab, "hiring", StringComparison.OrdinalIgnoreCase);
 
     private IReadOnlyList<EmployeeViewModel> PresentedEmployees => EmployeePresentationService.Build(
@@ -130,30 +127,6 @@ public partial class Employees
         {
             _loading = false;
         }
-    }
-
-    private async Task ConfirmHireAsync(Guid workflowId)
-    {
-        if (_confirmingHire) return;
-        _confirmingHire = true;
-        _hiringMessage = null;
-        _hiringError = false;
-        try
-        {
-            var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId}/hiring/workflows/{workflowId}/confirm",
-                new ConfirmHiringWorkflowRequest(Guid.NewGuid().ToString("N")), _disposeCts.Token);
-            if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException(await response.Content.ReadAsStringAsync(_disposeCts.Token));
-            _hiringMessage = "The approved workflow completed successfully.";
-            _hiringDashboard = await Http.GetFromJsonAsync<HiringDashboardResponse>(
-                $"api/core/organizations/{OrganizationId}/hiring", _disposeCts.Token);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            _hiringError = true;
-            _hiringMessage = exception.Message;
-        }
-        finally { _confirmingHire = false; }
     }
 
     private string EmployeeLabel(OrganizationUserResponse employee)

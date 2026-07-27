@@ -23,6 +23,24 @@ public sealed class ConversationMessage
     public Conversation? Conversation { get; set; }
 }
 
+public sealed class SuggestedUserAction
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid OriginatingInstallationId { get; set; }
+    public Guid ConversationId { get; set; }
+    public Guid? ConversationMessageId { get; set; }
+    public Guid? ChatTurnId { get; set; }
+    public string WorkflowType { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string ParametersJson { get; set; } = "{}";
+    public string NavigationUri { get; set; } = string.Empty;
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public string Status { get; set; } = "Pending";
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
 public enum CommunicationDeliveryIntent
 {
     Inform,

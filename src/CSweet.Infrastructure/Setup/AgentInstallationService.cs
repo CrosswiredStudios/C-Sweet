@@ -99,7 +99,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             (scope != PluginInstallationScope.System || activationMode != ActivationMode.AlwaysOn))
             throw new AgentInstallationException("Communication providers must be system-scoped and always-on.");
         var overlapPolicy = ParseOverlapPolicy(request.OverlapPolicy);
-        ValidateSchedule(request.TickFrequencySeconds, request.MaxRuntimeSeconds, activationMode, settings);
+        var maxRuntimeSeconds = NormalizeMaxRuntimeSeconds(
+            request.MaxRuntimeSeconds,
+            settings,
+            packageVersion.AgentId,
+            businessId);
+        ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activationMode, settings);
         ValidateResources(request.MemoryMb, request.CpuPercent, settings);
         ValidateGrant("provided capabilities", request.GrantedCapabilities, manifest.Provides.Select(x => x.Name).ToArray());
         ValidateGrant("required capabilities", request.GrantedRequestedCapabilities,
@@ -132,7 +137,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             Id = Guid.NewGuid(),
             AgentInstallationId = installation.Id,
             NetworkAccessJson = SerializeGrant(request.GrantedNetworkAccess),
-            MaxRuntimeSeconds = request.MaxRuntimeSeconds,
+            MaxRuntimeSeconds = maxRuntimeSeconds,
             MemoryMb = request.MemoryMb,
             CpuPercent = request.CpuPercent,
             ProvidedCapabilitiesJson = SerializeGrant(request.GrantedCapabilities),
@@ -140,7 +145,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             EventSubscriptionsJson = SerializeGrant(request.GrantedSubscriptions),
             ResourceLimitsJson = JsonSerializer.Serialize(new
             {
-                request.MaxRuntimeSeconds,
+                MaxRuntimeSeconds = maxRuntimeSeconds,
                 request.MemoryMb,
                 request.CpuPercent
             }),
@@ -154,7 +159,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             ActivationMode = activationMode,
             TickFrequencySeconds = request.TickFrequencySeconds,
             NextTickAt = ComputeNextTick(activationMode, request.TickFrequencySeconds, now),
-            MaxRuntimeSeconds = request.MaxRuntimeSeconds,
+            MaxRuntimeSeconds = maxRuntimeSeconds,
             MaxRetriesPerTick = 0,
             OverlapPolicy = overlapPolicy,
             IsEnabled = true
@@ -252,9 +257,14 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var settings = await GetSettingsAsync(cancellationToken);
         var activationMode = ParseActivationMode(request.ActivationMode);
         var overlapPolicy = ParseOverlapPolicy(request.OverlapPolicy);
-        ValidateSchedule(request.TickFrequencySeconds, request.MaxRuntimeSeconds, activationMode, settings);
+        var maxRuntimeSeconds = NormalizeMaxRuntimeSeconds(
+            request.MaxRuntimeSeconds,
+            settings,
+            installation.PackageVersion!.AgentId,
+            installation.BusinessId);
+        ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activationMode, settings);
 
-        if (request.MaxRuntimeSeconds > installation.Grant!.MaxRuntimeSeconds)
+        if (maxRuntimeSeconds > installation.Grant!.MaxRuntimeSeconds)
         {
             throw new AgentInstallationException("Schedule max runtime cannot exceed the approved installation grant.");
         }
@@ -263,7 +273,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         installation.Schedule!.ActivationMode = activationMode;
         installation.Schedule.TickFrequencySeconds = request.TickFrequencySeconds;
         installation.Schedule.OverlapPolicy = overlapPolicy;
-        installation.Schedule.MaxRuntimeSeconds = request.MaxRuntimeSeconds;
+        installation.Schedule.MaxRuntimeSeconds = maxRuntimeSeconds;
         installation.Schedule.IsEnabled = request.IsEnabled;
         ResetAutomaticStartupFailures(installation.Schedule);
         installation.Schedule.NextTickAt = request.IsEnabled
@@ -429,7 +439,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var settings = await GetSettingsAsync(cancellationToken);
         var activation = ParseActivationMode(request.ActivationMode);
         var overlap = ParseOverlapPolicy(request.OverlapPolicy);
-        ValidateSchedule(request.TickFrequencySeconds, request.MaxRuntimeSeconds, activation, settings);
+        var maxRuntimeSeconds = NormalizeMaxRuntimeSeconds(
+            request.MaxRuntimeSeconds,
+            settings,
+            staged.PackageVersion.AgentId,
+            staged.BusinessId);
+        ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activation, settings);
         ValidateResources(request.MemoryMb, request.CpuPercent, settings);
         ValidateGrant("provided capabilities", request.GrantedCapabilities, manifest.Provides.Select(x => x.Name).ToArray());
         ValidateGrant("required capabilities", request.GrantedRequestedCapabilities,
@@ -464,18 +479,18 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         grant.EventSubscriptionsJson = SerializeGrant(request.GrantedSubscriptions);
         grant.ResourceLimitsJson = JsonSerializer.Serialize(new
         {
-            request.MaxRuntimeSeconds,
+            MaxRuntimeSeconds = maxRuntimeSeconds,
             request.MemoryMb,
             request.CpuPercent
         });
         grant.GrantRevision++;
-        grant.MaxRuntimeSeconds = request.MaxRuntimeSeconds;
+        grant.MaxRuntimeSeconds = maxRuntimeSeconds;
         grant.MemoryMb = request.MemoryMb;
         grant.CpuPercent = request.CpuPercent;
         grant.ApprovedAt = now;
         staged.Schedule!.ActivationMode = activation;
         staged.Schedule.TickFrequencySeconds = request.TickFrequencySeconds;
-        staged.Schedule.MaxRuntimeSeconds = request.MaxRuntimeSeconds;
+        staged.Schedule.MaxRuntimeSeconds = maxRuntimeSeconds;
         staged.Schedule.OverlapPolicy = overlap;
         staged.Schedule.IsEnabled = true;
         staged.Schedule.NextTickAt = ComputeNextTick(activation, request.TickFrequencySeconds, now);
@@ -976,6 +991,31 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         }
     }
 
+    private int NormalizeMaxRuntimeSeconds(
+        int requestedMaxRuntimeSeconds,
+        AgentRuntimeGlobalSettings settings,
+        string agentId,
+        string businessId)
+    {
+        if (requestedMaxRuntimeSeconds <= 0)
+        {
+            throw new AgentInstallationException(
+                $"Max runtime must be greater than zero and no more than {settings.DefaultMaxRuntimeSeconds} seconds.");
+        }
+
+        if (requestedMaxRuntimeSeconds <= settings.DefaultMaxRuntimeSeconds)
+            return requestedMaxRuntimeSeconds;
+
+        _logger.LogWarning(
+            "Agent {AgentId} requested a maximum runtime of {RequestedMaxRuntimeSeconds} seconds for business {BusinessId}, " +
+            "which exceeds the system maximum of {SystemMaxRuntimeSeconds} seconds. Clamping the approved runtime to the system maximum.",
+            agentId,
+            requestedMaxRuntimeSeconds,
+            businessId,
+            settings.DefaultMaxRuntimeSeconds);
+        return settings.DefaultMaxRuntimeSeconds;
+    }
+
     private static void ValidateSchedule(
         int tickFrequencySeconds,
         int maxRuntimeSeconds,
@@ -988,10 +1028,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 $"Tick frequency must be at least {settings.MinimumTickFrequencySeconds} seconds.");
         }
 
-        if (maxRuntimeSeconds <= 0 || maxRuntimeSeconds > settings.DefaultMaxRuntimeSeconds)
+        if (maxRuntimeSeconds <= 0)
         {
             throw new AgentInstallationException(
-                $"Max runtime must be between 1 and {settings.DefaultMaxRuntimeSeconds} seconds.");
+                $"Max runtime must be greater than zero and no more than {settings.DefaultMaxRuntimeSeconds} seconds.");
         }
 
         if (activationMode == ActivationMode.AlwaysOn && !settings.AllowAlwaysOnCommunityAgents)

@@ -47,25 +47,19 @@
         </div>
     </MudCardContent>
     <MudCardActions Class="marketplace-agent-actions">
-        @if (Agent.Availability is AgentAvailabilityState.InstalledEnabled or AgentAvailabilityState.InstalledDisabled)
+        @if (CanReviewHire)
         {
-            <MudButton Href="/settings/plugins" Variant="Variant.Filled" Color="Color.Primary">
-                Manage installation
-            </MudButton>
-        }
-        else if (!string.IsNullOrWhiteSpace(Agent.RepositoryUrl))
-        {
-            <MudButton Href="@InstallHref"
-                       Variant="Variant.Filled"
+            <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
-                       StartIcon="@Icons.Material.Outlined.Download">
-                Review and install
+                       StartIcon="@Icons.Material.Outlined.PersonAdd"
+                       OnClick="@(() => ReviewHireRequested.InvokeAsync(Agent))">
+                Review and hire
             </MudButton>
         }
         else
         {
             <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">
-                Available for approved hiring
+                Not currently hireable
             </MudChip>
         }
         @if (!string.IsNullOrWhiteSpace(DetailsHref))
@@ -80,6 +74,7 @@
 
 @code {
     [Parameter, EditorRequired] public AvailableAgent Agent { get; set; } = default!;
+    [Parameter] public EventCallback<AvailableAgent> ReviewHireRequested { get; set; }
 
     private string SourceLabel => Agent.Source switch
     {
@@ -90,10 +85,12 @@
         _ => Agent.Source.ToString()
     };
 
-    private string InstallHref =>
-        $"/settings/plugins?repositoryUrl={Uri.EscapeDataString(Agent.RepositoryUrl!)}";
-
     private string? DetailsHref => Agent.DocumentationUrl ?? Agent.RepositoryUrl;
+
+    private bool CanReviewHire =>
+        Agent.Availability is AgentAvailabilityState.AvailableToInstall or AgentAvailabilityState.InstalledEnabled &&
+        (Agent.Source is AgentCatalogSource.Installed or AgentCatalogSource.LocalDirectory ||
+         !string.IsNullOrWhiteSpace(Agent.RepositoryUrl));
 
     private string PriceLabel =>
         Agent.Price is null ? "Open source / free" : $"{Agent.Price:0.##} {Agent.Currency}";

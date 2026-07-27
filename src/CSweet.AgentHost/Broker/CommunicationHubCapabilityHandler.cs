@@ -6,6 +6,7 @@ using CSweet.Contracts.Communications;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using SuggestUserActionRequest = CSweet.Contracts.Communications.SuggestUserActionRequest;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -13,11 +14,14 @@ public sealed class CommunicationHubCapabilityHandler(
     CSweetDbContext db,
     ICommunicationHubService hub,
     IExecutiveDecisionService? decisions = null,
+    IUserActionService? userActions = null,
     ILogger<CommunicationHubCapabilityHandler>? logger = null) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public bool CanHandle(string capability) => CommunicationHubCapabilities.All.Contains(capability);
+    public bool CanHandle(string capability) =>
+        CommunicationHubCapabilities.All.Contains(capability) ||
+        capability == SuggestedUserActionCapabilities.Suggest;
 
     public async IAsyncEnumerable<CapabilityResult> HandleAsync(
         AgentSession session,
@@ -59,6 +63,9 @@ public sealed class CommunicationHubCapabilityHandler(
                 CommunicationHubCapabilities.SendMessage => await SendAsync(request, organizationId, actorId.Value, token),
                 CommunicationHubCapabilities.AskUser => await AskUserAsync(
                     request, organizationId, installationId, token),
+                SuggestedUserActionCapabilities.Suggest => Success(request.RequestId,
+                    await (userActions ?? throw new InvalidOperationException("The suggested action service is unavailable."))
+                        .SuggestAsync(organizationId, installationId, Read<SuggestUserActionRequest>(request), token)),
                 _ => Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound, "The communication capability is not implemented.")
             };
         }
@@ -66,6 +73,14 @@ public sealed class CommunicationHubCapabilityHandler(
         {
             return Failure(request.RequestId, PlatformCapabilityErrorCode.ValidationFailed,
                 "The capability payload is not valid JSON.");
+        }
+        catch (ArgumentException exception)
+        {
+            return Failure(request.RequestId, PlatformCapabilityErrorCode.ValidationFailed, exception.Message);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied, exception.Message);
         }
     }
 

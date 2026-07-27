@@ -55,7 +55,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
     }
 
     public async Task<CoreActionResponse> CreateAsync(Guid organizationId, CreateOrganizationUserRequest request,
-        CancellationToken cancellationToken = default, Guid? hiringApplicationUserId = null)
+        CancellationToken cancellationToken = default, Guid? hiringApplicationUserId = null,
+        string hiringSource = "Manual")
     {
         if (!await _dbContext.CoreOrganizations.AnyAsync(x => x.Id == organizationId, cancellationToken))
         {
@@ -202,6 +203,44 @@ public sealed class OrganizationUserService : IOrganizationUserService
             onboarding = await _agentOnboarding.EnsureAsync(organizationId, user, hiringApplicationUserId, cancellationToken);
             if (!onboarding.Succeeded) return Failure(onboarding.ErrorCode!, onboarding.Message);
         }
+        var hiringOrganizationUserId = hiringApplicationUserId.HasValue
+            ? await _dbContext.CoreOrganizationUsers.AsNoTracking()
+                .Where(x => x.OrganizationId == organizationId &&
+                            x.ApplicationUserId == hiringApplicationUserId &&
+                            x.IsActive)
+                .Select(x => (Guid?)x.Id)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+        var roleTitle = request.RoleId.HasValue
+            ? await _dbContext.CoreRoles.AsNoTracking()
+                .Where(x => x.Id == request.RoleId && x.OrganizationId == organizationId)
+                .Select(x => x.Name)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+        var hiredEventId = Guid.NewGuid();
+        var hiredEvent = new EmployeeHiredEvent(
+            organizationId,
+            user.Id,
+            user.EmployeeType.ToString(),
+            user.RoleId,
+            roleTitle,
+            user.AgentInstallationId,
+            user.WorkerId,
+            user.ReportsToOrganizationUserId,
+            hiringOrganizationUserId,
+            string.IsNullOrWhiteSpace(hiringSource) ? "Manual" : hiringSource.Trim(),
+            now);
+        _dbContext.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = hiredEventId,
+            OrganizationId = organizationId,
+            EventType = HiringEvents.EmployeeHired,
+            DataJson = JsonSerializer.Serialize(hiredEvent),
+            IdempotencyKey = $"employee-hired:{user.Id:D}",
+            Status = AgentPlatformEventOutboxStatus.Pending,
+            NextAttemptAt = now,
+            OccurredAt = now
+        });
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         if (onboarding is not null)

@@ -52,7 +52,45 @@ public sealed record CommunicationHubMessageResponse(
     string Content,
     DateTimeOffset CreatedAt,
     Guid? ChatTurnId = null,
-    ExecutiveDecisionCardResponse? Decision = null);
+    ExecutiveDecisionCardResponse? Decision = null,
+    IReadOnlyList<SuggestedUserActionResponse>? Actions = null)
+{
+    public string MessageType { get; init; } = CommunicationMessageTypes.Standard;
+}
+
+public static class CommunicationMessageTypes
+{
+    public const string Standard = "Standard";
+    public const string SystemAction = "SystemAction";
+}
+
+public static class SuggestedUserActionCapabilities
+{
+    public const string Suggest = "platform.user-action.suggest.v1";
+}
+
+public static class SuggestedUserActionWorkflows
+{
+    public const string BrowseHiringMarketplace = "hiring.marketplace.browse.v1";
+}
+
+public sealed record SuggestUserActionRequest(
+    Guid? MessageId,
+    Guid? ChatTurnId,
+    [property: Required, MaxLength(160)] string WorkflowType,
+    [property: Required, MaxLength(120)] string Label,
+    [property: MaxLength(500)] string? Description,
+    System.Text.Json.JsonElement Parameters,
+    [property: Required, MaxLength(160)] string IdempotencyKey);
+
+public sealed record SuggestedUserActionResponse(
+    Guid Id,
+    string WorkflowType,
+    string Label,
+    string? Description,
+    string NavigationUri,
+    string Status,
+    DateTimeOffset CreatedAt);
 
 public sealed record ExecutiveDecisionOptionResponse(
     string Id,

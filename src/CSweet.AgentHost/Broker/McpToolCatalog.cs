@@ -83,10 +83,14 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Read management cadence, executive briefing schedule, and quiet hours."),
         Write(CommunicationHubCapabilities.AskUser, "ask_user",
             "Ask the user one structured multiple-choice question with two to four mutually exclusive options. Put the recommended option first. The UI automatically adds Something else with a free-text response."),
+        Write(SuggestedUserActionCapabilities.Suggest, "suggest_user_action",
+            "Attach a safe, platform-resolved workflow action to this agent's message or chat turn. Use hiring.marketplace.browse.v1 with a role to let the user browse candidates."),
         Read(HiringCapabilities.ListRecommendations, "list_hiring_recommendations",
             "Read this agent installation's role backlog in priority order."),
         Write(HiringCapabilities.UpsertRecommendation, "upsert_hiring_recommendation",
             "Create or update a prioritized role in this agent installation's hiring backlog. Candidate references may be omitted until sourcing begins."),
+        Write(HiringCapabilities.ResolveRecommendation, "resolve_hiring_recommendation",
+            "Resolve one hiring recommendation owned by this installation after an unambiguous matching employee hire."),
         Approval(HiringCapabilities.StageWorkflow, "stage_hiring_workflow",
             "Stage a combined install-and-hire proposal for explicit organization-owner approval. This does not install or hire directly.")
     ];
@@ -240,8 +244,14 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         CommunicationHubCapabilities.AskUser => Schema("""
             {"type":"object","required":["conversationId","chatTurnId","prompt","options","recommendedOptionId","idempotencyKey"],"properties":{"conversationId":{"type":"string","format":"uuid"},"chatTurnId":{"type":"string","format":"uuid"},"prompt":{"type":"string","minLength":1,"maxLength":2048},"options":{"type":"array","minItems":2,"maxItems":4,"items":{"type":"object","required":["id","label"],"properties":{"id":{"type":"string","minLength":1,"maxLength":80},"label":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":500}},"additionalProperties":false}},"recommendedOptionId":{"type":"string","minLength":1,"maxLength":80},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
+        SuggestedUserActionCapabilities.Suggest => Schema("""
+            {"type":"object","required":["workflowType","label","parameters","idempotencyKey"],"properties":{"messageId":{"type":["string","null"],"format":"uuid"},"chatTurnId":{"type":["string","null"],"format":"uuid"},"workflowType":{"type":"string","enum":["hiring.marketplace.browse.v1"]},"label":{"type":"string","minLength":1,"maxLength":120},"description":{"type":["string","null"],"maxLength":500},"parameters":{"type":"object","required":["role"],"properties":{"role":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
         HiringCapabilities.UpsertRecommendation => Schema("""
-            {"type":"object","required":["title","objective","priority","candidateReferences","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":2048},"priority":{"type":"integer","minimum":1,"maximum":100,"description":"1 is the highest priority"},"workstreamId":{"type":["string","null"],"format":"uuid"},"candidateReferences":{"type":"array","maxItems":3,"items":{"type":"string"}},"recommendedCandidateReference":{"type":["string","null"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["title","objective","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":2048},"priority":{"type":"integer","minimum":1,"maximum":100,"description":"1 is the highest priority"},"workstreamId":{"type":["string","null"],"format":"uuid"},"candidateReferences":{"type":["array","null"],"maxItems":3,"items":{"type":"string"}},"recommendedCandidateReference":{"type":["string","null"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        HiringCapabilities.ResolveRecommendation => Schema("""
+            {"type":"object","required":["recommendationId","resultOrganizationUserId","idempotencyKey"],"properties":{"recommendationId":{"type":"string","format":"uuid"},"resultOrganizationUserId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         HiringCapabilities.StageWorkflow => Schema("""
             {"type":"object","required":["recommendationId","candidateReference","roleTitle","idempotencyKey"],"properties":{"recommendationId":{"type":"string","format":"uuid"},"candidateReference":{"type":"string"},"roleTitle":{"type":"string","minLength":1,"maxLength":160},"reportsToOrganizationUserId":{"type":["string","null"],"format":"uuid"},"requiredGrants":{"type":["array","null"],"items":{"type":"string"}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

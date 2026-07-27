@@ -23,6 +23,7 @@ internal static class CoreConfigurations
         modelBuilder.Entity<Conversation>(ConfigureConversation);
         modelBuilder.Entity<ConversationParticipant>(ConfigureConversationParticipant);
         modelBuilder.Entity<ConversationMessage>(ConfigureConversationMessage);
+        modelBuilder.Entity<SuggestedUserAction>(ConfigureSuggestedUserAction);
         modelBuilder.Entity<ChatTurn>(ConfigureChatTurn);
         modelBuilder.Entity<ChatTurnTraceEvent>(ConfigureChatTurnTraceEvent);
         modelBuilder.Entity<ExecutiveDecision>(ConfigureExecutiveDecision);
@@ -42,6 +43,7 @@ internal static class CoreConfigurations
         modelBuilder.Entity<CommunicationEventOutboxItem>(ConfigureCommunicationEventOutbox);
         modelBuilder.Entity<AgentOnboardingEventOutboxItem>(ConfigureAgentOnboardingEventOutbox);
         modelBuilder.Entity<ApplicationRealtimeOutboxItem>(ConfigureApplicationRealtimeOutbox);
+        modelBuilder.Entity<AgentPlatformEventOutboxItem>(ConfigureAgentPlatformEventOutbox);
         ConfigureWorkforcePlatform(modelBuilder);
     }
 
@@ -437,6 +439,36 @@ internal static class CoreConfigurations
         entity.HasIndex(x => x.Sequence).IsUnique();
         entity.HasIndex(x => x.ChatTurnId);
         entity.HasIndex(x => x.IdempotencyKey).IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
+    }
+
+    static void ConfigureSuggestedUserAction(EntityTypeBuilder<SuggestedUserAction> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.WorkflowType).HasMaxLength(160).IsRequired();
+        entity.Property(x => x.Label).HasMaxLength(120).IsRequired();
+        entity.Property(x => x.Description).HasMaxLength(500);
+        entity.Property(x => x.ParametersJson).HasColumnType("jsonb").IsRequired();
+        entity.Property(x => x.NavigationUri).HasMaxLength(2048).IsRequired();
+        entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+        entity.Property(x => x.Status).HasMaxLength(24).IsRequired();
+        entity.HasIndex(x => new { x.OriginatingInstallationId, x.IdempotencyKey }).IsUnique();
+        entity.HasIndex(x => x.ConversationMessageId);
+        entity.HasIndex(x => x.ChatTurnId);
+        entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne<ConversationMessage>().WithMany().HasForeignKey(x => x.ConversationMessageId).OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne<ChatTurn>().WithMany().HasForeignKey(x => x.ChatTurnId).OnDelete(DeleteBehavior.Cascade);
+    }
+
+    static void ConfigureAgentPlatformEventOutbox(EntityTypeBuilder<AgentPlatformEventOutboxItem> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.EventType).HasMaxLength(160).IsRequired();
+        entity.Property(x => x.DataJson).HasColumnType("jsonb").IsRequired();
+        entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+        entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+        entity.Property(x => x.LastError).HasMaxLength(2048);
+        entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
+        entity.HasIndex(x => new { x.Status, x.NextAttemptAt });
     }
 
     static void ConfigureChatTurn(EntityTypeBuilder<ChatTurn> entity)

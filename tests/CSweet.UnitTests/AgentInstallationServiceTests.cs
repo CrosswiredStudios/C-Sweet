@@ -6,6 +6,7 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -43,6 +44,64 @@ public sealed class AgentInstallationServiceTests
 
         Assert.Contains("at least 300 seconds", exception.Message);
         Assert.Empty(await dbContext.AgentInstallations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task InstallAsync_ClampsMaxRuntimeToGlobalLimitAndLogsWarning()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext);
+        var logger = new RecordingLogger<AgentInstallationService>();
+        var service = CreateService(dbContext, logger: logger);
+
+        var result = await service.InstallAsync(
+            package.Id,
+            ValidRequest() with { MaxRuntimeSeconds = 86_400 });
+
+        Assert.Equal(600, result.Schedule.MaxRuntimeSeconds);
+        var grant = await dbContext.AgentInstallationGrants.SingleAsync();
+        var schedule = await dbContext.AgentSchedules.SingleAsync();
+        Assert.Equal(600, grant.MaxRuntimeSeconds);
+        Assert.Equal(600, schedule.MaxRuntimeSeconds);
+        using var limits = JsonDocument.Parse(grant.ResourceLimitsJson);
+        Assert.Equal(600, limits.RootElement.GetProperty("MaxRuntimeSeconds").GetInt32());
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Warning &&
+            entry.Message.Contains("86400", StringComparison.Ordinal) &&
+            entry.Message.Contains("600", StringComparison.Ordinal) &&
+            entry.Message.Contains(package.AgentId, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InstallAsync_RejectsNonPositiveMaxRuntime()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext);
+        var service = CreateService(dbContext);
+
+        var exception = await Assert.ThrowsAsync<AgentInstallationException>(() =>
+            service.InstallAsync(package.Id, ValidRequest() with { MaxRuntimeSeconds = 0 }));
+
+        Assert.Contains("greater than zero", exception.Message);
+        Assert.Empty(await dbContext.AgentInstallations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task UpdateScheduleAsync_ClampsMaxRuntimeToGlobalLimit()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext);
+        var logger = new RecordingLogger<AgentInstallationService>();
+        var service = CreateService(dbContext, logger: logger);
+        var installation = await service.InstallAsync(package.Id, ValidRequest());
+
+        var result = await service.UpdateScheduleAsync(
+            installation.Id,
+            new UpdateAgentScheduleRequest("Periodic", 900, "Skip", 86_400, true));
+
+        Assert.Equal(600, result.Schedule.MaxRuntimeSeconds);
+        Assert.Equal(600, (await dbContext.AgentSchedules.SingleAsync()).MaxRuntimeSeconds);
+        Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Warning);
     }
 
     [Fact]
@@ -517,13 +576,31 @@ public sealed class AgentInstallationServiceTests
 
     private static AgentInstallationService CreateService(
         CSweetDbContext dbContext,
-        TestAgentContainerRunner? containers = null) =>
+        TestAgentContainerRunner? containers = null,
+        ILogger<AgentInstallationService>? logger = null) =>
         new(
             dbContext,
             new TestAuditEventWriter(),
             containers ?? new TestAgentContainerRunner(),
             Options.Create(new AgentRuntimeManagerOptions()),
-            NullLogger<AgentInstallationService>.Instance);
+            logger ?? NullLogger<AgentInstallationService>.Instance);
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
+    }
 
     private sealed class TestAgentContainerRunner(bool containerExists = false, string logs = "") : IAgentContainerRunner
     {

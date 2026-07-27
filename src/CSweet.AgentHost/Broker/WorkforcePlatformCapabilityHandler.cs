@@ -8,6 +8,7 @@ using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using ResolveHiringRecommendationRequest = CSweet.Contracts.Core.ResolveHiringRecommendationRequest;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -20,6 +21,27 @@ public sealed class WorkforcePlatformCapabilityHandler(
     IAgentCatalogService? agentCatalog = null) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly IReadOnlySet<string> HandledCapabilities = new HashSet<string>(StringComparer.Ordinal)
+    {
+        PlatformCapabilities.BusinessProfileRead,
+        PlatformCapabilities.BusinessProfileUpdateExplicit,
+        PlatformCapabilities.BusinessProfileProposeUpdate,
+        PlatformCapabilities.OrganizationSnapshotRead,
+        PlatformCapabilities.BusinessPatternSearch,
+        PlatformCapabilities.WorkstreamPlanPropose,
+        PlatformCapabilities.WorkforceSearch,
+        AgentCatalogCapabilities.Search,
+        PlatformCapabilities.WorkforcePlanPropose,
+        PlatformCapabilities.FinanceProfileRead,
+        PlatformCapabilities.FinanceProfileProposeUpdate,
+        PlatformCapabilities.BudgetEvaluate,
+        PlatformCapabilities.ApprovalPropose,
+        PlatformCapabilities.ManagementCycleRead,
+        HiringCapabilities.ListRecommendations,
+        HiringCapabilities.UpsertRecommendation,
+        HiringCapabilities.ResolveRecommendation,
+        HiringCapabilities.StageWorkflow
+    };
     private static readonly HashSet<string> ExplicitFields = new(StringComparer.OrdinalIgnoreCase)
     {
         "name", "businessType", "industry", "description", "targetCustomers",
@@ -27,8 +49,7 @@ public sealed class WorkforcePlatformCapabilityHandler(
         "timeZone"
     };
 
-    public bool CanHandle(string capability) => PlatformCapabilities.All.Contains(capability) ||
-        capability is HiringCapabilities.ListRecommendations or HiringCapabilities.UpsertRecommendation or HiringCapabilities.StageWorkflow;
+    public bool CanHandle(string capability) => HandledCapabilities.Contains(capability);
 
     public async IAsyncEnumerable<CapabilityResult> HandleAsync(
         AgentSession session,
@@ -79,6 +100,10 @@ public sealed class WorkforcePlatformCapabilityHandler(
                 HiringCapabilities.UpsertRecommendation => Success(request.RequestId,
                     await (hiring ?? throw new InvalidOperationException("The hiring service is unavailable.")).UpsertRecommendationAsync(organizationId, installationId,
                         Read<CSweet.Contracts.Core.UpsertHiringRecommendationRequest>(request), token)),
+                HiringCapabilities.ResolveRecommendation => Success(request.RequestId,
+                    await (hiring ?? throw new InvalidOperationException("The hiring service is unavailable.")).ResolveRecommendationAsync(
+                        organizationId, installationId,
+                        Read<CSweet.Contracts.Core.ResolveHiringRecommendationRequest>(request), token)),
                 HiringCapabilities.StageWorkflow => Success(request.RequestId,
                     await (hiring ?? throw new InvalidOperationException("The hiring service is unavailable.")).StageWorkflowAsync(organizationId, installationId,
                         Read<CSweet.Contracts.Core.StageHiringWorkflowRequest>(request), token)),

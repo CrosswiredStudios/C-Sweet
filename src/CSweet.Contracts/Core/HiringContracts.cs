@@ -6,7 +6,13 @@ public static class HiringCapabilities
 {
     public const string ListRecommendations = "platform.hiring-recommendation.list.v1";
     public const string UpsertRecommendation = "platform.hiring-recommendation.upsert.v1";
+    public const string ResolveRecommendation = "platform.hiring-recommendation.resolve.v1";
     public const string StageWorkflow = "platform.hiring-workflow.stage.v1";
+}
+
+public static class HiringEvents
+{
+    public const string EmployeeHired = "com.csweet.employee.hired.v1";
 }
 
 public sealed record HiringCandidateResponse(
@@ -38,6 +44,7 @@ public sealed record HiringRecommendationResponse(
 {
     public int Priority { get; init; } = 50;
     public string HiringUrl { get; init; } = string.Empty;
+    public string? SuggestedBy { get; init; }
 }
 
 public sealed record HiringBacklogResponse(IReadOnlyList<HiringRecommendationResponse> Recommendations);
@@ -53,6 +60,24 @@ public sealed record UpsertHiringRecommendationRequest(
     [Range(1, 100)]
     public int Priority { get; init; } = 50;
 }
+
+public sealed record ResolveHiringRecommendationRequest(
+    Guid RecommendationId,
+    Guid ResultOrganizationUserId,
+    [property: Required, MaxLength(160)] string IdempotencyKey);
+
+public sealed record EmployeeHiredEvent(
+    Guid OrganizationId,
+    Guid OrganizationUserId,
+    string EmployeeType,
+    Guid? RoleId,
+    string? RoleTitle,
+    Guid? AgentInstallationId,
+    Guid? WorkerId,
+    Guid? ReportsToOrganizationUserId,
+    Guid? HiringOrganizationUserId,
+    string Source,
+    DateTimeOffset OccurredAt);
 
 public sealed record StageHiringWorkflowRequest(
     Guid RecommendationId,
@@ -78,3 +103,26 @@ public sealed record ConfirmHiringWorkflowRequest(
 public sealed record HiringDashboardResponse(
     IReadOnlyList<HiringRecommendationResponse> Recommendations,
     IReadOnlyList<HiringWorkflowResponse> Workflows);
+
+public sealed record PreviewMarketplaceHireRequest(
+    [property: Required, MaxLength(512)] string AgentReference,
+    [property: Required, MaxLength(160)] string RoleTitle,
+    Guid? ReportsToOrganizationUserId,
+    [property: Required, MaxLength(160)] string IdempotencyKey);
+
+public sealed record MarketplaceHirePreviewResponse(
+    Guid WorkflowId,
+    string AgentReference,
+    string AgentName,
+    string RoleTitle,
+    Guid? ReportsToOrganizationUserId,
+    string Source,
+    string Trust,
+    decimal? Price,
+    string? Currency,
+    IReadOnlyList<string> Capabilities,
+    IReadOnlyList<string> RequestedCapabilities,
+    IReadOnlyList<string> Subscriptions,
+    IReadOnlyList<string> NetworkAccess,
+    string InstallationConsequence,
+    string Status);

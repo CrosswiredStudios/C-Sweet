@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>CSweet.Memory.Abstractions</name>
+    </assembly>
+    <members>
+        <member name="T:CSweet.Memory.MemoryEmployeeIdentity">
+            <summary>A reference to authoritative employee identity; the operational employee record remains outside memory.</summary>
+        </member>
+        <member name="M:CSweet.Memory.MemoryEmployeeIdentity.#ctor(System.String,System.String,System.String,System.DateTimeOffset,System.Nullable{System.DateTimeOffset})">
+            <summary>A reference to authoritative employee identity; the operational employee record remains outside memory.</summary>
+        </member>
+        <member name="T:CSweet.Memory.MemoryRoleAssignment">
+            <summary>A temporal projection of an authoritative role assignment used for memory access and retrieval.</summary>
+        </member>
+        <member name="M:CSweet.Memory.MemoryRoleAssignment.#ctor(System.String,System.String,System.String,System.DateTimeOffset,System.Nullable{System.DateTimeOffset})">
+            <summary>A temporal projection of an authoritative role assignment used for memory access and retrieval.</summary>
+        </member>
+    </members>
+</doc>

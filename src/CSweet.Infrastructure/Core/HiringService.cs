@@ -7,6 +7,8 @@ using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using AgentAvailabilityState = CSweet.Agent.SDK.AgentAvailabilityState;
+using AgentCatalogSource = CSweet.Agent.SDK.AgentCatalogSource;
 
 namespace CSweet.Infrastructure.Core;
 
@@ -18,7 +20,7 @@ public sealed class HiringService(
     IAgentInstallationService? agentInstallations = null,
     IAgentCatalogService? agentCatalog = null,
     ILocalAgentSourceArchiveService? localAgentArchives = null,
-    IPluginArchiveImportService? archiveImport = null) : IHiringService
+    IPluginArchiveImportService? archiveImport = null) : IHiringService, IAgentHireOrchestrator
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -31,7 +33,7 @@ public sealed class HiringService(
         var title = Required(request.Title, 256, nameof(request.Title));
         var objective = Required(request.Objective, 2048, nameof(request.Objective));
         var key = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
-        var references = request.CandidateReferences.Distinct(StringComparer.Ordinal).ToList();
+        var references = (request.CandidateReferences ?? []).Distinct(StringComparer.Ordinal).ToList();
         if (references.Count > 3) throw new ArgumentException("A recommendation may contain up to three ranked candidates.");
         if (request.Priority is < 1 or > 100) throw new ArgumentException("Priority must be between 1 and 100, where 1 is highest.");
         if (references.Count == 0 && !string.IsNullOrWhiteSpace(request.RecommendedCandidateReference))
@@ -72,6 +74,39 @@ public sealed class HiringService(
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("hiring.recommendation.upserted", nameof(WorkforcePlan), plan.Id,
             $"Ranked {candidates.Count} candidates for {title}.", cancellationToken: cancellationToken);
+        return ToRecommendation(plan, candidates);
+    }
+
+    public async Task<HiringRecommendationResponse> ResolveRecommendationAsync(
+        Guid organizationId,
+        Guid requestingInstallationId,
+        ResolveHiringRecommendationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _ = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
+        var plan = await db.WorkforcePlans.SingleOrDefaultAsync(x =>
+            x.Id == request.RecommendationId &&
+            x.OrganizationId == organizationId &&
+            x.RequestingInstallationId == requestingInstallationId,
+            cancellationToken) ?? throw new ArgumentException("The hiring recommendation was not found.");
+        if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.Id == request.ResultOrganizationUserId &&
+                x.OrganizationId == organizationId &&
+                x.IsActive,
+                cancellationToken))
+            throw new ArgumentException("The resulting employee was not found.");
+        if (plan.Status == ProposalStatus.Pending)
+        {
+            plan.Status = ProposalStatus.Approved;
+            plan.DecidedAt = DateTimeOffset.UtcNow;
+            plan.UpdatedAt = plan.DecidedAt.Value;
+            await db.SaveChangesAsync(cancellationToken);
+            await audit.WriteAsync("hiring.recommendation.resolved", nameof(WorkforcePlan), plan.Id,
+                $"Resolved {plan.Title} after employee {request.ResultOrganizationUserId:D} was hired.",
+                cancellationToken: cancellationToken);
+        }
+        var candidates = await ResolveCandidatesAsync(organizationId, ReadIds(plan.AssignmentsJson)
+            .Select(CandidateReference).ToList(), cancellationToken);
         return ToRecommendation(plan, candidates);
     }
 
@@ -124,13 +159,21 @@ public sealed class HiringService(
         Guid organizationId,
         CancellationToken cancellationToken = default)
     {
-        var plans = await db.WorkforcePlans.AsNoTracking().Where(x => x.OrganizationId == organizationId)
+        var plans = await db.WorkforcePlans.AsNoTracking().Where(x =>
+                x.OrganizationId == organizationId && x.Status == ProposalStatus.Pending)
             .OrderBy(x => x.Priority).ThenBy(x => x.CreatedAt).ToListAsync(cancellationToken);
         var candidateIds = plans.SelectMany(x => ReadIds(x.AssignmentsJson)).Distinct().ToList();
         var candidates = await db.WorkforceCandidates.AsNoTracking().Where(x => candidateIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
+        var installationIds = plans.Select(x => x.RequestingInstallationId).Distinct().ToList();
+        var suggestedBy = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId &&
+                        x.AgentInstallationId.HasValue &&
+                        installationIds.Contains(x.AgentInstallationId.Value))
+            .ToDictionaryAsync(x => x.AgentInstallationId!.Value, x => x.DisplayName, cancellationToken);
         return plans.Select(plan => ToRecommendation(plan, ReadIds(plan.AssignmentsJson)
-            .Where(candidates.ContainsKey).Select(id => candidates[id]).ToList())).ToList();
+            .Where(candidates.ContainsKey).Select(id => candidates[id]).ToList(),
+            suggestedBy.GetValueOrDefault(plan.RequestingInstallationId))).ToList();
     }
 
     public async Task<IReadOnlyList<HiringRecommendationResponse>> ListRecommendationsForInstallationAsync(
@@ -139,13 +182,20 @@ public sealed class HiringService(
         CancellationToken cancellationToken = default)
     {
         var plans = await db.WorkforcePlans.AsNoTracking().Where(x =>
-                x.OrganizationId == organizationId && x.RequestingInstallationId == requestingInstallationId)
+                x.OrganizationId == organizationId &&
+                x.RequestingInstallationId == requestingInstallationId &&
+                x.Status == ProposalStatus.Pending)
             .OrderBy(x => x.Priority).ThenBy(x => x.CreatedAt).ToListAsync(cancellationToken);
         var candidateIds = plans.SelectMany(x => ReadIds(x.AssignmentsJson)).Distinct().ToList();
         var candidates = await db.WorkforceCandidates.AsNoTracking().Where(x => candidateIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
+        var suggestedBy = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId &&
+                        x.AgentInstallationId == requestingInstallationId)
+            .Select(x => x.DisplayName)
+            .FirstOrDefaultAsync(cancellationToken);
         return plans.Select(plan => ToRecommendation(plan, ReadIds(plan.AssignmentsJson)
-            .Where(candidates.ContainsKey).Select(id => candidates[id]).ToList())).ToList();
+            .Where(candidates.ContainsKey).Select(id => candidates[id]).ToList(), suggestedBy)).ToList();
     }
 
     public async Task<HiringDashboardResponse> GetDashboardAsync(Guid organizationId, CancellationToken cancellationToken = default)
@@ -158,6 +208,130 @@ public sealed class HiringService(
             .ToListAsync(cancellationToken);
         return new(recommendations, workflows.Select(ToWorkflow).ToList());
     }
+
+    public async Task<MarketplaceHirePreviewResponse> PreviewMarketplaceHireAsync(
+        Guid organizationId,
+        Guid applicationUserId,
+        PreviewMarketplaceHireRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId &&
+            x.ApplicationUserId == applicationUserId &&
+            x.IsActive,
+            cancellationToken);
+        if (owner?.PermissionLevel != OrganizationPermissionLevel.Owner)
+            throw new UnauthorizedAccessException("Only an organization owner may review an agent hire.");
+        var roleTitle = Required(request.RoleTitle, 160, nameof(request.RoleTitle));
+        var key = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
+        var existing = await db.StaffingActionProposals.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId &&
+            x.RequestingInstallationId == Guid.Empty &&
+            x.IdempotencyKey == key,
+            cancellationToken);
+        if (existing is not null)
+        {
+            var existingCandidateId = ParseCandidateReference(existing.CandidateId);
+            var existingCandidate = await db.WorkforceCandidates.AsNoTracking()
+                .SingleAsync(x => x.Id == existingCandidateId, cancellationToken);
+            return ToMarketplacePreview(existing, existingCandidate);
+        }
+
+        var catalog = agentCatalog ?? throw new InvalidOperationException("The agent catalog service is unavailable.");
+        var agent = await catalog.ResolveAsync(organizationId, request.AgentReference, cancellationToken)
+            ?? throw new ArgumentException("The selected catalog agent could not be resolved.");
+        if (agent.Availability is not AgentAvailabilityState.AvailableToInstall and
+            not AgentAvailabilityState.InstalledEnabled)
+            throw new InvalidOperationException("The selected agent is not currently available to hire.");
+        if (agent.InstallationId.HasValue && await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId &&
+                x.AgentInstallationId == agent.InstallationId &&
+                x.IsActive,
+                cancellationToken))
+            throw new InvalidOperationException("The selected agent installation already belongs to an active employee.");
+        if (request.ReportsToOrganizationUserId.HasValue && !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.Id == request.ReportsToOrganizationUserId &&
+                x.OrganizationId == organizationId &&
+                x.IsActive,
+                cancellationToken))
+            throw new ArgumentException("The proposed manager does not belong to this organization.");
+
+        var source = agent.Source switch
+        {
+            AgentCatalogSource.Installed => "InstalledPlugin",
+            AgentCatalogSource.LocalDirectory => "LocalDirectoryCatalog",
+            AgentCatalogSource.FirstPartyCatalog => "CSweetEmbeddedCatalog",
+            AgentCatalogSource.Marketplace => "CSweetMarketplace",
+            _ => throw new InvalidOperationException("The selected catalog source is unsupported.")
+        };
+        var candidate = new WorkforceCandidate
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            Source = source,
+            ExternalCandidateId = agent.InstallationId?.ToString("D") ?? agent.AgentReference,
+            DisplayName = agent.Name,
+            CapabilitiesJson = JsonSerializer.Serialize(agent.Capabilities, JsonOptions),
+            Score = agent.Score,
+            EstimatedCost = agent.Price,
+            Currency = agent.Currency,
+            IsHuman = false,
+            IsAvailable = true,
+            ExplanationJson = JsonSerializer.Serialize(new
+            {
+                ResourceType = "Agent",
+                Credentials = Array.Empty<string>(),
+                Rationale = $"{agent.Trust}. Catalog source: {agent.Source}.",
+                RequiredGrants = Array.Empty<string>(),
+                agent.RepositoryUrl,
+                CatalogReference = agent.AgentReference
+            }, JsonOptions)
+        };
+        db.WorkforceCandidates.Add(candidate);
+        var snapshot = await BuildWorkflowSnapshotAsync(
+            candidate,
+            roleTitle,
+            request.ReportsToOrganizationUserId,
+            [],
+            cancellationToken,
+            objective: $"Hire {roleTitle} through Marketplace.");
+        var now = DateTimeOffset.UtcNow;
+        var workflow = new StaffingActionProposal
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            WorkforcePlanId = Guid.Empty,
+            RequestingInstallationId = Guid.Empty,
+            IdempotencyKey = key,
+            ActionType = "marketplace-install-and-hire",
+            CandidateSource = source,
+            CandidateId = CandidateReference(candidate.Id),
+            PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions),
+            Status = ProposalStatus.Pending,
+            CreatedAt = now
+        };
+        db.StaffingActionProposals.Add(workflow);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("hiring.marketplace.previewed", nameof(StaffingActionProposal), workflow.Id,
+            $"Prepared an immutable Marketplace review for {agent.Name} as {roleTitle}.",
+            cancellationToken: cancellationToken);
+        return ToMarketplacePreview(workflow, candidate);
+    }
+
+    Task<MarketplaceHirePreviewResponse> IAgentHireOrchestrator.PreviewAsync(
+        Guid organizationId,
+        Guid applicationUserId,
+        PreviewMarketplaceHireRequest request,
+        CancellationToken cancellationToken) =>
+        PreviewMarketplaceHireAsync(organizationId, applicationUserId, request, cancellationToken);
+
+    Task<HiringWorkflowResponse?> IAgentHireOrchestrator.ConfirmAsync(
+        Guid organizationId,
+        Guid workflowId,
+        Guid applicationUserId,
+        ConfirmHiringWorkflowRequest request,
+        CancellationToken cancellationToken) =>
+        ConfirmWorkflowAsync(organizationId, workflowId, applicationUserId, request, cancellationToken);
 
     public async Task<HiringWorkflowResponse?> ConfirmWorkflowAsync(
         Guid organizationId,
@@ -228,7 +402,8 @@ public sealed class HiringService(
             var result = await organizationUsers.CreateAsync(organizationId, new CreateOrganizationUserRequest(
                 candidate.DisplayName, null, (int)OrganizationPermissionLevel.Contributor, (int)EmployeeType.Agent,
                 role.Id, null, snapshot.ReportsToOrganizationUserId, AgentInstallationId: installationId),
-                cancellationToken, applicationUserId);
+                cancellationToken, applicationUserId,
+                workflow.ActionType == "marketplace-install-and-hire" ? "Marketplace" : "HiringWorkflow");
             if (!result.Succeeded || result.OrganizationUser is null)
                 throw new InvalidOperationException(result.Message);
             resultUserId = result.OrganizationUser.Id;
@@ -290,7 +465,8 @@ public sealed class HiringService(
                     snapshot.ReportsToOrganizationUserId,
                     AgentInstallationId: installation.Id),
                 cancellationToken,
-                applicationUserId);
+                applicationUserId,
+                workflow.ActionType == "marketplace-install-and-hire" ? "Marketplace" : "HiringWorkflow");
             if (!result.Succeeded || result.OrganizationUser is null)
                 throw new InvalidOperationException(result.Message);
             resultUserId = result.OrganizationUser.Id;
@@ -305,18 +481,27 @@ CompleteWorkflow:
         workflow.ApprovedByOrganizationUserId = owner.Id;
         workflow.ResultOrganizationUserId = resultUserId;
         workflow.DecidedAt = DateTimeOffset.UtcNow;
-        var plan = await db.WorkforcePlans.SingleAsync(x => x.Id == workflow.WorkforcePlanId, cancellationToken);
-        plan.Status = ProposalStatus.Approved;
-        plan.DecidedAt = workflow.DecidedAt;
-        plan.UpdatedAt = workflow.DecidedAt.Value;
+        if (workflow.WorkforcePlanId != Guid.Empty)
+        {
+            var plan = await db.WorkforcePlans.SingleAsync(x => x.Id == workflow.WorkforcePlanId, cancellationToken);
+            plan.Status = ProposalStatus.Approved;
+            plan.DecidedAt = workflow.DecidedAt;
+            plan.UpdatedAt = workflow.DecidedAt.Value;
+        }
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("hiring.workflow.approved", nameof(StaffingActionProposal), workflow.Id,
             $"Owner approved and completed the {snapshot.RoleTitle} workflow.", cancellationToken: cancellationToken);
         return ToWorkflow(workflow);
     }
 
-    private async Task<WorkflowSnapshot> BuildWorkflowSnapshotAsync(WorkforceCandidate candidate, string roleTitle,
-        Guid? reportsTo, IReadOnlyList<string> requiredGrants, CancellationToken token)
+    private async Task<WorkflowSnapshot> BuildWorkflowSnapshotAsync(
+        WorkforceCandidate candidate,
+        string roleTitle,
+        Guid? reportsTo,
+        IReadOnlyList<string> requiredGrants,
+        CancellationToken token,
+        Guid? workstreamId = null,
+        string? objective = null)
     {
         string? digest = null;
         IReadOnlyList<string> currentGrants = [];
@@ -390,10 +575,15 @@ CompleteWorkflow:
                 preview.RequestedNetworkAccess.Distinct(StringComparer.Ordinal).ToList(),
                 isLocalArchive);
         }
-        var planId = candidate.WorkforcePlanId ?? throw new InvalidOperationException(
-            "The candidate is not attached to a hiring recommendation.");
-        var plan = await db.WorkforcePlans.AsNoTracking().SingleAsync(x => x.Id == planId, token);
-        return new(roleTitle, reportsTo, plan.WorkstreamId, plan.Objective, candidate.EstimatedCost, candidate.Currency,
+        if (candidate.WorkforcePlanId is { } planId)
+        {
+            var plan = await db.WorkforcePlans.AsNoTracking().SingleAsync(x => x.Id == planId, token);
+            workstreamId = plan.WorkstreamId;
+            objective = plan.Objective;
+        }
+        if (string.IsNullOrWhiteSpace(objective))
+            throw new InvalidOperationException("The hiring workflow objective is missing.");
+        return new(roleTitle, reportsTo, workstreamId, objective, candidate.EstimatedCost, candidate.Currency,
             digest, approvedRequiredGrants, currentGrants, embeddedAgent);
     }
 
@@ -488,7 +678,10 @@ CompleteWorkflow:
             .ToListAsync(token);
     }
 
-    private static HiringRecommendationResponse ToRecommendation(WorkforcePlan plan, IReadOnlyList<WorkforceCandidate> candidates)
+    private static HiringRecommendationResponse ToRecommendation(
+        WorkforcePlan plan,
+        IReadOnlyList<WorkforceCandidate> candidates,
+        string? suggestedBy = null)
     {
         var byId = candidates.ToDictionary(x => x.Id);
         var ordered = ReadIds(plan.AssignmentsJson).Where(byId.ContainsKey).Select(id => ToCandidate(byId[id])).ToList();
@@ -497,7 +690,8 @@ CompleteWorkflow:
             ordered, plan.CreatedAt, plan.UpdatedAt)
         {
             Priority = plan.Priority,
-            HiringUrl = $"/organizations/{plan.OrganizationId:D}/employees?tab=hiring&recommendation={plan.Id:D}"
+            HiringUrl = $"/organizations/{plan.OrganizationId:D}/marketplace?role={Uri.EscapeDataString(plan.Title)}",
+            SuggestedBy = suggestedBy
         };
     }
 
@@ -527,6 +721,36 @@ CompleteWorkflow:
         return new(workflow.Id, workflow.WorkforcePlanId, workflow.CandidateId, snapshot?.RoleTitle ?? "Role",
             workflow.Status.ToString(), workflow.Status == ProposalStatus.Pending ? "Awaiting owner approval." : "Workflow completed.",
             workflow.CreatedAt, workflow.ResultOrganizationUserId);
+    }
+
+    private static MarketplaceHirePreviewResponse ToMarketplacePreview(
+        StaffingActionProposal workflow,
+        WorkforceCandidate candidate)
+    {
+        var snapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions)
+            ?? throw new InvalidOperationException("The Marketplace hire snapshot is invalid.");
+        var metadata = ReadMetadata(candidate.ExplanationJson);
+        var embedded = snapshot.EmbeddedAgent;
+        return new(
+            workflow.Id,
+            metadata.CatalogReference ?? candidate.ExternalCandidateId,
+            candidate.DisplayName,
+            snapshot.RoleTitle,
+            snapshot.ReportsToOrganizationUserId,
+            candidate.Source,
+            candidate.Source is "CurrentStaff" or "InstalledPlugin" or "CSweetEmbeddedCatalog"
+                ? "Platform verified"
+                : "Provider supplied",
+            candidate.EstimatedCost,
+            candidate.Currency,
+            ReadStrings(candidate.CapabilitiesJson),
+            embedded?.RequestedCapabilities ?? snapshot.RequiredGrants,
+            embedded?.Subscriptions ?? [],
+            embedded?.NetworkAccess ?? [],
+            candidate.Source == "InstalledPlugin"
+                ? "Use the existing enabled installation."
+                : "Import an immutable source snapshot, install it with the reviewed grants, then create the employee.",
+            workflow.Status.ToString());
     }
 
     private static string CandidateReference(Guid id) => $"candidate:{id:N}";

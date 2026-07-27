@@ -91,6 +91,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     // Conversation entities
     public DbSet<Conversation> CoreConversations => Set<Conversation>();
     public DbSet<ConversationMessage> CoreConversationMessages => Set<ConversationMessage>();
+    public DbSet<SuggestedUserAction> SuggestedUserActions => Set<SuggestedUserAction>();
     public DbSet<ChatTurn> ChatTurns => Set<ChatTurn>();
     public DbSet<ChatTurnTraceEvent> ChatTurnTraceEvents => Set<ChatTurnTraceEvent>();
     public DbSet<ExecutiveDecision> ExecutiveDecisions => Set<ExecutiveDecision>();
@@ -107,6 +108,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
     public DbSet<CommunicationEventOutboxItem> CommunicationEventOutbox => Set<CommunicationEventOutboxItem>();
     public DbSet<AgentOnboardingEventOutboxItem> AgentOnboardingEventOutbox => Set<AgentOnboardingEventOutboxItem>();
+    public DbSet<AgentPlatformEventOutboxItem> AgentPlatformEventOutbox => Set<AgentPlatformEventOutboxItem>();
     public DbSet<ApplicationRealtimeOutboxItem> ApplicationRealtimeOutbox => Set<ApplicationRealtimeOutboxItem>();
     public DbSet<MemoryCaptureOutboxItem> MemoryCaptureOutbox => Set<MemoryCaptureOutboxItem>();
     public DbSet<AgentMemoryNamespaceRegistration> AgentMemoryNamespaces => Set<AgentMemoryNamespaceRegistration>();

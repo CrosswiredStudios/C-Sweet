@@ -230,6 +230,10 @@ public class CoreServiceTests
         var onboardingEvent = await dbContext.AgentOnboardingEventOutbox.SingleAsync();
         Assert.Equal(conversation.Id, onboardingEvent.ConversationId);
         Assert.Equal(AgentOnboardingEventOutboxStatus.Pending, onboardingEvent.Status);
+        var hiredEvent = await dbContext.AgentPlatformEventOutbox.SingleAsync();
+        Assert.Equal(CSweet.Contracts.Core.HiringEvents.EmployeeHired, hiredEvent.EventType);
+        Assert.Equal(organization.Id, hiredEvent.OrganizationId);
+        Assert.Contains(result.OrganizationUser.Id.ToString("D"), hiredEvent.DataJson);
         Assert.Equal(installation.Id, runtimeManager.QueuedInstallationId);
         Assert.True(runtimeManager.Interactive);
         Assert.True(runtimeManager.Restarted);

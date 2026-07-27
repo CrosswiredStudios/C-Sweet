@@ -104,7 +104,20 @@ public sealed class CommunicationHubService(
         var decisionCards = decisions is null
             ? new Dictionary<Guid, ExecutiveDecisionCardResponse>()
             : await decisions.ListForMessagesAsync(organizationId, chatId, cancellationToken);
-        return messages.Select(x => MapMessage(x, users, decisionCards)).ToList();
+        var actions = await db.SuggestedUserActions.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.ConversationId == chatId && x.Status == "Pending")
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+        return messages.Select(x => MapMessage(
+            x,
+            users,
+            decisionCards,
+            actions.Where(action =>
+                action.ConversationMessageId == x.Id ||
+                (x.Role == ConversationRole.Assistant &&
+                 x.ChatTurnId.HasValue &&
+                 action.ChatTurnId == x.ChatTurnId)).Select(ToAction).ToList()))
+            .ToList();
     }
 
     public async Task<CommunicationUnreadSummaryResponse?> GetUnreadSummaryAsync(
@@ -509,16 +522,31 @@ public sealed class CommunicationHubService(
     private static CommunicationHubMessageResponse MapMessage(
         ConversationMessage message,
         IReadOnlyDictionary<Guid, OrganizationUser> users,
-        IReadOnlyDictionary<Guid, ExecutiveDecisionCardResponse>? decisions = null)
+        IReadOnlyDictionary<Guid, ExecutiveDecisionCardResponse>? decisions = null,
+        IReadOnlyList<SuggestedUserActionResponse>? actions = null)
     {
         var sender = message.SenderOrganizationUserId.HasValue && users.TryGetValue(message.SenderOrganizationUserId.Value, out var user) ? user : null;
+        var isSystemAction = string.Equals(
+            message.SourceProvider,
+            CommunicationMessageTypes.SystemAction,
+            StringComparison.Ordinal);
         return new CommunicationHubMessageResponse(message.Id, message.Sequence, message.ConversationId, message.SenderOrganizationUserId,
-            sender?.DisplayName ?? (message.Role == ConversationRole.Assistant ? "Assistant" : "Unknown"),
-            sender?.EmployeeType.ToString() ?? (message.Role == ConversationRole.Assistant ? "Agent" : "Human"),
+            isSystemAction ? "C-Sweet" : sender?.DisplayName ?? (message.Role == ConversationRole.Assistant ? "Assistant" : "Unknown"),
+            isSystemAction ? "System" : sender?.EmployeeType.ToString() ?? (message.Role == ConversationRole.Assistant ? "Agent" : "Human"),
             message.Content, message.CreatedAt, message.ChatTurnId,
-            message.Role == ConversationRole.Assistant && message.ChatTurnId.HasValue &&
-            decisions?.TryGetValue(message.ChatTurnId.Value, out var decision) == true ? decision : null);
+            !isSystemAction && message.Role == ConversationRole.Assistant && message.ChatTurnId.HasValue &&
+            decisions?.TryGetValue(message.ChatTurnId.Value, out var decision) == true ? decision : null,
+            actions ?? [])
+        {
+            MessageType = isSystemAction
+                ? CommunicationMessageTypes.SystemAction
+                : CommunicationMessageTypes.Standard
+        };
     }
+
+    private static SuggestedUserActionResponse ToAction(SuggestedUserAction action) =>
+        new(action.Id, action.WorkflowType, action.Label, action.Description, action.NavigationUri,
+            action.Status, action.CreatedAt);
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static CommunicationHubActionResponse Success(string message, CommunicationChatResponse? chat = null) => new(true, null, message, chat);
