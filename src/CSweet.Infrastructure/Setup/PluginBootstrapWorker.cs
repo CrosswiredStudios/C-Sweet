@@ -44,7 +44,11 @@ public sealed class PluginBootstrapWorker(
             options.MemoryMb, options.CpuPercent)
         {
             PluginScope = options.Scope,
-            GrantedRequestedCapabilities = options.GrantedRequestedCapabilities
+            GrantedRequestedCapabilities = options.GrantedRequestedCapabilities,
+            ConfigurationSettings = options.Configuration.ToDictionary(
+                pair => pair.Key,
+                pair => System.Text.Json.JsonSerializer.SerializeToElement(pair.Value),
+                StringComparer.Ordinal)
         }, cancellationToken);
 
         var secrets = scope.ServiceProvider.GetRequiredService<IPluginSecretStore>();
@@ -90,5 +94,6 @@ public sealed class PluginBootstrapOptions
     public List<string> GrantedPublications { get; set; } = [];
     public List<string> GrantedPermissions { get; set; } = [];
     public List<string> GrantedNetworkAccess { get; set; } = [];
+    public Dictionary<string, string> Configuration { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> SecretEnvironmentVariables { get; set; } = new(StringComparer.Ordinal);
 }

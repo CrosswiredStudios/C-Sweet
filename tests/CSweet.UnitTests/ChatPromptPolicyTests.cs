@@ -43,9 +43,9 @@ public sealed class ChatPromptPolicyTests
     }
 
     [Fact]
-    public void TurnOptions_NoLongerExposeThreeSecondResponseStartTimeout()
+    public void TurnOptions_DoNotExposeAnEarlyResponseDeadline()
     {
         Assert.Null(typeof(ChatTurnOptions).GetProperty("AgentResponseStartTimeout"));
-        Assert.Equal(TimeSpan.FromMinutes(2), new ChatTurnOptions().FirstOutputTimeout);
+        Assert.Null(typeof(ChatTurnOptions).GetProperty("FirstOutputTimeout"));
     }
 }

@@ -94,6 +94,14 @@ public static class AgentManagementEndpoints
                 () => installationService.RunNowAsync(installationId, cancellationToken)))
             .RequireRateLimiting(AgentRateLimiting.RunPolicy);
 
+        group.MapPost("/installations/{installationId:guid}/retry-build", async (
+            Guid installationId,
+            IAgentInstallationService installationService,
+            CancellationToken cancellationToken) =>
+            await ExecuteInstallationActionAsync(
+                () => installationService.RetryBuildAsync(installationId, cancellationToken)))
+            .RequireRateLimiting(AgentRateLimiting.BuildPolicy);
+
         group.MapPost("/installations/{installationId:guid}/disable", async (
             Guid installationId,
             IAgentInstallationService installationService,

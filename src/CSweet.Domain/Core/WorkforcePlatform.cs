@@ -182,6 +182,9 @@ public sealed class WorkforcePlan
     public string IdempotencyKey { get; set; } = string.Empty;
     public string Objective { get; set; } = string.Empty;
     public int Priority { get; set; } = 50;
+    public string? RoleKey { get; set; }
+    public int Headcount { get; set; } = 1;
+    public Guid? SourceResourceChangeRequestId { get; set; }
     public string AssignmentsJson { get; set; } = "[]";
     public string RejectedAlternativesJson { get; set; } = "[]";
     public decimal? EstimatedMonthlyCost { get; set; }

@@ -91,6 +91,14 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Create or update a prioritized role in this agent installation's hiring backlog. Candidate references may be omitted until sourcing begins."),
         Write(HiringCapabilities.ResolveRecommendation, "resolve_hiring_recommendation",
             "Resolve one hiring recommendation owned by this installation after an unambiguous matching employee hire."),
+        Write(HiringCapabilities.WithdrawRecommendation, "withdraw_hiring_recommendation",
+            "Withdraw a role suggestion owned by this installation when an approved resource plan no longer needs it."),
+        Approval(ResourceChangeCapabilities.Propose, "propose_resource_change",
+            "Propose one atomic desired-team change for approval by the requesting employee's current manager."),
+        Read(ResourceChangeCapabilities.Read, "read_resource_changes",
+            "Read resource-change requests visible to this requester, assigned manager, or active Chief of Staff."),
+        Write(ResourceChangeCapabilities.Decide, "decide_resource_change",
+            "Approve, request revision of, or reject a resource-change request when this agent is the current manager."),
         Approval(HiringCapabilities.StageWorkflow, "stage_hiring_workflow",
             "Stage a combined install-and-hire proposal for explicit organization-owner approval. This does not install or hire directly.")
     ];
@@ -248,10 +256,22 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["workflowType","label","parameters","idempotencyKey"],"properties":{"messageId":{"type":["string","null"],"format":"uuid"},"chatTurnId":{"type":["string","null"],"format":"uuid"},"workflowType":{"type":"string","enum":["hiring.marketplace.browse.v1"]},"label":{"type":"string","minLength":1,"maxLength":120},"description":{"type":["string","null"],"maxLength":500},"parameters":{"type":"object","required":["role"],"properties":{"role":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         HiringCapabilities.UpsertRecommendation => Schema("""
-            {"type":"object","required":["title","objective","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":2048},"priority":{"type":"integer","minimum":1,"maximum":100,"description":"1 is the highest priority"},"workstreamId":{"type":["string","null"],"format":"uuid"},"candidateReferences":{"type":["array","null"],"maxItems":3,"items":{"type":"string"}},"recommendedCandidateReference":{"type":["string","null"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["title","objective","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":2048},"priority":{"type":"integer","minimum":1,"maximum":100,"description":"1 is the highest priority"},"roleKey":{"type":["string","null"],"maxLength":160},"headcount":{"type":"integer","minimum":1,"maximum":100},"sourceResourceChangeRequestId":{"type":["string","null"],"format":"uuid"},"workstreamId":{"type":["string","null"],"format":"uuid"},"candidateReferences":{"type":["array","null"],"maxItems":3,"items":{"type":"string"}},"recommendedCandidateReference":{"type":["string","null"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         HiringCapabilities.ResolveRecommendation => Schema("""
             {"type":"object","required":["recommendationId","resultOrganizationUserId","idempotencyKey"],"properties":{"recommendationId":{"type":"string","format":"uuid"},"resultOrganizationUserId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        HiringCapabilities.WithdrawRecommendation => Schema("""
+            {"type":"object","required":["recommendationId","reason","idempotencyKey"],"properties":{"recommendationId":{"type":"string","format":"uuid"},"reason":{"type":"string","minLength":1,"maxLength":2048},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        ResourceChangeCapabilities.Propose => Schema("""
+            {"type":"object","required":["conversationId","chatTurnId","productGoal","rationale","contextRevision","roles","assumptions","constraints","idempotencyKey"],"properties":{"conversationId":{"type":"string","format":"uuid"},"chatTurnId":{"type":"string","format":"uuid"},"productGoal":{"type":"string","minLength":1,"maxLength":2048},"rationale":{"type":"string","minLength":1,"maxLength":4096},"contextRevision":{"type":"integer"},"roles":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","required":["roleKey","team","title","purpose","headcount","priority","timing","requiredCapabilities","humanRequired"],"properties":{"roleKey":{"type":"string","minLength":1,"maxLength":160},"team":{"type":"string","minLength":1,"maxLength":160},"title":{"type":"string","minLength":1,"maxLength":256},"purpose":{"type":"string","minLength":1,"maxLength":2048},"headcount":{"type":"integer","minimum":1,"maximum":100},"priority":{"type":"integer","minimum":1,"maximum":100},"timing":{"type":"string","minLength":1,"maxLength":32},"requiredCapabilities":{"type":"array","minItems":1,"maxItems":25,"items":{"type":"string"}},"humanRequired":{"type":"boolean"},"reportsToOrganizationUserId":{"type":["string","null"],"format":"uuid"},"reportsToRoleKey":{"type":["string","null"],"maxLength":160}},"additionalProperties":false}},"assumptions":{"type":"array","maxItems":20,"items":{"type":"string"}},"constraints":{"type":"array","maxItems":20,"items":{"type":"string"}},"supersedesRequestId":{"type":["string","null"],"format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        ResourceChangeCapabilities.Read => Schema("""
+            {"type":"object","properties":{"requestId":{"type":["string","null"],"format":"uuid"},"statuses":{"type":["array","null"],"items":{"type":"string"}}},"additionalProperties":false}
+            """),
+        ResourceChangeCapabilities.Decide => Schema("""
+            {"type":"object","required":["requestId","decision","idempotencyKey"],"properties":{"requestId":{"type":"string","format":"uuid"},"decision":{"type":"string","enum":["Approve","RequestRevision","Reject"]},"comment":{"type":["string","null"],"maxLength":4000},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         HiringCapabilities.StageWorkflow => Schema("""
             {"type":"object","required":["recommendationId","candidateReference","roleTitle","idempotencyKey"],"properties":{"recommendationId":{"type":"string","format":"uuid"},"candidateReference":{"type":"string"},"roleTitle":{"type":"string","minLength":1,"maxLength":160},"reportsToOrganizationUserId":{"type":["string","null"],"format":"uuid"},"requiredGrants":{"type":["array","null"],"items":{"type":"string"}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

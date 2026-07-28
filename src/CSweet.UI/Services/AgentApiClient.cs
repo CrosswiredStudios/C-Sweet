@@ -91,6 +91,15 @@ public sealed class AgentApiClient : IAgentApiClient
             null,
             cancellationToken);
 
+    public Task<AgentInstallationResponse> RetryBuildAsync(
+        Guid installationId,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<AgentInstallationResponse>(
+            HttpMethod.Post,
+            $"api/agents/installations/{installationId}/retry-build",
+            null,
+            cancellationToken);
+
     public Task<AgentInstallationResponse> DisableAsync(
         Guid installationId,
         CancellationToken cancellationToken = default) =>

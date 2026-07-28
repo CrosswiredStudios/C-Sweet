@@ -18,6 +18,7 @@ public sealed class WorkforcePlatformCapabilityHandler(
     IEnumerable<IWorkforceCatalogProvider> workforceCatalogs,
     IEnumerable<IBusinessPatternProvider> businessPatternProviders,
     IHiringService? hiring = null,
+    IResourceChangeService? resourceChanges = null,
     IAgentCatalogService? agentCatalog = null) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -40,6 +41,10 @@ public sealed class WorkforcePlatformCapabilityHandler(
         HiringCapabilities.ListRecommendations,
         HiringCapabilities.UpsertRecommendation,
         HiringCapabilities.ResolveRecommendation,
+        HiringCapabilities.WithdrawRecommendation,
+        ResourceChangeCapabilities.Propose,
+        ResourceChangeCapabilities.Read,
+        ResourceChangeCapabilities.Decide,
         HiringCapabilities.StageWorkflow
     };
     private static readonly HashSet<string> ExplicitFields = new(StringComparer.OrdinalIgnoreCase)
@@ -104,6 +109,22 @@ public sealed class WorkforcePlatformCapabilityHandler(
                     await (hiring ?? throw new InvalidOperationException("The hiring service is unavailable.")).ResolveRecommendationAsync(
                         organizationId, installationId,
                         Read<CSweet.Contracts.Core.ResolveHiringRecommendationRequest>(request), token)),
+                HiringCapabilities.WithdrawRecommendation => Success(request.RequestId,
+                    await (hiring ?? throw new InvalidOperationException("The hiring service is unavailable.")).WithdrawRecommendationAsync(
+                        organizationId, installationId,
+                        Read<CSweet.Contracts.Core.WithdrawHiringRecommendationRequest>(request), token)),
+                ResourceChangeCapabilities.Propose => Success(request.RequestId,
+                    await (resourceChanges ?? throw new InvalidOperationException("The resource-change service is unavailable.")).ProposeAsync(
+                        organizationId, installationId,
+                        Read<CSweet.Contracts.Core.ResourceChangeProposalRequest>(request), token)),
+                ResourceChangeCapabilities.Read => Success(request.RequestId,
+                    await (resourceChanges ?? throw new InvalidOperationException("The resource-change service is unavailable.")).ReadForInstallationAsync(
+                        organizationId, installationId,
+                        Read<CSweet.Contracts.Core.ResourceChangeReadRequest>(request), token)),
+                ResourceChangeCapabilities.Decide => Success(request.RequestId,
+                    await (resourceChanges ?? throw new InvalidOperationException("The resource-change service is unavailable.")).DecideForInstallationAsync(
+                        organizationId, installationId,
+                        Read<CSweet.Contracts.Core.ResourceChangeDecisionRequest>(request), token)),
                 HiringCapabilities.StageWorkflow => Success(request.RequestId,
                     await (hiring ?? throw new InvalidOperationException("The hiring service is unavailable.")).StageWorkflowAsync(organizationId, installationId,
                         Read<CSweet.Contracts.Core.StageHiringWorkflowRequest>(request), token)),
@@ -117,6 +138,14 @@ public sealed class WorkforcePlatformCapabilityHandler(
         catch (DbUpdateConcurrencyException)
         {
             return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict, "The record changed; reload it and retry with the current revision.");
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied, exception.Message);
+        }
+        catch (ArgumentException exception)
+        {
+            return Failure(request.RequestId, PlatformCapabilityErrorCode.ValidationFailed, exception.Message);
         }
         catch (InvalidOperationException exception)
         {

@@ -4,6 +4,7 @@ using CSweet.Contracts.Agents;
 using CSweet.Contracts.Communications;
 using CSweet.Contracts.Core;
 using CSweet.Contracts.Llm;
+using CSweet.Domain.Core;
 using CSweet.UI.Components.Employees;
 using CSweet.UI.Components.Employees.Models;
 using Microsoft.AspNetCore.Components;
@@ -72,6 +73,8 @@ public partial class Employees
     private int _graphDegrees = 2;
     private EmployeeDirectoryFilter _directoryFilter = new();
     private HiringDashboardResponse? _hiringDashboard;
+    private bool _resourceDecisionBusy;
+    private string? _resourceFeedback;
     private bool IsHiringTab => string.Equals(Tab, "hiring", StringComparison.OrdinalIgnoreCase);
 
     private IReadOnlyList<EmployeeViewModel> PresentedEmployees => EmployeePresentationService.Build(
@@ -141,6 +144,51 @@ public partial class Employees
         return employee.EmployeeType == 1
             ? worker ?? "Agent"
             : role ?? "Employee";
+    }
+
+    private async Task DecideResourceChangeAsync(ResourceChangeRequestResponse resourceChange, string decision)
+    {
+        if (_resourceDecisionBusy) return;
+        if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(_resourceFeedback))
+        {
+            _errorMessage = "Decision feedback is required when requesting a revision.";
+            return;
+        }
+
+        _resourceDecisionBusy = true;
+        _errorMessage = null;
+        try
+        {
+            var payload = new ResourceChangeDecisionRequest(
+                resourceChange.Id,
+                decision,
+                _resourceFeedback,
+                $"ui:{resourceChange.Id:N}:{decision}");
+            var response = await Http.PostAsJsonAsync(
+                $"api/core/organizations/{OrganizationId}/hiring/resource-changes/{resourceChange.Id}/decide",
+                payload,
+                _disposeCts.Token);
+            response.EnsureSuccessStatusCode();
+            var updated = await response.Content.ReadFromJsonAsync<ResourceChangeRequestResponse>(_disposeCts.Token);
+            if (updated is not null && _hiringDashboard is not null)
+            {
+                _hiringDashboard = _hiringDashboard with
+                {
+                    ResourceChanges = _hiringDashboard.ResourceChanges
+                        .Select(x => x.Id == updated.Id ? updated : x)
+                        .ToList()
+                };
+            }
+            _resourceFeedback = null;
+        }
+        catch (Exception exception)
+        {
+            _errorMessage = exception.Message;
+        }
+        finally
+        {
+            _resourceDecisionBusy = false;
+        }
     }
 
     private string ReportsTo(OrganizationUserResponse employee)
@@ -513,7 +561,11 @@ public partial class Employees
         _hireEmail = null;
         _hireEmployeeType = 1;
         _hireAgentKey = null;
-        _hireManagerId = null;
+        _hireManagerId = _employees
+            .OrderByDescending(employee => employee.PermissionLevel == (int)OrganizationPermissionLevel.Owner)
+            .ThenBy(employee => employee.DisplayName)
+            .Select(employee => (Guid?)employee.Id)
+            .FirstOrDefault();
         _managedEmployeeIds.Clear();
         _actionError = null;
         _hireDialogOpen = true;
@@ -551,6 +603,11 @@ public partial class Employees
         if (_hireEmployeeType == 1 && string.IsNullOrWhiteSpace(_hireAgentKey))
         {
             _actionError = "Select an available agent.";
+            return;
+        }
+        if (_hireEmployeeType == 1 && !_hireManagerId.HasValue)
+        {
+            _actionError = "Select the employee who will manage this agent.";
             return;
         }
 

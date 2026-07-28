@@ -20,6 +20,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
 
     private readonly CSweetDbContext _dbContext;
     private readonly IAuditEventWriter _auditWriter;
+    private readonly IAgentBuildService _buildService;
     private readonly IAgentContainerRunner _containers;
     private readonly AgentRuntimeManagerOptions _runtimeOptions;
     private readonly ILogger<AgentInstallationService> _logger;
@@ -27,12 +28,14 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     public AgentInstallationService(
         CSweetDbContext dbContext,
         IAuditEventWriter auditWriter,
+        IAgentBuildService buildService,
         IAgentContainerRunner containers,
         IOptions<AgentRuntimeManagerOptions> runtimeOptions,
         ILogger<AgentInstallationService> logger)
     {
         _dbContext = dbContext;
         _auditWriter = auditWriter;
+        _buildService = buildService;
         _containers = containers;
         _runtimeOptions = runtimeOptions.Value;
         _logger = logger;
@@ -119,6 +122,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             request.GrantedNetworkAccess.Contains("all-public", StringComparer.Ordinal) &&
             !request.AllPublicWebAccessAcknowledged)
             throw new AgentInstallationException("All-public web access requires a separate explicit acknowledgement.");
+        var configurationSettings = await ValidateConfigurationAsync(
+            manifest,
+            request.ConfigurationSettings,
+            allowUnknownSettings: false,
+            cancellationToken);
 
         var now = DateTimeOffset.UtcNow;
         var installation = new AgentInstallation
@@ -188,6 +196,14 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         installation.PackageVersion = packageVersion;
         installation.Grant = grant;
         installation.Schedule = schedule;
+        if (manifest.Configuration.Any(field => !field.Secret))
+        {
+            installation.Configuration = CreateConfiguration(
+                installation.Id,
+                request.ConfigurationSchemaVersion,
+                configurationSettings,
+                now);
+        }
         _dbContext.AgentInstallations.Add(installation);
         _dbContext.AgentCapabilityBindings.AddRange(await CreateCapabilityBindingsAsync(
             installation,
@@ -328,7 +344,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException("The selected agent update is not available for installation.");
         }
 
-        _ = DeserializeManifest(nextPackage.ManifestJson);
+        var nextManifest = DeserializeManifest(nextPackage.ManifestJson);
         var now = DateTimeOffset.UtcNow;
         var latestBuild = nextPackage.BuildJobs.OrderByDescending(x => x.Attempt).FirstOrDefault();
         var shouldQueueBuild = nextPackage.Status != AgentPackageVersionStatus.Built &&
@@ -394,6 +410,19 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             IsEnabled = false,
             NextTickAt = null
         };
+        var previousConfiguration = await _dbContext.AgentInstallationConfigurations
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.AgentInstallationId == installation.Id, cancellationToken);
+        if (nextManifest.Configuration.Any(field => !field.Secret))
+        {
+            var compatibleSettings = DeserializeConfigurationSettings(previousConfiguration?.SettingsJson)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+            staged.Configuration = CreateConfiguration(
+                staged.Id,
+                previousConfiguration?.SchemaVersion ?? "1",
+                compatibleSettings,
+                now);
+        }
         _dbContext.AgentInstallations.Add(staged);
         try
         {
@@ -457,6 +486,18 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         ValidateGrant("web access", request.GrantedNetworkAccess, AgentImportPreviewService.WebGrantTokens(manifest));
         if (request.GrantedNetworkAccess.Contains("all-public", StringComparer.Ordinal) && !request.AllPublicWebAccessAcknowledged)
             throw new AgentInstallationException("All-public web access requires a separate explicit acknowledgement.");
+        var inheritedSettings = DeserializeConfigurationSettings(staged.Configuration?.SettingsJson);
+        var requestedSettings = request.ConfigurationSettings.Count == 0
+            ? inheritedSettings
+            : inheritedSettings
+                .Concat(request.ConfigurationSettings)
+                .GroupBy(pair => pair.Key, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Last().Value, StringComparer.Ordinal);
+        var configurationSettings = await ValidateConfigurationAsync(
+            manifest,
+            requestedSettings,
+            allowUnknownSettings: true,
+            cancellationToken);
 
         var previous = await GetInstallationAsync(staged.SupersedesInstallationId.Value, cancellationToken);
         await RemoveRuntimeContainersAsync(previous, cancellationToken);
@@ -497,6 +538,19 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         staged.IsEnabled = true;
         staged.RevisionStatus = PluginRevisionStatus.Active;
         staged.UpdatedAt = now;
+        if (manifest.Configuration.Any(field => !field.Secret))
+        {
+            staged.Configuration ??= CreateConfiguration(
+                staged.Id,
+                request.ConfigurationSchemaVersion,
+                configurationSettings,
+                now);
+            staged.Configuration.SchemaVersion = NormalizeConfigurationSchemaVersion(
+                request.ConfigurationSchemaVersion,
+                staged.Configuration.SchemaVersion);
+            staged.Configuration.SettingsJson = JsonSerializer.Serialize(configurationSettings, SerializerOptions);
+            staged.Configuration.UpdatedAt = now;
+        }
         var previousBindings = await _dbContext.AgentCapabilityBindings
             .Where(x => x.RequesterInstallationId == previous.Id && x.RevokedAt == null)
             .ToListAsync(cancellationToken);
@@ -609,6 +663,49 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         return ToResponse(installation);
     }
 
+    public async Task<AgentInstallationResponse> RetryBuildAsync(
+        Guid installationId,
+        CancellationToken cancellationToken = default)
+    {
+        var installation = await GetInstallationAsync(installationId, cancellationToken);
+        var package = installation.PackageVersion!;
+        if (package.Status is not (
+                AgentPackageVersionStatus.Approved or
+                AgentPackageVersionStatus.Failed))
+        {
+            throw new AgentInstallationException(
+                package.Status == AgentPackageVersionStatus.Built
+                    ? "The agent package is already built."
+                    : $"A package in status {package.Status} cannot be retried.");
+        }
+
+        var buildJobId = await _buildService.QueueAsync(package.Id, cancellationToken);
+        if (package.BuildJobs.All(x => x.Id != buildJobId))
+        {
+            package.BuildJobs.Add(await _dbContext.AgentBuildJobs
+                .SingleAsync(x => x.Id == buildJobId, cancellationToken));
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var schedule = installation.Schedule!;
+        ResetAutomaticStartupFailures(schedule);
+        if (installation.IsEnabled &&
+            schedule.IsEnabled &&
+            schedule.ActivationMode == ActivationMode.AlwaysOn)
+        {
+            schedule.NextTickAt = now;
+        }
+        installation.UpdatedAt = now;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await _auditWriter.WriteAsync(
+            "agent-build.retry-requested",
+            nameof(AgentInstallation),
+            installation.Id,
+            $"Queued another build for {package.AgentId} {package.Version} and cleared automatic startup suppression.",
+            cancellationToken: cancellationToken);
+        return ToResponse(installation);
+    }
+
     public async Task<AgentInstallationResponse> DisableAsync(
         Guid installationId,
         CancellationToken cancellationToken = default)
@@ -636,6 +733,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var settings = await GetSettingsAsync(cancellationToken);
         if (!settings.EnableImportedAgents)
             throw new AgentInstallationException("Imported agents are disabled in global runtime settings.");
+        var manifest = DeserializeManifest(installation.PackageVersion!.ManifestJson);
+        await ValidateConfigurationAsync(
+            manifest,
+            DeserializeConfigurationSettings(installation.Configuration?.SettingsJson),
+            allowUnknownSettings: true,
+            cancellationToken);
         var now = DateTimeOffset.UtcNow;
         installation.IsEnabled = true;
         installation.Schedule!.IsEnabled = true;
@@ -829,6 +932,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .Include(x => x.PackageVersion)!.ThenInclude(x => x!.BuildJobs)
             .Include(x => x.Grant)
             .Include(x => x.Schedule)
+            .Include(x => x.Configuration)
             .Include(x => x.RuntimeInstances).ThenInclude(x => x.Events);
 
     private async Task<AgentInstallation> GetInstallationAsync(
@@ -982,6 +1086,121 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException($"The stored plugin manifest is invalid: {exception.Message}");
         }
     }
+
+    private async Task<IReadOnlyDictionary<string, JsonElement>> ValidateConfigurationAsync(
+        PluginManifest manifest,
+        IReadOnlyDictionary<string, JsonElement> settings,
+        bool allowUnknownSettings,
+        CancellationToken cancellationToken)
+    {
+        var publicFields = manifest.Configuration
+            .Where(field => !field.Secret)
+            .ToDictionary(field => field.Key, StringComparer.Ordinal);
+        var unknownKeys = settings.Keys
+            .Where(key => !publicFields.ContainsKey(key))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        if (!allowUnknownSettings && unknownKeys.Length > 0)
+        {
+            throw new AgentInstallationException(
+                $"Agent configuration contains unsupported setting(s): {string.Join(", ", unknownKeys)}.");
+        }
+
+        foreach (var field in publicFields.Values)
+        {
+            var hasValue = settings.TryGetValue(field.Key, out var value) && HasConfigurationValue(value);
+            if (field.Required && !hasValue)
+            {
+                throw new AgentInstallationException(
+                    $"'{field.Label}' ({field.Key}) is required before this agent can be installed or enabled.");
+            }
+            if (!hasValue)
+                continue;
+
+            var type = field.Type.Trim();
+            if (type.Equals("boolean", StringComparison.OrdinalIgnoreCase) &&
+                value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new AgentInstallationException($"'{field.Label}' must be true or false.");
+            if (type.Equals("number", StringComparison.OrdinalIgnoreCase) &&
+                value.ValueKind != JsonValueKind.Number)
+                throw new AgentInstallationException($"'{field.Label}' must be a number.");
+            if (IsProviderConfigurationType(type))
+            {
+                if (value.ValueKind != JsonValueKind.String ||
+                    !Guid.TryParse(value.GetString(), out var providerId) ||
+                    !await _dbContext.LlmProviderProfiles.AsNoTracking().AnyAsync(
+                        provider => provider.Id == providerId && provider.IsEnabled,
+                        cancellationToken))
+                {
+                    throw new AgentInstallationException(
+                        $"'{field.Label}' must reference an enabled LLM provider.");
+                }
+            }
+            else if (value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+            {
+                throw new AgentInstallationException(
+                    $"'{field.Label}' must be a scalar configuration value.");
+            }
+        }
+
+        return settings
+            .Where(pair => allowUnknownSettings || publicFields.ContainsKey(pair.Key))
+            .ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal);
+    }
+
+    private static AgentInstallationConfiguration CreateConfiguration(
+        Guid installationId,
+        string schemaVersion,
+        IReadOnlyDictionary<string, JsonElement> settings,
+        DateTimeOffset now) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installationId,
+            SchemaVersion = NormalizeConfigurationSchemaVersion(schemaVersion, "1"),
+            SettingsJson = JsonSerializer.Serialize(settings, SerializerOptions),
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+    private static string NormalizeConfigurationSchemaVersion(string? requested, string fallback)
+    {
+        var value = string.IsNullOrWhiteSpace(requested) ? fallback : requested.Trim();
+        if (value.Length > 64)
+            throw new AgentInstallationException(
+                "Agent configuration schema version cannot exceed 64 characters.");
+        return value;
+    }
+
+    private static IReadOnlyDictionary<string, JsonElement> DeserializeConfigurationSettings(string? settingsJson)
+    {
+        if (string.IsNullOrWhiteSpace(settingsJson))
+            return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        try
+        {
+            return JsonSerializer.Deserialize<IReadOnlyDictionary<string, JsonElement>>(
+                       settingsJson,
+                       SerializerOptions)
+                   ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        }
+        catch (JsonException exception)
+        {
+            throw new AgentInstallationException(
+                $"The persisted agent configuration is invalid: {exception.Message}");
+        }
+    }
+
+    private static bool HasConfigurationValue(JsonElement value) =>
+        value.ValueKind switch
+        {
+            JsonValueKind.Undefined or JsonValueKind.Null => false,
+            JsonValueKind.String => !string.IsNullOrWhiteSpace(value.GetString()),
+            _ => true
+        };
+
+    private static bool IsProviderConfigurationType(string type) =>
+        type.Equals("provider", StringComparison.OrdinalIgnoreCase) ||
+        type.Equals("llmProvider", StringComparison.OrdinalIgnoreCase);
 
     private static void ValidateBusinessId(string businessId)
     {

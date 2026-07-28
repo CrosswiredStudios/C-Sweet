@@ -86,6 +86,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<ManagementCheckInRequestRecord> ManagementCheckInRequests => Set<ManagementCheckInRequestRecord>();
     public DbSet<ManagementStatusReportRecord> ManagementStatusReports => Set<ManagementStatusReportRecord>();
     public DbSet<ResourceNeedReportRecord> ResourceNeedReports => Set<ResourceNeedReportRecord>();
+    public DbSet<ResourceChangeRequestRecord> ResourceChangeRequests => Set<ResourceChangeRequestRecord>();
+    public DbSet<ResourceChangeRoleRecord> ResourceChangeRoles => Set<ResourceChangeRoleRecord>();
     public DbSet<ExecutiveBriefingDeliveryRecord> ExecutiveBriefingDeliveries => Set<ExecutiveBriefingDeliveryRecord>();
 
     // Conversation entities

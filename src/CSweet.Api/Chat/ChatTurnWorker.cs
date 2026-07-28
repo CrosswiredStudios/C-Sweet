@@ -190,68 +190,36 @@ public sealed class ChatTurnWorker(
 
                 var pendingOutput = new System.Text.StringBuilder();
                 var outputFlush = Stopwatch.StartNew();
-                var firstOutputDeadline = DateTimeOffset.UtcNow + options.Value.FirstOutputTimeout;
-                using var streamCancellation = CancellationTokenSource.CreateLinkedTokenSource(hardTimeout.Token);
-                await using var chunks = reader.ReadAllAsync(streamCancellation.Token).GetAsyncEnumerator(streamCancellation.Token);
+                await using var chunks = reader.ReadAllAsync(hardTimeout.Token).GetAsyncEnumerator(hardTimeout.Token);
                 while (true)
                 {
-                bool hasChunk;
-                if (output.Length == 0)
-                {
-                    var remaining = firstOutputDeadline - DateTimeOffset.UtcNow;
-                    if (remaining <= TimeSpan.Zero)
+                    if (!await chunks.MoveNextAsync()) break;
+                    var chunk = chunks.Current;
+                    if (chunk.Attempt != 0 && chunk.Attempt != turn.Attempt) continue;
+                    if (await db.ChatTurns.AsNoTracking().AnyAsync(x => x.Id == turnId && x.Status == ChatTurnStatus.Cancelled, hardTimeout.Token))
+                        return;
+                    if (!string.IsNullOrWhiteSpace(chunk.Error)) throw new InvalidOperationException(chunk.Delta);
+                    if (chunk.Kind == "progress")
                     {
-                        throw new FirstOutputTimeoutException(options.Value.FirstOutputTimeout);
+                        await PublishTraceAsync(turns, turnId, "model", "agent.progress", "running", chunk.Delta,
+                            details: chunk.Metadata, cancellationToken: hardTimeout.Token);
+                        if (chunk.IsFinal) break;
+                        continue;
                     }
-                    var moveNextTask = chunks.MoveNextAsync().AsTask();
-                    try
+                    if (!chunk.IsFinal && chunk.Delta.Length > 0)
                     {
-                        hasChunk = await moveNextTask.WaitAsync(remaining, hardTimeout.Token);
-                    }
-                    catch (TimeoutException)
-                    {
-                        streamCancellation.Cancel();
-                        try
+                        output.Append(chunk.Delta);
+                        pendingOutput.Append(chunk.Delta);
+                        if (pendingOutput.Length >= 512 || outputFlush.Elapsed >= TimeSpan.FromMilliseconds(250))
                         {
-                            await moveNextTask;
+                            var delta = pendingOutput.ToString();
+                            pendingOutput.Clear();
+                            outputFlush.Restart();
+                            await turns.AppendOutputAsync(turnId, delta, hardTimeout.Token);
+                            await PublishTraceAsync(turns, turnId, "output", "output.delta", "running", "Assistant output",
+                                delta, cancellationToken: hardTimeout.Token);
                         }
-                        catch (OperationCanceledException) when (streamCancellation.IsCancellationRequested)
-                        {
-                        }
-                        throw new FirstOutputTimeoutException(options.Value.FirstOutputTimeout);
                     }
-                }
-                else
-                {
-                    hasChunk = await chunks.MoveNextAsync();
-                }
-                if (!hasChunk) break;
-                var chunk = chunks.Current;
-                if (chunk.Attempt != 0 && chunk.Attempt != turn.Attempt) continue;
-                if (await db.ChatTurns.AsNoTracking().AnyAsync(x => x.Id == turnId && x.Status == ChatTurnStatus.Cancelled, hardTimeout.Token))
-                    return;
-                if (!string.IsNullOrWhiteSpace(chunk.Error)) throw new InvalidOperationException(chunk.Delta);
-                if (chunk.Kind == "progress")
-                {
-                    await PublishTraceAsync(turns, turnId, "model", "agent.progress", "running", chunk.Delta,
-                        details: chunk.Metadata, cancellationToken: hardTimeout.Token);
-                    if (chunk.IsFinal) break;
-                    continue;
-                }
-                if (!chunk.IsFinal && chunk.Delta.Length > 0)
-                {
-                    output.Append(chunk.Delta);
-                    pendingOutput.Append(chunk.Delta);
-                    if (pendingOutput.Length >= 512 || outputFlush.Elapsed >= TimeSpan.FromMilliseconds(250))
-                    {
-                        var delta = pendingOutput.ToString();
-                        pendingOutput.Clear();
-                        outputFlush.Restart();
-                        await turns.AppendOutputAsync(turnId, delta, hardTimeout.Token);
-                        await PublishTraceAsync(turns, turnId, "output", "output.delta", "running", "Assistant output",
-                            delta, cancellationToken: hardTimeout.Token);
-                    }
-                }
                     if (chunk.IsFinal) break;
                 }
                 if (pendingOutput.Length > 0)
@@ -325,11 +293,6 @@ public sealed class ChatTurnWorker(
         {
             await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId, "timeout",
                 $"I couldn't complete that request because it exceeded the {options.Value.HardTimeout.TotalMinutes:g}-minute safety limit. Please try again.", CancellationToken.None);
-        }
-        catch (FirstOutputTimeoutException exception)
-        {
-            await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId, "first_output_timeout",
-                $"I couldn't complete that request because the agent did not begin responding in time. Please try again. ({exception.Message})", CancellationToken.None);
         }
         catch (Exception exception)
         {
@@ -651,8 +614,5 @@ public sealed class ChatTurnWorker(
             ContentType: "text/plain"),
             cancellationToken);
     }
-
-    private sealed class FirstOutputTimeoutException(TimeSpan timeout) : TimeoutException(
-        $"The assistant did not produce any response text within {timeout.TotalSeconds:g} seconds.");
 
 }

@@ -1,3 +1,4 @@
+@using System.Text.Json
 @using System.Text.RegularExpressions
 @using CSweet.Contracts.Agents
 @using CSweet.Contracts.Plugins
@@ -406,7 +407,13 @@
                 {
                     PluginScope = "System",
                     GrantedRequestedCapabilities = _preview.RequestedCapabilities,
-                    AllPublicWebAccessAcknowledged = _allPublicAcknowledged
+                    AllPublicWebAccessAcknowledged = _allPublicAcknowledged,
+                    ConfigurationSettings = _configurationValues
+                        .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+                        .ToDictionary(
+                            pair => pair.Key,
+                            pair => JsonSerializer.SerializeToElement(pair.Value.Trim()),
+                            StringComparer.Ordinal)
                 };
                 installation = await PluginApi.InstallAsync(_preview.ImportId, request);
             }

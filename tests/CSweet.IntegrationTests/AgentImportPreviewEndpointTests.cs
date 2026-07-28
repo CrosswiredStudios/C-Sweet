@@ -163,6 +163,25 @@ public class AgentImportPreviewEndpointTests
 
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+        var failedBuild = await dbContext.AgentBuildJobs.SingleAsync();
+        failedBuild.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
+        (await dbContext.AgentPackageVersions.SingleAsync()).Status = AgentPackageVersionStatus.Failed;
+        var suppressedSchedule = await dbContext.AgentSchedules.SingleAsync();
+        suppressedSchedule.ConsecutiveStartupFailures = 3;
+        suppressedSchedule.AutomaticStartSuppressedAt = DateTimeOffset.UtcNow;
+        suppressedSchedule.NextTickAt = null;
+        await dbContext.SaveChangesAsync();
+
+        var retryResponse = await client.PostAsync(
+            $"/api/agents/installations/{installation.Id}/retry-build",
+            null);
+        var retried = await retryResponse.Content.ReadFromJsonAsync<AgentInstallationResponse>();
+        Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
+        Assert.Equal("Queued", retried!.Build?.Status);
+        Assert.Equal(2, retried.Build?.Attempt);
+        Assert.Equal(0, retried.Schedule.ConsecutiveStartupFailures);
+        Assert.Null(retried.Schedule.AutomaticStartSuppressedAt);
+
         var runtime = new AgentRuntimeInstance
         {
             Id = Guid.NewGuid(),
@@ -193,7 +212,7 @@ public class AgentImportPreviewEndpointTests
         Assert.Single(await dbContext.AgentInstallations.ToListAsync());
         Assert.Single(await dbContext.AgentInstallationGrants.ToListAsync());
         Assert.Single(await dbContext.AgentSchedules.ToListAsync());
-        Assert.Single(await dbContext.AgentBuildJobs.ToListAsync());
+        Assert.Equal(2, await dbContext.AgentBuildJobs.CountAsync());
     }
 
     private static async Task MarkSetupCompleteAsync(WebApplicationFactory<Program> factory)
@@ -235,7 +254,7 @@ public class AgentImportPreviewEndpointTests
     {
         private static readonly byte[] Manifest = Encoding.UTF8.GetBytes("""
             {
-              "manifestVersion": "1.0",
+              "manifestVersion": "2.0",
               "kind": "agent",
               "id": "com.example.research-agent",
               "name": "Research Agent",
@@ -245,12 +264,21 @@ public class AgentImportPreviewEndpointTests
                 "type": "dotnet-project",
                 "projectPath": "src/ResearchAgent/ResearchAgent.csproj",
                 "targetFramework": "net10.0",
-                "defaultActivationMode": "Periodic"
+                "defaultActivationMode": "Periodic",
+                "supportsMultipleInstallations": true,
+                "maximumConcurrentJobs": 4
               },
-              "protocol": { "minimumVersion": "1.0", "maximumVersion": "1.x" },
-              "provides": [{ "name": "research.execute.v1" }],
+              "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },
+              "provides": [{
+                "name": "research.execute.v1",
+                "description": "Execute a research request.",
+                "inputSchema": { "type": "object", "additionalProperties": true },
+                "outputSchema": { "type": "object", "additionalProperties": true },
+                "executionTimeoutSeconds": 120,
+                "idempotency": "work-item"
+              }],
               "requires": [],
-              "events": { "publishes": [], "subscribes": [] },
+              "events": { "subscribes": [] },
               "configuration": [],
               "credentials": [],
               "webAccess": { "mode": "None", "rules": [] },

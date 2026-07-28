@@ -219,6 +219,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<HiringService>();
         builder.Services.AddScoped<IHiringService>(services => services.GetRequiredService<HiringService>());
         builder.Services.AddScoped<IAgentHireOrchestrator>(services => services.GetRequiredService<HiringService>());
+        builder.Services.AddScoped<IResourceChangeService, ResourceChangeService>();
         builder.Services.AddScoped<ICommunicationWorkspaceService, CommunicationWorkspaceService>();
         builder.Services.AddScoped<ICommunicationHubService, CommunicationHubService>();
         builder.Services.AddScoped<IUserActionService, UserActionService>();

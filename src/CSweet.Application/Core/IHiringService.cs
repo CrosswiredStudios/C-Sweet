@@ -8,6 +8,8 @@ public interface IHiringService
         UpsertHiringRecommendationRequest request, CancellationToken cancellationToken = default);
     Task<HiringRecommendationResponse> ResolveRecommendationAsync(Guid organizationId, Guid requestingInstallationId,
         ResolveHiringRecommendationRequest request, CancellationToken cancellationToken = default);
+    Task<HiringRecommendationResponse> WithdrawRecommendationAsync(Guid organizationId, Guid requestingInstallationId,
+        WithdrawHiringRecommendationRequest request, CancellationToken cancellationToken = default);
     Task<HiringWorkflowResponse> StageWorkflowAsync(Guid organizationId, Guid requestingInstallationId,
         StageHiringWorkflowRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<HiringRecommendationResponse>> ListRecommendationsAsync(Guid organizationId, CancellationToken cancellationToken = default);

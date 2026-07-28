@@ -3,6 +3,7 @@ using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Plugins;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
@@ -147,6 +148,10 @@ public sealed class HiringServiceTests
         };
         db.WorkforceCandidates.Add(candidate);
         await db.SaveChangesAsync();
+        var ownerId = await db.CoreOrganizationUsers
+            .Where(user => user.OrganizationId == organizationId)
+            .Select(user => user.Id)
+            .SingleAsync();
 
         var preview = new RecordingImportPreview(repositoryUrl);
         var installations = new RecordingInstallationService(organizationId);
@@ -170,7 +175,7 @@ public sealed class HiringServiceTests
             {
                 Priority = 1
             });
-        var workflow = await service.StageWorkflowAsync(
+        await Assert.ThrowsAsync<ArgumentException>(() => service.StageWorkflowAsync(
             organizationId,
             chiefInstallationId,
             new(
@@ -178,6 +183,16 @@ public sealed class HiringServiceTests
                 recommendation.RecommendedCandidateReference!,
                 "Product Manager",
                 null,
+                [],
+                "install-product-manager-without-manager")));
+        var workflow = await service.StageWorkflowAsync(
+            organizationId,
+            chiefInstallationId,
+            new(
+                recommendation.Id,
+                recommendation.RecommendedCandidateReference!,
+                "Product Manager",
+                ownerId,
                 [],
                 "install-product-manager"));
 
@@ -228,6 +243,10 @@ public sealed class HiringServiceTests
             CreatedAt = now
         });
         await db.SaveChangesAsync();
+        var ownerId = await db.CoreOrganizationUsers
+            .Where(user => user.OrganizationId == organizationId)
+            .Select(user => user.Id)
+            .SingleAsync();
         var repositoryUrl = "https://github.com/CrosswiredStudios/CSweet.Agent.ProductManager";
         var agent = new CSweet.Agent.SDK.AvailableAgent(
             "first-party:product-manager",
@@ -263,21 +282,34 @@ public sealed class HiringServiceTests
             new RecordingAgentCatalog(agent));
         IAgentHireOrchestrator orchestrator = service;
 
+        await Assert.ThrowsAsync<ArgumentException>(() => orchestrator.PreviewAsync(
+            organizationId,
+            applicationUserId,
+            new("first-party:product-manager", "Product Manager", null, "marketplace-preview-without-manager")));
         var preview = await orchestrator.PreviewAsync(
             organizationId,
             applicationUserId,
-            new("first-party:product-manager", "Product Manager", null, "marketplace-preview"));
+            new("first-party:product-manager", "Product Manager", ownerId, "marketplace-preview"));
         var confirmed = await orchestrator.ConfirmAsync(
             organizationId,
             preview.WorkflowId,
             applicationUserId,
-            new("marketplace-confirm"));
+            new("marketplace-confirm")
+            {
+                ConfigurationSettings = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                {
+                    ["llmProviderId"] = JsonSerializer.SerializeToElement(Guid.NewGuid().ToString("D")),
+                    ["llmModel"] = JsonSerializer.SerializeToElement("test-model")
+                }
+            });
 
         Assert.Equal("Pending", preview.Status);
         Assert.Equal("Approved", confirmed?.Status);
         Assert.Equal(Guid.Empty, confirmed?.RecommendationId);
         Assert.Equal(2, import.Requests.Count);
+        Assert.Equal(2, preview.ConfigurationFields.Count);
         Assert.Equal(1, installations.InstallCount);
+        Assert.Equal("test-model", installations.Request!.ConfigurationSettings["llmModel"].GetString());
         Assert.Equal(installations.InstallationId, organizationUsers.CreatedRequest?.AgentInstallationId);
     }
 
@@ -320,7 +352,18 @@ public sealed class HiringServiceTests
                 [],
                 "Previewed")
             {
-                RequestedCapabilities = RequestedCapabilities
+                RequestedCapabilities = RequestedCapabilities,
+                ConfigurationFields =
+                [
+                    new PluginConfigurationField
+                    {
+                        Key = "llmProviderId", Type = "provider", Label = "LLM provider", Required = true
+                    },
+                    new PluginConfigurationField
+                    {
+                        Key = "llmModel", Type = "model", Label = "Model", Required = true
+                    }
+                ]
             });
         }
     }
@@ -400,6 +443,8 @@ public sealed class HiringServiceTests
         public Task<AgentInstallationResponse> UpdateScheduleAsync(Guid installationId, UpdateAgentScheduleRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<AgentInstallationResponse> RunNowAsync(Guid installationId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<AgentInstallationResponse> RetryBuildAsync(Guid installationId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<AgentInstallationResponse> DisableAsync(Guid installationId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

@@ -5,6 +5,7 @@
 @using CSweet.Contracts.Agents
 @using CSweet.Contracts.BusinessOnboarding
 @using CSweet.Contracts.Llm
+@using CSweet.Contracts.Plugins
 @using CSweet.Contracts.Setup
 @inject IAgentApiClient AgentApi
 @inject ILlmProviderApiClient LlmProviderApi
@@ -242,6 +243,13 @@
                                 </MudButton>
                                 <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.History" Disabled="@(_isManagingInstallation || installation.LatestRuntime is null)" OnClick="@(() => OpenRunsDialogAsync(installation))">View Runs</MudButton>
                                 <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Description" Disabled="@(_isManagingInstallation || installation.Build?.HasLog != true)" OnClick="@(() => OpenBuildLogDialogAsync(installation))">View Build Log</MudButton>
+                                @if (installation.Build?.Status is "Failed" or "Cancelled")
+                                {
+                                    <MudButton Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Filled.Refresh"
+                                               Disabled="@_isManagingInstallation" OnClick="@(() => RetryBuildAsync(installation))">
+                                        Retry build
+                                    </MudButton>
+                                }
                                 @if (installation.IsEnabled)
                                 {
                                     <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Block" Disabled="@_isManagingInstallation" OnClick="@(() => DisableInstallationAsync(installation))">Disable</MudButton>
@@ -601,6 +609,65 @@
                                 <MudNumericField T="int" Label="Memory (MB)" @bind-Value="_installMemoryMb" Min="1" Max="@(_runtimeSettings?.MaximumContainerMemoryMb ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
                                 <MudNumericField T="int" Label="CPU (%)" @bind-Value="_installCpuPercent" Min="1" Max="@(_runtimeSettings?.MaximumContainerCpuPercent ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
                             </div>
+                            @if (_importPreview.ConfigurationFields.Any(field => !field.Secret))
+                            {
+                                <MudText Typo="Typo.subtitle2" Class="mt-3">Agent settings</MudText>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+                                    These settings are declared by the agent and must be complete before it can run.
+                                </MudText>
+                                <div class="agent-import-form-grid">
+                                    @foreach (var field in _importPreview.ConfigurationFields.Where(field => !field.Secret))
+                                    {
+                                        @if (IsImportProviderField(field))
+                                        {
+                                            <MudSelect T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
+                                                       ValueChanged="@(value => SetImportProviderAsync(field.Key, value))"
+                                                       Variant="Variant.Outlined" Disabled="@_isInstallingImport">
+                                                @foreach (var provider in _providerProfiles.Where(provider => provider.IsEnabled))
+                                                {
+                                                    <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
+                                        else if (IsImportModelField(field))
+                                        {
+                                            <MudSelect T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
+                                                       ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
+                                                       Variant="Variant.Outlined"
+                                                       Disabled="@(_isInstallingImport || ImportModelProvider() is null || _loadingProviderModels.Contains(ImportModelProvider()!.Id))">
+                                                @foreach (var model in ImportModelOptions())
+                                                {
+                                                    <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
+                                        else if (field.Type.Equals(AgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <MudCheckBox T="bool" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationBoolean(field.Key)"
+                                                         ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
+                                                         Disabled="@_isInstallingImport" />
+                                        }
+                                        else if (field.Type.Equals(AgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <MudNumericField T="decimal?" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationNumber(field.Key)"
+                                                             ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
+                                                             Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                        }
+                                        else
+                                        {
+                                            <MudTextField T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
+                                                          ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
+                                                          Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                        }
+                                    }
+                                </div>
+                                @if (HasMissingRequiredImportConfiguration)
+                                {
+                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-2">
+                                        Complete all required agent settings before installation.
+                                    </MudAlert>
+                                }
+                            }
                         </div>
                     </MudTabPanel>
                 </MudTabs>
@@ -868,6 +935,7 @@
     private readonly HashSet<string> _approvedPublications = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvedPermissions = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvedNetworkAccess = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, object?> _importConfigurationValues = new(StringComparer.Ordinal);
     private readonly DialogOptions _scheduleDialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
     private bool _scheduleDialogOpen;
     private AgentInstallationResponse? _scheduleInstallation;
@@ -906,14 +974,22 @@
         _runtimeSettings?.AllowAlwaysOnCommunityAgents != true;
     private bool IsImportInstallBlocked =>
         _importPreview is not null &&
-        (_runtimeSettings?.EnableImportedAgents != true || RequiresAlwaysOnCommunityApproval);
-    private string ImportBlockerMessage => _runtimeSettings is null
-        ? "Runtime settings are unavailable. Refresh the page before installing."
-        : _runtimeSettings.EnableImportedAgents
-            ? "Always-on community agents are disabled. Enable the policy or choose Periodic or Manual deployment."
-            : RequiresAlwaysOnCommunityApproval
-                ? "Imported agents and always-on community agents are disabled in global runtime settings."
-                : "Imported agents are disabled in global runtime settings.";
+        (_runtimeSettings?.EnableImportedAgents != true ||
+         RequiresAlwaysOnCommunityApproval ||
+         HasMissingRequiredImportConfiguration);
+    private bool HasMissingRequiredImportConfiguration =>
+        _importPreview?.ConfigurationFields
+            .Where(configField => configField.Required && !configField.Secret)
+            .Any(configField => !HasImportConfigurationValue(configField)) == true;
+    private string ImportBlockerMessage => HasMissingRequiredImportConfiguration
+        ? "Complete the required agent settings on the Deployment tab before installing."
+        : _runtimeSettings is null
+            ? "Runtime settings are unavailable. Refresh the page before installing."
+            : _runtimeSettings.EnableImportedAgents
+                ? "Always-on community agents are disabled. Enable the policy or choose Periodic or Manual deployment."
+                : RequiresAlwaysOnCommunityApproval
+                    ? "Imported agents and always-on community agents are disabled in global runtime settings."
+                    : "Imported agents are disabled in global runtime settings.";
     private int ImportAccessRequestCount => _importPreview is null
         ? 0
         : _importPreview.RequestedCapabilities.Count +
@@ -1050,7 +1126,7 @@
             _importPreview = await AgentApi.PreviewImportAsync(new PreviewAgentImportRequest(
                 _importRepositoryUrl.Trim(),
                 string.IsNullOrWhiteSpace(_importRef) ? null : _importRef.Trim()));
-            InitializeImportApproval(_importPreview);
+            await InitializeImportApprovalAsync(_importPreview);
         }
         catch (Exception exception)
         {
@@ -1069,7 +1145,7 @@
         ClearImportApproval();
     }
 
-    private void InitializeImportApproval(AgentImportPreviewResponse preview)
+    private async Task InitializeImportApprovalAsync(AgentImportPreviewResponse preview)
     {
         _installBusinessId = "default";
         _installActivationMode = preview.DefaultActivationMode ?? _runtimeSettings?.DefaultActivationMode ?? "Periodic";
@@ -1084,6 +1160,22 @@
         ReplaceApproval(_approvedPublications, preview.RequestedPublications);
         ReplaceApproval(_approvedPermissions, preview.RequestedPermissions);
         ReplaceApproval(_approvedNetworkAccess, preview.RequestedNetworkAccess);
+        _importConfigurationValues.Clear();
+        var provider = _providerProfiles.FirstOrDefault(candidate => candidate.IsEnabled);
+        foreach (var field in preview.ConfigurationFields.Where(field => !field.Secret))
+        {
+            if (IsImportProviderField(field) && provider is not null)
+                _importConfigurationValues[field.Key] = provider.Id.ToString();
+            else if (field.Type.Equals(AgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                _importConfigurationValues[field.Key] = false;
+            else
+                _importConfigurationValues[field.Key] = null;
+        }
+        if (provider is not null && preview.ConfigurationFields.Any(IsImportModelField))
+        {
+            await LoadProviderModelsAsync(provider.Id);
+            SetDefaultImportModel(provider);
+        }
     }
 
     private async Task InstallImportAsync()
@@ -1113,7 +1205,13 @@
                     _installMemoryMb,
                     _installCpuPercent)
                 {
-                    GrantedRequestedCapabilities = _approvedRequestedCapabilities.ToList()
+                    GrantedRequestedCapabilities = _approvedRequestedCapabilities.ToList(),
+                    ConfigurationSettings = _importConfigurationValues
+                        .Where(pair => pair.Value is not null)
+                        .ToDictionary(
+                            pair => pair.Key,
+                            pair => JsonSerializer.SerializeToElement(pair.Value, SerializerOptions),
+                            StringComparer.Ordinal)
                 },
                 _disposeCts.Token);
             _installations = _installations.Prepend(installation).ToList();
@@ -1171,6 +1269,7 @@
         _approvedPublications.Clear();
         _approvedPermissions.Clear();
         _approvedNetworkAccess.Clear();
+        _importConfigurationValues.Clear();
     }
 
     private static void ReplaceApproval(HashSet<string> target, IReadOnlyList<string> values)
@@ -1189,6 +1288,80 @@
         {
             values.Remove(value);
         }
+    }
+
+    private static bool IsImportProviderField(PluginConfigurationField field) =>
+        field.Type.Equals("provider", StringComparison.OrdinalIgnoreCase) ||
+        field.Type.Equals(AgentConfigurationFieldTypes.LlmProvider, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsImportModelField(PluginConfigurationField field) =>
+        field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) ||
+        field.Type.Equals(AgentConfigurationFieldTypes.LlmModel, StringComparison.OrdinalIgnoreCase);
+
+    private static string ImportFieldLabel(PluginConfigurationField field) =>
+        field.Required ? $"{field.Label} (required)" : field.Label;
+
+    private string ImportConfigurationString(string key) =>
+        _importConfigurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
+
+    private bool ImportConfigurationBoolean(string key) =>
+        _importConfigurationValues.GetValueOrDefault(key) is true;
+
+    private decimal? ImportConfigurationNumber(string key) =>
+        _importConfigurationValues.GetValueOrDefault(key) as decimal?;
+
+    private void SetImportConfiguration(string key, object? value) =>
+        _importConfigurationValues[key] = value;
+
+    private bool HasImportConfigurationValue(PluginConfigurationField field)
+    {
+        if (!_importConfigurationValues.TryGetValue(field.Key, out var value) || value is null)
+            return false;
+        return field.Type.Equals(AgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase) ||
+               field.Type.Equals(AgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase) ||
+               !string.IsNullOrWhiteSpace(value.ToString());
+    }
+
+    private async Task SetImportProviderAsync(string key, string value)
+    {
+        _importConfigurationValues[key] = value;
+        var provider = FindProvider(value);
+        if (provider is null)
+            return;
+        await LoadProviderModelsAsync(provider.Id);
+        SetDefaultImportModel(provider);
+    }
+
+    private LlmProviderProfileResponse? ImportModelProvider()
+    {
+        if (_importPreview is null)
+            return null;
+        var providerField = _importPreview.ConfigurationFields.FirstOrDefault(IsImportProviderField);
+        return providerField is null ? null : FindProvider(ImportConfigurationString(providerField.Key));
+    }
+
+    private IReadOnlyList<string> ImportModelOptions()
+    {
+        var provider = ImportModelProvider();
+        if (provider is null)
+            return [];
+        return (_providerModels.GetValueOrDefault(provider.Id) ?? [])
+            .Append(provider.DefaultChatModel)
+            .Where(model => !string.IsNullOrWhiteSpace(model))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private void SetDefaultImportModel(LlmProviderProfileResponse provider)
+    {
+        if (_importPreview is null)
+            return;
+        var models = ImportModelOptions();
+        var model = models.Contains(provider.DefaultChatModel, StringComparer.Ordinal)
+            ? provider.DefaultChatModel
+            : models.FirstOrDefault() ?? string.Empty;
+        foreach (var field in _importPreview.ConfigurationFields.Where(IsImportModelField))
+            _importConfigurationValues[field.Key] = model;
     }
 
     private void OpenScheduleDialog(AgentInstallationResponse installation)
@@ -1406,6 +1579,41 @@
         await ExecuteInstallationActionAsync(
             () => AgentApi.RunNowAsync(installation.Id),
             "Run requested. The scheduler will claim it when runtime execution is available.");
+    }
+
+    private async Task RetryBuildAsync(AgentInstallationResponse installation)
+    {
+        _isManagingInstallation = true;
+        try
+        {
+            var updated = await AgentApi.RetryBuildAsync(installation.Id, _disposeCts.Token);
+            ReplaceInstallation(updated);
+            SetBuildProgress(
+                InstallationProgressKey(updated),
+                "Build retry queued",
+                "The failed package source will be fetched again.");
+            SetInstallationMessage("Build retry queued and automatic startup suppression cleared.", true);
+            await InvokeAsync(StateHasChanged);
+            _isManagingInstallation = false;
+            await TrackAgentBuildAsync(updated, isUpdate: false, cancellationToken: _disposeCts.Token);
+        }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            SetBuildProgress(
+                InstallationProgressKey(installation),
+                "Build retry failed",
+                exception.Message,
+                true,
+                Severity.Error);
+            SetInstallationMessage(exception.Message, false);
+        }
+        finally
+        {
+            _isManagingInstallation = false;
+        }
     }
 
     private async Task DisableInstallationAsync(AgentInstallationResponse installation)

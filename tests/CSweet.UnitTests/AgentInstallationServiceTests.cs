@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
 using CSweet.Domain.Core;
@@ -14,6 +15,45 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentInstallationServiceTests
 {
+    [Fact]
+    public async Task InstallAsync_RequiredConfigurationMissing_RejectsBeforeCreatingInstallation()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext, requiresConfiguration: true);
+        var service = CreateService(dbContext);
+
+        var exception = await Assert.ThrowsAsync<AgentInstallationException>(
+            () => service.InstallAsync(package.Id, ValidRequest()));
+
+        Assert.Contains("LLM provider", exception.Message);
+        Assert.Empty(await dbContext.AgentInstallations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task InstallAsync_RequiredConfigurationProvided_PersistsItWithInstallation()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext, requiresConfiguration: true);
+        var providerId = await dbContext.LlmProviderProfiles.Select(x => x.Id).SingleAsync();
+        var service = CreateService(dbContext);
+        var request = ValidRequest() with
+        {
+            ConfigurationSettings = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            {
+                ["llmProviderId"] = JsonSerializer.SerializeToElement(providerId.ToString("D")),
+                ["llmModel"] = JsonSerializer.SerializeToElement("test-model")
+            }
+        };
+
+        var installation = await service.InstallAsync(package.Id, request);
+
+        var configuration = await dbContext.AgentInstallationConfigurations
+            .SingleAsync(x => x.AgentInstallationId == installation.Id);
+        var settings = JsonSerializer.Deserialize<Dictionary<string, string>>(configuration.SettingsJson);
+        Assert.Equal(providerId.ToString("D"), settings!["llmProviderId"]);
+        Assert.Equal("test-model", settings["llmModel"]);
+    }
+
     [Fact]
     public async Task InstallAsync_RejectsGrantBroaderThanManifest()
     {
@@ -159,6 +199,36 @@ public sealed class AgentInstallationServiceTests
             service.RunNowAsync(installation.Id));
 
         Assert.Contains("unavailable for always-on agents", exception.Message);
+    }
+
+    [Fact]
+    public async Task RetryBuildAsync_QueuesAnotherAttemptAndClearsStartupSuppression()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext);
+        (await dbContext.AgentRuntimeGlobalSettings.SingleAsync()).AllowAlwaysOnCommunityAgents = true;
+        await dbContext.SaveChangesAsync();
+        var service = CreateService(dbContext);
+        var installed = await service.InstallAsync(
+            package.Id,
+            ValidRequest() with { ActivationMode = "AlwaysOn" });
+        var failedBuild = await dbContext.AgentBuildJobs.SingleAsync();
+        failedBuild.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
+        package.Status = AgentPackageVersionStatus.Failed;
+        var schedule = await dbContext.AgentSchedules.SingleAsync();
+        schedule.ConsecutiveStartupFailures = 3;
+        schedule.AutomaticStartSuppressedAt = DateTimeOffset.UtcNow;
+        schedule.NextTickAt = null;
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.RetryBuildAsync(installed.Id);
+
+        Assert.Equal("Queued", result.Build!.Status);
+        Assert.Equal(2, result.Build.Attempt);
+        Assert.Equal(0, result.Schedule.ConsecutiveStartupFailures);
+        Assert.Null(result.Schedule.AutomaticStartSuppressedAt);
+        Assert.NotNull(result.Schedule.NextTickAt);
+        Assert.Equal(AgentPackageVersionStatus.Approved, package.Status);
     }
 
     [Fact]
@@ -310,6 +380,64 @@ public sealed class AgentInstallationServiceTests
         Assert.DoesNotContain("old-version-container", containers.Removed);
         Assert.True((await dbContext.AgentInstallations.SingleAsync(x => x.Id == installed.Id)).IsEnabled);
         Assert.Equal(AgentRuntimeStatus.Queued, (await dbContext.AgentRuntimeInstances.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task UpdateAndApprove_PreservesCompatibleRequiredConfiguration()
+    {
+        await using var dbContext = CreateDbContext();
+        var current = await SeedAsync(dbContext, requiresConfiguration: true);
+        var providerId = await dbContext.LlmProviderProfiles.Select(x => x.Id).SingleAsync();
+        var configuredRequest = ValidRequest() with
+        {
+            ConfigurationSettings = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            {
+                ["llmProviderId"] = JsonSerializer.SerializeToElement(providerId.ToString("D")),
+                ["llmModel"] = JsonSerializer.SerializeToElement("test-model")
+            }
+        };
+        var service = CreateService(dbContext);
+        var installed = await service.InstallAsync(current.Id, configuredRequest);
+        current.Status = AgentPackageVersionStatus.Built;
+
+        var manifest = JsonNode.Parse(current.ManifestJson)!.AsObject();
+        manifest["version"] = "2.0.0";
+        var update = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(),
+            PackageSourceId = current.PackageSourceId,
+            CommitSha = new string('2', 40),
+            ManifestDigest = new string('c', 64),
+            ManifestJson = manifest.ToJsonString(),
+            ManifestFileName = "csweet-plugin.json",
+            AgentId = current.AgentId,
+            AgentName = current.AgentName,
+            Version = "2.0.0",
+            PublisherId = current.PublisherId,
+            PublisherName = current.PublisherName,
+            RuntimeType = current.RuntimeType,
+            Status = AgentPackageVersionStatus.Built,
+            ImportedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.AgentPackageVersions.Add(update);
+        await dbContext.SaveChangesAsync();
+
+        var staged = await service.UpdateAsync(
+            installed.Id,
+            new UpdateAgentInstallationRequest(update.Id));
+        var stagedConfiguration = await dbContext.AgentInstallationConfigurations
+            .SingleAsync(x => x.AgentInstallationId == staged.Id);
+        Assert.Contains("test-model", stagedConfiguration.SettingsJson);
+
+        var approved = await service.ApproveUpdateAsync(
+            staged.Id,
+            ValidRequest());
+
+        Assert.True(approved.IsEnabled);
+        var approvedConfiguration = await dbContext.AgentInstallationConfigurations
+            .SingleAsync(x => x.AgentInstallationId == approved.Id);
+        Assert.Contains("test-model", approvedConfiguration.SettingsJson);
+        Assert.Contains(providerId.ToString("D"), approvedConfiguration.SettingsJson);
     }
 
     [Fact]
@@ -493,7 +621,10 @@ public sealed class AgentInstallationServiceTests
         512,
         50);
 
-    private static async Task<AgentPackageVersion> SeedAsync(CSweetDbContext dbContext, bool supportsMultipleInstallations = false)
+    private static async Task<AgentPackageVersion> SeedAsync(
+        CSweetDbContext dbContext,
+        bool supportsMultipleInstallations = false,
+        bool requiresConfiguration = false)
     {
         dbContext.AgentRuntimeGlobalSettings.Add(new AgentRuntimeGlobalSettings
         {
@@ -548,6 +679,13 @@ public sealed class AgentInstallationServiceTests
                 {
                     subscribes = new[] { "research.requested.v1" }
                 },
+                configuration = requiresConfiguration
+                    ? new[]
+                    {
+                        new { key = "llmProviderId", type = "provider", label = "LLM provider", required = true, secret = false },
+                        new { key = "llmModel", type = "model", label = "Model", required = true, secret = false }
+                    }
+                    : [],
                 webAccess = new { mode = "None", rules = Array.Empty<object>() }
             }),
             ManifestFileName = "csweet-plugin.json",
@@ -562,6 +700,20 @@ public sealed class AgentInstallationServiceTests
         };
         dbContext.AgentPackageSources.Add(source);
         dbContext.AgentPackageVersions.Add(package);
+        if (requiresConfiguration)
+        {
+            dbContext.LlmProviderProfiles.Add(new LlmProviderProfile
+            {
+                Id = Guid.NewGuid(),
+                Name = "Test provider",
+                ProviderType = LlmProviderType.OpenAiCompatible,
+                BaseUrl = "http://localhost:1234",
+                DefaultChatModel = string.Empty,
+                IsEnabled = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+        }
         await dbContext.SaveChangesAsync();
         return package;
     }
@@ -581,9 +733,44 @@ public sealed class AgentInstallationServiceTests
         new(
             dbContext,
             new TestAuditEventWriter(),
+            new TestAgentBuildService(dbContext),
             containers ?? new TestAgentContainerRunner(),
             Options.Create(new AgentRuntimeManagerOptions()),
             logger ?? NullLogger<AgentInstallationService>.Instance);
+
+    private sealed class TestAgentBuildService(CSweetDbContext dbContext) : IAgentBuildService
+    {
+        public async Task<Guid> QueueAsync(
+            Guid packageVersionId,
+            CancellationToken cancellationToken = default)
+        {
+            var package = await dbContext.AgentPackageVersions
+                .SingleAsync(x => x.Id == packageVersionId, cancellationToken);
+            var latest = await dbContext.AgentBuildJobs
+                .Where(x => x.PackageVersionId == packageVersionId)
+                .OrderByDescending(x => x.Attempt)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (latest?.Status is AgentBuildStatus.Queued or AgentBuildStatus.Cloning or AgentBuildStatus.Building)
+            {
+                return latest.Id;
+            }
+
+            var retry = new AgentBuildJob
+            {
+                Id = Guid.NewGuid(),
+                PackageVersionId = packageVersionId,
+                Attempt = (latest?.Attempt ?? 0) + 1,
+                QueuedAt = DateTimeOffset.UtcNow
+            };
+            package.Status = AgentPackageVersionStatus.Approved;
+            dbContext.AgentBuildJobs.Add(retry);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return retry.Id;
+        }
+
+        public Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+    }
 
     private sealed class RecordingLogger<T> : ILogger<T>
     {

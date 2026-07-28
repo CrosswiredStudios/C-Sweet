@@ -92,7 +92,7 @@ public sealed class CommunicationHubCapabilityHandler(
             var messages = await hub.ListMessagesAsync(organizationId, input.ChatId.Value, actorId, token);
             return messages is null
                 ? Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound, "The chat was not found or is not visible to this employee.")
-                : Success(request.RequestId, messages);
+                : Success(request.RequestId, new CommunicationChatMessagesResponse(messages));
         }
         var response = await hub.GetAsync(organizationId, actorId, token);
         return response is null

@@ -67,7 +67,14 @@ public sealed class AgentInstallationConfigurationServiceTests
             PackageSourceId = Guid.NewGuid(),
             CommitSha = new string('a', 40),
             ManifestDigest = new string('b', 64),
-            ManifestJson = "{}",
+            ManifestJson = JsonSerializer.Serialize(new
+            {
+                configuration = new[]
+                {
+                    new { key = "responseTone", type = "text", label = "Response tone", required = false, secret = false },
+                    new { key = "llmProviderId", type = "text", label = "Provider", required = false, secret = false }
+                }
+            }),
             AgentId = "com.example.agent",
             AgentName = "Example Agent",
             Version = "1.0.0",

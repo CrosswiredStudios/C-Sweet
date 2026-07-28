@@ -189,6 +189,39 @@ public sealed class AgentRuntimeManagerTests
     }
 
     [Fact]
+    public async Task AlwaysOnReconciliation_SuppressesImmediatelyForTerminalPackageBuildFailure()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.AlwaysOn;
+        installation.Schedule.NextTickAt = null;
+        installation.PackageVersion!.Status = AgentPackageVersionStatus.Failed;
+        var failedBuild = new AgentBuildJob
+        {
+            Id = Guid.NewGuid(),
+            PackageVersionId = installation.PackageVersion.Id,
+            PackageVersion = installation.PackageVersion,
+            Attempt = 3,
+            QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            FailureMessage = "Source fetch failed after automatic retries."
+        };
+        failedBuild.TransitionTo(AgentBuildStatus.Cloning, DateTimeOffset.UtcNow.AddSeconds(-30));
+        failedBuild.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow.AddSeconds(-20));
+        db.AgentBuildJobs.Add(failedBuild);
+        await db.SaveChangesAsync();
+        var manager = CreateManager(db, new FakeRunner());
+
+        Assert.Equal(1, await manager.EnsureAlwaysOnRuntimesAsync());
+        Assert.Equal(1, await manager.ReconcileAsync());
+
+        Assert.Equal(3, installation.Schedule.ConsecutiveStartupFailures);
+        Assert.NotNull(installation.Schedule.AutomaticStartSuppressedAt);
+        Assert.Null(installation.Schedule.NextTickAt);
+        Assert.Equal(0, await manager.EnsureAlwaysOnRuntimesAsync());
+        Assert.Single(await db.AgentRuntimeInstances.ToListAsync());
+    }
+
+    [Fact]
     public async Task McpSession_ResetsAlwaysOnStartupFailures()
     {
         await using var db = CreateDb();

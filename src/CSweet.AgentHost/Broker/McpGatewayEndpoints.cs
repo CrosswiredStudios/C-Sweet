@@ -34,6 +34,7 @@ public static class McpGatewayEndpoints
         IPlatformCapabilityDispatcher dispatcher,
         IAgentRuntimeSignalService runtimeSignals,
         IAuditEventWriter audit,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (http.Request.ContentLength is > MaximumRequestBytes)
@@ -77,7 +78,17 @@ public static class McpGatewayEndpoints
                 {
                     "ping" => Results.Json(Success(id, new { })),
                     "tools/list" => await ListToolsAsync(id, session, catalog, db, cancellationToken),
-                    "tools/call" => await CallToolAsync(id, root, session, catalog, db, dispatcher, inbox, audit, cancellationToken),
+                    "tools/call" => await CallToolAsync(
+                        id,
+                        root,
+                        session,
+                        catalog,
+                        db,
+                        dispatcher,
+                        inbox,
+                        audit,
+                        loggerFactory.CreateLogger("CSweet.AgentHost.Broker.McpGateway"),
+                        cancellationToken),
                     "csweet/session/renew" => await RenewAsync(id, session, sessions, http, cancellationToken),
                     "csweet/work/claim" => await ClaimAsync(id, root, session, inbox, audit, cancellationToken),
                     "csweet/work/renew" => await RenewWorkAsync(id, root, session, inbox, cancellationToken),
@@ -203,6 +214,7 @@ public static class McpGatewayEndpoints
         IPlatformCapabilityDispatcher dispatcher,
         AgentWorkInbox inbox,
         IAuditEventWriter audit,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         var parameters = RequiredParameters(root);
@@ -264,6 +276,20 @@ public static class McpGatewayEndpoints
         if (terminal is null)
             throw new InvalidOperationException("The platform capability returned no result.");
 
+        if (!terminal.Succeeded)
+        {
+            logger.LogWarning(
+                "Platform capability {Capability} ({ToolName}) failed for agent {AgentId}, installation {InstallationId}, request {RequestId}: {Error}",
+                tool.Capability,
+                tool.Name,
+                session.AgentId,
+                session.InstallationId,
+                request.RequestId,
+                string.IsNullOrWhiteSpace(terminal.Error)
+                    ? "No failure reason was supplied by the capability handler."
+                    : terminal.Error);
+        }
+
         JsonNode? structured = null;
         if (!terminal.Payload.IsEmpty)
         {
@@ -277,10 +303,21 @@ public static class McpGatewayEndpoints
             audit, session, tool, request, terminal, cancellationToken);
         return Results.Json(Success(id, new
         {
-            content = new[] { new { type = "text", text = terminal.Payload.ToStringUtf8() } },
+            content = new[] { new { type = "text", text = GetToolResponseText(terminal) } },
             structuredContent = structured,
             isError = !terminal.Succeeded
         }));
+    }
+
+    internal static string GetToolResponseText(CapabilityResult result)
+    {
+        if (!result.Payload.IsEmpty)
+            return result.Payload.ToStringUtf8();
+        if (!string.IsNullOrWhiteSpace(result.Error))
+            return result.Error;
+        return result.Succeeded
+            ? string.Empty
+            : "The platform capability failed without an error message.";
     }
 
     private static async Task<IResult> RenewAsync(

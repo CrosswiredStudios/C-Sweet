@@ -20,7 +20,7 @@ builder.AddServiceDefaults();
 builder.AddCSweetInfrastructure();
 builder.Services.AddHostedService<AgentCatalogWarmupService>();
 builder.Services.AddScoped<IPlatformCapabilityDispatcher, PlatformCapabilityDispatcher>();
-builder.Services.AddSingleton<McpToolCatalog>();
+builder.Services.AddScoped<McpToolCatalog>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<AgentWorkInbox>();
 builder.Services.AddScoped<AgentWorkRouter>();

@@ -1,4 +1,5 @@
 using CSweet.Api.Auth;
+using CSweet.Application.Communications;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Core;
@@ -11,8 +12,55 @@ public static class HiringEndpoints
     {
         var group = endpoints.MapGroup("/api/core/organizations/{organizationId:guid}/hiring");
 
-        group.MapGet("", async (Guid organizationId, IHiringService service, CancellationToken cancellationToken) =>
-            Results.Ok(await service.GetDashboardAsync(organizationId, cancellationToken)));
+        group.MapGet("", async (
+            Guid organizationId,
+            HttpContext http,
+            IHiringService service,
+            ICommunicationHubService communications,
+            CancellationToken cancellationToken) =>
+        {
+            var applicationUserId = http.User.GetApplicationUserId();
+            var actorId = applicationUserId.HasValue
+                ? await communications.ResolveOrganizationUserIdAsync(
+                    organizationId, applicationUserId.Value, cancellationToken)
+                : null;
+            return Results.Ok((await service.GetDashboardAsync(organizationId, cancellationToken)) with
+            {
+                CurrentOrganizationUserId = actorId
+            });
+        });
+
+        group.MapPost("/resource-changes/{requestId:guid}/decide", async (
+            Guid organizationId,
+            Guid requestId,
+            ResourceChangeDecisionRequest request,
+            HttpContext http,
+            IResourceChangeService service,
+            CancellationToken cancellationToken) =>
+        {
+            var applicationUserId = http.User.GetApplicationUserId();
+            if (!applicationUserId.HasValue) return Results.Forbid();
+            if (request.RequestId != requestId)
+                return Results.BadRequest(new { error = "request_mismatch", message = "The route and payload request IDs must match." });
+            try
+            {
+                return Results.Ok(await service.DecideForUserAsync(
+                    organizationId, applicationUserId.Value, request, cancellationToken));
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                return Results.Json(new { error = "manager_required", message = exception.Message },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_decision", message = exception.Message });
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "decision_conflict", message = exception.Message });
+            }
+        });
 
         group.MapPost("/marketplace/preview", async (
             Guid organizationId,

@@ -53,7 +53,8 @@ public sealed record CommunicationHubMessageResponse(
     DateTimeOffset CreatedAt,
     Guid? ChatTurnId = null,
     ExecutiveDecisionCardResponse? Decision = null,
-    IReadOnlyList<SuggestedUserActionResponse>? Actions = null)
+    IReadOnlyList<SuggestedUserActionResponse>? Actions = null,
+    CSweet.Contracts.Core.ResourceChangeRequestResponse? ResourceChange = null)
 {
     public string MessageType { get; init; } = CommunicationMessageTypes.Standard;
 }
@@ -62,6 +63,7 @@ public static class CommunicationMessageTypes
 {
     public const string Standard = "Standard";
     public const string SystemAction = "SystemAction";
+    public const string ResourceChangeApproval = "ResourceChangeApproval";
 }
 
 public static class SuggestedUserActionCapabilities
@@ -128,6 +130,9 @@ public sealed record CommunicationMessageSendResponse(
 public sealed record CommunicationUnreadSummaryResponse(
     int TotalUnreadCount,
     IReadOnlyDictionary<Guid, int> ChatUnreadCounts);
+
+public sealed record CommunicationChatMessagesResponse(
+    IReadOnlyList<CommunicationHubMessageResponse> Messages);
 
 public sealed record MarkCommunicationChatReadRequest(long ThroughMessageSequence);
 

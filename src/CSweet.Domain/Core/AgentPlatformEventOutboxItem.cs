@@ -12,6 +12,7 @@ public sealed class AgentPlatformEventOutboxItem
 {
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
+    public Guid? TargetInstallationId { get; set; }
     public string EventType { get; set; } = string.Empty;
     public string DataJson { get; set; } = "{}";
     public string IdempotencyKey { get; set; } = string.Empty;

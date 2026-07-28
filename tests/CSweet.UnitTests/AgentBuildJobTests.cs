@@ -80,6 +80,61 @@ public sealed class AgentBuildJobTests
     }
 
     [Fact]
+    public async Task ProcessNextAsync_RetriesTransientSourceFailureAndEventuallyBuilds()
+    {
+        await using var dbContext = CreateDbContext();
+        var (package, firstJob) = await SeedAsync(dbContext);
+        var executor = new FakeBuildExecutor();
+        executor.CloneFailures.Enqueue(new AgentBuildException(
+            "Required command 'git' failed: Recv failure: Connection was reset"));
+        var service = CreateService(dbContext, executor);
+
+        Assert.True(await service.ProcessNextAsync());
+
+        Assert.Equal(AgentBuildStatus.Failed, firstJob.Status);
+        Assert.Equal(AgentPackageVersionStatus.Approved, package.Status);
+        var retry = await dbContext.AgentBuildJobs.SingleAsync(x => x.Attempt == 2);
+        Assert.Equal(AgentBuildStatus.Queued, retry.Status);
+        retry.QueuedAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await dbContext.SaveChangesAsync();
+
+        Assert.True(await service.ProcessNextAsync());
+
+        Assert.Equal(AgentBuildStatus.Succeeded, retry.Status);
+        Assert.Equal(AgentPackageVersionStatus.Built, package.Status);
+        Assert.Equal(2, executor.CloneCalls);
+    }
+
+    [Fact]
+    public async Task ProcessNextAsync_StopsAfterThreeTransientSourceFailures()
+    {
+        await using var dbContext = CreateDbContext();
+        var (package, _) = await SeedAsync(dbContext);
+        var executor = new FakeBuildExecutor();
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            executor.CloneFailures.Enqueue(new AgentBuildException(
+                "fatal: unable to access repository: Could not resolve host"));
+        }
+        var service = CreateService(dbContext, executor);
+
+        Assert.True(await service.ProcessNextAsync());
+        var retry = await dbContext.AgentBuildJobs.SingleAsync(x => x.Attempt == 2);
+        retry.QueuedAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await dbContext.SaveChangesAsync();
+        Assert.True(await service.ProcessNextAsync());
+        retry = await dbContext.AgentBuildJobs.SingleAsync(x => x.Attempt == 3);
+        retry.QueuedAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await dbContext.SaveChangesAsync();
+        Assert.True(await service.ProcessNextAsync());
+
+        Assert.Equal(AgentPackageVersionStatus.Failed, package.Status);
+        var jobs = await dbContext.AgentBuildJobs.OrderBy(x => x.Attempt).ToListAsync();
+        Assert.Equal(3, jobs.Count);
+        Assert.All(jobs, job => Assert.Equal(AgentBuildStatus.Failed, job.Status));
+    }
+
+    [Fact]
     public async Task QueueAsync_IsIdempotentWhileBuildIsActiveAndCreatesRetryAfterFailure()
     {
         await using var dbContext = CreateDbContext();
@@ -196,8 +251,10 @@ public sealed class AgentBuildJobTests
         public const string Digest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         public const string PackagePath = "/packages/version/digest";
         public Exception? BuildFailure { get; init; }
+        public Queue<Exception> CloneFailures { get; } = new();
         public bool CleanupCalled { get; private set; }
         public bool CloneCalled { get; private set; }
+        public int CloneCalls { get; private set; }
 
         public Task<AgentBuildWorkspace> CloneAsync(
             AgentBuildExecutionRequest request,
@@ -205,6 +262,11 @@ public sealed class AgentBuildJobTests
             CancellationToken cancellationToken = default)
         {
             CloneCalled = true;
+            CloneCalls++;
+            if (CloneFailures.TryDequeue(out var failure))
+            {
+                throw failure;
+            }
             return Task.FromResult(new AgentBuildWorkspace("/sources/job", "/packages/.staging/job", "/logs/job.log"));
         }
 

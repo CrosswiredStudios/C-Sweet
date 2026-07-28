@@ -166,8 +166,53 @@
                                         @ThinkingButton(messageTurn)
                                     }
                                 </div>
-                                <ChatMarkdown Content="@message.Content" />
-                                @if (message.Actions is { Count: > 0 })
+                                 <ChatMarkdown Content="@message.Content" />
+                                 @if (message.ResourceChange is { } resourceChange)
+                                 {
+                                     <section class="executive-decision-card resource-change-card" aria-label="Resource change approval">
+                                         <header>
+                                             <span>TEAM DESIGN APPROVAL</span>
+                                             <strong>@resourceChange.ProductGoal</strong>
+                                         </header>
+                                         <MudText Typo="Typo.body2">@resourceChange.Rationale</MudText>
+                                         <MudList T="string" Dense="true">
+                                             @foreach (var delta in resourceChange.Deltas)
+                                             {
+                                                 <MudListItem>
+                                                     <MudText><strong>@delta.ChangeKind:</strong> @delta.Role.Title · @delta.Role.Team · @delta.Role.Headcount headcount · priority @delta.Role.Priority</MudText>
+                                                     <MudText Typo="Typo.caption" Color="Color.Secondary">@delta.Role.Purpose</MudText>
+                                                 </MudListItem>
+                                             }
+                                         </MudList>
+                                         @if (resourceChange.Status == "Pending" &&
+                                              resourceChange.ManagerOrganizationUserId == _hub.CurrentOrganizationUserId)
+                                         {
+                                             <MudTextField @bind-Value="_resourceFeedback"
+                                                           Label="Feedback (required for revision)"
+                                                           Lines="2" Variant="Variant.Outlined" />
+                                             @if (!string.IsNullOrWhiteSpace(_resourceDecisionError))
+                                             {
+                                                 <MudAlert Severity="Severity.Error" Dense="true">@_resourceDecisionError</MudAlert>
+                                             }
+                                             <MudStack Row="true" Spacing="1">
+                                                 <MudButton Color="Color.Success" Variant="Variant.Filled"
+                                                            Disabled="@_resourceDecisionBusy"
+                                                            OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.Approve))">Approve team</MudButton>
+                                                 <MudButton Color="Color.Warning" Variant="Variant.Outlined"
+                                                            Disabled="@_resourceDecisionBusy"
+                                                            OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.RequestRevision))">Request revision</MudButton>
+                                                 <MudButton Color="Color.Error" Variant="Variant.Text"
+                                                            Disabled="@_resourceDecisionBusy"
+                                                            OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.Reject))">Reject</MudButton>
+                                             </MudStack>
+                                         }
+                                         else
+                                         {
+                                             <MudText Typo="Typo.caption"><strong>Status:</strong> @resourceChange.Status @resourceChange.DecisionComment</MudText>
+                                         }
+                                     </section>
+                                 }
+                                 @if (message.Actions is { Count: > 0 })
                                 {
                                     <div class="hub-message-actions" aria-label="Suggested actions">
                                         @foreach (var action in message.Actions)
@@ -416,6 +461,9 @@
     private readonly Dictionary<Guid, string> _decisionSelections = [];
     private readonly Dictionary<Guid, string> _decisionOther = [];
     private readonly HashSet<Guid> _decisionBusy = [];
+    private bool _resourceDecisionBusy;
+    private string? _resourceDecisionError;
+    private string? _resourceFeedback;
     private readonly Dictionary<Guid, string> _decisionErrors = [];
     private const string SomethingElseKey = "__something_else__";
     private bool _loading = true, _sending, _showMembers, _showEditor, _editorBusy, _editorPrivate, _confirmArchive;
@@ -607,6 +655,49 @@
             _decisionErrors[decision.Id] = exception.Message;
         }
         finally { _decisionBusy.Remove(decision.Id); }
+    }
+
+    private async Task DecideResourceChangeAsync(
+        CommunicationHubMessageResponse message,
+        ResourceChangeRequestResponse resourceChange,
+        string decision)
+    {
+        if (_resourceDecisionBusy) return;
+        if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(_resourceFeedback))
+        {
+            _resourceDecisionError = "Tell the Product Manager what must change.";
+            return;
+        }
+
+        _resourceDecisionBusy = true;
+        _resourceDecisionError = null;
+        try
+        {
+            var request = new ResourceChangeDecisionRequest(
+                resourceChange.Id,
+                decision,
+                _resourceFeedback,
+                $"ui:{resourceChange.Id:N}:{decision}");
+            var response = await Http.PostAsJsonAsync(
+                $"api/core/organizations/{OrganizationId}/hiring/resource-changes/{resourceChange.Id}/decide",
+                request,
+                _disposeCts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _resourceDecisionError = await response.Content.ReadAsStringAsync(_disposeCts.Token);
+                return;
+            }
+
+            var updated = await response.Content.ReadFromJsonAsync<ResourceChangeRequestResponse>(_disposeCts.Token);
+            var index = _messages.FindIndex(x => x.Id == message.Id);
+            if (index >= 0 && updated is not null)
+                _messages[index] = _messages[index] with { ResourceChange = updated };
+            _resourceFeedback = null;
+        }
+        finally
+        {
+            _resourceDecisionBusy = false;
+        }
     }
 
     private static string DecisionAnswer(ExecutiveDecisionCardResponse decision) =>

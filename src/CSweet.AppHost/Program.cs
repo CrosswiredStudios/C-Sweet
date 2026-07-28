@@ -41,25 +41,7 @@ var marketplaceBaseUrl = builder.Configuration["CSweet:Marketplace:BaseUrl"]
 var marketplaceTimeoutSeconds =
     builder.Configuration["CSweet:Marketplace:TimeoutSeconds"] ?? "10";
 
-var appHostOutputDirectory = new DirectoryInfo(AppContext.BaseDirectory);
-var buildConfiguration = appHostOutputDirectory.Parent?.Name
-    ?? throw new InvalidOperationException("Unable to determine the AppHost build configuration.");
-var targetFramework = appHostOutputDirectory.Name;
-var migratorAssembly = Path.Combine(
-    repositoryRoot,
-    "src",
-    "CSweet.Migrator",
-    "bin",
-    buildConfiguration,
-    targetFramework,
-    "CSweet.Migrator.dll");
-
-var migrator = builder.AddExecutable(
-        "migrator",
-        "dotnet",
-        repositoryRoot,
-        "exec",
-        migratorAssembly)
+var migrator = builder.AddProject<Projects.CSweet_Migrator>("migrator")
     .WithReference(postgres)
     .WaitFor(postgres);
 

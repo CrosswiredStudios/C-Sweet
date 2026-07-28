@@ -37,6 +37,10 @@ public interface IAgentApiClient
         Guid installationId,
         CancellationToken cancellationToken = default);
 
+    Task<AgentInstallationResponse> RetryBuildAsync(
+        Guid installationId,
+        CancellationToken cancellationToken = default);
+
     Task<AgentInstallationResponse> DisableAsync(
         Guid installationId,
         CancellationToken cancellationToken = default);

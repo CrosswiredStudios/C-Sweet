@@ -87,6 +87,12 @@ public sealed class PlatformLlmCapabilityHandler
             .SingleOrDefaultAsync(x => x.Id == input.ProviderProfileId && x.IsEnabled, requestToken);
         if (profile is null)
         {
+            LogDenied(
+                session,
+                request,
+                input.ProviderProfileId,
+                input.Model,
+                "The selected LLM provider profile does not exist or is disabled.");
             yield return Failure(request.RequestId, "The selected LLM provider is unavailable.");
             yield break;
         }
@@ -96,6 +102,12 @@ public sealed class PlatformLlmCapabilityHandler
             : input.Model.Trim();
         if (string.IsNullOrWhiteSpace(selectedModel))
         {
+            LogDenied(
+                session,
+                request,
+                input.ProviderProfileId,
+                selectedModel,
+                "Neither the request nor the provider profile specifies a model.");
             yield return Failure(request.RequestId, "No model is configured for this LLM request.");
             yield break;
         }
@@ -107,6 +119,12 @@ public sealed class PlatformLlmCapabilityHandler
                 profile.DefaultChatModel,
                 requestToken))
         {
+            LogDenied(
+                session,
+                request,
+                input.ProviderProfileId,
+                selectedModel,
+                "The requested model does not match the provider default or the installation's approved model.");
             yield return Failure(request.RequestId, "The selected model is not approved for this provider profile.");
             yield break;
         }
@@ -135,6 +153,16 @@ public sealed class PlatformLlmCapabilityHandler
         string? providerError = null;
         try
         {
+            _logger.LogInformation(
+                "Starting platform LLM request {RequestId} for agent {AgentId}, installation {InstallationId}, provider {ProviderProfileId}, model {Model}. Messages {MessageCount}, tools {ToolCount}, text units {MessageSize}.",
+                request.RequestId,
+                session.AgentId,
+                session.InstallationId,
+                input.ProviderProfileId,
+                selectedModel,
+                input.Messages.Count,
+                input.Tools?.Count ?? 0,
+                input.Messages.Sum(MessageSize));
             var chatClient = await _providerFactory.CreateChatClientAsync(
                 input.ProviderProfileId,
                 selectedModel,
@@ -156,9 +184,12 @@ public sealed class PlatformLlmCapabilityHandler
         {
             _logger.LogWarning(
                 exception,
-                "Platform LLM request {RequestId} failed for agent {AgentId}.",
+                "Platform LLM request {RequestId} failed to start for agent {AgentId}, installation {InstallationId}, provider {ProviderProfileId}, model {Model}.",
                 request.RequestId,
-                session.AgentId);
+                session.AgentId,
+                session.InstallationId,
+                input.ProviderProfileId,
+                selectedModel);
             providerError = "The platform LLM provider could not complete the request.";
         }
 
@@ -194,9 +225,12 @@ public sealed class PlatformLlmCapabilityHandler
                 {
                     _logger.LogWarning(
                         exception,
-                        "Platform LLM stream {RequestId} failed for agent {AgentId}.",
+                        "Platform LLM stream {RequestId} failed for agent {AgentId}, installation {InstallationId}, provider {ProviderProfileId}, model {Model}.",
                         request.RequestId,
-                        session.AgentId);
+                        session.AgentId,
+                        session.InstallationId,
+                        input.ProviderProfileId,
+                        selectedModel);
                     providerError = "The platform LLM provider could not complete the request.";
                 }
 
@@ -286,6 +320,23 @@ public sealed class PlatformLlmCapabilityHandler
         {
             return false;
         }
+    }
+
+    private void LogDenied(
+        AgentSession session,
+        RequestCapability request,
+        Guid providerProfileId,
+        string? model,
+        string reason)
+    {
+        _logger.LogWarning(
+            "Platform LLM request {RequestId} was denied for agent {AgentId}, installation {InstallationId}, provider {ProviderProfileId}, model {Model}: {Reason}",
+            request.RequestId,
+            session.AgentId,
+            session.InstallationId,
+            providerProfileId,
+            string.IsNullOrWhiteSpace(model) ? "(provider default)" : model,
+            reason);
     }
 
     private static ChatRole ParseRole(string role) => role.ToLowerInvariant() switch

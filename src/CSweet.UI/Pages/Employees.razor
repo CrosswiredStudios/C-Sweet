@@ -49,6 +49,53 @@
                 Agents maintain a prioritized list of roles worth hiring next.
                 <MudLink Href="@($"/organizations/{OrganizationId}/marketplace")">Browse the agent marketplace</MudLink>.
             </MudAlert>
+            @if (_hiringDashboard?.ResourceChanges.Count > 0)
+            {
+                <MudText Typo="Typo.h5" Class="mb-3">Team design approvals</MudText>
+                <MudStack Spacing="3" Class="mb-6">
+                    @foreach (var request in _hiringDashboard.ResourceChanges)
+                    {
+                        <MudPaper Class="pa-5 hiring-recommendation" Elevation="0" Outlined="true">
+                            <MudStack Spacing="2">
+                                <div class="hiring-heading">
+                                    <div>
+                                        <MudText Typo="Typo.overline">@request.Status · revision @request.ContextRevision</MudText>
+                                        <MudText Typo="Typo.h5">@request.ProductGoal</MudText>
+                                        <MudText Color="Color.Secondary">@request.Rationale</MudText>
+                                    </div>
+                                    <MudChip T="string" Color="@(request.Status == "Pending" ? Color.Warning : request.Status == "Approved" ? Color.Success : Color.Default)">
+                                        @request.Status
+                                    </MudChip>
+                                </div>
+                                @foreach (var delta in request.Deltas)
+                                {
+                                    <MudPaper Class="pa-3" Elevation="0" Outlined="true">
+                                        <MudText><strong>@delta.ChangeKind:</strong> @delta.Role.Title (@delta.Role.Team) · @delta.Role.Headcount headcount · priority @delta.Role.Priority</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@delta.Role.Purpose</MudText>
+                                    </MudPaper>
+                                }
+                                @if (request.Status == "Pending" &&
+                                     request.ManagerOrganizationUserId == _hiringDashboard.CurrentOrganizationUserId)
+                                {
+                                    <MudTextField @bind-Value="_resourceFeedback" Label="Decision feedback" Lines="2" Variant="Variant.Outlined" />
+                                    <MudStack Row="true" Spacing="1">
+                                        <MudButton Color="Color.Success" Variant="Variant.Filled" Disabled="_resourceDecisionBusy"
+                                                   OnClick="@(() => DecideResourceChangeAsync(request, ResourceChangeDecisionKinds.Approve))">Approve team</MudButton>
+                                        <MudButton Color="Color.Warning" Variant="Variant.Outlined" Disabled="_resourceDecisionBusy"
+                                                   OnClick="@(() => DecideResourceChangeAsync(request, ResourceChangeDecisionKinds.RequestRevision))">Request revision</MudButton>
+                                        <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="_resourceDecisionBusy"
+                                                   OnClick="@(() => DecideResourceChangeAsync(request, ResourceChangeDecisionKinds.Reject))">Reject</MudButton>
+                                    </MudStack>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(request.DecisionComment))
+                                {
+                                    <MudText Typo="Typo.caption">Manager feedback: @request.DecisionComment</MudText>
+                                }
+                            </MudStack>
+                        </MudPaper>
+                    }
+                </MudStack>
+            }
             @if (_hiringDashboard?.Recommendations.Count is null or 0)
             {
                 <MudPaper Class="pa-6" Elevation="0" Outlined="true">
@@ -293,7 +340,9 @@
                     </MudAlert>
                 }
             }
-            <MudSelect T="Guid?" Label="Managed by" @bind-Value="_hireManagerId" Clearable="true" Variant="Variant.Outlined" Disabled="@_saving">
+            <MudSelect T="Guid?" Label="@(_hireEmployeeType == 1 ? "Managed by (required)" : "Managed by")"
+                       @bind-Value="_hireManagerId" Required="@(_hireEmployeeType == 1)"
+                       Clearable="@(_hireEmployeeType != 1)" Variant="Variant.Outlined" Disabled="@_saving">
                 @foreach (var employee in _employees)
                 {
                     <MudSelectItem T="Guid?" Value="@((Guid?)employee.Id)">@employee.DisplayName</MudSelectItem>
@@ -322,7 +371,8 @@
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="CloseHireDialog" Disabled="@_saving">Cancel</MudButton>
-        <MudButton OnClick="HireAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_saving">
+        <MudButton OnClick="HireAsync" Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_saving || (_hireEmployeeType == 1 && !_hireManagerId.HasValue))">
             @(_saving ? "Hiring..." : "Hire")
         </MudButton>
     </DialogActions>

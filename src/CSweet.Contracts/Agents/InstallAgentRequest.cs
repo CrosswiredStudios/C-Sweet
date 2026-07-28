@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace CSweet.Contracts.Agents;
 
 public sealed record InstallAgentRequest(
@@ -18,5 +20,8 @@ public sealed record InstallAgentRequest(
     public IReadOnlyList<string> GrantedRequestedCapabilities { get; init; } = [];
     public IReadOnlyDictionary<string, Guid> CapabilityBindings { get; init; } =
         new Dictionary<string, Guid>(StringComparer.Ordinal);
+    public string ConfigurationSchemaVersion { get; init; } = "1";
+    public IReadOnlyDictionary<string, JsonElement> ConfigurationSettings { get; init; } =
+        new Dictionary<string, JsonElement>(StringComparer.Ordinal);
     public bool AllPublicWebAccessAcknowledged { get; init; }
 }

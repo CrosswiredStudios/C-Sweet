@@ -1,3 +1,4 @@
+@using System.Text.Json
 @using CSweet.Contracts.Agents
 @using CSweet.Contracts.BusinessOnboarding
 @using CSweet.Contracts.Core
@@ -597,7 +598,13 @@
                     _runtimeSettings?.DefaultContainerCpuPercent ?? 50)
                 {
                     GrantedRequestedCapabilities = _agentPreview.RequestedCapabilities,
-                    AllPublicWebAccessAcknowledged = _allPublicWebApproved
+                    AllPublicWebAccessAcknowledged = _allPublicWebApproved,
+                    ConfigurationSettings = _configurationValues
+                        .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+                        .ToDictionary(
+                            pair => pair.Key,
+                            pair => JsonSerializer.SerializeToElement(pair.Value.Trim()),
+                            StringComparer.Ordinal)
                 });
 
             var settings = _configurationValues.Where(x => !string.IsNullOrWhiteSpace(x.Value))

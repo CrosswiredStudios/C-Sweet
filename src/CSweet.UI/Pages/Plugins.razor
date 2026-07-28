@@ -1,6 +1,8 @@
 @page "/settings/plugins"
 @layout SettingsLayout
+@using System.Text.Json
 @using CSweet.Contracts.Agents
+@using CSweet.Contracts.Plugins
 @inject IPluginApiClient PluginApi
 
 <PageTitle>Plugins - C-Sweet</PageTitle>
@@ -39,8 +41,15 @@
             <MudText Typo="Typo.body2" Class="mt-3">Provided capabilities: @Format(_preview.Capabilities)</MudText>
             <MudText Typo="Typo.body2">Requested platform capabilities: @Format(_preview.RequestedCapabilities)</MudText>
             <MudText Typo="Typo.body2">Network access: @Format(_preview.RequestedNetworkAccess)</MudText>
+            @foreach (var configField in _preview.ConfigurationFields.Where(configField => !configField.Secret))
+            {
+                <MudTextField T="string" Label="@FieldLabel(configField)"
+                              Value="@ConfigurationValue(configField.Key)"
+                              ValueChanged="@(value => SetConfigurationValue(configField.Key, value))"
+                              Variant="Variant.Outlined" Disabled="@_busy" />
+            }
             <MudCheckBox @bind-Value="_approve" Label="I approve the displayed capabilities, permissions, publications, subscriptions, and network grants." Color="Color.Primary" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="@(_busy || !_approve)">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="@(_busy || !_approve || HasMissingConfiguration)">
                 Build and install
             </MudButton>
         }
@@ -97,6 +106,11 @@
     private bool _busy;
     private bool _error;
     private bool _approve;
+    private readonly Dictionary<string, string> _configurationValues = new(StringComparer.Ordinal);
+    private bool HasMissingConfiguration =>
+        _preview?.ConfigurationFields
+            .Where(configField => configField.Required && !configField.Secret)
+            .Any(configField => string.IsNullOrWhiteSpace(ConfigurationValue(configField.Key))) == true;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
@@ -114,8 +128,13 @@
 
     private async Task PreviewAsync()
     {
-        _busy = true; _message = null; _preview = null; _approve = false;
-        try { _preview = await PluginApi.PreviewAsync(new(_repositoryUrl.Trim(), _commitSha.Trim())); }
+        _busy = true; _message = null; _preview = null; _approve = false; _configurationValues.Clear();
+        try
+        {
+            _preview = await PluginApi.PreviewAsync(new(_repositoryUrl.Trim(), _commitSha.Trim()));
+            foreach (var configField in _preview.ConfigurationFields.Where(configField => !configField.Secret))
+                _configurationValues[configField.Key] = string.Empty;
+        }
         catch (Exception exception) { ShowError(exception); }
         finally { _busy = false; }
     }
@@ -140,7 +159,13 @@
                 300, 512, 50)
             {
                 PluginScope = communication ? "System" : "Organization",
-                GrantedRequestedCapabilities = _preview.RequestedCapabilities
+                GrantedRequestedCapabilities = _preview.RequestedCapabilities,
+                ConfigurationSettings = _configurationValues
+                    .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+                    .ToDictionary(
+                        pair => pair.Key,
+                        pair => JsonSerializer.SerializeToElement(pair.Value.Trim()),
+                        StringComparer.Ordinal)
             };
             await PluginApi.InstallAsync(_preview.ImportId, request);
             _preview = null; _approve = false; _repositoryUrl = string.Empty; _commitSha = string.Empty;
@@ -168,6 +193,10 @@
     }
 
     private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);
+    private static string FieldLabel(PluginConfigurationField configField) =>
+        configField.Required ? $"{configField.Label} (required)" : configField.Label;
+    private string ConfigurationValue(string key) => _configurationValues.GetValueOrDefault(key) ?? string.Empty;
+    private void SetConfigurationValue(string key, string value) => _configurationValues[key] = value;
     private void ShowSuccess(string message) { _message = message; _error = false; }
     private void ShowError(Exception exception) { _message = exception.Message; _error = true; }
 }

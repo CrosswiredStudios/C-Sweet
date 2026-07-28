@@ -166,6 +166,48 @@ public class CoreServiceTests
     }
 
     [Fact]
+    public async Task OrganizationUserCreation_AgentRequiresAnActiveManager()
+    {
+        await using var dbContext = CreateDbContext();
+        var service = new OrganizationUserService(dbContext, new TestAuditEventWriter());
+        var organization = CreateOrganization();
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(),
+            PackageSourceId = Guid.NewGuid(),
+            AgentId = "example.assistant",
+            AgentName = "Assistant",
+            Version = "1.0.0",
+            Status = AgentPackageVersionStatus.Built,
+            ManifestJson = "{}",
+            ImportedAt = DateTimeOffset.UtcNow
+        };
+        var installation = new AgentInstallation
+        {
+            Id = Guid.NewGuid(),
+            PackageVersionId = package.Id,
+            PackageVersion = package,
+            BusinessId = organization.Id.ToString("D"),
+            IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.AddRange(organization, package, installation);
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.CreateAsync(organization.Id, new CreateOrganizationUserRequest(
+            "Assistant",
+            null,
+            (int)OrganizationPermissionLevel.Contributor,
+            (int)EmployeeType.Agent,
+            AgentInstallationId: installation.Id));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("manager_required", result.ErrorCode);
+    }
+
+    [Fact]
     public async Task OrganizationUserCreation_AgentReturnsConversationAndQueuesInitialRuntime()
     {
         await using var dbContext = CreateDbContext();
@@ -219,6 +261,7 @@ public class CoreServiceTests
                 null,
                 (int)OrganizationPermissionLevel.Contributor,
                 (int)EmployeeType.Agent,
+                ReportsToOrganizationUserId: owner.Id,
                 AgentInstallationId: installation.Id),
             hiringApplicationUserId: applicationUserId);
 
@@ -320,6 +363,7 @@ public class CoreServiceTests
             null,
             (int)OrganizationPermissionLevel.Manager,
             (int)EmployeeType.Agent,
+            ReportsToOrganizationUserId: owner.Id,
             AgentInstallationId: installation.Id));
 
         Assert.True(result.Succeeded, result.Message);

@@ -465,7 +465,8 @@ public sealed class AgentRuntimeManager(
                 instance,
                 now,
                 buildFailure is null ? "The agent package build failed." : $"The agent package build failed: {buildFailure}",
-                cancellationToken);
+                cancellationToken,
+                suppressFurtherAlwaysOnStarts: true);
             return true;
         }
 
@@ -553,10 +554,18 @@ public sealed class AgentRuntimeManager(
         AgentRuntimeInstance instance,
         DateTimeOffset occurredAt,
         string reason,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool suppressFurtherAlwaysOnStarts = false)
     {
         Transition(instance, AgentRuntimeStatus.Failed, occurredAt, reason);
-        HandleAlwaysOnTermination(instance, AgentRuntimeStatus.Failed, occurredAt, await SettingsAsync(cancellationToken));
+        if (suppressFurtherAlwaysOnStarts)
+        {
+            SuppressAlwaysOnStartup(instance, occurredAt);
+        }
+        else
+        {
+            HandleAlwaysOnTermination(instance, AgentRuntimeStatus.Failed, occurredAt, await SettingsAsync(cancellationToken));
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
         await AuditOutcomeAsync(instance, AgentRuntimeStatus.Failed, cancellationToken);
     }
@@ -693,6 +702,25 @@ public sealed class AgentRuntimeManager(
         if (settings.DefaultRestartPolicy == RestartPolicy.Always ||
             (settings.DefaultRestartPolicy == RestartPolicy.OnFailure && failed))
             schedule.NextTickAt = DateTimeOffset.UtcNow;
+    }
+
+    private static void SuppressAlwaysOnStartup(
+        AgentRuntimeInstance instance,
+        DateTimeOffset occurredAt)
+    {
+        var schedule = instance.AgentInstallation?.Schedule;
+        if (schedule?.ActivationMode != ActivationMode.AlwaysOn ||
+            !schedule.IsEnabled ||
+            instance.AgentInstallation?.IsEnabled != true)
+        {
+            return;
+        }
+
+        schedule.ConsecutiveStartupFailures = Math.Max(
+            schedule.ConsecutiveStartupFailures + 1,
+            MaximumAlwaysOnStartupAttempts);
+        schedule.AutomaticStartSuppressedAt = occurredAt;
+        schedule.NextTickAt = null;
     }
 
     private async Task<AgentRuntimeGlobalSettings> SettingsAsync(CancellationToken cancellationToken)

@@ -77,6 +77,10 @@ public sealed class OrganizationUserService : IOrganizationUserService
         {
             return Failure("agent_instance_required", "An imported agent installation must be selected for an agent employee.");
         }
+        if (request.EmployeeType == (int)EmployeeType.Agent && !request.ReportsToOrganizationUserId.HasValue)
+        {
+            return Failure("manager_required", "A managing employee must be selected for an agent employee.");
+        }
 
         var agentInstallationReassigned = false;
         if (request.AgentInstallationId.HasValue)
@@ -114,11 +118,15 @@ public sealed class OrganizationUserService : IOrganizationUserService
         if (request.ReportsToOrganizationUserId.HasValue)
         {
             var managerExists = await _dbContext.CoreOrganizationUsers
-                .AnyAsync(x => x.Id == request.ReportsToOrganizationUserId && x.OrganizationId == organizationId, cancellationToken);
+                .AnyAsync(
+                    x => x.Id == request.ReportsToOrganizationUserId &&
+                         x.OrganizationId == organizationId &&
+                         x.IsActive,
+                    cancellationToken);
 
             if (!managerExists)
             {
-                return Failure("invalid_manager", "Reporting manager must belong to the same organization.");
+                return Failure("invalid_manager", "Reporting manager must be an active employee in the same organization.");
             }
         }
 

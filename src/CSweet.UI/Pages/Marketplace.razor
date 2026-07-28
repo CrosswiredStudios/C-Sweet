@@ -1,8 +1,15 @@
 @page "/organizations/{OrganizationId:guid}/marketplace"
 @using System.Net.Http.Json
+@using System.Text.Json
 @using CSweet.Agent.SDK
+@using CSweet.Contracts.Agents
 @using CSweet.Contracts.Core
+@using CSweet.Contracts.Llm
+@using CSweet.Contracts.Plugins
+@using CSweet.Domain.Core
+@using ContractAgentConfigurationFieldTypes = CSweet.Contracts.Agents.AgentConfigurationFieldTypes
 @inject HttpClient Http
+@inject ILlmProviderApiClient LlmProviderApi
 @inject NavigationManager Navigation
 
 <PageTitle>Agent Catalog - C-Sweet</PageTitle>
@@ -123,7 +130,7 @@
                 <MudText><strong>Price:</strong> @(_preview.Price.HasValue ? $"{_preview.Price:0.##} {_preview.Currency}" : "No listed cost")</MudText>
                 <MudText Color="Color.Secondary">@_preview.InstallationConsequence</MudText>
                 <MudSelect T="Guid?" Label="Reports to" @bind-Value="_reportsToId"
-                           Variant="Variant.Outlined" Clearable="true" Disabled="_reviewBusy">
+                           Variant="Variant.Outlined" Required="true" Clearable="false" Disabled="_reviewBusy">
                     @foreach (var manager in _people)
                     {
                         <MudSelectItem T="Guid?" Value="@manager.Id">@manager.DisplayName</MudSelectItem>
@@ -151,13 +158,63 @@
                     <MudText Typo="Typo.subtitle2">Network access</MudText>
                     <MudText Typo="Typo.body2">@string.Join(", ", _preview.NetworkAccess)</MudText>
                 }
+                @if (_preview.ConfigurationFields.Count > 0)
+                {
+                    <MudDivider />
+                    <MudText Typo="Typo.subtitle2">Agent settings</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        Complete the settings declared by this agent before approving the hire.
+                    </MudText>
+                    @foreach (var field in _preview.ConfigurationFields)
+                    {
+                        @if (IsProviderField(field))
+                        {
+                            <MudSelect T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                                       ValueChanged="@(value => SetProviderAsync(field.Key, value))"
+                                       Variant="Variant.Outlined" Disabled="_reviewBusy">
+                                @foreach (var provider in _providers.Where(provider => provider.IsEnabled))
+                                {
+                                    <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                        else if (IsModelField(field))
+                        {
+                            <MudSelect T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                                       ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                       Variant="Variant.Outlined" Disabled="@(_reviewBusy || SelectedProvider is null || _loadingModels)">
+                                @foreach (var model in _models)
+                                {
+                                    <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                        else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                        {
+                            <MudCheckBox T="bool" Label="@FieldLabel(field)" Value="@ConfigurationBoolean(field.Key)"
+                                         ValueChanged="@(value => SetConfiguration(field.Key, value))" Disabled="_reviewBusy" />
+                        }
+                        else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase))
+                        {
+                            <MudNumericField T="decimal?" Label="@FieldLabel(field)" Value="@ConfigurationNumber(field.Key)"
+                                             ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                             Variant="Variant.Outlined" Disabled="_reviewBusy" />
+                        }
+                        else
+                        {
+                            <MudTextField T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                                          ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                          Variant="Variant.Outlined" Disabled="_reviewBusy" />
+                        }
+                    }
+                }
             </MudStack>
         }
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="CloseReview" Disabled="_reviewBusy">Cancel</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   Disabled="@(_reviewBusy || _preview is null)"
+                   Disabled="@(_reviewBusy || _preview is null || !_reportsToId.HasValue || HasMissingRequiredConfiguration)"
                    OnClick="ConfirmHireAsync">
             Approve and hire
         </MudButton>
@@ -183,7 +240,16 @@
     private AvailableAgent? _selectedAgent;
     private Guid? _reportsToId;
     private IReadOnlyList<OrganizationUserResponse> _people = [];
+    private IReadOnlyList<LlmProviderProfileResponse> _providers = [];
+    private IReadOnlyList<string> _models = [];
+    private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
+    private bool _loadingModels;
     private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    private bool HasMissingRequiredConfiguration =>
+        _preview?.ConfigurationFields
+            .Where(configField => configField.Required)
+            .Any(configField => !HasConfigurationValue(configField)) == true;
 
     private IReadOnlyList<string> Categories => (_result?.Agents ?? [])
         .Select(x => x.Category)
@@ -250,10 +316,20 @@
         _reviewBusy = true;
         _reviewError = null;
         _preview = null;
+        _reportsToId = null;
         try
         {
-            _people = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
-                $"api/core/organizations/{OrganizationId:D}/users") ?? [];
+            var peopleTask = Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
+                $"api/core/organizations/{OrganizationId:D}/users");
+            var providersTask = LlmProviderApi.ListAsync();
+            await Task.WhenAll(peopleTask, providersTask);
+            _people = await peopleTask ?? [];
+            _providers = await providersTask;
+            _reportsToId = _people
+                .OrderByDescending(person => person.PermissionLevel == (int)OrganizationPermissionLevel.Owner)
+                .ThenBy(person => person.DisplayName)
+                .Select(person => (Guid?)person.Id)
+                .FirstOrDefault();
             await LoadPreviewAsync();
         }
         catch (Exception exception)
@@ -286,6 +362,7 @@
         }
         _preview = await response.Content.ReadFromJsonAsync<MarketplaceHirePreviewResponse>()
             ?? throw new InvalidOperationException("The Marketplace hire preview was empty.");
+        await InitializeConfigurationAsync();
     }
 
     private async Task ConfirmHireAsync()
@@ -302,7 +379,15 @@
             }
             var response = await Http.PostAsJsonAsync(
                 $"api/core/organizations/{OrganizationId:D}/hiring/workflows/{_preview.WorkflowId:D}/confirm",
-                new ConfirmHiringWorkflowRequest($"marketplace-confirm:{_preview.WorkflowId:D}"));
+                new ConfirmHiringWorkflowRequest($"marketplace-confirm:{_preview.WorkflowId:D}")
+                {
+                    ConfigurationSettings = _configurationValues
+                        .Where(pair => pair.Value is not null)
+                        .ToDictionary(
+                            pair => pair.Key,
+                            pair => JsonSerializer.SerializeToElement(pair.Value, SerializerOptions),
+                            StringComparer.Ordinal)
+                });
             if (!response.IsSuccessStatusCode)
             {
                 var failure = await response.Content.ReadFromJsonAsync<MarketplaceApiError>();
@@ -329,6 +414,114 @@
         _preview = null;
         _selectedAgent = null;
         _reviewError = null;
+        _reportsToId = null;
+        _configurationValues.Clear();
+        _models = [];
+    }
+
+    private async Task InitializeConfigurationAsync()
+    {
+        _configurationValues.Clear();
+        if (_preview is null)
+            return;
+        var provider = _providers.FirstOrDefault(candidate => candidate.IsEnabled);
+        foreach (var field in _preview.ConfigurationFields)
+        {
+            if (IsProviderField(field) && provider is not null)
+                _configurationValues[field.Key] = provider.Id.ToString();
+            else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                _configurationValues[field.Key] = false;
+            else
+                _configurationValues[field.Key] = null;
+        }
+        if (provider is not null && _preview.ConfigurationFields.Any(IsModelField))
+        {
+            await LoadModelsAsync(provider);
+            SetDefaultModel(provider);
+        }
+    }
+
+    private async Task SetProviderAsync(string key, string value)
+    {
+        _configurationValues[key] = value;
+        var provider = SelectedProvider;
+        if (provider is null)
+            return;
+        await LoadModelsAsync(provider);
+        SetDefaultModel(provider);
+    }
+
+    private async Task LoadModelsAsync(LlmProviderProfileResponse provider)
+    {
+        _loadingModels = true;
+        try
+        {
+            var catalog = await LlmProviderApi.GetModelCatalogAsync(provider.Id);
+            _models = catalog.Models
+                .Select(model => model.Id)
+                .Append(provider.DefaultChatModel)
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+        finally
+        {
+            _loadingModels = false;
+        }
+    }
+
+    private void SetDefaultModel(LlmProviderProfileResponse provider)
+    {
+        if (_preview is null)
+            return;
+        var model = _models.Contains(provider.DefaultChatModel, StringComparer.Ordinal)
+            ? provider.DefaultChatModel
+            : _models.FirstOrDefault() ?? string.Empty;
+        foreach (var field in _preview.ConfigurationFields.Where(IsModelField))
+            _configurationValues[field.Key] = model;
+    }
+
+    private LlmProviderProfileResponse? SelectedProvider
+    {
+        get
+        {
+            var configField = _preview?.ConfigurationFields.FirstOrDefault(IsProviderField);
+            return configField is null || !Guid.TryParse(ConfigurationString(configField.Key), out var id)
+                ? null
+                : _providers.FirstOrDefault(provider => provider.Id == id && provider.IsEnabled);
+        }
+    }
+
+    private static bool IsProviderField(PluginConfigurationField field) =>
+        field.Type.Equals("provider", StringComparison.OrdinalIgnoreCase) ||
+        field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmProvider, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsModelField(PluginConfigurationField field) =>
+        field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) ||
+        field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmModel, StringComparison.OrdinalIgnoreCase);
+
+    private static string FieldLabel(PluginConfigurationField field) =>
+        field.Required ? $"{field.Label} (required)" : field.Label;
+
+    private string ConfigurationString(string key) =>
+        _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
+
+    private bool ConfigurationBoolean(string key) =>
+        _configurationValues.GetValueOrDefault(key) is true;
+
+    private decimal? ConfigurationNumber(string key) =>
+        _configurationValues.GetValueOrDefault(key) as decimal?;
+
+    private void SetConfiguration(string key, object? value) =>
+        _configurationValues[key] = value;
+
+    private bool HasConfigurationValue(PluginConfigurationField field)
+    {
+        if (!_configurationValues.TryGetValue(field.Key, out var value) || value is null)
+            return false;
+        return field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase) ||
+               field.Type.Equals(ContractAgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase) ||
+               !string.IsNullOrWhiteSpace(value.ToString());
     }
 
     private sealed record MarketplaceApiError(string? Error, string? Message);

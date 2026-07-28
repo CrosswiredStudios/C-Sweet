@@ -16,7 +16,8 @@ public sealed class CommunicationHubService(
     CSweetDbContext db,
     IAuditEventWriter audit,
     IChatTurnService turns,
-    IExecutiveDecisionService? decisions = null) : ICommunicationHubService
+    IExecutiveDecisionService? decisions = null,
+    IResourceChangeService? resourceChanges = null) : ICommunicationHubService
 {
     public async Task<Guid?> ResolveOrganizationUserIdAsync(
         Guid organizationId,
@@ -108,6 +109,10 @@ public sealed class CommunicationHubService(
             .Where(x => x.OrganizationId == organizationId && x.ConversationId == chatId && x.Status == "Pending")
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
+        var resourceChangeCards = resourceChanges is null
+            ? new Dictionary<Guid, Contracts.Core.ResourceChangeRequestResponse>()
+            : (await resourceChanges.ListForDashboardAsync(organizationId, cancellationToken))
+                .ToDictionary(x => x.Id);
         return messages.Select(x => MapMessage(
             x,
             users,
@@ -116,7 +121,10 @@ public sealed class CommunicationHubService(
                 action.ConversationMessageId == x.Id ||
                 (x.Role == ConversationRole.Assistant &&
                  x.ChatTurnId.HasValue &&
-                 action.ChatTurnId == x.ChatTurnId)).Select(ToAction).ToList()))
+                 action.ChatTurnId == x.ChatTurnId)).Select(ToAction).ToList(),
+            x.CorrelationId != Guid.Empty && resourceChangeCards.TryGetValue(x.CorrelationId, out var resourceChange)
+                ? resourceChange
+                : null))
             .ToList();
     }
 
@@ -523,7 +531,8 @@ public sealed class CommunicationHubService(
         ConversationMessage message,
         IReadOnlyDictionary<Guid, OrganizationUser> users,
         IReadOnlyDictionary<Guid, ExecutiveDecisionCardResponse>? decisions = null,
-        IReadOnlyList<SuggestedUserActionResponse>? actions = null)
+        IReadOnlyList<SuggestedUserActionResponse>? actions = null,
+        Contracts.Core.ResourceChangeRequestResponse? resourceChange = null)
     {
         var sender = message.SenderOrganizationUserId.HasValue && users.TryGetValue(message.SenderOrganizationUserId.Value, out var user) ? user : null;
         var isSystemAction = string.Equals(
@@ -536,9 +545,12 @@ public sealed class CommunicationHubService(
             message.Content, message.CreatedAt, message.ChatTurnId,
             !isSystemAction && message.Role == ConversationRole.Assistant && message.ChatTurnId.HasValue &&
             decisions?.TryGetValue(message.ChatTurnId.Value, out var decision) == true ? decision : null,
-            actions ?? [])
+            actions ?? [],
+            resourceChange)
         {
-            MessageType = isSystemAction
+            MessageType = resourceChange is not null
+                ? CommunicationMessageTypes.ResourceChangeApproval
+                : isSystemAction
                 ? CommunicationMessageTypes.SystemAction
                 : CommunicationMessageTypes.Standard
         };

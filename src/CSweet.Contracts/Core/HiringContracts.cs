@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
+using CSweet.Contracts.Plugins;
 
 namespace CSweet.Contracts.Core;
 
@@ -7,6 +9,7 @@ public static class HiringCapabilities
     public const string ListRecommendations = "platform.hiring-recommendation.list.v1";
     public const string UpsertRecommendation = "platform.hiring-recommendation.upsert.v1";
     public const string ResolveRecommendation = "platform.hiring-recommendation.resolve.v1";
+    public const string WithdrawRecommendation = "platform.hiring-recommendation.withdraw.v1";
     public const string StageWorkflow = "platform.hiring-workflow.stage.v1";
 }
 
@@ -45,6 +48,9 @@ public sealed record HiringRecommendationResponse(
     public int Priority { get; init; } = 50;
     public string HiringUrl { get; init; } = string.Empty;
     public string? SuggestedBy { get; init; }
+    public string? RoleKey { get; init; }
+    public int Headcount { get; init; } = 1;
+    public Guid? SourceResourceChangeRequestId { get; init; }
 }
 
 public sealed record HiringBacklogResponse(IReadOnlyList<HiringRecommendationResponse> Recommendations);
@@ -59,11 +65,21 @@ public sealed record UpsertHiringRecommendationRequest(
 {
     [Range(1, 100)]
     public int Priority { get; init; } = 50;
+    [MaxLength(160)]
+    public string? RoleKey { get; init; }
+    [Range(1, 100)]
+    public int Headcount { get; init; } = 1;
+    public Guid? SourceResourceChangeRequestId { get; init; }
 }
 
 public sealed record ResolveHiringRecommendationRequest(
     Guid RecommendationId,
     Guid ResultOrganizationUserId,
+    [property: Required, MaxLength(160)] string IdempotencyKey);
+
+public sealed record WithdrawHiringRecommendationRequest(
+    Guid RecommendationId,
+    [property: Required, MaxLength(2048)] string Reason,
     [property: Required, MaxLength(160)] string IdempotencyKey);
 
 public sealed record EmployeeHiredEvent(
@@ -98,11 +114,19 @@ public sealed record HiringWorkflowResponse(
     Guid? ResultOrganizationUserId = null);
 
 public sealed record ConfirmHiringWorkflowRequest(
-    [property: Required, MaxLength(160)] string IdempotencyKey);
+    [property: Required, MaxLength(160)] string IdempotencyKey)
+{
+    public IReadOnlyDictionary<string, JsonElement> ConfigurationSettings { get; init; } =
+        new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+}
 
 public sealed record HiringDashboardResponse(
     IReadOnlyList<HiringRecommendationResponse> Recommendations,
-    IReadOnlyList<HiringWorkflowResponse> Workflows);
+    IReadOnlyList<HiringWorkflowResponse> Workflows)
+{
+    public IReadOnlyList<ResourceChangeRequestResponse> ResourceChanges { get; init; } = [];
+    public Guid? CurrentOrganizationUserId { get; init; }
+}
 
 public sealed record PreviewMarketplaceHireRequest(
     [property: Required, MaxLength(512)] string AgentReference,
@@ -125,4 +149,7 @@ public sealed record MarketplaceHirePreviewResponse(
     IReadOnlyList<string> Subscriptions,
     IReadOnlyList<string> NetworkAccess,
     string InstallationConsequence,
-    string Status);
+    string Status)
+{
+    public IReadOnlyList<PluginConfigurationField> ConfigurationFields { get; init; } = [];
+}

@@ -8,6 +8,21 @@ namespace CSweet.Infrastructure.Setup;
 
 public sealed class AgentBuildService : IAgentBuildService
 {
+    private const int MaximumAutomaticSourceAttempts = 3;
+    private static readonly string[] TransientSourceFailureMarkers =
+    [
+        "connection was reset",
+        "recv failure",
+        "could not resolve host",
+        "failed to connect",
+        "connection timed out",
+        "network is unreachable",
+        "remote end hung up",
+        "early eof",
+        "http/2 stream",
+        "tls connection"
+    ];
+
     private readonly CSweetDbContext _dbContext;
     private readonly IAgentBuildExecutor _executor;
     private readonly IAuditEventWriter _auditWriter;
@@ -67,7 +82,8 @@ public sealed class AgentBuildService : IAgentBuildService
         var job = await _dbContext.AgentBuildJobs
             .Include(x => x.PackageVersion)
                 .ThenInclude(x => x!.PackageSource)
-            .Where(x => x.Status == AgentBuildStatus.Queued)
+            .Where(x => x.Status == AgentBuildStatus.Queued &&
+                        x.QueuedAt <= DateTimeOffset.UtcNow)
             .OrderBy(x => x.QueuedAt)
             .FirstOrDefaultAsync(cancellationToken);
         if (job is null)
@@ -210,7 +226,16 @@ public sealed class AgentBuildService : IAgentBuildService
                 job,
                 exception.Message,
                 (exception as AgentBuildException)?.StepKey);
-            await FailAsync(job, package, exception.Message);
+            if (job.Status == AgentBuildStatus.Cloning &&
+                job.Attempt < MaximumAutomaticSourceAttempts &&
+                IsTransientSourceFailure(exception))
+            {
+                await QueueAutomaticSourceRetryAsync(job, package, exception.Message);
+            }
+            else
+            {
+                await FailAsync(job, package, exception.Message);
+            }
         }
         finally
         {
@@ -251,6 +276,37 @@ public sealed class AgentBuildService : IAgentBuildService
         await WriteAuditAsync(job, "agent-build.failed", job.FailureMessage, CancellationToken.None);
     }
 
+    private async Task QueueAutomaticSourceRetryAsync(
+        AgentBuildJob job,
+        AgentPackageVersion package,
+        string failureMessage)
+    {
+        job.FailureMessage = Truncate(failureMessage, 2048);
+        job.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
+
+        var retry = new AgentBuildJob
+        {
+            Id = Guid.NewGuid(),
+            PackageVersionId = package.Id,
+            Attempt = job.Attempt + 1,
+            QueuedAt = DateTimeOffset.UtcNow.AddSeconds(5 * job.Attempt)
+        };
+        retry.StepsJson = AgentBuildStepStore.CreateInitialJson(retry.QueuedAt);
+        package.Status = AgentPackageVersionStatus.Approved;
+        _dbContext.AgentBuildJobs.Add(retry);
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
+        await WriteAuditAsync(
+            job,
+            "agent-build.transient-source-failure",
+            $"Source fetch attempt {job.Attempt} failed and will be retried automatically: {job.FailureMessage}",
+            CancellationToken.None);
+        await WriteAuditAsync(
+            retry,
+            "agent-build.retry-queued",
+            $"Queued automatic source fetch attempt {retry.Attempt} of {MaximumAutomaticSourceAttempts}.",
+            CancellationToken.None);
+    }
+
     private async Task CancelAsync(AgentBuildJob job, AgentPackageVersion package, string reason)
     {
         job.FailureMessage = reason;
@@ -278,4 +334,18 @@ public sealed class AgentBuildService : IAgentBuildService
 
     private static string Truncate(string value, int maximumLength) =>
         value.Length <= maximumLength ? value : value[..maximumLength];
+
+    private static bool IsTransientSourceFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (TransientSourceFailureMarkers.Any(marker =>
+                    current.Message.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
