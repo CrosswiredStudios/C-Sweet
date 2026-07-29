@@ -16,6 +16,7 @@ public sealed class AgentWorkRouter(
         string organizationId,
         string eventName,
         JsonElement payload,
+        Guid eventId,
         string idempotencyKey,
         Guid? exactInstallationId = null,
         bool requireSubscription = true,
@@ -44,6 +45,7 @@ public sealed class AgentWorkRouter(
                 deadline ?? timeProvider.GetUtcNow().AddHours(1),
                 correlationId: idempotencyKey,
                 sourceType: "platform-event",
+                sourceId: eventId.ToString("D"),
                 maximumAttempts: 3,
                 cancellationToken: cancellationToken);
             count++;

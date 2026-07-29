@@ -126,6 +126,35 @@ public sealed class ResourceChangeServiceTests
         Assert.Equal("quality", delta.Role.RoleKey);
     }
 
+    [Fact]
+    public async Task ApprovedDecision_BroadcastsDecisionToAllSubscribedInstallations()
+    {
+        await using var db = CreateDb();
+        var setup = SeedManagerConversation(db);
+        await db.SaveChangesAsync();
+        var service = new ResourceChangeService(db, new TestAuditEventWriter());
+        var request = await service.ProposeAsync(
+            setup.OrganizationId,
+            setup.RequesterInstallationId,
+            Proposal(setup, "approval-broadcast"));
+
+        var approved = await service.DecideForInstallationAsync(
+            setup.OrganizationId,
+            setup.ManagerInstallationId,
+            new ResourceChangeDecisionRequest(
+                request.Id,
+                ResourceChangeDecisionKinds.Approve,
+                "Approved.",
+                "approval-broadcast-decision"));
+
+        Assert.Equal("Approved", approved.Status);
+        var decided = Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == ResourceChangeEvents.Decided).ToListAsync());
+        Assert.Null(decided.TargetInstallationId);
+        Assert.Contains(request.Id.ToString("D"), decided.DataJson);
+        Assert.Contains("\"status\":\"Approved\"", decided.DataJson);
+    }
+
     private static ResourceChangeProposalRequest Proposal(Setup setup, string key) =>
         new(
             setup.ConversationId,

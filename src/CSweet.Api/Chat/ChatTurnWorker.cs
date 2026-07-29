@@ -490,6 +490,11 @@ public sealed class ChatTurnWorker(
                 return state.Completion ?? new AgentWorkCompletion(false, null, "The configuration result was empty.");
             if (state.Status is AgentWorkStatus.Cancelled or AgentWorkStatus.DeadLetter)
                 return new AgentWorkCompletion(false, null, state.Error ?? "Configuration work did not complete.");
+            if (DateTimeOffset.UtcNow >= work.DeadlineAt)
+                return new AgentWorkCompletion(
+                    false,
+                    null,
+                    "Agent configuration work did not start before its deadline.");
             await Task.Delay(options.Value.CapabilityRetryDelay, cancellationToken);
         }
     }

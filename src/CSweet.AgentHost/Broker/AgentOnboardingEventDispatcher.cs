@@ -1,6 +1,5 @@
 using System.Text.Json;
 using CSweet.Agent.SDK;
-using CSweet.Contracts.Agents;
 using CSweet.Domain.Communications;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
@@ -79,17 +78,13 @@ public sealed class AgentOnboardingEventDispatcher(
                         cancellationToken: cancellationToken);
                 }
 
-                var payload = new AgentOnboardedEvent(
-                    item.OrganizationId,
-                    item.AgentOrganizationUserId,
-                    item.HiringOrganizationUserId,
-                    item.ConversationId,
-                    item.OccurredAt);
+                var payload = CreatePayload(item);
                 await router.EnqueueEventAsync(
                     item.OrganizationId.ToString("D"),
                     AgentLifecycleEvents.Onboarded,
                     JsonSerializer.SerializeToElement(payload, JsonOptions),
-                    item.Id.ToString("N"),
+                    item.Id,
+                    $"onboarding-event:{item.Id:N}",
                     agent.AgentInstallationId.Value,
                     requireSubscription: false,
                     deadline: now.AddHours(1),
@@ -113,4 +108,12 @@ public sealed class AgentOnboardingEventDispatcher(
         if (pending.Count > 0)
             await db.SaveChangesAsync(cancellationToken);
     }
+
+    internal static AgentOnboardedEvent CreatePayload(AgentOnboardingEventOutboxItem item) =>
+        new(
+            item.OrganizationId,
+            item.AgentOrganizationUserId,
+            item.HiringOrganizationUserId,
+            item.ConversationId,
+            item.OccurredAt);
 }

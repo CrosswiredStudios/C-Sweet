@@ -402,6 +402,7 @@ public static class McpGatewayEndpoints
                 leaseToken = work.LeaseToken,
                 leaseExpiresAt = work.LeaseExpiresAt,
                 deadline = work.Deadline,
+                eventId = work.EventId,
                 correlationId = work.CorrelationId
             }
         }));

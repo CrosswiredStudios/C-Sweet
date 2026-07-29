@@ -67,6 +67,7 @@ public sealed class ManagementReviewScheduler(
                 cycle.OrganizationId.ToString("D"),
                 ManagementEvents.ReviewDue,
                 JsonSerializer.SerializeToElement(eventPayload, JsonOptions),
+                Guid.NewGuid(),
                 $"management-review:{cycle.Id:D}:{now.UtcTicks}",
                 cancellationToken: cancellationToken);
             cycle.NextReviewAt = NextWeekdayReview(now, cycle);
@@ -113,6 +114,7 @@ public sealed class ManagementReviewScheduler(
                 cycle.OrganizationId.ToString("D"),
                 ManagementEvents.ReviewDue,
                 JsonSerializer.SerializeToElement(weeklyEvent, JsonOptions),
+                Guid.NewGuid(),
                 $"weekly-management-review:{cycle.Id:D}:{now:yyyyMMdd}",
                 cancellationToken: cancellationToken);
             await audit.WriteAsync("management-weekly-review.due", nameof(CSweet.Domain.Core.ManagementCycle), cycle.Id,
@@ -220,6 +222,7 @@ public sealed class ManagementReviewScheduler(
                 request.OrganizationId.ToString("D"),
                 ManagementEvents.ReviewDue,
                 JsonSerializer.SerializeToElement(due, JsonOptions),
+                request.Id,
                 ExecutiveBriefingDispatchKey(request.Id, request.DispatchAttempts + 1),
                 installationId.Value,
                 cancellationToken: token);
@@ -297,6 +300,7 @@ public sealed class ManagementReviewScheduler(
                 delivery.OrganizationId.ToString("D"),
                 ManagementEvents.StatusReported,
                 JsonDocument.Parse(delivery.PayloadJson).RootElement.Clone(),
+                delivery.Id,
                 delivery.Id.ToString("N"),
                 installationId.Value,
                 cancellationToken: token);

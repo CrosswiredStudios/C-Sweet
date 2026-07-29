@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using CSweet.Agent.SDK;
-using CSweet.Contracts.Agents;
 using CSweet.Domain.Communications;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -18,7 +17,7 @@ public sealed class AgentOnboardingCapabilityHandler(
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public bool CanHandle(string capability) =>
-        capability == CSweet.Contracts.Agents.AgentLifecycleCapabilities.CompleteOnboarding;
+        capability == AgentLifecycleCapabilities.CompleteOnboarding;
 
     public async IAsyncEnumerable<CapabilityResult> HandleAsync(
         AgentSession session,

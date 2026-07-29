@@ -1141,12 +1141,110 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 throw new AgentInstallationException(
                     $"'{field.Label}' must be a scalar configuration value.");
             }
+
+            ValidateCapabilitySchemaConstraints(manifest, field, value);
         }
 
         return settings
             .Where(pair => allowUnknownSettings || publicFields.ContainsKey(pair.Key))
             .ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal);
     }
+
+    private static void ValidateCapabilitySchemaConstraints(
+        PluginManifest manifest,
+        PluginConfigurationField field,
+        JsonElement value)
+    {
+        var update = manifest.Provides.SingleOrDefault(capability =>
+            capability.Name.Equals(AgentConfigurationCapabilities.Update, StringComparison.Ordinal));
+        if (update is null ||
+            update.InputSchema.ValueKind != JsonValueKind.Object ||
+            !update.InputSchema.TryGetProperty("properties", out var inputProperties) ||
+            !inputProperties.TryGetProperty("settings", out var settingsSchema) ||
+            settingsSchema.ValueKind != JsonValueKind.Object ||
+            !settingsSchema.TryGetProperty("properties", out var settingsProperties) ||
+            !settingsProperties.TryGetProperty(field.Key, out var fieldSchema) ||
+            fieldSchema.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        if (fieldSchema.TryGetProperty("type", out var typeSchema) &&
+            !SchemaAllowsValue(typeSchema, value))
+        {
+            throw new AgentInstallationException(
+                $"'{field.Label}' does not match the type declared by the agent configuration schema.");
+        }
+
+        if (fieldSchema.TryGetProperty("enum", out var allowedValues) &&
+            allowedValues.ValueKind == JsonValueKind.Array &&
+            !allowedValues.EnumerateArray().Any(allowed =>
+                string.Equals(allowed.GetRawText(), value.GetRawText(), StringComparison.Ordinal)))
+        {
+            throw new AgentInstallationException(
+                $"'{field.Label}' must be one of the values declared by the agent.");
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+        {
+            if (fieldSchema.TryGetProperty("minimum", out var minimum) &&
+                minimum.TryGetDecimal(out var minimumValue) &&
+                number < minimumValue)
+            {
+                throw new AgentInstallationException(
+                    $"'{field.Label}' must be greater than or equal to {minimumValue}.");
+            }
+            if (fieldSchema.TryGetProperty("maximum", out var maximum) &&
+                maximum.TryGetDecimal(out var maximumValue) &&
+                number > maximumValue)
+            {
+                throw new AgentInstallationException(
+                    $"'{field.Label}' must be less than or equal to {maximumValue}.");
+            }
+        }
+
+        if (value.ValueKind == JsonValueKind.String && value.GetString() is { } text)
+        {
+            if (fieldSchema.TryGetProperty("minLength", out var minimumLength) &&
+                minimumLength.TryGetInt32(out var minimumLengthValue) &&
+                text.Length < minimumLengthValue)
+            {
+                throw new AgentInstallationException(
+                    $"'{field.Label}' must contain at least {minimumLengthValue} characters.");
+            }
+            if (fieldSchema.TryGetProperty("maxLength", out var maximumLength) &&
+                maximumLength.TryGetInt32(out var maximumLengthValue) &&
+                text.Length > maximumLengthValue)
+            {
+                throw new AgentInstallationException(
+                    $"'{field.Label}' cannot exceed {maximumLengthValue} characters.");
+            }
+        }
+    }
+
+    private static bool SchemaAllowsValue(JsonElement typeSchema, JsonElement value)
+    {
+        if (typeSchema.ValueKind == JsonValueKind.String)
+            return MatchesSchemaType(typeSchema.GetString(), value);
+        return typeSchema.ValueKind == JsonValueKind.Array &&
+               typeSchema.EnumerateArray().Any(type =>
+                   type.ValueKind == JsonValueKind.String &&
+                   MatchesSchemaType(type.GetString(), value));
+    }
+
+    private static bool MatchesSchemaType(string? type, JsonElement value) => type switch
+    {
+        "string" => value.ValueKind == JsonValueKind.String,
+        "number" => value.ValueKind == JsonValueKind.Number,
+        "integer" => value.ValueKind == JsonValueKind.Number &&
+                     value.TryGetDecimal(out var number) &&
+                     decimal.Truncate(number) == number,
+        "boolean" => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
+        "object" => value.ValueKind == JsonValueKind.Object,
+        "array" => value.ValueKind == JsonValueKind.Array,
+        "null" => value.ValueKind == JsonValueKind.Null,
+        _ => true
+    };
 
     private static AgentInstallationConfiguration CreateConfiguration(
         Guid installationId,

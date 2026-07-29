@@ -55,6 +55,43 @@ public sealed class AgentInstallationServiceTests
     }
 
     [Fact]
+    public async Task InstallAsync_RejectsConfigurationOutsideCapabilitySchema()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext, requiresConfiguration: true);
+        AddConstrainedConfigurationSchema(package);
+        await dbContext.SaveChangesAsync();
+        var providerId = await dbContext.LlmProviderProfiles.Select(x => x.Id).SingleAsync();
+        var service = CreateService(dbContext);
+
+        var invalidTone = ValidRequest() with
+        {
+            ConfigurationSettings = Configuration(
+                providerId,
+                responseTone: "Blunt",
+                maxAlternatives: 2)
+        };
+        var toneError = await Assert.ThrowsAsync<AgentInstallationException>(() =>
+            service.InstallAsync(package.Id, invalidTone));
+        Assert.Contains("Response tone", toneError.Message);
+        Assert.Contains("one of the values", toneError.Message);
+
+        var invalidLimit = ValidRequest() with
+        {
+            ConfigurationSettings = Configuration(
+                providerId,
+                responseTone: "concise",
+                maxAlternatives: 3)
+        };
+        var limitError = await Assert.ThrowsAsync<AgentInstallationException>(() =>
+            service.InstallAsync(package.Id, invalidLimit));
+        Assert.Contains("Maximum alternatives", limitError.Message);
+        Assert.Contains("less than or equal to 2", limitError.Message);
+
+        Assert.Empty(await dbContext.AgentInstallations.ToListAsync());
+    }
+
+    [Fact]
     public async Task InstallAsync_RejectsGrantBroaderThanManifest()
     {
         await using var dbContext = CreateDbContext();
@@ -716,6 +753,75 @@ public sealed class AgentInstallationServiceTests
         }
         await dbContext.SaveChangesAsync();
         return package;
+    }
+
+    private static IReadOnlyDictionary<string, JsonElement> Configuration(
+        Guid providerId,
+        string responseTone,
+        int maxAlternatives) =>
+        new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        {
+            ["llmProviderId"] = JsonSerializer.SerializeToElement(providerId.ToString("D")),
+            ["llmModel"] = JsonSerializer.SerializeToElement("test-model"),
+            ["responseTone"] = JsonSerializer.SerializeToElement(responseTone),
+            ["maxAlternatives"] = JsonSerializer.SerializeToElement(maxAlternatives)
+        };
+
+    private static void AddConstrainedConfigurationSchema(AgentPackageVersion package)
+    {
+        var manifest = JsonNode.Parse(package.ManifestJson)!.AsObject();
+        var configuration = manifest["configuration"]!.AsArray();
+        configuration.Add(new JsonObject
+        {
+            ["key"] = "responseTone",
+            ["type"] = "select",
+            ["label"] = "Response tone",
+            ["required"] = true,
+            ["secret"] = false
+        });
+        configuration.Add(new JsonObject
+        {
+            ["key"] = "maxAlternatives",
+            ["type"] = "number",
+            ["label"] = "Maximum alternatives",
+            ["required"] = true,
+            ["secret"] = false
+        });
+        manifest["provides"]!.AsArray().Add(JsonNode.Parse("""
+        {
+          "name": "agent.configuration.update.v1",
+          "description": "Update constrained settings.",
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["settings"],
+            "properties": {
+              "settings": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "responseTone": {
+                    "type": "string",
+                    "enum": ["concise", "balanced", "detailed"]
+                  },
+                  "maxAlternatives": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2
+                  }
+                }
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "additionalProperties": false
+          },
+          "executionTimeoutSeconds": 30,
+          "idempotency": "work-item"
+        }
+        """));
+        package.ManifestJson = manifest.ToJsonString();
     }
 
     private static CSweetDbContext CreateDbContext()

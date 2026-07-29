@@ -17,6 +17,7 @@ public sealed class DurableCommunicationEventPublisher(
             publication.Envelope.OrganizationId.ToString("D"),
             publication.EventType,
             JsonSerializer.SerializeToElement(publication.Envelope, JsonOptions),
+            publication.Envelope.EventId,
             publication.Envelope.EventId.ToString("N"),
             publication.TargetInstallationId,
             requireSubscription: true,

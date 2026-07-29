@@ -62,6 +62,63 @@ public sealed class AgentWorkInboxTests
     }
 
     [Fact]
+    public async Task EnqueueAsync_RejectsEventWorkWithoutStableEventIdentity()
+    {
+        await using var db = CreateDb();
+        var installation = Installation(DateTimeOffset.UtcNow);
+        db.Add(installation);
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(
+            db,
+            new EphemeralDataProtectionProvider(),
+            TimeProvider.System);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            inbox.EnqueueAsync(
+                installation.BusinessId,
+                installation.Id,
+                AgentWorkKind.Event,
+                "example.event.v1",
+                Json("{}"),
+                "missing-event-id",
+                DateTimeOffset.UtcNow.AddMinutes(5)));
+
+        Assert.Contains("originating event ID", exception.Message, StringComparison.Ordinal);
+
+        var firstEventId = Guid.NewGuid();
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(5);
+        _ = await inbox.EnqueueAsync(
+            installation.BusinessId,
+            installation.Id,
+            AgentWorkKind.Event,
+            "example.event.v1",
+            Json("{}"),
+            "stable-event",
+            deadline,
+            sourceId: firstEventId.ToString("D"));
+        _ = await inbox.EnqueueAsync(
+            installation.BusinessId,
+            installation.Id,
+            AgentWorkKind.Event,
+            "example.event.v1",
+            Json("{}"),
+            "stable-event",
+            deadline,
+            sourceId: firstEventId.ToString("D"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            inbox.EnqueueAsync(
+                installation.BusinessId,
+                installation.Id,
+                AgentWorkKind.Event,
+                "example.event.v1",
+                Json("{}"),
+                "stable-event",
+                deadline,
+                sourceId: Guid.NewGuid().ToString("D")));
+    }
+
+    [Fact]
     public async Task Lease_RejectsForgeryStalenessAndConflictingCompletion()
     {
         var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
@@ -137,16 +194,62 @@ public sealed class AgentWorkInboxTests
             Id = Guid.NewGuid(), RuntimeInstanceId = runtime.Id, TickId = runtime.TickId,
             AgentInstallationId = installation.Id, OrganizationId = installation.BusinessId
         };
+        var eventId = Guid.NewGuid();
         await inbox.EnqueueAsync(
             installation.BusinessId, installation.Id, AgentWorkKind.Event, "example.event.v1",
-            Json("{}"), "expiry-test", clock.GetUtcNow().AddMinutes(5));
+            Json("{}"), "expiry-test", clock.GetUtcNow().AddMinutes(5),
+            sourceId: eventId.ToString("D"));
         var claimed = await inbox.ClaimAsync(session, CancellationToken.None);
         Assert.NotNull(claimed);
+        Assert.Equal(eventId, claimed.EventId);
+        Assert.NotEqual(claimed.WorkId, claimed.EventId);
 
         clock.Advance(TimeSpan.FromSeconds(61));
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => inbox.RenewAsync(
             session, claimed!.WorkId, claimed.Attempt, claimed.LeaseToken, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ClaimAsync_DeadLettersPendingWorkWhoseDeadlineElapsed()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        await using var db = CreateDb();
+        var installation = Installation(clock.GetUtcNow());
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(),
+            TickId = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            QueuedAt = clock.GetUtcNow()
+        };
+        db.AddRange(installation, runtime);
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        var session = new McpAgentSession
+        {
+            Id = Guid.NewGuid(),
+            RuntimeInstanceId = runtime.Id,
+            TickId = runtime.TickId,
+            AgentInstallationId = installation.Id,
+            OrganizationId = installation.BusinessId
+        };
+        var item = await inbox.EnqueueAsync(
+            installation.BusinessId,
+            installation.Id,
+            AgentWorkKind.Capability,
+            "agent.configuration.update.v1",
+            Json("{}"),
+            "expired-pending",
+            clock.GetUtcNow().AddSeconds(5));
+
+        clock.Advance(TimeSpan.FromSeconds(6));
+
+        Assert.Null(await inbox.ClaimAsync(session, CancellationToken.None));
+        db.ChangeTracker.Clear();
+        var expired = await db.AgentWorkItems.SingleAsync(x => x.Id == item.Id);
+        Assert.Equal(AgentWorkStatus.DeadLetter, expired.Status);
+        Assert.Contains("deadline elapsed", expired.LastError, StringComparison.OrdinalIgnoreCase);
     }
 
     private static CSweetDbContext CreateDb() => new(

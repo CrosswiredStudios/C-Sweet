@@ -43,6 +43,7 @@ public sealed class AgentPlatformEventDispatcher(
                     item.OrganizationId.ToString("D"),
                     item.EventType,
                     payload.RootElement.Clone(),
+                    item.Id,
                     item.IdempotencyKey,
                     item.TargetInstallationId,
                     requireSubscription: true,

@@ -1,3 +1,4 @@
+using CSweet.AgentHost.Broker;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -51,6 +52,8 @@ public sealed class AgentCommunicationOnboardingTests
         Assert.Equal(agent.Id, lifecycleEvent.AgentOrganizationUserId);
         Assert.Equal(owner.Id, lifecycleEvent.HiringOrganizationUserId);
         Assert.Equal(chat.Id, lifecycleEvent.ConversationId);
+        var payload = AgentOnboardingEventDispatcher.CreatePayload(lifecycleEvent);
+        Assert.Equal(lifecycleEvent.OrganizationId, payload.OrganizationId);
     }
 
     [Fact]

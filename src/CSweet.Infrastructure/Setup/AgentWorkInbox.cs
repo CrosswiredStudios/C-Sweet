@@ -18,6 +18,7 @@ public sealed record ClaimedAgentWork(
     string LeaseToken,
     DateTimeOffset LeaseExpiresAt,
     DateTimeOffset Deadline,
+    Guid? EventId,
     string CorrelationId);
 
 public sealed record AgentWorkCompletion(bool Succeeded, JsonElement? Value, string? Error);
@@ -59,12 +60,19 @@ public sealed class AgentWorkInbox(
             throw new InvalidOperationException($"Agent work payloads may not exceed {MaximumPayloadBytes} bytes.");
         if (deadline <= timeProvider.GetUtcNow())
             throw new InvalidOperationException("Agent work must have a future deadline.");
+        if (kind == AgentWorkKind.Event &&
+            (!Guid.TryParse(sourceId, out var eventId) || eventId == Guid.Empty))
+            throw new InvalidOperationException(
+                "Event work requires the originating event ID.");
 
         var existing = await db.AgentWorkItems.SingleOrDefaultAsync(
             x => x.AgentInstallationId == installationId &&
                  x.IdempotencyKey == idempotencyKey,
             cancellationToken);
-        if (existing is not null && existing.PayloadHash == payloadHash)
+        if (existing is not null &&
+            existing.PayloadHash == payloadHash &&
+            (kind != AgentWorkKind.Event ||
+             string.Equals(existing.SourceId, sourceId, StringComparison.OrdinalIgnoreCase)))
             return existing;
         if (existing is not null)
             throw new InvalidOperationException(
@@ -114,6 +122,20 @@ public sealed class AgentWorkInbox(
         await using var transaction = await db.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
             cancellationToken);
+
+        var expiredPending = await db.AgentWorkItems
+            .Where(x =>
+                x.OrganizationId == session.OrganizationId &&
+                x.AgentInstallationId == session.AgentInstallationId &&
+                x.Status == AgentWorkStatus.Pending &&
+                x.DeadlineAt <= now)
+            .ToListAsync(cancellationToken);
+        foreach (var expiredItem in expiredPending)
+        {
+            expiredItem.Status = AgentWorkStatus.DeadLetter;
+            expiredItem.LastError = "The work deadline elapsed before the item could be claimed.";
+            AgentRuntimeMetrics.Work("dead_lettered", expiredItem.Kind);
+        }
 
         var expired = await db.AgentWorkAttempts
             .Include(x => x.AgentWorkItem)
@@ -180,6 +202,9 @@ public sealed class AgentWorkInbox(
             leaseToken,
             attempt.LeaseExpiresAt,
             item.DeadlineAt,
+            item.Kind == AgentWorkKind.Event
+                ? Guid.Parse(item.SourceId!)
+                : null,
             item.CorrelationId);
     }
 
