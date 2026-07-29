@@ -2865,7 +2865,14 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("SprintId", "BoardRank");
 
-                    b.ToTable("CoreWorkTasks");
+                    b.ToTable("CoreWorkTasks", t =>
+                        {
+                            t.HasCheckConstraint("CK_CoreWorkTasks_Kind", "\"Kind\" IN ('Initiative', 'Epic', 'Story', 'Task', 'Bug')");
+
+                            t.HasCheckConstraint("CK_CoreWorkTasks_Priority", "\"Priority\" IN ('Low', 'Medium', 'High', 'Critical')");
+
+                            t.HasCheckConstraint("CK_CoreWorkTasks_Status", "\"Status\" IN ('Backlog', 'Ready', 'Assigned', 'Running', 'WaitingForApproval', 'Completed', 'Failed', 'Cancelled')");
+                        });
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.Worker", b =>

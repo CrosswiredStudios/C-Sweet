@@ -129,7 +129,7 @@ Before starting a task:
 - [ ] Add industry/stage/goal fields.
 - [ ] Create default roles.
 - [ ] Create first strategic objective.
-- [ ] Create initial task backlog.
+- [ ] Provision an empty default `To Do -> Done` work board.
 - [ ] Register default local strategy worker.
 - [ ] Redirect to command center.
 

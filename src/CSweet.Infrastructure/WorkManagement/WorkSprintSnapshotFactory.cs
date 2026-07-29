@@ -24,17 +24,27 @@ public static class WorkSprintSnapshotFactory
             throw new InvalidOperationException(
                 "A completion snapshot requires a completed sprint.");
 
-        var items = await db.CoreWorkTasks.AsNoTracking()
+        var itemRows = await db.CoreWorkTasks.AsNoTracking()
             .Where(x => x.SprintId == sprint.Id)
             .OrderBy(x => x.BoardRank)
+            .Select(x => new
+            {
+                x.Id,
+                x.Kind,
+                x.Title,
+                x.Status,
+                x.EstimatePoints
+            })
+            .ToListAsync(cancellationToken);
+        var items = itemRows
             .Select(x => new WorkSprintSnapshotItemResponse(
                 x.Id,
                 x.Kind.ToString(),
                 x.Title,
-                (int)x.Status,
+                x.Status.ToString(),
                 x.EstimatePoints,
                 x.Status == WorkTaskStatus.Completed))
-            .ToListAsync(cancellationToken);
+            .ToList();
         var snapshot = new WorkSprintSnapshot
         {
             Id = Guid.NewGuid(),

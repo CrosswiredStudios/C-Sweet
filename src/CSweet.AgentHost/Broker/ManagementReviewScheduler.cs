@@ -215,13 +215,12 @@ public sealed class ManagementReviewScheduler(
                 request.FailureMessage = "The active Chief employee has no runnable agent installation.";
                 continue;
             }
-            var due = new ManagementReviewDueEvent(cycle.Id, "ExecutiveBriefing", request.CreatedAt.AddDays(-1), now,
-                request.DueAt, cycle.TimeZone) { RequestId = request.Id };
+            var due = CreateExecutiveBriefingDueEvent(request, cycle);
             var count = await router.EnqueueEventAsync(
                 request.OrganizationId.ToString("D"),
                 ManagementEvents.ReviewDue,
                 JsonSerializer.SerializeToElement(due, JsonOptions),
-                request.Id.ToString("N"),
+                ExecutiveBriefingDispatchKey(request.Id, request.DispatchAttempts + 1),
                 installationId.Value,
                 cancellationToken: token);
             request.DispatchAttempts++;
@@ -239,6 +238,28 @@ public sealed class ManagementReviewScheduler(
             }
         }
         await db.SaveChangesAsync(token);
+    }
+
+    internal static ManagementReviewDueEvent CreateExecutiveBriefingDueEvent(
+        CSweet.Domain.Core.ManagementCheckInRequestRecord request,
+        CSweet.Domain.Core.ManagementCycle cycle) =>
+        new(
+            cycle.Id,
+            "ExecutiveBriefing",
+            request.CreatedAt.AddDays(-1),
+            request.CreatedAt,
+            request.DueAt,
+            cycle.TimeZone)
+        {
+            RequestId = request.Id
+        };
+
+    internal static string ExecutiveBriefingDispatchKey(Guid requestId, int dispatchAttempt)
+    {
+        if (dispatchAttempt <= 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(dispatchAttempt), "Dispatch attempts are one-based.");
+        return $"executive-briefing:{requestId:N}:dispatch:{dispatchAttempt}";
     }
 
     private async Task DispatchAgentManagerDeliveriesAsync(

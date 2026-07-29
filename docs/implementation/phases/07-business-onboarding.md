@@ -2,7 +2,7 @@
 
 ## Goal
 
-Create the first business onboarding flow that captures enough company context for C-Sweet to create default roles, a strategic objective, an initial task backlog, and a default local worker.
+Create the first business onboarding flow that captures enough company context for C-Sweet to create default roles, a strategic objective, an empty universal work board, and a default local worker.
 
 ## Why this phase matters
 
@@ -15,7 +15,7 @@ After system setup, users need to create the business context that agents will o
 - Initial context capture.
 - Default role creation.
 - First strategic objective creation.
-- Initial task backlog generation.
+- Empty default `To Do -> Done` work board provisioning.
 - Default local strategy worker registration.
 - Redirect to organization command center.
 - Shared API client and UI state that can be used by both the Blazor WASM host and the future MAUI Blazor Hybrid host.
@@ -134,23 +134,15 @@ Description: Create a practical operating plan that turns the business goal into
 Status: Active
 ```
 
-## Initial task backlog
+## Initial work board
 
-Create these tasks:
+Provision an empty `Company work` board with `To Do` and `Done` columns. C-Sweet
+does not create a starter backlog because it cannot assume how an installed agent
+or organization will use the work system.
 
-```text
-Define target customer
-Draft basic operating plan
-Identify first revenue channel
-List operational risks
-Create 30-day execution plan
-```
-
-The first task that should be executable by an agent is:
-
-```text
-Create 30-day execution plan
-```
+Agents may create appropriate initial work items during their own initialization
+flow through the work-management SDK. Those operations require explicit grants
+and retain the creating agent's identity and idempotency key.
 
 ## Default local worker
 
@@ -254,7 +246,7 @@ Phone viewport inside MAUI BlazorWebView
 - Business onboarding creates organization.
 - Default roles are created.
 - Initial objective is created.
-- Initial task backlog is created.
+- Empty default work board is created without starter tickets.
 - Local strategy worker is registered.
 
 ### Integration tests
@@ -262,7 +254,7 @@ Phone viewport inside MAUI BlazorWebView
 - Complete onboarding endpoint returns organization ID.
 - Created organization can be loaded.
 - Role count is 5.
-- Task count is 5.
+- Task count is 0 until a user or granted agent creates work.
 - Default worker exists.
 
 ### UI/manual tests

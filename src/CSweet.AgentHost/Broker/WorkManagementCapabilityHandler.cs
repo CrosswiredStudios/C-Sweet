@@ -298,15 +298,34 @@ public sealed class WorkManagementCapabilityHandler(
                 x.Id == input.BoardId && x.OrganizationId == organizationId,
                 cancellationToken)
             ?? throw new KeyNotFoundException("Board was not found.");
-        var items = await db.CoreWorkTasks.AsNoTracking()
+        var itemRows = await db.CoreWorkTasks.AsNoTracking()
             .Where(x => x.BoardId == board.Id && x.BoardColumnId != null)
             .OrderBy(x => x.BoardColumnId)
             .ThenBy(x => x.BoardRank)
-            .Select(x => new Wire.WorkItem(
-                x.Id, x.BoardColumnId!.Value, x.ParentWorkTaskId, x.SprintId, x.Kind.ToString(),
-                x.Title, x.Description, x.Status.ToString(), x.Priority.ToString(),
-                x.EstimatePoints, x.BoardRank, x.Revision, x.DueDate))
+            .Select(x => new
+            {
+                x.Id,
+                x.BoardColumnId,
+                x.ParentWorkTaskId,
+                x.SprintId,
+                x.Kind,
+                x.Title,
+                x.Description,
+                x.Status,
+                x.Priority,
+                x.EstimatePoints,
+                x.BoardRank,
+                x.Revision,
+                x.DueDate
+            })
             .ToListAsync(cancellationToken);
+        var items = itemRows
+            .Select(x => new Wire.WorkItem(
+                x.Id, x.BoardColumnId!.Value, x.ParentWorkTaskId, x.SprintId,
+                x.Kind.ToString(), x.Title, x.Description, x.Status.ToString(),
+                x.Priority.ToString(), x.EstimatePoints, x.BoardRank, x.Revision,
+                x.DueDate))
+            .ToList();
         await WriteAuditAsync(
             organizationId, installationId, board.Id, WorkItemActions.Read, itemGrant,
             new { board.Id, itemCount = items.Count, boardGrantId = boardGrant.GrantId },
@@ -813,16 +832,18 @@ public sealed class WorkManagementCapabilityHandler(
         var ruleResponses = new List<Wire.WorkAutomationRule>(rules.Count);
         foreach (var rule in rules)
             ruleResponses.Add(await ToAutomationResponseAsync(rule, cancellationToken));
-        var executions = await db.WorkAutomationExecutions.AsNoTracking()
+        var executionRows = await db.WorkAutomationExecutions.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.BoardId == input.BoardId)
             .OrderByDescending(x => x.CompletedAt)
             .Take(100)
+            .ToListAsync(cancellationToken);
+        var executions = executionRows
             .Select(x => new Wire.WorkAutomationExecution(
                 x.Id, x.RuleId, x.SourceActivityId, x.WorkItemId,
                 x.Status.ToString(), x.RequiredAction,
                 x.AuthorizingGrantId, x.AuthorizingGrantRevision,
                 x.ErrorCode, x.ErrorMessage, x.CompletedAt))
-            .ToListAsync(cancellationToken);
+            .ToList();
         await WriteAuditAsync(
             organizationId, installationId, input.BoardId,
             WorkAutomationActions.Read, grant,

@@ -173,11 +173,26 @@
 
 <MudDialog @bind-Visible="_detailOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.ExtraLarge, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">@(_detail?.Board.Name ?? "Board")</MudText></TitleContent>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(_detail?.Board.Name ?? _detailBoard?.Name ?? "Board")</MudText>
+    </TitleContent>
     <DialogContent>
         @if (_detailLoading)
         {
-            <MudProgressLinear Indeterminate="true" />
+            <MudStack Spacing="2">
+                <MudProgressLinear Indeterminate="true" />
+                <MudText Color="Color.Secondary">Loading board details…</MudText>
+            </MudStack>
+        }
+        else if (!string.IsNullOrWhiteSpace(_detailError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+                <MudText Typo="Typo.subtitle2">This board could not be loaded.</MudText>
+                <MudText Typo="Typo.body2">@_detailError</MudText>
+            </MudAlert>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-3">
+                Your board list and existing work are unchanged. You can retry the request or close this window.
+            </MudText>
         }
         else if (_detail is not null)
         {
@@ -215,12 +230,6 @@
                                OnClick="OpenAgentAccessAsync">Agent access</MudButton>
                 }
             </MudStack>
-            @if (!string.IsNullOrWhiteSpace(_detailError))
-            {
-                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
-                    @_detailError
-                </MudAlert>
-            }
             <div class="mt-4" style="display:flex; gap:16px; overflow-x:auto; align-items:flex-start;">
                 @foreach (var column in _detail.Columns)
                 {
@@ -337,7 +346,17 @@
             </div>
         }
     </DialogContent>
-    <DialogActions><MudButton OnClick="@(() => _detailOpen = false)">Close</MudButton></DialogActions>
+    <DialogActions>
+        @if (!_detailLoading && !string.IsNullOrWhiteSpace(_detailError))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Outlined.Refresh"
+                       OnClick="RetryBoardAsync">
+                Retry
+            </MudButton>
+        }
+        <MudButton OnClick="@(() => _detailOpen = false)">Close</MudButton>
+    </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_automationsOpen"
@@ -919,6 +938,7 @@
 
     private WorkBoardDirectoryResponse? _directory;
     private WorkBoardSummaryResponse? _editingBoard;
+    private WorkBoardSummaryResponse? _detailBoard;
     private WorkBoardDetailResponse? _detail;
     private string _search = "";
     private string _editorName = "";
@@ -1127,16 +1147,57 @@
 
     private async Task OpenBoardAsync(WorkBoardSummaryResponse board)
     {
+        _detailBoard = board;
         _detailOpen = true;
+        await LoadBoardAsync();
+    }
+
+    private Task RetryBoardAsync() => LoadBoardAsync();
+
+    private async Task LoadBoardAsync()
+    {
+        if (_detailBoard is null) return;
         _detailLoading = true;
         _detail = null;
+        _detailError = null;
         try
         {
-            _detail = await Http.GetFromJsonAsync<WorkBoardDetailResponse>(
-                $"api/organizations/{OrganizationId:D}/work/boards/{board.Id:D}");
-            _detailError = null;
+            var response = await Http.GetAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detailBoard.Id:D}");
+            if (!response.IsSuccessStatusCode)
+            {
+                _detailError = response.StatusCode switch
+                {
+                    HttpStatusCode.Forbidden =>
+                        "You no longer have permission to view this board.",
+                    HttpStatusCode.NotFound =>
+                        "The board no longer exists or is no longer available.",
+                    _ => "The server returned an error while loading the board. Please try again."
+                };
+                return;
+            }
+
+            _detail = await response.Content.ReadFromJsonAsync<WorkBoardDetailResponse>();
+            if (_detail is null)
+            {
+                _detailError = "The server returned an empty board response. Please try again.";
+                return;
+            }
+
             await LoadSprintsAsync();
             await ReloadAsync();
+        }
+        catch (TaskCanceledException)
+        {
+            _detailError = "The board request timed out. Check the server and try again.";
+        }
+        catch (HttpRequestException)
+        {
+            _detailError = "The board service could not be reached. Check that the application is running and try again.";
+        }
+        catch (Exception)
+        {
+            _detailError = "An unexpected error occurred while loading the board. Please try again.";
         }
         finally
         {
@@ -1767,9 +1828,10 @@
         if (_detail is null || _detail.Board.IsArchived) return false;
         var action = target.Category switch
         {
-            "Done" when item.Status != 5 => WorkItemActions.Complete,
-            "Cancelled" when item.Status != 7 => WorkItemActions.Cancel,
-            "ToDo" or "InProgress" when item.Status is 5 or 7 => WorkItemActions.Reopen,
+            "Done" when item.Status != "Completed" => WorkItemActions.Complete,
+            "Cancelled" when item.Status != "Cancelled" => WorkItemActions.Cancel,
+            "ToDo" or "InProgress" when item.Status is "Completed" or "Cancelled" =>
+                WorkItemActions.Reopen,
             _ => WorkItemActions.Move
         };
         return _detail.Board.AllowedActions.Contains(action);

@@ -46,7 +46,7 @@ public class BusinessOnboardingEndpointTests
         Assert.NotNull(result);
         Assert.NotEqual(Guid.Empty, result.OrganizationId);
         Assert.Equal(6, result.CreatedRoleCount);
-        Assert.Equal(5, result.CreatedTaskCount);
+        Assert.Equal(0, result.CreatedTaskCount);
         Assert.True(result.OrganizationActivated);
         Assert.StartsWith($"/organizations/{result.OrganizationId}/communications/", result.NextRoute);
         Assert.NotNull(result.ChiefOrganizationUserId);
@@ -61,8 +61,7 @@ public class BusinessOnboardingEndpointTests
         Assert.NotNull(roles);
         Assert.Equal(6, roles.Count);
         Assert.NotNull(tasks);
-        Assert.Equal(5, tasks.Count);
-        Assert.Contains(tasks, x => x.Title == "Create 30-day execution plan" && x.AssignedWorkerId == result.DefaultWorkerId);
+        Assert.Empty(tasks);
         Assert.NotNull(workers);
         Assert.Contains(workers, x => x.Id == result.DefaultWorkerId && x.Name == "Local Strategy Agent");
 

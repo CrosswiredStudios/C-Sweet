@@ -6,11 +6,35 @@ using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Security;
 using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace CSweet.UnitTests;
 
 public sealed class WorkBoardServiceTests
 {
+    [Fact]
+    public void WorkTaskStringEnumConstraints_AreInTheModelAndMigrationSet()
+    {
+        using var db = new CSweetDbContext(
+            new DbContextOptionsBuilder<CSweetDbContext>()
+                .UseNpgsql("Host=localhost;Database=unused;Username=unused;Password=unused")
+                .Options);
+
+        var model = db.GetService<IDesignTimeModel>().Model;
+        var constraintNames = model.FindEntityType(typeof(WorkTask))!
+            .GetCheckConstraints()
+            .Select(x => x.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Contains("CK_CoreWorkTasks_Kind", constraintNames);
+        Assert.Contains("CK_CoreWorkTasks_Status", constraintNames);
+        Assert.Contains("CK_CoreWorkTasks_Priority", constraintNames);
+        Assert.Contains(
+            "20260729050000_ConstrainWorkTaskEnumValues",
+            db.Database.GetMigrations());
+    }
+
     [Fact]
     public async Task OwnerDirectory_BootstrapsExplicitGrantsDefaultBoardAndExistingTasks()
     {
@@ -113,6 +137,44 @@ public sealed class WorkBoardServiceTests
     }
 
     [Fact]
+    public async Task GetBoard_MapsStringBackedWorkTaskEnumsAfterQueryExecution()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOrganization(db, OrganizationPermissionLevel.Owner);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+        var directory = await service.ListDirectoryAsync(
+            setup.OrganizationId, setup.ApplicationUserId, new WorkBoardDirectoryQuery());
+        var boardId = Assert.Single(directory.Boards).Id;
+        var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == boardId);
+        var column = board.Columns.OrderBy(x => x.Position).First();
+        db.CoreWorkTasks.Add(new WorkTask
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            BoardId = boardId,
+            BoardColumnId = column.Id,
+            Kind = WorkItemKind.Task,
+            Title = "Backlog item",
+            Description = "",
+            Status = WorkTaskStatus.Backlog,
+            Priority = WorkTaskPriority.Critical,
+            BoardRank = 1024,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var detail = await service.GetAsync(
+            setup.OrganizationId, boardId, setup.ApplicationUserId);
+
+        var item = Assert.Single(Assert.IsType<WorkBoardDetailResponse>(detail).Items);
+        Assert.Equal("Task", item.Kind);
+        Assert.Equal(nameof(WorkTaskStatus.Backlog), item.Status);
+        Assert.Equal(nameof(WorkTaskPriority.Critical), item.Priority);
+    }
+
+    [Fact]
     public async Task DefaultBoardCannotBeArchived()
     {
         await using var db = CreateDb();
@@ -175,7 +237,7 @@ public sealed class WorkBoardServiceTests
             story.Id,
             setup.ApplicationUserId,
             new MoveBoardWorkItemRequest(doing.Id, null, story.Revision)));
-        Assert.Equal((int)WorkTaskStatus.Running, story.Status);
+        Assert.Equal(nameof(WorkTaskStatus.Running), story.Status);
 
         story = Assert.IsType<WorkBoardItemResponse>(await service.MoveItemAsync(
             setup.OrganizationId,
@@ -183,7 +245,7 @@ public sealed class WorkBoardServiceTests
             story.Id,
             setup.ApplicationUserId,
             new MoveBoardWorkItemRequest(done.Id, null, story.Revision)));
-        Assert.Equal((int)WorkTaskStatus.Completed, story.Status);
+        Assert.Equal(nameof(WorkTaskStatus.Completed), story.Status);
 
         story = Assert.IsType<WorkBoardItemResponse>(await service.MoveItemAsync(
             setup.OrganizationId,
@@ -191,7 +253,7 @@ public sealed class WorkBoardServiceTests
             story.Id,
             setup.ApplicationUserId,
             new MoveBoardWorkItemRequest(ready.Id, null, story.Revision)));
-        Assert.Equal((int)WorkTaskStatus.Ready, story.Status);
+        Assert.Equal(nameof(WorkTaskStatus.Ready), story.Status);
     }
 
     [Fact]

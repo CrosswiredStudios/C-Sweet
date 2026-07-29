@@ -360,8 +360,7 @@ public sealed class WorkBoardService(
         if (string.IsNullOrWhiteSpace(request.Title))
             throw new ArgumentException("Work item title is required.");
         var kind = ParseEnum<WorkItemKind>(request.Kind, "work item kind");
-        if (!Enum.IsDefined(typeof(WorkTaskPriority), request.Priority))
-            throw new ArgumentException("Work item priority is invalid.");
+        var priority = ParseEnum<WorkTaskPriority>(request.Priority, "work item priority");
         var column = request.ColumnId.HasValue
             ? board.Columns.SingleOrDefault(x => x.Id == request.ColumnId.Value)
             : board.Columns.OrderBy(x => x.Position)
@@ -388,7 +387,7 @@ public sealed class WorkBoardService(
             Title = request.Title.Trim(),
             Description = request.Description?.Trim() ?? string.Empty,
             Status = StatusFor(column.Category),
-            Priority = (WorkTaskPriority)request.Priority,
+            Priority = priority,
             BoardRank = (await db.CoreWorkTasks
                 .Where(x => x.BoardColumnId == column.Id)
                 .MaxAsync(x => (long?)x.BoardRank, cancellationToken) ?? 0) + 1024,
@@ -549,8 +548,8 @@ public sealed class WorkBoardService(
         item.Kind.ToString(),
         item.Title,
         item.Description,
-        (int)item.Status,
-        (int)item.Priority,
+        item.Status.ToString(),
+        item.Priority.ToString(),
         item.EstimatePoints,
         item.BoardRank,
         item.Revision,
@@ -740,30 +739,50 @@ public sealed class WorkBoardService(
             x.Status != WorkTaskStatus.Completed &&
             x.Status != WorkTaskStatus.Cancelled, cancellationToken);
         var canReadItems = HasActionForBoard(grants, WorkItemActions.Read, board.Id);
-        var items = canReadItems
+        var itemRows = canReadItems
             ? await db.CoreWorkTasks.AsNoTracking()
                 .Where(x => x.BoardId == board.Id && x.BoardColumnId != null)
                 .OrderBy(x => x.BoardColumnId)
                 .ThenBy(x => x.BoardRank)
-                .Select(x => new WorkBoardItemResponse(
+                .Select(x => new
+                {
                     x.Id,
-                    board.Id,
-                    x.BoardColumnId!.Value,
+                    x.BoardColumnId,
                     x.ParentWorkTaskId,
                     x.SprintId,
-                    x.Kind.ToString(),
+                    x.Kind,
                     x.Title,
                     x.Description,
-                    (int)x.Status,
-                    (int)x.Priority,
+                    x.Status,
+                    x.Priority,
                     x.EstimatePoints,
                     x.BoardRank,
                     x.Revision,
                     x.DueDate,
                     x.CreatedAt,
-                    x.UpdatedAt))
+                    x.UpdatedAt
+                })
                 .ToListAsync(cancellationToken)
             : [];
+        var items = itemRows
+            .Select(x => new WorkBoardItemResponse(
+                x.Id,
+                board.Id,
+                x.BoardColumnId!.Value,
+                x.ParentWorkTaskId,
+                x.SprintId,
+                x.Kind.ToString(),
+                x.Title,
+                x.Description,
+                x.Status.ToString(),
+                x.Priority.ToString(),
+                x.EstimatePoints,
+                x.BoardRank,
+                x.Revision,
+                x.DueDate,
+                x.CreatedAt,
+                x.UpdatedAt))
+            .ToList();
         return new WorkBoardDetailResponse(
             ToSummary(board, memberId, grants, all, preference?.IsFavorite ?? false,
                 preference?.LastVisitedAt, count),

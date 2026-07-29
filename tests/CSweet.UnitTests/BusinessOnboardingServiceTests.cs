@@ -25,7 +25,6 @@ public class BusinessOnboardingServiceTests
             new CoreOrganizationService(dbContext, auditWriter, roleService),
             roleService,
             new StrategicObjectiveService(dbContext, auditWriter),
-            new WorkTaskService(dbContext, auditWriter),
             new WorkerService(dbContext, auditWriter),
             auditWriter,
             new ExecutiveBriefingService(dbContext, auditWriter, TimeProvider.System),
@@ -95,20 +94,18 @@ public class BusinessOnboardingServiceTests
     }
 
     [Fact]
-    public async Task CompleteAsync_CreatesOrganizationDefaultsObjectiveTasksAndWorker()
+    public async Task CompleteAsync_CreatesOrganizationDefaultsObjectiveEmptyBoardAndWorker()
     {
         await using var dbContext = CreateDbContext();
         var auditWriter = new TestAuditEventWriter();
         var roleService = new RoleService(dbContext, auditWriter);
         var organizationService = new CoreOrganizationService(dbContext, auditWriter, roleService);
         var objectiveService = new StrategicObjectiveService(dbContext, auditWriter);
-        var taskService = new WorkTaskService(dbContext, auditWriter);
         var workerService = new WorkerService(dbContext, auditWriter);
         var service = new BusinessOnboardingService(
             organizationService,
             roleService,
             objectiveService,
-            taskService,
             workerService,
             auditWriter,
             new ExecutiveBriefingService(dbContext, auditWriter, TimeProvider.System),
@@ -151,7 +148,7 @@ public class BusinessOnboardingServiceTests
         Assert.True(result.Succeeded);
         Assert.NotNull(result.Onboarding);
         Assert.Equal(6, result.Onboarding.CreatedRoleCount);
-        Assert.Equal(5, result.Onboarding.CreatedTaskCount);
+        Assert.Equal(0, result.Onboarding.CreatedTaskCount);
         Assert.True(result.Onboarding.OrganizationActivated);
         var chiefConversation = await dbContext.CoreConversations.SingleAsync(x =>
             x.OrganizationId == result.Onboarding.OrganizationId &&
@@ -166,6 +163,9 @@ public class BusinessOnboardingServiceTests
         var employees = await dbContext.CoreOrganizationUsers.Where(x => x.OrganizationId == organizationId).ToListAsync();
         var objective = await dbContext.CoreStrategicObjectives.SingleAsync(x => x.OrganizationId == organizationId);
         var tasks = await dbContext.CoreWorkTasks.Where(x => x.OrganizationId == organizationId).ToListAsync();
+        var board = await dbContext.WorkBoards
+            .Include(x => x.Columns)
+            .SingleAsync(x => x.OrganizationId == organizationId);
         var worker = await dbContext.CoreWorkers.SingleAsync(x => x.Id == result.Onboarding.DefaultWorkerId);
 
         Assert.Equal("Example Co", organization.Name);
@@ -188,8 +188,13 @@ public class BusinessOnboardingServiceTests
         Assert.Contains(roles, x => x.Name == "Marketing" && x.ResponsibilitiesJson.Contains("Define target customer"));
         Assert.Equal(ObjectiveStatus.Active, objective.Status);
         Assert.Equal("Launch a paid MVP that makes planning easier for small teams.", objective.Title);
-        Assert.Equal(5, tasks.Count);
-        Assert.Contains(tasks, x => x.Title == "Create 30-day execution plan" && x.AssignedWorkerId == worker.Id && x.Status == WorkTaskStatus.Ready);
+        Assert.Empty(tasks);
+        Assert.True(board.IsDefault);
+        Assert.Equal("Company work", board.Name);
+        Assert.Collection(
+            board.Columns.OrderBy(x => x.Position),
+            column => Assert.Equal("To Do", column.Name),
+            column => Assert.Equal("Done", column.Name));
         Assert.Equal("Local Strategy Agent", worker.Name);
         Assert.Equal(WorkerType.LocalAgent, worker.WorkerType);
         Assert.True(worker.RequiresHumanApproval);
@@ -218,7 +223,6 @@ public class BusinessOnboardingServiceTests
             new CoreOrganizationService(dbContext, auditWriter, roleService),
             roleService,
             new StrategicObjectiveService(dbContext, auditWriter),
-            new WorkTaskService(dbContext, auditWriter),
             new WorkerService(dbContext, auditWriter),
             auditWriter,
             new ExecutiveBriefingService(dbContext, auditWriter, TimeProvider.System),

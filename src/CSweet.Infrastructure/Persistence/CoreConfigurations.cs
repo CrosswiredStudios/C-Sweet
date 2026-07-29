@@ -339,6 +339,18 @@ internal static class CoreConfigurations
     static void ConfigureWorkTask(EntityTypeBuilder<WorkTask> entity)
     {
         entity.HasKey(x => x.Id);
+        entity.ToTable(table =>
+        {
+            table.HasCheckConstraint(
+                "CK_CoreWorkTasks_Kind",
+                "\"Kind\" IN ('Initiative', 'Epic', 'Story', 'Task', 'Bug')");
+            table.HasCheckConstraint(
+                "CK_CoreWorkTasks_Status",
+                "\"Status\" IN ('Backlog', 'Ready', 'Assigned', 'Running', 'WaitingForApproval', 'Completed', 'Failed', 'Cancelled')");
+            table.HasCheckConstraint(
+                "CK_CoreWorkTasks_Priority",
+                "\"Priority\" IN ('Low', 'Medium', 'High', 'Critical')");
+        });
         entity.Property(x => x.Title).HasMaxLength(512).IsRequired();
         entity.Property(x => x.Description).HasMaxLength(8192).IsRequired();
         entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();

@@ -138,8 +138,8 @@ public sealed record WorkBoardItemResponse(
     string Kind,
     string Title,
     string Description,
-    int Status,
-    int Priority,
+    string Status,
+    string Priority,
     decimal? EstimatePoints,
     long Rank,
     long Revision,
@@ -151,7 +151,7 @@ public sealed record CreateBoardWorkItemRequest(
     [property: Required, MaxLength(512)] string Title,
     [property: MaxLength(8192)] string? Description = null,
     string Kind = "Task",
-    int Priority = 1,
+    string Priority = "Medium",
     Guid? ColumnId = null,
     Guid? ParentItemId = null,
     DateTimeOffset? DueDate = null);
@@ -276,7 +276,7 @@ public sealed record WorkSprintSnapshotItemResponse(
     Guid ItemId,
     string Kind,
     string Title,
-    int Status,
+    string Status,
     decimal? EstimatePoints,
     bool Completed);
 

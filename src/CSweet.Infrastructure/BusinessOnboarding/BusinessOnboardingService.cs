@@ -11,6 +11,7 @@ using CSweet.Application.Communications;
 using CSweet.Infrastructure.Communications;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.BusinessOnboarding;
@@ -22,7 +23,6 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
     private readonly ICoreOrganizationService _organizationService;
     private readonly IRoleService _roleService;
     private readonly IStrategicObjectiveService _objectiveService;
-    private readonly IWorkTaskService _taskService;
     private readonly IWorkerService _workerService;
     private readonly IAuditEventWriter _auditEventWriter;
     private readonly IExecutiveBriefingService _executiveBriefings;
@@ -34,7 +34,6 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         ICoreOrganizationService organizationService,
         IRoleService roleService,
         IStrategicObjectiveService objectiveService,
-        IWorkTaskService taskService,
         IWorkerService workerService,
         IAuditEventWriter auditEventWriter,
         IExecutiveBriefingService executiveBriefings,
@@ -45,7 +44,6 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         _organizationService = organizationService;
         _roleService = roleService;
         _objectiveService = objectiveService;
-        _taskService = taskService;
         _workerService = workerService;
         _auditEventWriter = auditEventWriter;
         _executiveBriefings = executiveBriefings;
@@ -130,6 +128,10 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             NextExecutiveBriefingAt = NextUtcWeekdayCheckIn()
         });
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await WorkBoardProvisioning.EnsureDefaultBoardAsync(
+            _dbContext,
+            organizationId,
+            cancellationToken);
 
         var roles = await _roleService.ListByOrganizationAsync(organizationId, cancellationToken);
 
@@ -172,21 +174,6 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             return Failure(workerResult.ErrorCode ?? "worker_create_failed", workerResult.Message ?? "Default local strategy worker could not be registered.");
         }
 
-        var taskCount = 0;
-        foreach (var task in BuildInitialTasks(
-            objectiveResult.StrategicObjective.Id,
-            workerResult.Worker.Id,
-            roles))
-        {
-            var taskResult = await _taskService.CreateAsync(organizationId, task, cancellationToken);
-            if (!taskResult.Succeeded)
-            {
-                return Failure(taskResult.ErrorCode ?? "task_create_failed", taskResult.Message ?? "Initial task backlog could not be created.");
-            }
-
-            taskCount++;
-        }
-
         var assignment = await CreateChiefAssignmentAsync(
             organizationId,
             request.ChiefAgentInstallationId,
@@ -224,7 +211,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         var response = new CompleteBusinessOnboardingResponse(
             organizationId,
             roles.Count,
-            taskCount,
+            0,
             workerResult.Worker.Id,
             $"/organizations/{organizationId}/communications/{assignment.ConversationId:D}")
         {
@@ -267,76 +254,6 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             warnings,
             $"/organizations/{organizationId}/communications/{assignment.ConversationId:D}");
         return new(true, null, "Chief of Staff setup completed.", response);
-    }
-
-    private static IReadOnlyList<CreateWorkTaskRequest> BuildInitialTasks(
-        Guid objectiveId,
-        Guid workerId,
-        IReadOnlyList<RoleResponse> roles)
-    {
-        var marketingRoleId = FindRoleId(roles, "Marketing");
-        var operationsRoleId = FindRoleId(roles, "Operations");
-        var financeRoleId = FindRoleId(roles, "Finance");
-        var productRoleId = FindRoleId(roles, "Product");
-
-        return
-        [
-            new CreateWorkTaskRequest(
-                "Define target customer",
-                "Clarify the customer segment, buyer pain, and first reachable audience.",
-                objectiveId,
-                marketingRoleId,
-                null,
-                (int)WorkTaskStatus.Backlog,
-                (int)WorkTaskPriority.High,
-                null,
-                RequiresApproval: false),
-            new CreateWorkTaskRequest(
-                "Draft basic operating plan",
-                "Outline the first operating cadence, owners, decisions, and execution rhythm.",
-                objectiveId,
-                operationsRoleId,
-                null,
-                (int)WorkTaskStatus.Backlog,
-                (int)WorkTaskPriority.Medium,
-                null,
-                RequiresApproval: false),
-            new CreateWorkTaskRequest(
-                "Identify first revenue channel",
-                "Choose the most practical initial channel for validating revenue.",
-                objectiveId,
-                marketingRoleId,
-                null,
-                (int)WorkTaskStatus.Backlog,
-                (int)WorkTaskPriority.High,
-                null,
-                RequiresApproval: false),
-            new CreateWorkTaskRequest(
-                "List operational risks",
-                "Identify the constraints, assumptions, financial risks, and execution bottlenecks.",
-                objectiveId,
-                financeRoleId,
-                null,
-                (int)WorkTaskStatus.Backlog,
-                (int)WorkTaskPriority.Medium,
-                null,
-                RequiresApproval: false),
-            new CreateWorkTaskRequest(
-                "Create 30-day execution plan",
-                "Turn the primary goal into a sequenced 30-day plan with actions, owners, risks, and deliverables.",
-                objectiveId,
-                productRoleId,
-                workerId,
-                (int)WorkTaskStatus.Ready,
-                (int)WorkTaskPriority.Critical,
-                DateTimeOffset.UtcNow.AddDays(30),
-                RequiresApproval: true)
-        ];
-    }
-
-    private static Guid? FindRoleId(IReadOnlyList<RoleResponse> roles, string name)
-    {
-        return roles.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))?.Id;
     }
 
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

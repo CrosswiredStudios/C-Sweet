@@ -820,7 +820,7 @@ public sealed class WorkSprintService(
     private static WorkBoardItemResponse ToItem(WorkTask item) => new(
         item.Id, item.BoardId!.Value, item.BoardColumnId!.Value,
         item.ParentWorkTaskId, item.SprintId, item.Kind.ToString(),
-        item.Title, item.Description, (int)item.Status, (int)item.Priority,
+        item.Title, item.Description, item.Status.ToString(), item.Priority.ToString(),
         item.EstimatePoints, item.BoardRank, item.Revision,
         item.DueDate, item.CreatedAt, item.UpdatedAt);
 }

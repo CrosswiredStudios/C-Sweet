@@ -53,16 +53,18 @@ public sealed class WorkAutomationService(
         foreach (var rule in rules)
             responses.Add(await ToResponseAsync(rule, cancellationToken));
 
-        var executions = await db.WorkAutomationExecutions.AsNoTracking()
+        var executionRows = await db.WorkAutomationExecutions.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.BoardId == boardId)
             .OrderByDescending(x => x.CompletedAt)
             .Take(100)
+            .ToListAsync(cancellationToken);
+        var executions = executionRows
             .Select(x => new WorkAutomationExecutionResponse(
                 x.Id, x.RuleId, x.SourceActivityId, x.WorkItemId,
                 x.Status.ToString(), x.RequiredAction,
                 x.AuthorizingGrantId, x.AuthorizingGrantRevision,
                 x.ErrorCode, x.ErrorMessage, x.CompletedAt))
-            .ToListAsync(cancellationToken);
+            .ToList();
         return new WorkAutomationDirectoryResponse(responses, executions);
     }
 
