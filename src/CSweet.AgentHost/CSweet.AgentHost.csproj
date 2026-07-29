@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <PackageReference Include="CSweet.Agent.SDK" Condition="'$(UseLocalCSweetAgentSdk)' != 'true'" />
+    <PackageReference Include="CSweet.WorkManagement.Contracts" Condition="'$(UseLocalCSweetWorkManagementContracts)' != 'true'" />
     <PackageReference Include="CSweet.Memory.Broker" Condition="'$(UseLocalCSweetMemory)' != 'true'" />
     <PackageReference Include="CSweet.Memory.PostgreSql" Condition="'$(UseLocalCSweetMemory)' != 'true'" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
@@ -9,6 +10,8 @@
 
   <ItemGroup>
     <ProjectReference Include="$(CSweetAgentSdkRepositoryRoot)\src\CSweet.Agent.SDK\CSweet.Agent.SDK.csproj" Condition="'$(UseLocalCSweetAgentSdk)' == 'true'" />
+    <ProjectReference Include="$(CSweetWorkManagementContractsRepositoryRoot)\src\CSweet.WorkManagement.Contracts\CSweet.WorkManagement.Contracts.csproj"
+                      Condition="'$(UseLocalCSweetWorkManagementContracts)' == 'true'" />
     <ProjectReference Include="$(CSweetMemoryRepositoryRoot)\src\CSweet.Memory.Broker\CSweet.Memory.Broker.csproj" Condition="'$(UseLocalCSweetMemory)' == 'true'" />
     <ProjectReference Include="$(CSweetMemoryRepositoryRoot)\src\CSweet.Memory.PostgreSql\CSweet.Memory.PostgreSql.csproj" Condition="'$(UseLocalCSweetMemory)' == 'true'" />
     <ProjectReference Include="..\CSweet.Infrastructure\CSweet.Infrastructure.csproj" />

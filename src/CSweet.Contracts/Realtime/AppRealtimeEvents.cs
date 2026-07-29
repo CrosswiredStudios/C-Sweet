@@ -6,6 +6,7 @@ public static class AppRealtimeEvents
 {
     public const string NotificationCreated = "com.csweet.app.notification.created.v1";
     public const string NotificationUpdated = "com.csweet.app.notification.updated.v1";
+    public const string WorkBoardChanged = "com.csweet.app.work-board.changed.v1";
 }
 
 public sealed record AppRealtimeEventEnvelope(

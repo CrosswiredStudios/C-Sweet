@@ -5,6 +5,8 @@ using CSweet.Domain.Setup;
 using CSweet.Contracts.Communications;
 using CSweet.Contracts.Realtime;
 using CSweet.Domain.Notifications;
+using CSweet.Domain.Security;
+using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Auth;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
@@ -65,6 +67,22 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<StrategicObjective> CoreStrategicObjectives => Set<StrategicObjective>();
     public DbSet<Worker> CoreWorkers => Set<Worker>();
     public DbSet<WorkTask> CoreWorkTasks => Set<WorkTask>();
+    public DbSet<WorkBoard> WorkBoards => Set<WorkBoard>();
+    public DbSet<WorkBoardColumn> WorkBoardColumns => Set<WorkBoardColumn>();
+    public DbSet<WorkSprint> WorkSprints => Set<WorkSprint>();
+    public DbSet<WorkSprintSnapshot> WorkSprintSnapshots => Set<WorkSprintSnapshot>();
+    public DbSet<WorkSprintMetricPoint> WorkSprintMetricPoints =>
+        Set<WorkSprintMetricPoint>();
+    public DbSet<WorkAutomationRule> WorkAutomationRules => Set<WorkAutomationRule>();
+    public DbSet<WorkAutomationExecution> WorkAutomationExecutions =>
+        Set<WorkAutomationExecution>();
+    public DbSet<WorkSprintMutationReceipt> WorkSprintMutationReceipts =>
+        Set<WorkSprintMutationReceipt>();
+    public DbSet<WorkBoardUserPreference> WorkBoardUserPreferences => Set<WorkBoardUserPreference>();
+    public DbSet<WorkItemMutationReceipt> WorkItemMutationReceipts => Set<WorkItemMutationReceipt>();
+    public DbSet<WorkItemComment> WorkItemComments => Set<WorkItemComment>();
+    public DbSet<WorkItemActivity> WorkItemActivities => Set<WorkItemActivity>();
+    public DbSet<ScopedActionGrant> ScopedActionGrants => Set<ScopedActionGrant>();
     public DbSet<TaskRun> CoreTaskRuns => Set<TaskRun>();
     public DbSet<Artifact> CoreArtifacts => Set<Artifact>();
     public DbSet<Approval> CoreApprovals => Set<Approval>();
@@ -362,6 +380,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         
         // Apply core business domain entity configurations
         CoreConfigurations.Apply(modelBuilder);
+        WorkManagementConfigurations.Apply(modelBuilder);
         modelBuilder.Entity<SystemConfiguration>(entity =>
         {
             entity.HasKey(x => x.Id);

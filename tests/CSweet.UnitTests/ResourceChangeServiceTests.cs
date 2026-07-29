@@ -46,6 +46,30 @@ public sealed class ResourceChangeServiceTests
     }
 
     [Fact]
+    public async Task AgentManagedProposal_WithoutManagerTurn_TargetsCurrentManagerInstallation()
+    {
+        await using var db = CreateDb();
+        var setup = SeedManagerConversation(db);
+        await db.SaveChangesAsync();
+        var service = new ResourceChangeService(db, new TestAuditEventWriter());
+
+        var request = await service.ProposeAsync(
+            setup.OrganizationId,
+            setup.RequesterInstallationId,
+            Proposal(setup, "agent-manager-cross-conversation") with
+            {
+                ChatTurnId = Guid.Empty
+            });
+
+        Assert.Equal(Guid.Empty, request.ChatTurnId);
+        Assert.Equal("QueuedForManagerAgent", request.DeliveryStatus);
+        var requested = Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == ResourceChangeEvents.Requested).ToListAsync());
+        Assert.Equal(setup.ManagerInstallationId, requested.TargetInstallationId);
+        Assert.Contains(request.Id.ToString("D"), requested.DataJson);
+    }
+
+    [Fact]
     public async Task FormerManagerCannotDecidePendingRequest()
     {
         await using var db = CreateDb();

@@ -151,8 +151,16 @@ internal static class CoreMappers
             (int)task.Priority,
             task.DueDate,
             task.RequiresApproval,
-            task.CreatedAt,
-            task.UpdatedAt);
+              task.CreatedAt,
+              task.UpdatedAt,
+              task.BoardId,
+              task.BoardColumnId,
+              task.BoardRank,
+              task.Revision,
+              task.Kind.ToString(),
+              task.ParentWorkTaskId,
+              task.SprintId,
+              task.EstimatePoints);
     }
 
     #endregion

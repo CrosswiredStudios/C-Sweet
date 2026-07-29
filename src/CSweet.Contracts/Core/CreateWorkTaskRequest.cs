@@ -11,4 +11,5 @@ public sealed record CreateWorkTaskRequest(
     int Status,
     int Priority,
     DateTimeOffset? DueDate,
-    bool RequiresApproval);
+    bool RequiresApproval,
+    Guid? BoardId = null);

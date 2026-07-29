@@ -3,6 +3,7 @@ using CSweet.Application.Setup;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Core;
@@ -46,6 +47,9 @@ public sealed class WorkTaskService : IWorkTaskService
         {
             return Failure("validation_error", "Task title is required.");
         }
+        if (!Enum.IsDefined(typeof(WorkTaskStatus), request.Status) ||
+            !Enum.IsDefined(typeof(WorkTaskPriority), request.Priority))
+            return Failure("validation_error", "Task status or priority is invalid.");
 
         // Validate strategic objective belongs to organization if provided
         if (request.StrategicObjectiveId.HasValue)
@@ -84,16 +88,53 @@ public sealed class WorkTaskService : IWorkTaskService
         }
 
         var now = DateTimeOffset.UtcNow;
+        CSweet.Domain.WorkManagement.WorkBoard board;
+        if (request.BoardId.HasValue)
+        {
+            var requestedBoard = await _dbContext.WorkBoards
+                .Include(x => x.Columns)
+                .SingleOrDefaultAsync(x =>
+                x.Id == request.BoardId &&
+                x.OrganizationId == organizationId &&
+                x.ArchivedAt == null, cancellationToken);
+            if (requestedBoard is null)
+                return Failure("invalid_board", "Board does not belong to this organization or is archived.");
+            board = requestedBoard;
+        }
+        else
+        {
+            board = await WorkBoardProvisioning.EnsureDefaultBoardAsync(
+                _dbContext, organizationId, cancellationToken);
+        }
+        var status = (WorkTaskStatus)request.Status;
+        var column = board.Columns.OrderBy(x => x.Position).FirstOrDefault(x =>
+            status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled
+                ? x.Category == CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Done
+                : status is WorkTaskStatus.Assigned or WorkTaskStatus.Running or WorkTaskStatus.WaitingForApproval
+                    ? x.Category == CSweet.Domain.WorkManagement.WorkBoardColumnCategory.InProgress
+                    : x.Category == CSweet.Domain.WorkManagement.WorkBoardColumnCategory.ToDo)
+            ?? board.Columns.OrderBy(x => x.Position).First();
+        var nextRank = (await _dbContext.CoreWorkTasks
+            .Where(x => x.BoardColumnId == column.Id)
+            .MaxAsync(x => (long?)x.BoardRank, cancellationToken) ?? 0) + 1024;
+        if (column.WipPolicy == CSweet.Domain.WorkManagement.WorkBoardWipPolicy.HardLimit &&
+            column.WipLimit.HasValue &&
+            await _dbContext.CoreWorkTasks.CountAsync(
+                x => x.BoardColumnId == column.Id, cancellationToken) >= column.WipLimit.Value)
+            return Failure("wip_limit", $"Column '{column.Name}' has reached its WIP limit.");
         var task = new WorkTask
         {
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
+            BoardId = board.Id,
+            BoardColumnId = column.Id,
+            BoardRank = nextRank,
             StrategicObjectiveId = request.StrategicObjectiveId,
             AssignedRoleId = request.AssignedRoleId,
             AssignedWorkerId = request.AssignedWorkerId,
             Title = request.Title.Trim(),
             Description = request.Description ?? string.Empty,
-            Status = (WorkTaskStatus)request.Status,
+            Status = status,
             Priority = (WorkTaskPriority)request.Priority,
             DueDate = request.DueDate,
             RequiresApproval = request.RequiresApproval,
@@ -123,6 +164,12 @@ public sealed class WorkTaskService : IWorkTaskService
         {
             return Failure("not_found", "Task was not found.");
         }
+        if (request.Status.HasValue &&
+            !Enum.IsDefined(typeof(WorkTaskStatus), request.Status.Value))
+            return Failure("validation_error", "Task status is invalid.");
+        if (request.Priority.HasValue &&
+            !Enum.IsDefined(typeof(WorkTaskPriority), request.Priority.Value))
+            return Failure("validation_error", "Task priority is invalid.");
 
         if (!string.IsNullOrWhiteSpace(request.Title))
             task.Title = request.Title.Trim();
@@ -134,8 +181,41 @@ public sealed class WorkTaskService : IWorkTaskService
             task.AssignedRoleId = request.AssignedRoleId;
         if (request.AssignedWorkerId.HasValue)
             task.AssignedWorkerId = request.AssignedWorkerId;
-        if (request.Status.HasValue)
-            task.Status = (WorkTaskStatus)request.Status.Value;
+        if (request.Status.HasValue && request.Status.Value != (int)task.Status)
+        {
+            var status = (WorkTaskStatus)request.Status.Value;
+            var columns = await _dbContext.WorkBoardColumns
+                .Where(x => x.BoardId == task.BoardId)
+                .OrderBy(x => x.Position)
+                .ToListAsync(cancellationToken);
+            var category = status switch
+            {
+                WorkTaskStatus.Completed => CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Done,
+                WorkTaskStatus.Cancelled => CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Cancelled,
+                WorkTaskStatus.Assigned or WorkTaskStatus.Running or WorkTaskStatus.WaitingForApproval =>
+                    CSweet.Domain.WorkManagement.WorkBoardColumnCategory.InProgress,
+                _ => CSweet.Domain.WorkManagement.WorkBoardColumnCategory.ToDo
+            };
+            var column = columns.FirstOrDefault(x => x.Category == category)
+                ?? columns.FirstOrDefault(x => x.Category ==
+                    (category == CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Cancelled
+                        ? CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Done
+                        : CSweet.Domain.WorkManagement.WorkBoardColumnCategory.ToDo));
+            if (column is not null)
+            {
+                if (column.WipPolicy == CSweet.Domain.WorkManagement.WorkBoardWipPolicy.HardLimit &&
+                    column.WipLimit.HasValue &&
+                    await _dbContext.CoreWorkTasks.CountAsync(
+                        x => x.BoardColumnId == column.Id && x.Id != task.Id,
+                        cancellationToken) >= column.WipLimit.Value)
+                    return Failure("wip_limit", $"Column '{column.Name}' has reached its WIP limit.");
+                task.BoardColumnId = column.Id;
+                task.BoardRank = (await _dbContext.CoreWorkTasks
+                    .Where(x => x.BoardColumnId == column.Id && x.Id != task.Id)
+                    .MaxAsync(x => (long?)x.BoardRank, cancellationToken) ?? 0) + 1024;
+            }
+            task.Status = status;
+        }
         if (request.Priority.HasValue)
             task.Priority = (WorkTaskPriority)request.Priority.Value;
         if (request.DueDate.HasValue)
@@ -144,6 +224,10 @@ public sealed class WorkTaskService : IWorkTaskService
             task.RequiresApproval = request.RequiresApproval.Value;
 
         task.UpdatedAt = DateTimeOffset.UtcNow;
+        task.Revision++;
+        await WorkSprintMetricsRecorder.RecordAsync(
+            _dbContext, task.SprintId, "item.updated",
+            task.UpdatedAt, cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         await _auditEventWriter.WriteAsync(
@@ -168,6 +252,9 @@ public sealed class WorkTaskService : IWorkTaskService
 
         var title = task.Title;
         _dbContext.CoreWorkTasks.Remove(task);
+        await WorkSprintMetricsRecorder.RecordAsync(
+            _dbContext, task.SprintId, "item.deleted",
+            DateTimeOffset.UtcNow, cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         await _auditEventWriter.WriteAsync(

@@ -1,0 +1,1892 @@
+@page "/organizations/{OrganizationId:guid}/work"
+@using System.Net
+@using System.Net.Http.Json
+@using CSweet.Contracts.WorkManagement
+@using CSweet.Contracts.Agents
+@using CSweet.Contracts.Realtime
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+
+<PageTitle>Work - C-Sweet</PageTitle>
+
+<MudPaper Elevation="1" Class="surface-panel">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Company work</MudText>
+            <MudText Typo="Typo.h4">Boards</MudText>
+            <MudText Color="Color.Secondary">
+                Find and manage the operational boards you are granted to access.
+            </MudText>
+        </div>
+        @if (_directory?.CanCreateBoard == true)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Outlined.Add" OnClick="OpenCreate">
+                New board
+            </MudButton>
+        }
+    </MudStack>
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-5" Style="flex-wrap: wrap;">
+        <MudTextField T="string" Label="Search boards" @bind-Value="_search"
+                      Variant="Variant.Outlined" Adornment="Adornment.End"
+                      AdornmentIcon="@Icons.Material.Outlined.Search"
+                      OnKeyDown="SearchKeyDown" Immediate="true" />
+        <MudSwitch T="bool" Value="_favoritesOnly" Color="Color.Primary"
+                   ValueChanged="SetFavoritesOnlyAsync">Favorites only</MudSwitch>
+        <MudSwitch T="bool" Value="_includeArchived" Color="Color.Primary"
+                   ValueChanged="SetIncludeArchivedAsync">Show archived</MudSwitch>
+        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Color="Color.Primary"
+                       Disabled="_loading" OnClick="ReloadAsync" aria-label="Refresh boards" />
+    </MudStack>
+
+    @if (_forbidden)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
+            You do not have a board read grant for this company.
+        </MudAlert>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">@_error</MudAlert>
+    }
+    else if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="mt-4" />
+    }
+    else if (_directory?.Boards.Count is null or 0)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-4">
+            No boards match the current filters.
+        </MudAlert>
+    }
+    else
+    {
+        <MudGrid Class="mt-3">
+            @foreach (var board in _directory!.Boards)
+            {
+                <MudItem xs="12" md="6" xl="4">
+                    <MudCard Outlined="true" Style="height: 100%;">
+                        <MudCardHeader>
+                            <CardHeaderContent>
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudText Typo="Typo.h6">@board.Name</MudText>
+                                    @if (board.IsDefault)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">Default</MudChip>
+                                    }
+                                    @if (board.IsArchived)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Archived</MudChip>
+                                    }
+                                </MudStack>
+                            </CardHeaderContent>
+                            <CardHeaderActions>
+                                <MudIconButton Icon="@(board.IsFavorite ? Icons.Material.Filled.Star : Icons.Material.Outlined.StarBorder)"
+                                               Color="@(board.IsFavorite ? Color.Warning : Color.Default)"
+                                               OnClick="@(() => SetFavoriteAsync(board))"
+                                               aria-label="@(board.IsFavorite ? "Remove from favorites" : "Add to favorites")" />
+                            </CardHeaderActions>
+                        </MudCardHeader>
+                        <MudCardContent>
+                            <MudText Typo="Typo.body2">@Description(board)</MudText>
+                            <MudStack Row="true" Spacing="1" Class="mt-4" Style="flex-wrap: wrap;">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                         Icon="@Icons.Material.Outlined.TaskAlt">
+                                    @board.ActiveItemCount active
+                                </MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                         Icon="@Icons.Material.Outlined.AdminPanelSettings">
+                                    @board.GrantedSubjectCount with access
+                                </MudChip>
+                                @if (board.LastVisitedAt.HasValue)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                             Icon="@Icons.Material.Outlined.History">
+                                        @RelativeTime(board.LastVisitedAt.Value)
+                                    </MudChip>
+                                }
+                            </MudStack>
+                        </MudCardContent>
+                        <MudCardActions>
+                            <MudButton Variant="Variant.Text" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Outlined.Visibility"
+                                       OnClick="@(() => OpenBoardAsync(board))">View</MudButton>
+                            @if (board.AllowedActions.Contains(WorkBoardActions.Configure))
+                            {
+                                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Edit"
+                                           Disabled="board.IsArchived" OnClick="@(() => OpenEdit(board))">
+                                    Configure
+                                </MudButton>
+                            }
+                            <MudSpacer />
+                            @if (!board.IsArchived && !board.IsDefault &&
+                                 board.AllowedActions.Contains(WorkBoardActions.Archive))
+                            {
+                                <MudIconButton Icon="@Icons.Material.Outlined.Archive"
+                                               Color="Color.Warning" OnClick="@(() => ArchiveAsync(board))"
+                                               aria-label="Archive board" />
+                            }
+                            else if (board.IsArchived &&
+                                     board.AllowedActions.Contains(WorkBoardActions.Restore))
+                            {
+                                <MudIconButton Icon="@Icons.Material.Outlined.Unarchive"
+                                               Color="Color.Success" OnClick="@(() => RestoreAsync(board))"
+                                               aria-label="Restore board" />
+                            }
+                        </MudCardActions>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</MudPaper>
+
+<MudDialog @bind-Visible="_editorOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(_editingBoard is null ? "Create board" : "Configure board")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField T="string" Label="Name" @bind-Value="_editorName"
+                      Variant="Variant.Outlined" Required="true" Class="mt-2" />
+        <MudTextField T="string" Label="Description" @bind-Value="_editorDescription"
+                      Variant="Variant.Outlined" Lines="3" Class="mt-3" />
+        @if (_editingBoard is not null)
+        {
+            <MudSwitch T="bool" @bind-Value="_editorDefault" Color="Color.Primary" Class="mt-3">
+                Default company board
+            </MudSwitch>
+        }
+        @if (!string.IsNullOrWhiteSpace(_editorError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">@_editorError</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _editorOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving"
+                   OnClick="SaveEditorAsync">@(_saving ? "Saving..." : "Save")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_detailOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.ExtraLarge, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">@(_detail?.Board.Name ?? "Board")</MudText></TitleContent>
+    <DialogContent>
+        @if (_detailLoading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_detail is not null)
+        {
+            <MudText Color="Color.Secondary">@Description(_detail.Board)</MudText>
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                @if (_detail.Board.AllowedActions.Contains(WorkItemActions.Create) && !_detail.Board.IsArchived)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Outlined.AddTask"
+                               OnClick="OpenItemCreator">New work item</MudButton>
+                }
+                @if (_detail.Board.AllowedActions.Contains(WorkSprintActions.Read))
+                {
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Outlined.EventNote"
+                               OnClick="@(() => _sprintsOpen = true)">Sprints</MudButton>
+                }
+                @if (_detail.Board.AllowedActions.Contains(WorkAutomationActions.Read))
+                {
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Outlined.AutoFixHigh"
+                               OnClick="OpenAutomationsAsync">Automations</MudButton>
+                }
+                @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ConfigureColumns) &&
+                     !_detail.Board.IsArchived)
+                {
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Outlined.ViewColumn"
+                               OnClick="OpenColumnEditor">Configure columns</MudButton>
+                }
+                @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ManageGrants))
+                {
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Outlined.AdminPanelSettings"
+                               OnClick="OpenAgentAccessAsync">Agent access</MudButton>
+                }
+            </MudStack>
+            @if (!string.IsNullOrWhiteSpace(_detailError))
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                    @_detailError
+                </MudAlert>
+            }
+            <div class="mt-4" style="display:flex; gap:16px; overflow-x:auto; align-items:flex-start;">
+                @foreach (var column in _detail.Columns)
+                {
+                    var columnItems = _detail.Items
+                        .Where(item => item.ColumnId == column.Id)
+                        .OrderBy(item => item.Rank)
+                        .ToList();
+                    <MudPaper Outlined="true" Class="pa-3"
+                              Style="min-width:280px; width:280px; flex:0 0 280px;">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <MudText Typo="Typo.subtitle1"><b>@column.Name</b></MudText>
+                            <MudChip T="int" Size="Size.Small">@columnItems.Count</MudChip>
+                        </MudStack>
+                        @if (column.WipLimit.HasValue)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @column.WipPolicy limit: @column.WipLimit
+                            </MudText>
+                        }
+                        @foreach (var item in columnItems)
+                        {
+                            <MudCard Outlined="true" Class="mt-3">
+                                <MudCardContent>
+                                    <MudText Typo="Typo.overline" Color="Color.Primary">@item.Kind</MudText>
+                                    <MudText Typo="Typo.subtitle2">@item.Title</MudText>
+                                    @if (!string.IsNullOrWhiteSpace(item.Description))
+                                    {
+                                        <MudText Typo="Typo.caption">@item.Description</MudText>
+                                    }
+                                    @if (SprintFor(item.SprintId) is { } sprint)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Info"
+                                                 Variant="Variant.Outlined" Class="mt-2">
+                                            @sprint.Name
+                                        </MudChip>
+                                    }
+                                    @if (item.EstimatePoints.HasValue)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                                 Class="mt-2 ml-1">
+                                            @item.EstimatePoints.Value.ToString("0.##") pts
+                                        </MudChip>
+                                    }
+                                </MudCardContent>
+                                <MudCardActions>
+                                    <MudIconButton Icon="@Icons.Material.Outlined.Forum"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => OpenCollaborationAsync(item))"
+                                                   aria-label="Comments and activity" />
+                                    @if (_detail.Board.AllowedActions.Contains(WorkItemActions.Estimate) &&
+                                         !_detail.Board.IsArchived)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Outlined.Calculate"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => OpenEstimate(item))"
+                                                       aria-label="Set estimate" />
+                                    }
+                                    @if (_detail.Board.AllowedActions.Contains(WorkSprintActions.ManageScope) &&
+                                         !_detail.Board.IsArchived)
+                                    {
+                                        <MudMenu Icon="@Icons.Material.Outlined.EventAvailable"
+                                                 Size="Size.Small"
+                                                 AriaLabel="Assign sprint">
+                                            <MudMenuItem Disabled="@(!item.SprintId.HasValue)"
+                                                         OnClick="@(() => SetItemSprintAsync(item, null))">
+                                                Backlog (no sprint)
+                                            </MudMenuItem>
+                                            @foreach (var sprintOption in AssignableSprints)
+                                            {
+                                                <MudMenuItem Disabled="@(item.SprintId == sprintOption.Id)"
+                                                             OnClick="@(() => SetItemSprintAsync(item, sprintOption.Id))">
+                                                    @sprintOption.Name
+                                                </MudMenuItem>
+                                            }
+                                        </MudMenu>
+                                    }
+                                    @{
+                                        var columnIndex = ColumnIndex(column.Id);
+                                    }
+                                    @if (columnIndex > 0)
+                                    {
+                                        var previousColumn = _detail.Columns[columnIndex - 1];
+                                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowBack"
+                                                       Size="Size.Small"
+                                                       Disabled="@(!CanMoveTo(item, previousColumn))"
+                                                       OnClick="@(() => MoveItemAsync(item, previousColumn))"
+                                                       aria-label="Move left" />
+                                    }
+                                    else
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowBack"
+                                                       Size="Size.Small" Disabled="true" aria-label="Move left" />
+                                    }
+                                    <MudSpacer />
+                                    @if (columnIndex < _detail.Columns.Count - 1)
+                                    {
+                                        var nextColumn = _detail.Columns[columnIndex + 1];
+                                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowForward"
+                                                       Size="Size.Small"
+                                                       Disabled="@(!CanMoveTo(item, nextColumn))"
+                                                       OnClick="@(() => MoveItemAsync(item, nextColumn))"
+                                                       aria-label="Move right" />
+                                    }
+                                    else
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Outlined.ArrowForward"
+                                                       Size="Size.Small" Disabled="true" aria-label="Move right" />
+                                    }
+                                </MudCardActions>
+                            </MudCard>
+                        }
+                    </MudPaper>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions><MudButton OnClick="@(() => _detailOpen = false)">Close</MudButton></DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_automationsOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Board automations</MudText></TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrWhiteSpace(_automationError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">
+                @_automationError
+            </MudAlert>
+        }
+        @if (_detail?.Board.AllowedActions.Contains(WorkAutomationActions.Manage) == true &&
+             !_detail.Board.IsArchived)
+        {
+            <MudPaper Outlined="true" Class="pa-3">
+                <MudText Typo="Typo.subtitle1">New event rule</MudText>
+                <MudTextField T="string" Label="Name" @bind-Value="_automationName"
+                              Variant="Variant.Outlined" Class="mt-2" />
+                <MudSelect T="string" Label="When" @bind-Value="_automationTrigger"
+                           Variant="Variant.Outlined" Class="mt-2">
+                    @foreach (var trigger in AutomationTriggers)
+                    {
+                        <MudSelectItem T="string" Value="@trigger">@ActivityLabel(trigger)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="Guid?" Label="Only while in column"
+                           @bind-Value="_automationConditionColumnId"
+                           Clearable="true" Variant="Variant.Outlined" Class="mt-2">
+                    @foreach (var column in _detail.Columns)
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" Label="Action" @bind-Value="_automationAction"
+                           Variant="Variant.Outlined" Class="mt-2">
+                    @foreach (var action in AutomationItemActions)
+                    {
+                        <MudSelectItem T="string" Value="@action">@action.Replace("work.item.", "")</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="Guid?" Label="Target column" @bind-Value="_automationTargetColumnId"
+                           Variant="Variant.Outlined" Class="mt-2">
+                    @foreach (var column in _detail.Columns)
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-2"
+                           Disabled="@(_saving || string.IsNullOrWhiteSpace(_automationName) ||
+                                       !_automationTargetColumnId.HasValue)"
+                           OnClick="CreateAutomationAsync">
+                    Create disabled rule
+                </MudButton>
+            </MudPaper>
+        }
+        @if (_automations?.Rules.Count is null or 0)
+        {
+            <MudText Color="Color.Secondary" Class="mt-4">No automation rules are configured.</MudText>
+        }
+        else
+        {
+            @foreach (var rule in _automations.Rules)
+            {
+                <MudPaper Outlined="true" Class="pa-3 mt-3">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                        <div>
+                            <MudText Typo="Typo.subtitle1">@rule.Name</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @ActivityLabel(rule.TriggerEventType) → @rule.Action.Replace("work.item.", "")
+                            </MudText>
+                            <MudText Typo="Typo.caption" Style="display:block;">
+                                Identity: @rule.AutomationIdentityId
+                            </MudText>
+                        </div>
+                        <MudChip T="string" Size="Size.Small"
+                                 Color="@(rule.IsEnabled && rule.HasExecutionGrant ? Color.Success :
+                                          rule.IsEnabled ? Color.Warning : Color.Default)">
+                            @(rule.IsEnabled ? (rule.HasExecutionGrant ? "Active" : "Grant missing") : "Disabled")
+                        </MudChip>
+                    </MudStack>
+                    <MudStack Row="true" Class="mt-2">
+                        @if (_detail?.Board.AllowedActions.Contains(WorkAutomationActions.Manage) == true)
+                        {
+                            <MudButton Variant="Variant.Text"
+                                       OnClick="@(() => ToggleAutomationAsync(rule))">
+                                @(rule.IsEnabled ? "Disable" : "Enable")
+                            </MudButton>
+                        }
+                        @if (!rule.HasExecutionGrant &&
+                             _detail?.Board.AllowedActions.Contains(WorkBoardActions.ManageGrants) == true)
+                        {
+                            <MudButton Variant="Variant.Text" Color="Color.Primary"
+                                       OnClick="@(() => GrantAutomationAsync(rule))">
+                                Grant @rule.Action.Replace("work.item.", "")
+                            </MudButton>
+                        }
+                    </MudStack>
+                </MudPaper>
+            }
+        }
+        @if (_automations?.RecentExecutions.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-4">Recent executions</MudText>
+            @foreach (var execution in _automations.RecentExecutions.Take(20))
+            {
+                <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-1">
+                    <MudText Typo="Typo.caption">@execution.Status · @execution.RequiredAction</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        @RelativeTime(execution.CompletedAt)
+                    </MudText>
+                </MudStack>
+            }
+        }
+    </DialogContent>
+    <DialogActions><MudButton OnClick="@(() => _automationsOpen = false)">Close</MudButton></DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_sprintsOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Sprints</MudText></TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrWhiteSpace(_sprintError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">
+                @_sprintError
+            </MudAlert>
+        }
+        @if (_detail?.Board.AllowedActions.Contains(WorkSprintActions.ReadReports) == true)
+        {
+            <MudButton Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Outlined.Insights"
+                       OnClick="LoadSprintReportAsync">
+                Refresh report
+            </MudButton>
+            @if (_sprintReport is not null)
+            {
+                <MudStack Row="true" Class="mt-3" Style="flex-wrap:wrap;">
+                    <MudChip T="string" Variant="Variant.Outlined">
+                        @_sprintReport.AverageVelocity.ToString("0.##") avg velocity
+                    </MudChip>
+                    <MudChip T="string" Variant="Variant.Outlined">
+                        @_sprintReport.TotalCompletedPoints.ToString("0.##") points delivered
+                    </MudChip>
+                    @if (_sprintReport.AverageCapacityUtilizationPercent.HasValue)
+                    {
+                        <MudChip T="string" Variant="Variant.Outlined">
+                            @_sprintReport.AverageCapacityUtilizationPercent.Value.ToString("0.#")% capacity
+                        </MudChip>
+                    }
+                </MudStack>
+                @if (_sprintReport.ActiveForecast is { } forecast)
+                {
+                    <MudAlert Severity="@(forecast.IsOverCapacity ? Severity.Warning : Severity.Info)"
+                              Variant="Variant.Outlined" Class="mt-3">
+                        <b>@forecast.SprintName:</b>
+                        @forecast.RemainingPoints.ToString("0.##") points remaining.
+                        @if (forecast.ProjectedSprintsRequired.HasValue)
+                        {
+                            <span>
+                                At the historical velocity of @forecast.AverageVelocity.ToString("0.##"),
+                                this is approximately @forecast.ProjectedSprintsRequired.Value.ToString("0.##") sprint(s) of work.
+                            </span>
+                        }
+                        else
+                        {
+                            <span>A forecast needs at least one completed sprint with delivered points.</span>
+                        }
+                    </MudAlert>
+                }
+                @if (_sprintReport.Burndown.FirstOrDefault(x => x.Status == "Active") is { } activeSeries &&
+                     activeSeries.Points.Count > 0)
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mt-3">Recent burndown changes</MudText>
+                    @foreach (var point in activeSeries.Points.TakeLast(8).Reverse())
+                    {
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-1">
+                            <MudText Typo="Typo.caption">@ActivityLabel(point.Reason)</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @point.RemainingPoints.ToString("0.##") remaining · @RelativeTime(point.OccurredAt)
+                            </MudText>
+                        </MudStack>
+                    }
+                }
+            }
+        }
+        @if (_detail?.Board.AllowedActions.Contains(WorkSprintActions.Create) == true &&
+             !_detail.Board.IsArchived)
+        {
+            <MudPaper Outlined="true" Class="pa-3">
+                <MudText Typo="Typo.subtitle1">Plan a sprint</MudText>
+                <MudTextField T="string" Label="Name" @bind-Value="_sprintName"
+                              Variant="Variant.Outlined" Class="mt-2" />
+                <MudTextField T="string" Label="Goal" @bind-Value="_sprintGoal"
+                              Variant="Variant.Outlined" Lines="2" Class="mt-2" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Outlined.Add"
+                           Disabled="@(_saving || string.IsNullOrWhiteSpace(_sprintName))"
+                           OnClick="CreateSprintAsync" Class="mt-2">
+                    Create sprint
+                </MudButton>
+            </MudPaper>
+        }
+        @if (_sprints.Count == 0)
+        {
+            <MudText Color="Color.Secondary" Class="mt-4">No sprints have been planned.</MudText>
+        }
+        @foreach (var sprint in _sprints)
+        {
+            <MudPaper Outlined="true" Class="pa-3 mt-3">
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                    <div>
+                        <MudText Typo="Typo.subtitle1">@sprint.Name</MudText>
+                        <MudText Typo="Typo.body2">@sprint.Goal</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @sprint.Status · @sprint.CompletedItemCount/@sprint.ItemCount completed
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @sprint.CompletedPoints.ToString("0.##")/@sprint.PlannedPoints.ToString("0.##") points
+                            @if (sprint.CapacityPoints.HasValue)
+                            {
+                                <span> · @sprint.CapacityPoints.Value.ToString("0.##") capacity</span>
+                            }
+                        </MudText>
+                    </div>
+                    <MudChip T="string" Size="Size.Small"
+                             Color="@(sprint.Status == "Active" ? Color.Success : Color.Default)">
+                        @sprint.Status
+                    </MudChip>
+                </MudStack>
+                <MudStack Row="true" Class="mt-2">
+                    @if (sprint.Status == "Planned" &&
+                         _detail?.Board.AllowedActions.Contains(WorkSprintActions.Start) == true)
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Success"
+                                   Disabled="_saving"
+                                   OnClick="@(() => ChangeSprintStateAsync(sprint, "start"))">
+                            Start
+                        </MudButton>
+                    }
+                    @if (sprint.Status == "Active" &&
+                         _detail?.Board.AllowedActions.Contains(WorkSprintActions.Complete) == true)
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Primary"
+                                   Disabled="_saving"
+                                   OnClick="@(() => ChangeSprintStateAsync(sprint, "complete"))">
+                            Complete
+                        </MudButton>
+                    }
+                    @if ((sprint.Status == "Planned" || sprint.Status == "Active") &&
+                         _detail?.Board.AllowedActions.Contains(WorkSprintActions.Cancel) == true)
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Error"
+                                   Disabled="_saving"
+                                   OnClick="@(() => ChangeSprintStateAsync(sprint, "cancel"))">
+                            Cancel
+                        </MudButton>
+                    }
+                    @if ((sprint.Status == "Planned" || sprint.Status == "Active") &&
+                         _detail?.Board.AllowedActions.Contains(WorkSprintActions.ManageCapacity) == true)
+                    {
+                        <MudButton Variant="Variant.Text"
+                                   OnClick="@(() => OpenCapacity(sprint))">
+                            Capacity
+                        </MudButton>
+                    }
+                    @if ((sprint.Status == "Completed" || sprint.Status == "Cancelled") &&
+                         sprint.CompletedItemCount < sprint.ItemCount &&
+                         _detail?.Board.AllowedActions.Contains(WorkSprintActions.CarryOver) == true &&
+                         AssignableSprints.Any(x => x.Id != sprint.Id))
+                    {
+                        <MudButton Variant="Variant.Text"
+                                   OnClick="@(() => OpenCarryover(sprint))">
+                            Carry over
+                        </MudButton>
+                    }
+                </MudStack>
+            </MudPaper>
+        }
+    </DialogContent>
+    <DialogActions><MudButton OnClick="@(() => _sprintsOpen = false)">Close</MudButton></DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_estimateOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Estimate work item</MudText></TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2">@_estimateItem?.Title</MudText>
+        <MudNumericField T="decimal?" Label="Story points" @bind-Value="_estimatePoints"
+                         Min="0" Max="999999.99m" Variant="Variant.Outlined" Class="mt-3"
+                         HelperText="Leave empty to remove the estimate." />
+        @if (!string.IsNullOrWhiteSpace(_planningError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                @_planningError
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _estimateOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="_saving" OnClick="SaveEstimateAsync">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_capacityOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Sprint capacity</MudText></TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2">@_capacitySprint?.Name</MudText>
+        <MudNumericField T="decimal?" Label="Capacity points" @bind-Value="_capacityPoints"
+                         Min="0" Max="999999.99m" Variant="Variant.Outlined" Class="mt-3"
+                         HelperText="Leave empty for no capacity target." />
+        @if (!string.IsNullOrWhiteSpace(_planningError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                @_planningError
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _capacityOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="_saving" OnClick="SaveCapacityAsync">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_carryoverOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Carry over incomplete work</MudText></TitleContent>
+    <DialogContent>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            The completed sprint snapshot remains unchanged. Current incomplete cards move to the selected sprint.
+        </MudAlert>
+        <MudSelect T="Guid?" Label="Target sprint" @bind-Value="_carryoverTargetSprintId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var sprint in AssignableSprints.Where(x => x.Id != _carryoverSource?.Id))
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)sprint.Id)">@sprint.Name</MudSelectItem>
+            }
+        </MudSelect>
+        @if (!string.IsNullOrWhiteSpace(_planningError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                @_planningError
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _carryoverOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_saving || !_carryoverTargetSprintId.HasValue)"
+                   OnClick="CarryOverAsync">Carry over all incomplete</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_collaborationOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(_selectedItem?.Title ?? "Work item")</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_collaborationLoading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            @if (!string.IsNullOrWhiteSpace(_collaborationError))
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">
+                    @_collaborationError
+                </MudAlert>
+            }
+            <MudText Typo="Typo.subtitle1">Comments</MudText>
+            @if (_collaboration?.Comments.Count is null or 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                    No comments yet.
+                </MudText>
+            }
+            else
+            {
+                @foreach (var comment in _collaboration!.Comments.OrderByDescending(x => x.CreatedAt))
+                {
+                    <MudPaper Outlined="true" Class="pa-3 mt-2">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.subtitle2">@comment.AuthorDisplayName</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @RelativeTime(comment.CreatedAt)
+                            </MudText>
+                        </MudStack>
+                        <MudText Typo="Typo.body2" Class="mt-1">@comment.Body</MudText>
+                    </MudPaper>
+                }
+            }
+            @if (_detail?.Board.AllowedActions.Contains(WorkItemActions.Comment) == true &&
+                 !_detail.Board.IsArchived)
+            {
+                <MudTextField T="string" Label="Add a comment" @bind-Value="_commentBody"
+                              Variant="Variant.Outlined" Lines="3" Class="mt-4" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Outlined.Send"
+                           Disabled="@(_saving || string.IsNullOrWhiteSpace(_commentBody))"
+                           OnClick="AddCommentAsync" Class="mt-2">
+                    Comment
+                </MudButton>
+            }
+
+            <MudDivider Class="my-4" />
+            <MudText Typo="Typo.subtitle1">Activity</MudText>
+            @if (_collaboration?.Activity.Count is null or 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                    No recorded activity yet.
+                </MudText>
+            }
+            else
+            {
+                @foreach (var activity in _collaboration!.Activity.Take(50))
+                {
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-2">
+                        <MudText Typo="Typo.body2">
+                            @activity.ActorDisplayName · @ActivityLabel(activity.EventType)
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @RelativeTime(activity.OccurredAt)
+                        </MudText>
+                    </MudStack>
+                }
+            }
+
+            @if (_detail?.Board.AllowedActions.Contains(WorkItemActions.Transfer) == true &&
+                 TransferTargets.Count > 0 && !_detail.Board.IsArchived)
+            {
+                <MudDivider Class="my-4" />
+                <MudText Typo="Typo.subtitle1">Transfer to another board</MudText>
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-2">
+                    The work item keeps one canonical state and leaves this board when transferred.
+                </MudAlert>
+                <MudSelect T="Guid?" Label="Destination board" @bind-Value="_transferBoardId"
+                           Variant="Variant.Outlined" Class="mt-3">
+                    @foreach (var board in TransferTargets)
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)board.Id)">@board.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Outlined.DriveFileMove"
+                           Disabled="@(_saving || !_transferBoardId.HasValue)"
+                           OnClick="TransferItemAsync" Class="mt-2">
+                    Transfer
+                </MudButton>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _collaborationOpen = false)">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_agentAccessOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Agent board access</MudText></TitleContent>
+    <DialogContent>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-2">
+            Board grants and the agent package's MCP capability grant are both required.
+        </MudAlert>
+        <MudSelect T="Guid?" Label="Agent installation" Value="_selectedAgentId"
+                   ValueChanged="SelectAgentAccess" Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var agent in _boardAgents)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)agent.Id)">
+                    @agent.AgentName (@agent.AgentVersion)
+                </MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" Label="Access profile" @bind-Value="_agentAccessProfile"
+                   Variant="Variant.Outlined" Class="mt-3">
+            <MudSelectItem T="string" Value="@("None")">No access</MudSelectItem>
+            <MudSelectItem T="string" Value="@("ReadOnly")">Read only</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Operator")">Work-item operator</MudSelectItem>
+        </MudSelect>
+        @if (!string.IsNullOrWhiteSpace(_agentAccessError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                @_agentAccessError
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _agentAccessOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_saving || !_selectedAgentId.HasValue)"
+                   OnClick="SaveAgentAccessAsync">Save access</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_itemCreatorOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">New work item</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField T="string" Label="Title" @bind-Value="_itemTitle"
+                      Variant="Variant.Outlined" Required="true" Class="mt-2" />
+        <MudTextField T="string" Label="Description" @bind-Value="_itemDescription"
+                      Variant="Variant.Outlined" Lines="3" Class="mt-3" />
+        <MudSelect T="string" Label="Type" @bind-Value="_itemKind"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var kind in WorkItemKinds)
+            {
+                <MudSelectItem T="string" Value="@kind">@kind</MudSelectItem>
+            }
+        </MudSelect>
+        @if (!string.IsNullOrWhiteSpace(_itemError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">@_itemError</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _itemCreatorOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="_saving" OnClick="CreateItemAsync">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_columnsOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Configure columns</MudText></TitleContent>
+    <DialogContent>
+        @foreach (var draft in _columnDrafts)
+        {
+            <MudPaper Outlined="true" Class="pa-3 mt-3">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudTextField T="string" Label="Name" @bind-Value="draft.Name"
+                                  Variant="Variant.Outlined" />
+                    <MudSelect T="string" Label="Category" @bind-Value="draft.Category"
+                               Variant="Variant.Outlined">
+                        @foreach (var category in ColumnCategories)
+                        {
+                            <MudSelectItem T="string" Value="@category">@category</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSelect T="string" Label="WIP policy" @bind-Value="draft.WipPolicy"
+                               Variant="Variant.Outlined">
+                        @foreach (var policy in WipPolicies)
+                        {
+                            <MudSelectItem T="string" Value="@policy">@policy</MudSelectItem>
+                        }
+                    </MudSelect>
+                    @if (draft.WipPolicy != "Disabled")
+                    {
+                        <MudNumericField T="int?" Label="Limit" @bind-Value="draft.WipLimit"
+                                         Min="1" Variant="Variant.Outlined" />
+                    }
+                    <MudIconButton Icon="@Icons.Material.Outlined.Delete"
+                                   Color="Color.Error"
+                                   Disabled="@(_columnDrafts.Count <= 2)"
+                                   OnClick="@(() => _columnDrafts.Remove(draft))"
+                                   aria-label="Remove column" />
+                </MudStack>
+            </MudPaper>
+        }
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Add"
+                   Class="mt-3" OnClick="AddColumn">Add column</MudButton>
+        @if (!string.IsNullOrWhiteSpace(_columnsError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">@_columnsError</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _columnsOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="_saving" OnClick="SaveColumnsAsync">Save workflow</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+
+    private WorkBoardDirectoryResponse? _directory;
+    private WorkBoardSummaryResponse? _editingBoard;
+    private WorkBoardDetailResponse? _detail;
+    private string _search = "";
+    private string _editorName = "";
+    private string _editorDescription = "";
+    private string? _error;
+    private string? _editorError;
+    private bool _includeArchived;
+    private bool _favoritesOnly;
+    private bool _loading;
+    private bool _saving;
+    private bool _forbidden;
+    private bool _editorOpen;
+    private bool _editorDefault;
+    private bool _detailOpen;
+    private bool _detailLoading;
+    private bool _itemCreatorOpen;
+    private bool _columnsOpen;
+    private bool _agentAccessOpen;
+    private bool _collaborationOpen;
+    private bool _collaborationLoading;
+    private bool _sprintsOpen;
+    private bool _automationsOpen;
+    private bool _estimateOpen;
+    private bool _capacityOpen;
+    private bool _carryoverOpen;
+    private bool _realtimeRefreshRunning;
+    private bool _realtimeRefreshPending;
+    private string _itemTitle = "";
+    private string _itemDescription = "";
+    private string _itemKind = "Task";
+    private string? _itemError;
+    private string? _columnsError;
+    private string? _detailError;
+    private string? _agentAccessError;
+    private string? _collaborationError;
+    private string _commentBody = "";
+    private string _sprintName = "";
+    private string _sprintGoal = "";
+    private string? _sprintError;
+    private string? _planningError;
+    private string? _automationError;
+    private string _automationName = "";
+    private string _automationTrigger = "item.created";
+    private string _automationAction = WorkItemActions.Move;
+    private Guid? _automationConditionColumnId;
+    private Guid? _automationTargetColumnId;
+    private Guid? _selectedAgentId;
+    private Guid? _transferBoardId;
+    private WorkBoardItemResponse? _selectedItem;
+    private WorkBoardItemResponse? _estimateItem;
+    private WorkItemCollaborationResponse? _collaboration;
+    private IReadOnlyList<WorkSprintResponse> _sprints = [];
+    private WorkSprintResponse? _capacitySprint;
+    private WorkSprintResponse? _carryoverSource;
+    private WorkSprintReportResponse? _sprintReport;
+    private WorkAutomationDirectoryResponse? _automations;
+    private decimal? _estimatePoints;
+    private decimal? _capacityPoints;
+    private Guid? _carryoverTargetSprintId;
+    private string _agentAccessProfile = "None";
+    private readonly List<ColumnDraft> _columnDrafts = [];
+    private IReadOnlyList<AgentInstallationResponse> _boardAgents = [];
+    private IReadOnlyList<WorkBoardGrantResponse> _boardGrants = [];
+    private static readonly string[] WorkItemKinds = ["Initiative", "Epic", "Story", "Task", "Bug"];
+    private static readonly string[] ColumnCategories = ["ToDo", "InProgress", "Done", "Cancelled"];
+    private static readonly string[] WipPolicies = ["Disabled", "Warning", "HardLimit"];
+    private static readonly string[] AutomationTriggers =
+    [
+        "item.created", "item.moved", "item.completed", "item.cancelled",
+        "item.reopened", "item.sprint.assigned", "item.sprint.removed",
+        "item.estimate.changed", "comment.created"
+    ];
+    private static readonly string[] AutomationItemActions =
+    [
+        WorkItemActions.Move, WorkItemActions.Complete,
+        WorkItemActions.Cancel, WorkItemActions.Reopen
+    ];
+    private IReadOnlyList<WorkBoardSummaryResponse> TransferTargets =>
+        _directory?.Boards.Where(board =>
+                !board.IsArchived &&
+                board.Id != _detail?.Board.Id &&
+                board.AllowedActions.Contains(WorkItemActions.Transfer))
+            .OrderBy(board => board.Name)
+            .ToList() ?? [];
+    private IReadOnlyList<WorkSprintResponse> AssignableSprints =>
+        _sprints.Where(x => x.Status is "Planned" or "Active")
+            .OrderByDescending(x => x.Status == "Active")
+            .ThenBy(x => x.Name)
+            .ToList();
+
+    protected override void OnInitialized() =>
+        Realtime.EventReceived += OnRealtimeEvent;
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _error = null;
+        _forbidden = false;
+        try
+        {
+            var query = new List<string>
+            {
+                $"includeArchived={_includeArchived.ToString().ToLowerInvariant()}",
+                $"favoritesOnly={_favoritesOnly.ToString().ToLowerInvariant()}"
+            };
+            if (!string.IsNullOrWhiteSpace(_search))
+                query.Add($"search={Uri.EscapeDataString(_search.Trim())}");
+            var response = await Http.GetAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards?{string.Join('&', query)}");
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _forbidden = true;
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            _directory = await response.Content.ReadFromJsonAsync<WorkBoardDirectoryResponse>();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SearchKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") await ReloadAsync();
+    }
+
+    private async Task SetFavoritesOnlyAsync(bool value)
+    {
+        _favoritesOnly = value;
+        await ReloadAsync();
+    }
+
+    private async Task SetIncludeArchivedAsync(bool value)
+    {
+        _includeArchived = value;
+        await ReloadAsync();
+    }
+
+    private void OpenCreate()
+    {
+        _editingBoard = null;
+        _editorName = "";
+        _editorDescription = "";
+        _editorDefault = false;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private void OpenEdit(WorkBoardSummaryResponse board)
+    {
+        _editingBoard = board;
+        _editorName = board.Name;
+        _editorDescription = board.Description;
+        _editorDefault = board.IsDefault;
+        _editorError = null;
+        _editorOpen = true;
+    }
+
+    private async Task SaveEditorAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_editorName))
+        {
+            _editorError = "Board name is required.";
+            return;
+        }
+        _saving = true;
+        _editorError = null;
+        try
+        {
+            HttpResponseMessage response;
+            if (_editingBoard is null)
+            {
+                response = await Http.PostAsJsonAsync(
+                    $"api/organizations/{OrganizationId:D}/work/boards",
+                    new CreateWorkBoardRequest(_editorName, _editorDescription));
+            }
+            else
+            {
+                response = await Http.PutAsJsonAsync(
+                    $"api/organizations/{OrganizationId:D}/work/boards/{_editingBoard.Id:D}",
+                    new UpdateWorkBoardRequest(
+                        _editorName, _editorDescription, _editingBoard.WorkstreamId,
+                        _editorDefault, _editingBoard.Revision));
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                _editorError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _editorOpen = false;
+            await ReloadAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task OpenBoardAsync(WorkBoardSummaryResponse board)
+    {
+        _detailOpen = true;
+        _detailLoading = true;
+        _detail = null;
+        try
+        {
+            _detail = await Http.GetFromJsonAsync<WorkBoardDetailResponse>(
+                $"api/organizations/{OrganizationId:D}/work/boards/{board.Id:D}");
+            _detailError = null;
+            await LoadSprintsAsync();
+            await ReloadAsync();
+        }
+        finally
+        {
+            _detailLoading = false;
+        }
+    }
+
+    private void OpenItemCreator()
+    {
+        _itemTitle = "";
+        _itemDescription = "";
+        _itemKind = "Task";
+        _itemError = null;
+        _itemCreatorOpen = true;
+    }
+
+    private async Task CreateItemAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_itemTitle))
+        {
+            _itemError = "A title is required.";
+            return;
+        }
+        _saving = true;
+        _itemError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items",
+                new CreateBoardWorkItemRequest(_itemTitle, _itemDescription, _itemKind));
+            if (!response.IsSuccessStatusCode)
+            {
+                _itemError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _itemCreatorOpen = false;
+            await RefreshDetailAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task LoadSprintsAsync()
+    {
+        if (_detail is null ||
+            !_detail.Board.AllowedActions.Contains(WorkSprintActions.Read))
+        {
+            _sprints = [];
+            return;
+        }
+        var response = await Http.GetAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprints");
+        if (!response.IsSuccessStatusCode)
+        {
+            _sprintError = await response.Content.ReadAsStringAsync();
+            return;
+        }
+        _sprints = await response.Content.ReadFromJsonAsync<IReadOnlyList<WorkSprintResponse>>() ?? [];
+        _sprintError = null;
+    }
+
+    private async Task CreateSprintAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_sprintName)) return;
+        _saving = true;
+        _sprintError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprints",
+                new CreateWorkSprintRequest(
+                    _sprintName, _sprintGoal, null, null, Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _sprintError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _sprintName = "";
+            _sprintGoal = "";
+            await LoadSprintsAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ChangeSprintStateAsync(
+        WorkSprintResponse sprint,
+        string transition)
+    {
+        if (_detail is null) return;
+        _saving = true;
+        _sprintError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprints/{sprint.Id:D}/{transition}",
+                new ChangeWorkSprintStateRequest(
+                    sprint.Revision, Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _sprintError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            await LoadSprintsAsync();
+            if (_sprintReport is not null) await LoadSprintReportAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task SetItemSprintAsync(
+        WorkBoardItemResponse item,
+        Guid? sprintId)
+    {
+        if (_detail is null) return;
+        _detailError = null;
+        var response = await Http.PutAsJsonAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{item.Id:D}/sprint",
+            new SetWorkItemSprintRequest(
+                sprintId, item.Revision, Guid.NewGuid().ToString("N")));
+        if (!response.IsSuccessStatusCode)
+        {
+            _detailError = await response.Content.ReadAsStringAsync();
+            return;
+        }
+        await RefreshDetailAsync();
+    }
+
+    private void OpenEstimate(WorkBoardItemResponse item)
+    {
+        _estimateItem = item;
+        _estimatePoints = item.EstimatePoints;
+        _planningError = null;
+        _estimateOpen = true;
+    }
+
+    private async Task SaveEstimateAsync()
+    {
+        if (_detail is null || _estimateItem is null) return;
+        _saving = true;
+        _planningError = null;
+        try
+        {
+            var response = await Http.PutAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{_estimateItem.Id:D}/estimate",
+                new SetWorkItemEstimateRequest(
+                    _estimatePoints, _estimateItem.Revision,
+                    Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _planningError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _estimateOpen = false;
+            await RefreshDetailAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void OpenCapacity(WorkSprintResponse sprint)
+    {
+        _capacitySprint = sprint;
+        _capacityPoints = sprint.CapacityPoints;
+        _planningError = null;
+        _capacityOpen = true;
+    }
+
+    private async Task SaveCapacityAsync()
+    {
+        if (_detail is null || _capacitySprint is null) return;
+        _saving = true;
+        _planningError = null;
+        try
+        {
+            var response = await Http.PutAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprints/{_capacitySprint.Id:D}/capacity",
+                new SetWorkSprintCapacityRequest(
+                    _capacityPoints, _capacitySprint.Revision,
+                    Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _planningError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _capacityOpen = false;
+            await LoadSprintsAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void OpenCarryover(WorkSprintResponse source)
+    {
+        _carryoverSource = source;
+        _carryoverTargetSprintId = AssignableSprints
+            .FirstOrDefault(x => x.Id != source.Id)?.Id;
+        _planningError = null;
+        _carryoverOpen = true;
+    }
+
+    private async Task CarryOverAsync()
+    {
+        if (_detail is null || _carryoverSource is null ||
+            !_carryoverTargetSprintId.HasValue) return;
+        _saving = true;
+        _planningError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprints/{_carryoverSource.Id:D}/carryover",
+                new CarryOverSprintRequest(
+                    _carryoverTargetSprintId.Value, null,
+                    _carryoverSource.Revision, Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _planningError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _carryoverOpen = false;
+            await RefreshDetailAsync();
+            await LoadSprintReportAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task LoadSprintReportAsync()
+    {
+        if (_detail is null ||
+            !_detail.Board.AllowedActions.Contains(WorkSprintActions.ReadReports))
+            return;
+        var response = await Http.GetAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprint-report");
+        if (!response.IsSuccessStatusCode)
+        {
+            _sprintError = await response.Content.ReadAsStringAsync();
+            return;
+        }
+        _sprintReport = await response.Content.ReadFromJsonAsync<WorkSprintReportResponse>();
+        _sprintError = null;
+    }
+
+    private async Task OpenAutomationsAsync()
+    {
+        if (_detail is null) return;
+        _automationsOpen = true;
+        _automationError = null;
+        _automationName = "";
+        _automationTrigger = "item.created";
+        _automationAction = WorkItemActions.Move;
+        _automationConditionColumnId = null;
+        _automationTargetColumnId = _detail.Columns
+            .FirstOrDefault(x => x.Category == "InProgress")?.Id ??
+            _detail.Columns.FirstOrDefault()?.Id;
+        await LoadAutomationsAsync();
+    }
+
+    private async Task LoadAutomationsAsync()
+    {
+        if (_detail is null ||
+            !_detail.Board.AllowedActions.Contains(WorkAutomationActions.Read))
+            return;
+        var response = await Http.GetAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/automations");
+        if (!response.IsSuccessStatusCode)
+        {
+            _automationError = await response.Content.ReadAsStringAsync();
+            return;
+        }
+        _automations =
+            await response.Content.ReadFromJsonAsync<WorkAutomationDirectoryResponse>();
+        _automationError = null;
+    }
+
+    private async Task CreateAutomationAsync()
+    {
+        if (_detail is null || !_automationTargetColumnId.HasValue ||
+            string.IsNullOrWhiteSpace(_automationName)) return;
+        _saving = true;
+        _automationError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/automations",
+                new CreateWorkAutomationRuleRequest(
+                    _automationName, _automationTrigger,
+                    _automationConditionColumnId, _automationAction,
+                    _automationTargetColumnId.Value));
+            if (!response.IsSuccessStatusCode)
+            {
+                _automationError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _automationName = "";
+            await LoadAutomationsAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ToggleAutomationAsync(WorkAutomationRuleResponse rule)
+    {
+        if (_detail is null) return;
+        _automationError = null;
+        var response = await Http.PutAsJsonAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/automations/{rule.Id:D}",
+            new UpdateWorkAutomationRuleRequest(
+                rule.Name, rule.TriggerEventType, rule.ConditionColumnId,
+                rule.Action, rule.TargetColumnId, !rule.IsEnabled, rule.Revision));
+        if (!response.IsSuccessStatusCode)
+        {
+            _automationError = await response.Content.ReadAsStringAsync();
+            return;
+        }
+        await LoadAutomationsAsync();
+    }
+
+    private async Task GrantAutomationAsync(WorkAutomationRuleResponse rule)
+    {
+        if (_detail is null) return;
+        _automationError = null;
+        var response = await Http.PutAsJsonAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/grants",
+            new SetWorkBoardSubjectGrantsRequest(
+                "AutomationIdentity", rule.AutomationIdentityId, [rule.Action]));
+        if (!response.IsSuccessStatusCode)
+        {
+            _automationError = await response.Content.ReadAsStringAsync();
+            return;
+        }
+        await LoadAutomationsAsync();
+    }
+
+    private async Task MoveItemAsync(WorkBoardItemResponse item, WorkBoardColumnResponse target)
+    {
+        if (_detail is null) return;
+        _detailError = null;
+        var response = await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{item.Id:D}/move",
+            new MoveBoardWorkItemRequest(target.Id, null, item.Revision));
+        if (!response.IsSuccessStatusCode)
+        {
+            _detailError = await response.Content.ReadAsStringAsync();
+            return;
+        }
+        await RefreshDetailAsync();
+    }
+
+    private async Task OpenCollaborationAsync(WorkBoardItemResponse item)
+    {
+        _selectedItem = item;
+        _commentBody = "";
+        _transferBoardId = null;
+        _collaboration = null;
+        _collaborationError = null;
+        _collaborationOpen = true;
+        await LoadCollaborationAsync();
+    }
+
+    private async Task LoadCollaborationAsync()
+    {
+        if (_detail is null || _selectedItem is null) return;
+        _collaborationLoading = true;
+        try
+        {
+            var response = await Http.GetAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{_selectedItem.Id:D}/collaboration");
+            if (!response.IsSuccessStatusCode)
+            {
+                _collaborationError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _collaboration =
+                await response.Content.ReadFromJsonAsync<WorkItemCollaborationResponse>();
+            _collaborationError = null;
+        }
+        finally
+        {
+            _collaborationLoading = false;
+        }
+    }
+
+    private async Task AddCommentAsync()
+    {
+        if (_detail is null || _selectedItem is null ||
+            string.IsNullOrWhiteSpace(_commentBody)) return;
+        _saving = true;
+        _collaborationError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{_selectedItem.Id:D}/comments",
+                new AddWorkItemCommentRequest(_commentBody, Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _collaborationError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _commentBody = "";
+            await LoadCollaborationAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task TransferItemAsync()
+    {
+        if (_detail is null || _selectedItem is null || !_transferBoardId.HasValue) return;
+        _saving = true;
+        _collaborationError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{_selectedItem.Id:D}/transfer",
+                new TransferWorkItemRequest(
+                    _transferBoardId.Value, null, _selectedItem.Revision,
+                    Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _collaborationError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _collaborationOpen = false;
+            _selectedItem = null;
+            await RefreshDetailAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void OpenColumnEditor()
+    {
+        if (_detail is null) return;
+        _columnDrafts.Clear();
+        _columnDrafts.AddRange(_detail.Columns.Select(column => new ColumnDraft
+        {
+            Id = column.Id,
+            Name = column.Name,
+            Category = column.Category,
+            WipPolicy = column.WipPolicy,
+            WipLimit = column.WipLimit
+        }));
+        _columnsError = null;
+        _columnsOpen = true;
+    }
+
+    private void AddColumn() => _columnDrafts.Add(new ColumnDraft
+    {
+        Name = "New column",
+        Category = "InProgress"
+    });
+
+    private async Task SaveColumnsAsync()
+    {
+        if (_detail is null) return;
+        _saving = true;
+        _columnsError = null;
+        try
+        {
+            var request = new ConfigureWorkBoardColumnsRequest(
+                _detail.Board.Revision,
+                _columnDrafts.Select(column => new WorkBoardColumnInput(
+                    column.Id, column.Name, column.Category, column.WipPolicy, column.WipLimit)).ToList());
+            var response = await Http.PutAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/columns",
+                request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _columnsError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _detail = await response.Content.ReadFromJsonAsync<WorkBoardDetailResponse>();
+            _columnsOpen = false;
+            await ReloadAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task RefreshDetailAsync()
+    {
+        if (_detail is null) return;
+        var selectedItemId = _selectedItem?.Id;
+        _detail = await Http.GetFromJsonAsync<WorkBoardDetailResponse>(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}");
+        await LoadSprintsAsync();
+        if (selectedItemId.HasValue)
+        {
+            _selectedItem = _detail?.Items.SingleOrDefault(x => x.Id == selectedItemId.Value);
+            if (_selectedItem is null) _collaborationOpen = false;
+        }
+        await ReloadAsync();
+    }
+
+    private async Task OpenAgentAccessAsync()
+    {
+        if (_detail is null) return;
+        _agentAccessError = null;
+        _selectedAgentId = null;
+        _agentAccessProfile = "None";
+        try
+        {
+            var installations = await Http.GetFromJsonAsync<IReadOnlyList<AgentInstallationResponse>>(
+                "api/agents/installations") ?? [];
+            _boardAgents = installations.Where(x =>
+                    x.IsEnabled &&
+                    x.PluginKind == "Agent" &&
+                    Guid.TryParse(x.BusinessId, out var businessId) &&
+                    businessId == OrganizationId)
+                .OrderBy(x => x.AgentName)
+                .ToList();
+            _boardGrants = await Http.GetFromJsonAsync<IReadOnlyList<WorkBoardGrantResponse>>(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/grants") ?? [];
+            _agentAccessOpen = true;
+        }
+        catch (Exception exception)
+        {
+            _detailError = exception.Message;
+        }
+    }
+
+    private void SelectAgentAccess(Guid? installationId)
+    {
+        _selectedAgentId = installationId;
+        var actions = _boardGrants.Where(x =>
+                x.SubjectKind == "AgentInstallation" &&
+                x.SubjectId == installationId)
+            .Select(x => x.Action)
+            .ToHashSet(StringComparer.Ordinal);
+        _agentAccessProfile = actions.Contains(WorkItemActions.Create) ? "Operator" :
+            actions.Contains(WorkItemActions.Read) ? "ReadOnly" : "None";
+    }
+
+    private async Task SaveAgentAccessAsync()
+    {
+        if (_detail is null || !_selectedAgentId.HasValue) return;
+        _saving = true;
+        _agentAccessError = null;
+        try
+        {
+            IReadOnlyList<string> actions = _agentAccessProfile switch
+            {
+                "ReadOnly" =>
+                    [
+                        WorkBoardActions.Read,
+                        WorkItemActions.Read,
+                        WorkSprintActions.Read,
+                        WorkSprintActions.ReadReports,
+                        WorkAutomationActions.Read
+                    ],
+                "Operator" =>
+                [
+                    WorkBoardActions.Read,
+                    WorkItemActions.Read,
+                    WorkItemActions.Create,
+                    WorkItemActions.Update,
+                    WorkItemActions.Move,
+                    WorkItemActions.Complete,
+                    WorkItemActions.Cancel,
+                    WorkItemActions.Reopen,
+                    WorkItemActions.Comment,
+                    WorkItemActions.Transfer,
+                    WorkItemActions.Estimate,
+                    WorkSprintActions.Read,
+                    WorkSprintActions.Create,
+                    WorkSprintActions.Start,
+                    WorkSprintActions.Complete,
+                    WorkSprintActions.Cancel,
+                    WorkSprintActions.ManageScope,
+                    WorkSprintActions.ManageCapacity,
+                    WorkSprintActions.CarryOver,
+                    WorkSprintActions.ReadReports,
+                    WorkAutomationActions.Read,
+                    WorkAutomationActions.Manage
+                ],
+                _ => []
+            };
+            var response = await Http.PutAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/grants",
+                new SetWorkBoardSubjectGrantsRequest(
+                    "AgentInstallation", _selectedAgentId.Value, actions));
+            if (!response.IsSuccessStatusCode)
+            {
+                _agentAccessError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _boardGrants = (_boardGrants.Where(x =>
+                    x.SubjectKind != "AgentInstallation" ||
+                    x.SubjectId != _selectedAgentId.Value)
+                .Concat(await response.Content.ReadFromJsonAsync<IReadOnlyList<WorkBoardGrantResponse>>() ?? [])
+                .ToList());
+            _agentAccessOpen = false;
+            await RefreshDetailAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private int ColumnIndex(Guid columnId) =>
+        _detail is null ? -1 : _detail.Columns.Select((column, index) => (column, index))
+            .First(pair => pair.column.Id == columnId).index;
+
+    private bool CanMoveTo(WorkBoardItemResponse item, WorkBoardColumnResponse target)
+    {
+        if (_detail is null || _detail.Board.IsArchived) return false;
+        var action = target.Category switch
+        {
+            "Done" when item.Status != 5 => WorkItemActions.Complete,
+            "Cancelled" when item.Status != 7 => WorkItemActions.Cancel,
+            "ToDo" or "InProgress" when item.Status is 5 or 7 => WorkItemActions.Reopen,
+            _ => WorkItemActions.Move
+        };
+        return _detail.Board.AllowedActions.Contains(action);
+    }
+
+    private async Task SetFavoriteAsync(WorkBoardSummaryResponse board)
+    {
+        var response = await Http.PutAsJsonAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{board.Id:D}/favorite",
+            new SetWorkBoardFavoriteRequest(!board.IsFavorite));
+        response.EnsureSuccessStatusCode();
+        await ReloadAsync();
+    }
+
+    private async Task ArchiveAsync(WorkBoardSummaryResponse board)
+    {
+        var response = await Http.PostAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{board.Id:D}/archive", null);
+        if (response.IsSuccessStatusCode) await ReloadAsync();
+        else _error = await response.Content.ReadAsStringAsync();
+    }
+
+    private async Task RestoreAsync(WorkBoardSummaryResponse board)
+    {
+        var response = await Http.PostAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{board.Id:D}/restore", null);
+        if (response.IsSuccessStatusCode) await ReloadAsync();
+        else _error = await response.Content.ReadAsStringAsync();
+    }
+
+    private static string Description(WorkBoardSummaryResponse board) =>
+        string.IsNullOrWhiteSpace(board.Description) ? "No description provided." : board.Description;
+
+    private WorkSprintResponse? SprintFor(Guid? sprintId) =>
+        sprintId.HasValue ? _sprints.SingleOrDefault(x => x.Id == sprintId.Value) : null;
+
+    private static string RelativeTime(DateTimeOffset value)
+    {
+        var age = DateTimeOffset.UtcNow - value;
+        return age.TotalMinutes < 1 ? "Just now" :
+            age.TotalHours < 1 ? $"{(int)age.TotalMinutes}m ago" :
+            age.TotalDays < 1 ? $"{(int)age.TotalHours}h ago" :
+            $"{(int)age.TotalDays}d ago";
+    }
+
+    private static string ActivityLabel(string eventType) => eventType switch
+    {
+        "comment.created" => "added a comment",
+        "item.transferred" => "transferred the item",
+        "item.created" => "created the item",
+        "item.moved" => "moved the item",
+        "item.completed" => "completed the item",
+        "item.cancelled" => "cancelled the item",
+        "item.reopened" => "reopened the item",
+        "item.sprint.assigned" => "assigned the item to a sprint",
+        "item.sprint.removed" => "moved the item to the backlog",
+        "item.sprint.carried-over" => "carried the item into another sprint",
+        "item.estimate.changed" => "changed the estimate",
+        _ => eventType.Replace('.', ' ')
+    };
+
+    private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
+    {
+        if (envelope.OrganizationId != OrganizationId ||
+            envelope.EventType != AppRealtimeEvents.WorkBoardChanged ||
+            _detail is null ||
+            !envelope.Data.TryGetProperty("boardId", out var boardIdElement) ||
+            !boardIdElement.TryGetGuid(out var boardId) ||
+            boardId != _detail.Board.Id) return;
+        _realtimeRefreshPending = true;
+        if (_realtimeRefreshRunning) return;
+        _ = InvokeAsync(RefreshFromRealtimeAsync);
+    }
+
+    private async Task RefreshFromRealtimeAsync()
+    {
+        if (_realtimeRefreshRunning) return;
+        _realtimeRefreshRunning = true;
+        try
+        {
+            while (_realtimeRefreshPending)
+            {
+                _realtimeRefreshPending = false;
+                try
+                {
+                    await RefreshDetailAsync();
+                    if (_collaborationOpen && _selectedItem is not null)
+                        await LoadCollaborationAsync();
+                    if (_sprintReport is not null)
+                        await LoadSprintReportAsync();
+                    if (_automationsOpen)
+                        await LoadAutomationsAsync();
+                }
+                catch (Exception exception)
+                {
+                    _detailError = exception.Message;
+                }
+            }
+        }
+        finally
+        {
+            _realtimeRefreshRunning = false;
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Realtime.EventReceived -= OnRealtimeEvent;
+        return ValueTask.CompletedTask;
+    }
+
+    private sealed class ColumnDraft
+    {
+        public Guid? Id { get; init; }
+        public string Name { get; set; } = "";
+        public string Category { get; set; } = "InProgress";
+        public string WipPolicy { get; set; } = "Disabled";
+        public int? WipLimit { get; set; }
+    }
+}

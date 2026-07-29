@@ -25,6 +25,9 @@
                     <MudNavLink Href="@OverviewHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Dashboard" Class="business-nav-link">
                         Overview
                     </MudNavLink>
+                    <MudNavLink Href="@WorkHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.ViewKanban" Class="business-nav-link">
+                        Work
+                    </MudNavLink>
                     <MudNavLink Href="@EmployeesHref" Icon="@Icons.Material.Outlined.Groups" Class="@EmployeesClass">
                         Employees
                     </MudNavLink>
@@ -51,6 +54,7 @@
                 else
                 {
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Dashboard" /> Overview</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.ViewKanban" /> Work</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Groups" /> Employees</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Storefront" /> Agent marketplace</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Security" /> Security</div>
@@ -85,6 +89,10 @@
 
     private string? EmployeesHref => BusinessContext.SelectedBusiness is { } business
         ? $"/organizations/{business.Id}/employees"
+        : null;
+
+    private string? WorkHref => BusinessContext.SelectedBusiness is { } business
+        ? $"/organizations/{business.Id}/work"
         : null;
 
     private string? CommunicationsHref => BusinessContext.SelectedBusiness is { } business

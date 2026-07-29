@@ -3,6 +3,7 @@ using CSweet.Agent.SDK;
 using CSweet.Contracts.Communications;
 using CSweet.Contracts.Core;
 using CSweet.Contracts.Plugins;
+using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -100,7 +101,51 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         Write(ResourceChangeCapabilities.Decide, "decide_resource_change",
             "Approve, request revision of, or reject a resource-change request when this agent is the current manager."),
         Approval(HiringCapabilities.StageWorkflow, "stage_hiring_workflow",
-            "Stage a combined install-and-hire proposal for explicit organization-owner approval. This does not install or hire directly.")
+            "Stage a combined install-and-hire proposal for explicit organization-owner approval. This does not install or hire directly."),
+        Read(WorkBoardActions.Read, "list_work_boards",
+            "List operational boards covered by this installation's scoped board grants."),
+        Read(WorkItemActions.Read, "read_work_board",
+            "Read columns and work items from one board. Both board-read and item-read grants are required."),
+        Write(WorkBoardActions.Create, "create_work_board",
+            "Create an operational board with default To Do and Done columns."),
+        Write(WorkItemActions.Create, "create_work_item",
+            "Create a typed Initiative, Epic, Story, Task, or Bug on a granted board."),
+        Write(WorkItemActions.Comment, "comment_on_work_item",
+            "Add a durable comment to a work item on a granted board."),
+        Write(WorkItemActions.Estimate, "estimate_work_item",
+            "Set or clear a work item's story-point estimate."),
+        Write(WorkItemActions.Move, "move_work_item",
+            "Move a non-terminal work item between non-terminal workflow columns."),
+        Write(WorkItemActions.Complete, "complete_work_item",
+            "Complete a work item by moving it to a Done column."),
+        Write(WorkItemActions.Cancel, "cancel_work_item",
+            "Cancel a work item by moving it to a Cancelled column."),
+        Write(WorkItemActions.Reopen, "reopen_work_item",
+            "Reopen a completed or cancelled work item into To Do or In Progress."),
+        Write(WorkItemActions.Transfer, "transfer_work_item",
+            "Transfer one canonical, non-hierarchical work item between two granted boards."),
+        Read(WorkSprintActions.Read, "list_work_sprints",
+            "List planned, active, and closed sprints on a granted board."),
+        Write(WorkSprintActions.Create, "create_work_sprint",
+            "Create a planned sprint with an optional goal and schedule."),
+        Write(WorkSprintActions.Start, "start_work_sprint",
+            "Start a planned sprint when the board has no other active sprint."),
+        Write(WorkSprintActions.Complete, "complete_work_sprint",
+            "Complete the board's active sprint."),
+        Write(WorkSprintActions.Cancel, "cancel_work_sprint",
+            "Cancel a planned or active sprint."),
+        Write(WorkSprintActions.ManageScope, "set_work_item_sprint",
+            "Assign a work item to a planned or active sprint, or return it to the backlog."),
+        Write(WorkSprintActions.ManageCapacity, "set_work_sprint_capacity",
+            "Set or clear the point-capacity target for a planned or active sprint."),
+        Write(WorkSprintActions.CarryOver, "carry_over_work_sprint",
+            "Move selected or all incomplete current items from a closed sprint into a planned or active sprint."),
+        Read(WorkSprintActions.ReadReports, "read_work_sprint_report",
+            "Read immutable completion snapshots, burndown history, and velocity/capacity forecasts for a board."),
+        Read(WorkAutomationActions.Read, "read_work_automations",
+            "Read automation rules, execution-grant health, and recent execution outcomes for a board."),
+        Write(WorkAutomationActions.Manage, "manage_work_automation",
+            "Create, update, enable, disable, or delete a board automation rule. Each rule runs as its own separately granted automation identity.")
     ];
 
     static McpToolCatalog()
@@ -275,6 +320,60 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         HiringCapabilities.StageWorkflow => Schema("""
             {"type":"object","required":["recommendationId","candidateReference","roleTitle","idempotencyKey"],"properties":{"recommendationId":{"type":"string","format":"uuid"},"candidateReference":{"type":"string"},"roleTitle":{"type":"string","minLength":1,"maxLength":160},"reportsToOrganizationUserId":{"type":["string","null"],"format":"uuid"},"requiredGrants":{"type":["array","null"],"items":{"type":"string"}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkBoardActions.Read => Schema("""
+            {"type":"object","properties":{"search":{"type":["string","null"],"maxLength":160},"includeArchived":{"type":"boolean"}},"additionalProperties":false}
+            """),
+        WorkItemActions.Read => Schema("""
+            {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        WorkBoardActions.Create => Schema("""
+            {"type":"object","required":["name","idempotencyKey"],"properties":{"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkItemActions.Create => Schema("""
+            {"type":"object","required":["boardId","title","kind","priority","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"kind":{"type":"string","enum":["Initiative","Epic","Story","Task","Bug"]},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"columnId":{"type":["string","null"],"format":"uuid"},"parentItemId":{"type":["string","null"],"format":"uuid"},"dueDate":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkItemActions.Comment => Schema("""
+            {"type":"object","required":["boardId","itemId","body","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"body":{"type":"string","minLength":1,"maxLength":8192},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkItemActions.Estimate => Schema("""
+            {"type":"object","required":["boardId","itemId","expectedItemRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"estimatePoints":{"type":["number","null"],"minimum":0,"maximum":999999.99},"expectedItemRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkItemActions.Move => Schema("""
+            {"type":"object","required":["boardId","itemId","targetColumnId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"targetColumnId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkItemActions.Complete or WorkItemActions.Cancel or WorkItemActions.Reopen => Schema("""
+            {"type":"object","required":["boardId","itemId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"targetColumnId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkItemActions.Transfer => Schema("""
+            {"type":"object","required":["boardId","itemId","targetBoardId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"targetBoardId":{"type":"string","format":"uuid"},"targetColumnId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkSprintActions.Read => Schema("""
+            {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        WorkSprintActions.Create => Schema("""
+            {"type":"object","required":["boardId","name","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"name":{"type":"string","minLength":1,"maxLength":160},"goal":{"type":["string","null"],"maxLength":2048},"startsAt":{"type":["string","null"],"format":"date-time"},"endsAt":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkSprintActions.Start or WorkSprintActions.Complete or WorkSprintActions.Cancel => Schema("""
+            {"type":"object","required":["boardId","sprintId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"sprintId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkSprintActions.ManageScope => Schema("""
+            {"type":"object","required":["boardId","itemId","expectedItemRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"sprintId":{"type":["string","null"],"format":"uuid"},"expectedItemRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkSprintActions.ManageCapacity => Schema("""
+            {"type":"object","required":["boardId","sprintId","expectedSprintRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"sprintId":{"type":"string","format":"uuid"},"capacityPoints":{"type":["number","null"],"minimum":0,"maximum":999999.99},"expectedSprintRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkSprintActions.CarryOver => Schema("""
+            {"type":"object","required":["boardId","sourceSprintId","targetSprintId","expectedSourceSprintRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"sourceSprintId":{"type":"string","format":"uuid"},"targetSprintId":{"type":"string","format":"uuid"},"itemIds":{"type":["array","null"],"maxItems":500,"items":{"type":"string","format":"uuid"}},"expectedSourceSprintRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkSprintActions.ReadReports => Schema("""
+            {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        WorkAutomationActions.Read => Schema("""
+            {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        WorkAutomationActions.Manage => Schema("""
+            {"type":"object","required":["boardId","operation","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"operation":{"type":"string","enum":["Create","Update","Delete"]},"ruleId":{"type":["string","null"],"format":"uuid"},"name":{"type":["string","null"],"maxLength":160},"triggerEventType":{"type":["string","null"],"enum":["item.created","item.moved","item.completed","item.cancelled","item.reopened","item.sprint.assigned","item.sprint.removed","item.estimate.changed","comment.created",null]},"conditionColumnId":{"type":["string","null"],"format":"uuid"},"action":{"type":["string","null"],"enum":["work.item.move","work.item.complete","work.item.cancel","work.item.reopen",null]},"targetColumnId":{"type":["string","null"],"format":"uuid"},"isEnabled":{"type":["boolean","null"]},"expectedRevision":{"type":["integer","null"],"minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         _ => Schema("""
             {"type":"object","description":"Arguments are validated by the broker capability handler."}

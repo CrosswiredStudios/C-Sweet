@@ -343,11 +343,35 @@ internal static class CoreConfigurations
         entity.Property(x => x.Description).HasMaxLength(8192).IsRequired();
         entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
         entity.Property(x => x.Priority).HasConversion<string>().HasMaxLength(16).IsRequired();
+        entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();
+        entity.Property(x => x.EstimatePoints).HasPrecision(8, 2);
+        entity.HasIndex(x => new { x.BoardColumnId, x.BoardRank });
+        entity.HasIndex(x => new { x.SprintId, x.BoardRank });
 
         entity.HasOne(x => x.Organization)
             .WithMany()
             .HasForeignKey(x => x.OrganizationId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        entity.HasOne(x => x.Board)
+            .WithMany()
+            .HasForeignKey(x => x.BoardId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(x => x.BoardColumn)
+            .WithMany()
+            .HasForeignKey(x => x.BoardColumnId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(x => x.Sprint)
+            .WithMany()
+            .HasForeignKey(x => x.SprintId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        entity.HasOne(x => x.ParentWorkTask)
+            .WithMany(x => x.ChildWorkTasks)
+            .HasForeignKey(x => x.ParentWorkTaskId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         entity.HasOne(x => x.StrategicObjective)
             .WithMany()
@@ -567,6 +591,7 @@ internal static class CoreConfigurations
             .WithMany()
             .HasForeignKey(x => x.ConversationMessageId)
             .OnDelete(DeleteBehavior.Cascade);
+
     }
 
     static void ConfigureAgentMemoryNamespace(EntityTypeBuilder<AgentMemoryNamespaceRegistration> entity)

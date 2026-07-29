@@ -20,6 +20,7 @@ using CSweet.Api.Security;
 using CSweet.Api.Marketplace;
 using CSweet.Api.GenAi;
 using CSweet.Application.Notifications;
+using CSweet.Api.WorkManagement;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -110,6 +111,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IApplicationRealtimePublisher, SignalRApplicationRealtimePublisher>();
 builder.Services.AddHostedService<ApplicationRealtimeOutboxWorker>();
+builder.Services.AddHostedService<WorkAutomationWorker>();
 
 var app = builder.Build();
 app.UseExceptionHandler();
@@ -166,6 +168,7 @@ app.MapPluginManagementEndpoints();
 app.MapSecurityAuditEndpoints();
 app.MapMarketplaceDiscoveryEndpoints();
 app.MapAgentCatalogEndpoints();
+app.MapWorkBoardEndpoints();
 
 app.MapControllers();
 app.MapHub<AppEventsHub>("/hubs/app-events");

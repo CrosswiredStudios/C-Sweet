@@ -7,6 +7,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CSweet.WorkManagement.Contracts" Condition="'$(UseLocalCSweetWorkManagementContracts)' != 'true'" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseLocalCSweetWorkManagementContracts)' == 'true'">
+    <ProjectReference Include="$(CSweetWorkManagementContractsRepositoryRoot)\src\CSweet.WorkManagement.Contracts\CSweet.WorkManagement.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CSweet.Domain\CSweet.Domain.csproj" />
   </ItemGroup>
 

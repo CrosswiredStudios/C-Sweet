@@ -25,6 +25,7 @@ using CSweet.Infrastructure.Marketplace;
 using CSweet.Infrastructure.Agents;
 using CSweet.Application.Security;
 using CSweet.Application.Marketplace;
+using CSweet.Application.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -34,6 +35,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using CSweet.Memory;
 using CSweet.Communications.Abstractions;
+using CSweet.Infrastructure.WorkManagement;
 
 namespace CSweet.Infrastructure;
 
@@ -89,6 +91,7 @@ public static class DependencyInjection
         builder.Services.AddSingleton<IAuditExecutionContextAccessor, AuditExecutionContextAccessor>();
         builder.Services.AddSingleton<IAuditEventWriter, AuditEventWriter>();
         builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
+        builder.Services.AddScoped<IScopedActionAuthorizationService, ScopedActionAuthorizationService>();
         builder.Services.AddScoped<IAgentRuntimeSettingsService, AgentRuntimeSettingsService>();
         builder.Services.AddScoped<AgentImportPreviewService>();
         builder.Services.AddScoped<IAgentImportPreviewService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
@@ -209,6 +212,12 @@ public static class DependencyInjection
         builder.Services.AddScoped<IStrategicObjectiveService, StrategicObjectiveService>();
         builder.Services.AddScoped<IWorkerService, WorkerService>();
         builder.Services.AddScoped<IWorkTaskService, WorkTaskService>();
+        builder.Services.AddScoped<IWorkBoardService, WorkBoardService>();
+        builder.Services.AddScoped<IWorkBoardGrantService, WorkBoardGrantService>();
+        builder.Services.AddScoped<IWorkItemCollaborationService, WorkItemCollaborationService>();
+        builder.Services.AddScoped<IWorkSprintService, WorkSprintService>();
+        builder.Services.AddScoped<IWorkAutomationService, WorkAutomationService>();
+        builder.Services.AddScoped<IWorkAutomationDispatcher, WorkAutomationDispatcher>();
         builder.Services.AddScoped<ITaskRunService, TaskRunService>();
         builder.Services.AddScoped<IArtifactService, ArtifactService>();
         builder.Services.AddScoped<IArtifactApprovalService, ArtifactApprovalService>();

@@ -58,6 +58,7 @@ if (builder.Environment.IsDevelopment() &&
 builder.Services.AddScoped<IPlatformCapabilityHandler, CommunicationHubCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentOnboardingCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, WorkManagementCapabilityHandler>();
 builder.Services.AddScoped<IAgentMemoryIdentityResolver, AgentMemoryIdentityResolver>();
 builder.Services.AddRateLimiter(options =>
 {

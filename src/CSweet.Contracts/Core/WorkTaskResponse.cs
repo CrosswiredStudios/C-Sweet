@@ -13,4 +13,12 @@ public sealed record WorkTaskResponse(
     DateTimeOffset? DueDate,
     bool RequiresApproval,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    Guid? BoardId = null,
+    Guid? BoardColumnId = null,
+    long BoardRank = 0,
+    long Revision = 1,
+    string Kind = "Task",
+    Guid? ParentWorkTaskId = null,
+    Guid? SprintId = null,
+    decimal? EstimatePoints = null);
