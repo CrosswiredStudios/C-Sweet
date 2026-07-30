@@ -17,6 +17,9 @@ public partial class EmployeeDetailsPanel
     [Parameter]
     public EventCallback<EmployeeActionRequest> ActionRequested { get; set; }
 
+    [Parameter]
+    public EventCallback<Guid> TeamSelected { get; set; }
+
     protected IReadOnlyList<EmployeeViewModel> DirectReports => Employee is null
         ? []
         : Employees.Where(x => x.ManagerId == Employee.Id).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToArray();

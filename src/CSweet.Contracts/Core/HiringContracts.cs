@@ -51,6 +51,7 @@ public sealed record HiringRecommendationResponse(
     public string? RoleKey { get; init; }
     public int Headcount { get; init; } = 1;
     public Guid? SourceResourceChangeRequestId { get; init; }
+    public Guid? TeamId { get; init; }
 }
 
 public sealed record HiringBacklogResponse(IReadOnlyList<HiringRecommendationResponse> Recommendations);
@@ -70,6 +71,7 @@ public sealed record UpsertHiringRecommendationRequest(
     [Range(1, 100)]
     public int Headcount { get; init; } = 1;
     public Guid? SourceResourceChangeRequestId { get; init; }
+    public Guid? TeamId { get; init; }
 }
 
 public sealed record ResolveHiringRecommendationRequest(
@@ -132,7 +134,10 @@ public sealed record PreviewMarketplaceHireRequest(
     [property: Required, MaxLength(512)] string AgentReference,
     [property: Required, MaxLength(160)] string RoleTitle,
     Guid? ReportsToOrganizationUserId,
-    [property: Required, MaxLength(160)] string IdempotencyKey);
+    [property: Required, MaxLength(160)] string IdempotencyKey)
+{
+    public Guid? TeamId { get; init; }
+}
 
 public sealed record MarketplaceHirePreviewResponse(
     Guid WorkflowId,
@@ -152,4 +157,5 @@ public sealed record MarketplaceHirePreviewResponse(
     string Status)
 {
     public IReadOnlyList<PluginConfigurationField> ConfigurationFields { get; init; } = [];
+    public Guid? TeamId { get; init; }
 }

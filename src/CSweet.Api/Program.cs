@@ -153,6 +153,7 @@ app.MapPlanningWorkflowEndpoints();
 app.MapBusinessOnboardingEndpoints();
 app.MapCoreOrganizationEndpoints();
 app.MapOrganizationUserEndpoints();
+app.MapTeamEndpoints();
 app.MapHiringEndpoints();
 app.MapApprovalEndpoints();
 app.MapExecutiveBriefingEndpoints();

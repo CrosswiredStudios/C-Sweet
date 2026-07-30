@@ -278,7 +278,10 @@ public sealed class WorkManagementCapabilityHandler(
                 .ToList();
             return new Wire.WorkBoardSummary(
                 board.Id, board.Name, board.Description, board.IsDefault,
-                board.ArchivedAt.HasValue, board.Revision, allowed);
+                board.ArchivedAt.HasValue, board.Revision, allowed)
+            {
+                TeamId = board.TeamId
+            };
         }).ToList();
         await WriteAuditAsync(
             organizationId, installationId, null, WorkBoardActions.Read, null,
@@ -338,7 +341,10 @@ public sealed class WorkManagementCapabilityHandler(
             new Wire.WorkBoardSummary(
                 board.Id, board.Name, board.Description, board.IsDefault,
                 board.ArchivedAt.HasValue, board.Revision,
-                [WorkBoardActions.Read, WorkItemActions.Read]),
+                [WorkBoardActions.Read, WorkItemActions.Read])
+            {
+                TeamId = board.TeamId
+            },
             board.Columns.Select(x => new Wire.WorkBoardColumn(
                 x.Id, x.Name, x.Category.ToString(), x.Position,
                 x.WipPolicy.ToString(), x.WipLimit)).ToList(),
@@ -1080,11 +1086,15 @@ public sealed class WorkManagementCapabilityHandler(
         Wire.CreateWorkBoardRequest input,
         CancellationToken cancellationToken)
     {
-        var grant = await RequireAsync(
-            organizationId, installation.Id, WorkBoardActions.Create, null, cancellationToken);
+        var grant = await RequireCreateBoardAsync(
+            organizationId, installation.Id, input.TeamId, cancellationToken);
         ValidateIdempotencyKey(input.IdempotencyKey);
         if (string.IsNullOrWhiteSpace(input.Name))
             throw new ArgumentException("Board name is required.");
+        if (input.TeamId.HasValue && !await db.OrganizationTeams.AsNoTracking().AnyAsync(x =>
+                x.Id == input.TeamId && x.OrganizationId == organizationId && x.ArchivedAt == null,
+                cancellationToken))
+            throw new ArgumentException("The selected team is not active in this organization.");
         var replay = await ReplayAsync<Wire.WorkBoardSummary>(
             installation.Id, WorkBoardActions.Create, input.IdempotencyKey, cancellationToken);
         if (replay is not null) return replay;
@@ -1094,6 +1104,7 @@ public sealed class WorkManagementCapabilityHandler(
         {
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
+            TeamId = input.TeamId,
             Name = input.Name.Trim(),
             Description = input.Description?.Trim() ?? string.Empty,
             CreatedAt = now,
@@ -1106,7 +1117,10 @@ public sealed class WorkManagementCapabilityHandler(
         };
         var result = new Wire.WorkBoardSummary(
             board.Id, board.Name, board.Description, false, false, board.Revision,
-            [WorkBoardActions.Create]);
+            [WorkBoardActions.Create])
+        {
+            TeamId = board.TeamId
+        };
         db.WorkBoards.Add(board);
         AddReceipt(
             organizationId, installation.Id, WorkBoardActions.Create,
@@ -1116,6 +1130,36 @@ public sealed class WorkManagementCapabilityHandler(
             organizationId, installation.Id, board.Id, WorkBoardActions.Create, grant,
             new { board.Id, board.Name, input.IdempotencyKey }, cancellationToken, session);
         return result;
+    }
+
+    private async Task<ScopedAuthorizationDecision> RequireCreateBoardAsync(
+        Guid organizationId,
+        Guid installationId,
+        Guid? teamId,
+        CancellationToken cancellationToken)
+    {
+        var decision = await authorization.AuthorizeAsync(
+            organizationId,
+            GrantSubjectKind.AgentInstallation,
+            installationId,
+            WorkBoardActions.Create,
+            teamId.HasValue ? GrantScopeKind.Team : GrantScopeKind.Organization,
+            teamId,
+            cancellationToken);
+        if (decision.Allowed) return decision;
+        await WriteAuditAsync(
+            organizationId,
+            installationId,
+            teamId,
+            WorkBoardActions.Create,
+            null,
+            new { action = WorkBoardActions.Create, teamId },
+            cancellationToken,
+            outcome: "Denied");
+        throw new UnauthorizedAccessException(
+            teamId.HasValue
+                ? "The installation does not have board-create access for the selected team."
+                : "The installation does not have organization board-create access.");
     }
 
     private async Task<Wire.WorkItem> CreateItemAsync(

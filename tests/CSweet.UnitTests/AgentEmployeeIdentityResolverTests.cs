@@ -1,4 +1,5 @@
 using CSweet.AgentHost.Broker;
+using CSweet.Agent.SDK;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -83,6 +84,69 @@ public sealed class AgentEmployeeIdentityResolverTests
         Assert.True(string.IsNullOrEmpty(identity.ManagerEmployeeId));
     }
 
+    [Fact]
+    public async Task ResolveAsync_WithRosterGrant_InjectsOnlyTheCallersActiveTeam()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var caller = Employee(organizationId, "Dev A", EmployeeType.Agent);
+        caller.AgentInstallationId = installationId;
+        var qa = Employee(organizationId, "QA", EmployeeType.Human);
+        var unrelated = Employee(organizationId, "Other team", EmployeeType.Human);
+        var team = new OrganizationTeam
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            TeamKey = "delivery-a",
+            NormalizedName = "delivery a",
+            Name = "Delivery A",
+            Description = "Team description is data.",
+            LeadOrganizationUserId = qa.Id,
+            Revision = 4,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CoreOrganizationUsers.AddRange(caller, qa, unrelated);
+        db.OrganizationTeams.Add(team);
+        db.TeamMemberships.AddRange(
+            Membership(organizationId, team.Id, caller.Id, caller.Id),
+            Membership(organizationId, team.Id, qa.Id, null));
+        await db.SaveChangesAsync();
+
+        var resolver = new AgentEmployeeIdentityResolver(db);
+        var identity = await resolver.ResolveAsync(
+            Session(organizationId, installationId, PlatformCapabilities.TeamRosterRead));
+
+        Assert.NotNull(identity?.TeamContext);
+        Assert.Equal("Delivery A", identity.TeamContext.Name);
+        Assert.Equal(2, identity.TeamContext.TotalMemberCount);
+        Assert.Contains(identity.TeamContext.Members, x => x.EmployeeId == caller.Id.ToString("D") && x.RelationshipToCaller == "Self");
+        Assert.Contains(identity.TeamContext.Members, x => x.EmployeeId == qa.Id.ToString("D") && x.RelationshipToCaller == "TeamLead");
+        Assert.DoesNotContain(identity.TeamContext.Members, x => x.EmployeeId == unrelated.Id.ToString("D"));
+        var serialized = System.Text.Json.JsonSerializer.Serialize(identity.TeamContext);
+        Assert.DoesNotContain("Installation", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Email", serialized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_WithoutRosterGrant_DoesNotRevealTeamContext()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var caller = Employee(organizationId, "Dev", EmployeeType.Agent);
+        caller.AgentInstallationId = installationId;
+        db.CoreOrganizationUsers.Add(caller);
+        await db.SaveChangesAsync();
+
+        var identity = await new AgentEmployeeIdentityResolver(db).ResolveAsync(
+            Session(organizationId, installationId));
+
+        Assert.NotNull(identity);
+        Assert.Null(identity.TeamContext);
+    }
+
     private static CSweetDbContext CreateDb() => new(
         new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -98,7 +162,25 @@ public sealed class AgentEmployeeIdentityResolverTests
         IsActive = true
     };
 
-    private static AgentSession Session(Guid organizationId, Guid installationId) => new(
+    private static TeamMembership Membership(
+        Guid organizationId,
+        Guid teamId,
+        Guid employeeId,
+        Guid? exclusiveAgentEmployeeId) => new()
+    {
+        Id = Guid.NewGuid(),
+        OrganizationId = organizationId,
+        TeamId = teamId,
+        OrganizationUserId = employeeId,
+        ExclusiveAgentEmployeeId = exclusiveAgentEmployeeId,
+        SourceType = "Test",
+        JoinedAt = DateTimeOffset.UtcNow
+    };
+
+    private static AgentSession Session(
+        Guid organizationId,
+        Guid installationId,
+        params string[] capabilities) => new(
         Guid.NewGuid().ToString("N"),
         "com.example.agent",
         installationId.ToString("D"),
@@ -108,6 +190,6 @@ public sealed class AgentEmployeeIdentityResolverTests
         new AuthorizedAgentGrant(
             new HashSet<string>(),
             new HashSet<string>(),
-            new HashSet<string>(),
+            capabilities.ToHashSet(StringComparer.Ordinal),
             1));
 }

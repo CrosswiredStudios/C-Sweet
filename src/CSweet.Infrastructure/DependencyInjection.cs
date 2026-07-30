@@ -224,6 +224,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IArtifactService, ArtifactService>();
         builder.Services.AddScoped<IArtifactApprovalService, ArtifactApprovalService>();
         builder.Services.AddScoped<IOrganizationUserService, OrganizationUserService>();
+        builder.Services.AddScoped<ITeamService, TeamService>();
         builder.Services.AddScoped<IExecutiveBriefingService, ExecutiveBriefingService>();
         builder.Services.AddScoped<IConversationService, ConversationService>();
         builder.Services.AddScoped<IChatTurnService, ChatTurnService>();

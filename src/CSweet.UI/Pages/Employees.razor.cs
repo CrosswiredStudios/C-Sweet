@@ -41,6 +41,8 @@ public partial class Employees
     private IReadOnlyList<LlmProviderProfileResponse> _providerProfiles = [];
     private Guid? _hireManagerId;
     private readonly HashSet<Guid> _managedEmployeeIds = [];
+    private readonly HashSet<Guid> _hireTeamIds = [];
+    private readonly Dictionary<Guid, Guid?> _hireTeamRoleIds = [];
     private OrganizationUserResponse? _employeeToFire;
     private OrganizationUserResponse? _roleEmployee;
     private Guid? _selectedRoleId;
@@ -70,9 +72,29 @@ public partial class Employees
     private readonly DialogOptions _runtimeConsoleOptions = new() { MaxWidth = MaxWidth.Large, FullWidth = true, CloseButton = true };
     private EmployeeViewKind _activeView = EmployeeViewKind.Graph;
     private Guid? _selectedEmployeeId;
+    private Guid? _focusedTeamId;
     private int _graphDegrees = 2;
     private EmployeeDirectoryFilter _directoryFilter = new();
     private HiringDashboardResponse? _hiringDashboard;
+    private TeamDirectoryResponse _teamDirectory = new(Guid.Empty, false, []);
+    private bool _teamDialogOpen;
+    private bool _teamMemberDialogOpen;
+    private bool _teamConfirmDialogOpen;
+    private bool _teamMutationBusy;
+    private string? _teamMutationError;
+    private TeamSummaryResponse? _editingTeam;
+    private string _teamName = string.Empty;
+    private string? _teamDescription;
+    private Guid? _teamLeadId;
+    private Guid? _teamMemberId;
+    private Guid? _teamMemberRoleId;
+    private readonly HashSet<Guid> _teamInitialMemberIds = [];
+    private readonly Dictionary<Guid, Guid?> _teamInitialRoles = [];
+    private bool _teamRevisionConflict;
+    private bool _teamRevisionReviewed;
+    private TeamUiActionRequest? _pendingTeamAction;
+    private string _teamConfirmTitle = string.Empty;
+    private string _teamConfirmMessage = string.Empty;
     private bool _resourceDecisionBusy;
     private string? _resourceFeedback;
     private bool IsHiringTab => string.Equals(Tab, "hiring", StringComparison.OrdinalIgnoreCase);
@@ -83,7 +105,8 @@ public partial class Employees
         _workers,
         _agentInstallations,
         _runtimeStatuses,
-        _managingRuntimeInstallationId);
+        _managingRuntimeInstallationId,
+        _teamDirectory);
 
     private string ConfigurationLoadingMessage => _configurationRuntime?.Stage switch
     {
@@ -119,6 +142,7 @@ public partial class Employees
             _providerProfiles = await providersTask;
             _hiringDashboard = await Http.GetFromJsonAsync<HiringDashboardResponse>(
                 $"api/core/organizations/{OrganizationId}/hiring");
+            await ReloadTeamsAsync();
             EnsureSelection();
             StartRuntimeStatusRefresh();
         }
@@ -141,9 +165,237 @@ public partial class Employees
             ? _workers.FirstOrDefault(x => x.Id == employee.WorkerId.Value)?.Name
             : null;
 
-        return employee.EmployeeType == 1
-            ? worker ?? "Agent"
-            : role ?? "Employee";
+        return role ?? (employee.EmployeeType == 1 ? worker ?? "Agent" : "Employee");
+    }
+
+    private async Task ReloadTeamsAsync()
+    {
+        _teamDirectory = await Http.GetFromJsonAsync<TeamDirectoryResponse>(
+            $"api/core/organizations/{OrganizationId}/teams?includeArchived=true",
+            _disposeCts.Token) ?? new TeamDirectoryResponse(Guid.Empty, false, []);
+        if (_editingTeam is not null)
+            _editingTeam = _teamDirectory.Teams.FirstOrDefault(x => x.Id == _editingTeam.Id);
+    }
+
+    private Task HandleTeamActionAsync(TeamUiActionRequest request)
+    {
+        _teamMutationError = null;
+        _teamRevisionConflict = false;
+        _teamRevisionReviewed = false;
+        var team = request.TeamId.HasValue
+            ? _teamDirectory.Teams.FirstOrDefault(x => x.Id == request.TeamId.Value)
+            : null;
+        switch (request.Action)
+        {
+            case TeamUiActionKind.Create:
+                _editingTeam = null;
+                _teamName = string.Empty;
+                _teamDescription = null;
+                _teamLeadId = _teamDirectory.CurrentOrganizationUserId != Guid.Empty
+                    ? _teamDirectory.CurrentOrganizationUserId
+                    : _employees.FirstOrDefault()?.Id;
+                _teamInitialMemberIds.Clear();
+                _teamInitialRoles.Clear();
+                _teamDialogOpen = true;
+                break;
+            case TeamUiActionKind.Edit when team is not null:
+                _editingTeam = team;
+                _teamName = team.Name;
+                _teamDescription = team.Description;
+                _teamLeadId = team.LeadOrganizationUserId;
+                _teamDialogOpen = true;
+                break;
+            case TeamUiActionKind.AddMember when team is not null:
+                _editingTeam = team;
+                _teamMemberId = null;
+                _teamMemberRoleId = null;
+                _teamMemberDialogOpen = true;
+                break;
+            case TeamUiActionKind.Archive when team is not null:
+            case TeamUiActionKind.Restore when team is not null:
+            case TeamUiActionKind.RemoveMember when team is not null:
+                _pendingTeamAction = request;
+                _teamConfirmTitle = request.Action switch
+                {
+                    TeamUiActionKind.Archive => $"Archive {team.Name}?",
+                    TeamUiActionKind.Restore => $"Restore {team.Name}?",
+                    _ => "Remove team member?"
+                };
+                _teamConfirmMessage = request.Action switch
+                {
+                    TeamUiActionKind.Archive =>
+                        "The team will be hidden from active rosters and all team-scoped grants will be revoked. Restoring the team will not restore those grants.",
+                    TeamUiActionKind.Restore =>
+                        "The team and its membership history will return to active views. Revoked grants remain revoked.",
+                    _ => "The membership will be ended and retained in team history."
+                };
+                _teamConfirmDialogOpen = true;
+                break;
+        }
+        return Task.CompletedTask;
+    }
+
+    private void ToggleInitialTeamMember(Guid employeeId, bool selected)
+    {
+        if (selected)
+            _teamInitialMemberIds.Add(employeeId);
+        else
+        {
+            _teamInitialMemberIds.Remove(employeeId);
+            _teamInitialRoles.Remove(employeeId);
+        }
+    }
+
+    private Guid? InitialTeamRole(Guid employeeId) =>
+        _teamInitialRoles.TryGetValue(employeeId, out var roleId) ? roleId : null;
+
+    private void SetInitialTeamRole(Guid employeeId, Guid? roleId) =>
+        _teamInitialRoles[employeeId] = roleId;
+
+    private bool IsAgentBoundToAnotherTeam(OrganizationUserResponse employee, Guid? targetTeamId) =>
+        employee.EmployeeType == (int)EmployeeType.Agent &&
+        _teamDirectory.Teams.Any(team =>
+            team.Id != targetTeamId &&
+            team.Members.Any(membership => membership.OrganizationUserId == employee.Id));
+
+    private async Task SaveTeamAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_teamName) || !_teamLeadId.HasValue)
+        {
+            _teamMutationError = "A team name and active lead are required.";
+            return;
+        }
+        _teamMutationBusy = true;
+        _teamMutationError = null;
+        try
+        {
+            HttpResponseMessage response;
+            if (_editingTeam is null)
+            {
+                var members = _teamInitialMemberIds.Select(employeeId =>
+                    new TeamMemberInput(employeeId, InitialTeamRole(employeeId))).ToList();
+                response = await Http.PostAsJsonAsync(
+                    $"api/core/organizations/{OrganizationId}/teams",
+                    new CreateTeamRequest(_teamName, _teamDescription, _teamLeadId.Value, members),
+                    _disposeCts.Token);
+            }
+            else
+            {
+                response = await Http.PutAsJsonAsync(
+                    $"api/core/organizations/{OrganizationId}/teams/{_editingTeam.Id}",
+                    new UpdateTeamRequest(
+                        _teamName,
+                        _teamDescription,
+                        _teamLeadId.Value,
+                        _editingTeam.Revision),
+                    _disposeCts.Token);
+            }
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                _teamRevisionConflict = true;
+                _teamRevisionReviewed = false;
+                _teamMutationError = "The team changed while you were editing. Review the refreshed state before retrying.";
+                await ReloadTeamsAsync();
+                return;
+            }
+            await EnsureTeamMutationSucceededAsync(response);
+            await ReloadTeamsAsync();
+            _teamDialogOpen = false;
+        }
+        catch (Exception exception)
+        {
+            _teamMutationError = exception.Message;
+        }
+        finally
+        {
+            _teamMutationBusy = false;
+        }
+    }
+
+    private async Task SaveTeamMemberAsync()
+    {
+        if (_editingTeam is null || !_teamMemberId.HasValue)
+        {
+            _teamMutationError = "Select an employee.";
+            return;
+        }
+        _teamMutationBusy = true;
+        _teamMutationError = null;
+        try
+        {
+            var response = await Http.PutAsJsonAsync(
+                $"api/core/organizations/{OrganizationId}/teams/{_editingTeam.Id}/members/{_teamMemberId.Value}",
+                new UpsertTeamMembershipRequest(_teamMemberRoleId, _editingTeam.Revision),
+                _disposeCts.Token);
+            await EnsureTeamMutationSucceededAsync(response);
+            await ReloadTeamsAsync();
+            _teamMemberDialogOpen = false;
+        }
+        catch (Exception exception)
+        {
+            _teamMutationError = exception.Message;
+        }
+        finally
+        {
+            _teamMutationBusy = false;
+        }
+    }
+
+    private async Task ConfirmTeamActionAsync()
+    {
+        if (_pendingTeamAction?.TeamId is not Guid teamId) return;
+        var team = _teamDirectory.Teams.FirstOrDefault(x => x.Id == teamId);
+        if (team is null) return;
+        _teamMutationBusy = true;
+        try
+        {
+            HttpResponseMessage response = _pendingTeamAction.Action switch
+            {
+                TeamUiActionKind.Archive => await Http.PostAsJsonAsync(
+                    $"api/core/organizations/{OrganizationId}/teams/{teamId}/archive",
+                    new TeamRevisionRequest(team.Revision),
+                    _disposeCts.Token),
+                TeamUiActionKind.Restore => await Http.PostAsJsonAsync(
+                    $"api/core/organizations/{OrganizationId}/teams/{teamId}/restore",
+                    new TeamRevisionRequest(team.Revision),
+                    _disposeCts.Token),
+                TeamUiActionKind.RemoveMember when _pendingTeamAction.OrganizationUserId.HasValue =>
+                    await Http.DeleteAsync(
+                        $"api/core/organizations/{OrganizationId}/teams/{teamId}/members/{_pendingTeamAction.OrganizationUserId.Value}?expectedRevision={team.Revision}",
+                        _disposeCts.Token),
+                _ => throw new InvalidOperationException("The team action is invalid.")
+            };
+            await EnsureTeamMutationSucceededAsync(response);
+            await ReloadTeamsAsync();
+            _teamConfirmDialogOpen = false;
+            _pendingTeamAction = null;
+        }
+        catch (Exception exception)
+        {
+            _teamMutationError = exception.Message;
+            _actionError = exception.Message;
+        }
+        finally
+        {
+            _teamMutationBusy = false;
+        }
+    }
+
+    private static async Task EnsureTeamMutationSucceededAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var body = await response.Content.ReadAsStringAsync();
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("message", out var message))
+                throw new InvalidOperationException(message.GetString() ?? "The team operation failed.");
+        }
+        catch (JsonException)
+        {
+            // Preserve the status-based fallback below.
+        }
+        throw new InvalidOperationException($"The team operation failed ({(int)response.StatusCode}).");
     }
 
     private async Task DecideResourceChangeAsync(ResourceChangeRequestResponse resourceChange, string decision)
@@ -474,6 +726,13 @@ public partial class Employees
         return Task.CompletedTask;
     }
 
+    private Task FocusTeamAsync(Guid teamId)
+    {
+        _focusedTeamId = teamId;
+        _activeView = EmployeeViewKind.Teams;
+        return Task.CompletedTask;
+    }
+
     private Task SelectEmployeeAsync(Guid employeeId)
     {
         if (_employees.Any(x => x.Id == employeeId))
@@ -567,6 +826,8 @@ public partial class Employees
             .Select(employee => (Guid?)employee.Id)
             .FirstOrDefault();
         _managedEmployeeIds.Clear();
+        _hireTeamIds.Clear();
+        _hireTeamRoleIds.Clear();
         _actionError = null;
         _hireDialogOpen = true;
     }
@@ -584,6 +845,25 @@ public partial class Employees
             _managedEmployeeIds.Remove(employeeId);
         }
     }
+
+    private void SetHireTeam(Guid teamId, bool selected)
+    {
+        if (_hireEmployeeType == (int)EmployeeType.Agent)
+            _hireTeamIds.Clear();
+        if (selected)
+            _hireTeamIds.Add(teamId);
+        else
+        {
+            _hireTeamIds.Remove(teamId);
+            _hireTeamRoleIds.Remove(teamId);
+        }
+    }
+
+    private Guid? HireTeamRole(Guid teamId) =>
+        _hireTeamRoleIds.TryGetValue(teamId, out var roleId) ? roleId : null;
+
+    private void SetHireTeamRole(Guid teamId, Guid? roleId) =>
+        _hireTeamRoleIds[teamId] = roleId;
 
     private async Task HireAsync()
     {
@@ -610,6 +890,11 @@ public partial class Employees
             _actionError = "Select the employee who will manage this agent.";
             return;
         }
+        if (_hireEmployeeType == (int)EmployeeType.Agent && _hireTeamIds.Count > 1)
+        {
+            _actionError = "Select at most one team for an AI employee instance.";
+            return;
+        }
 
         _saving = true;
         try
@@ -629,7 +914,9 @@ public partial class Employees
                 WorkerId: workerId,
                 ReportsToOrganizationUserId: _hireManagerId,
                 ManagedOrganizationUserIds: _managedEmployeeIds.ToArray(),
-                AgentInstallationId: AvailableAgents.First(x => x.Key == _hireAgentKey).InstallationId);
+                AgentInstallationId: _hireEmployeeType == (int)EmployeeType.Agent
+                    ? AvailableAgents.First(x => x.Key == _hireAgentKey).InstallationId
+                    : null);
             var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId}/users", request);
             if (!response.IsSuccessStatusCode)
             {
@@ -643,6 +930,27 @@ public partial class Employees
             {
                 _actionError = "The employee was hired, but the response was empty.";
                 return;
+            }
+
+            foreach (var teamId in _hireTeamIds.ToList())
+            {
+                var team = _teamDirectory.Teams.First(x => x.Id == teamId);
+                var membershipResponse = await Http.PutAsJsonAsync(
+                    $"api/core/organizations/{OrganizationId}/teams/{teamId}/members/{hiredEmployee.Id}",
+                    new UpsertTeamMembershipRequest(HireTeamRole(teamId), team.Revision),
+                    _disposeCts.Token);
+                await EnsureTeamMutationSucceededAsync(membershipResponse);
+                var updated = await membershipResponse.Content.ReadFromJsonAsync<TeamDetailResponse>(
+                    _disposeCts.Token);
+                if (updated is not null)
+                {
+                    _teamDirectory = _teamDirectory with
+                    {
+                        Teams = _teamDirectory.Teams
+                            .Select(item => item.Id == teamId ? updated.Team : item)
+                            .ToList()
+                    };
+                }
             }
 
             _hireDialogOpen = false;

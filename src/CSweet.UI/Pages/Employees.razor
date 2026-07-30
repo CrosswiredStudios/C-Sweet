@@ -151,16 +151,28 @@
         @if (_activeView == EmployeeViewKind.Graph)
         {
             <EmployeeGraphView Employees="PresentedEmployees"
+                               Teams="_teamDirectory.Teams"
                                SelectedId="_selectedEmployeeId"
                                SelectedIdChanged="SelectEmployeeAsync"
                                Degrees="_graphDegrees"
                                DegreesChanged="ChangeDegreesAsync"
+                               TeamSelected="FocusTeamAsync"
                                ActionRequested="HandleEmployeeActionAsync" />
+        }
+        else if (_activeView == EmployeeViewKind.Teams)
+        {
+            <TeamClustersView Directory="_teamDirectory"
+                              Employees="PresentedEmployees"
+                              FocusTeamId="_focusedTeamId"
+                              SelectedEmployeeId="_selectedEmployeeId"
+                              EmployeeSelected="SelectEmployeeAsync"
+                              ActionRequested="HandleTeamActionAsync" />
         }
         else
         {
             <EmployeeDirectoryView Employees="PresentedEmployees"
                                    Roles="_roles"
+                                   Teams="_teamDirectory.Teams"
                                    Filter="_directoryFilter"
                                    FilterChanged="ChangeFilterAsync"
                                    SelectedId="_selectedEmployeeId"
@@ -169,6 +181,108 @@
         }
     }
 </div>
+
+<MudDialog @bind-Visible="_teamDialogOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">@(_editingTeam is null ? "Create team" : $"Edit {_editingTeam.Name}")</MudText></TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudTextField @bind-Value="_teamName" Label="Team name" Variant="Variant.Outlined" Required="true" />
+            <MudTextField @bind-Value="_teamDescription" Label="Description" Lines="3" Variant="Variant.Outlined" />
+            <MudSelect T="Guid?" @bind-Value="_teamLeadId" Label="Required lead" Variant="Variant.Outlined" Required="true">
+                @foreach (var employee in _employees.OrderBy(x => x.DisplayName))
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)employee.Id)">@employee.DisplayName — @EmployeeLabel(employee)</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_editingTeam is null)
+            {
+                <MudText Typo="Typo.subtitle2">Initial members and team-specific roles</MudText>
+                @foreach (var employee in _employees.OrderBy(x => x.DisplayName))
+                {
+                    var unavailable = IsAgentBoundToAnotherTeam(employee, null);
+                    <MudPaper Elevation="0" Outlined="true" Class="pa-2">
+                        <MudCheckBox T="bool" Value="@_teamInitialMemberIds.Contains(employee.Id)"
+                                     ValueChanged="@(value => ToggleInitialTeamMember(employee.Id, value))"
+                                     Disabled="@unavailable"
+                                     Label="@employee.DisplayName" />
+                        @if (unavailable)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Warning">This agent employee is lifetime-bound to another team. Hire another installation for this team.</MudText>
+                        }
+                        @if (_teamInitialMemberIds.Contains(employee.Id))
+                        {
+                            <MudSelect T="Guid?" Value="@InitialTeamRole(employee.Id)"
+                                       ValueChanged="@(value => SetInitialTeamRole(employee.Id, value))"
+                                       Label="Team role" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                @foreach (var role in _roles.OrderBy(x => x.Name))
+                                {
+                                    <MudSelectItem T="Guid?" Value="@((Guid?)role.Id)">@role.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                    </MudPaper>
+                }
+            }
+            @if (_teamRevisionConflict)
+            {
+                <MudAlert Severity="Severity.Warning">The team changed while you were editing. Your values were retained and current state was reloaded.</MudAlert>
+                <MudCheckBox T="bool" @bind-Value="_teamRevisionReviewed" Label="I reviewed the current team state and want to retry." />
+            }
+            @if (!string.IsNullOrWhiteSpace(_teamMutationError))
+            {
+                <MudAlert Severity="Severity.Error">@_teamMutationError</MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _teamDialogOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="SaveTeamAsync" Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_teamMutationBusy || (_teamRevisionConflict && !_teamRevisionReviewed))">
+            @(_teamMutationBusy ? "Saving..." : "Review and save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_teamMemberDialogOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Add or reactivate team member</MudText></TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudSelect T="Guid?" @bind-Value="_teamMemberId" Label="Employee" Variant="Variant.Outlined">
+                @foreach (var employee in _employees.OrderBy(x => x.DisplayName))
+                {
+                    var unavailable = IsAgentBoundToAnotherTeam(employee, _editingTeam?.Id);
+                    <MudSelectItem T="Guid?" Value="@((Guid?)employee.Id)" Disabled="@unavailable">
+                        @employee.DisplayName — @(unavailable ? "hire another agent installation" : EmployeeLabel(employee))
+                    </MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="Guid?" @bind-Value="_teamMemberRoleId" Label="Team-specific role" Variant="Variant.Outlined" Clearable="true">
+                @foreach (var role in _roles.OrderBy(x => x.Name))
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)role.Id)">@role.Name</MudSelectItem>
+                }
+            </MudSelect>
+            @if (!string.IsNullOrWhiteSpace(_teamMutationError))
+            {
+                <MudAlert Severity="Severity.Error">@_teamMutationError</MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _teamMemberDialogOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="SaveTeamMemberAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="_teamMutationBusy">Save membership</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_teamConfirmDialogOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">@_teamConfirmTitle</MudText></TitleContent>
+    <DialogContent><MudText>@_teamConfirmMessage</MudText></DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _teamConfirmDialogOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="ConfirmTeamActionAsync" Variant="Variant.Filled" Color="@(_pendingTeamAction?.Action == TeamUiActionKind.Restore ? Color.Primary : Color.Error)" Disabled="_teamMutationBusy">Confirm</MudButton>
+    </DialogActions>
+</MudDialog>
+
 <MudDialog @bind-Visible="_configurationDialogOpen" Options="_dialogOptions">
     <TitleContent><MudText Typo="Typo.h6">Configure @_configurationEmployee?.DisplayName</MudText></TitleContent>
     <DialogContent>
@@ -348,6 +462,32 @@
                     <MudSelectItem T="Guid?" Value="@((Guid?)employee.Id)">@employee.DisplayName</MudSelectItem>
                 }
             </MudSelect>
+            <MudText Typo="Typo.subtitle2">Team assignments</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                @(_hireEmployeeType == 1
+                    ? "An AI employee instance can join at most one team for its lifetime."
+                    : "Humans and contractors may join several teams with an independent role in each.")
+            </MudText>
+            @foreach (var team in _teamDirectory.Teams.Where(team => !team.IsArchived).OrderBy(team => team.Name))
+            {
+                <MudPaper Elevation="0" Outlined="true" Class="pa-2">
+                    <MudCheckBox T="bool" Label="@team.Name"
+                                 Value="@_hireTeamIds.Contains(team.Id)"
+                                 ValueChanged="@(value => SetHireTeam(team.Id, value))"
+                                 Disabled="_saving" />
+                    @if (_hireTeamIds.Contains(team.Id))
+                    {
+                        <MudSelect T="Guid?" Value="@HireTeamRole(team.Id)"
+                                   ValueChanged="@(value => SetHireTeamRole(team.Id, value))"
+                                   Label="Team-specific role" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                            @foreach (var role in _roles.OrderBy(role => role.Name))
+                            {
+                                <MudSelectItem T="Guid?" Value="@((Guid?)role.Id)">@role.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                </MudPaper>
+            }
             <MudText Typo="Typo.subtitle2">Manages</MudText>
             <MudText Typo="Typo.caption" Color="Color.Secondary">Select existing employees who will report to this new hire.</MudText>
             @if (_employees.Count == 0)

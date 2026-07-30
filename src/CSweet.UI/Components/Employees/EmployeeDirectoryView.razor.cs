@@ -13,6 +13,9 @@ public partial class EmployeeDirectoryView
     public IReadOnlyList<RoleResponse> Roles { get; set; } = [];
 
     [Parameter]
+    public IReadOnlyList<TeamSummaryResponse> Teams { get; set; } = [];
+
+    [Parameter]
     public EmployeeDirectoryFilter Filter { get; set; } = new();
 
     [Parameter]
@@ -32,6 +35,7 @@ public partial class EmployeeDirectoryView
 
     protected Task ChangeSearchAsync(string value) => FilterChanged.InvokeAsync(Filter with { Search = value ?? string.Empty });
     protected Task ChangeRoleAsync(string value) => FilterChanged.InvokeAsync(Filter with { Role = value ?? "all" });
+    protected Task ChangeTeamAsync(string value) => FilterChanged.InvokeAsync(Filter with { Team = value ?? "all" });
     protected Task ChangeTypeAsync(EmployeeTypeFilter value) => FilterChanged.InvokeAsync(Filter with { Type = value });
     protected Task ChangeStatusAsync(EmployeeRuntimeStatus? value) => FilterChanged.InvokeAsync(Filter with { Status = value });
     protected Task ClearAsync() => FilterChanged.InvokeAsync(new EmployeeDirectoryFilter());

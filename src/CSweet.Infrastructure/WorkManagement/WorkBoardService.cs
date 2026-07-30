@@ -95,6 +95,15 @@ public sealed class WorkBoardService(
         var create = await authorization.AuthorizeAsync(
             organizationId, GrantSubjectKind.OrganizationUser, member.Id,
             WorkBoardActions.Create, GrantScopeKind.Organization, null, cancellationToken);
+        if (!create.Allowed)
+        {
+            create = readGrants.Any(x =>
+                x.Action == WorkBoardActions.Create &&
+                x.ScopeKind == GrantScopeKind.Team &&
+                x.ScopeId.HasValue)
+                ? new ScopedAuthorizationDecision(true, WorkBoardActions.Create)
+                : create;
+        }
         await WriteAllowedAsync(
             organizationId, member, WorkBoardActions.Read, null,
             readGrants.First(x => x.Action == WorkBoardActions.Read).Id,
@@ -149,15 +158,17 @@ public sealed class WorkBoardService(
         CancellationToken cancellationToken = default)
     {
         var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
-        var decision = await RequireAsync(
-            organizationId, member, WorkBoardActions.Create, null, cancellationToken);
-        await ValidateRequestAsync(organizationId, request.Name, request.WorkstreamId, cancellationToken);
+        var decision = await RequireCreateAsync(
+            organizationId, member, request.TeamId, cancellationToken);
+        await ValidateRequestAsync(
+            organizationId, request.Name, request.WorkstreamId, request.TeamId, cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var board = new WorkBoard
         {
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
             WorkstreamId = request.WorkstreamId,
+            TeamId = request.TeamId,
             Name = request.Name.Trim(),
             Description = request.Description?.Trim() ?? string.Empty,
             CreatedAt = now,
@@ -172,7 +183,9 @@ public sealed class WorkBoardService(
         await db.SaveChangesAsync(cancellationToken);
         await WriteAllowedAsync(
             organizationId, member, WorkBoardActions.Create, board.Id,
-            decision.GrantId!.Value, new { board.Id, board.Name, board.WorkstreamId }, cancellationToken);
+            decision.GrantId!.Value,
+            new { board.Id, board.Name, board.WorkstreamId, board.TeamId },
+            cancellationToken);
         return await ToDetailAsync(board, member.Id, cancellationToken);
     }
 
@@ -186,7 +199,8 @@ public sealed class WorkBoardService(
         var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
         var decision = await RequireAsync(
             organizationId, member, WorkBoardActions.Configure, boardId, cancellationToken);
-        await ValidateRequestAsync(organizationId, request.Name, request.WorkstreamId, cancellationToken);
+        await ValidateRequestAsync(
+            organizationId, request.Name, request.WorkstreamId, teamId: null, cancellationToken);
         var board = await db.WorkBoards
             .Include(x => x.Columns.OrderBy(column => column.Position))
             .SingleOrDefaultAsync(x => x.Id == boardId && x.OrganizationId == organizationId, cancellationToken);
@@ -716,6 +730,7 @@ public sealed class WorkBoardService(
         Guid organizationId,
         string name,
         Guid? workstreamId,
+        Guid? teamId,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -723,6 +738,33 @@ public sealed class WorkBoardService(
         if (workstreamId.HasValue && !await db.Workstreams.AnyAsync(x =>
                 x.Id == workstreamId && x.OrganizationId == organizationId, cancellationToken))
             throw new ArgumentException("The selected workstream does not belong to this organization.", nameof(workstreamId));
+        if (teamId.HasValue && !await db.OrganizationTeams.AnyAsync(x =>
+                x.Id == teamId && x.OrganizationId == organizationId && x.ArchivedAt == null,
+                cancellationToken))
+            throw new ArgumentException("The selected team is not active in this organization.", nameof(teamId));
+    }
+
+    private async Task<ScopedAuthorizationDecision> RequireCreateAsync(
+        Guid organizationId,
+        OrganizationUser member,
+        Guid? teamId,
+        CancellationToken cancellationToken)
+    {
+        await WorkBoardProvisioning.EnsureLegacyGrantsAsync(db, organizationId, member, cancellationToken);
+        var decision = await authorization.AuthorizeAsync(
+            organizationId,
+            GrantSubjectKind.OrganizationUser,
+            member.Id,
+            WorkBoardActions.Create,
+            teamId.HasValue ? GrantScopeKind.Team : GrantScopeKind.Organization,
+            teamId,
+            cancellationToken);
+        if (decision.Allowed) return decision;
+        await WriteDeniedAsync(organizationId, member, WorkBoardActions.Create, null, cancellationToken);
+        throw new UnauthorizedAccessException(
+            teamId.HasValue
+                ? "The current user does not have a create grant for the selected team."
+                : "The current user does not have an organization board-create grant.");
     }
 
     private async Task<WorkBoardDetailResponse> ToDetailAsync(
@@ -823,7 +865,10 @@ public sealed class WorkBoardService(
             board.Name, board.Description, board.IsDefault, board.ArchivedAt.HasValue,
             favorite, lastVisitedAt, activeItemCount, grantedSubjects,
             board.Revision,
-            board.CreatedAt, board.UpdatedAt, allowed);
+            board.CreatedAt, board.UpdatedAt, allowed)
+        {
+            TeamId = board.TeamId
+        };
     }
 
     private static bool HasActionForBoard(

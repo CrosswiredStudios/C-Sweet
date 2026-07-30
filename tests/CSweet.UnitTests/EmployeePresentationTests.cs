@@ -87,6 +87,35 @@ public sealed class EmployeePresentationTests
         Assert.DoesNotContain(EmployeeAction.StartRuntime, agentView.Actions);
     }
 
+    [Fact]
+    public void Presentation_RepeatsHumanAcrossTeams_ButKeepsAgentSingleAndSearchableByTeamRole()
+    {
+        var human = Employee("Taylor");
+        var agent = Employee("Dev instance", employeeType: 1);
+        var alpha = Team("Alpha", human, agent, "Quality Lead");
+        var beta = Team("Beta", human, null, "Contract Architect");
+        var directory = new TeamDirectoryResponse(Guid.NewGuid(), true, [alpha, beta]);
+
+        var presented = EmployeePresentationService.Build(
+            [human, agent],
+            [],
+            [],
+            [],
+            new Dictionary<Guid, AgentRuntimeReadinessResponse>(),
+            teamDirectory: directory);
+
+        Assert.Equal(2, presented.Single(x => x.Id == human.Id).Teams.Count);
+        Assert.Single(presented.Single(x => x.Id == agent.Id).Teams);
+        var betaHumans = EmployeeDirectoryFilterService.Apply(
+            presented,
+            new EmployeeDirectoryFilter(Team: beta.Id.ToString()));
+        Assert.Single(betaHumans);
+        Assert.Equal(human.Id, betaHumans[0].Id);
+        Assert.Single(EmployeeDirectoryFilterService.Apply(
+            presented,
+            new EmployeeDirectoryFilter(Search: "Contract Architect")));
+    }
+
     private static IReadOnlyList<EmployeeViewModel> Present(IReadOnlyList<OrganizationUserResponse> employees) =>
         EmployeePresentationService.Build(employees, [], [], [], new Dictionary<Guid, AgentRuntimeReadinessResponse>());
 
@@ -111,4 +140,37 @@ public sealed class EmployeePresentationTests
             [], [], [], [], [], 512, 50,
             new AgentScheduleResponse(Guid.NewGuid(), "AlwaysOn", 60, null, null, null, null, 300, 3, 0, null, "Skip", true),
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+
+    private static TeamSummaryResponse Team(
+        string name,
+        OrganizationUserResponse human,
+        OrganizationUserResponse? agent,
+        string humanRole)
+    {
+        var teamId = Guid.NewGuid();
+        var members = new List<TeamMembershipResponse>
+        {
+            new(Guid.NewGuid(), human.Id, human.DisplayName, "Human", null, humanRole, true,
+                DateTimeOffset.UtcNow, null)
+        };
+        if (agent is not null)
+        {
+            members.Add(new TeamMembershipResponse(
+                Guid.NewGuid(), agent.Id, agent.DisplayName, "Agent", null, "Developer", false,
+                DateTimeOffset.UtcNow, null));
+        }
+        return new TeamSummaryResponse(
+            teamId,
+            name.ToLowerInvariant(),
+            name,
+            $"{name} team",
+            human.Id,
+            human.DisplayName,
+            1,
+            false,
+            members.Count,
+            1,
+            agent is null ? 0 : 1,
+            members);
+    }
 }

@@ -22,7 +22,8 @@ public sealed class HiringService(
     IAgentCatalogService? agentCatalog = null,
     ILocalAgentSourceArchiveService? localAgentArchives = null,
     IPluginArchiveImportService? archiveImport = null,
-    IResourceChangeService? resourceChanges = null) : IHiringService, IAgentHireOrchestrator
+    IResourceChangeService? resourceChanges = null,
+    ITeamService? teams = null) : IHiringService, IAgentHireOrchestrator
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -48,6 +49,28 @@ public sealed class HiringService(
         if (request.WorkstreamId.HasValue && !await db.Workstreams.AsNoTracking().AnyAsync(x =>
                 x.Id == request.WorkstreamId && x.OrganizationId == organizationId, cancellationToken))
             throw new ArgumentException("The workstream does not belong to this organization.");
+        Guid? approvedTeamId = request.TeamId;
+        if (request.SourceResourceChangeRequestId.HasValue)
+        {
+            var approvedChange = await db.ResourceChangeRequests.AsNoTracking()
+                .Include(x => x.Roles)
+                .SingleOrDefaultAsync(x =>
+                    x.Id == request.SourceResourceChangeRequestId.Value &&
+                    x.OrganizationId == organizationId &&
+                    x.Status == ResourceChangeRequestStatus.Approved,
+                    cancellationToken)
+                ?? throw new ArgumentException("The linked approved resource-change request was not found.");
+            approvedTeamId = approvedChange.TeamId;
+            if (request.TeamId.HasValue && request.TeamId != approvedTeamId)
+                throw new UnauthorizedAccessException("The requested team does not match the approved resource change.");
+            if (!string.IsNullOrWhiteSpace(request.RoleKey) &&
+                !approvedChange.Roles.Any(x => x.IsDesired && x.RoleKey == request.RoleKey && x.TeamId == approvedTeamId))
+                throw new UnauthorizedAccessException("The requested role is not part of the approved team plan.");
+        }
+        if (approvedTeamId.HasValue && !await db.OrganizationTeams.AsNoTracking().AnyAsync(x =>
+                x.Id == approvedTeamId && x.OrganizationId == organizationId && x.ArchivedAt == null,
+                cancellationToken))
+            throw new ArgumentException("The selected team is not active in this organization.");
 
         var existing = await db.WorkforcePlans.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
             x.RequestingInstallationId == requestingInstallationId && x.IdempotencyKey == key, cancellationToken);
@@ -62,6 +85,7 @@ public sealed class HiringService(
             IdempotencyKey = key, CreatedAt = now, Status = ProposalStatus.Pending
         };
         plan.WorkstreamId = request.WorkstreamId;
+        plan.TeamId = approvedTeamId;
         plan.Title = title;
         plan.Objective = objective;
         plan.Priority = request.Priority;
@@ -106,6 +130,19 @@ public sealed class HiringService(
             throw new ArgumentException("The resulting employee was not found.");
         if (plan.Status == ProposalStatus.Pending)
         {
+            if (plan.TeamId.HasValue)
+            {
+                var teamService = teams
+                    ?? throw new InvalidOperationException("Team management is unavailable for this hire.");
+                await teamService.AssignFromWorkflowAsync(
+                    organizationId,
+                    plan.TeamId.Value,
+                    request.ResultOrganizationUserId,
+                    teamRoleId: null,
+                    "HiringRecommendation",
+                    plan.Id,
+                    cancellationToken);
+            }
             plan.Status = ProposalStatus.Approved;
             plan.DecidedAt = DateTimeOffset.UtcNow;
             plan.UpdatedAt = plan.DecidedAt.Value;
@@ -176,7 +213,7 @@ public sealed class HiringService(
             throw new ArgumentException("The proposed manager does not belong to this organization.");
 
         var snapshot = await BuildWorkflowSnapshotAsync(candidate, roleTitle, request.ReportsToOrganizationUserId,
-            request.RequiredGrants ?? [], cancellationToken);
+            request.RequiredGrants ?? [], cancellationToken, teamId: recommendation.TeamId);
         var now = DateTimeOffset.UtcNow;
         var workflow = new StaffingActionProposal
         {
@@ -339,6 +376,7 @@ public sealed class HiringService(
             request.ReportsToOrganizationUserId,
             [],
             cancellationToken,
+            teamId: request.TeamId,
             objective: $"Hire {roleTitle} through Marketplace.");
         var now = DateTimeOffset.UtcNow;
         var workflow = new StaffingActionProposal
@@ -523,6 +561,19 @@ public sealed class HiringService(
         }
 
 CompleteWorkflow:
+        if (snapshot.TeamId.HasValue)
+        {
+            var teamService = teams
+                ?? throw new InvalidOperationException("Team management is unavailable for this hire.");
+            await teamService.AssignFromWorkflowAsync(
+                organizationId,
+                snapshot.TeamId.Value,
+                resultUserId,
+                role.Id,
+                "HiringWorkflow",
+                workflow.Id,
+                cancellationToken);
+        }
         workflow.Status = ProposalStatus.Approved;
         workflow.ApprovedByOrganizationUserId = owner.Id;
         workflow.ResultOrganizationUserId = resultUserId;
@@ -547,6 +598,7 @@ CompleteWorkflow:
         IReadOnlyList<string> requiredGrants,
         CancellationToken token,
         Guid? workstreamId = null,
+        Guid? teamId = null,
         string? objective = null)
     {
         string? digest = null;
@@ -626,11 +678,12 @@ CompleteWorkflow:
         {
             var plan = await db.WorkforcePlans.AsNoTracking().SingleAsync(x => x.Id == planId, token);
             workstreamId = plan.WorkstreamId;
+            teamId = plan.TeamId;
             objective = plan.Objective;
         }
         if (string.IsNullOrWhiteSpace(objective))
             throw new InvalidOperationException("The hiring workflow objective is missing.");
-        return new(roleTitle, reportsTo, workstreamId, objective, candidate.EstimatedCost, candidate.Currency,
+        return new(roleTitle, reportsTo, workstreamId, teamId, objective, candidate.EstimatedCost, candidate.Currency,
             digest, approvedRequiredGrants, currentGrants, embeddedAgent);
     }
 
@@ -741,7 +794,8 @@ CompleteWorkflow:
             SuggestedBy = suggestedBy,
             RoleKey = plan.RoleKey,
             Headcount = plan.Headcount,
-            SourceResourceChangeRequestId = plan.SourceResourceChangeRequestId
+            SourceResourceChangeRequestId = plan.SourceResourceChangeRequestId,
+            TeamId = plan.TeamId
         };
     }
 
@@ -802,7 +856,8 @@ CompleteWorkflow:
                 : "Import an immutable source snapshot, install it with the reviewed grants, then create the employee.",
             workflow.Status.ToString())
         {
-            ConfigurationFields = embedded?.ConfigurationFields ?? []
+            ConfigurationFields = embedded?.ConfigurationFields ?? [],
+            TeamId = snapshot.TeamId
         };
     }
 
@@ -857,6 +912,7 @@ CompleteWorkflow:
     }
 
     private sealed record WorkflowSnapshot(string RoleTitle, Guid? ReportsToOrganizationUserId, Guid? WorkstreamId,
+        Guid? TeamId,
         string Objective, decimal? Price, string? Currency, string? PackageDigest,
         IReadOnlyList<string> RequiredGrants, IReadOnlyList<string> ApprovedGrants,
         EmbeddedAgentInstallSnapshot? EmbeddedAgent = null);

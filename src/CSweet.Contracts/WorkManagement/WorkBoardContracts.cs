@@ -88,7 +88,10 @@ public sealed record WorkBoardSummaryResponse(
     long Revision,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<string> AllowedActions);
+    IReadOnlyList<string> AllowedActions)
+{
+    public Guid? TeamId { get; init; }
+}
 
 public sealed record WorkBoardDetailResponse(
     WorkBoardSummaryResponse Board,
@@ -102,7 +105,8 @@ public sealed record WorkBoardDirectoryResponse(
 public sealed record CreateWorkBoardRequest(
     [property: Required, MaxLength(160)] string Name,
     [property: MaxLength(2048)] string? Description,
-    Guid? WorkstreamId = null);
+    Guid? WorkstreamId = null,
+    Guid? TeamId = null);
 
 public sealed record UpdateWorkBoardRequest(
     [property: Required, MaxLength(160)] string Name,

@@ -1,8 +1,10 @@
-<button type="button" class="employee-node @(Selected ? "selected" : null) @(Employee.IsAgent ? "agent" : "human")" aria-pressed="@Selected" aria-label="Focus @Employee.Name, @Employee.RoleLabel" @onclick="SelectAsync">
+<button type="button" class="employee-node @(Selected ? "selected" : null) @(Employee.IsAgent ? "agent" : "human")"
+        style="@SingleTeamBorder" aria-pressed="@Selected" aria-label="Focus @Employee.Name, @Employee.RoleLabel" @onclick="SelectAsync">
     <EmployeeAvatar Employee="Employee" />
     <span class="employee-node-copy">
         <strong>@Employee.Name</strong>
         <small>@Employee.RoleLabel</small>
+        <EmployeeTeamChips Teams="Employee.Teams" />
         <span class="employee-node-badges">
             <EmployeeTypeBadge IsAgent="Employee.IsAgent" />
             @if (Employee.IsAgent)

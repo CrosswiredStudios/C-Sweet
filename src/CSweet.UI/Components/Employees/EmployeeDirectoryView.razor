@@ -9,6 +9,14 @@
                 <MudSelectItem T="string" Value="@role.Id.ToString()">@role.Name</MudSelectItem>
             }
         </MudSelect>
+        <MudSelect T="string" Label="Team" Value="Filter.Team" ValueChanged="ChangeTeamAsync" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem T="string" Value="@("all")">All teams</MudSelectItem>
+            <MudSelectItem T="string" Value="@("unassigned")">Unassigned</MudSelectItem>
+            @foreach (var team in Teams.Where(x => !x.IsArchived).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                <MudSelectItem T="string" Value="@team.Id.ToString()">@team.Name</MudSelectItem>
+            }
+        </MudSelect>
         <MudSelect T="EmployeeTypeFilter" Label="Type" Value="Filter.Type" ValueChanged="ChangeTypeAsync" Variant="Variant.Outlined" Margin="Margin.Dense">
             <MudSelectItem T="EmployeeTypeFilter" Value="EmployeeTypeFilter.All">All</MudSelectItem>
             <MudSelectItem T="EmployeeTypeFilter" Value="EmployeeTypeFilter.Human">Human</MudSelectItem>

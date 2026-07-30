@@ -335,6 +335,16 @@ public sealed class OrganizationUserService : IOrganizationUserService
 
         var name = user.DisplayName;
         var installationId = user.AgentInstallationId;
+        if (await _dbContext.OrganizationTeams.AnyAsync(x =>
+                x.OrganizationId == user.OrganizationId &&
+                x.LeadOrganizationUserId == user.Id &&
+                x.ArchivedAt == null,
+                cancellationToken))
+        {
+            return Failure(
+                "active_team_lead",
+                "Assign another lead or archive every team led by this employee before removing them.");
+        }
         var directReports = await _dbContext.CoreOrganizationUsers
             .Where(x => x.ReportsToOrganizationUserId == id)
             .ToListAsync(cancellationToken);
@@ -344,6 +354,32 @@ public sealed class OrganizationUserService : IOrganizationUserService
         }
 
         var now = DateTimeOffset.UtcNow;
+        var memberships = await _dbContext.TeamMemberships
+            .Where(x => x.OrganizationId == user.OrganizationId &&
+                        x.OrganizationUserId == user.Id &&
+                        x.EndedAt == null)
+            .ToListAsync(cancellationToken);
+        foreach (var membership in memberships) membership.EndedAt = now;
+        var membershipTeamIds = memberships.Select(x => x.TeamId).Distinct().ToList();
+        var membershipTeams = await _dbContext.OrganizationTeams
+            .Where(x => membershipTeamIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        foreach (var team in membershipTeams)
+        {
+            team.Revision++;
+            team.UpdatedAt = now;
+        }
+        var teamScopedGrants = await _dbContext.ScopedActionGrants.Where(x =>
+                x.OrganizationId == user.OrganizationId &&
+                x.ScopeKind == CSweet.Domain.Security.GrantScopeKind.Team &&
+                x.RevokedAt == null &&
+                ((x.SubjectKind == CSweet.Domain.Security.GrantSubjectKind.OrganizationUser &&
+                  x.SubjectId == user.Id) ||
+                 (installationId.HasValue &&
+                  x.SubjectKind == CSweet.Domain.Security.GrantSubjectKind.AgentInstallation &&
+                  x.SubjectId == installationId.Value)))
+            .ToListAsync(cancellationToken);
+        foreach (var grant in teamScopedGrants) grant.RevokedAt = now;
         user.IsActive = false;
         user.ArchivedAt = now;
         user.AgentInstallationId = null;

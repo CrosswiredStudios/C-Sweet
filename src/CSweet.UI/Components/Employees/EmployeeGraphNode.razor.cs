@@ -18,5 +18,9 @@ public partial class EmployeeGraphNode
         ? "1 direct report"
         : $"{Employee.DirectReportCount} direct reports";
 
+    protected string? SingleTeamBorder => Employee.Teams.Count == 1
+        ? $"border-color:{Employee.Teams[0].Color}"
+        : null;
+
     protected Task SelectAsync() => SelectedChanged.InvokeAsync(Employee.Id);
 }

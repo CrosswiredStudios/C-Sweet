@@ -66,6 +66,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     // Core business domain entities
     public DbSet<Domain.Core.Organization> CoreOrganizations => Set<Domain.Core.Organization>();
     public DbSet<OrganizationUser> CoreOrganizationUsers => Set<OrganizationUser>();
+    public DbSet<OrganizationTeam> OrganizationTeams => Set<OrganizationTeam>();
+    public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
     public DbSet<Role> CoreRoles => Set<Role>();
     public DbSet<StrategicObjective> CoreStrategicObjectives => Set<StrategicObjective>();
     public DbSet<Worker> CoreWorkers => Set<Worker>();

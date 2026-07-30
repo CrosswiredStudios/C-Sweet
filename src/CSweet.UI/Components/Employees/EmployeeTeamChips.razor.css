@@ -1,0 +1,5 @@
+.team-chips { display: flex; flex-wrap: wrap; gap: .3rem; }
+.team-chip { display: inline-flex; align-items: center; gap: .3rem; width: fit-content; padding: .16rem .45rem; border: 1px solid color-mix(in srgb, var(--team-color, #64748b) 38%, white); border-radius: 999px; background: color-mix(in srgb, var(--team-color, #64748b) 8%, white); color: #334155; font-size: .68rem; line-height: 1.25; }
+.team-chip-dot { width: .42rem; height: .42rem; border-radius: 50%; background: var(--team-color, #64748b); }
+.team-chip small { color: #64748b; font-size: .62rem; }
+.team-chip.unassigned { --team-color: #64748b; border-style: dashed; color: #64748b; }

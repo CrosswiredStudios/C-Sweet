@@ -136,6 +136,16 @@
                         <MudSelectItem T="Guid?" Value="@manager.Id">@manager.DisplayName</MudSelectItem>
                     }
                 </MudSelect>
+                <MudSelect T="Guid?" Label="Team assignment" @bind-Value="_teamId"
+                           Variant="Variant.Outlined" Clearable="true" Disabled="_reviewBusy">
+                    @foreach (var team in _teams.Where(team => !team.IsArchived).OrderBy(team => team.Name))
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Optional. An AI employee instance can belong to only one team for its lifetime.
+                </MudText>
                 <MudText Typo="Typo.subtitle2">Capabilities</MudText>
                 <div class="marketplace-agent-capabilities">
                     @foreach (var capability in _preview.Capabilities)
@@ -239,7 +249,9 @@
     private MarketplaceHirePreviewResponse? _preview;
     private AvailableAgent? _selectedAgent;
     private Guid? _reportsToId;
+    private Guid? _teamId;
     private IReadOnlyList<OrganizationUserResponse> _people = [];
+    private IReadOnlyList<TeamSummaryResponse> _teams = [];
     private IReadOnlyList<LlmProviderProfileResponse> _providers = [];
     private IReadOnlyList<string> _models = [];
     private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
@@ -317,14 +329,18 @@
         _reviewError = null;
         _preview = null;
         _reportsToId = null;
+        _teamId = null;
         try
         {
             var peopleTask = Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
                 $"api/core/organizations/{OrganizationId:D}/users");
             var providersTask = LlmProviderApi.ListAsync();
-            await Task.WhenAll(peopleTask, providersTask);
+            var teamsTask = Http.GetFromJsonAsync<TeamDirectoryResponse>(
+                $"api/core/organizations/{OrganizationId:D}/teams?includeArchived=false");
+            await Task.WhenAll(peopleTask, providersTask, teamsTask);
             _people = await peopleTask ?? [];
             _providers = await providersTask;
+            _teams = (await teamsTask)?.Teams ?? [];
             _reportsToId = _people
                 .OrderByDescending(person => person.PermissionLevel == (int)OrganizationPermissionLevel.Owner)
                 .ThenBy(person => person.DisplayName)
@@ -354,7 +370,10 @@
                 _selectedAgent.AgentReference,
                 role,
                 _reportsToId,
-                $"marketplace-preview:{Guid.NewGuid():N}"));
+                $"marketplace-preview:{Guid.NewGuid():N}")
+            {
+                TeamId = _teamId
+            });
         if (!response.IsSuccessStatusCode)
         {
             var failure = await response.Content.ReadFromJsonAsync<MarketplaceApiError>();
@@ -372,7 +391,8 @@
         _reviewError = null;
         try
         {
-            if (_preview.ReportsToOrganizationUserId != _reportsToId)
+            if (_preview.ReportsToOrganizationUserId != _reportsToId ||
+                _preview.TeamId != _teamId)
             {
                 await LoadPreviewAsync();
                 if (_preview is null) return;

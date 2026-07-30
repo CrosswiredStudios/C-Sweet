@@ -176,6 +176,7 @@ public sealed class WorkforcePlan
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid? WorkstreamId { get; set; }
+    public Guid? TeamId { get; set; }
     public Guid RequestingInstallationId { get; set; }
     public Guid? RecommendedCandidateId { get; set; }
     public string Title { get; set; } = string.Empty;

@@ -1,0 +1,31 @@
+@using CSweet.UI.Components.Employees.Models
+
+@if (Teams.Count == 0)
+{
+    <span class="team-chip unassigned">Unassigned</span>
+}
+else
+{
+    <span class="team-chips" aria-label="Team memberships">
+        @foreach (var team in Teams)
+        {
+            <span class="team-chip" style="@($"--team-color:{team.Color}")">
+                <span class="team-chip-dot" aria-hidden="true"></span>
+                @team.TeamName
+                @if (!string.IsNullOrWhiteSpace(team.TeamRole))
+                {
+                    <small>@team.TeamRole</small>
+                }
+                @if (team.IsLead)
+                {
+                    <span class="sr-only">, team lead</span>
+                }
+            </span>
+        }
+    </span>
+}
+
+@code {
+    [Parameter]
+    public IReadOnlyList<EmployeeTeamViewModel> Teams { get; set; } = [];
+}

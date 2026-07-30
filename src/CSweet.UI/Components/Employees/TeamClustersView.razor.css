@@ -1,0 +1,19 @@
+.team-clusters-view { display: grid; gap: 1rem; }
+.team-toolbar { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(9rem, auto) auto; gap: .75rem; align-items: center; }
+.team-cluster-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1rem; align-items: start; }
+.team-cluster { display: grid; gap: .9rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--team-color) 42%, #d8dee8); border-top: .35rem solid var(--team-color); border-radius: 14px; background: #fff; box-shadow: 0 8px 26px rgba(24,35,63,.07); }
+.team-cluster.unassigned { --team-color: #64748b; border-style: dashed; }
+.team-cluster.focused { box-shadow: 0 0 0 3px color-mix(in srgb, var(--team-color) 28%, transparent), 0 12px 30px rgba(24,35,63,.12); }
+.team-cluster header { display: flex; justify-content: space-between; gap: .75rem; }
+.team-metrics, .team-role-coverage { display: flex; flex-wrap: wrap; gap: .4rem; }
+.team-metrics span, .team-role-coverage span, .member-badges em { padding: .22rem .5rem; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: .72rem; font-style: normal; }
+.team-role-coverage span { background: color-mix(in srgb, var(--team-color) 8%, white); }
+.team-member-list { display: grid; gap: .35rem; padding: 0; margin: 0; list-style: none; }
+.team-member-list li { display: grid; grid-template-columns: 1fr auto; align-items: center; border-radius: 10px; }
+.team-member-list li.lead { background: color-mix(in srgb, var(--team-color) 7%, white); }
+.team-member-list button { display: flex; align-items: center; gap: .65rem; width: 100%; padding: .55rem; border: 0; border-radius: 10px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.team-member-list button:focus-visible { outline: 3px solid color-mix(in srgb, var(--team-color) 45%, transparent); }
+.team-member-list button > span:not(.member-badges) { display: grid; flex: 1; min-width: 0; }
+.team-member-list small { color: #64748b; }
+.member-badges { display: flex; flex-wrap: wrap; gap: .25rem; justify-content: end; }
+@media (max-width: 720px) { .team-toolbar { grid-template-columns: 1fr; } }

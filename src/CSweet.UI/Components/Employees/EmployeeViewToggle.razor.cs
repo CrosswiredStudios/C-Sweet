@@ -12,5 +12,6 @@ public partial class EmployeeViewToggle
     public EventCallback<EmployeeViewKind> ValueChanged { get; set; }
 
     protected Task SelectGraphAsync() => ValueChanged.InvokeAsync(EmployeeViewKind.Graph);
+    protected Task SelectTeamsAsync() => ValueChanged.InvokeAsync(EmployeeViewKind.Teams);
     protected Task SelectDirectoryAsync() => ValueChanged.InvokeAsync(EmployeeViewKind.Directory);
 }

@@ -13,6 +13,8 @@ internal static class CoreConfigurations
     {
         modelBuilder.Entity<Organization>(ConfigureCoreOrganization);
         modelBuilder.Entity<OrganizationUser>(ConfigureOrganizationUser);
+        modelBuilder.Entity<OrganizationTeam>(ConfigureOrganizationTeam);
+        modelBuilder.Entity<TeamMembership>(ConfigureTeamMembership);
         modelBuilder.Entity<Role>(ConfigureRole);
         modelBuilder.Entity<StrategicObjective>(ConfigureStrategicObjective);
         modelBuilder.Entity<Worker>(ConfigureWorker);
@@ -106,6 +108,55 @@ internal static class CoreConfigurations
         entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
     }
 
+    static void ConfigureOrganizationTeam(EntityTypeBuilder<OrganizationTeam> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.TeamKey).HasMaxLength(200).IsRequired();
+        entity.Property(x => x.NormalizedName).HasMaxLength(160).IsRequired();
+        entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+        entity.Property(x => x.Description).HasMaxLength(2048).IsRequired();
+        entity.Property(x => x.Revision).IsConcurrencyToken();
+        entity.HasIndex(x => new { x.OrganizationId, x.TeamKey }).IsUnique();
+        entity.HasIndex(x => new { x.OrganizationId, x.NormalizedName })
+            .IsUnique()
+            .HasFilter("\"ArchivedAt\" IS NULL");
+        entity.HasOne(x => x.Organization)
+            .WithMany()
+            .HasForeignKey(x => x.OrganizationId)
+            .OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne(x => x.LeadOrganizationUser)
+            .WithMany()
+            .HasForeignKey(x => x.LeadOrganizationUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    static void ConfigureTeamMembership(EntityTypeBuilder<TeamMembership> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.SourceType).HasMaxLength(80).IsRequired();
+        entity.HasIndex(x => new { x.TeamId, x.OrganizationUserId }).IsUnique();
+        entity.HasIndex(x => x.ExclusiveAgentEmployeeId)
+            .IsUnique()
+            .HasFilter("\"ExclusiveAgentEmployeeId\" IS NOT NULL");
+        entity.HasIndex(x => new { x.OrganizationId, x.OrganizationUserId, x.EndedAt });
+        entity.HasOne(x => x.Team)
+            .WithMany(x => x.Memberships)
+            .HasForeignKey(x => x.TeamId)
+            .OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne<Organization>()
+            .WithMany()
+            .HasForeignKey(x => x.OrganizationId)
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(x => x.OrganizationUser)
+            .WithMany()
+            .HasForeignKey(x => x.OrganizationUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(x => x.TeamRole)
+            .WithMany()
+            .HasForeignKey(x => x.TeamRoleId)
+            .OnDelete(DeleteBehavior.SetNull);
+    }
+
     static void ConfigureWorkforcePlatform(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<BusinessProfile>(entity =>
@@ -192,6 +243,10 @@ internal static class CoreConfigurations
             entity.Property(x => x.Priority).HasDefaultValue(50).IsRequired();
             entity.Property(x => x.RoleKey).HasMaxLength(160);
             entity.Property(x => x.Headcount).HasDefaultValue(1).IsRequired();
+            entity.HasOne<OrganizationTeam>()
+                .WithMany()
+                .HasForeignKey(x => x.TeamId)
+                .OnDelete(DeleteBehavior.SetNull);
             entity.HasIndex(x => new { x.OrganizationId, x.RequestingInstallationId, x.RoleKey })
                 .HasFilter("\"RoleKey\" IS NOT NULL");
             entity.Property(x => x.AssignmentsJson).HasColumnType("jsonb"); entity.Property(x => x.RejectedAlternativesJson).HasColumnType("jsonb");
@@ -262,6 +317,9 @@ internal static class CoreConfigurations
             entity.HasIndex(x => new { x.OrganizationId, x.RequesterInstallationId, x.IdempotencyKey }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.ManagerOrganizationUserId, x.Status });
             entity.Property(x => x.ProductGoal).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.TeamKey).HasMaxLength(200);
+            entity.Property(x => x.TeamName).HasMaxLength(160);
+            entity.Property(x => x.TeamDescription).HasMaxLength(2048);
             entity.Property(x => x.Rationale).HasMaxLength(4096).IsRequired();
             entity.Property(x => x.AssumptionsJson).HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.ConstraintsJson).HasColumnType("jsonb").IsRequired();
@@ -270,6 +328,7 @@ internal static class CoreConfigurations
             entity.Property(x => x.DeliveryStatus).HasMaxLength(32).IsRequired();
             entity.Property(x => x.DecisionComment).HasMaxLength(4000);
             entity.Property(x => x.DecisionIdempotencyKey).HasMaxLength(160);
+            entity.HasOne<OrganizationTeam>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ConversationMessage>().WithMany().HasForeignKey(x => x.ConversationMessageId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -286,6 +345,7 @@ internal static class CoreConfigurations
             entity.Property(x => x.ReportsToRoleKey).HasMaxLength(160);
             entity.Property(x => x.ChangeKind).HasMaxLength(24).IsRequired();
             entity.Property(x => x.PreviousRoleJson).HasColumnType("jsonb");
+            entity.HasOne<OrganizationTeam>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(x => x.Request).WithMany(x => x.Roles).HasForeignKey(x => x.ResourceChangeRequestId).OnDelete(DeleteBehavior.Cascade);
         });
     }

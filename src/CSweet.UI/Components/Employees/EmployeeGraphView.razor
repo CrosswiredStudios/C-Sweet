@@ -1,5 +1,11 @@
 <section class="employee-graph-view" role="tabpanel" aria-label="Employee reporting graph">
     <div class="employee-graph-toolbar">
+        <MudSelect T="Guid?" Label="Highlight team" @bind-Value="_teamFilter" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="employee-team-select">
+            @foreach (var team in Teams.Where(x => !x.IsArchived).OrderBy(x => x.Name))
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem>
+            }
+        </MudSelect>
         <MudSelect T="int" Label="Degrees" Value="Degrees" ValueChanged="ChangeDegreesAsync" Variant="Variant.Outlined" Margin="Margin.Dense" Class="employee-degree-select">
             <MudSelectItem T="int" Value="1">1 degree</MudSelectItem>
             <MudSelectItem T="int" Value="2">2 degrees</MudSelectItem>
@@ -19,13 +25,14 @@
                 }
                 @foreach (var node in Graph.Nodes)
                 {
-                    <foreignObject @key="node.Employee.Id" x="@(node.X - 105)" y="@(node.Y - 52)" width="210" height="104">
+                    <foreignObject @key="node.Employee.Id" class="@NodeFilterClass(node.Employee)" x="@(node.X - 105)" y="@(node.Y - 52)" width="210" height="104">
                         <EmployeeGraphNode Employee="node.Employee" Selected="@(node.Employee.Id == SelectedId)" SelectedChanged="SelectAsync" />
                     </foreignObject>
                 }
             </svg>
         </div>
-        <EmployeeDetailsPanel Employee="SelectedEmployee" Employees="Employees" EmployeeSelected="SelectAsync" ActionRequested="ActionRequested" />
+        <EmployeeDetailsPanel Employee="SelectedEmployee" Employees="Employees" EmployeeSelected="SelectAsync"
+                              TeamSelected="TeamSelected" ActionRequested="ActionRequested" />
     </div>
 
     <footer class="employee-graph-legend" aria-label="Graph legend">

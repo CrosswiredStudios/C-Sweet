@@ -33,7 +33,10 @@ public sealed record ResourceChangeRole(
     IReadOnlyList<string> RequiredCapabilities,
     bool HumanRequired,
     Guid? ReportsToOrganizationUserId,
-    [property: MaxLength(160)] string? ReportsToRoleKey);
+    [property: MaxLength(160)] string? ReportsToRoleKey)
+{
+    public Guid? TeamId { get; init; }
+}
 
 public sealed record ResourceChangeProposalRequest(
     Guid ConversationId,
@@ -45,7 +48,15 @@ public sealed record ResourceChangeProposalRequest(
     IReadOnlyList<string> Assumptions,
     IReadOnlyList<string> Constraints,
     Guid? SupersedesRequestId,
-    [property: Required, MaxLength(160)] string IdempotencyKey);
+    [property: Required, MaxLength(160)] string IdempotencyKey)
+{
+    [MaxLength(200)]
+    public string? TeamKey { get; init; }
+    [MaxLength(160)]
+    public string? TeamName { get; init; }
+    [MaxLength(2048)]
+    public string? TeamDescription { get; init; }
+}
 
 public sealed record ResourceChangeRoleDelta(
     string ChangeKind,
@@ -72,7 +83,13 @@ public sealed record ResourceChangeRequestResponse(
     string DeliveryStatus,
     string? DecisionComment,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? DecidedAt);
+    DateTimeOffset? DecidedAt)
+{
+    public Guid? TeamId { get; init; }
+    public string? TeamKey { get; init; }
+    public string? TeamName { get; init; }
+    public string? TeamDescription { get; init; }
+}
 
 public sealed record ResourceChangeReadRequest(
     Guid? RequestId = null,

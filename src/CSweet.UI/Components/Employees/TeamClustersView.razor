@@ -1,0 +1,159 @@
+@using CSweet.Contracts.Core
+@using CSweet.UI.Components.Employees.Models
+
+<section class="team-clusters-view" role="tabpanel" aria-label="Teams">
+    <div class="team-toolbar">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Search teams, people, or team roles..." Immediate="true"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Outlined.Search" />
+        <MudSelect T="string" @bind-Value="_archiveFilter" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
+            <MudSelectItem T="string" Value="@("archived")">Archived</MudSelectItem>
+            <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+        </MudSelect>
+        @if (Directory.CanManageTeams)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.GroupAdd"
+                       OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Create)))">
+                Create team
+            </MudButton>
+        }
+    </div>
+
+    <div class="team-cluster-grid">
+        @foreach (var team in FilteredTeams)
+        {
+            var color = EmployeePresentationService.TeamColor(team.TeamKey);
+            <article class="team-cluster @(FocusTeamId == team.Id ? "focused" : null)" style="@($"--team-color:{color}")" aria-labelledby="@($"team-{team.Id:N}")">
+                <header>
+                    <div>
+                        <MudText Typo="Typo.overline">@(team.IsArchived ? "Archived team" : "Active team")</MudText>
+                        <MudText Typo="Typo.h5" id="@($"team-{team.Id:N}")">@team.Name</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">@team.Description</MudText>
+                    </div>
+                    @if (Directory.CanManageTeams)
+                    {
+                        <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="@($"Manage {team.Name}")">
+                            <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Edit, team.Id)))">Edit team</MudMenuItem>
+                            @if (team.IsArchived)
+                            {
+                                <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Restore, team.Id)))">Restore team</MudMenuItem>
+                            }
+                            else
+                            {
+                                <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.AddMember, team.Id)))">Add member</MudMenuItem>
+                                <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Archive, team.Id)))">Archive team</MudMenuItem>
+                            }
+                        </MudMenu>
+                    }
+                </header>
+                <div class="team-metrics">
+                    <span><strong>@team.ActiveMemberCount</strong> members</span>
+                    <span>@team.HumanMemberCount human</span>
+                    <span>@team.AgentMemberCount agent</span>
+                    <span>revision @team.Revision</span>
+                    @if (team.BoardId.HasValue)
+                    {
+                        <span>linked board</span>
+                    }
+                    @if (team.WorkstreamId.HasValue)
+                    {
+                        <span>linked workstream</span>
+                    }
+                </div>
+                <div class="team-role-coverage" aria-label="Role coverage">
+                    @foreach (var coverage in RoleCoverage(team))
+                    {
+                        <span>@coverage.Key <strong>@coverage.Value</strong></span>
+                    }
+                </div>
+                <ul class="team-member-list" aria-label="@($"{team.Name} members")">
+                    @foreach (var membership in team.Members.Where(x => x.EndedAt is null).OrderByDescending(x => x.IsLead).ThenBy(x => x.TeamRoleName).ThenBy(x => x.DisplayName))
+                    {
+                        var employee = Employees.FirstOrDefault(x => x.Id == membership.OrganizationUserId);
+                        <li class="@(membership.IsLead ? "lead" : null)">
+                            <button type="button" @onclick="@(() => SelectMemberAsync(membership.OrganizationUserId))"
+                                    aria-pressed="@(SelectedEmployeeId == membership.OrganizationUserId)">
+                                @if (employee is not null)
+                                {
+                                    <EmployeeAvatar Employee="employee" />
+                                }
+                                <span>
+                                    <strong>@membership.DisplayName</strong>
+                                    <small>@(membership.TeamRoleName ?? employee?.RoleLabel ?? "Member")</small>
+                                </span>
+                                <span class="member-badges">
+                                    @if (membership.IsLead)
+                                    {
+                                        <em>Lead</em>
+                                    }
+                                    <em>@membership.EmployeeType</em>
+                                </span>
+                            </button>
+                            @if (Directory.CanManageTeams && !membership.IsLead && !team.IsArchived)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Outlined.PersonRemove" Size="Size.Small"
+                                               aria-label="@($"Remove {membership.DisplayName} from {team.Name}")"
+                                               OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.RemoveMember, team.Id, membership.OrganizationUserId)))" />
+                            }
+                        </li>
+                    }
+                </ul>
+            </article>
+        }
+
+        @if (_archiveFilter is "active" or "all" && Unassigned.Count > 0 &&
+             (string.IsNullOrWhiteSpace(_search) || "Unassigned".Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+              Unassigned.Any(x => MatchesEmployee(x, _search))))
+        {
+            <article class="team-cluster unassigned" aria-labelledby="team-unassigned">
+                <header><div><MudText Typo="Typo.overline">No active membership</MudText><MudText Typo="Typo.h5" id="team-unassigned">Unassigned</MudText></div></header>
+                <div class="team-metrics"><span><strong>@Unassigned.Count</strong> employees</span></div>
+                <ul class="team-member-list" aria-label="Unassigned employees">
+                    @foreach (var employee in Unassigned.OrderBy(x => x.Name))
+                    {
+                        <li><button type="button" @onclick="@(() => SelectMemberAsync(employee.Id))"><EmployeeAvatar Employee="employee" /><span><strong>@employee.Name</strong><small>@employee.RoleLabel</small></span></button></li>
+                    }
+                </ul>
+            </article>
+        }
+    </div>
+</section>
+
+@code {
+    private string _search = string.Empty;
+    private string _archiveFilter = "active";
+
+    [Parameter] public TeamDirectoryResponse Directory { get; set; } = new(Guid.Empty, false, []);
+    [Parameter] public IReadOnlyList<EmployeeViewModel> Employees { get; set; } = [];
+    [Parameter] public Guid? SelectedEmployeeId { get; set; }
+    [Parameter] public Guid? FocusTeamId { get; set; }
+    [Parameter] public EventCallback<Guid> EmployeeSelected { get; set; }
+    [Parameter] public EventCallback<TeamUiActionRequest> ActionRequested { get; set; }
+
+    private IReadOnlyList<TeamSummaryResponse> FilteredTeams => Directory.Teams
+        .Where(team => _archiveFilter == "all" ||
+            (_archiveFilter == "archived" ? team.IsArchived : !team.IsArchived))
+        .Where(team => string.IsNullOrWhiteSpace(_search) ||
+            team.Name.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+            team.Description.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+            team.Members.Any(member =>
+                member.DisplayName.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                (member.TeamRoleName?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)))
+        .OrderBy(team => team.Name, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private IReadOnlyList<EmployeeViewModel> Unassigned =>
+        Employees.Where(employee => employee.Teams.Count == 0).ToList();
+
+    private static IReadOnlyDictionary<string, int> RoleCoverage(TeamSummaryResponse team) =>
+        team.Members.Where(member => member.EndedAt is null).GroupBy(member => member.TeamRoleName ?? "Unspecified")
+            .OrderBy(group => group.Key)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+    private static bool MatchesEmployee(EmployeeViewModel employee, string search) =>
+        employee.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+        employee.RoleLabel.Contains(search, StringComparison.OrdinalIgnoreCase);
+
+    private Task SelectMemberAsync(Guid employeeId) => EmployeeSelected.InvokeAsync(employeeId);
+}

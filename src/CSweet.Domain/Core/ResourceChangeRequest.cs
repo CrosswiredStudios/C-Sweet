@@ -21,6 +21,10 @@ public sealed class ResourceChangeRequestRecord
     public Guid ConversationMessageId { get; set; }
     public Guid? SupersedesRequestId { get; set; }
     public string ProductGoal { get; set; } = string.Empty;
+    public Guid? TeamId { get; set; }
+    public string? TeamKey { get; set; }
+    public string? TeamName { get; set; }
+    public string? TeamDescription { get; set; }
     public string Rationale { get; set; } = string.Empty;
     public long ContextRevision { get; set; }
     public string AssumptionsJson { get; set; } = "[]";
@@ -56,6 +60,7 @@ public sealed class ResourceChangeRoleRecord
     public string ChangeKind { get; set; } = "Add";
     public bool IsDesired { get; set; } = true;
     public string? PreviousRoleJson { get; set; }
+    public Guid? TeamId { get; set; }
 
     public ResourceChangeRequestRecord? Request { get; set; }
 }

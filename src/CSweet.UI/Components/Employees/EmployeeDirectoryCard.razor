@@ -7,6 +7,7 @@
         <EmployeeTypeBadge IsAgent="Employee.IsAgent" />
         <EmployeeStatusBadge Status="Employee.Status" />
     </div>
+    <EmployeeTeamChips Teams="Employee.Teams" />
     <dl>
         <div><dt>Manager</dt><dd>@(Employee.ManagerName ?? "—")</dd></div>
         <div><dt>Subordinates</dt><dd>@Employee.DirectReportCount</dd></div>

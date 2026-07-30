@@ -32,4 +32,18 @@ public sealed class McpCapabilityRegistryTests
             communications,
             Assert.Single(handlers, x => x.CanHandle(SuggestedUserActionCapabilities.Suggest)));
     }
+
+    [Fact]
+    public void TeamRosterTool_IsReadOnlyAndGrantGated()
+    {
+        var registry = new McpToolCatalog([]);
+
+        Assert.DoesNotContain(
+            registry.List(new HashSet<string>(StringComparer.Ordinal)),
+            x => x.Capability == PlatformCapabilities.TeamRosterRead);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([PlatformCapabilities.TeamRosterRead], StringComparer.Ordinal)));
+        Assert.Equal("read_team_roster", tool.Name);
+        Assert.Equal(McpToolExecutionPolicy.ReadOnly, tool.ExecutionPolicy);
+    }
 }

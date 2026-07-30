@@ -15,7 +15,10 @@ public static class EmployeeDirectoryFilterService
             query = query.Where(x =>
                 x.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                 x.RoleLabel.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                (x.RoleName?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false));
+                (x.RoleName?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                x.Teams.Any(team =>
+                    team.TeamName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    (team.TeamRole?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false)));
         }
 
         query = filter.Role switch
@@ -23,6 +26,15 @@ public static class EmployeeDirectoryFilterService
             "unassigned" => query.Where(x => !x.RoleId.HasValue),
             "all" => query,
             _ when Guid.TryParse(filter.Role, out var roleId) => query.Where(x => x.RoleId == roleId),
+            _ => query
+        };
+
+        query = filter.Team switch
+        {
+            "unassigned" => query.Where(x => x.Teams.Count == 0),
+            "all" => query,
+            _ when Guid.TryParse(filter.Team, out var teamId) =>
+                query.Where(x => x.Teams.Any(team => team.TeamId == teamId)),
             _ => query
         };
 

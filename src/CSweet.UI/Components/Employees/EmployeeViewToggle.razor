@@ -1,4 +1,5 @@
 <div class="employee-view-toggle" role="tablist" aria-label="Employee view">
     <button type="button" role="tab" aria-selected="@(Value == EmployeeViewKind.Graph)" class="@(Value == EmployeeViewKind.Graph ? "active" : null)" @onclick="SelectGraphAsync">Graph</button>
+    <button type="button" role="tab" aria-selected="@(Value == EmployeeViewKind.Teams)" class="@(Value == EmployeeViewKind.Teams ? "active" : null)" @onclick="SelectTeamsAsync">Teams</button>
     <button type="button" role="tab" aria-selected="@(Value == EmployeeViewKind.Directory)" class="@(Value == EmployeeViewKind.Directory ? "active" : null)" @onclick="SelectDirectoryAsync">Directory</button>
 </div>

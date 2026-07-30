@@ -22,6 +22,10 @@ internal static class WorkManagementConfigurations
                 .WithMany()
                 .HasForeignKey(x => x.OrganizationId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<OrganizationTeam>()
+                .WithMany()
+                .HasForeignKey(x => x.TeamId)
+                .OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<Workstream>()
                 .WithMany()
                 .HasForeignKey(x => x.WorkstreamId)

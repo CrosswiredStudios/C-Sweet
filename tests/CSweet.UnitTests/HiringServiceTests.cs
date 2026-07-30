@@ -14,6 +14,79 @@ namespace CSweet.UnitTests;
 public sealed class HiringServiceTests
 {
     [Fact]
+    public async Task LinkedRecommendation_CarriesTeamSnapshotAndAssignsCompletedHire()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var applicationUserId = Guid.NewGuid();
+        var manager = new OrganizationUser
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            ApplicationUserId = applicationUserId,
+            DisplayName = "Manager",
+            EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Manager,
+            IsActive = true,
+            CreatedAt = now
+        };
+        var hired = new OrganizationUser
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            DisplayName = "Contractor",
+            EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Contributor,
+            IsActive = true,
+            CreatedAt = now
+        };
+        db.CoreOrganizations.Add(new Organization
+        {
+            Id = organizationId,
+            Name = "Example",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        db.CoreOrganizationUsers.AddRange(manager, hired);
+        await db.SaveChangesAsync();
+        var teamService = new TeamService(db, new TestAuditEventWriter(), TimeProvider.System);
+        var team = (await teamService.CreateAsync(
+            organizationId,
+            applicationUserId,
+            new CreateTeamRequest("Delivery", null, manager.Id))).Team;
+        var service = new HiringService(
+            db,
+            new OrganizationUserService(db, new TestAuditEventWriter()),
+            new TestAuditEventWriter(),
+            teams: teamService);
+
+        var recommendation = await service.UpsertRecommendationAsync(
+            organizationId,
+            Guid.NewGuid(),
+            new UpsertHiringRecommendationRequest(
+                "QA contractor",
+                "Own release evidence",
+                null,
+                [],
+                null,
+                "team-hire")
+            {
+                TeamId = team.Id
+            });
+        await service.ResolveRecommendationAsync(
+            organizationId,
+            (await db.WorkforcePlans.SingleAsync()).RequestingInstallationId,
+            new ResolveHiringRecommendationRequest(recommendation.Id, hired.Id, "completed"));
+
+        Assert.Equal(team.Id, recommendation.TeamId);
+        Assert.Contains(await db.TeamMemberships.ToListAsync(), membership =>
+            membership.TeamId == team.Id &&
+            membership.OrganizationUserId == hired.Id &&
+            membership.EndedAt is null);
+    }
+
+    [Fact]
     public async Task RoleBacklog_IsPrioritizedAndScopedToRequestingInstallation()
     {
         await using var db = CreateDb();

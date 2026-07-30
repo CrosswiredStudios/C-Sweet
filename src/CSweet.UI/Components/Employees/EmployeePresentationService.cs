@@ -12,7 +12,8 @@ public static class EmployeePresentationService
         IReadOnlyList<WorkerResponse> workers,
         IReadOnlyList<AgentInstallationResponse> installations,
         IReadOnlyDictionary<Guid, AgentRuntimeReadinessResponse> runtimeStatuses,
-        Guid? managingRuntimeInstallationId = null)
+        Guid? managingRuntimeInstallationId = null,
+        TeamDirectoryResponse? teamDirectory = null)
     {
         var rolesById = roles.ToDictionary(x => x.Id);
         var workersById = workers.ToDictionary(x => x.Id);
@@ -43,8 +44,21 @@ public static class EmployeePresentationService
                     status is EmployeeRuntimeStatus.Checking or EmployeeRuntimeStatus.Offline or EmployeeRuntimeStatus.Failed;
                 var canStop = isAgent && installation?.IsEnabled == true && !runtimeBusy &&
                     status is EmployeeRuntimeStatus.Online or EmployeeRuntimeStatus.Transitional;
-                var roleLabel = isAgent ? worker?.Name ?? "Agent" : role?.Name ?? "Employee";
+                var roleLabel = role?.Name ?? (isAgent ? worker?.Name ?? "Agent" : "Employee");
                 var actions = BuildActions(employee, isAgent, isSelf, canStart, canStop);
+                var memberships = (teamDirectory?.Teams ?? [])
+                    .SelectMany(team => team.Members
+                        .Where(membership => membership.OrganizationUserId == employee.Id &&
+                            membership.EndedAt is null)
+                        .Select(membership => new EmployeeTeamViewModel(
+                            team.Id,
+                            team.Name,
+                            membership.TeamRoleName,
+                            membership.IsLead,
+                            team.IsArchived,
+                            TeamColor(team.TeamKey))))
+                    .OrderBy(x => x.TeamName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
                 return new EmployeeViewModel(
                     employee,
@@ -61,7 +75,10 @@ public static class EmployeePresentationService
                     canStart,
                     canStop,
                     runtimeBusy,
-                    actions);
+                    actions)
+                {
+                    Teams = memberships
+                };
             })
             .ToArray();
     }
@@ -128,5 +145,16 @@ public static class EmployeePresentationService
             1 => words[0][..1].ToUpperInvariant(),
             _ => $"{words[0][..1]}{words[^1][..1]}".ToUpperInvariant()
         };
+    }
+
+    public static string TeamColor(string key)
+    {
+        var palette = new[]
+        {
+            "#2563eb", "#7c3aed", "#c026d3", "#dc2626",
+            "#d97706", "#059669", "#0891b2", "#4f46e5"
+        };
+        var hash = key.Aggregate(17, (current, character) => unchecked(current * 31 + character));
+        return palette[(hash & int.MaxValue) % palette.Length];
     }
 }

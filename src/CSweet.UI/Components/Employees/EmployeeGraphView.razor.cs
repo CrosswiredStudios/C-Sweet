@@ -5,6 +5,7 @@ namespace CSweet.UI.Components.Employees;
 
 public partial class EmployeeGraphView
 {
+    private Guid? _teamFilter;
     [Parameter]
     public IReadOnlyList<EmployeeViewModel> Employees { get; set; } = [];
 
@@ -23,12 +24,22 @@ public partial class EmployeeGraphView
     [Parameter]
     public EventCallback<EmployeeActionRequest> ActionRequested { get; set; }
 
+    [Parameter]
+    public IReadOnlyList<CSweet.Contracts.Core.TeamSummaryResponse> Teams { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<Guid> TeamSelected { get; set; }
+
     protected EmployeeGraphModel Graph => EmployeeHierarchyService.Build(Employees, SelectedId, Degrees);
     protected EmployeeViewModel? SelectedEmployee => Employees.FirstOrDefault(x => x.Id == SelectedId);
     protected string ViewBox => $"0 0 {Graph.Width:0} {Graph.Height:0}";
 
     protected Task SelectAsync(Guid id) => SelectedIdChanged.InvokeAsync(id);
     protected Task ChangeDegreesAsync(int value) => DegreesChanged.InvokeAsync(value);
+    protected string? NodeFilterClass(EmployeeViewModel employee) =>
+        _teamFilter.HasValue && !employee.Teams.Any(x => x.TeamId == _teamFilter.Value)
+            ? "team-filter-dimmed"
+            : null;
 
     protected static string EdgePath(EmployeeGraphLayoutEdge edge)
     {

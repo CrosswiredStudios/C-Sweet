@@ -10,6 +10,7 @@ public enum GrantSubjectKind
 public enum GrantScopeKind
 {
     Organization,
+    Team,
     Workstream,
     Board,
     WorkItem
@@ -40,4 +41,3 @@ public sealed class ScopedActionGrant
 
     public ScopedActionGrant? ParentGrant { get; set; }
 }
-

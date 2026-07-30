@@ -14,7 +14,8 @@ namespace CSweet.Infrastructure.Core;
 
 public sealed class ResourceChangeService(
     CSweetDbContext db,
-    IAuditEventWriter audit) : IResourceChangeService
+    IAuditEventWriter audit,
+    ITeamService? teams = null) : IResourceChangeService
 {
     public const string MessageSource = "ResourceChangeApproval";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -89,6 +90,9 @@ public sealed class ResourceChangeService(
             ConversationMessageId = Guid.NewGuid(),
             SupersedesRequestId = previous?.Id,
             ProductGoal = Required(request.ProductGoal, 2048, nameof(request.ProductGoal)),
+            TeamKey = OptionalTeamField(request.TeamKey, 200, nameof(request.TeamKey)),
+            TeamName = OptionalTeamField(request.TeamName, 160, nameof(request.TeamName)),
+            TeamDescription = OptionalTeamField(request.TeamDescription, 2048, nameof(request.TeamDescription)),
             Rationale = Required(request.Rationale, 4096, nameof(request.Rationale)),
             ContextRevision = request.ContextRevision,
             AssumptionsJson = JsonSerializer.Serialize(CleanList(request.Assumptions, 20, 1024), JsonOptions),
@@ -99,6 +103,7 @@ public sealed class ResourceChangeService(
             CreatedAt = now,
             UpdatedAt = now
         };
+        ValidateTeamProposal(record);
         var deltasByRole = deltas
             .Where(x => x.ChangeKind != "Remove")
             .ToDictionary(x => x.Role.RoleKey, StringComparer.Ordinal);
@@ -259,6 +264,8 @@ public sealed class ResourceChangeService(
         {
             if (record.DecisionIdempotencyKey == decisionKey)
             {
+                if (record.Status == ResourceChangeRequestStatus.Approved)
+                    await ResolveApprovedTeamAsync(record, token);
                 if (record.Status == ResourceChangeRequestStatus.Approved &&
                     await EnsureBoardCreationGrantAsync(record, managerId, token))
                 {
@@ -285,6 +292,7 @@ public sealed class ResourceChangeService(
         var boardCreationGrantCreated = false;
         if (record.Status == ResourceChangeRequestStatus.Approved)
         {
+            await ResolveApprovedTeamAsync(record, token);
             var older = await db.ResourceChangeRequests.Where(x =>
                 x.OrganizationId == organizationId &&
                 x.RequesterOrganizationUserId == record.RequesterOrganizationUserId &&
@@ -335,13 +343,15 @@ public sealed class ResourceChangeService(
             return false;
 
         var now = DateTimeOffset.UtcNow;
+        var scopeKind = record.TeamId.HasValue ? GrantScopeKind.Team : GrantScopeKind.Organization;
+        var scopeId = record.TeamId;
         var alreadyGranted = await db.ScopedActionGrants.AnyAsync(x =>
             x.OrganizationId == record.OrganizationId &&
             x.SubjectKind == GrantSubjectKind.AgentInstallation &&
             x.SubjectId == record.RequesterInstallationId &&
             x.Action == WorkBoardActions.Create &&
-            x.ScopeKind == GrantScopeKind.Organization &&
-            x.ScopeId == null &&
+            x.ScopeKind == scopeKind &&
+            x.ScopeId == scopeId &&
             x.RevokedAt == null &&
             (!x.ExpiresAt.HasValue || x.ExpiresAt > now), token);
         if (alreadyGranted) return false;
@@ -353,8 +363,8 @@ public sealed class ResourceChangeService(
             SubjectKind = GrantSubjectKind.AgentInstallation,
             SubjectId = record.RequesterInstallationId,
             Action = WorkBoardActions.Create,
-            ScopeKind = GrantScopeKind.Organization,
-            ScopeId = null,
+            ScopeKind = scopeKind,
+            ScopeId = scopeId,
             CanDelegate = false,
             ParentGrantId = null,
             GrantedBySubjectKind = GrantSubjectKind.OrganizationUser,
@@ -371,8 +381,31 @@ public sealed class ResourceChangeService(
             "management.resource-change.work-board-create-granted",
             nameof(ScopedActionGrant),
             record.RequesterInstallationId,
-            "Granted organization-scoped work-board creation after manager approval.",
+            record.TeamId.HasValue
+                ? "Granted team-scoped work-board creation after manager approval."
+                : "Granted organization-scoped work-board creation after manager approval.",
             cancellationToken: token);
+
+    private async Task ResolveApprovedTeamAsync(
+        ResourceChangeRequestRecord record,
+        CancellationToken token)
+    {
+        if (record.TeamId.HasValue || string.IsNullOrWhiteSpace(record.TeamKey))
+            return;
+        var teamService = teams
+            ?? throw new InvalidOperationException("Team management is unavailable for this approval.");
+        var teamId = await teamService.ResolveApprovedTeamAsync(
+            record.OrganizationId,
+            record.TeamKey,
+            record.TeamName!,
+            record.TeamDescription ?? string.Empty,
+            record.RequesterOrganizationUserId,
+            record.Id,
+            token);
+        record.TeamId = teamId;
+        foreach (var role in record.Roles.Where(x => x.IsDesired))
+            role.TeamId = teamId;
+    }
 
     private static bool IncludesCapability(string? json, string capability)
     {
@@ -501,6 +534,8 @@ public sealed class ResourceChangeService(
         ChangeKind = delta.ChangeKind,
         IsDesired = delta.ChangeKind != "Remove",
         PreviousRoleJson = delta.PreviousRole is null ? null : JsonSerializer.Serialize(delta.PreviousRole, JsonOptions)
+        ,
+        TeamId = delta.Role.TeamId
     };
 
     internal static ResourceChangeRequestResponse ToResponse(ResourceChangeRequestRecord record)
@@ -518,13 +553,22 @@ public sealed class ResourceChangeService(
             record.ManagerOrganizationUserId, record.ConversationId, record.ChatTurnId, record.ProductGoal,
             record.Rationale, record.ContextRevision, desired, deltas,
             ReadStrings(record.AssumptionsJson), ReadStrings(record.ConstraintsJson), record.SupersedesRequestId,
-            record.Status.ToString(), record.DeliveryStatus, record.DecisionComment, record.CreatedAt, record.DecidedAt);
+            record.Status.ToString(), record.DeliveryStatus, record.DecisionComment, record.CreatedAt, record.DecidedAt)
+        {
+            TeamId = record.TeamId,
+            TeamKey = record.TeamKey,
+            TeamName = record.TeamName,
+            TeamDescription = record.TeamDescription
+        };
     }
 
     private static ResourceChangeRole ToRole(ResourceChangeRoleRecord role) => new(
         role.RoleKey, role.Team, role.Title, role.Purpose, role.Headcount, role.Priority, role.Timing,
         ReadStrings(role.RequiredCapabilitiesJson), role.HumanRequired,
-        role.ReportsToOrganizationUserId, role.ReportsToRoleKey);
+        role.ReportsToOrganizationUserId, role.ReportsToRoleKey)
+    {
+        TeamId = role.TeamId
+    };
 
     private static AgentPlatformEventOutboxItem NewEvent(
         Guid organizationId,
@@ -567,6 +611,21 @@ public sealed class ResourceChangeService(
         var cleaned = value.Trim();
         if (cleaned.Length > maximum) throw new ArgumentException($"{name} exceeds {maximum} characters.");
         return cleaned;
+    }
+
+    private static string? OptionalTeamField(string? value, int maximum, string name)
+    {
+        var cleaned = Clean(value, maximum);
+        return cleaned;
+    }
+
+    private static void ValidateTeamProposal(ResourceChangeRequestRecord record)
+    {
+        var hasAny = record.TeamKey is not null || record.TeamName is not null || record.TeamDescription is not null;
+        if (!hasAny) return;
+        if (record.TeamKey is null || record.TeamName is null)
+            throw new ArgumentException("A team proposal requires both teamKey and teamName.");
+        record.TeamKey = record.TeamKey.ToLowerInvariant();
     }
 
     private static string? Clean(string? value, int maximum)

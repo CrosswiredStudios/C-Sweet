@@ -221,6 +221,46 @@ public sealed class ResourceChangeServiceTests
         Assert.Empty(await db.ScopedActionGrants.ToListAsync());
     }
 
+    [Fact]
+    public async Task ApprovedTeamProposal_ResolvesStableTeamAndCreatesOnlyTeamScopedBoardGrant()
+    {
+        await using var db = CreateDb();
+        var setup = SeedManagerConversation(db);
+        SeedRequesterInstallation(db, setup, [WorkBoardActions.Create]);
+        await db.SaveChangesAsync();
+        var teamService = new TeamService(db, new TestAuditEventWriter(), TimeProvider.System);
+        var service = new ResourceChangeService(db, new TestAuditEventWriter(), teamService);
+        var proposal = Proposal(setup, "approved-team") with
+        {
+            TeamKey = $"product:{setup.RequesterId:N}",
+            TeamName = "Product Delivery",
+            TeamDescription = "Approved delivery team."
+        };
+
+        var pending = await service.ProposeAsync(
+            setup.OrganizationId,
+            setup.RequesterInstallationId,
+            proposal);
+        var approved = await service.DecideForInstallationAsync(
+            setup.OrganizationId,
+            setup.ManagerInstallationId,
+            new ResourceChangeDecisionRequest(
+                pending.Id,
+                ResourceChangeDecisionKinds.Approve,
+                null,
+                "approve-team"));
+
+        Assert.NotNull(approved.TeamId);
+        Assert.All(approved.Roles, role => Assert.Equal(approved.TeamId, role.TeamId));
+        var team = Assert.Single(await db.OrganizationTeams.ToListAsync());
+        Assert.Equal(setup.RequesterId, team.LeadOrganizationUserId);
+        Assert.Contains(await db.TeamMemberships.ToListAsync(), x =>
+            x.TeamId == team.Id && x.OrganizationUserId == setup.RequesterId);
+        var grant = Assert.Single(await db.ScopedActionGrants.ToListAsync());
+        Assert.Equal(GrantScopeKind.Team, grant.ScopeKind);
+        Assert.Equal(team.Id, grant.ScopeId);
+    }
+
     private static ResourceChangeProposalRequest Proposal(Setup setup, string key) =>
         new(
             setup.ConversationId,

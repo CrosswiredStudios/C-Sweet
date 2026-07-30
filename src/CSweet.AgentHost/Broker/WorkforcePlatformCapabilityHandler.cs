@@ -19,7 +19,8 @@ public sealed class WorkforcePlatformCapabilityHandler(
     IEnumerable<IBusinessPatternProvider> businessPatternProviders,
     IHiringService? hiring = null,
     IResourceChangeService? resourceChanges = null,
-    IAgentCatalogService? agentCatalog = null) : IPlatformCapabilityHandler
+    IAgentCatalogService? agentCatalog = null,
+    AgentEmployeeIdentityResolver? identityResolver = null) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly IReadOnlySet<string> HandledCapabilities = new HashSet<string>(StringComparer.Ordinal)
@@ -46,6 +47,8 @@ public sealed class WorkforcePlatformCapabilityHandler(
         ResourceChangeCapabilities.Read,
         ResourceChangeCapabilities.Decide,
         HiringCapabilities.StageWorkflow
+        ,
+        PlatformCapabilities.TeamRosterRead
     };
     private static readonly HashSet<string> ExplicitFields = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -128,6 +131,12 @@ public sealed class WorkforcePlatformCapabilityHandler(
                 HiringCapabilities.StageWorkflow => Success(request.RequestId,
                     await (hiring ?? throw new InvalidOperationException("The hiring service is unavailable.")).StageWorkflowAsync(organizationId, installationId,
                         Read<CSweet.Contracts.Core.StageHiringWorkflowRequest>(request), token)),
+                PlatformCapabilities.TeamRosterRead => Success(
+                    request.RequestId,
+                    await ReadTeamRosterForCallerAsync(
+                        session,
+                        Read<TeamRosterRequest>(request),
+                        token)),
                 _ => Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound, "The platform capability is not implemented.")
             };
         }
@@ -151,6 +160,19 @@ public sealed class WorkforcePlatformCapabilityHandler(
         {
             return Failure(request.RequestId, PlatformCapabilityErrorCode.ValidationFailed, exception.Message);
         }
+    }
+
+    private async Task<TeamRosterResponse> ReadTeamRosterForCallerAsync(
+        AgentSession session,
+        TeamRosterRequest request,
+        CancellationToken cancellationToken)
+    {
+        var response = await (identityResolver ?? new AgentEmployeeIdentityResolver(db))
+            .ReadTeamRosterAsync(session, request, cancellationToken);
+        if (response.Team is null)
+            throw new UnauthorizedAccessException(
+                "This agent employee is not an active member of an eligible team.");
+        return response;
     }
 
     private async Task<BusinessProfileResponse> ReadBusinessProfileAsync(Guid organizationId, CancellationToken token)

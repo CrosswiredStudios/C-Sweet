@@ -24,6 +24,18 @@
             </dl>
         </section>
         <section>
+            <MudText Typo="Typo.overline">Teams (@Employee.Teams.Count)</MudText>
+            <EmployeeTeamChips Teams="Employee.Teams" />
+            @foreach (var team in Employee.Teams)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                           StartIcon="@Icons.Material.Outlined.Groups"
+                           OnClick="@(() => TeamSelected.InvokeAsync(team.TeamId))">
+                    Focus @team.TeamName
+                </MudButton>
+            }
+        </section>
+        <section>
             <MudText Typo="Typo.overline">Direct reports (@Employee.DirectReportCount)</MudText>
             @if (DirectReports.Count == 0)
             {
