@@ -29,6 +29,9 @@ public static class PluginManifestLoader
                 x.OutputSchema.ValueKind != JsonValueKind.Object ||
                 x.ExecutionTimeoutSeconds is < 1 or > 900))
             throw new InvalidOperationException("Every provided capability must include schemas and a bounded execution timeout.");
+        if (manifest.Runtime.WorkspaceAccess is not ("None" or "ReadOnly" or "ReadWrite"))
+            throw new InvalidOperationException(
+                "runtime.workspaceAccess must be None, ReadOnly, or ReadWrite.");
         return manifest;
     }
 }

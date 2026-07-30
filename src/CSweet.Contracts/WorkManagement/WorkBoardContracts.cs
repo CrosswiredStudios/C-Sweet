@@ -22,6 +22,7 @@ public static class WorkItemActions
     public const string Read = WorkManagementCapabilityNames.ItemRead;
     public const string Create = WorkManagementCapabilityNames.ItemCreate;
     public const string Update = "work.item.update";
+    public const string Start = WorkManagementCapabilityNames.ItemStart;
     public const string Move = WorkManagementCapabilityNames.ItemMove;
     public const string Complete = WorkManagementCapabilityNames.ItemComplete;
     public const string Cancel = WorkManagementCapabilityNames.ItemCancel;
@@ -31,7 +32,7 @@ public static class WorkItemActions
     public const string Estimate = WorkManagementCapabilityNames.ItemEstimate;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Create, Update, Move, Complete, Cancel, Reopen, Transfer, Comment, Estimate];
+        [Read, Create, Update, Start, Move, Complete, Cancel, Reopen, Transfer, Comment, Estimate];
 }
 
 public static class WorkSprintActions
@@ -145,7 +146,13 @@ public sealed record WorkBoardItemResponse(
     long Revision,
     DateTimeOffset? DueDate,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    Guid? AssignedWorkerId = null,
+    Guid? AssignedEmployeeId = null,
+    Guid? AssignedInstallationId = null,
+    string? AssignedDisplayName = null,
+    SoftwareDevelopmentBrief? Development = null,
+    long AssignmentRevision = 0);
 
 public sealed record CreateBoardWorkItemRequest(
     [property: Required, MaxLength(512)] string Title,

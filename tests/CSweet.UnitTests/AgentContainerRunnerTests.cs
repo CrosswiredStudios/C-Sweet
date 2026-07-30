@@ -64,6 +64,42 @@ public sealed class AgentContainerRunnerTests
     }
 
     [Fact]
+    public async Task StartAsync_DeveloperRuntimeMountsWorkspaceAndUsesControlledProxy()
+    {
+        var docker = new FakeDockerCommandExecutor(
+            new DockerCommandResult(0, "[]", string.Empty),
+            new DockerCommandResult(0, string.Empty, string.Empty),
+            new DockerCommandResult(0, "container-id\n", string.Empty),
+            new DockerCommandResult(0, InspectJson, string.Empty));
+        var runner = new DockerAgentContainerRunner(
+            docker,
+            NullLogger<DockerAgentContainerRunner>.Instance);
+        var request = CreateRequest() with
+        {
+            PersistentDataVolumeName =
+                "csweet-workspace-22222222222222222222222222222222",
+            PersistentDataMountPath = "/workspace",
+            OutboundProxyUrl = "http://egress-gateway:8080"
+        };
+
+        await runner.StartAsync(request);
+
+        var args = docker.Commands[2];
+        Assert.Contains(
+            "type=volume,source=csweet-workspace-22222222222222222222222222222222,target=/workspace",
+            args);
+        Assert.Contains("CSweet__Agent__WorkspaceRoot=/workspace", args);
+        Assert.Contains("HTTP_PROXY=http://egress-gateway:8080/", args);
+        Assert.Contains("HTTPS_PROXY=http://egress-gateway:8080/", args);
+        Assert.Contains("ALL_PROXY=http://egress-gateway:8080/", args);
+        Assert.Contains("NO_PROXY=agenthost,agenthost", args);
+        Assert.Contains("--read-only", args);
+        Assert.DoesNotContain(
+            args,
+            value => value.Contains("docker.sock", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task RemoveNetworkAsync_DetachesMcpGatewayAndRemovesRuntimeNetwork()
     {
         var docker = new FakeDockerCommandExecutor(
@@ -245,7 +281,10 @@ public sealed class AgentContainerRunnerTests
         private readonly Queue<DockerCommandResult> _results = new(results);
         public List<IReadOnlyList<string>> Commands { get; } = [];
 
-        public Task<DockerCommandResult> ExecuteAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken = default)
+        public Task<DockerCommandResult> ExecuteAsync(
+            IReadOnlyList<string> arguments,
+            CancellationToken cancellationToken = default,
+            string? standardInput = null)
         {
             Commands.Add(arguments.ToArray());
             return Task.FromResult(_results.Dequeue());

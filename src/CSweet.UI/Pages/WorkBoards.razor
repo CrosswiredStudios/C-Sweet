@@ -4,6 +4,7 @@
 @using CSweet.Contracts.WorkManagement
 @using CSweet.Contracts.Agents
 @using CSweet.Contracts.Realtime
+@using SoftwareDevelopmentBrief = CSweet.WorkManagement.Contracts.SoftwareDevelopmentBrief
 @implements IAsyncDisposable
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
@@ -273,12 +274,30 @@
                                             @item.EstimatePoints.Value.ToString("0.##") pts
                                         </MudChip>
                                     }
+                                    @if (!string.IsNullOrWhiteSpace(item.AssignedDisplayName))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary"
+                                                 Variant="Variant.Outlined" Class="mt-2 ml-1"
+                                                 Icon="@Icons.Material.Outlined.Code">
+                                            @item.AssignedDisplayName
+                                        </MudChip>
+                                    }
                                 </MudCardContent>
                                 <MudCardActions>
                                     <MudIconButton Icon="@Icons.Material.Outlined.Forum"
                                                    Size="Size.Small"
                                                    OnClick="@(() => OpenCollaborationAsync(item))"
                                                    aria-label="Comments and activity" />
+                                    @if (column.Category == "ToDo" &&
+                                         _detail.Board.AllowedActions.Contains(WorkItemActions.Update) &&
+                                         !_detail.Board.IsArchived)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Outlined.Code"
+                                                       Size="Size.Small"
+                                                       Color="Color.Primary"
+                                                       OnClick="@(() => OpenDeveloperAssignmentAsync(item))"
+                                                       aria-label="Assign software developer" />
+                                    }
                                     @if (_detail.Board.AllowedActions.Contains(WorkItemActions.Estimate) &&
                                          !_detail.Board.IsArchived)
                                     {
@@ -882,6 +901,74 @@
     </DialogActions>
 </MudDialog>
 
+<MudDialog @bind-Visible="_developerAssignmentOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Assign software developer</MudText></TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            The selected installation will clone the granted repository into its isolated
+            container workspace, implement and validate this ticket, then publish a reviewable PR.
+        </MudText>
+        <MudSelect T="Guid?" Label="Developer installation"
+                   @bind-Value="_developerInstallationId"
+                   Variant="Variant.Outlined" Class="mt-3" Required="true">
+            @foreach (var installation in _developerInstallations)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)installation.Id)">
+                    @installation.AgentName (@installation.AgentVersion)
+                </MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" Label="Repository connection"
+                   Value="_developerConnectionId"
+                   ValueChanged="SelectDeveloperConnection"
+                   Variant="Variant.Outlined" Class="mt-3" Required="true">
+            @foreach (var connection in _repositoryConnections)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)connection.Id)">
+                    @connection.Name — @connection.PermittedRepositoryPath
+                </MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField T="string" Label="Base branch" @bind-Value="_developerBaseBranch"
+                      Variant="Variant.Outlined" Class="mt-3" Required="true" />
+        <MudTextField T="string" Label="Requirements (one per line)"
+                      @bind-Value="_developerRequirements"
+                      Variant="Variant.Outlined" Lines="5" Class="mt-3" Required="true" />
+        <MudTextField T="string" Label="Acceptance criteria (one per line)"
+                      @bind-Value="_developerAcceptanceCriteria"
+                      Variant="Variant.Outlined" Lines="5" Class="mt-3" Required="true" />
+        <MudTextField T="string" Label="Constraints (one per line)"
+                      @bind-Value="_developerConstraints"
+                      Variant="Variant.Outlined" Lines="3" Class="mt-3" />
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
+            This agent has trusted shell and Git access inside its container. Repository-scoped
+            credentials, expiration, branch protection, and granted push permissions are the
+            primary controls.
+        </MudAlert>
+        @if (!string.IsNullOrWhiteSpace(_developerAssignmentError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                @_developerAssignmentError
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_developerAssignmentItem?.AssignedInstallationId is not null)
+        {
+            <MudButton Color="Color.Error" Disabled="_saving"
+                       OnClick="UnassignDeveloperAsync">Unassign</MudButton>
+        }
+        <MudButton OnClick="@(() => _developerAssignmentOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_saving || !_developerInstallationId.HasValue ||
+                               !_developerConnectionId.HasValue)"
+                   OnClick="AssignDeveloperAsync">
+            @(_saving ? "Assigning..." : "Assign")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
 <MudDialog @bind-Visible="_columnsOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
     <TitleContent><MudText Typo="Typo.h6">Configure columns</MudText></TitleContent>
@@ -964,6 +1051,7 @@
     private bool _estimateOpen;
     private bool _capacityOpen;
     private bool _carryoverOpen;
+    private bool _developerAssignmentOpen;
     private bool _realtimeRefreshRunning;
     private bool _realtimeRefreshPending;
     private string _itemTitle = "";
@@ -989,6 +1077,7 @@
     private Guid? _transferBoardId;
     private WorkBoardItemResponse? _selectedItem;
     private WorkBoardItemResponse? _estimateItem;
+    private WorkBoardItemResponse? _developerAssignmentItem;
     private WorkItemCollaborationResponse? _collaboration;
     private IReadOnlyList<WorkSprintResponse> _sprints = [];
     private WorkSprintResponse? _capacitySprint;
@@ -1001,6 +1090,15 @@
     private string _agentAccessProfile = "None";
     private readonly List<ColumnDraft> _columnDrafts = [];
     private IReadOnlyList<AgentInstallationResponse> _boardAgents = [];
+    private IReadOnlyList<AgentInstallationResponse> _developerInstallations = [];
+    private IReadOnlyList<GitRepositoryConnectionResponse> _repositoryConnections = [];
+    private Guid? _developerInstallationId;
+    private Guid? _developerConnectionId;
+    private string _developerBaseBranch = "main";
+    private string _developerRequirements = "";
+    private string _developerAcceptanceCriteria = "";
+    private string _developerConstraints = "";
+    private string? _developerAssignmentError;
     private IReadOnlyList<WorkBoardGrantResponse> _boardGrants = [];
     private static readonly string[] WorkItemKinds = ["Initiative", "Epic", "Story", "Task", "Bug"];
     private static readonly string[] ColumnCategories = ["ToDo", "InProgress", "Done", "Cancelled"];
@@ -1241,6 +1339,135 @@
             _saving = false;
         }
     }
+
+    private async Task OpenDeveloperAssignmentAsync(WorkBoardItemResponse item)
+    {
+        _developerAssignmentItem = item;
+        _developerInstallationId = item.AssignedInstallationId;
+        _developerConnectionId = item.Development?.RepositoryConnectionId;
+        _developerBaseBranch = item.Development?.BaseBranch ?? "main";
+        _developerRequirements = string.Join(
+            Environment.NewLine,
+            item.Development?.Requirements ?? [item.Description]);
+        _developerAcceptanceCriteria = string.Join(
+            Environment.NewLine,
+            item.Development?.AcceptanceCriteria ?? []);
+        _developerConstraints = string.Join(
+            Environment.NewLine,
+            item.Development?.Constraints ?? []);
+        _developerAssignmentError = null;
+        try
+        {
+            var installations = await Http.GetFromJsonAsync<IReadOnlyList<AgentInstallationResponse>>(
+                "api/agents/installations") ?? [];
+            _developerInstallations = installations
+                .Where(x =>
+                    x.IsEnabled &&
+                    x.RevisionStatus == "Active" &&
+                    x.AgentId == "com.csweet.software-developer")
+                .OrderBy(x => x.AgentName)
+                .ToList();
+            _repositoryConnections =
+                await Http.GetFromJsonAsync<IReadOnlyList<GitRepositoryConnectionResponse>>(
+                    $"api/organizations/{OrganizationId:D}/git/repositories") ?? [];
+            if (!_developerInstallationId.HasValue && _developerInstallations.Count == 1)
+                _developerInstallationId = _developerInstallations[0].Id;
+            if (!_developerConnectionId.HasValue && _repositoryConnections.Count == 1)
+                SelectDeveloperConnection(_repositoryConnections[0].Id);
+            _developerAssignmentOpen = true;
+        }
+        catch (Exception exception)
+        {
+            _developerAssignmentError = exception.Message;
+            _developerAssignmentOpen = true;
+        }
+    }
+
+    private void SelectDeveloperConnection(Guid? connectionId)
+    {
+        _developerConnectionId = connectionId;
+        var connection = _repositoryConnections.SingleOrDefault(x => x.Id == connectionId);
+        if (connection is not null)
+            _developerBaseBranch = connection.DefaultBranch;
+    }
+
+    private async Task AssignDeveloperAsync()
+    {
+        if (_detail is null ||
+            _developerAssignmentItem is null ||
+            !_developerInstallationId.HasValue ||
+            !_developerConnectionId.HasValue)
+            return;
+        var requirements = Lines(_developerRequirements);
+        var acceptanceCriteria = Lines(_developerAcceptanceCriteria);
+        if (requirements.Count == 0 || acceptanceCriteria.Count == 0)
+        {
+            _developerAssignmentError =
+                "At least one requirement and one acceptance criterion are required.";
+            return;
+        }
+
+        _saving = true;
+        _developerAssignmentError = null;
+        try
+        {
+            var request = new AssignSoftwareDevelopmentWorkItemRequest(
+                _developerInstallationId.Value,
+                new SoftwareDevelopmentBrief(
+                    _developerConnectionId.Value,
+                    _developerBaseBranch,
+                    "software-development-polyglot-v1",
+                    requirements,
+                    acceptanceCriteria,
+                    Lines(_developerConstraints)),
+                _developerAssignmentItem.Revision,
+                Guid.NewGuid().ToString("N"));
+            var response = await Http.PutAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{_developerAssignmentItem.Id:D}/developer-assignment",
+                request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _developerAssignmentError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _developerAssignmentOpen = false;
+            await RefreshDetailAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task UnassignDeveloperAsync()
+    {
+        if (_detail is null || _developerAssignmentItem is null)
+            return;
+        _saving = true;
+        _developerAssignmentError = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{_developerAssignmentItem.Id:D}/developer-assignment/unassign",
+                new UnassignSoftwareDevelopmentWorkItemRequest(
+                    _developerAssignmentItem.Revision,
+                    Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _developerAssignmentError = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _developerAssignmentOpen = false;
+            await RefreshDetailAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static IReadOnlyList<string> Lines(string value) =>
+        value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private async Task LoadSprintsAsync()
     {

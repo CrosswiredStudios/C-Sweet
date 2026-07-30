@@ -15,6 +15,7 @@ builder.Services.AddHostedService<AgentRuntimeStartupCleanupWorker>();
 builder.Services.AddHostedService<AgentBuildWorker>();
 builder.Services.AddHostedService<AgentScheduleWorker>();
 builder.Services.AddHostedService<AgentRuntimeCleanupWorker>();
+builder.Services.AddHostedService<GitWorkspaceRetentionCleanupWorker>();
 builder.Services.AddHostedService<PluginBootstrapWorker>();
 builder.Services.AddHostedService<CommunicationDeliveryWorker>();
 

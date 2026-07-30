@@ -46,6 +46,8 @@ public sealed record PluginRuntime
     public string DefaultActivationMode { get; init; } = "Manual";
     public bool SupportsMultipleInstallations { get; init; }
     public int MaximumConcurrentJobs { get; init; } = 1;
+    public string? EnvironmentProfile { get; init; }
+    public string WorkspaceAccess { get; init; } = "None";
 }
 
 public sealed record PluginProtocol

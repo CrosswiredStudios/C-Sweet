@@ -57,7 +57,7 @@
           "RoleAliases": [ "Software Developer", "Software Engineer", "Application Developer" ],
           "Keywords": [ "engineering", "implementation", "software delivery" ],
           "IsFeatured": false,
-          "Availability": "Planned",
+          "Availability": "Available",
           "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper",
           "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper#readme"
         },

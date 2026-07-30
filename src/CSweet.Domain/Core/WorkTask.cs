@@ -14,6 +14,10 @@ public sealed class WorkTask
     public Guid? StrategicObjectiveId { get; set; }
     public Guid? AssignedRoleId { get; set; }
     public Guid? AssignedWorkerId { get; set; }
+    public Guid? AssignedEmployeeId { get; set; }
+    public Guid? AssignedAgentInstallationId { get; set; }
+    public string? DevelopmentBriefJson { get; set; }
+    public long AssignmentRevision { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public WorkItemKind Kind { get; set; } = WorkItemKind.Task;
@@ -37,4 +41,6 @@ public sealed class WorkTask
     public StrategicObjective? StrategicObjective { get; set; }
     public Role? AssignedRole { get; set; }
     public Worker? AssignedWorker { get; set; }
+    public OrganizationUser? AssignedEmployee { get; set; }
+    public CSweet.Domain.Setup.AgentInstallation? AssignedAgentInstallation { get; set; }
 }

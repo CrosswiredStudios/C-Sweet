@@ -16,4 +16,12 @@ public sealed class AgentRuntimeManagerOptions
         Path.Combine(Path.GetTempPath(), "csweet-runtime-secrets");
     public int MaximumScheduleClaimsPerIteration { get; set; } = 10;
     public int InteractiveIdleTimeoutSeconds { get; set; } = 300;
+    /// <summary>
+    /// Curated, vulnerability-scanned image for software-development-polyglot-v1.
+    /// Production configuration must use an immutable digest reference.
+    /// </summary>
+    public string SoftwareDevelopmentPolyglotImage { get; set; } =
+        "csweet/software-development-polyglot-v1:local";
+    /// <summary>Controlled HTTP CONNECT proxy reachable from the isolated runtime network.</summary>
+    public string? SoftwareDevelopmentEgressProxyUrl { get; set; }
 }

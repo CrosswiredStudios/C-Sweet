@@ -33,6 +33,33 @@
                 <div class="hub-logo"><MudIcon Icon="@Icons.Material.Filled.Forum" /></div>
                 <div><strong>Communications</strong><span>C-Sweet workspace</span></div>
             </div>
+            <div class="hub-perspective">
+                <label for="communications-perspective">View communications as</label>
+                <div class="hub-perspective-select">
+                    <MudIcon Icon="@Icons.Material.Outlined.Visibility" Size="Size.Small" />
+                    <select id="communications-perspective"
+                            aria-label="View communications as"
+                            value="@PerspectiveValue"
+                            @onchange="OnPerspectiveChanged">
+                        <option value="">Self</option>
+                        @if (PerspectiveAgents.Any())
+                        {
+                            <option disabled>──────────</option>
+                            @foreach (var agent in PerspectiveAgents)
+                            {
+                                <option value="@agent.Id.ToString("D")">@agent.DisplayName</option>
+                            }
+                        }
+                    </select>
+                </div>
+                @if (_hub.IsReadOnlyPerspective)
+                {
+                    <span class="hub-readonly-badge">
+                        <MudIcon Icon="@Icons.Material.Outlined.Lock" Size="Size.Small" />
+                        Read-only agent perspective
+                    </span>
+                }
+            </div>
             <div class="hub-search">
                 <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Small" />
                 <input aria-label="Search conversations" placeholder="Search" @bind="_search" @bind:event="oninput" />
@@ -61,7 +88,7 @@
                 <div class="hub-section-title direct"><span>Direct messages</span></div>
                 @foreach (var chat in FilteredChats.Where(x => x.IsDirect))
                 {
-                    var person = chat.Participants.FirstOrDefault(x => x.OrganizationUserId != _hub.CurrentOrganizationUserId);
+                    var person = chat.Participants.FirstOrDefault(x => x.OrganizationUserId != _hub.ViewedOrganizationUserId);
                     <button class="hub-nav-item @(chat.Id == _selected?.Id ? "active" : null) @(ChatUnread(chat) > 0 ? "unread" : null)" @onclick="@(() => SelectChatAsync(chat))">
                         <span class="presence-dot @PresenceClass(person?.PresenceStatus)"
                               title="@PresenceTitle(person?.DisplayName, person?.PresenceStatus, person?.PresenceDetail)"
@@ -79,8 +106,8 @@
             {
                 <div class="hub-empty">
                     <div class="hub-empty-icon"><MudIcon Icon="@Icons.Material.Outlined.Forum" Size="Size.Large" /></div>
-                    <MudText Typo="Typo.h5">Your company conversations live here</MudText>
-                    <MudText Color="Color.Secondary">Choose a channel, or start a direct message with a teammate.</MudText>
+                    <MudText Typo="Typo.h5">@(_hub.IsReadOnlyPerspective ? $"{ViewedPersonName}'s conversations" : "Your company conversations live here")</MudText>
+                    <MudText Color="Color.Secondary">@(_hub.IsReadOnlyPerspective ? "This agent is not currently a member of any conversations." : "Choose a channel, or start a direct message with a teammate.")</MudText>
                 </div>
             }
             else
@@ -133,17 +160,20 @@
                                         {
                                             <p>@message.Actions[0].Description</p>
                                         }
-                                        <div class="hub-system-action-buttons">
-                                            @foreach (var action in message.Actions)
-                                            {
-                                                <MudButton Href="@action.NavigationUri"
-                                                           Variant="Variant.Filled"
-                                                           Color="Color.Primary"
-                                                           EndIcon="@Icons.Material.Outlined.ArrowForward">
-                                                    @action.Label
-                                                </MudButton>
-                                            }
-                                        </div>
+                                        @if (!_hub.IsReadOnlyPerspective)
+                                        {
+                                            <div class="hub-system-action-buttons">
+                                                @foreach (var action in message.Actions)
+                                                {
+                                                    <MudButton Href="@action.NavigationUri"
+                                                               Variant="Variant.Filled"
+                                                               Color="Color.Primary"
+                                                               EndIcon="@Icons.Material.Outlined.ArrowForward">
+                                                        @action.Label
+                                                    </MudButton>
+                                                }
+                                            </div>
+                                        }
                                     }
                                     else
                                     {
@@ -154,7 +184,7 @@
                         }
                         else
                         {
-                            <article class="hub-message @(message.SenderOrganizationUserId == _hub.CurrentOrganizationUserId ? "mine" : null)">
+                            <article class="hub-message @(message.SenderOrganizationUserId == _hub.ViewedOrganizationUserId ? "mine" : null)">
                             <div class="hub-avatar @AvatarClass(message.SenderEmployeeType)">@Initials(message.SenderDisplayName)</div>
                             <div class="hub-message-body">
                                 <div class="hub-message-meta">
@@ -186,7 +216,8 @@
                                                  </MudListItem>
                                              }
                                          </MudList>
-                                         @if (resourceChange.Status == "Pending" &&
+                                         @if (!_hub.IsReadOnlyPerspective &&
+                                              resourceChange.Status == "Pending" &&
                                               resourceChange.ManagerOrganizationUserId == _hub.CurrentOrganizationUserId)
                                          {
                                              <MudTextField @bind-Value="_resourceFeedback"
@@ -214,7 +245,7 @@
                                          }
                                      </section>
                                  }
-                                 @if (message.Actions is { Count: > 0 })
+                                 @if (!_hub.IsReadOnlyPerspective && message.Actions is { Count: > 0 })
                                 {
                                     <div class="hub-message-actions" aria-label="Suggested actions">
                                         @foreach (var action in message.Actions)
@@ -239,7 +270,7 @@
                                             <span>QUESTION</span>
                                             <strong>@decision.Prompt</strong>
                                         </header>
-                                        @if (decision.Status == "Pending")
+                                        @if (decision.Status == "Pending" && !_hub.IsReadOnlyPerspective)
                                         {
                                             <div class="executive-decision-options">
                                                 @foreach (var option in decision.Options)
@@ -277,6 +308,13 @@
                                                            OnClick="@(() => SubmitDecisionAsync(message, decision))">Submit</MudButton>
                                             </footer>
                                         }
+                                        else if (decision.Status == "Pending")
+                                        {
+                                            <div class="executive-decision-answer">
+                                                <MudIcon Icon="@Icons.Material.Outlined.Visibility" Color="Color.Secondary" Size="Size.Small" />
+                                                <span>Pending · read-only</span>
+                                            </div>
+                                        }
                                         else
                                         {
                                             <div class="executive-decision-answer">
@@ -313,12 +351,22 @@
                     }
                 </section>
 
-                <footer class="hub-composer">
-                    <MudTextField @bind-Value="_draft" Placeholder="@ComposerPlaceholder"
-                                  Variant="Variant.Outlined" Lines="2" Immediate="true" OnKeyDown="OnComposerKeyDown" Disabled="@(_sending || ComposerBlocked)" />
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
-                               Disabled="@(_sending || ComposerBlocked || string.IsNullOrWhiteSpace(_draft))" EndIcon="@Icons.Material.Filled.Send">Send</MudButton>
-                </footer>
+                @if (_hub.IsReadOnlyPerspective)
+                {
+                    <footer class="hub-readonly-footer">
+                        <MudIcon Icon="@Icons.Material.Outlined.Visibility" />
+                        <span>You are viewing this conversation as <strong>@ViewedPersonName</strong>. Sending and conversation actions are disabled.</span>
+                    </footer>
+                }
+                else
+                {
+                    <footer class="hub-composer">
+                        <MudTextField @bind-Value="_draft" Placeholder="@ComposerPlaceholder"
+                                      Variant="Variant.Outlined" Lines="2" Immediate="true" OnKeyDown="OnComposerKeyDown" Disabled="@(_sending || ComposerBlocked)" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
+                                   Disabled="@(_sending || ComposerBlocked || string.IsNullOrWhiteSpace(_draft))" EndIcon="@Icons.Material.Filled.Send">Send</MudButton>
+                    </footer>
+                }
             }
         </main>
 
@@ -326,7 +374,10 @@
             <div class="hub-people-header"><strong>@(_selected is null ? "People" : "Members")</strong><button @onclick="@(() => _showMembers = false)"><MudIcon Icon="@Icons.Material.Filled.Close" /></button></div>
             @foreach (var person in VisiblePeople)
             {
-                <button class="hub-person" @onclick="@(() => StartDirectAsync(person))" disabled="@(person.Id == _hub.CurrentOrganizationUserId)">
+                <button class="hub-person"
+                        title="@(_hub.IsReadOnlyPerspective ? "Direct-message actions are disabled in agent perspective." : null)"
+                        @onclick="@(() => StartDirectAsync(person))"
+                        disabled="@(_hub.IsReadOnlyPerspective || person.Id == _hub.CurrentOrganizationUserId)">
                     <span class="hub-avatar @AvatarClass(person.EmployeeType)">@Initials(person.DisplayName)</span>
                     <span><strong>@person.DisplayName</strong><small>@(person.EmployeeType == "Agent" ? "AI employee" : person.RoleName ?? "Team member")</small></span>
                     <span class="presence-dot @PresenceClass(person.PresenceStatus)"
@@ -432,7 +483,7 @@
         }
     </DialogContent>
     <DialogActions>
-        @if (_thinkingDialogTurn is { } actionTurn)
+        @if (_hub?.IsReadOnlyPerspective != true && _thinkingDialogTurn is { } actionTurn)
         {
             @if (!IsTerminal(actionTurn.Turn.Status))
             {
@@ -450,6 +501,8 @@
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid? ChatId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "perspective")]
+    public Guid? PerspectiveAgentId { get; set; }
     private readonly CancellationTokenSource _disposeCts = new();
     private CancellationTokenSource? _chatCts;
     private IJSObjectReference? _communicationsModule;
@@ -481,8 +534,19 @@
     private bool _realtimeRefreshPending;
     private bool _scrollToBottomPending;
     private Guid? _observedChatId;
+    private Guid? _observedPerspectiveId;
     private Guid? _firstMessageCatchUpChatId;
     private string BasePath => $"api/organizations/{OrganizationId}/communications/hub";
+    private string PerspectiveApiQuery => PerspectiveAgentId.HasValue
+        ? $"?perspectiveOrganizationUserId={PerspectiveAgentId.Value:D}"
+        : string.Empty;
+    private string HubReadPath => $"{BasePath}{PerspectiveApiQuery}";
+    private string PerspectiveValue => PerspectiveAgentId?.ToString("D") ?? string.Empty;
+    private IEnumerable<CommunicationPersonResponse> PerspectiveAgents => (_hub?.People ?? [])
+        .Where(x => x.EmployeeType == "Agent")
+        .OrderBy(x => x.DisplayName);
+    private string ViewedPersonName => _hub?.People
+        .FirstOrDefault(x => x.Id == _hub.ViewedOrganizationUserId)?.DisplayName ?? "this agent";
     private IEnumerable<CommunicationChatResponse> FilteredChats => (_hub?.Chats ?? []).Where(x => string.IsNullOrWhiteSpace(_search) || x.Title.Contains(_search, StringComparison.OrdinalIgnoreCase));
     private IEnumerable<CommunicationPersonResponse> VisiblePeople => _selected is null || !_showMembers
         ? (_hub?.People ?? [])
@@ -523,7 +587,7 @@
         _loading = true; _error = null;
         try
         {
-            _hub = await Http.GetFromJsonAsync<CommunicationHubResponse>(BasePath, _disposeCts.Token);
+            _hub = await Http.GetFromJsonAsync<CommunicationHubResponse>(HubReadPath, _disposeCts.Token);
             _selected = ChatId.HasValue
                 ? _hub?.Chats.FirstOrDefault(x => x.Id == ChatId.Value)
                 : _hub?.Chats.FirstOrDefault(x => x.Id == _selected?.Id) ?? _hub?.Chats.FirstOrDefault();
@@ -533,6 +597,32 @@
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { _error = ex.Message; }
         finally { _loading = false; }
+    }
+
+    private void OnPerspectiveChanged(ChangeEventArgs args)
+    {
+        Guid? selectedAgentId = Guid.TryParse(args.Value?.ToString(), out var parsed)
+            ? parsed
+            : null;
+        if (selectedAgentId == PerspectiveAgentId) return;
+
+        _chatCts?.Cancel();
+        _observedChatId = null;
+        _observedPerspectiveId = null;
+        _selected = null;
+        _messages.Clear();
+        _turns.Clear();
+        _draft = string.Empty;
+        _notice = null;
+        _search = string.Empty;
+        _showMembers = false;
+        _showEditor = false;
+        _thinkingDialogOpen = false;
+
+        var href = $"/organizations/{OrganizationId}/communications";
+        if (selectedAgentId.HasValue)
+            href += $"?perspective={selectedAgentId.Value:D}";
+        Navigation.NavigateTo(href);
     }
 
     private Task SelectChatAsync(CommunicationChatResponse chat)
@@ -546,26 +636,33 @@
     private async Task LoadMessagesAsync(bool markRead = true)
     {
         if (_selected is null) return;
-        if (_observedChatId != _selected.Id)
+        if (_observedChatId != _selected.Id ||
+            _observedPerspectiveId != _hub?.ViewedOrganizationUserId)
         {
             _chatCts?.Cancel();
             _chatCts?.Dispose();
             _chatCts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token);
             _observedChatId = _selected.Id;
+            _observedPerspectiveId = _hub?.ViewedOrganizationUserId;
             _observingTurns.Clear();
             _turns.Clear();
         }
         var token = _chatCts?.Token ?? _disposeCts.Token;
-        var items = await Http.GetFromJsonAsync<List<CommunicationHubMessageResponse>>($"{BasePath}/chats/{_selected.Id}/messages", token) ?? [];
+        var items = await Http.GetFromJsonAsync<List<CommunicationHubMessageResponse>>(
+            $"{BasePath}/chats/{_selected.Id}/messages{PerspectiveApiQuery}",
+            token) ?? [];
         _messages.Clear(); _messages.AddRange(items);
-        await LoadTurnsAsync(_selected.Id, token);
+        if (_hub?.IsReadOnlyPerspective == true)
+            _turns.Clear();
+        else
+            await LoadTurnsAsync(_selected.Id, token);
         if (items.Count == 0 && _firstMessageCatchUpChatId != _selected.Id)
         {
             _firstMessageCatchUpChatId = _selected.Id;
             _ = ObserveFirstMessageAsync(_selected.Id, token);
         }
         RequestScrollToBottom();
-        if (markRead && items.LastOrDefault() is { } last)
+        if (markRead && _hub?.IsReadOnlyPerspective != true && items.LastOrDefault() is { } last)
         {
             var response = await Http.PostAsJsonAsync($"{BasePath}/chats/{_selected.Id}/read",
                 new MarkCommunicationChatReadRequest(last.Sequence), token);
@@ -576,7 +673,11 @@
 
     private async Task SendAsync()
     {
-        if (_selected is null || ComposerBlocked || string.IsNullOrWhiteSpace(_draft)) return;
+        if (_hub?.IsReadOnlyPerspective == true ||
+            _selected is null ||
+            ComposerBlocked ||
+            string.IsNullOrWhiteSpace(_draft))
+            return;
         _sending = true; _notice = null;
         var content = _draft.Trim(); _draft = string.Empty;
         try
@@ -631,7 +732,11 @@
 
     private async Task SubmitDecisionAsync(CommunicationHubMessageResponse message, ExecutiveDecisionCardResponse decision)
     {
-        if (_selected is null || !CanSubmitDecision(decision.Id) || !_decisionBusy.Add(decision.Id)) return;
+        if (_hub?.IsReadOnlyPerspective == true ||
+            _selected is null ||
+            !CanSubmitDecision(decision.Id) ||
+            !_decisionBusy.Add(decision.Id))
+            return;
         _decisionErrors.Remove(decision.Id);
         try
         {
@@ -666,7 +771,7 @@
         ResourceChangeRequestResponse resourceChange,
         string decision)
     {
-        if (_resourceDecisionBusy) return;
+        if (_hub?.IsReadOnlyPerspective == true || _resourceDecisionBusy) return;
         if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(_resourceFeedback))
         {
             _resourceDecisionError = "Tell the Product Manager what must change.";
@@ -713,7 +818,10 @@
 
     private async Task StartDirectAsync(CommunicationPersonResponse person)
     {
-        if (_hub is null || person.Id == _hub.CurrentOrganizationUserId) return;
+        if (_hub is null ||
+            _hub.IsReadOnlyPerspective ||
+            person.Id == _hub.CurrentOrganizationUserId)
+            return;
         var existing = _hub.Chats.FirstOrDefault(x => x.IsDirect && x.Participants.Any(p => p.OrganizationUserId == person.Id));
         if (existing is not null) { Navigation.NavigateTo(ChatHref(existing.Id)); return; }
         var request = new CreateCommunicationChatRequest(null, null, true, true, [person.Id]);
@@ -726,13 +834,14 @@
 
     private void OpenCreateGroup()
     {
+        if (_hub?.IsReadOnlyPerspective == true) return;
         _editing = null; _editorTitle = string.Empty; _editorDescription = string.Empty; _editorPrivate = false;
         _selectedMembers.Clear(); if (_hub is not null) _selectedMembers.Add(_hub.CurrentOrganizationUserId);
         _selectedAudiences.Clear(); _editorError = null; _confirmArchive = false; _showEditor = true;
     }
     private void OpenEdit()
     {
-        if (_selected is null) return;
+        if (_hub?.IsReadOnlyPerspective == true || _selected is null) return;
         _editing = _selected; _editorTitle = _selected.Title; _editorDescription = _selected.Description ?? string.Empty; _editorPrivate = _selected.IsPrivate;
         _selectedMembers.Clear(); foreach (var member in _selected.Participants) _selectedMembers.Add(member.OrganizationUserId);
         _selectedAudiences.Clear(); _editorError = null; _confirmArchive = false; _showEditor = true;
@@ -749,6 +858,7 @@
 
     private async Task SaveEditorAsync()
     {
+        if (_hub?.IsReadOnlyPerspective == true) return;
         if (string.IsNullOrWhiteSpace(_editorTitle)) { _editorError = "Give the channel a name."; return; }
         _editorBusy = true; _editorError = null;
         try
@@ -771,6 +881,7 @@
 
     private async Task ArchiveAsync()
     {
+        if (_hub?.IsReadOnlyPerspective == true) return;
         if (!_confirmArchive) { _confirmArchive = true; return; }
         if (_editing is null) return;
         _editorBusy = true;
@@ -788,7 +899,7 @@
     private List<Guid> SelectedAudienceIds(string kind) => _hub?.Audiences.Where(x => x.Kind == kind && _selectedAudiences.Contains(AudienceKey(x))).Select(x => x.Id).ToList() ?? [];
     private async Task RefreshHubAsync(Guid? selectId = null, bool markRead = true)
     {
-        _hub = await Http.GetFromJsonAsync<CommunicationHubResponse>(BasePath, _disposeCts.Token);
+        _hub = await Http.GetFromJsonAsync<CommunicationHubResponse>(HubReadPath, _disposeCts.Token);
         var targetId = selectId ?? ChatId ?? _selected?.Id;
         _selected = _hub?.Chats.FirstOrDefault(x => x.Id == targetId) ?? _hub?.Chats.FirstOrDefault();
         if (_selected is not null) await LoadMessagesAsync(markRead); else _messages.Clear();
@@ -901,7 +1012,10 @@
 
     private async Task RetryTurnAsync(TurnView failed)
     {
-        if (_selected is null || HasActiveTurnFor(failed)) return;
+        if (_hub?.IsReadOnlyPerspective == true ||
+            _selected is null ||
+            HasActiveTurnFor(failed))
+            return;
         _notice = null;
         try
         {
@@ -917,7 +1031,7 @@
 
     private async Task CancelTurnAsync(TurnView view)
     {
-        if (_selected is null) return;
+        if (_hub?.IsReadOnlyPerspective == true || _selected is null) return;
         try
         {
             view.Turn = await ChatTurns.CancelTurnAsync(OrganizationId, _selected.Id, view.Turn.Id, _disposeCts.Token);
@@ -937,7 +1051,13 @@
         return $"{view.Turn.Status} · {Math.Max(0, (int)duration.TotalSeconds)}s";
     }
 
-    private string ChatHref(Guid chatId) => $"/organizations/{OrganizationId}/communications/{chatId}";
+    private string ChatHref(Guid chatId)
+    {
+        var href = $"/organizations/{OrganizationId}/communications/{chatId}";
+        return PerspectiveAgentId.HasValue
+            ? $"{href}?perspective={PerspectiveAgentId.Value:D}"
+            : href;
+    }
 
     private void OnRealtimeEvent(CSweet.Contracts.Realtime.AppRealtimeEventEnvelope envelope)
     {
@@ -1010,7 +1130,11 @@
     private void RequestScrollToBottom() => _scrollToBottomPending = true;
 
     private int ChatUnread(CommunicationChatResponse chat) =>
-        Unread.ChatUnreadCounts.TryGetValue(chat.Id, out var count) ? count : chat.UnreadCount;
+        _hub?.IsReadOnlyPerspective == true
+            ? chat.UnreadCount
+            : Unread.ChatUnreadCounts.TryGetValue(chat.Id, out var count)
+                ? count
+                : chat.UnreadCount;
     private string UnreadLabel(CommunicationChatResponse chat) => ChatUnread(chat) > 99 ? "99+" : ChatUnread(chat).ToString();
 
     private static string ParticipantSummary(CommunicationChatResponse chat) => string.Join(", ", chat.Participants.Take(4).Select(x => x.DisplayName)) + (chat.Participants.Count > 4 ? $" +{chat.Participants.Count - 4}" : string.Empty);

@@ -59,6 +59,7 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, CommunicationHubCapabilit
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentOnboardingCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkManagementCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, GitWorkspaceCapabilityHandler>();
 builder.Services.AddScoped<IAgentMemoryIdentityResolver, AgentMemoryIdentityResolver>();
 builder.Services.AddRateLimiter(options =>
 {

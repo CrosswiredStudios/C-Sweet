@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using CSweet.Application.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -507,17 +508,37 @@ public sealed class AgentRuntimeManager(
             using var startTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             startTimeout.CancelAfter(TimeSpan.FromSeconds(settings.ContainerStartTimeoutSeconds));
             var entryAssembly = Path.GetFileNameWithoutExtension(package.ProjectPath) + ".dll";
+            var runtimeRequest = ReadRuntimeRequest(package.ManifestJson);
+            var isDeveloperRuntime = string.Equals(
+                runtimeRequest.EnvironmentProfile,
+                "software-development-polyglot-v1",
+                StringComparison.Ordinal);
+            if (isDeveloperRuntime &&
+                !string.Equals(runtimeRequest.WorkspaceAccess, "ReadWrite", StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    "The software development runtime requires ReadWrite workspace access.");
+            var runtimeImage = isDeveloperRuntime
+                ? options.Value.SoftwareDevelopmentPolyglotImage
+                : DotNetAgentImageResolver.ResolveRuntimeImage(
+                    settings.DotNetRuntimeBaseImage,
+                    package.TargetFramework);
+            if (isDeveloperRuntime &&
+                !runtimeImage.Contains("@sha256:", StringComparison.OrdinalIgnoreCase) &&
+                !runtimeImage.EndsWith(":local", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    "The software development runtime image must be pinned by digest.");
             var status = await containers.StartAsync(new AgentContainerStartRequest(
                 instance.Id, instance.TickId, installation.Id, package.AgentId, installation.BusinessId,
                 instance.ContainerName,
-                DotNetAgentImageResolver.ResolveRuntimeImage(
-                    settings.DotNetRuntimeBaseImage,
-                    package.TargetFramework),
+                runtimeImage,
                 package.PackagePath, entryAssembly,
                 options.Value.McpEndpoint, token, "/app/csweet-plugin.json", RuntimeNetworkName(instance),
                 installation.Grant.MemoryMb, installation.Grant.CpuPercent, settings.DefaultContainerPidsLimit,
                 installation.Schedule.MaxRuntimeSeconds,
-                null, options.Value.McpGatewayContainer), startTimeout.Token);
+                isDeveloperRuntime ? $"csweet-workspace-{installation.InstallationKey:N}" : null,
+                isDeveloperRuntime ? "/workspace" : "/data",
+                isDeveloperRuntime ? options.Value.SoftwareDevelopmentEgressProxyUrl : null,
+                options.Value.McpGatewayContainer), startTimeout.Token);
             instance.ContainerId = status.ContainerId;
             instance.RuntimeDeadlineAt = now.AddSeconds(installation.Schedule.MaxRuntimeSeconds);
             Transition(instance, AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow,
@@ -548,6 +569,21 @@ public sealed class AgentRuntimeManager(
         else if (instance.Status == AgentRuntimeStatus.StartFailed)
             await AuditOutcomeAsync(instance, AgentRuntimeStatus.StartFailed, cancellationToken);
         return true;
+    }
+
+    private static (string? EnvironmentProfile, string WorkspaceAccess) ReadRuntimeRequest(
+        string manifestJson)
+    {
+        using var document = JsonDocument.Parse(manifestJson);
+        if (!document.RootElement.TryGetProperty("runtime", out var runtime))
+            return (null, "None");
+        var environmentProfile = runtime.TryGetProperty("environmentProfile", out var profile)
+            ? profile.GetString()
+            : null;
+        var workspaceAccess = runtime.TryGetProperty("workspaceAccess", out var access)
+            ? access.GetString() ?? "None"
+            : "None";
+        return (environmentProfile, workspaceAccess);
     }
 
     private async Task FailBeforeStartAsync(

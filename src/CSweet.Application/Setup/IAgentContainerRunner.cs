@@ -34,6 +34,8 @@ public sealed record AgentContainerStartRequest(
     int PidsLimit,
     int MaxRuntimeSeconds,
     string? PersistentDataVolumeName = null,
+    string PersistentDataMountPath = "/data",
+    string? OutboundProxyUrl = null,
     string McpGatewayContainer = "agenthost");
 
 public sealed record AgentContainerStatus(

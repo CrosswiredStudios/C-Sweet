@@ -219,6 +219,19 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             {
                 errors.Add("runtime.maximumConcurrentJobs must be at least one.");
             }
+
+            if (manifest.Runtime.EnvironmentProfile is not null &&
+                !System.Text.RegularExpressions.Regex.IsMatch(
+                    manifest.Runtime.EnvironmentProfile,
+                    "^[a-z0-9][a-z0-9.-]{0,127}$"))
+            {
+                errors.Add("runtime.environmentProfile is invalid.");
+            }
+
+            if (manifest.Runtime.WorkspaceAccess is not ("None" or "ReadOnly" or "ReadWrite"))
+            {
+                errors.Add("runtime.workspaceAccess must be None, ReadOnly, or ReadWrite.");
+            }
         }
 
         if (!string.Equals(manifest.ManifestVersion, "2.0", StringComparison.Ordinal))

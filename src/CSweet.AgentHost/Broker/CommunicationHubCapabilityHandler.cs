@@ -89,12 +89,19 @@ public sealed class CommunicationHubCapabilityHandler(
         var input = request.Payload.IsEmpty ? new ChatReference(null) : Read<ChatReference>(request);
         if (input.ChatId.HasValue)
         {
-            var messages = await hub.ListMessagesAsync(organizationId, input.ChatId.Value, actorId, token);
+            var messages = await hub.ListMessagesAsync(
+                organizationId,
+                input.ChatId.Value,
+                actorId,
+                cancellationToken: token);
             return messages is null
                 ? Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound, "The chat was not found or is not visible to this employee.")
                 : Success(request.RequestId, new CommunicationChatMessagesResponse(messages));
         }
-        var response = await hub.GetAsync(organizationId, actorId, token);
+        var response = await hub.GetAsync(
+            organizationId,
+            actorId,
+            cancellationToken: token);
         return response is null
             ? Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound, "The communication hub was not found.")
             : Success(request.RequestId, response);

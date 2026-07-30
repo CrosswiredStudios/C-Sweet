@@ -28,6 +28,7 @@ public sealed class WorkManagementCapabilityHandler(
         WorkBoardActions.Read,
         WorkBoardActions.Create,
         WorkItemActions.Read,
+        WorkItemActions.Start,
         WorkItemActions.Create,
         WorkItemActions.Comment,
         WorkItemActions.Estimate,
@@ -93,9 +94,11 @@ public sealed class WorkManagementCapabilityHandler(
                         Read<Wire.WorkBoardListRequest>(request), cancellationToken)),
                 WorkItemActions.Read => Success(
                     request.RequestId,
-                    await ReadBoardAsync(
-                        organizationId, installationId,
-                        Read<Wire.WorkBoardReference>(request), cancellationToken)),
+                    await ReadBoardOrItemAsync(
+                        organizationId,
+                        installationId,
+                        request,
+                        cancellationToken)),
                 WorkBoardActions.Create => Success(
                     request.RequestId,
                     await CreateBoardAsync(
@@ -173,6 +176,7 @@ public sealed class WorkManagementCapabilityHandler(
                     await MoveItemAsync(
                         session, organizationId, installation,
                         Read<Wire.MoveWorkItemRequest>(request), cancellationToken)),
+                WorkItemActions.Start or
                 WorkItemActions.Complete or
                 WorkItemActions.Cancel or
                 WorkItemActions.Reopen => Success(
@@ -339,6 +343,52 @@ public sealed class WorkManagementCapabilityHandler(
                 x.Id, x.Name, x.Category.ToString(), x.Position,
                 x.WipPolicy.ToString(), x.WipLimit)).ToList(),
             items);
+    }
+
+    private async Task<object> ReadBoardOrItemAsync(
+        Guid organizationId,
+        Guid installationId,
+        RequestCapability request,
+        CancellationToken cancellationToken) =>
+        request.Payload.ToElement().TryGetProperty("itemId", out _)
+            ? await ReadItemAsync(
+                organizationId,
+                installationId,
+                Read<Wire.WorkItemReference>(request),
+                cancellationToken)
+            : await ReadBoardAsync(
+                organizationId,
+                installationId,
+                Read<Wire.WorkBoardReference>(request),
+                cancellationToken);
+
+    private async Task<Wire.WorkItem> ReadItemAsync(
+        Guid organizationId,
+        Guid installationId,
+        Wire.WorkItemReference input,
+        CancellationToken cancellationToken)
+    {
+        var grant = await RequireForItemAsync(
+            organizationId,
+            installationId,
+            WorkItemActions.Read,
+            input.BoardId,
+            input.ItemId,
+            cancellationToken);
+        var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId &&
+            x.BoardId == input.BoardId &&
+            x.Id == input.ItemId, cancellationToken)
+            ?? throw new KeyNotFoundException("Work item was not found.");
+        await WriteAuditAsync(
+            organizationId,
+            installationId,
+            input.BoardId,
+            WorkItemActions.Read,
+            grant,
+            new { input.BoardId, input.ItemId },
+            cancellationToken);
+        return await ToAgentItemAsync(item, cancellationToken);
     }
 
     private async Task<IReadOnlyList<Wire.WorkSprint>> ListSprintsAsync(
@@ -1157,9 +1207,9 @@ public sealed class WorkManagementCapabilityHandler(
         Wire.CommentOnWorkItemRequest input,
         CancellationToken cancellationToken)
     {
-        var grant = await RequireAsync(
+        var grant = await RequireForItemAsync(
             organizationId, installation.Id, WorkItemActions.Comment,
-            input.BoardId, cancellationToken);
+            input.BoardId, input.ItemId, cancellationToken);
         ValidateIdempotencyKey(input.IdempotencyKey);
         if (string.IsNullOrWhiteSpace(input.Body))
             throw new ArgumentException("Comment body is required.");
@@ -1400,8 +1450,13 @@ public sealed class WorkManagementCapabilityHandler(
         Wire.TransitionWorkItemRequest input,
         CancellationToken cancellationToken)
     {
-        var grant = await RequireAsync(
-            organizationId, installation.Id, action, input.BoardId, cancellationToken);
+        var grant = await RequireForItemAsync(
+            organizationId,
+            installation.Id,
+            action,
+            input.BoardId,
+            input.ItemId,
+            cancellationToken);
         ValidateIdempotencyKey(input.IdempotencyKey);
         var replay = await ReplayAsync<Wire.WorkItem>(
             installation.Id, action, input.IdempotencyKey, cancellationToken);
@@ -1412,6 +1467,34 @@ public sealed class WorkManagementCapabilityHandler(
             x.OrganizationId == organizationId &&
             x.BoardId == input.BoardId, cancellationToken)
             ?? throw new KeyNotFoundException("Work item was not found.");
+        if (item.AssignedAgentInstallationId.HasValue &&
+            item.AssignedAgentInstallationId != installation.Id)
+            throw new UnauthorizedAccessException(
+                "This work item is assigned to a different agent installation.");
+        if (action == WorkItemActions.Complete &&
+            item.AssignedAgentInstallationId == installation.Id &&
+            !string.IsNullOrWhiteSpace(item.DevelopmentBriefJson))
+        {
+            var published = await db.GitTicketWorkspaces
+                .AsNoTracking()
+                .Where(x =>
+                    x.OrganizationId == organizationId &&
+                    x.AgentInstallationId == installation.Id &&
+                    x.WorkItemId == item.Id &&
+                    x.AssignmentRevision == item.AssignmentRevision &&
+                    x.Status == GitTicketWorkspaceStatus.Published &&
+                    x.PullRequestUrl != null)
+                .Select(x => new { x.ValidationsJson })
+                .SingleOrDefaultAsync(cancellationToken);
+            var validations = published is null
+                ? []
+                : JsonSerializer.Deserialize<IReadOnlyList<GitValidationResult>>(
+                    published.ValidationsJson, JsonOptions) ?? [];
+            if (validations.Count == 0 ||
+                validations.Any(x => !x.Succeeded || x.ExitCode != 0))
+                throw new InvalidOperationException(
+                    "A development ticket can be completed only after successful validation and creation of a reviewable pull request.");
+        }
         if (item.Revision != input.ExpectedRevision)
             throw new DbUpdateConcurrencyException(
                 $"Expected work item revision {input.ExpectedRevision}, current revision is {item.Revision}.");
@@ -1472,6 +1555,8 @@ public sealed class WorkManagementCapabilityHandler(
             {
                 WorkItemActions.Complete => columns.FirstOrDefault(x =>
                     x.Category == WorkBoardColumnCategory.Done),
+                WorkItemActions.Start => columns.FirstOrDefault(x =>
+                    x.Category == WorkBoardColumnCategory.InProgress),
                 WorkItemActions.Cancel => columns.FirstOrDefault(x =>
                     x.Category == WorkBoardColumnCategory.Cancelled),
                 WorkItemActions.Reopen => columns.FirstOrDefault(x =>
@@ -1483,6 +1568,9 @@ public sealed class WorkManagementCapabilityHandler(
         var valid = action switch
         {
             WorkItemActions.Complete => target.Category == WorkBoardColumnCategory.Done,
+            WorkItemActions.Start =>
+                item.Status is WorkTaskStatus.Ready or WorkTaskStatus.Assigned &&
+                target.Category == WorkBoardColumnCategory.InProgress,
             WorkItemActions.Cancel => target.Category == WorkBoardColumnCategory.Cancelled,
             WorkItemActions.Reopen =>
                 item.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled &&
@@ -1620,6 +1708,32 @@ public sealed class WorkManagementCapabilityHandler(
             new { action, boardId }, cancellationToken, outcome: "Denied");
         throw new UnauthorizedAccessException(
             $"The installation does not have '{action}' on the requested scope.");
+    }
+
+    private async Task<ScopedAuthorizationDecision> RequireForItemAsync(
+        Guid organizationId,
+        Guid installationId,
+        string action,
+        Guid boardId,
+        Guid itemId,
+        CancellationToken cancellationToken)
+    {
+        var itemDecision = await authorization.AuthorizeAsync(
+            organizationId,
+            GrantSubjectKind.AgentInstallation,
+            installationId,
+            action,
+            GrantScopeKind.WorkItem,
+            itemId,
+            cancellationToken);
+        return itemDecision.Allowed
+            ? itemDecision
+            : await RequireAsync(
+                organizationId,
+                installationId,
+                action,
+                boardId,
+                cancellationToken);
     }
 
     private async Task<List<ScopedActionGrant>> ActiveGrantsAsync(
@@ -1788,6 +1902,7 @@ public sealed class WorkManagementCapabilityHandler(
 
     private static string EventTypeFor(string action) => action switch
     {
+        WorkItemActions.Start => "item.started",
         WorkItemActions.Complete => "item.completed",
         WorkItemActions.Cancel => "item.cancelled",
         WorkItemActions.Reopen => "item.reopened",
@@ -1827,7 +1942,39 @@ public sealed class WorkManagementCapabilityHandler(
         item.EstimatePoints,
         item.BoardRank,
         item.Revision,
-        item.DueDate);
+        item.DueDate,
+        item.AssignedWorkerId,
+        item.AssignedEmployeeId,
+        item.AssignedAgentInstallationId,
+        null,
+        DeserializeDevelopmentBrief(item.DevelopmentBriefJson));
+
+    private async Task<Wire.WorkItem> ToAgentItemAsync(
+        WorkTask item,
+        CancellationToken cancellationToken)
+    {
+        var employeeName = item.AssignedEmployeeId.HasValue
+            ? await db.CoreOrganizationUsers.AsNoTracking()
+                .Where(x => x.Id == item.AssignedEmployeeId)
+                .Select(x => x.DisplayName)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+        var result = ToAgentItem(item);
+        return result with { AssignedDisplayName = employeeName };
+    }
+
+    private static Wire.SoftwareDevelopmentBrief? DeserializeDevelopmentBrief(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<Wire.SoftwareDevelopmentBrief>(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private static Wire.WorkSprint ToAgentSprint(
         WorkSprint sprint,

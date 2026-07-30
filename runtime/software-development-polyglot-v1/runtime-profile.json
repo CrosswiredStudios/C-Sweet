@@ -1,0 +1,30 @@
+{
+  "id": "software-development-polyglot-v1",
+  "toolchains": {
+    "dotnet": "10.0.x",
+    "node": "24.x",
+    "python": "3.14.x",
+    "powershell": "7.x"
+  },
+  "workspace": {
+    "mountPath": "/workspace",
+    "access": "readWrite",
+    "maximumBytes": 2147483648,
+    "maximumFiles": 250000,
+    "failedRetentionHours": 24
+  },
+  "hardening": {
+    "readOnlyRoot": true,
+    "runAsUser": 1654,
+    "dropCapabilities": ["ALL"],
+    "noNewPrivileges": true,
+    "dockerSocket": false,
+    "hostSourceMounts": false
+  },
+  "publicPackageHosts": [
+    "api.nuget.org:443",
+    "registry.npmjs.org:443",
+    "pypi.org:443",
+    "files.pythonhosted.org:443"
+  ]
+}

@@ -4,6 +4,7 @@ using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using CSweet.WorkManagement.Contracts;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
@@ -26,6 +27,7 @@ public sealed class AgentPlatformEventDispatcher(
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
         var router = scope.ServiceProvider.GetRequiredService<AgentWorkRouter>();
+        var runtimeManager = scope.ServiceProvider.GetRequiredService<IAgentRuntimeManager>();
         var audit = scope.ServiceProvider.GetService<IAuditEventWriter>();
         var now = clock.GetUtcNow();
         var pending = await db.AgentPlatformEventOutbox
@@ -47,8 +49,19 @@ public sealed class AgentPlatformEventDispatcher(
                     item.IdempotencyKey,
                     item.TargetInstallationId,
                     requireSubscription: true,
-                    deadline: now.AddHours(1),
+                    deadline: item.EventType == WorkItemEvents.Assigned
+                        ? new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero)
+                        : now.AddHours(1),
                     cancellationToken: cancellationToken);
+                if (deliveries > 0 &&
+                    item.EventType == WorkItemEvents.Assigned &&
+                    item.TargetInstallationId is { } developerInstallationId)
+                {
+                    await runtimeManager.EnsureRuntimeQueuedAsync(
+                        developerInstallationId,
+                        $"Assigned work item event {item.Id:D}.",
+                        cancellationToken: cancellationToken);
+                }
                 if (item.EventType == ResourceChangeEvents.Requested &&
                     payload.RootElement.TryGetProperty("requestId", out var requestIdElement) &&
                     requestIdElement.TryGetGuid(out var requestId))

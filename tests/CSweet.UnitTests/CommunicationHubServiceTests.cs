@@ -253,6 +253,68 @@ public sealed class CommunicationHubServiceTests
         Assert.Equal(CommunicationPresenceStatuses.Unhealthy, participant.PresenceStatus);
     }
 
+    [Fact]
+    public async Task HumanCanInspectAgentPerspective_WithoutGainingAgentMutationAuthority()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var owner = User(organization.Id, "Owner", OrganizationPermissionLevel.Owner);
+        var productManager = User(
+            organization.Id, "Product Manager", OrganizationPermissionLevel.Manager);
+        productManager.EmployeeType = EmployeeType.Agent;
+        var architect = User(
+            organization.Id, "Software Architect", OrganizationPermissionLevel.Contributor);
+        architect.EmployeeType = EmployeeType.Agent;
+        var otherHuman = User(
+            organization.Id, "Other Human", OrganizationPermissionLevel.Contributor);
+        db.AddRange(organization, owner, productManager, architect, otherHuman);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var direct = await service.CreateAsync(
+            organization.Id,
+            productManager.Id,
+            new CreateCommunicationChatRequest(
+                null, null, true, true, [architect.Id]));
+        await service.SendAsync(
+            organization.Id,
+            direct.Chat!.Id,
+            productManager.Id,
+            new SendCommunicationMessageRequest("Please review the delivery architecture."));
+        await service.SendAsync(
+            organization.Id,
+            direct.Chat.Id,
+            architect.Id,
+            new SendCommunicationMessageRequest("Review complete."));
+
+        var self = Assert.IsType<CommunicationHubResponse>(
+            await service.GetAsync(organization.Id, owner.Id));
+        var perspective = Assert.IsType<CommunicationHubResponse>(
+            await service.GetAsync(organization.Id, owner.Id, productManager.Id));
+
+        Assert.Empty(self.Chats);
+        Assert.Equal(owner.Id, perspective.CurrentOrganizationUserId);
+        Assert.Equal(productManager.Id, perspective.ViewedOrganizationUserId);
+        Assert.True(perspective.IsReadOnlyPerspective);
+        Assert.False(perspective.CanManageChats);
+        var inspectedChat = Assert.Single(perspective.Chats);
+        Assert.Equal("Software Architect", inspectedChat.Title);
+        Assert.False(inspectedChat.CanManage);
+        var messages = Assert.IsAssignableFrom<IReadOnlyList<CommunicationHubMessageResponse>>(
+            await service.ListMessagesAsync(
+                organization.Id,
+                inspectedChat.Id,
+                owner.Id,
+                productManager.Id));
+        Assert.Equal(2, messages.Count);
+
+        Assert.Null(await service.ListMessagesAsync(
+            organization.Id, inspectedChat.Id, owner.Id));
+        Assert.Null(await service.GetAsync(
+            organization.Id, owner.Id, otherHuman.Id));
+        Assert.Null(await service.GetAsync(
+            organization.Id, owner.Id, Guid.NewGuid()));
+    }
+
     private static Organization Organization() => new() { Id = Guid.NewGuid(), Name = "Example",
         Status = OrganizationStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
     private static OrganizationUser User(Guid organizationId, string name, OrganizationPermissionLevel permission, Guid? roleId = null) => new()

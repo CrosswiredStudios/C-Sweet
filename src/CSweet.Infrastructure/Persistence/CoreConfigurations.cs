@@ -357,6 +357,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.Priority).HasConversion<string>().HasMaxLength(16).IsRequired();
         entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();
         entity.Property(x => x.EstimatePoints).HasPrecision(8, 2);
+        entity.Property(x => x.DevelopmentBriefJson).HasColumnType("text");
         entity.HasIndex(x => new { x.BoardColumnId, x.BoardRank });
         entity.HasIndex(x => new { x.SprintId, x.BoardRank });
 
@@ -398,6 +399,16 @@ internal static class CoreConfigurations
         entity.HasOne(x => x.AssignedWorker)
             .WithMany()
             .HasForeignKey(x => x.AssignedWorkerId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        entity.HasOne(x => x.AssignedEmployee)
+            .WithMany()
+            .HasForeignKey(x => x.AssignedEmployeeId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        entity.HasOne(x => x.AssignedAgentInstallation)
+            .WithMany()
+            .HasForeignKey(x => x.AssignedAgentInstallationId)
             .OnDelete(DeleteBehavior.SetNull);
     }
 

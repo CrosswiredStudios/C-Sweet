@@ -23,21 +23,34 @@ public static class CommunicationEndpoints
         group.MapGet("/discord", async (Guid organizationId, ICommunicationWorkspaceService service, CancellationToken cancellationToken) =>
             await service.GetDiscordAsync(organizationId, cancellationToken) is { } connection ? Results.Ok(connection) : Results.NotFound());
 
-        group.MapGet("/hub", async (Guid organizationId, HttpContext http,
+        group.MapGet("/hub", async (Guid organizationId, Guid? perspectiveOrganizationUserId, HttpContext http,
             ICommunicationHubService service, CancellationToken cancellationToken) =>
         {
             var actorId = await ResolveActorAsync(organizationId, http, service, cancellationToken);
             return actorId is null ? Results.Forbid() :
-                await service.GetAsync(organizationId, actorId.Value, cancellationToken) is { } hub
+                await service.GetAsync(
+                    organizationId,
+                    actorId.Value,
+                    perspectiveOrganizationUserId,
+                    cancellationToken) is { } hub
                     ? Results.Ok(hub) : Results.Forbid();
         });
 
-        group.MapGet("/hub/chats/{chatId:guid}/messages", async (Guid organizationId, Guid chatId, HttpContext http,
+        group.MapGet("/hub/chats/{chatId:guid}/messages", async (
+            Guid organizationId,
+            Guid chatId,
+            Guid? perspectiveOrganizationUserId,
+            HttpContext http,
             ICommunicationHubService service, CancellationToken cancellationToken) =>
         {
             var actorId = await ResolveActorAsync(organizationId, http, service, cancellationToken);
             if (actorId is null) return Results.Forbid();
-            var messages = await service.ListMessagesAsync(organizationId, chatId, actorId.Value, cancellationToken);
+            var messages = await service.ListMessagesAsync(
+                organizationId,
+                chatId,
+                actorId.Value,
+                perspectiveOrganizationUserId,
+                cancellationToken);
             return messages is null ? Results.NotFound() : Results.Ok(messages);
         });
 

@@ -4,6 +4,8 @@ namespace CSweet.Contracts.Communications;
 
 public sealed record CommunicationHubResponse(
     Guid CurrentOrganizationUserId,
+    Guid ViewedOrganizationUserId,
+    bool IsReadOnlyPerspective,
     bool CanManageChats,
     IReadOnlyList<CommunicationChatResponse> Chats,
     IReadOnlyList<CommunicationPersonResponse> People,

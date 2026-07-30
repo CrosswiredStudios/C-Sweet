@@ -144,8 +144,31 @@ public sealed class DockerAgentContainerRunner(
         if (!string.IsNullOrWhiteSpace(request.PersistentDataVolumeName))
         {
             ValidateVolumeName(request.PersistentDataVolumeName);
+            if (request.PersistentDataMountPath is not ("/data" or "/workspace"))
+                throw new AgentContainerException("The persistent data mount path is not approved.");
             var imageIndex = args.IndexOf(request.RuntimeImage);
-            args.InsertRange(imageIndex, ["--mount", $"type=volume,source={request.PersistentDataVolumeName},target=/data"]);
+            args.InsertRange(
+                imageIndex,
+                ["--mount", $"type=volume,source={request.PersistentDataVolumeName},target={request.PersistentDataMountPath}"]);
+            args.InsertRange(
+                imageIndex,
+                ["--env", $"CSweet__Agent__WorkspaceRoot={request.PersistentDataMountPath}"]);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.OutboundProxyUrl))
+        {
+            if (!Uri.TryCreate(request.OutboundProxyUrl, UriKind.Absolute, out var proxy) ||
+                proxy.Scheme is not ("http" or "https") ||
+                !string.IsNullOrEmpty(proxy.UserInfo))
+                throw new AgentContainerException(
+                    "The configured runtime egress proxy must be an HTTP(S) URL without embedded credentials.");
+            var imageIndex = args.IndexOf(request.RuntimeImage);
+            args.InsertRange(imageIndex, [
+                "--env", $"HTTP_PROXY={proxy.AbsoluteUri}",
+                "--env", $"HTTPS_PROXY={proxy.AbsoluteUri}",
+                "--env", $"ALL_PROXY={proxy.AbsoluteUri}",
+                "--env", $"NO_PROXY={request.McpGatewayContainer},agenthost"
+            ]);
         }
 
         logger.LogInformation(

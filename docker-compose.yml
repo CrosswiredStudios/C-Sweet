@@ -113,6 +113,8 @@ services:
       CSweet__AgentRuntime__SessionWatchdogStartupGraceSeconds: ${CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_STARTUP_GRACE_SECONDS:-30}
       CSweet__AgentRuntime__SessionWatchdogIntervalSeconds: ${CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_INTERVAL_SECONDS:-10}
       CSweet__AgentRuntime__SessionDisconnectShutdownSeconds: ${CSWEET_AGENT_RUNTIME_SESSION_DISCONNECT_SHUTDOWN_SECONDS:-120}
+      CSweet__AgentRuntime__SoftwareDevelopmentPolyglotImage: ${CSWEET_SOFTWARE_DEVELOPER_IMAGE:-csweet/software-development-polyglot-v1:local}
+      CSweet__AgentRuntime__SoftwareDevelopmentEgressProxyUrl: ${CSWEET_SOFTWARE_DEVELOPER_EGRESS_PROXY_URL:-}
     group_add:
       - "${DOCKER_GID:-0}"
     volumes:

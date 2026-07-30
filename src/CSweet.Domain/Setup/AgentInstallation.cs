@@ -19,6 +19,7 @@ public sealed class AgentInstallation
     public AgentInstallationConfiguration? Configuration { get; set; }
     public AgentSchedule? Schedule { get; set; }
     public ICollection<AgentRuntimeInstance> RuntimeInstances { get; set; } = [];
+    public ICollection<GitRepositoryConnectionGrant> RepositoryConnectionGrants { get; set; } = [];
 }
 
 public enum PluginRevisionStatus

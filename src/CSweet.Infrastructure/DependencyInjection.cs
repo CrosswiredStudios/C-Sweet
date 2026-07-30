@@ -120,6 +120,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentInteractiveRuntimeService, AgentInteractiveRuntimeService>();
         builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService>();
         builder.Services.AddScoped<IAgentRuntimeCleanupService, AgentRuntimeCleanupService>();
+        builder.Services.AddScoped<GitWorkspaceRetentionCleanupService>();
         builder.Services.AddScoped<AgentRuntimeStartupCleanupService>();
         builder.Services.AddOptions<AgentRuntimeManagerOptions>()
             .Bind(builder.Configuration.GetSection(AgentRuntimeManagerOptions.SectionName));
@@ -213,6 +214,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IWorkerService, WorkerService>();
         builder.Services.AddScoped<IWorkTaskService, WorkTaskService>();
         builder.Services.AddScoped<IWorkBoardService, WorkBoardService>();
+        builder.Services.AddScoped<ISoftwareDevelopmentWorkService, SoftwareDevelopmentWorkService>();
         builder.Services.AddScoped<IWorkBoardGrantService, WorkBoardGrantService>();
         builder.Services.AddScoped<IWorkItemCollaborationService, WorkItemCollaborationService>();
         builder.Services.AddScoped<IWorkSprintService, WorkSprintService>();

@@ -32,6 +32,7 @@ public sealed class CommunicationHubService(
     public async Task<CommunicationHubResponse?> GetAsync(
         Guid organizationId,
         Guid actorOrganizationUserId,
+        Guid? perspectiveOrganizationUserId = null,
         CancellationToken cancellationToken = default)
     {
         var actor = await ActiveUserAsync(organizationId, actorOrganizationUserId, cancellationToken);
@@ -44,6 +45,9 @@ public sealed class CommunicationHubService(
                 .ThenInclude(x => x!.Schedule)
             .OrderBy(x => x.DisplayName)
             .ToListAsync(cancellationToken);
+        var viewedUser = ResolveViewedUser(actor, people, perspectiveOrganizationUserId);
+        if (viewedUser is null) return null;
+        var isReadOnlyPerspective = viewedUser.Id != actor.Id;
         var installationIds = people
             .Where(x => x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId.HasValue)
             .Select(x => x.AgentInstallationId!.Value)
@@ -69,7 +73,7 @@ public sealed class CommunicationHubService(
 
         var chats = await db.CoreConversations.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.ArchivedAt == null &&
-                x.Participants.Any(p => p.OrganizationUserId == actorOrganizationUserId && p.LeftAt == null))
+                x.Participants.Any(p => p.OrganizationUserId == viewedUser.Id && p.LeftAt == null))
             .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
             .Include(x => x.Messages)
             .OrderByDescending(x => x.UpdatedAt)
@@ -98,8 +102,10 @@ public sealed class CommunicationHubService(
 
         return new CommunicationHubResponse(
             actor.Id,
-            actor.PermissionLevel >= OrganizationPermissionLevel.Manager,
-            chats.Select(x => MapChat(x, actor, presences)).ToList(),
+            viewedUser.Id,
+            isReadOnlyPerspective,
+            !isReadOnlyPerspective && actor.PermissionLevel >= OrganizationPermissionLevel.Manager,
+            chats.Select(x => MapChat(x, viewedUser, presences, !isReadOnlyPerspective)).ToList(),
             people.Select(x => new CommunicationPersonResponse(
                 x.Id, x.DisplayName, x.EmployeeType.ToString(), x.RoleId, x.Role?.Name,
                 presences[x.Id].Status, presences[x.Id].Detail)).ToList(),
@@ -117,9 +123,16 @@ public sealed class CommunicationHubService(
         Guid organizationId,
         Guid chatId,
         Guid actorOrganizationUserId,
+        Guid? perspectiveOrganizationUserId = null,
         CancellationToken cancellationToken = default)
     {
-        if (!await IsActiveMemberAsync(organizationId, chatId, actorOrganizationUserId, cancellationToken)) return null;
+        var actor = await ActiveUserAsync(organizationId, actorOrganizationUserId, cancellationToken);
+        if (actor is null) return null;
+        var viewedUser = await ResolveViewedUserAsync(
+            organizationId, actor, perspectiveOrganizationUserId, cancellationToken);
+        if (viewedUser is null ||
+            !await IsActiveMemberAsync(organizationId, chatId, viewedUser.Id, cancellationToken))
+            return null;
 
         var users = await db.CoreOrganizationUsers.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId)
@@ -500,6 +513,37 @@ public sealed class CommunicationHubService(
     private Task<OrganizationUser?> ActiveUserAsync(Guid organizationId, Guid userId, CancellationToken token) =>
         db.CoreOrganizationUsers.SingleOrDefaultAsync(x => x.Id == userId && x.OrganizationId == organizationId && x.IsActive, token);
 
+    private async Task<OrganizationUser?> ResolveViewedUserAsync(
+        Guid organizationId,
+        OrganizationUser actor,
+        Guid? perspectiveOrganizationUserId,
+        CancellationToken token)
+    {
+        if (!perspectiveOrganizationUserId.HasValue ||
+            perspectiveOrganizationUserId.Value == actor.Id)
+            return actor;
+        if (actor.EmployeeType != EmployeeType.Human) return null;
+        return await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == perspectiveOrganizationUserId.Value &&
+            x.OrganizationId == organizationId &&
+            x.IsActive &&
+            x.EmployeeType == EmployeeType.Agent, token);
+    }
+
+    private static OrganizationUser? ResolveViewedUser(
+        OrganizationUser actor,
+        IReadOnlyList<OrganizationUser> people,
+        Guid? perspectiveOrganizationUserId)
+    {
+        if (!perspectiveOrganizationUserId.HasValue ||
+            perspectiveOrganizationUserId.Value == actor.Id)
+            return actor;
+        if (actor.EmployeeType != EmployeeType.Human) return null;
+        return people.SingleOrDefault(x =>
+            x.Id == perspectiveOrganizationUserId.Value &&
+            x.EmployeeType == EmployeeType.Agent);
+    }
+
     private Task<bool> IsActiveMemberAsync(Guid organizationId, Guid chatId, Guid userId, CancellationToken token) =>
         db.CoreConversations.AnyAsync(x => x.Id == chatId && x.OrganizationId == organizationId && x.ArchivedAt == null &&
             x.Participants.Any(p => p.OrganizationUserId == userId && p.LeftAt == null), token);
@@ -537,7 +581,8 @@ public sealed class CommunicationHubService(
     private static CommunicationChatResponse MapChat(
         Conversation chat,
         OrganizationUser actor,
-        IReadOnlyDictionary<Guid, CommunicationPresence>? presences = null)
+        IReadOnlyDictionary<Guid, CommunicationPresence>? presences = null,
+        bool allowManagement = true)
     {
         var active = chat.Participants.Where(x => x.LeftAt == null).ToList();
         var direct = chat.Kind == ConversationKind.DirectHumanAgent;
@@ -550,7 +595,9 @@ public sealed class CommunicationHubService(
         var unreadCount = membership is null ? 0 : chat.Messages.Count(x =>
             x.Sequence > membership.LastReadMessageSequence && x.SenderOrganizationUserId != actor.Id);
         return new CommunicationChatResponse(chat.Id, title ?? "Untitled chat", chat.Description, direct, chat.IsPrivate,
-            chat.IsDeletionProtected, !direct && !chat.IsDeletionProtected && CanManage(chat, actor), chat.UpdatedAt,
+            chat.IsDeletionProtected,
+            allowManagement && !direct && !chat.IsDeletionProtected && CanManage(chat, actor),
+            chat.UpdatedAt,
             active.Select(x =>
             {
                 var presence = presences is not null &&

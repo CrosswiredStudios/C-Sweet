@@ -12,6 +12,100 @@ public static class WorkBoardEndpoints
         var group = endpoints.MapGroup("/api/organizations/{organizationId:guid}/work/boards");
         var organizationGrantGroup =
             endpoints.MapGroup("/api/organizations/{organizationId:guid}/work/grants");
+        var repositoryGroup =
+            endpoints.MapGroup("/api/organizations/{organizationId:guid}/git/repositories");
+
+        repositoryGroup.MapGet("", async (
+            Guid organizationId,
+            HttpContext http,
+            ISoftwareDevelopmentWorkService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                return Results.Ok(await service.ListConnectionsAsync(
+                    organizationId, userId.Value, cancellationToken));
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+
+        repositoryGroup.MapPost("", async (
+            Guid organizationId,
+            CreateGitRepositoryConnectionRequest request,
+            HttpContext http,
+            ISoftwareDevelopmentWorkService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                var connection = await service.CreateConnectionAsync(
+                    organizationId, userId.Value, request, cancellationToken);
+                return Results.Created(
+                    $"/api/organizations/{organizationId:D}/git/repositories/{connection.Id:D}",
+                    connection);
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_repository_connection", message = exception.Message });
+            }
+            catch (DbUpdateException exception)
+            {
+                return Results.Conflict(new { error = "repository_connection_conflict", message = exception.Message });
+            }
+        });
+
+        repositoryGroup.MapPut("/{connectionId:guid}/grants", async (
+            Guid organizationId,
+            Guid connectionId,
+            GrantGitRepositoryConnectionRequest request,
+            HttpContext http,
+            ISoftwareDevelopmentWorkService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                await service.GrantConnectionAsync(
+                    organizationId, connectionId, userId.Value, request, cancellationToken);
+                return Results.NoContent();
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                return Results.BadRequest(new { error = "invalid_repository_grant", message = exception.Message });
+            }
+        });
+
+        repositoryGroup.MapPut("/{connectionId:guid}/credentials", async (
+            Guid organizationId,
+            Guid connectionId,
+            SetGitRepositoryCredentialRequest request,
+            HttpContext http,
+            ISoftwareDevelopmentWorkService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                await service.SetCredentialAsync(
+                    organizationId, connectionId, userId.Value, request, cancellationToken);
+                return Results.NoContent();
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_repository_credential", message = exception.Message });
+            }
+        });
 
         organizationGrantGroup.MapGet("", async (
             Guid organizationId, HttpContext http,
@@ -201,6 +295,67 @@ public static class WorkBoardEndpoints
             catch (InvalidOperationException exception)
             {
                 return Results.Conflict(new { error = "work_item_conflict", message = exception.Message });
+            }
+        });
+
+        group.MapPut("/{boardId:guid}/items/{itemId:guid}/developer-assignment", async (
+            Guid organizationId,
+            Guid boardId,
+            Guid itemId,
+            AssignSoftwareDevelopmentWorkItemRequest request,
+            HttpContext http,
+            ISoftwareDevelopmentWorkService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                return Results.Ok(await service.AssignAsync(
+                    organizationId, boardId, itemId, userId.Value, request, cancellationToken));
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_development_assignment", message = exception.Message });
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "development_assignment_conflict", message = exception.Message });
+            }
+            catch (DbUpdateConcurrencyException exception)
+            {
+                return Results.Conflict(new { error = "revision_conflict", message = exception.Message });
+            }
+        });
+
+        group.MapPost("/{boardId:guid}/items/{itemId:guid}/developer-assignment/unassign", async (
+            Guid organizationId,
+            Guid boardId,
+            Guid itemId,
+            UnassignSoftwareDevelopmentWorkItemRequest request,
+            HttpContext http,
+            ISoftwareDevelopmentWorkService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                return Results.Ok(await service.UnassignAsync(
+                    organizationId, boardId, itemId, userId.Value, request, cancellationToken));
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_development_unassignment", message = exception.Message });
+            }
+            catch (Exception exception) when (
+                exception is InvalidOperationException or DbUpdateConcurrencyException)
+            {
+                return Results.Conflict(new { error = "development_unassignment_conflict", message = exception.Message });
             }
         });
 
