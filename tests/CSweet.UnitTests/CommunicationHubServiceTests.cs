@@ -1,5 +1,6 @@
 using CSweet.Contracts.Communications;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Communications;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -200,6 +201,56 @@ public sealed class CommunicationHubServiceTests
         Assert.NotNull(sent);
         Assert.Null(sent!.Turn);
         Assert.Empty(await db.ChatTurns.ToListAsync());
+    }
+
+    [Fact]
+    public async Task GetAsync_ReportsSuppressedAgentAsUnhealthy()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var owner = User(organization.Id, "Owner", OrganizationPermissionLevel.Owner);
+        var agent = User(organization.Id, "Product Manager", OrganizationPermissionLevel.Contributor);
+        agent.EmployeeType = EmployeeType.Agent;
+        var installation = new AgentInstallation
+        {
+            Id = Guid.NewGuid(),
+            InstallationKey = Guid.NewGuid(),
+            PackageVersionId = Guid.NewGuid(),
+            BusinessId = organization.Id.ToString("D"),
+            IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        installation.Schedule = new AgentSchedule
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            ActivationMode = ActivationMode.AlwaysOn,
+            IsEnabled = true,
+            ConsecutiveStartupFailures = 3,
+            AutomaticStartSuppressedAt = DateTimeOffset.UtcNow
+        };
+        agent.AgentInstallationId = installation.Id;
+        agent.AgentInstallation = installation;
+        db.AddRange(organization, owner, agent, installation);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var direct = await service.CreateAsync(
+            organization.Id,
+            owner.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [agent.Id]));
+
+        var directChat = Assert.IsType<CommunicationChatResponse>(direct.Chat);
+        var hub = Assert.IsType<CommunicationHubResponse>(
+            await service.GetAsync(organization.Id, owner.Id));
+
+        var person = Assert.Single(hub.People, x => x.Id == agent.Id);
+        Assert.Equal(CommunicationPresenceStatuses.Unhealthy, person.PresenceStatus);
+        Assert.Contains("suppressed", person.PresenceDetail, StringComparison.OrdinalIgnoreCase);
+        var refreshedChat = Assert.Single(hub.Chats, x => x.Id == directChat.Id);
+        var participant = Assert.Single(refreshedChat.Participants, x => x.OrganizationUserId == agent.Id);
+        Assert.Equal(CommunicationPresenceStatuses.Unhealthy, participant.PresenceStatus);
     }
 
     private static Organization Organization() => new() { Id = Guid.NewGuid(), Name = "Example",

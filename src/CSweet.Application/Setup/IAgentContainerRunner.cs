@@ -6,6 +6,10 @@ public interface IAgentContainerRunner
     Task StopAsync(string containerId, TimeSpan gracePeriod, CancellationToken cancellationToken = default);
     Task<AgentContainerStatus?> InspectAsync(string containerId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AgentManagedContainer>> ListManagedAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AgentManagedNetwork>> ListManagedNetworksAsync(
+        string networkNamePrefix,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<AgentManagedNetwork>>([]);
     Task RemoveAsync(string containerId, bool force = false, CancellationToken cancellationToken = default);
     Task RemoveNetworkAsync(string networkName, string mcpGatewayContainer, CancellationToken cancellationToken = default);
     Task<string> GetLogsAsync(string containerId, int maximumBytes, CancellationToken cancellationToken = default);
@@ -43,6 +47,11 @@ public sealed record AgentContainerStatus(
 
 public sealed record AgentManagedContainer(
     string ContainerId,
+    string Name,
+    Guid RuntimeInstanceId);
+
+public sealed record AgentManagedNetwork(
+    string NetworkId,
     string Name,
     Guid RuntimeInstanceId);
 

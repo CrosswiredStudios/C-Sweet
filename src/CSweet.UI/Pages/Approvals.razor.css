@@ -1,0 +1,17 @@
+.approvals-page { padding: 24px; max-width: 1180px; margin: 0 auto; }
+.approvals-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+.approval-filters { margin-bottom: 20px; }
+.approval-empty { display: grid; place-items: center; gap: 8px; padding: 64px 24px; text-align: center; }
+.approval-card { padding: 24px; }
+.approval-card-heading { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+.approval-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; padding: 14px 0; border-block: 1px solid var(--mud-palette-lines-default); }
+.approval-meta span { display: flex; flex-direction: column; gap: 2px; color: var(--mud-palette-text-secondary); }
+.approval-meta strong { color: var(--mud-palette-text-primary); font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+.approval-role-list { display: grid; gap: 10px; margin-bottom: 18px; }
+.approval-role-list > div { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid var(--mud-palette-lines-default); border-radius: 8px; }
+.approval-role-list span, .approval-role-list small { color: var(--mud-palette-text-secondary); }
+@media (max-width: 760px) {
+    .approvals-page { padding: 16px; }
+    .approvals-header, .approval-card-heading { align-items: stretch; flex-direction: column; }
+    .approval-meta { grid-template-columns: 1fr; }
+}

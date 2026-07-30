@@ -183,7 +183,11 @@
 
             <MudPaper Elevation="1" Class="surface-panel">
                 <MudText Typo="Typo.h6">Pending approvals</MudText>
-                <MudText Typo="Typo.h3" Color="Color.Primary">@_artifacts.Count(x => x.ApprovalStatus == 1)</MudText>
+                <MudText Typo="Typo.h3" Color="Color.Primary">@(_approvals?.PendingCount ?? 0)</MudText>
+                <MudButton Href="@($"/organizations/{OrganizationId:D}/approvals")"
+                           Variant="Variant.Text" Color="Color.Primary" Class="mt-2">
+                    Open approvals
+                </MudButton>
             </MudPaper>
 
             <MudPaper Elevation="1" Class="surface-panel">
@@ -204,6 +208,7 @@
     private IReadOnlyList<WorkTaskResponse> _tasks = [];
     private IReadOnlyList<WorkerResponse> _workers = [];
     private IReadOnlyList<ArtifactResponse> _artifacts = [];
+    private ApprovalDashboardResponse? _approvals;
     private IReadOnlyList<OrganizationUserResponse> _employees = [];
     private ExecutiveBriefingSettingsResponse? _briefingSettings;
     private IReadOnlyList<ExecutiveBriefingHistoryItem> _briefingHistory = [];
@@ -233,6 +238,7 @@
             _tasks = await Http.GetFromJsonAsync<IReadOnlyList<WorkTaskResponse>>($"api/organizations/{OrganizationId}/tasks") ?? [];
             _workers = await Http.GetFromJsonAsync<IReadOnlyList<WorkerResponse>>($"api/organizations/{OrganizationId}/workers") ?? [];
             _artifacts = await Http.GetFromJsonAsync<IReadOnlyList<ArtifactResponse>>($"api/core/artifacts/organization/{OrganizationId}") ?? [];
+            _approvals = await LoadApprovalsAsync();
             _employees = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>($"api/core/organizations/{OrganizationId}/users") ?? [];
             _briefingSettings = await LoadBriefingSettingsAsync();
             _briefingHistory = await Http.GetFromJsonAsync<IReadOnlyList<ExecutiveBriefingHistoryItem>>($"api/core/organizations/{OrganizationId}/executive-briefings/history?take=10") ?? [];
@@ -300,6 +306,14 @@
         var response = await Http.GetAsync($"api/core/organizations/{OrganizationId}/executive-briefings/settings");
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<ExecutiveBriefingSettingsResponse>()
+            : null;
+    }
+
+    private async Task<ApprovalDashboardResponse?> LoadApprovalsAsync()
+    {
+        var response = await Http.GetAsync($"api/core/organizations/{OrganizationId}/approvals");
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<ApprovalDashboardResponse>()
             : null;
     }
 }

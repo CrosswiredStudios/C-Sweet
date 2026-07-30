@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using CSweet.AgentHost.Broker;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -27,6 +28,11 @@ public sealed class McpAgentSessionServiceTests
 
         var persisted = Assert.Single(fixture.Db.McpAgentSessions);
         Assert.DoesNotContain(issue.AccessToken, persisted.AccessTokenHash, StringComparison.Ordinal);
+        Assert.NotNull(issue.Configuration);
+        Assert.Equal("1", issue.Configuration.SchemaVersion);
+        Assert.Equal(
+            "configured-model",
+            issue.Configuration.Settings["llmModel"].GetString());
         Assert.NotNull(await fixture.Service.AuthenticateAsync(
             issue.AccessToken, issue.Session.SessionId, CancellationToken.None));
 
@@ -186,10 +192,23 @@ public sealed class McpAgentSessionServiceTests
                     Id = Guid.NewGuid(),
                     IsEnabled = true,
                     MaxRuntimeSeconds = 600
+                },
+                Configuration = new AgentInstallationConfiguration
+                {
+                    Id = Guid.NewGuid(),
+                    SchemaVersion = "1",
+                    SettingsJson = JsonSerializer.Serialize(new
+                    {
+                        llmProviderId = Guid.NewGuid().ToString("D"),
+                        llmModel = "configured-model"
+                    }),
+                    CreatedAt = clock.GetUtcNow(),
+                    UpdatedAt = clock.GetUtcNow()
                 }
             };
             installation.Grant.AgentInstallationId = installation.Id;
             installation.Schedule.AgentInstallationId = installation.Id;
+            installation.Configuration.AgentInstallationId = installation.Id;
             var workloadToken = "workload-token-" + Guid.NewGuid().ToString("N");
             var runtime = new AgentRuntimeInstance
             {

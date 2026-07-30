@@ -155,7 +155,8 @@ public static class McpGatewayEndpoints
                     accessToken = issue.AccessToken,
                     expiresAt = issue.ExpiresAt,
                     grantRevision = issue.Session.Grant.Revision,
-                    identity = issue.Identity
+                    identity = issue.Identity,
+                    configuration = issue.Configuration
                 }
             }
         }));

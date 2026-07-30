@@ -154,6 +154,7 @@ app.MapBusinessOnboardingEndpoints();
 app.MapCoreOrganizationEndpoints();
 app.MapOrganizationUserEndpoints();
 app.MapHiringEndpoints();
+app.MapApprovalEndpoints();
 app.MapExecutiveBriefingEndpoints();
 app.MapRoleEndpoints();
 app.MapStrategicObjectiveEndpoints();

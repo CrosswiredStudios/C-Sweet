@@ -1,5 +1,8 @@
 using CSweet.Contracts.Core;
+using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Core;
+using CSweet.Domain.Security;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -155,6 +158,69 @@ public sealed class ResourceChangeServiceTests
         Assert.Contains("\"status\":\"Approved\"", decided.DataJson);
     }
 
+    [Fact]
+    public async Task ApprovedDecision_GrantsRequesterBoardCreationOnce_WhenPackageRequiresCapability()
+    {
+        await using var db = CreateDb();
+        var setup = SeedManagerConversation(db);
+        SeedRequesterInstallation(db, setup, [WorkBoardActions.Create]);
+        await db.SaveChangesAsync();
+        var service = new ResourceChangeService(db, new TestAuditEventWriter());
+        var request = await service.ProposeAsync(
+            setup.OrganizationId,
+            setup.RequesterInstallationId,
+            Proposal(setup, "board-grant"));
+        var decision = new ResourceChangeDecisionRequest(
+            request.Id,
+            ResourceChangeDecisionKinds.Approve,
+            "Approved.",
+            "board-grant-decision");
+
+        await service.DecideForInstallationAsync(
+            setup.OrganizationId,
+            setup.ManagerInstallationId,
+            decision);
+        await service.DecideForInstallationAsync(
+            setup.OrganizationId,
+            setup.ManagerInstallationId,
+            decision);
+
+        var grant = Assert.Single(await db.ScopedActionGrants.ToListAsync());
+        Assert.Equal(setup.OrganizationId, grant.OrganizationId);
+        Assert.Equal(GrantSubjectKind.AgentInstallation, grant.SubjectKind);
+        Assert.Equal(setup.RequesterInstallationId, grant.SubjectId);
+        Assert.Equal(WorkBoardActions.Create, grant.Action);
+        Assert.Equal(GrantScopeKind.Organization, grant.ScopeKind);
+        Assert.Null(grant.ScopeId);
+        Assert.False(grant.CanDelegate);
+        Assert.Equal(GrantSubjectKind.OrganizationUser, grant.GrantedBySubjectKind);
+    }
+
+    [Fact]
+    public async Task ApprovedDecision_DoesNotGrantBoardCreation_WhenPackageDoesNotRequireCapability()
+    {
+        await using var db = CreateDb();
+        var setup = SeedManagerConversation(db);
+        SeedRequesterInstallation(db, setup, ["work.item.read"]);
+        await db.SaveChangesAsync();
+        var service = new ResourceChangeService(db, new TestAuditEventWriter());
+        var request = await service.ProposeAsync(
+            setup.OrganizationId,
+            setup.RequesterInstallationId,
+            Proposal(setup, "no-board-grant"));
+
+        await service.DecideForInstallationAsync(
+            setup.OrganizationId,
+            setup.ManagerInstallationId,
+            new ResourceChangeDecisionRequest(
+                request.Id,
+                ResourceChangeDecisionKinds.Approve,
+                "Approved.",
+                "no-board-grant-decision"));
+
+        Assert.Empty(await db.ScopedActionGrants.ToListAsync());
+    }
+
     private static ResourceChangeProposalRequest Proposal(Setup setup, string key) =>
         new(
             setup.ConversationId,
@@ -254,6 +320,33 @@ public sealed class ResourceChangeServiceTests
             conversation.Id,
             turn.Id,
             userMessage);
+    }
+
+    private static void SeedRequesterInstallation(
+        CSweetDbContext db,
+        Setup setup,
+        IReadOnlyList<string> requiredCapabilities)
+    {
+        var now = DateTimeOffset.UtcNow;
+        db.AgentInstallations.Add(new AgentInstallation
+        {
+            Id = setup.RequesterInstallationId,
+            InstallationKey = Guid.NewGuid(),
+            PackageVersionId = Guid.NewGuid(),
+            BusinessId = setup.OrganizationId.ToString("D"),
+            Scope = PluginInstallationScope.Organization,
+            IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        db.AgentInstallationGrants.Add(new AgentInstallationGrant
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = setup.RequesterInstallationId,
+            RequiredCapabilitiesJson = System.Text.Json.JsonSerializer.Serialize(requiredCapabilities),
+            ApprovedAt = now
+        });
     }
 
     private static OrganizationUser User(Guid organizationId, string name, EmployeeType type) => new()

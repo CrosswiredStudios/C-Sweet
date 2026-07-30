@@ -13,6 +13,12 @@ public sealed class AgentRuntimeStartupCleanupServiceTests
         var runtimeId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var runner = new StartupCleanupRunner([
             new AgentManagedContainer("container-id", $"csweet-agent-{runtimeId:N}", runtimeId)
+        ], [
+            new AgentManagedNetwork("attached-network", $"csweet-runtime-{runtimeId:N}", runtimeId),
+            new AgentManagedNetwork(
+                "orphan-network",
+                "csweet-runtime-22222222222222222222222222222222",
+                Guid.Parse("22222222-2222-2222-2222-222222222222"))
         ]);
         var service = CreateService(runner, new AgentRuntimeManagerOptions
         {
@@ -24,7 +30,11 @@ public sealed class AgentRuntimeStartupCleanupServiceTests
 
         Assert.Equal(1, removed);
         Assert.Equal(["container-id"], runner.Removed);
-        Assert.Equal([($"csweet-runtime-{runtimeId:N}", "agenthost")], runner.NetworksRemoved);
+        Assert.Equal(2, runner.NetworksRemoved.Count);
+        Assert.Contains(($"csweet-runtime-{runtimeId:N}", "agenthost"), runner.NetworksRemoved);
+        Assert.Contains(
+            ("csweet-runtime-22222222222222222222222222222222", "agenthost"),
+            runner.NetworksRemoved);
     }
 
     [Fact]
@@ -50,7 +60,9 @@ public sealed class AgentRuntimeStartupCleanupServiceTests
         AgentRuntimeManagerOptions options) =>
         new(runner, Options.Create(options), NullLogger<AgentRuntimeStartupCleanupService>.Instance);
 
-    private sealed class StartupCleanupRunner(IReadOnlyList<AgentManagedContainer> managed) : IAgentContainerRunner
+    private sealed class StartupCleanupRunner(
+        IReadOnlyList<AgentManagedContainer> managed,
+        IReadOnlyList<AgentManagedNetwork>? networks = null) : IAgentContainerRunner
     {
         public bool WasListed { get; private set; }
         public List<string> Removed { get; } = [];
@@ -61,6 +73,11 @@ public sealed class AgentRuntimeStartupCleanupServiceTests
             WasListed = true;
             return Task.FromResult(managed);
         }
+
+        public Task<IReadOnlyList<AgentManagedNetwork>> ListManagedNetworksAsync(
+            string networkNamePrefix,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(networks ?? []);
 
         public Task RemoveAsync(string containerId, bool force = false, CancellationToken cancellationToken = default)
         {

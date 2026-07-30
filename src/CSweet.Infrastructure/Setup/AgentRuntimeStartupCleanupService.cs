@@ -18,6 +18,10 @@ public sealed class AgentRuntimeStartupCleanupService(
         }
 
         var managed = await containers.ListManagedAsync(cancellationToken);
+        var networks = await containers.ListManagedNetworksAsync(
+            options.Value.DockerNetworkName,
+            cancellationToken);
+        var containerRuntimeIds = managed.Select(x => x.RuntimeInstanceId).ToHashSet();
         var removed = 0;
         foreach (var container in managed)
         {
@@ -40,11 +44,38 @@ public sealed class AgentRuntimeStartupCleanupService(
             }
         }
 
+        var orphanNetworksRemoved = 0;
+        foreach (var network in networks.Where(x => !containerRuntimeIds.Contains(x.RuntimeInstanceId)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await containers.RemoveNetworkAsync(
+                    network.Name,
+                    options.Value.McpGatewayContainer,
+                    cancellationToken);
+                orphanNetworksRemoved++;
+            }
+            catch (AgentContainerException exception)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Could not clean up orphan agent runtime network {NetworkName} from a previous worker lifetime.",
+                    network.Name);
+            }
+        }
+
         if (removed > 0)
         {
             logger.LogInformation(
                 "Removed {ContainerCount} agent runtime containers left by a previous worker lifetime.",
                 removed);
+        }
+        if (orphanNetworksRemoved > 0)
+        {
+            logger.LogInformation(
+                "Removed {NetworkCount} orphan agent runtime networks left by previous worker lifetimes.",
+                orphanNetworksRemoved);
         }
         return removed;
     }

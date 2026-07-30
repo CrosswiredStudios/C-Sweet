@@ -2,8 +2,11 @@ using System.Text.Json;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
+using CSweet.Domain.Security;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -254,7 +257,16 @@ public sealed class ResourceChangeService(
         var decisionKey = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
         if (record.Status != ResourceChangeRequestStatus.Pending)
         {
-            if (record.DecisionIdempotencyKey == decisionKey) return ToResponse(record);
+            if (record.DecisionIdempotencyKey == decisionKey)
+            {
+                if (record.Status == ResourceChangeRequestStatus.Approved &&
+                    await EnsureBoardCreationGrantAsync(record, managerId, token))
+                {
+                    await db.SaveChangesAsync(token);
+                    await WriteBoardCreationGrantAuditAsync(record, token);
+                }
+                return ToResponse(record);
+            }
             throw new InvalidOperationException("The resource-change request has already been decided.");
         }
 
@@ -270,6 +282,7 @@ public sealed class ResourceChangeService(
         record.DecisionIdempotencyKey = decisionKey;
         record.DecidedAt = DateTimeOffset.UtcNow;
         record.UpdatedAt = record.DecidedAt.Value;
+        var boardCreationGrantCreated = false;
         if (record.Status == ResourceChangeRequestStatus.Approved)
         {
             var older = await db.ResourceChangeRequests.Where(x =>
@@ -282,6 +295,7 @@ public sealed class ResourceChangeService(
                 item.Status = ResourceChangeRequestStatus.Superseded;
                 item.UpdatedAt = record.UpdatedAt;
             }
+            boardCreationGrantCreated = await EnsureBoardCreationGrantAsync(record, managerId, token);
         }
 
         db.AgentPlatformEventOutbox.Add(NewEvent(
@@ -293,10 +307,85 @@ public sealed class ResourceChangeService(
             $"resource-change-decided:{record.Id:N}",
             targetInstallationId: null));
         await db.SaveChangesAsync(token);
+        if (boardCreationGrantCreated)
+            await WriteBoardCreationGrantAuditAsync(record, token);
         await audit.WriteAsync($"management.resource-change.{record.Status.ToString().ToLowerInvariant()}",
             nameof(ResourceChangeRequestRecord), record.Id,
             $"The resource-change request was {record.Status}.", cancellationToken: token);
         return ToResponse(record);
+    }
+
+    private async Task<bool> EnsureBoardCreationGrantAsync(
+        ResourceChangeRequestRecord record,
+        Guid managerId,
+        CancellationToken token)
+    {
+        var requiredCapabilitiesJson = await (
+            from installation in db.AgentInstallations.AsNoTracking()
+            join grant in db.AgentInstallationGrants.AsNoTracking()
+                on installation.Id equals grant.AgentInstallationId
+            where installation.Id == record.RequesterInstallationId &&
+                  installation.BusinessId == record.OrganizationId.ToString("D") &&
+                  installation.Scope == PluginInstallationScope.Organization &&
+                  installation.IsEnabled &&
+                  installation.RevisionStatus == PluginRevisionStatus.Active
+            select grant.RequiredCapabilitiesJson)
+            .SingleOrDefaultAsync(token);
+        if (!IncludesCapability(requiredCapabilitiesJson, WorkBoardActions.Create))
+            return false;
+
+        var now = DateTimeOffset.UtcNow;
+        var alreadyGranted = await db.ScopedActionGrants.AnyAsync(x =>
+            x.OrganizationId == record.OrganizationId &&
+            x.SubjectKind == GrantSubjectKind.AgentInstallation &&
+            x.SubjectId == record.RequesterInstallationId &&
+            x.Action == WorkBoardActions.Create &&
+            x.ScopeKind == GrantScopeKind.Organization &&
+            x.ScopeId == null &&
+            x.RevokedAt == null &&
+            (!x.ExpiresAt.HasValue || x.ExpiresAt > now), token);
+        if (alreadyGranted) return false;
+
+        db.ScopedActionGrants.Add(new ScopedActionGrant
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = record.OrganizationId,
+            SubjectKind = GrantSubjectKind.AgentInstallation,
+            SubjectId = record.RequesterInstallationId,
+            Action = WorkBoardActions.Create,
+            ScopeKind = GrantScopeKind.Organization,
+            ScopeId = null,
+            CanDelegate = false,
+            ParentGrantId = null,
+            GrantedBySubjectKind = GrantSubjectKind.OrganizationUser,
+            GrantedBySubjectId = managerId,
+            GrantedAt = record.DecidedAt ?? now
+        });
+        return true;
+    }
+
+    private Task WriteBoardCreationGrantAuditAsync(
+        ResourceChangeRequestRecord record,
+        CancellationToken token) =>
+        audit.WriteAsync(
+            "management.resource-change.work-board-create-granted",
+            nameof(ScopedActionGrant),
+            record.RequesterInstallationId,
+            "Granted organization-scoped work-board creation after manager approval.",
+            cancellationToken: token);
+
+    private static bool IncludesCapability(string? json, string capability)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(json, JsonOptions)?
+                .Contains(capability, StringComparer.Ordinal) == true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private async Task<ResourceChangeRequestRecord?> ResolvePreviousAsync(

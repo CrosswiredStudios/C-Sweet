@@ -7,6 +7,7 @@ using CSweet.Application.Setup;
 using CSweet.Contracts.Communications;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -39,8 +40,32 @@ public sealed class CommunicationHubService(
         var people = await db.CoreOrganizationUsers.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.IsActive)
             .Include(x => x.Role)
+            .Include(x => x.AgentInstallation)
+                .ThenInclude(x => x!.Schedule)
             .OrderBy(x => x.DisplayName)
             .ToListAsync(cancellationToken);
+        var installationIds = people
+            .Where(x => x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId.HasValue)
+            .Select(x => x.AgentInstallationId!.Value)
+            .Distinct()
+            .ToList();
+        var runtimeInstances = installationIds.Count == 0
+            ? []
+            : await db.AgentRuntimeInstances.AsNoTracking()
+                .Where(x => installationIds.Contains(x.AgentInstallationId))
+                .OrderByDescending(x => x.QueuedAt)
+                .ToListAsync(cancellationToken);
+        var latestRuntimes = runtimeInstances
+            .GroupBy(x => x.AgentInstallationId)
+            .ToDictionary(x => x.Key, x => x.First());
+        var presences = people.ToDictionary(
+            x => x.Id,
+            x => ResolvePresence(
+                x,
+                x.AgentInstallationId.HasValue &&
+                latestRuntimes.TryGetValue(x.AgentInstallationId.Value, out var runtime)
+                    ? runtime
+                    : null));
 
         var chats = await db.CoreConversations.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.ArchivedAt == null &&
@@ -74,9 +99,10 @@ public sealed class CommunicationHubService(
         return new CommunicationHubResponse(
             actor.Id,
             actor.PermissionLevel >= OrganizationPermissionLevel.Manager,
-            chats.Select(x => MapChat(x, actor)).ToList(),
+            chats.Select(x => MapChat(x, actor, presences)).ToList(),
             people.Select(x => new CommunicationPersonResponse(
-                x.Id, x.DisplayName, x.EmployeeType.ToString(), x.RoleId, x.Role?.Name)).ToList(),
+                x.Id, x.DisplayName, x.EmployeeType.ToString(), x.RoleId, x.Role?.Name,
+                presences[x.Id].Status, presences[x.Id].Detail)).ToList(),
             audiences);
     }
 
@@ -508,7 +534,10 @@ public sealed class CommunicationHubService(
         actor.PermissionLevel >= OrganizationPermissionLevel.Manager ||
         chat.Participants.Any(x => x.OrganizationUserId == actor.Id && x.LeftAt == null && x.Role == ConversationParticipantRole.Coordinator);
 
-    private static CommunicationChatResponse MapChat(Conversation chat, OrganizationUser actor)
+    private static CommunicationChatResponse MapChat(
+        Conversation chat,
+        OrganizationUser actor,
+        IReadOnlyDictionary<Guid, CommunicationPresence>? presences = null)
     {
         var active = chat.Participants.Where(x => x.LeftAt == null).ToList();
         var direct = chat.Kind == ConversationKind.DirectHumanAgent;
@@ -522,9 +551,77 @@ public sealed class CommunicationHubService(
             x.Sequence > membership.LastReadMessageSequence && x.SenderOrganizationUserId != actor.Id);
         return new CommunicationChatResponse(chat.Id, title ?? "Untitled chat", chat.Description, direct, chat.IsPrivate,
             chat.IsDeletionProtected, !direct && !chat.IsDeletionProtected && CanManage(chat, actor), chat.UpdatedAt,
-            active.Select(x => new CommunicationParticipantResponse(x.OrganizationUserId,
-                x.OrganizationUser?.DisplayName ?? "Unknown", x.OrganizationUser?.EmployeeType.ToString() ?? "Unknown", x.Role.ToString())).ToList(),
+            active.Select(x =>
+            {
+                var presence = presences is not null &&
+                    presences.TryGetValue(x.OrganizationUserId, out var resolved)
+                        ? resolved
+                        : CommunicationPresence.Available;
+                return new CommunicationParticipantResponse(
+                    x.OrganizationUserId,
+                    x.OrganizationUser?.DisplayName ?? "Unknown",
+                    x.OrganizationUser?.EmployeeType.ToString() ?? "Unknown",
+                    x.Role.ToString(),
+                    presence.Status,
+                    presence.Detail);
+            }).ToList(),
             last?.Content, last?.CreatedAt, unreadCount);
+    }
+
+    private static CommunicationPresence ResolvePresence(
+        OrganizationUser person,
+        AgentRuntimeInstance? latestRuntime)
+    {
+        if (person.EmployeeType != EmployeeType.Agent)
+            return CommunicationPresence.Available;
+
+        var installation = person.AgentInstallation;
+        if (installation is null ||
+            !installation.IsEnabled ||
+            installation.RevisionStatus != PluginRevisionStatus.Active)
+            return CommunicationPresence.Unhealthy(
+                "The agent installation is disabled or unavailable.");
+
+        var schedule = installation.Schedule;
+        if (schedule?.AutomaticStartSuppressedAt is not null)
+            return CommunicationPresence.Unhealthy(
+                $"Automatic startup is suppressed after {schedule.ConsecutiveStartupFailures} consecutive failure(s).");
+
+        if (latestRuntime is null)
+            return CommunicationPresence.Offline("The agent runtime is not running.");
+
+        return latestRuntime.Status switch
+        {
+            AgentRuntimeStatus.Running => CommunicationPresence.Available,
+            AgentRuntimeStatus.Queued or
+            AgentRuntimeStatus.Starting or
+            AgentRuntimeStatus.WaitingForMcpSession or
+            AgentRuntimeStatus.CompletionReported or
+            AgentRuntimeStatus.Stopping => new(
+                CommunicationPresenceStatuses.Starting,
+                $"Agent runtime is {latestRuntime.Status}."),
+            AgentRuntimeStatus.StartFailed or
+            AgentRuntimeStatus.McpSessionTimedOut or
+            AgentRuntimeStatus.RuntimeTimedOut or
+            AgentRuntimeStatus.ExitedWithoutCompletion or
+            AgentRuntimeStatus.Failed or
+            AgentRuntimeStatus.PolicyDenied => CommunicationPresence.Unhealthy(
+                latestRuntime.Reason ?? $"The agent runtime ended in {latestRuntime.Status}."),
+            _ => CommunicationPresence.Offline(
+                latestRuntime.Reason ?? $"Agent runtime is {latestRuntime.Status}.")
+        };
+    }
+
+    private sealed record CommunicationPresence(string Status, string? Detail)
+    {
+        public static CommunicationPresence Available { get; } =
+            new(CommunicationPresenceStatuses.Available, null);
+
+        public static CommunicationPresence Unhealthy(string detail) =>
+            new(CommunicationPresenceStatuses.Unhealthy, detail);
+
+        public static CommunicationPresence Offline(string detail) =>
+            new(CommunicationPresenceStatuses.Offline, detail);
     }
 
     private static CommunicationHubMessageResponse MapMessage(

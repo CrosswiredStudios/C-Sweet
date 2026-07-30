@@ -147,16 +147,6 @@ public sealed class ChatTurnWorker(
             {
                 var readiness = await runtime.EnsureReadyAsync(installationId, hardTimeout.Token);
                 if (!readiness.IsReady) throw new InvalidOperationException(readiness.Reason ?? "The agent runtime is not ready.");
-                if (configuration is not null)
-                {
-                    var hydration = await HydrateConfigurationAsync(
-                        turns,
-                        turnId,
-                        installationId,
-                        configuration,
-                        hardTimeout.Token);
-                    if (!hydration.Succeeded) throw new InvalidOperationException(hydration.Error ?? "Agent configuration hydration failed.");
-                }
 
                 await turns.SetStatusAsync(turnId, ChatTurnStatus.Dispatching.ToString(), cancellationToken: hardTimeout.Token);
                 outputRouter.BindAlias(conversation.Id, turnId);
@@ -458,69 +448,6 @@ public sealed class ChatTurnWorker(
     private static string? GetConfiguredString(AgentInstallationConfigurationSnapshot? configuration, string key) =>
         configuration?.Settings.TryGetValue(key, out var value) == true && value.ValueKind == JsonValueKind.String
             ? value.GetString() : null;
-
-    private async Task<AgentWorkCompletion> InvokeConfigurationUpdateAsync(
-        Guid installationId,
-        AgentInstallationConfigurationSnapshot configuration,
-        CancellationToken cancellationToken)
-    {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
-        var inbox = scope.ServiceProvider.GetRequiredService<AgentWorkInbox>();
-        var organizationId = await db.AgentInstallations.AsNoTracking()
-            .Where(x => x.Id == installationId && x.IsEnabled)
-            .Select(x => x.BusinessId)
-            .SingleAsync(cancellationToken);
-        var work = await inbox.EnqueueAsync(
-            organizationId,
-            installationId,
-            CSweet.Domain.Setup.AgentWorkKind.Capability,
-            CSweet.Agent.SDK.AgentConfigurationCapabilities.Update,
-            JsonSerializer.SerializeToElement(
-                new CSweet.Agent.SDK.UpdateAgentConfigurationRequest(configuration.Settings),
-                JsonOptions),
-            $"configuration:{installationId:D}:{configuration.UpdatedAt.UtcTicks}",
-            DateTimeOffset.UtcNow.Add(options.Value.CapabilityRegistrationTimeout),
-            sourceType: "agent-configuration",
-            cancellationToken: cancellationToken);
-        while (true)
-        {
-            var state = await inbox.ReadStateAsync(work.Id, cancellationToken);
-            if (state.Status == AgentWorkStatus.Completed)
-                return state.Completion ?? new AgentWorkCompletion(false, null, "The configuration result was empty.");
-            if (state.Status is AgentWorkStatus.Cancelled or AgentWorkStatus.DeadLetter)
-                return new AgentWorkCompletion(false, null, state.Error ?? "Configuration work did not complete.");
-            if (DateTimeOffset.UtcNow >= work.DeadlineAt)
-                return new AgentWorkCompletion(
-                    false,
-                    null,
-                    "Agent configuration work did not start before its deadline.");
-            await Task.Delay(options.Value.CapabilityRetryDelay, cancellationToken);
-        }
-    }
-
-    private async Task<AgentWorkCompletion> HydrateConfigurationAsync(
-        IChatTurnService turns,
-        Guid turnId,
-        Guid installationId,
-        AgentInstallationConfigurationSnapshot configuration,
-        CancellationToken cancellationToken)
-    {
-        await PublishTraceAsync(
-            turns,
-            turnId,
-            "runtime",
-            "runtime.configuration.queued",
-            "running",
-            "Applying agent configuration",
-            "Configuration was queued as durable work and will survive runtime reconnects.",
-            new { installationId },
-            cancellationToken: cancellationToken);
-        return await InvokeConfigurationUpdateAsync(
-            installationId,
-            configuration,
-            cancellationToken);
-    }
 
     private static async Task QueueCommunicationReplyAsync(CSweetDbContext db, ChatTurn turn, ConversationMessage? userMessage,
         ConversationMessage assistantMessage, CancellationToken cancellationToken)

@@ -224,6 +224,39 @@ public sealed class DockerAgentContainerRunner(
         return managed;
     }
 
+    public async Task<IReadOnlyList<AgentManagedNetwork>> ListManagedNetworksAsync(
+        string networkNamePrefix,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateNetworkName(networkNamePrefix);
+        var result = await docker.ExecuteAsync(
+            ["network", "ls", "--filter", $"name={networkNamePrefix}-", "--format", "{{.ID}}\t{{.Name}}"],
+            cancellationToken);
+        if (result.ExitCode != 0)
+        {
+            throw new AgentContainerException(
+                $"Docker failed to list managed agent runtime networks: {SanitizeError(result.StandardError)}");
+        }
+
+        var managedName = new Regex(
+            $"^{Regex.Escape(networkNamePrefix)}-(?<runtime>[0-9a-f]{{32}})$",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        var managed = new List<AgentManagedNetwork>();
+        foreach (var line in result.StandardOutput.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fields = line.Split('\t', 2, StringSplitOptions.TrimEntries);
+            if (fields.Length != 2) continue;
+            var match = managedName.Match(fields[1]);
+            if (!match.Success ||
+                !Guid.TryParseExact(match.Groups["runtime"].Value, "N", out var runtimeId))
+            {
+                continue;
+            }
+            managed.Add(new AgentManagedNetwork(fields[0], fields[1], runtimeId));
+        }
+        return managed;
+    }
+
     public Task RemoveAsync(string containerId, bool force = false, CancellationToken cancellationToken = default)
     {
         ValidateContainerId(containerId);

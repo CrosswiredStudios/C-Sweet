@@ -19,21 +19,28 @@ public sealed class AgentRuntimeCleanupService(
         var settings = await dbContext.AgentRuntimeGlobalSettings.SingleAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var containersRemoved = await CleanupContainersAsync(settings, cancellationToken);
+        var networksRemoved = await CleanupOrphanNetworksAsync(cancellationToken);
         var workspacesRemoved = CleanupWorkspaces(settings, now);
         var logsRemoved = CleanupBuildLogs(settings, now);
         var historiesRemoved = await CleanupRuntimeHistoryAsync(settings, now, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        var result = new AgentRuntimeCleanupResult(containersRemoved, workspacesRemoved, logsRemoved, historiesRemoved);
+        var result = new AgentRuntimeCleanupResult(
+            containersRemoved,
+            networksRemoved,
+            workspacesRemoved,
+            logsRemoved,
+            historiesRemoved);
         AgentRuntimeMetrics.Cleaned("container", containersRemoved);
+        AgentRuntimeMetrics.Cleaned("network", networksRemoved);
         AgentRuntimeMetrics.Cleaned("workspace", workspacesRemoved);
         AgentRuntimeMetrics.Cleaned("build_log", logsRemoved);
         AgentRuntimeMetrics.Cleaned("runtime_history", historiesRemoved);
-        if (containersRemoved + workspacesRemoved + logsRemoved + historiesRemoved > 0)
+        if (containersRemoved + networksRemoved + workspacesRemoved + logsRemoved + historiesRemoved > 0)
         {
-            logger.LogInformation("Agent runtime cleanup removed {Containers} containers, {Workspaces} workspaces, {BuildLogs} build logs, and {RuntimeHistories} runtime histories.", containersRemoved, workspacesRemoved, logsRemoved, historiesRemoved);
+            logger.LogInformation("Agent runtime cleanup removed {Containers} containers, {Networks} orphan networks, {Workspaces} workspaces, {BuildLogs} build logs, and {RuntimeHistories} runtime histories.", containersRemoved, networksRemoved, workspacesRemoved, logsRemoved, historiesRemoved);
             await auditWriter.WriteAsync("agent-runtime.cleanup.completed", nameof(AgentRuntimeInstance), null,
-                $"Removed {containersRemoved} containers, {workspacesRemoved} workspaces, {logsRemoved} build logs, and {historiesRemoved} runtime histories.", cancellationToken: cancellationToken);
+                $"Removed {containersRemoved} containers, {networksRemoved} orphan networks, {workspacesRemoved} workspaces, {logsRemoved} build logs, and {historiesRemoved} runtime histories.", cancellationToken: cancellationToken);
         }
         return result;
     }
@@ -61,6 +68,39 @@ public sealed class AgentRuntimeCleanupService(
             catch (AgentContainerException exception)
             {
                 logger.LogWarning(exception, "Deferred container cleanup failed for runtime {RuntimeInstanceId}.", instance.Id);
+            }
+        }
+        return removed;
+    }
+
+    private async Task<int> CleanupOrphanNetworksAsync(CancellationToken cancellationToken)
+    {
+        var activeRuntimeIds = (await dbContext.AgentRuntimeInstances
+                .AsNoTracking()
+                .Where(x => x.CompletedAt == null)
+                .Select(x => x.Id)
+                .ToListAsync(cancellationToken))
+            .ToHashSet();
+        var networks = await containers.ListManagedNetworksAsync(
+            runtimeOptions.Value.DockerNetworkName,
+            cancellationToken);
+        var removed = 0;
+        foreach (var network in networks.Where(x => !activeRuntimeIds.Contains(x.RuntimeInstanceId)))
+        {
+            try
+            {
+                await containers.RemoveNetworkAsync(
+                    network.Name,
+                    runtimeOptions.Value.McpGatewayContainer,
+                    cancellationToken);
+                removed++;
+            }
+            catch (AgentContainerException exception)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Deferred orphan-network cleanup failed for runtime {RuntimeInstanceId}.",
+                    network.RuntimeInstanceId);
             }
         }
         return removed;

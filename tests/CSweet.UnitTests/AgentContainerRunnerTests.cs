@@ -112,6 +112,29 @@ public sealed class AgentContainerRunnerTests
     }
 
     [Fact]
+    public async Task ListManagedNetworksAsync_ReturnsOnlyExactRuntimeNetworkNames()
+    {
+        var docker = new FakeDockerCommandExecutor(new DockerCommandResult(0, """
+            runtime-network	csweet-runtime-11111111111111111111111111111111
+            base-network	csweet-runtime
+            unrelated-network	other-runtime-22222222222222222222222222222222
+            invalid-network	csweet-runtime-not-a-runtime
+            """, string.Empty));
+        var runner = new DockerAgentContainerRunner(docker, NullLogger<DockerAgentContainerRunner>.Instance);
+
+        var managed = await runner.ListManagedNetworksAsync("csweet-runtime");
+
+        var network = Assert.Single(managed);
+        Assert.Equal("runtime-network", network.NetworkId);
+        Assert.Equal(
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            network.RuntimeInstanceId);
+        Assert.Equal(
+            ["network", "ls", "--filter", "name=csweet-runtime-", "--format", "{{.ID}}\t{{.Name}}"],
+            docker.Commands[0]);
+    }
+
+    [Fact]
     public void RuntimeOptions_DefaultToPrivateMcpGateway()
     {
         var options = new AgentRuntimeManagerOptions();

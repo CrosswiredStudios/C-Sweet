@@ -1,0 +1,241 @@
+@page "/organizations/{OrganizationId:guid}/approvals"
+@using CSweet.Contracts.Core
+@inject HttpClient Http
+
+<PageTitle>Approvals - C-Sweet</PageTitle>
+
+<div class="approvals-page">
+    <MudPaper Elevation="0" Class="page-header approvals-header">
+        <div>
+            <MudText Typo="Typo.h3">Approvals</MudText>
+            <MudText Color="Color.Secondary">
+                One inbox for team designs, agent actions, hiring workflows, and artifact decisions.
+            </MudText>
+        </div>
+        <MudChip T="string" Color="@(_dashboard?.PendingCount > 0 ? Color.Warning : Color.Success)"
+                 Variant="Variant.Filled">
+            @(_dashboard?.PendingCount ?? 0) pending
+        </MudChip>
+    </MudPaper>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error">@_error</MudAlert>
+    }
+    else if (_dashboard is not null)
+    {
+        <MudStack Row="true" Spacing="1" Class="approval-filters">
+            <MudButton Variant="@(!_showHistory ? Variant.Filled : Variant.Text)"
+                       Color="Color.Primary" OnClick="@(() => _showHistory = false)">
+                Pending (@_dashboard.PendingCount)
+            </MudButton>
+            <MudButton Variant="@(_showHistory ? Variant.Filled : Variant.Text)"
+                       Color="Color.Primary" OnClick="@(() => _showHistory = true)">
+                All activity
+            </MudButton>
+        </MudStack>
+
+        @if (VisibleItems.Count == 0)
+        {
+            <MudPaper Elevation="0" Outlined="true" Class="approval-empty">
+                <MudIcon Icon="@Icons.Material.Outlined.TaskAlt" Color="Color.Success" Size="Size.Large" />
+                <MudText Typo="Typo.h5">@(_showHistory ? "No approval activity yet" : "You’re all caught up")</MudText>
+                <MudText Color="Color.Secondary">
+                    @(_showHistory
+                        ? "Durable approval requests will appear here when an agent or workflow creates them."
+                        : "There are no pending approvals in this company.")
+                </MudText>
+            </MudPaper>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                @foreach (var item in VisibleItems)
+                {
+                    <MudPaper Elevation="0" Outlined="true" Class="approval-card">
+                        <div class="approval-card-heading">
+                            <div>
+                                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@KindLabel(item.Kind)</MudChip>
+                                    <MudChip T="string" Size="Size.Small" Color="@StatusColor(item.Status)">@item.Status</MudChip>
+                                </MudStack>
+                                <MudText Typo="Typo.h5" Class="mt-2">@item.Title</MudText>
+                                <MudText Color="Color.Secondary">@item.Summary</MudText>
+                            </div>
+                            <MudButton Href="@item.ActionUri" Variant="Variant.Text"
+                                       EndIcon="@Icons.Material.Outlined.OpenInNew">
+                                Open source
+                            </MudButton>
+                        </div>
+
+                        <div class="approval-meta">
+                            <span><strong>Requested by</strong>@item.RequestedBy</span>
+                            <span><strong>Assigned to</strong>@item.AssignedTo</span>
+                            <span><strong>Created</strong>@item.CreatedAt.ToLocalTime().ToString("g")</span>
+                        </div>
+
+                        @if (item.ResourceChange is { } request)
+                        {
+                            <div class="approval-role-list">
+                                @foreach (var delta in request.Deltas)
+                                {
+                                    <div>
+                                        <strong>@delta.ChangeKind · @delta.Role.Title</strong>
+                                        <span>@delta.Role.Team · @delta.Role.Headcount headcount · priority @delta.Role.Priority</span>
+                                        <small>@delta.Role.Purpose</small>
+                                    </div>
+                                }
+                            </div>
+
+                            @if (item.CanDecide && item.Status == "Pending")
+                            {
+                                <MudTextField Value="@Feedback(item.Id)"
+                                              ValueChanged="@((string value) => SetFeedback(item.Id, value))"
+                                              Label="Decision feedback" Lines="2" Variant="Variant.Outlined" />
+                                @if (_decisionErrors.TryGetValue(item.Id, out var decisionError))
+                                {
+                                    <MudAlert Severity="Severity.Error" Dense="true">@decisionError</MudAlert>
+                                }
+                                <MudStack Row="true" Spacing="1">
+                                    <MudButton Color="Color.Success" Variant="Variant.Filled"
+                                               Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideAsync(item, ResourceChangeDecisionKinds.Approve))">
+                                        Approve
+                                    </MudButton>
+                                    <MudButton Color="Color.Warning" Variant="Variant.Outlined"
+                                               Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideAsync(item, ResourceChangeDecisionKinds.RequestRevision))">
+                                        Request revision
+                                    </MudButton>
+                                    <MudButton Color="Color.Error" Variant="Variant.Text"
+                                               Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideAsync(item, ResourceChangeDecisionKinds.Reject))">
+                                        Reject
+                                    </MudButton>
+                                </MudStack>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(request.DecisionComment))
+                            {
+                                <MudAlert Severity="Severity.Info" Dense="true">
+                                    Decision feedback: @request.DecisionComment
+                                </MudAlert>
+                            }
+                        }
+                        else if (item.Status == "Pending")
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                                This request is observable here. Use “Open source” for its specialized review and execution flow.
+                            </MudAlert>
+                        }
+                    </MudPaper>
+                }
+            </MudStack>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+
+    private ApprovalDashboardResponse? _dashboard;
+    private bool _loading = true;
+    private bool _showHistory;
+    private string? _error;
+    private Guid? _decidingId;
+    private readonly Dictionary<Guid, string> _feedback = [];
+    private readonly Dictionary<Guid, string> _decisionErrors = [];
+
+    private IReadOnlyList<ApprovalDashboardItemResponse> VisibleItems =>
+        (_dashboard?.Items ?? [])
+        .Where(x => _showHistory || x.Status == "Pending")
+        .ToList();
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _dashboard = await Http.GetFromJsonAsync<ApprovalDashboardResponse>(
+                $"api/core/organizations/{OrganizationId:D}/approvals");
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task DecideAsync(ApprovalDashboardItemResponse item, string decision)
+    {
+        if (item.ResourceChange is null || _decidingId.HasValue) return;
+        var feedback = Feedback(item.Id);
+        if (decision == ResourceChangeDecisionKinds.RequestRevision &&
+            string.IsNullOrWhiteSpace(feedback))
+        {
+            _decisionErrors[item.Id] = "Feedback is required when requesting a revision.";
+            return;
+        }
+
+        _decidingId = item.Id;
+        _decisionErrors.Remove(item.Id);
+        try
+        {
+            var payload = new ResourceChangeDecisionRequest(
+                item.Id,
+                decision,
+                feedback,
+                $"approvals:{item.Id:N}:{decision}");
+            var response = await Http.PostAsJsonAsync(
+                $"api/core/organizations/{OrganizationId:D}/hiring/resource-changes/{item.Id:D}/decide",
+                payload);
+            if (!response.IsSuccessStatusCode)
+            {
+                _decisionErrors[item.Id] = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _feedback.Remove(item.Id);
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            _decisionErrors[item.Id] = exception.Message;
+        }
+        finally
+        {
+            _decidingId = null;
+        }
+    }
+
+    private string Feedback(Guid id) =>
+        _feedback.TryGetValue(id, out var value) ? value : string.Empty;
+
+    private void SetFeedback(Guid id, string value) => _feedback[id] = value;
+
+    private static Color StatusColor(string status) => status switch
+    {
+        "Pending" => Color.Warning,
+        "Approved" => Color.Success,
+        "Rejected" => Color.Error,
+        "RevisionRequested" => Color.Info,
+        _ => Color.Default
+    };
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        ApprovalDashboardKinds.ResourceChange => "Team design",
+        ApprovalDashboardKinds.AgentAction => "Agent action",
+        ApprovalDashboardKinds.HiringWorkflow => "Hiring",
+        ApprovalDashboardKinds.Artifact => "Artifact",
+        _ => kind
+    };
+}

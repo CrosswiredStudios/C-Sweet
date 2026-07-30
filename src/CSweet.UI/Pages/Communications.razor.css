@@ -33,6 +33,9 @@
 .hub-nav-item > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-nav-empty { margin: 7px 9px; color: #999eaa; font-size: .78rem; }
 .presence-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: #38b47a; box-shadow: 0 0 0 2px #fff; }
+.presence-dot.unhealthy { background: #d14343; }
+.presence-dot.starting { background: #d69222; }
+.presence-dot.offline { background: #89909b; }
 .hub-unread-dot { flex: 0 0 auto; width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--hub-purple); }
 .hub-unread-count { min-width: 1.25rem; margin-left: auto; padding: 1px 5px; border-radius: 999px; background: #ded8f8; color: #5540bd; font-size: .61rem; font-weight: 800; text-align: center; }
 .hub-unread-dot + .agent-mark { margin-left: 0; }

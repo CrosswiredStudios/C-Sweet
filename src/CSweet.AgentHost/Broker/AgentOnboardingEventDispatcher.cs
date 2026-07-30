@@ -28,7 +28,6 @@ public sealed class AgentOnboardingEventDispatcher(
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
-        var inbox = scope.ServiceProvider.GetRequiredService<AgentWorkInbox>();
         var router = scope.ServiceProvider.GetRequiredService<AgentWorkRouter>();
         var now = clock.GetUtcNow();
         var pending = await db.AgentOnboardingEventOutbox
@@ -54,30 +53,6 @@ public sealed class AgentOnboardingEventDispatcher(
 
             try
             {
-                var configuration = await db.AgentInstallationConfigurations.AsNoTracking()
-                    .SingleOrDefaultAsync(
-                        x => x.AgentInstallationId == agent.AgentInstallationId.Value,
-                        cancellationToken);
-                if (configuration is not null)
-                {
-                    var settings = JsonSerializer.Deserialize<IReadOnlyDictionary<string, JsonElement>>(
-                        configuration.SettingsJson,
-                        JsonOptions) ?? new Dictionary<string, JsonElement>();
-                    await inbox.EnqueueAsync(
-                        item.OrganizationId.ToString("D"),
-                        agent.AgentInstallationId.Value,
-                        CSweet.Domain.Setup.AgentWorkKind.Capability,
-                        CSweet.Agent.SDK.AgentConfigurationCapabilities.Update,
-                        JsonSerializer.SerializeToElement(
-                            new CSweet.Agent.SDK.UpdateAgentConfigurationRequest(settings),
-                            JsonOptions),
-                        $"onboarding-config:{item.Id:D}",
-                        now.AddMinutes(10),
-                        causationId: item.Id.ToString("D"),
-                        sourceType: "onboarding",
-                        cancellationToken: cancellationToken);
-                }
-
                 var payload = CreatePayload(item);
                 await router.EnqueueEventAsync(
                     item.OrganizationId.ToString("D"),

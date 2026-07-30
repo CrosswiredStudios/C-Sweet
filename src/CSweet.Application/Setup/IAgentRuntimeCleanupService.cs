@@ -7,6 +7,7 @@ public interface IAgentRuntimeCleanupService
 
 public sealed record AgentRuntimeCleanupResult(
     int ContainersRemoved,
+    int NetworksRemoved,
     int WorkspacesRemoved,
     int BuildLogsRemoved,
     int RuntimeHistoriesRemoved);

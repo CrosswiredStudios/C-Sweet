@@ -63,7 +63,9 @@
                 {
                     var person = chat.Participants.FirstOrDefault(x => x.OrganizationUserId != _hub.CurrentOrganizationUserId);
                     <button class="hub-nav-item @(chat.Id == _selected?.Id ? "active" : null) @(ChatUnread(chat) > 0 ? "unread" : null)" @onclick="@(() => SelectChatAsync(chat))">
-                        <span class="presence-dot"></span><span>@chat.Title</span>
+                        <span class="presence-dot @PresenceClass(person?.PresenceStatus)"
+                              title="@PresenceTitle(person?.DisplayName, person?.PresenceStatus, person?.PresenceDetail)"
+                              aria-label="@PresenceTitle(person?.DisplayName, person?.PresenceStatus, person?.PresenceDetail)"></span><span>@chat.Title</span>
                         @if (ChatUnread(chat) > 0) { <span class="hub-unread-dot" aria-label="@($"{ChatUnread(chat)} unread messages")"></span> }
                         @if (person?.EmployeeType == "Agent") { <span class="agent-mark">AI</span> }
                     </button>
@@ -327,7 +329,9 @@
                 <button class="hub-person" @onclick="@(() => StartDirectAsync(person))" disabled="@(person.Id == _hub.CurrentOrganizationUserId)">
                     <span class="hub-avatar @AvatarClass(person.EmployeeType)">@Initials(person.DisplayName)</span>
                     <span><strong>@person.DisplayName</strong><small>@(person.EmployeeType == "Agent" ? "AI employee" : person.RoleName ?? "Team member")</small></span>
-                    <span class="presence-dot"></span>
+                    <span class="presence-dot @PresenceClass(person.PresenceStatus)"
+                          title="@PresenceTitle(person.DisplayName, person.PresenceStatus, person.PresenceDetail)"
+                          aria-label="@PresenceTitle(person.DisplayName, person.PresenceStatus, person.PresenceDetail)"></span>
                 </button>
             }
         </aside>
@@ -1011,6 +1015,25 @@
 
     private static string ParticipantSummary(CommunicationChatResponse chat) => string.Join(", ", chat.Participants.Take(4).Select(x => x.DisplayName)) + (chat.Participants.Count > 4 ? $" +{chat.Participants.Count - 4}" : string.Empty);
     private static string AvatarClass(string type) => type == "Agent" ? "agent" : "human";
+    private static string PresenceClass(string? status) => status switch
+    {
+        CommunicationPresenceStatuses.Unhealthy => "unhealthy",
+        CommunicationPresenceStatuses.Starting => "starting",
+        CommunicationPresenceStatuses.Offline => "offline",
+        _ => "available"
+    };
+    private static string PresenceTitle(string? displayName, string? status, string? detail)
+    {
+        var name = string.IsNullOrWhiteSpace(displayName) ? "Team member" : displayName;
+        var state = status switch
+        {
+            CommunicationPresenceStatuses.Unhealthy => "has a problem",
+            CommunicationPresenceStatuses.Starting => "is starting",
+            CommunicationPresenceStatuses.Offline => "is offline",
+            _ => "is available"
+        };
+        return string.IsNullOrWhiteSpace(detail) ? $"{name} {state}." : $"{name} {state}. {detail}";
+    }
     private static string Initials(string name) => string.Join(string.Empty, name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => char.ToUpperInvariant(x[0])));
     private sealed class TurnView(ChatTurnResponse turn)
     {

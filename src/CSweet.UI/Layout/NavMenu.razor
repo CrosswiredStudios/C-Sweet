@@ -28,6 +28,9 @@
                     <MudNavLink Href="@WorkHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.ViewKanban" Class="business-nav-link">
                         Work
                     </MudNavLink>
+                    <MudNavLink Href="@ApprovalsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Approval" Class="business-nav-link">
+                        Approvals
+                    </MudNavLink>
                     <MudNavLink Href="@EmployeesHref" Icon="@Icons.Material.Outlined.Groups" Class="@EmployeesClass">
                         Employees
                     </MudNavLink>
@@ -55,6 +58,7 @@
                 {
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Dashboard" /> Overview</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.ViewKanban" /> Work</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Approval" /> Approvals</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Groups" /> Employees</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Storefront" /> Agent marketplace</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Security" /> Security</div>
@@ -93,6 +97,10 @@
 
     private string? WorkHref => BusinessContext.SelectedBusiness is { } business
         ? $"/organizations/{business.Id}/work"
+        : null;
+
+    private string? ApprovalsHref => BusinessContext.SelectedBusiness is { } business
+        ? $"/organizations/{business.Id}/approvals"
         : null;
 
     private string? CommunicationsHref => BusinessContext.SelectedBusiness is { } business

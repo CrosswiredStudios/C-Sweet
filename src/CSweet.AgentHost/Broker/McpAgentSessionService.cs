@@ -14,7 +14,8 @@ public sealed record McpSessionIssue(
     AgentSession Session,
     string AccessToken,
     DateTimeOffset ExpiresAt,
-    AgentIdentity? Identity);
+    AgentIdentity? Identity,
+    AgentRuntimeConfiguration? Configuration);
 
 public sealed class McpAgentSessionService(
     CSweetDbContext db,
@@ -40,6 +41,7 @@ public sealed class McpAgentSessionService(
         var runtime = await db.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.PackageVersion)
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Grant)
+            .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Configuration)
             .SingleOrDefaultAsync(x => x.Id == runtimeInstanceId, cancellationToken)
             ?? throw new UnauthorizedAccessException("The runtime instance was not found.");
         var installation = runtime.AgentInstallation
@@ -96,7 +98,21 @@ public sealed class McpAgentSessionService(
             session,
             accessToken,
             entity.ExpiresAt,
-            await identityResolver.ResolveAsync(session, cancellationToken));
+            await identityResolver.ResolveAsync(session, cancellationToken),
+            ToRuntimeConfiguration(installation.Configuration));
+    }
+
+    private static AgentRuntimeConfiguration? ToRuntimeConfiguration(
+        AgentInstallationConfiguration? configuration)
+    {
+        if (configuration is null)
+            return null;
+
+        var settings = JsonSerializer.Deserialize<IReadOnlyDictionary<string, JsonElement>>(
+            configuration.SettingsJson,
+            JsonOptions) ?? throw new InvalidOperationException(
+                "The persisted agent installation configuration is empty.");
+        return new AgentRuntimeConfiguration(configuration.SchemaVersion, settings);
     }
 
     public async Task<AgentSession?> AuthenticateAsync(
@@ -183,7 +199,8 @@ public sealed class McpAgentSessionService(
             session,
             accessToken,
             entity.ExpiresAt,
-            await identityResolver.ResolveAsync(session, cancellationToken));
+            await identityResolver.ResolveAsync(session, cancellationToken),
+            null);
     }
 
     public async Task RevokeRuntimeSessionsAsync(

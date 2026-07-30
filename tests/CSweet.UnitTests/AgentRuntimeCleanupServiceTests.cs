@@ -48,7 +48,8 @@ public sealed class AgentRuntimeCleanupServiceTests
             var retainedFailure = FailedRuntime(installation.Id, now.AddDays(-2), "failed-container");
             db.AgentRuntimeInstances.AddRange(expired, retainedFailure);
             await db.SaveChangesAsync();
-            var runner = new CleanupRunner();
+            var orphanRuntimeId = Guid.NewGuid();
+            var runner = new CleanupRunner(orphanRuntimeId);
             var audit = new CapturingAuditWriter();
             var service = new AgentRuntimeCleanupService(
                 db,
@@ -64,10 +65,11 @@ public sealed class AgentRuntimeCleanupServiceTests
             var result = await service.CleanupAsync();
 
             Assert.Equal(2, result.ContainersRemoved);
+            Assert.Equal(1, result.NetworksRemoved);
             Assert.Equal(1, result.WorkspacesRemoved);
             Assert.Equal(1, result.BuildLogsRemoved);
             Assert.Equal(1, result.RuntimeHistoriesRemoved);
-            Assert.Equal(2, runner.NetworkRemoves.Count);
+            Assert.Equal(3, runner.NetworkRemoves.Count);
             Assert.All(runner.NetworkRemoves, removal => Assert.Equal("cleanup-gateway", removal.McpGatewayContainer));
             Assert.False(Directory.Exists(workspace));
             Assert.False(File.Exists(logPath));
@@ -107,13 +109,21 @@ public sealed class AgentRuntimeCleanupServiceTests
         return runtime;
     }
 
-    private sealed class CleanupRunner : IAgentContainerRunner
+    private sealed class CleanupRunner(Guid orphanRuntimeId) : IAgentContainerRunner
     {
         public List<(string NetworkName, string McpGatewayContainer)> NetworkRemoves { get; } = [];
         public Task<AgentContainerStatus> StartAsync(AgentContainerStartRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task StopAsync(string containerId, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<AgentContainerStatus?> InspectAsync(string containerId, CancellationToken cancellationToken = default) => Task.FromResult<AgentContainerStatus?>(new(containerId, containerId, AgentContainerState.Exited, 0, null, DateTimeOffset.UtcNow, null));
         public Task<IReadOnlyList<AgentManagedContainer>> ListManagedAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<AgentManagedContainer>>([]);
+        public Task<IReadOnlyList<AgentManagedNetwork>> ListManagedNetworksAsync(string networkNamePrefix, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<AgentManagedNetwork>>(
+            [
+                new(
+                    $"network-{orphanRuntimeId:N}",
+                    $"{networkNamePrefix}-{orphanRuntimeId:N}",
+                    orphanRuntimeId)
+            ]);
         public Task RemoveAsync(string containerId, bool force = false, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task RemoveNetworkAsync(string networkName, string brokerGatewayContainer, CancellationToken cancellationToken = default) { NetworkRemoves.Add((networkName, brokerGatewayContainer)); return Task.CompletedTask; }
         public Task<string> GetLogsAsync(string containerId, int maximumBytes, CancellationToken cancellationToken = default) => Task.FromResult(string.Empty);

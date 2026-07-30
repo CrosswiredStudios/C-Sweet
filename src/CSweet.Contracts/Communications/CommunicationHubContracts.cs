@@ -27,14 +27,26 @@ public sealed record CommunicationParticipantResponse(
     Guid OrganizationUserId,
     string DisplayName,
     string EmployeeType,
-    string Role);
+    string Role,
+    string PresenceStatus = CommunicationPresenceStatuses.Available,
+    string? PresenceDetail = null);
 
 public sealed record CommunicationPersonResponse(
     Guid Id,
     string DisplayName,
     string EmployeeType,
     Guid? RoleId,
-    string? RoleName);
+    string? RoleName,
+    string PresenceStatus = CommunicationPresenceStatuses.Available,
+    string? PresenceDetail = null);
+
+public static class CommunicationPresenceStatuses
+{
+    public const string Available = "Available";
+    public const string Starting = "Starting";
+    public const string Unhealthy = "Unhealthy";
+    public const string Offline = "Offline";
+}
 
 public sealed record CommunicationAudienceResponse(
     string Kind,
