@@ -93,4 +93,6 @@ public sealed record EmployeeGraphModel(
     IReadOnlyList<EmployeeGraphLayoutNode> Nodes,
     IReadOnlyList<EmployeeGraphLayoutEdge> Edges,
     double Width,
-    double Height);
+    double Height,
+    double NodeWidth,
+    double NodeHeight);

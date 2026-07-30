@@ -1,0 +1,29 @@
+<div class="employee-graph-toolbar" aria-label="Graph filters">
+    <MudSelect T="Guid?"
+               Label="Highlight team"
+               Value="SelectedTeamId"
+               ValueChanged="SelectedTeamIdChanged"
+               Variant="Variant.Outlined"
+               Margin="Margin.Dense"
+               Clearable="true"
+               Class="employee-team-select">
+        @foreach (var team in Teams.Where(x => !x.IsArchived).OrderBy(x => x.Name))
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem>
+        }
+    </MudSelect>
+    <MudSelect T="int"
+               Label="Degrees"
+               Value="Degrees"
+               ValueChanged="DegreesChanged"
+               Variant="Variant.Outlined"
+               Margin="Margin.Dense"
+               Class="employee-degree-select">
+        <MudSelectItem T="int" Value="1">1 degree</MudSelectItem>
+        <MudSelectItem T="int" Value="2">2 degrees</MudSelectItem>
+        <MudSelectItem T="int" Value="3">3 degrees</MudSelectItem>
+    </MudSelect>
+    <MudTooltip Text="Controls how many reporting relationships are shown around the selected employee.">
+        <MudIconButton Icon="@Icons.Material.Outlined.Info" Color="Color.Primary" aria-label="About graph degrees" />
+    </MudTooltip>
+</div>

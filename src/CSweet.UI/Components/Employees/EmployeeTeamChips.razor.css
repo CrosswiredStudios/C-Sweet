@@ -3,3 +3,4 @@
 .team-chip-dot { width: .42rem; height: .42rem; border-radius: 50%; background: var(--team-color, #64748b); }
 .team-chip small { color: #64748b; font-size: .62rem; }
 .team-chip.unassigned { --team-color: #64748b; border-style: dashed; color: #64748b; }
+.team-chip.more { --team-color: #64748b; color: #475569; }

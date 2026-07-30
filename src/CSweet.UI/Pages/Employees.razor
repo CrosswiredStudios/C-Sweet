@@ -26,12 +26,7 @@
         </MudStack>
     </MudPaper>
 
-    <MudStack Row="true" Spacing="1" Class="employees-tabs">
-        <MudButton Href="@($"/organizations/{OrganizationId}/employees?tab=team")"
-                   Variant="@(IsHiringTab ? Variant.Text : Variant.Filled)" Color="Color.Primary">Team</MudButton>
-        <MudButton Href="@($"/organizations/{OrganizationId}/employees?tab=hiring")"
-                   Variant="@(IsHiringTab ? Variant.Filled : Variant.Text)" Color="Color.Primary">Hiring</MudButton>
-    </MudStack>
+    <EmployeePageTabs OrganizationId="OrganizationId" HiringSelected="IsHiringTab" />
 
     @if (IsHiringTab)
     {

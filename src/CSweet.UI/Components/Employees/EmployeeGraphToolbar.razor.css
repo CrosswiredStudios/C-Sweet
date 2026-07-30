@@ -1,0 +1,21 @@
+.employee-graph-toolbar {
+    display: grid;
+    grid-template-columns: minmax(13rem, 1fr) minmax(9rem, 12rem) auto;
+    gap: .5rem;
+    align-items: center;
+}
+
+.employee-team-select,
+.employee-degree-select {
+    min-width: 0;
+}
+
+@media (max-width: 640px) {
+    .employee-graph-toolbar {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .employee-team-select {
+        grid-column: 1 / -1;
+    }
+}

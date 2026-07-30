@@ -2,9 +2,9 @@
         style="@SingleTeamBorder" aria-pressed="@Selected" aria-label="Focus @Employee.Name, @Employee.RoleLabel" @onclick="SelectAsync">
     <EmployeeAvatar Employee="Employee" />
     <span class="employee-node-copy">
-        <strong>@Employee.Name</strong>
+        <strong title="@Employee.Name">@Employee.Name</strong>
         <small>@Employee.RoleLabel</small>
-        <EmployeeTeamChips Teams="Employee.Teams" />
+        <EmployeeTeamChips Teams="Employee.Teams" MaxVisible="1" />
         <span class="employee-node-badges">
             <EmployeeTypeBadge IsAgent="Employee.IsAgent" />
             @if (Employee.IsAgent)

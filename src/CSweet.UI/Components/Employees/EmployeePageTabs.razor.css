@@ -1,0 +1,47 @@
+.employee-page-tabs {
+    display: flex;
+    gap: 1.5rem;
+    align-items: flex-end;
+    min-height: 3rem;
+    border-bottom: 1px solid var(--cs-border);
+}
+
+a {
+    position: relative;
+    display: inline-flex;
+    min-height: 3rem;
+    align-items: center;
+    padding: 0 .15rem;
+    color: var(--cs-muted);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+a::after {
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: transparent;
+    content: "";
+}
+
+a:hover {
+    color: var(--cs-navy);
+}
+
+a.active {
+    color: var(--cs-navy);
+}
+
+a.active::after {
+    background: var(--cs-mint-strong);
+}
+
+a:focus-visible {
+    border-radius: 5px;
+    outline: 3px solid rgba(35, 132, 92, .4);
+    outline-offset: 2px;
+}

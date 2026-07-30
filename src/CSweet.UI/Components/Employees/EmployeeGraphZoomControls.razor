@@ -1,0 +1,13 @@
+<div class="employee-graph-zoom-controls" role="group" aria-label="Graph zoom controls">
+    <button type="button" title="Zoom out" aria-label="Zoom out" @onclick="ZoomOutAsync">
+        <MudIcon Icon="@Icons.Material.Outlined.Remove" />
+    </button>
+    <output aria-live="polite" aria-label="Current zoom">@ZoomLabel</output>
+    <button type="button" title="Zoom in" aria-label="Zoom in" @onclick="ZoomInAsync">
+        <MudIcon Icon="@Icons.Material.Outlined.Add" />
+    </button>
+    <span aria-hidden="true"></span>
+    <button type="button" class="fit-button" title="Fit graph to view" aria-label="Fit graph to view" @onclick="FitAsync">
+        <MudIcon Icon="@Icons.Material.Outlined.FitScreen" />
+    </button>
+</div>

@@ -1,8 +1,7 @@
-.employees-page { display: grid; gap: 1.25rem; max-width: 1440px; }
+.employees-page { display: grid; gap: 1rem; max-width: 1440px; }
 .employees-page-header { margin-bottom: 0; }
 .employees-header-actions { flex-wrap: wrap; }
 @media (max-width: 640px) { .employees-header-actions { width: 100%; } .employees-header-actions ::deep .mud-button-root { flex: 1 1 10rem; } }
-.employees-tabs { margin: 0 0 18px; }
 .hiring-recommendation.highlighted { border-color: var(--mud-palette-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--mud-palette-primary) 18%, transparent); }
 .hiring-heading { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
 .hiring-candidate { display: grid; grid-template-columns: 1fr auto; gap: 6px 20px; padding: 14px; border: 1px solid var(--mud-palette-lines-default); border-radius: 10px; }

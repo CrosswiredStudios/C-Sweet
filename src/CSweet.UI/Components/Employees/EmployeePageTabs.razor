@@ -1,0 +1,16 @@
+<nav class="employee-page-tabs" aria-label="Employees sections">
+    <a href="@TeamUrl"
+       role="tab"
+       aria-selected="@(!HiringSelected)"
+       aria-current="@(!HiringSelected ? "page" : null)"
+       class="@(!HiringSelected ? "active" : null)">
+        Team
+    </a>
+    <a href="@HiringUrl"
+       role="tab"
+       aria-selected="@HiringSelected"
+       aria-current="@(HiringSelected ? "page" : null)"
+       class="@(HiringSelected ? "active" : null)">
+        Hiring
+    </a>
+</nav>

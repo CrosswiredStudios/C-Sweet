@@ -19,7 +19,15 @@ public sealed class EmployeePresentationTests
         Assert.Equal(root.Id, EmployeeHierarchyService.InitialFocus(viewModels));
         Assert.Equal(2, EmployeeHierarchyService.Build(viewModels, root.Id, 1).Nodes.Count);
         Assert.Equal(3, EmployeeHierarchyService.Build(viewModels, root.Id, 2).Nodes.Count);
-        Assert.Equal(4, EmployeeHierarchyService.Build(viewModels, root.Id, 3).Nodes.Count);
+        var graph = EmployeeHierarchyService.Build(viewModels, root.Id, 3);
+        Assert.Equal(4, graph.Nodes.Count);
+        Assert.True(graph.NodeWidth >= 260);
+        Assert.True(graph.NodeHeight >= 144);
+        Assert.All(
+            graph.Nodes.GroupBy(x => x.Level),
+            level => Assert.All(
+                level.OrderBy(x => x.X).Zip(level.OrderBy(x => x.X).Skip(1)),
+                pair => Assert.True(pair.Second.X - pair.First.X > graph.NodeWidth)));
     }
 
     [Fact]

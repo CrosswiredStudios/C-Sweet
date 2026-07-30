@@ -1,0 +1,53 @@
+.employee-graph-zoom-controls {
+    position: absolute;
+    z-index: 2;
+    top: .85rem;
+    right: .85rem;
+    display: grid;
+    grid-template-columns: 2.35rem 3.4rem 2.35rem;
+    overflow: hidden;
+    border: 1px solid var(--cs-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 5px 16px rgba(24, 35, 63, .12);
+}
+
+button,
+output {
+    display: inline-grid;
+    min-height: 2.35rem;
+    place-items: center;
+    border: 0;
+    background: transparent;
+    color: var(--cs-navy);
+}
+
+button {
+    cursor: pointer;
+}
+
+button:hover {
+    background: #f3f6f7;
+}
+
+button:focus-visible {
+    z-index: 1;
+    outline: 3px solid rgba(35, 132, 92, .4);
+    outline-offset: -3px;
+}
+
+output {
+    border-right: 1px solid var(--cs-border);
+    border-left: 1px solid var(--cs-border);
+    font-size: .72rem;
+    font-weight: 750;
+}
+
+span {
+    display: none;
+}
+
+.fit-button {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--cs-border);
+}

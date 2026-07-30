@@ -1,13 +1,5 @@
 .employee-graph-view { display: grid; gap: 1rem; }
-.employee-graph-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: .35rem; }
-.employee-degree-select { width: 10rem; }
-.employee-team-select { width: 13rem; margin-right: auto; }
-foreignObject.team-filter-dimmed { opacity: .25; }
 .employee-graph-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 1rem; align-items: start; }
-.employee-graph-canvas { min-width: 0; overflow: auto; border: 1px solid var(--cs-border); border-radius: var(--cs-radius); background: linear-gradient(rgba(24,35,63,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(24,35,63,.025) 1px,transparent 1px),#fffdfa; background-size: 24px 24px; box-shadow: var(--cs-shadow); }
-.employee-graph-canvas:focus-visible { outline: 3px solid rgba(35,132,92,.4); outline-offset: 2px; }
-svg { display: block; min-width: 720px; width: 100%; min-height: 24rem; }
-.employee-graph-connector { fill: none; stroke: #88a7bd; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .employee-graph-legend { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1.2rem; padding: .8rem 1rem; border: 1px solid var(--cs-border); border-radius: 10px; background: #fff; color: var(--cs-muted); font-size: .78rem; }
 .employee-graph-legend span { display: inline-flex; align-items: center; gap: .4rem; }
 .employee-graph-legend i { width: .7rem; height: .7rem; border-radius: 50%; background: #aeb4ba; }
@@ -18,4 +10,3 @@ svg { display: block; min-width: 720px; width: 100%; min-height: 24rem; }
 .employee-graph-legend .failed { background: var(--cs-coral); }
 .employee-graph-hint { margin-left: auto; padding-left: 1rem; border-left: 1px solid var(--cs-border); color: var(--cs-navy); }
 @media (max-width: 1050px) { .employee-graph-workspace { grid-template-columns: 1fr; } .employee-graph-hint { width: 100%; margin-left: 0; padding: .65rem 0 0; border-left: 0; border-top: 1px solid var(--cs-border); } }
-@media (max-width: 640px) { .employee-graph-toolbar { justify-content: space-between; } .employee-graph-canvas { border-radius: 10px; } }

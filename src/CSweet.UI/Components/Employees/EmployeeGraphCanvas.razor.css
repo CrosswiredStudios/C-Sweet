@@ -1,0 +1,86 @@
+.employee-graph-canvas-shell {
+    position: relative;
+    min-width: 0;
+}
+
+.employee-graph-canvas {
+    position: relative;
+    height: clamp(30rem, 62vh, 46rem);
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--cs-border);
+    border-radius: var(--cs-radius);
+    background:
+        linear-gradient(rgba(24, 35, 63, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(24, 35, 63, .025) 1px, transparent 1px),
+        #fffdfa;
+    background-size: 24px 24px;
+    box-shadow: var(--cs-shadow);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.employee-graph-canvas.is-dragging {
+    cursor: grabbing;
+}
+
+.employee-graph-canvas:focus-visible {
+    outline: 3px solid rgba(35, 132, 92, .4);
+    outline-offset: 2px;
+}
+
+svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    max-width: none;
+    overflow: visible;
+    will-change: transform;
+}
+
+foreignObject {
+    overflow: visible;
+}
+
+foreignObject.team-filter-dimmed {
+    opacity: .22;
+}
+
+.employee-graph-connector {
+    fill: none;
+    stroke: #88a7bd;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+}
+
+.employee-graph-pan-hint {
+    position: absolute;
+    z-index: 2;
+    bottom: .85rem;
+    left: 50%;
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .4rem .65rem;
+    transform: translateX(-50%);
+    border: 1px solid rgba(24, 35, 63, .1);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .92);
+    color: var(--cs-muted);
+    font-size: .72rem;
+    box-shadow: 0 3px 10px rgba(24, 35, 63, .08);
+    pointer-events: none;
+}
+
+@media (max-width: 640px) {
+    .employee-graph-canvas {
+        height: 27rem;
+        border-radius: 10px;
+    }
+
+    .employee-graph-pan-hint {
+        display: none;
+    }
+}

@@ -1,36 +1,15 @@
 <section class="employee-graph-view" role="tabpanel" aria-label="Employee reporting graph">
-    <div class="employee-graph-toolbar">
-        <MudSelect T="Guid?" Label="Highlight team" @bind-Value="_teamFilter" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="employee-team-select">
-            @foreach (var team in Teams.Where(x => !x.IsArchived).OrderBy(x => x.Name))
-            {
-                <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem>
-            }
-        </MudSelect>
-        <MudSelect T="int" Label="Degrees" Value="Degrees" ValueChanged="ChangeDegreesAsync" Variant="Variant.Outlined" Margin="Margin.Dense" Class="employee-degree-select">
-            <MudSelectItem T="int" Value="1">1 degree</MudSelectItem>
-            <MudSelectItem T="int" Value="2">2 degrees</MudSelectItem>
-            <MudSelectItem T="int" Value="3">3 degrees</MudSelectItem>
-        </MudSelect>
-        <MudTooltip Text="Controls how many reporting relationships are shown around the selected employee.">
-            <MudIconButton Icon="@Icons.Material.Outlined.Info" Color="Color.Primary" aria-label="About graph degrees" />
-        </MudTooltip>
-    </div>
+    <EmployeeGraphToolbar Teams="Teams"
+                          SelectedTeamId="_teamFilter"
+                          SelectedTeamIdChanged="ChangeTeamFilter"
+                          Degrees="Degrees"
+                          DegreesChanged="ChangeDegreesAsync" />
 
     <div class="employee-graph-workspace">
-        <div class="employee-graph-canvas" tabindex="0" aria-label="Reporting graph. Use the Directory view for a tabular alternative.">
-            <svg viewBox="@ViewBox" role="img" aria-label="Employee reporting relationships">
-                @foreach (var edge in Graph.Edges)
-                {
-                    <path class="employee-graph-connector" d="@EdgePath(edge)" />
-                }
-                @foreach (var node in Graph.Nodes)
-                {
-                    <foreignObject @key="node.Employee.Id" class="@NodeFilterClass(node.Employee)" x="@(node.X - 105)" y="@(node.Y - 52)" width="210" height="104">
-                        <EmployeeGraphNode Employee="node.Employee" Selected="@(node.Employee.Id == SelectedId)" SelectedChanged="SelectAsync" />
-                    </foreignObject>
-                }
-            </svg>
-        </div>
+        <EmployeeGraphCanvas Graph="Graph"
+                             SelectedId="SelectedId"
+                             SelectedIdChanged="SelectAsync"
+                             HighlightedTeamId="_teamFilter" />
         <EmployeeDetailsPanel Employee="SelectedEmployee" Employees="Employees" EmployeeSelected="SelectAsync"
                               TeamSelected="TeamSelected" ActionRequested="ActionRequested" />
     </div>
@@ -42,6 +21,6 @@
         <span><i class="transitioning"></i>Transitioning</span>
         <span><i class="offline"></i>Offline</span>
         <span><i class="failed"></i>Failed</span>
-        <span class="employee-graph-hint"><MudIcon Icon="@Icons.Material.Outlined.TouchApp" /> Select an employee to refocus the graph.</span>
+        <span class="employee-graph-hint"><MudIcon Icon="@Icons.Material.Outlined.TouchApp" /> Select an employee to refocus. Drag and zoom to explore.</span>
     </footer>
 </section>

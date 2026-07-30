@@ -7,8 +7,9 @@ dl div { display: grid; grid-template-columns: 1fr auto; gap: 1rem; }
 dt { color: var(--cs-muted); }
 dd { margin: 0; color: var(--cs-navy); font-weight: 650; }
 .employee-direct-reports { display: grid; gap: .3rem; }
-.employee-direct-reports button { display: flex; gap: .6rem; align-items: center; padding: .45rem; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.employee-direct-reports button { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); width: 100%; gap: .75rem; align-items: center; padding: .55rem; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .employee-direct-reports button:hover { background: #f7f5f1; }
 .employee-direct-reports button:focus-visible { outline: 3px solid rgba(35,132,92,.4); }
-.employee-direct-reports span { display: grid; }
+.employee-direct-reports span { display: grid; min-width: 0; }
+.employee-direct-reports strong, .employee-direct-reports small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .employee-direct-reports small { color: var(--cs-muted); }

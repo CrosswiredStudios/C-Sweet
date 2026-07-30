@@ -14,9 +14,11 @@ public static class EmployeeHierarchyService
         Guid? focusId,
         int degrees)
     {
+        const double nodeWidth = 260;
+        const double nodeHeight = 144;
         if (employees.Count == 0)
         {
-            return new EmployeeGraphModel([], [], 720, 320);
+            return new EmployeeGraphModel([], [], 720, 360, nodeWidth, nodeHeight);
         }
 
         var byId = employees.ToDictionary(x => x.Id);
@@ -29,10 +31,10 @@ public static class EmployeeHierarchyService
             .GroupBy(x => Depth(x, byId))
             .OrderBy(x => x.Key)
             .ToArray();
-        const double xSpacing = 238;
-        const double ySpacing = 150;
-        const double sidePadding = 130;
-        const double topPadding = 70;
+        const double xSpacing = nodeWidth + 38;
+        const double ySpacing = nodeHeight + 54;
+        const double sidePadding = nodeWidth / 2 + 30;
+        const double topPadding = nodeHeight / 2 + 30;
         var maxCount = Math.Max(1, levels.Max(x => x.Count()));
         var width = Math.Max(720, (maxCount - 1) * xSpacing + sidePadding * 2);
         var nodes = new List<EmployeeGraphLayoutNode>();
@@ -57,8 +59,8 @@ public static class EmployeeHierarchyService
             .Where(x => x.Employee.ManagerId.HasValue && nodesById.ContainsKey(x.Employee.ManagerId.Value))
             .Select(x => new EmployeeGraphLayoutEdge(nodesById[x.Employee.ManagerId!.Value], x))
             .ToArray();
-        var height = Math.Max(320, topPadding * 2 + Math.Max(0, levels.Length - 1) * ySpacing + 80);
-        return new EmployeeGraphModel(nodes, edges, width, height);
+        var height = Math.Max(360, topPadding * 2 + Math.Max(0, levels.Length - 1) * ySpacing);
+        return new EmployeeGraphModel(nodes, edges, width, height, nodeWidth, nodeHeight);
     }
 
     private static HashSet<Guid> WithinDegrees(
