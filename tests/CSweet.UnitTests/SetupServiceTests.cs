@@ -17,6 +17,8 @@ public class SetupServiceTests
 
         Assert.False(status.IsFirstRunComplete);
         Assert.Null(status.DefaultChatProviderId);
+        Assert.Equal(5, status.Steps.Count);
+        Assert.DoesNotContain(status.Steps, x => x.Key == "finish");
         Assert.Contains(status.Steps, x => x.Key == "llm-provider" && !x.IsComplete);
         Assert.Contains(status.Steps, x => x.Key == "communications" && !x.IsRequired && !x.IsComplete);
         Assert.DoesNotContain(status.Steps, x => x.Key == "model-capability-test");
@@ -85,6 +87,7 @@ public class SetupServiceTests
 
         Assert.True(result.Succeeded);
         Assert.True((await dbContext.SystemConfigurations.SingleAsync()).IsFirstRunComplete);
+        Assert.True((await dbContext.OnboardingSteps.SingleAsync(x => x.Key == "communications")).IsComplete);
         Assert.Contains(await dbContext.AuditEvents.ToListAsync(), x => x.EventType == "setup.first_run.completed");
     }
 
@@ -116,7 +119,7 @@ public class SetupServiceTests
     {
         var now = DateTimeOffset.UtcNow;
         var steps = await dbContext.OnboardingSteps
-            .Where(x => x.IsRequired && x.Key != "finish")
+            .Where(x => x.IsRequired)
             .ToListAsync();
 
         foreach (var step in steps)

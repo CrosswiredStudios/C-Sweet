@@ -25,7 +25,7 @@ public sealed class AuthenticationService : IAuthenticationService
     private readonly RoleManager<IdentityRole<Guid>> _roleManager;
     private readonly CSweetDbContext _dbContext;
     private readonly IAccountEmailSender _emailSender;
-    private readonly IEmailDeliverySettingsService _emailDeliverySettings;
+    private readonly IEmailDeliveryProfileService _emailDeliveryProfiles;
     private readonly IAuditEventWriter _auditWriter;
 
     public AuthenticationService(
@@ -34,7 +34,7 @@ public sealed class AuthenticationService : IAuthenticationService
         RoleManager<IdentityRole<Guid>> roleManager,
         CSweetDbContext dbContext,
         IAccountEmailSender emailSender,
-        IEmailDeliverySettingsService emailDeliverySettings,
+        IEmailDeliveryProfileService emailDeliveryProfiles,
         IAuditEventWriter auditWriter)
     {
         _userManager = userManager;
@@ -42,7 +42,7 @@ public sealed class AuthenticationService : IAuthenticationService
         _roleManager = roleManager;
         _dbContext = dbContext;
         _emailSender = emailSender;
-        _emailDeliverySettings = emailDeliverySettings;
+        _emailDeliveryProfiles = emailDeliveryProfiles;
         _auditWriter = auditWriter;
     }
 
@@ -52,13 +52,13 @@ public sealed class AuthenticationService : IAuthenticationService
         var user = userId.HasValue
             ? await _userManager.FindByIdAsync(userId.Value.ToString())
             : null;
-        var emailDelivery = await _emailDeliverySettings.GetAsync(cancellationToken);
+        var emailRecoveryAvailable = await _emailDeliveryProfiles.HasReadyDefaultAsync(cancellationToken);
         return new AuthStatusResponse(
             registrationOpen,
             user is not null,
             user?.Email,
             user?.EmailConfirmed == true,
-            emailDelivery.IsReady,
+            emailRecoveryAvailable,
             antiforgeryToken);
     }
 
@@ -77,6 +77,12 @@ public sealed class AuthenticationService : IAuthenticationService
 
     private async Task<AuthActionResponse> RegisterCoreAsync(RegisterAdminRequest request, CancellationToken cancellationToken)
     {
+        var displayName = request.DisplayName.Trim();
+        if (string.IsNullOrWhiteSpace(displayName) || displayName.Length > 160)
+        {
+            return Validation("invalid_display_name", "Your name is required and must be 160 characters or fewer.", "DisplayName");
+        }
+
         if (!string.Equals(request.Password, request.ConfirmPassword, StringComparison.Ordinal))
         {
             return Validation("password_mismatch", "The password confirmation does not match.", "ConfirmPassword");
@@ -91,6 +97,7 @@ public sealed class AuthenticationService : IAuthenticationService
         var user = new ApplicationUser
         {
             Id = Guid.NewGuid(),
+            DisplayName = displayName,
             UserName = email,
             Email = email,
             IsInitialAdministrator = true,
@@ -192,7 +199,7 @@ public sealed class AuthenticationService : IAuthenticationService
 
     public async Task<AuthActionResponse> ResendConfirmationAsync(EmailRequest request, CancellationToken cancellationToken = default)
     {
-        if (!(await _emailDeliverySettings.GetAsync(cancellationToken)).IsReady)
+        if (!await _emailDeliveryProfiles.HasReadyDefaultAsync(cancellationToken))
         {
             return Failure("mail_not_configured", "Email delivery is not configured.");
         }
@@ -216,7 +223,7 @@ public sealed class AuthenticationService : IAuthenticationService
 
     public async Task<AuthActionResponse> ForgotPasswordAsync(EmailRequest request, CancellationToken cancellationToken = default)
     {
-        if (!(await _emailDeliverySettings.GetAsync(cancellationToken)).IsReady)
+        if (!await _emailDeliveryProfiles.HasReadyDefaultAsync(cancellationToken))
         {
             return Failure("mail_not_configured", "Email delivery is not configured.");
         }
@@ -427,7 +434,7 @@ public sealed class AuthenticationService : IAuthenticationService
                     Id = Guid.NewGuid(),
                     OrganizationId = organization.Id,
                     RoleId = ceoRoleId,
-                    DisplayName = "Self",
+                    DisplayName = user.DisplayName,
                     EmployeeType = EmployeeType.Human,
                     PermissionLevel = OrganizationPermissionLevel.Owner,
                     CreatedAt = DateTimeOffset.UtcNow
@@ -437,6 +444,7 @@ public sealed class AuthenticationService : IAuthenticationService
 
             owner.ApplicationUserId = user.Id;
             owner.Email = user.Email;
+            owner.DisplayName = user.DisplayName;
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);

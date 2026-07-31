@@ -84,7 +84,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IUserConfirmation<ApplicationUser>, RootUserConfirmation>();
         builder.Services.AddScoped<IEmailDeliveryConfigurationProvider, EmailDeliveryConfigurationProvider>();
         builder.Services.AddScoped<IAccountEmailSender, SmtpAccountEmailSender>();
-        builder.Services.AddScoped<IEmailDeliverySettingsService, EmailDeliverySettingsService>();
+        builder.Services.AddScoped<IEmailDeliveryProfileService, EmailDeliveryProfileService>();
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 
         builder.Services.AddScoped<ISetupService, SetupService>();

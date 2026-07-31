@@ -88,12 +88,17 @@
         <MudAlert Severity="@(_pageError ? Severity.Error : Severity.Success)" Variant="Variant.Outlined" Class="mt-4">@_pageMessage</MudAlert>
     }
 
+    @if (!string.IsNullOrWhiteSpace(CompletionMessage))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">@CompletionMessage</MudAlert>
+    }
+
     <footer class="communications-actions">
         <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="OnBack">Back</MudButton>
         <div>
             <span>C-Sweet chat is ready, so this step is optional.</span>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward" Disabled="@_busy" OnClick="ContinueAsync">
-                Continue
+                @(_busy ? "Completing…" : "Complete setup")
             </MudButton>
         </div>
     </footer>
@@ -288,6 +293,7 @@
     [Parameter] public CommunicationSetupOptionsResponse? Options { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public EventCallback OnContinue { get; set; }
+    [Parameter] public string? CompletionMessage { get; set; }
 
     private FirstPartyCommunicationPluginResponse? _activePlugin;
     private AgentImportPreviewResponse? _preview;
@@ -441,7 +447,12 @@
         finally { _busy = false; }
     }
 
-    private async Task ContinueAsync() => await OnContinue.InvokeAsync();
+    private async Task ContinueAsync()
+    {
+        _busy = true;
+        try { await OnContinue.InvokeAsync(); }
+        finally { _busy = false; }
+    }
     private Task OnDialogVisibilityChanged(bool visible) { if (!visible && !_busy) CloseDialog(); return Task.CompletedTask; }
     private void CloseDialog() { if (!_busy) { _dialogOpen = false; ResetDialog(); } }
     private void ResetDialog()

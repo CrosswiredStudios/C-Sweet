@@ -33,6 +33,7 @@ public class BusinessOnboardingServiceTests
         var applicationUser = new ApplicationUser
         {
             Id = Guid.NewGuid(),
+            DisplayName = "Morgan Owner",
             UserName = "owner@example.com",
             NormalizedUserName = "OWNER@EXAMPLE.COM",
             Email = "owner@example.com",
@@ -113,6 +114,7 @@ public class BusinessOnboardingServiceTests
         var applicationUser = new ApplicationUser
         {
             Id = Guid.NewGuid(),
+            DisplayName = "Alex Admin",
             UserName = "admin@example.com",
             NormalizedUserName = "ADMIN@EXAMPLE.COM",
             Email = "admin@example.com",
@@ -178,7 +180,7 @@ public class BusinessOnboardingServiceTests
         Assert.Contains(roles, x => x.Name == "CEO" && x.AuthorityLevel == AuthorityLevel.ExecutionWithApproval);
         var self = Assert.Single(employees, x => x.EmployeeType == EmployeeType.Human);
         var chief = Assert.Single(employees, x => x.EmployeeType == EmployeeType.Agent);
-        Assert.Equal("Self", self.DisplayName);
+        Assert.Equal("Alex Admin", self.DisplayName);
         Assert.Equal(applicationUser.Id, self.ApplicationUserId);
         Assert.Equal("admin@example.com", self.Email);
         Assert.Equal(EmployeeType.Human, self.EmployeeType);

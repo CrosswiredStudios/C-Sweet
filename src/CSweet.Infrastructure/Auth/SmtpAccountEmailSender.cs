@@ -41,9 +41,9 @@ public sealed class SmtpAccountEmailSender : IAccountEmailSender
             $"Reset your C-Sweet password by opening this link:\n\n{link}\n\nIf you did not request a reset, you can ignore this message.", settings, cancellationToken);
     }
 
-    public async Task SendTestAsync(string email, CancellationToken cancellationToken)
+    public async Task SendTestAsync(string email, Guid profileId, CancellationToken cancellationToken)
     {
-        var settings = await _provider.GetAsync(cancellationToken);
+        var settings = await _provider.GetAsync(profileId, cancellationToken);
         await SendAsync(email, "C-Sweet email delivery test",
             "Email delivery is configured correctly for this C-Sweet instance.", settings, cancellationToken);
     }

@@ -18,6 +18,7 @@
         <EditForm Model="_model" OnValidSubmit="RegisterAsync" Class="auth-form">
             <DataAnnotationsValidator />
             <ValidationSummary />
+            <MudTextField Label="Your name" @bind-Value="_model.DisplayName" For="@(() => _model.DisplayName)" Variant="Variant.Outlined" Required="true" />
             <MudTextField Label="Email" InputType="InputType.Email" @bind-Value="_model.Email" For="@(() => _model.Email)" Variant="Variant.Outlined" Required="true" />
             <MudTextField Label="Password" InputType="InputType.Password" @bind-Value="_model.Password" For="@(() => _model.Password)" Variant="Variant.Outlined" Required="true" />
             <MudTextField Label="Confirm password" InputType="InputType.Password" @bind-Value="_model.ConfirmPassword" For="@(() => _model.ConfirmPassword)" Variant="Variant.Outlined" Required="true" />
@@ -61,7 +62,7 @@
     {
         _saving = true;
         _errors.Clear();
-        var result = await AuthenticationApi.RegisterAsync(new RegisterAdminRequest(_model.Email, _model.Password, _model.ConfirmPassword));
+        var result = await AuthenticationApi.RegisterAsync(new RegisterAdminRequest(_model.DisplayName, _model.Email, _model.Password, _model.ConfirmPassword));
         if (result.Succeeded)
         {
             _recoveryCodes = result.RecoveryCodes ?? [];
@@ -88,6 +89,7 @@
 
     private sealed class RegisterModel
     {
+        [Required, MaxLength(160)] public string DisplayName { get; set; } = string.Empty;
         [Required, EmailAddress] public string Email { get; set; } = string.Empty;
         [Required] public string Password { get; set; } = string.Empty;
         [Required] public string ConfirmPassword { get; set; } = string.Empty;

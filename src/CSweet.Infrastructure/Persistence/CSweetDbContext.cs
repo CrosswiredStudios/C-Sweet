@@ -143,7 +143,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<AgentMemoryRecallUse> AgentMemoryRecallUses => Set<AgentMemoryRecallUse>();
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<RootRecoveryCode> RootRecoveryCodes => Set<RootRecoveryCode>();
-    public DbSet<EmailDeliveryConfiguration> EmailDeliveryConfigurations => Set<EmailDeliveryConfiguration>();
+    public DbSet<EmailDeliveryProfile> EmailDeliveryProfiles => Set<EmailDeliveryProfile>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -354,6 +354,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
 
         modelBuilder.Entity<ApplicationUser>(entity =>
         {
+            entity.Property(x => x.DisplayName).HasMaxLength(160).IsRequired();
             entity.Property(x => x.CreatedAt).IsRequired();
             entity.HasIndex(x => x.IsInitialAdministrator)
                 .IsUnique()
@@ -372,15 +373,20 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasIndex(x => new { x.ApplicationUserId, x.UsedAt });
         });
 
-        modelBuilder.Entity<EmailDeliveryConfiguration>(entity =>
+        modelBuilder.Entity<EmailDeliveryProfile>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ProviderKey).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Host).HasMaxLength(253).IsRequired();
             entity.Property(x => x.UserName).HasMaxLength(320);
             entity.Property(x => x.EncryptedPassword).HasMaxLength(4096);
             entity.Property(x => x.FromAddress).HasMaxLength(320).IsRequired();
             entity.Property(x => x.FromName).HasMaxLength(160).IsRequired();
             entity.Property(x => x.PublicAppUrl).HasMaxLength(2048).IsRequired();
+            entity.HasIndex(x => x.IsDefault)
+                .IsUnique()
+                .HasFilter("\"IsDefault\" = TRUE");
         });
 
         // Apply planning entity configurations

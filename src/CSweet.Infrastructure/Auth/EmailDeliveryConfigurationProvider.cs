@@ -27,6 +27,7 @@ public sealed record EffectiveEmailDeliverySettings(
 public interface IEmailDeliveryConfigurationProvider
 {
     Task<EffectiveEmailDeliverySettings> GetAsync(CancellationToken cancellationToken);
+    Task<EffectiveEmailDeliverySettings> GetAsync(Guid profileId, CancellationToken cancellationToken);
     string Encrypt(string value);
 }
 
@@ -48,22 +49,12 @@ public sealed class EmailDeliveryConfigurationProvider : IEmailDeliveryConfigura
 
     public async Task<EffectiveEmailDeliverySettings> GetAsync(CancellationToken cancellationToken)
     {
-        var persisted = await _dbContext.EmailDeliveryConfigurations
-            .OrderBy(x => x.ConfiguredAt)
+        var persisted = await _dbContext.EmailDeliveryProfiles
+            .Where(x => x.IsDefault)
             .FirstOrDefaultAsync(cancellationToken);
         if (persisted is not null)
         {
-            return new EffectiveEmailDeliverySettings(
-                persisted.Host,
-                persisted.Port,
-                persisted.EnableSsl,
-                persisted.UserName,
-                Decrypt(persisted.EncryptedPassword),
-                persisted.FromAddress,
-                persisted.FromName,
-                persisted.PublicAppUrl,
-                persisted.ConfiguredAt,
-                persisted.LastTestSucceededAt);
+            return ToEffective(persisted);
         }
 
         return new EffectiveEmailDeliverySettings(
@@ -79,7 +70,27 @@ public sealed class EmailDeliveryConfigurationProvider : IEmailDeliveryConfigura
             null);
     }
 
+    public async Task<EffectiveEmailDeliverySettings> GetAsync(Guid profileId, CancellationToken cancellationToken)
+    {
+        var profile = await _dbContext.EmailDeliveryProfiles
+            .SingleOrDefaultAsync(x => x.Id == profileId, cancellationToken)
+            ?? throw new InvalidOperationException("Email delivery profile was not found.");
+        return ToEffective(profile);
+    }
+
     public string Encrypt(string value) => _protector.Protect(value);
+
+    private EffectiveEmailDeliverySettings ToEffective(EmailDeliveryProfile profile) => new(
+        profile.Host,
+        profile.Port,
+        profile.EnableSsl,
+        profile.UserName,
+        Decrypt(profile.EncryptedPassword),
+        profile.FromAddress,
+        profile.FromName,
+        profile.PublicAppUrl,
+        profile.ConfiguredAt,
+        profile.LastTestSucceededAt);
 
     private string? Decrypt(string? value) => string.IsNullOrWhiteSpace(value) ? null : _protector.Unprotect(value);
 }

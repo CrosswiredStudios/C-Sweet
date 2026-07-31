@@ -14,8 +14,7 @@ public sealed class SetupService : ISetupService
         ("llm-provider", "LLM Provider", true),
         ("genai-provider", "GenAI Provider", false),
         ("email-delivery", "Email Delivery", false),
-        ("communications", "Communications", false),
-        ("finish", "Finish", true)
+        ("communications", "Communications", false)
     ];
 
     private readonly CSweetDbContext _dbContext;
@@ -165,11 +164,6 @@ public sealed class SetupService : ISetupService
         var step = await _dbContext.OnboardingSteps
             .SingleAsync(x => x.Key == normalizedKey, cancellationToken);
 
-        if (step.Key == "finish" && !await ArePriorRequiredStepsCompleteAsync(cancellationToken))
-        {
-            return await FailureAsync("finish_prerequisites_missing", "All required setup steps must be complete before finish can be completed.", cancellationToken);
-        }
-
         if (!step.IsComplete)
         {
             var now = DateTimeOffset.UtcNow;
@@ -212,10 +206,10 @@ public sealed class SetupService : ISetupService
         configuration.IsFirstRunComplete = true;
         configuration.UpdatedAt = now;
 
-        var finishStep = await _dbContext.OnboardingSteps.SingleAsync(x => x.Key == "finish", cancellationToken);
-        finishStep.IsComplete = true;
-        finishStep.CompletedAt ??= now;
-        finishStep.UpdatedAt = now;
+        var communicationsStep = await _dbContext.OnboardingSteps.SingleAsync(x => x.Key == "communications", cancellationToken);
+        communicationsStep.IsComplete = true;
+        communicationsStep.CompletedAt ??= now;
+        communicationsStep.UpdatedAt = now;
 
         _dbContext.AuditEvents.Add(new AuditEvent
         {
@@ -242,7 +236,7 @@ public sealed class SetupService : ISetupService
     private async Task<bool> ArePriorRequiredStepsCompleteAsync(CancellationToken cancellationToken)
     {
         var requiredPriorStepKeys = RequiredSteps
-            .Where(x => x.IsRequired && x.Key != "finish")
+            .Where(x => x.IsRequired)
             .Select(x => x.Key)
             .ToList();
 

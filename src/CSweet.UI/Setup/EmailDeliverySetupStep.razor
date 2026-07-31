@@ -1,0 +1,287 @@
+@using System.Net.Http.Json
+@using CSweet.Contracts.Setup
+@inject HttpClient Http
+@inject IAuthenticationApiClient AuthenticationApi
+@inject AuthSessionStore AuthSession
+@inject NavigationManager Navigation
+
+<section class="email-provider-step" aria-labelledby="email-provider-step-title">
+    <header class="email-provider-header">
+        <div>
+            <MudText Typo="Typo.overline">@ContextLabel</MudText>
+            <h1 id="email-provider-step-title">Connect email delivery providers.</h1>
+            <p>Add one or more SMTP profiles for verification, recovery, invitations, and future business messaging. This step is optional.</p>
+        </div>
+        <div class="email-provider-count" aria-live="polite">
+            <strong>@_profiles.Count</strong>
+            <span>@(_profiles.Count == 1 ? "profile saved" : "profiles saved")</span>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_pageMessage))
+    {
+        <div class="email-feedback @(_pageError ? "error" : "success")" role="status">
+            <MudIcon Icon="@(_pageError ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.CheckCircle)" />
+            <span>@_pageMessage</span>
+        </div>
+    }
+
+    <div class="email-provider-workspace">
+        <section class="email-provider-roster" aria-labelledby="email-profiles-title">
+            <div class="email-section-heading">
+                <div>
+                    <span class="email-section-kicker">Your roster</span>
+                    <h2 id="email-profiles-title">Saved profiles</h2>
+                </div>
+                @if (_profiles.Count > 0)
+                {
+                    <span class="email-ready-badge">Optional step ready</span>
+                }
+            </div>
+
+            @if (_loading)
+            {
+                <div class="email-empty-state"><MudProgressCircular Indeterminate="true" Color="Color.Primary" /><span>Loading profiles…</span></div>
+            }
+            else if (_profiles.Count == 0)
+            {
+                <div class="email-empty-state">
+                    <MudIcon Icon="@Icons.Material.Outlined.AlternateEmail" />
+                    <strong>No email profiles yet</strong>
+                    <span>Choose Custom SMTP on the right, or skip this optional step.</span>
+                </div>
+            }
+            else
+            {
+                <div class="email-profile-list">
+                    @foreach (var profile in _profiles)
+                    {
+                        <article class="email-profile-item">
+                            <span class="email-provider-mark">SMTP</span>
+                            <div class="email-profile-copy">
+                                <strong>@profile.Name</strong>
+                                <span>@profile.Host:@profile.Port · @profile.FromAddress</span>
+                                <div class="email-profile-badges">
+                                    <span class="email-status @(profile.IsReady ? "verified" : "saved")">@(profile.IsReady ? "Verified" : "Saved")</span>
+                                    @if (profile.IsDefault) { <span class="email-default-badge">Default</span> }
+                                </div>
+                            </div>
+                            <div class="email-profile-actions">
+                                @if (!profile.IsDefault)
+                                {
+                                    <button type="button" title="Use as default" aria-label="Use @profile.Name as default" disabled="@_busy" @onclick="() => SetDefaultAsync(profile.Id)"><MudIcon Icon="@Icons.Material.Outlined.StarOutline" /></button>
+                                }
+                                <button type="button" aria-label="Edit @profile.Name" disabled="@_busy" @onclick="() => EditProfile(profile)"><MudIcon Icon="@Icons.Material.Outlined.Edit" /></button>
+                                <button type="button" aria-label="Delete @profile.Name" disabled="@_busy" @onclick="() => DeleteProfileAsync(profile.Id)"><MudIcon Icon="@Icons.Material.Outlined.DeleteOutline" /></button>
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="email-provider-picker" aria-labelledby="email-provider-options-title">
+            <div class="email-section-heading">
+                <div>
+                    <span class="email-section-kicker">Add another</span>
+                    <h2 id="email-provider-options-title">Choose a provider</h2>
+                </div>
+            </div>
+
+            <div class="email-provider-grid">
+                <button type="button" class="email-provider-choice" disabled="@_busy" @onclick="OpenCustomSmtp">
+                    <span class="email-choice-mark">SMTP</span>
+                    <span><strong>Custom SMTP</strong><small>Connect any standard SMTP server.</small></span>
+                    <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+                </button>
+                @foreach (var preview in PreviewProviders)
+                {
+                    <button type="button" class="email-provider-choice preview" disabled="@_busy" @onclick="() => OpenPreview(preview)">
+                        <span class="email-choice-mark @preview.Key">@preview.Mark</span>
+                        <span><strong>@preview.Name</strong><small>@preview.Description</small></span>
+                        <span class="coming-soon">Coming soon</span>
+                    </button>
+                }
+            </div>
+        </section>
+    </div>
+
+    @if (ShowNavigation)
+    {
+        <footer class="email-step-actions">
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.ArrowBack" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
+            <div>
+                <span>Email delivery can be configured later from Account Security.</span>
+                @if (_profiles.Count == 0)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_busy" OnClick="OnContinue">Skip for now</MudButton>
+                }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward" Disabled="@_busy" OnClick="OnContinue">Continue</MudButton>
+            </div>
+        </footer>
+    }
+
+    <MudDialog Visible="_dialogOpen" VisibleChanged="OnDialogVisibilityChanged" Options="_dialogOptions">
+        <DialogContent>
+            @if (_activePreview is not null)
+            {
+                <section class="email-editor" aria-labelledby="email-preview-title">
+                    <header class="email-editor-header">
+                        <div class="email-editor-title"><span class="email-choice-mark @_activePreview.Key">@_activePreview.Mark</span><div><span class="email-section-kicker">Guided setup preview</span><h2 id="email-preview-title">@_activePreview.Name</h2></div></div>
+                        <button type="button" class="email-close" aria-label="Close preview" @onclick="CloseDialog"><MudIcon Icon="@Icons.Material.Filled.Close" /></button>
+                    </header>
+                    <div class="email-preview-copy">
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">This guided connection is coming soon. Custom SMTP is available today.</MudAlert>
+                        <h3>What the guided setup will provide</h3>
+                        <p>@_activePreview.Guidance</p>
+                    </div>
+                    <footer class="email-editor-actions"><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CloseDialog">Close preview</MudButton></footer>
+                </section>
+            }
+            else
+            {
+                <section class="email-editor" aria-labelledby="email-editor-title">
+                    <header class="email-editor-header">
+                        <div class="email-editor-title"><span class="email-choice-mark">SMTP</span><div><span class="email-section-kicker">@(_editingId.HasValue ? "Edit profile" : "New profile")</span><h2 id="email-editor-title">Custom SMTP</h2></div></div>
+                        <button type="button" class="email-close" aria-label="Close SMTP form" disabled="@_busy" @onclick="CloseDialog"><MudIcon Icon="@Icons.Material.Filled.Close" /></button>
+                    </header>
+                    <div class="email-form-grid">
+                        <MudTextField Label="Profile name" @bind-Value="_name" Variant="Variant.Outlined" Disabled="@_busy" Required="true" />
+                        <MudTextField Label="SMTP host" @bind-Value="_host" Variant="Variant.Outlined" Disabled="@_busy" Required="true" />
+                        <MudNumericField T="int" Label="Port" @bind-Value="_port" Variant="Variant.Outlined" Disabled="@_busy" Min="1" Max="65535" />
+                        <MudTextField Label="Username (optional)" @bind-Value="_username" Variant="Variant.Outlined" Disabled="@_busy" />
+                        <MudTextField Label="Password" @bind-Value="_password" InputType="InputType.Password" Placeholder="@(_hasPassword ? "Saved password (leave blank to keep)" : null)" Variant="Variant.Outlined" Disabled="@_busy" autocomplete="off" />
+                        <MudTextField Label="Sender email" @bind-Value="_fromAddress" InputType="InputType.Email" Variant="Variant.Outlined" Disabled="@_busy" Required="true" />
+                        <MudTextField Label="Sender name" @bind-Value="_fromName" Variant="Variant.Outlined" Disabled="@_busy" Required="true" />
+                        <MudTextField Class="email-form-wide" Label="Public app URL" @bind-Value="_publicAppUrl" Variant="Variant.Outlined" Disabled="@_busy" Required="true" />
+                        <MudCheckBox T="bool" @bind-Value="_enableSsl" Label="Use TLS" Disabled="@_busy" />
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_dialogMessage))
+                    {
+                        <div class="email-feedback @(_dialogError ? "error" : "success")" role="status"><MudIcon Icon="@(_dialogError ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.CheckCircle)" /><span>@_dialogMessage</span></div>
+                    }
+                    <footer class="email-editor-actions">
+                        <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_busy" OnClick="CloseDialog">Cancel</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.MarkEmailRead" Disabled="@(_busy || !CanSave)" OnClick="SaveAndTestAsync">@(_busy ? "Saving…" : "Save & test")</MudButton>
+                    </footer>
+                </section>
+            }
+        </DialogContent>
+    </MudDialog>
+</section>
+
+@code {
+    [Parameter] public string ContextLabel { get; set; } = "Step 4 of 5";
+    [Parameter] public bool ShowNavigation { get; set; } = true;
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback OnContinue { get; set; }
+
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
+    private List<EmailDeliveryProfileResponse> _profiles = [];
+    private bool _loading = true;
+    private bool _busy;
+    private bool _dialogOpen;
+    private Guid? _editingId;
+    private ProviderPreview? _activePreview;
+    private string? _pageMessage;
+    private bool _pageError;
+    private string? _dialogMessage;
+    private bool _dialogError;
+    private string _name = "Custom SMTP";
+    private string _host = string.Empty;
+    private int _port = 587;
+    private bool _enableSsl = true;
+    private string? _username;
+    private string? _password;
+    private bool _hasPassword;
+    private string _fromAddress = string.Empty;
+    private string _fromName = "C-Sweet";
+    private string _publicAppUrl = string.Empty;
+
+    private static readonly IReadOnlyList<ProviderPreview> PreviewProviders =
+    [
+        new(EmailDeliveryProviderKeys.Gmail, "G", "Gmail", "Guided Google Workspace SMTP setup.", "A guided flow for Google app passwords, SMTP relay settings, sender identity, and connection verification."),
+        new(EmailDeliveryProviderKeys.Microsoft365, "M", "Microsoft 365", "Guided Exchange Online setup.", "A guided flow for Microsoft 365 authenticated SMTP, tenant requirements, sender identity, and connection verification."),
+        new(EmailDeliveryProviderKeys.SendGrid, "SG", "SendGrid", "Guided API-backed SMTP setup.", "A guided flow for SendGrid SMTP credentials, verified senders, and recommended transport settings."),
+        new(EmailDeliveryProviderKeys.AmazonSes, "AWS", "Amazon SES", "Guided regional SMTP setup.", "A guided flow for SES regions, generated SMTP credentials, verified identities, and sandbox considerations.")
+    ];
+
+    private bool CanSave => !string.IsNullOrWhiteSpace(_name) && !string.IsNullOrWhiteSpace(_host) && _port is > 0 and <= 65535 &&
+        !string.IsNullOrWhiteSpace(_fromAddress) && !string.IsNullOrWhiteSpace(_fromName) && Uri.TryCreate(_publicAppUrl, UriKind.Absolute, out _);
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try { _profiles = (await Http.GetFromJsonAsync<List<EmailDeliveryProfileResponse>>("api/setup/email-delivery/profiles")) ?? []; }
+        catch { _pageError = true; _pageMessage = "Unable to load email delivery profiles."; }
+        finally { _loading = false; }
+    }
+
+    private void OpenCustomSmtp() { ResetEditor(); _publicAppUrl = Navigation.BaseUri.TrimEnd('/'); _dialogOpen = true; }
+    private void OpenPreview(ProviderPreview preview) { _activePreview = preview; _dialogOpen = true; }
+    private void EditProfile(EmailDeliveryProfileResponse profile)
+    {
+        ResetEditor();
+        _editingId = profile.Id; _name = profile.Name; _host = profile.Host; _port = profile.Port; _enableSsl = profile.EnableSsl;
+        _username = profile.UserName; _hasPassword = profile.HasPassword; _fromAddress = profile.FromAddress; _fromName = profile.FromName; _publicAppUrl = profile.PublicAppUrl;
+        _dialogOpen = true;
+    }
+
+    private async Task SaveAndTestAsync()
+    {
+        _busy = true; _dialogMessage = null; _dialogError = false;
+        try
+        {
+            var request = new SaveEmailDeliveryProfileRequest(_name, EmailDeliveryProviderKeys.CustomSmtp, _host, _port, _enableSsl, _username,
+                string.IsNullOrEmpty(_password) ? null : _password, false, _fromAddress, _fromName, _publicAppUrl);
+            var response = _editingId.HasValue
+                ? await Http.PutAsJsonAsync($"api/setup/email-delivery/profiles/{_editingId:D}", request)
+                : await Http.PostAsJsonAsync("api/setup/email-delivery/profiles", request);
+            var saved = await response.Content.ReadFromJsonAsync<EmailDeliveryProfileActionResponse>();
+            if (saved?.Succeeded != true || saved.Profile is null)
+            {
+                _dialogError = true; _dialogMessage = saved?.Message ?? "The profile could not be saved."; return;
+            }
+            _profiles = saved.Profiles?.ToList() ?? _profiles; _editingId = saved.Profile.Id; _password = null; _hasPassword = saved.Profile.HasPassword;
+            var testResponse = await Http.PostAsync($"api/setup/email-delivery/profiles/{saved.Profile.Id:D}/test", null);
+            var tested = await testResponse.Content.ReadFromJsonAsync<EmailDeliveryProfileActionResponse>();
+            _profiles = tested?.Profiles?.ToList() ?? _profiles;
+            _dialogError = tested?.Succeeded != true;
+            _dialogMessage = tested?.Message ?? "The test email could not be delivered. The profile was saved.";
+            if (tested?.Succeeded == true && tested.Profile?.IsDefault == true &&
+                AuthSession.Current?.IsEmailConfirmed == false && !string.IsNullOrWhiteSpace(AuthSession.Current.Email))
+            {
+                var verification = await AuthenticationApi.ResendConfirmationAsync(AuthSession.Current.Email);
+                _dialogMessage += verification.Succeeded ? " A verification email was also sent." : $" {verification.Message}";
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SetDefaultAsync(Guid id) => await RunRosterActionAsync(Http.PostAsync($"api/setup/email-delivery/profiles/{id:D}/default", null));
+    private async Task DeleteProfileAsync(Guid id) => await RunRosterActionAsync(Http.DeleteAsync($"api/setup/email-delivery/profiles/{id:D}"));
+    private async Task RunRosterActionAsync(Task<HttpResponseMessage> operation)
+    {
+        _busy = true; _pageMessage = null;
+        try
+        {
+            var response = await operation;
+            var result = await response.Content.ReadFromJsonAsync<EmailDeliveryProfileActionResponse>();
+            _pageError = result?.Succeeded != true; _pageMessage = result?.Message ?? "The email profile action failed.";
+            if (result?.Profiles is not null) _profiles = result.Profiles.ToList();
+        }
+        finally { _busy = false; }
+    }
+
+    private Task OnDialogVisibilityChanged(bool visible) { if (!visible && !_busy) CloseDialog(); return Task.CompletedTask; }
+    private void CloseDialog() { if (!_busy) { _dialogOpen = false; _activePreview = null; } }
+    private void ResetEditor()
+    {
+        _editingId = null; _activePreview = null; _dialogMessage = null; _dialogError = false; _name = "Custom SMTP"; _host = string.Empty;
+        _port = 587; _enableSsl = true; _username = null; _password = null; _hasPassword = false; _fromAddress = string.Empty; _fromName = "C-Sweet";
+    }
+
+    private sealed record ProviderPreview(string Key, string Mark, string Name, string Description, string Guidance);
+}

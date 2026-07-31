@@ -153,25 +153,25 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
             .Select(x => (Guid?)x.Id)
             .SingleOrDefaultAsync(cancellationToken);
 
+        var account = applicationUserId.HasValue
+            ? await _dbContext.Users
+                .Where(x => x.Id == applicationUserId.Value)
+                .Select(x => new { x.DisplayName, x.Email })
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+
         var ceo = new OrganizationUser
         {
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
             ApplicationUserId = applicationUserId,
             RoleId = ceoRoleId,
-            DisplayName = "Self",
+            DisplayName = account?.DisplayName ?? "Owner",
+            Email = account?.Email,
             EmployeeType = EmployeeType.Human,
             PermissionLevel = OrganizationPermissionLevel.Owner,
             CreatedAt = now
         };
-
-        if (applicationUserId.HasValue)
-        {
-            ceo.Email = await _dbContext.Users
-                .Where(x => x.Id == applicationUserId.Value)
-                .Select(x => x.Email)
-                .SingleOrDefaultAsync(cancellationToken);
-        }
 
         _dbContext.CoreOrganizationUsers.Add(ceo);
         await _dbContext.SaveChangesAsync(cancellationToken);

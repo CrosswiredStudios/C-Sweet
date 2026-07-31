@@ -31,8 +31,7 @@ public static class EmployeePresentationService
                 runtimeStatuses.TryGetValue(employee.AgentInstallationId ?? Guid.Empty, out var runtime);
 
                 var isAgent = employee.EmployeeType == 1;
-                var isSelf = employee.ApplicationUserId.HasValue ||
-                    string.Equals(employee.DisplayName.Trim(), "Self", StringComparison.OrdinalIgnoreCase);
+                var isSelf = employee.ApplicationUserId.HasValue;
                 var status = RuntimeStatus(isAgent, employee.AgentInstallationId, runtime);
                 var directReports = employees
                     .Where(x => x.ReportsToOrganizationUserId == employee.Id)

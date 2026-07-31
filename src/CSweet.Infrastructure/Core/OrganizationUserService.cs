@@ -328,7 +328,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
             return Failure("not_found", "User was not found.");
         }
 
-        if (user.ApplicationUserId.HasValue || string.Equals(user.DisplayName.Trim(), "Self", StringComparison.OrdinalIgnoreCase))
+        if (user.ApplicationUserId.HasValue)
         {
             return Failure("cannot_delete_self", "The administrator membership cannot be removed.");
         }

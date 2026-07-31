@@ -457,8 +457,7 @@ public partial class Employees
         _employees.Count(x => x.ReportsToOrganizationUserId == employee.Id);
 
     private static bool IsChattableAgent(OrganizationUserResponse employee) =>
-        employee.EmployeeType == 1 &&
-        !string.Equals(employee.DisplayName, "Self", StringComparison.OrdinalIgnoreCase);
+        employee.EmployeeType == 1;
 
     private string RuntimeStatusLabel(OrganizationUserResponse employee) =>
         RuntimeStatus(employee)?.Stage switch
@@ -1056,8 +1055,7 @@ public partial class Employees
     }
 
     private static bool IsSelf(OrganizationUserResponse employee) =>
-        employee.ApplicationUserId.HasValue ||
-        string.Equals(employee.DisplayName.Trim(), "Self", StringComparison.OrdinalIgnoreCase);
+        employee.ApplicationUserId.HasValue;
 
     private async Task LoadEmployeesAsync()
     {

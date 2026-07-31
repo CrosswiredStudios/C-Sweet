@@ -10,7 +10,7 @@ public sealed class EmployeePresentationTests
     [Fact]
     public void Hierarchy_FocusesSelf_AndLimitsByDegrees()
     {
-        var root = Employee("Self");
+        var root = Employee("Avery", isSelf: true);
         var manager = Employee("Manager", root.Id);
         var specialist = Employee("Specialist", manager.Id);
         var intern = Employee("Intern", specialist.Id);
@@ -70,7 +70,7 @@ public sealed class EmployeePresentationTests
     [Fact]
     public void Presentation_MapsProtectedAndAgentActions()
     {
-        var self = Employee("Self");
+        var self = Employee("Avery", isSelf: true);
         var agent = Employee("Scout", self.Id, employeeType: 1) with
         {
             AgentInstallationId = Guid.NewGuid(),
@@ -131,8 +131,12 @@ public sealed class EmployeePresentationTests
         string name,
         Guid? managerId = null,
         Guid? id = null,
-        int employeeType = 0) =>
-        new(id ?? Guid.NewGuid(), Guid.NewGuid(), managerId, null, null, name, null, employeeType, 0, DateTimeOffset.UtcNow);
+        int employeeType = 0,
+        bool isSelf = false) =>
+        new OrganizationUserResponse(id ?? Guid.NewGuid(), Guid.NewGuid(), managerId, null, null, name, null, employeeType, 0, DateTimeOffset.UtcNow)
+        {
+            ApplicationUserId = isSelf ? Guid.NewGuid() : null
+        };
 
     private static EmployeeViewModel ViewModel(
         OrganizationUserResponse employee,

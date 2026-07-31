@@ -11,6 +11,7 @@ public sealed record AuthStatusResponse(
     string? AntiforgeryToken = null);
 
 public sealed record RegisterAdminRequest(
+    [property: Required, MaxLength(160)] string DisplayName,
     [property: Required, EmailAddress] string Email,
     [property: Required] string Password,
     [property: Required] string ConfirmPassword);

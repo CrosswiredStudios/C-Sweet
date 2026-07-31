@@ -1,11 +1,8 @@
 @page "/settings/security"
 @layout SettingsLayout
-@using System.Net.Http.Json
-@using CSweet.Contracts.Setup
 @inject IAuthenticationApiClient AuthenticationApi
 @inject AuthSessionStore AuthSession
 @inject IJSRuntime JS
-@inject HttpClient Http
 @implements IAsyncDisposable
 
 <PageTitle>Account security - C-Sweet</PageTitle>
@@ -38,26 +35,7 @@
     }
 
     <MudDivider Class="my-6" />
-    <MudText Typo="Typo.h5">Email delivery</MudText>
-    <MudText Color="Color.Secondary">Optional SMTP enables email verification, password recovery, and future invitations.</MudText>
-    @if (_emailSettings is not null)
-    {
-        <div class="setup-form-grid mt-4">
-            <MudTextField Label="SMTP Host" @bind-Value="_smtpHost" Variant="Variant.Outlined" />
-            <MudNumericField T="int" Label="Port" @bind-Value="_smtpPort" Variant="Variant.Outlined" />
-            <MudTextField Label="Username (optional)" @bind-Value="_smtpUsername" Variant="Variant.Outlined" />
-            <MudTextField Label="Password" @bind-Value="_smtpPassword" InputType="InputType.Password" Placeholder="@(_emailSettings.HasPassword ? "Saved password (leave blank to keep)" : null)" Variant="Variant.Outlined" />
-            <MudTextField Label="Sender Email" @bind-Value="_smtpFromAddress" InputType="InputType.Email" Variant="Variant.Outlined" />
-            <MudTextField Label="Sender Name" @bind-Value="_smtpFromName" Variant="Variant.Outlined" />
-            <MudTextField Class="setup-form-wide" Label="Public App URL" @bind-Value="_publicAppUrl" Variant="Variant.Outlined" />
-            <MudCheckBox T="bool" @bind-Value="_smtpTls" Label="Use TLS" />
-        </div>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_emailBusy" OnClick="SaveAndTestEmailAsync" Class="mt-4">Save &amp; Test</MudButton>
-        @if (!string.IsNullOrWhiteSpace(_emailMessage))
-        {
-            <MudAlert Severity="@(_emailSettings.IsReady ? Severity.Success : Severity.Info)" Variant="Variant.Outlined" Class="mt-4">@_emailMessage</MudAlert>
-        }
-    }
+    <EmailDeliverySetupStep ContextLabel="Email delivery profiles" ShowNavigation="false" />
 </MudPaper>
 
 @code {
@@ -65,32 +43,8 @@
     private string? _message;
     private IReadOnlyList<string> _codes = [];
     private IJSObjectReference? _module;
-    private EmailDeliverySettingsResponse? _emailSettings;
-    private bool _emailBusy;
-    private string? _emailMessage;
-    private string _smtpHost = string.Empty;
-    private int _smtpPort = 587;
-    private bool _smtpTls = true;
-    private string? _smtpUsername;
-    private string? _smtpPassword;
-    private string _smtpFromAddress = string.Empty;
-    private string _smtpFromName = "C-Sweet";
-    private string _publicAppUrl = string.Empty;
     private string Text => $"C-Sweet root recovery codes{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, _codes)}";
     private async Task<IJSObjectReference> ModuleAsync() => _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/auth-security.js");
-
-    protected override async Task OnInitializedAsync()
-    {
-        _emailSettings = await Http.GetFromJsonAsync<EmailDeliverySettingsResponse>("api/setup/email-delivery");
-        if (_emailSettings is null) return;
-        _smtpHost = _emailSettings.Host;
-        _smtpPort = _emailSettings.Port;
-        _smtpTls = _emailSettings.EnableSsl;
-        _smtpUsername = _emailSettings.UserName;
-        _smtpFromAddress = _emailSettings.FromAddress;
-        _smtpFromName = _emailSettings.FromName;
-        _publicAppUrl = _emailSettings.PublicAppUrl;
-    }
 
     private async Task RegenerateAsync()
     {
@@ -103,36 +57,6 @@
     private async Task CopyAsync() => await (await ModuleAsync()).InvokeVoidAsync("copyText", Text);
     private async Task DownloadAsync() => await (await ModuleAsync()).InvokeVoidAsync("downloadText", "csweet-root-recovery-codes.txt", Text);
     private async Task PrintAsync() => await (await ModuleAsync()).InvokeVoidAsync("printText", "C-Sweet root recovery codes", Text);
-
-    private async Task SaveAndTestEmailAsync()
-    {
-        _emailBusy = true;
-        try
-        {
-            var update = new UpdateEmailDeliverySettingsRequest(_smtpHost, _smtpPort, _smtpTls, _smtpUsername,
-                string.IsNullOrEmpty(_smtpPassword) ? null : _smtpPassword, false,
-                _smtpFromAddress, _smtpFromName, _publicAppUrl);
-            var saveResponse = await Http.PutAsJsonAsync("api/setup/email-delivery", update);
-            var save = await saveResponse.Content.ReadFromJsonAsync<EmailDeliveryActionResponse>();
-            if (save?.Succeeded != true)
-            {
-                _emailMessage = save?.Message ?? "Email settings could not be saved.";
-                return;
-            }
-
-            _smtpPassword = null;
-            var testResponse = await Http.PostAsync("api/setup/email-delivery/test", null);
-            var test = await testResponse.Content.ReadFromJsonAsync<EmailDeliveryActionResponse>();
-            _emailSettings = test?.Settings ?? save.Settings;
-            _emailMessage = test?.Message ?? "The test email could not be delivered.";
-            if (test?.Succeeded == true && AuthSession.Current?.IsEmailConfirmed == false && !string.IsNullOrWhiteSpace(AuthSession.Current.Email))
-            {
-                var verification = await AuthenticationApi.ResendConfirmationAsync(AuthSession.Current.Email);
-                _emailMessage += verification.Succeeded ? " A verification email was also sent." : $" {verification.Message}";
-            }
-        }
-        finally { _emailBusy = false; }
-    }
 
     public async ValueTask DisposeAsync() { if (_module is not null) await _module.DisposeAsync(); }
 }

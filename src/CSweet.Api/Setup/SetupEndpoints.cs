@@ -32,10 +32,10 @@ public static class SetupEndpoints
                 : Results.BadRequest(result);
         });
 
-        group.MapGet("/email-delivery", async (
-            IEmailDeliverySettingsService service,
+        group.MapGet("/email-delivery/profiles", async (
+            IEmailDeliveryProfileService service,
             CancellationToken cancellationToken) =>
-            Results.Ok(await service.GetAsync(cancellationToken)));
+            Results.Ok(await service.ListAsync(cancellationToken)));
 
         group.MapGet("/communications/options", (IConfiguration configuration) =>
         {
@@ -46,23 +46,52 @@ public static class SetupEndpoints
                 FirstPartyCommunicationPlugins(configuration)));
         });
 
-        group.MapPut("/email-delivery", async (
-            UpdateEmailDeliverySettingsRequest request,
-            IEmailDeliverySettingsService service,
+        group.MapPost("/email-delivery/profiles", async (
+            SaveEmailDeliveryProfileRequest request,
+            IEmailDeliveryProfileService service,
             CancellationToken cancellationToken) =>
         {
-            var result = await service.UpdateAsync(request, cancellationToken);
+            var result = await service.CreateAsync(request, cancellationToken);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         });
 
-        group.MapPost("/email-delivery/test", async (
+        group.MapPut("/email-delivery/profiles/{id:guid}", async (
+            Guid id,
+            SaveEmailDeliveryProfileRequest request,
+            IEmailDeliveryProfileService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.UpdateAsync(id, request, cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        });
+
+        group.MapDelete("/email-delivery/profiles/{id:guid}", async (
+            Guid id,
+            IEmailDeliveryProfileService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.DeleteAsync(id, cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        });
+
+        group.MapPost("/email-delivery/profiles/{id:guid}/test", async (
+            Guid id,
             ClaimsPrincipal principal,
-            IEmailDeliverySettingsService service,
+            IEmailDeliveryProfileService service,
             CancellationToken cancellationToken) =>
         {
             var userId = principal.GetApplicationUserId();
             if (!userId.HasValue) return Results.Unauthorized();
-            var result = await service.TestAsync(userId.Value, cancellationToken);
+            var result = await service.TestAsync(id, userId.Value, cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        });
+
+        group.MapPost("/email-delivery/profiles/{id:guid}/default", async (
+            Guid id,
+            IEmailDeliveryProfileService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.SetDefaultAsync(id, cancellationToken);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         });
 

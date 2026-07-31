@@ -9,8 +9,6 @@
 @inject ILlmProviderApiClient LlmProviderApi
 @inject NavigationManager Navigation
 @inject HttpClient Http
-@inject IAuthenticationApiClient AuthenticationApi
-@inject AuthSessionStore AuthSession
 
 <PageTitle>C-Sweet Setup</PageTitle>
 
@@ -81,8 +79,7 @@
         new(2, "llm-provider", "LLM Providers", "Connect endpoints"),
         new(3, "genai-provider", "GenAI Providers", "Optional"),
         new(4, "email-delivery", "Email Delivery", "Optional"),
-        new(5, "communications", "Communications", "Optional"),
-        new(6, "finish", "Finish", "Unlock app")
+        new(5, "communications", "Communications", "Optional")
     ];
 
     private SetupStatusResponse? _status;
@@ -92,22 +89,10 @@
     private bool _isBusy;
     private string? _pageError;
     private string? _stepMessage;
-    private EmailDeliverySettingsResponse? _emailSettings;
-    private string _smtpHost = string.Empty;
-    private int _smtpPort = 587;
-    private bool _smtpTls = true;
-    private string? _smtpUsername;
-    private string? _smtpPassword;
-    private string _smtpFromAddress = string.Empty;
-    private string _smtpFromName = "C-Sweet";
-    private string _publicAppUrl = string.Empty;
     private CommunicationSetupOptionsResponse? _communicationOptions;
 
     private Guid? _providerProfileId;
     private bool _localProviderDiscoveryAttempted;
-    private bool CanFinish => _status is not null && SetupWizardState.CanFinish(_status);
-    private bool RequiredPriorStepsComplete => _status?.Steps.Where(x => x.IsRequired && x.Key != "finish").All(x => x.IsComplete) == true;
-
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
@@ -122,9 +107,7 @@
         {
             _status = await SetupApi.GetStatusAsync();
             _profiles = await LlmProviderApi.ListAsync();
-            _emailSettings = await Http.GetFromJsonAsync<EmailDeliverySettingsResponse>("api/setup/email-delivery");
             _communicationOptions = await Http.GetFromJsonAsync<CommunicationSetupOptionsResponse>("api/setup/communications/options");
-            ApplyEmailSettings();
             _providerProfileId ??= _profiles.LastOrDefault()?.Id;
 
             if (_status.IsFirstRunComplete)
@@ -154,7 +137,6 @@
     private void BackToProvider() => SelectStep("llm-provider");
     private void BackToGenAiProvider() => SelectStep("genai-provider");
     private void BackToEmailDelivery() => SelectStep("email-delivery");
-    private void BackToCommunications() => SelectStep("communications");
 
     private RenderFragment RenderActiveStep() => _activeStepKey switch
     {
@@ -163,7 +145,6 @@
         "genai-provider" => GenAiProviderStep,
         "email-delivery" => EmailDeliveryStep,
         "communications" => CommunicationsStep,
-        "finish" => FinishStep,
         _ => WelcomeStep
     };
 
@@ -180,83 +161,13 @@
     private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep OnContinue="@ContinueFromGenAiProviderAsync"
                                                                               OnBack="@BackToProvider" />;
 
-    private RenderFragment EmailDeliveryStep => @<div class="setup-legacy-step">
-        <div class="setup-step-heading">
-            <MudText Typo="Typo.overline" Color="Color.Primary">Step 4</MudText>
-            <MudText Typo="Typo.h5">Email Delivery <MudChip T="string" Size="Size.Small">Optional</MudChip></MudText>
-            <MudText Color="Color.Secondary">Configure SMTP for email verification, password recovery, and future invitations. You can safely skip this and return later.</MudText>
-        </div>
-        <div class="setup-form-grid">
-            <MudTextField Label="SMTP Host" @bind-Value="_smtpHost" Variant="Variant.Outlined" />
-            <MudNumericField T="int" Label="Port" @bind-Value="_smtpPort" Variant="Variant.Outlined" />
-            <MudTextField Label="Username (optional)" @bind-Value="_smtpUsername" Variant="Variant.Outlined" />
-            <MudTextField Label="Password" @bind-Value="_smtpPassword" InputType="InputType.Password" Placeholder="@(_emailSettings?.HasPassword == true ? "Saved password (leave blank to keep)" : null)" Variant="Variant.Outlined" />
-            <MudTextField Label="Sender Email" @bind-Value="_smtpFromAddress" InputType="InputType.Email" Variant="Variant.Outlined" />
-            <MudTextField Label="Sender Name" @bind-Value="_smtpFromName" Variant="Variant.Outlined" />
-            <MudTextField Class="setup-form-wide" Label="Public App URL" @bind-Value="_publicAppUrl" Variant="Variant.Outlined" />
-            <MudCheckBox T="bool" @bind-Value="_smtpTls" Label="Use TLS" />
-        </div>
-        @if (_emailSettings?.IsReady == true)
-        {
-            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mt-4">Email delivery was tested successfully.</MudAlert>
-        }
-        @StepMessage()
-        <footer class="email-step-actions">
-            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" OnClick="BackToGenAiProvider">Back</MudButton>
-            <div class="email-step-primary-actions">
-                <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="SkipEmailDeliveryAsync">Skip for now</MudButton>
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           EndIcon="@Icons.Material.Filled.ArrowForward"
-                           Disabled="@_isBusy"
-                           OnClick="TestEmailDeliveryAsync">
-                    Continue
-                </MudButton>
-            </div>
-        </footer>
-    </div>;
+    private RenderFragment EmailDeliveryStep =>
+        @<EmailDeliverySetupStep OnBack="@BackToGenAiProvider" OnContinue="@ContinueFromEmailDeliveryAsync" />;
 
     private RenderFragment CommunicationsStep => @<CommunicationsSetupStep Options="@_communicationOptions"
                                                                               OnBack="@BackToEmailDelivery"
+                                                                              CompletionMessage="@_stepMessage"
                                                                               OnContinue="@CompleteCommunicationsAsync" />;
-
-    private RenderFragment FinishStep => @<div class="setup-legacy-step">
-        <div class="setup-step-heading">
-            <MudText Typo="Typo.overline" Color="Color.Primary">Step 6</MudText>
-            <MudText Typo="Typo.h5">Finish Setup</MudText>
-            <MudText Color="Color.Secondary">Complete first-run setup and unlock business onboarding.</MudText>
-        </div>
-
-        <div class="setup-check-list">
-            @CapabilityRow("Required steps complete", RequiredPriorStepsComplete, required: true)
-            @CapabilityRow("At least one provider connected", _profiles.Any(x => x.IsEnabled), required: true)
-            @CapabilityRow("Provider model catalog verified", IsStepComplete("llm-provider"), required: true)
-            @CapabilityRow("GenAI provider setup reviewed", IsStepComplete("genai-provider"), required: false)
-            @CapabilityRow("Email delivery tested", _emailSettings?.IsReady, required: false)
-            @CapabilityRow("Communication setup reviewed", IsStepComplete("communications"), required: false)
-        </div>
-
-        @StepMessage()
-        <MudStack Row="true" Class="setup-actions">
-            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" OnClick="BackToCommunications">Back</MudButton>
-            <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="@(_isBusy || !CanFinish)" OnClick="FinishSetupAsync">
-                @(_isBusy ? "Finishing..." : "Complete Setup")
-            </MudButton>
-        </MudStack>
-    </div>;
-
-    private RenderFragment CapabilityRow(string label, bool? value, bool required) => @<div class="setup-check-row">
-        <span class="@CheckClass(value, required)">@CheckGlyph(value, required)</span>
-        <span>@label</span>
-        <small>@CheckText(value, required)</small>
-    </div>;
-
-    private RenderFragment StepMessage() => @<div>
-        @if (!string.IsNullOrWhiteSpace(_stepMessage))
-        {
-            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-4">@_stepMessage</MudAlert>
-        }
-    </div>;
 
     private Task HandleProfilesChangedAsync(IReadOnlyList<LlmProviderProfileResponse> profiles)
     {
@@ -283,73 +194,11 @@
     private Task ContinueFromGenAiProviderAsync() =>
         CompleteStepAsync("genai-provider", "email-delivery");
 
-    private void ApplyEmailSettings()
-    {
-        if (_emailSettings is null) return;
-        _smtpHost = _emailSettings.Host;
-        _smtpPort = _emailSettings.Port;
-        _smtpTls = _emailSettings.EnableSsl;
-        _smtpUsername = _emailSettings.UserName;
-        _smtpFromAddress = _emailSettings.FromAddress;
-        _smtpFromName = _emailSettings.FromName;
-        _publicAppUrl = string.IsNullOrWhiteSpace(_emailSettings.PublicAppUrl) ? Navigation.BaseUri.TrimEnd('/') : _emailSettings.PublicAppUrl;
-    }
-
-    private async Task<bool> SaveEmailDeliveryAsync()
-    {
-        _isBusy = true;
-        _stepMessage = null;
-        try
-        {
-            var request = new UpdateEmailDeliverySettingsRequest(_smtpHost, _smtpPort, _smtpTls, _smtpUsername,
-                string.IsNullOrEmpty(_smtpPassword) ? null : _smtpPassword, false, _smtpFromAddress, _smtpFromName, _publicAppUrl);
-            var response = await Http.PutAsJsonAsync("api/setup/email-delivery", request);
-            var result = await response.Content.ReadFromJsonAsync<EmailDeliveryActionResponse>();
-            _stepMessage = result?.Message ?? "Email delivery settings could not be saved.";
-            if (result?.Succeeded == true)
-            {
-                _emailSettings = result.Settings;
-                _smtpPassword = null;
-                return true;
-            }
-            return false;
-        }
-        finally { _isBusy = false; }
-    }
-
-    private async Task TestEmailDeliveryAsync()
-    {
-        if (!await SaveEmailDeliveryAsync()) return;
-        _isBusy = true;
-        try
-        {
-            var response = await Http.PostAsync("api/setup/email-delivery/test", null);
-            var result = await response.Content.ReadFromJsonAsync<EmailDeliveryActionResponse>();
-            _stepMessage = result?.Message ?? "The test email could not be delivered.";
-            if (result?.Succeeded == true)
-            {
-                _emailSettings = result.Settings;
-                if (AuthSession.Current?.IsEmailConfirmed == false && !string.IsNullOrWhiteSpace(AuthSession.Current.Email))
-                {
-                    await AuthenticationApi.ResendConfirmationAsync(AuthSession.Current.Email);
-                    _stepMessage += " A verification email was also sent.";
-                }
-                await CompleteStepAsync("email-delivery", "communications");
-            }
-        }
-        finally { _isBusy = false; }
-    }
-
-    private async Task SkipEmailDeliveryAsync()
-    {
-        await CompleteStepAsync("email-delivery", "communications");
-        _stepMessage = "Email delivery skipped. Root recovery codes remain available, and SMTP can be configured later.";
-    }
+    private Task ContinueFromEmailDeliveryAsync() => CompleteStepAsync("email-delivery", "communications");
 
     private async Task CompleteCommunicationsAsync()
     {
-        await CompleteStepAsync("communications", "finish");
-        _stepMessage = "C-Sweet chat remains enabled. Additional communication surfaces can be connected or updated later from Settings.";
+        await FinishSetupAsync();
     }
 
     private async Task FinishSetupAsync()
@@ -405,40 +254,6 @@
     private bool IsStepComplete(string key)
     {
         return _status?.Steps.Any(x => x.Key == key && x.IsComplete) == true;
-    }
-
-    private static string CheckGlyph(bool? value, bool required)
-    {
-        return value switch
-        {
-            true => "✓",
-            false when required => "!",
-            false => "!",
-            _ => "•"
-        };
-    }
-
-    private static string CheckClass(bool? value, bool required)
-    {
-        return value switch
-        {
-            true => "setup-check setup-check-success",
-            false when required => "setup-check setup-check-error",
-            false => "setup-check setup-check-warning",
-            _ => "setup-check setup-check-muted"
-        };
-    }
-
-    private static string CheckText(bool? value, bool required)
-    {
-        return value switch
-        {
-            true => "Passed",
-            false when required => "Required",
-            false => "Optional unsupported",
-            _ when required => "Required",
-            _ => "Optional"
-        };
     }
 
     private sealed record WizardStep(int Number, string Key, string Title, string Description);

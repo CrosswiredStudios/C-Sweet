@@ -11,14 +11,9 @@ public static class SetupWizardState
         SetupStatusResponse status)
     {
         return orderedStepKeys.FirstOrDefault(key =>
-            !status.Steps.Any(step => step.Key == key && step.IsComplete)) ?? "finish";
-    }
-
-    public static bool CanFinish(SetupStatusResponse status)
-    {
-        return status.Steps
-            .Where(step => step.IsRequired && step.Key != "finish")
-            .All(step => step.IsComplete);
+            !status.Steps.Any(step => step.Key == key && step.IsComplete))
+            ?? orderedStepKeys.LastOrDefault()
+            ?? "welcome";
     }
 
     public static LlmProviderSetupDefaults LmStudioDefaults()

@@ -7,16 +7,6 @@
             Everything can grow and change with your organization later.
         </p>
 
-        <div class="setup-welcome-actions">
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       EndIcon="@Icons.Material.Filled.ArrowForward"
-                       Disabled="@IsBusy"
-                       OnClick="OnContinue">
-                @(IsBusy ? "Starting..." : "Start setup")
-            </MudButton>
-            <span>Takes about 3 minutes</span>
-        </div>
     </div>
 
     <ol class="setup-promise-list" aria-label="What setup includes">
@@ -42,6 +32,17 @@
             </div>
         </li>
     </ol>
+
+    <footer class="setup-welcome-actions">
+        <span>Takes about 3 minutes</span>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   EndIcon="@Icons.Material.Filled.ArrowForward"
+                   Disabled="@IsBusy"
+                   OnClick="OnContinue">
+            @(IsBusy ? "Starting..." : "Start setup")
+        </MudButton>
+    </footer>
 </section>
 
 @code {

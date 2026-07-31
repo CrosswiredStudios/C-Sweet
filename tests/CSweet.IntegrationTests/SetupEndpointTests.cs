@@ -34,6 +34,8 @@ public class SetupEndpointTests
 
         Assert.NotNull(status);
         Assert.False(status.IsFirstRunComplete);
+        Assert.Equal(5, status.Steps.Count);
+        Assert.DoesNotContain(status.Steps, x => x.Key == "finish");
         Assert.Contains(status.Steps, x => x.Key == "email-delivery" && !x.IsRequired);
         Assert.Contains(status.Steps, x => x.Key == "genai-provider" && !x.IsRequired);
         Assert.DoesNotContain(status.Steps, x => x.Key == "model-capability-test");

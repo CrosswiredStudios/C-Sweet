@@ -34,6 +34,11 @@ public sealed class AuthenticationEndpointTests
         Assert.NotNull(registrationResult);
         Assert.Equal(10, registrationResult.RecoveryCodes?.Count);
         Assert.Empty(emailSender.Confirmations);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            Assert.Equal("Admin User", (await db.Users.SingleAsync()).DisplayName);
+        }
 
         var authenticated = await client.GetFromJsonAsync<AuthStatusResponse>("/api/auth/session");
         Assert.NotNull(authenticated);
@@ -54,10 +59,16 @@ public sealed class AuthenticationEndpointTests
     public async Task Registration_UsesIdentityValidationAndClosesAfterSingleConcurrentWinner()
     {
         await using var factory = CreateFactory(out _);
+        var namelessClient = CreateHttpsClient(factory);
+        var nameless = await namelessClient.PostAsJsonAsync(
+            "/api/auth/register",
+            new RegisterAdminRequest(" ", "admin@example.com", "Password1!", "Password1!"));
+        Assert.Equal(HttpStatusCode.BadRequest, nameless.StatusCode);
+
         var weakClient = CreateHttpsClient(factory);
         var weak = await weakClient.PostAsJsonAsync(
             "/api/auth/register",
-            new RegisterAdminRequest("admin@example.com", "password", "password"));
+            new RegisterAdminRequest("Admin User", "admin@example.com", "password", "password"));
         Assert.Equal(HttpStatusCode.BadRequest, weak.StatusCode);
 
         var firstClient = CreateHttpsClient(factory);
@@ -117,6 +128,7 @@ public sealed class AuthenticationEndpointTests
             var invited = new ApplicationUser
             {
                 Id = Guid.NewGuid(),
+                DisplayName = "Invited Person",
                 UserName = "person@example.com",
                 Email = "person@example.com",
                 IsInitialAdministrator = false,
@@ -156,7 +168,7 @@ public sealed class AuthenticationEndpointTests
     }
 
     [Fact]
-    public async Task EmailDeliverySettings_EncryptPasswordAndRequireSuccessfulTestForRecovery()
+    public async Task EmailDeliveryProfiles_EncryptPasswordAndRequireSuccessfulDefaultTestForRecovery()
     {
         await using var factory = CreateFactory(out var sender);
         var client = CreateHttpsClient(factory);
@@ -164,25 +176,28 @@ public sealed class AuthenticationEndpointTests
         var session = await client.GetFromJsonAsync<AuthStatusResponse>("/api/auth/session");
         client.DefaultRequestHeaders.Add("X-CSWEET-CSRF", session!.AntiforgeryToken);
 
-        var update = new CSweet.Contracts.Setup.UpdateEmailDeliverySettingsRequest(
+        var update = new CSweet.Contracts.Setup.SaveEmailDeliveryProfileRequest(
+            "Primary SMTP", CSweet.Contracts.Setup.EmailDeliveryProviderKeys.CustomSmtp,
             "smtp.example.com", 587, true, "smtp-user", "top-secret", false,
             "sender@example.com", "C-Sweet", "https://csweet.example.com");
-        var saved = await client.PutAsJsonAsync("/api/setup/email-delivery", update);
+        var saved = await client.PostAsJsonAsync("/api/setup/email-delivery/profiles", update);
         Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var savedResult = await saved.Content.ReadFromJsonAsync<CSweet.Contracts.Setup.EmailDeliveryProfileActionResponse>();
+        var profileId = savedResult!.Profile!.Id;
 
         using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
-            var persisted = await db.EmailDeliveryConfigurations.SingleAsync();
+            var persisted = await db.EmailDeliveryProfiles.SingleAsync();
             Assert.NotEqual("top-secret", persisted.EncryptedPassword);
             Assert.False(string.IsNullOrWhiteSpace(persisted.EncryptedPassword));
         }
 
-        var beforeTest = await client.GetFromJsonAsync<CSweet.Contracts.Setup.EmailDeliverySettingsResponse>("/api/setup/email-delivery");
-        Assert.True(beforeTest!.HasPassword);
-        Assert.False(beforeTest.IsReady);
+        var beforeTest = await client.GetFromJsonAsync<IReadOnlyList<CSweet.Contracts.Setup.EmailDeliveryProfileResponse>>("/api/setup/email-delivery/profiles");
+        Assert.True(Assert.Single(beforeTest!).HasPassword);
+        Assert.False(Assert.Single(beforeTest!).IsReady);
 
-        var tested = await client.PostAsync("/api/setup/email-delivery/test", null);
+        var tested = await client.PostAsync($"/api/setup/email-delivery/profiles/{profileId:D}/test", null);
         Assert.Equal(HttpStatusCode.OK, tested.StatusCode);
         Assert.Single(sender.Tests);
         var afterTest = await client.GetFromJsonAsync<AuthStatusResponse>("/api/auth/session");
@@ -220,7 +235,7 @@ public sealed class AuthenticationEndpointTests
     }
 
     private static RegisterAdminRequest ValidRegistration(string email = "admin@example.com") =>
-        new(email, "Password1!", "Password1!");
+        new("Admin User", email, "Password1!", "Password1!");
 
     private static HttpClient CreateHttpsClient(WebApplicationFactory<Program> factory) =>
         factory.CreateClient(new WebApplicationFactoryClientOptions
@@ -268,7 +283,7 @@ public sealed class AuthenticationEndpointTests
             return Task.CompletedTask;
         }
 
-        public Task SendTestAsync(string email, CancellationToken cancellationToken)
+        public Task SendTestAsync(string email, Guid profileId, CancellationToken cancellationToken)
         {
             Tests.Enqueue(email);
             return Task.CompletedTask;

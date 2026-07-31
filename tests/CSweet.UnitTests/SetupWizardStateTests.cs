@@ -34,26 +34,19 @@ public class SetupWizardStateTests
     }
 
     [Fact]
-    public void FinishDependsOnRequiredStepsRatherThanDefaultProvider()
+    public void WizardReturnsLastVisibleStepWhenEveryVisibleStepIsComplete()
     {
-        var incomplete = Status(
-            defaultChatProviderId: Guid.NewGuid(),
-            ("welcome", true),
-            ("llm-provider", false));
-
-        var noProvider = Status(
+        var status = Status(
             defaultChatProviderId: null,
             ("welcome", true),
-            ("llm-provider", true));
+            ("llm-provider", true),
+            ("communications", true));
 
-        var complete = Status(
-            defaultChatProviderId: Guid.NewGuid(),
-            ("welcome", true),
-            ("llm-provider", true));
+        var step = SetupWizardState.FirstIncompleteStepKey(
+            ["welcome", "llm-provider", "communications"],
+            status);
 
-        Assert.False(SetupWizardState.CanFinish(incomplete));
-        Assert.True(SetupWizardState.CanFinish(noProvider));
-        Assert.True(SetupWizardState.CanFinish(complete));
+        Assert.Equal("communications", step);
     }
 
     [Fact]

@@ -104,7 +104,7 @@ public class CoreServiceTests
 
         var ceo = Assert.Single(employees);
 
-        Assert.Equal("Self", ceo.DisplayName);
+        Assert.Equal("Owner", ceo.DisplayName);
         Assert.Equal(EmployeeType.Human, ceo.EmployeeType);
         Assert.Equal(OrganizationPermissionLevel.Owner, ceo.PermissionLevel);
         Assert.Equal(ceoRole.Id, ceo.RoleId);
@@ -426,7 +426,7 @@ public class CoreServiceTests
     [Theory]
     [InlineData(EmployeeType.Human, OrganizationPermissionLevel.Owner)]
     [InlineData(EmployeeType.Agent, OrganizationPermissionLevel.Viewer)]
-    public async Task OrganizationUserDeletion_RejectsSelfRegardlessOfRole(
+    public async Task OrganizationUserDeletion_RejectsApplicationUserMembershipRegardlessOfRole(
         EmployeeType employeeType,
         OrganizationPermissionLevel permissionLevel)
     {
@@ -436,8 +436,9 @@ public class CoreServiceTests
         var self = new OrganizationUser
         {
             Id = Guid.NewGuid(),
+            ApplicationUserId = Guid.NewGuid(),
             OrganizationId = organization.Id,
-            DisplayName = "Self",
+            DisplayName = "Root Administrator",
             EmployeeType = employeeType,
             PermissionLevel = permissionLevel,
             CreatedAt = DateTimeOffset.UtcNow

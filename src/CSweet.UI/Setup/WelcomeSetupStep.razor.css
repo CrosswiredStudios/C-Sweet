@@ -31,10 +31,13 @@
 
 .setup-welcome-actions {
     display: flex;
+    grid-column: 1 / -1;
     align-items: center;
+    justify-content: space-between;
     flex-wrap: wrap;
     gap: 1rem;
-    margin-top: 2rem;
+    padding-top: 1.35rem;
+    border-top: 1px solid var(--cs-border);
 }
 
 .setup-welcome-actions span {
@@ -93,6 +96,12 @@
         grid-template-columns: 1fr;
         gap: 2.5rem;
         padding: 2rem 1.25rem 2.5rem;
+    }
+
+    .setup-welcome-actions {
+        grid-column: auto;
+        align-items: stretch;
+        flex-direction: column;
     }
 
     .setup-welcome h1 {
