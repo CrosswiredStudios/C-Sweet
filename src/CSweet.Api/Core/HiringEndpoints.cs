@@ -120,6 +120,57 @@ public static class HiringEndpoints
                 return Results.Conflict(new { error = "installation_rejected", message = exception.Message });
             }
         });
+        group.MapPost("/workflows/{workflowId:guid}/decide", async (Guid organizationId, Guid workflowId,
+            DecideHiringWorkflowRequest request, HttpContext http, IHiringService service,
+            CancellationToken cancellationToken) =>
+        {
+            var applicationUserId = http.User.GetApplicationUserId();
+            if (!applicationUserId.HasValue) return Results.Forbid();
+            try
+            {
+                var result = await service.DecideWorkflowAsync(
+                    organizationId, workflowId, applicationUserId.Value, request, cancellationToken);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                return Results.Json(new { error = "owner_required", message = exception.Message },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_decision", message = exception.Message });
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "approval_invalidated", message = exception.Message });
+            }
+            catch (AgentInstallationException exception)
+            {
+                return Results.Conflict(new { error = "installation_rejected", message = exception.Message });
+            }
+        });
+        group.MapPost("/workflows/{workflowId:guid}/cancel-preview", async (
+            Guid organizationId,
+            Guid workflowId,
+            HttpContext http,
+            IHiringService service,
+            CancellationToken cancellationToken) =>
+        {
+            var applicationUserId = http.User.GetApplicationUserId();
+            if (!applicationUserId.HasValue) return Results.Forbid();
+            try
+            {
+                var result = await service.CancelMarketplacePreviewAsync(
+                    organizationId, workflowId, applicationUserId.Value, cancellationToken);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                return Results.Json(new { error = "owner_required", message = exception.Message },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+        });
         return endpoints;
     }
 }

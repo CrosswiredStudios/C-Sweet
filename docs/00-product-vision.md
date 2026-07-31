@@ -2,7 +2,7 @@
 
 ## Vision
 
-CSweet is an open-source operating environment for agent-first companies. It allows a user to act as the CEO of a company or project while a Personal Assistant / Chief of Staff translates executive intent into plans, staffing decisions, delegated work, approvals, and results.
+CSweet is a self-hostable operating environment for agent-first companies. It allows a user to act as the CEO of a company or project while a Personal Assistant / Chief of Staff translates executive intent into plans, staffing decisions, delegated work, approvals, and results.
 
 The system combines the organizational clarity and accessibility of a company simulation with real execution through LLMs, tools, MCP servers, vendor services, and human professionals.
 
@@ -68,7 +68,7 @@ Runs through the self-hosted application using a local or hosted model selected 
 
 Characteristics:
 
-- Can be fully open source
+- Can use inspectable, customizable components when their package licenses permit
 - Can operate offline when dependencies are local
 - Uses application-controlled tools and MCP servers
 - Uses company-controlled prompts, policies, and context
@@ -110,9 +110,9 @@ Examples:
 
 All four can appear in the staff directory, join teams, receive responsibilities, complete tasks, create artifacts, consume budgets, and report blockers.
 
-## Local-first and open source
+## Local-first and self-hostable
 
-The core application and Blazor interface should be open source and self-hostable.
+The core application and Blazor interface should remain self-hostable. No repository license is implied until an explicit license is selected and committed.
 
 A fully local deployment should be able to operate without hosted model access when:
 

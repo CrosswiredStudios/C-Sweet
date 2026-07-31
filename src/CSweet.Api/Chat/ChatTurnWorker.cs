@@ -12,6 +12,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Setup;
 using CSweet.Communications.Abstractions;
+using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
@@ -138,6 +139,7 @@ public sealed class ChatTurnWorker(
             if (!providerId.HasValue) throw new InvalidOperationException("No enabled LLM provider is configured.");
 
             var output = new System.Text.StringBuilder();
+            Guid? terminalResourceChangeRequestId = null;
             var bypassMemory = false;
             string? fallbackReason = null;
             var memoryWasRecalled = !string.IsNullOrWhiteSpace(recalledMemory);
@@ -189,6 +191,15 @@ public sealed class ChatTurnWorker(
                     if (await db.ChatTurns.AsNoTracking().AnyAsync(x => x.Id == turnId && x.Status == ChatTurnStatus.Cancelled, hardTimeout.Token))
                         return;
                     if (!string.IsNullOrWhiteSpace(chunk.Error)) throw new InvalidOperationException(chunk.Delta);
+                    if (TryGetTerminalResourceChangeRequestId(chunk, out var resourceChangeRequestId))
+                    {
+                        terminalResourceChangeRequestId = resourceChangeRequestId;
+                        await PublishTraceAsync(turns, turnId, "output", "output.durable-approval", "completed",
+                            "Hiring plan approval requested",
+                            $"The durable approval request {resourceChangeRequestId:D} is the terminal response for this turn.",
+                            new { resourceChangeRequestId }, cancellationToken: hardTimeout.Token);
+                        break;
+                    }
                     if (chunk.Kind == "progress")
                     {
                         await PublishTraceAsync(turns, turnId, "model", "agent.progress", "running", chunk.Delta,
@@ -219,7 +230,8 @@ public sealed class ChatTurnWorker(
                     await PublishTraceAsync(turns, turnId, "output", "output.delta", "running", "Assistant output",
                         delta, cancellationToken: hardTimeout.Token);
                 }
-                if (output.Length == 0) throw new InvalidOperationException("The model provider returned an empty response.");
+                if (output.Length == 0 && terminalResourceChangeRequestId is null)
+                    throw new InvalidOperationException("The model provider returned an empty response.");
             }
             catch (Exception exception) when (exception is not OperationCanceledException && output.Length == 0)
             {
@@ -227,10 +239,26 @@ public sealed class ChatTurnWorker(
                 throw;
             }
 
-            var assistant = await conversations.AppendMessageAsync(conversation.Id, ConversationRole.Assistant, output.ToString(), hardTimeout.Token);
-            var assistantEntity = await db.CoreConversationMessages.SingleAsync(x => x.Id == assistant.Id, hardTimeout.Token);
-            assistantEntity.ChatTurnId = turnId;
-            assistantEntity.SenderOrganizationUserId = turn.TargetAgentOrganizationUserId;
+            ConversationMessage assistantEntity;
+            if (terminalResourceChangeRequestId is { } requestId)
+            {
+                assistantEntity = await db.CoreConversationMessages.SingleOrDefaultAsync(x =>
+                    x.ConversationId == conversation.Id &&
+                    x.ChatTurnId == turnId &&
+                    x.CorrelationId == requestId &&
+                    x.SourceProvider == ResourceChangeService.MessageSource,
+                    hardTimeout.Token) ?? throw new InvalidOperationException(
+                    "The durable hiring-plan approval message could not be resolved for this turn.");
+            }
+            else
+            {
+                var assistant = await conversations.AppendMessageAsync(
+                    conversation.Id, ConversationRole.Assistant, output.ToString(), hardTimeout.Token);
+                assistantEntity = await db.CoreConversationMessages.SingleAsync(
+                    x => x.Id == assistant.Id, hardTimeout.Token);
+                assistantEntity.ChatTurnId = turnId;
+                assistantEntity.SenderOrganizationUserId = turn.TargetAgentOrganizationUserId;
+            }
             await QueueCommunicationReplyAsync(db, turn, userMessage, assistantEntity, hardTimeout.Token);
             await db.SaveChangesAsync(hardTimeout.Token);
             await AuditAssistantMessageAsync(
@@ -239,7 +267,7 @@ public sealed class ChatTurnWorker(
             var memoryWarning = bypassMemory;
             if (bypassMemory)
             {
-                await MarkMemoryCaptureBypassedAsync(db, assistant.Id, "Direct provider fallback responses are excluded from memory.", hardTimeout.Token);
+                await MarkMemoryCaptureBypassedAsync(db, assistantEntity.Id, "Direct provider fallback responses are excluded from memory.", hardTimeout.Token);
                 await PublishTraceAsync(turns, turnId, "memory", "capture.bypassed", "warning", "Memory capture bypassed",
                     "This fallback response was intentionally excluded from memory.", new { reason = fallbackReason }, cancellationToken: hardTimeout.Token);
             }
@@ -249,7 +277,7 @@ public sealed class ChatTurnWorker(
                 {
                     using var memoryTimeout = CancellationTokenSource.CreateLinkedTokenSource(hardTimeout.Token);
                     memoryTimeout.CancelAfter(options.Value.MemoryOperationTimeout);
-                    await memory.CaptureMessageAsync(assistant.Id, cancellationToken: memoryTimeout.Token);
+                    await memory.CaptureMessageAsync(assistantEntity.Id, cancellationToken: memoryTimeout.Token);
                     await PublishTraceAsync(turns, turnId, "memory", "capture.completed", "completed", "Assistant episode captured",
                         "The assistant response was captured and durable enrichment was queued.", cancellationToken: hardTimeout.Token);
                 }
@@ -270,7 +298,7 @@ public sealed class ChatTurnWorker(
             await PublishTraceAsync(turns, turnId, "system", "turn.completed", memoryWarning ? "warning" : "completed",
                 memoryWarning ? "Response completed with a memory warning" : "Turn completed",
                 $"Completed in {Math.Max(1, (int)(DateTimeOffset.UtcNow - turn.CreatedAt).TotalSeconds)}s.", cancellationToken: hardTimeout.Token);
-            await turns.CompleteAsync(turnId, assistant.Id, memoryWarning, hardTimeout.Token);
+            await turns.CompleteAsync(turnId, assistantEntity.Id, memoryWarning, hardTimeout.Token);
             TurnCompletions.Add(1, new KeyValuePair<string, object?>("warning", memoryWarning));
             TurnDuration.Record((DateTimeOffset.UtcNow - turn.CreatedAt).TotalMilliseconds);
             if (turn.FirstOutputAt.HasValue) FirstOutputLatency.Record((turn.FirstOutputAt.Value - turn.CreatedAt).TotalMilliseconds);
@@ -296,6 +324,18 @@ public sealed class ChatTurnWorker(
             outputRouter.UnbindAlias(conversation.Id, turnId);
             eventRouter.Complete(turnId);
         }
+    }
+
+    internal static bool TryGetTerminalResourceChangeRequestId(
+        ChatStreamChunk chunk,
+        out Guid requestId)
+    {
+        requestId = Guid.Empty;
+        return chunk.IsFinal &&
+               string.Equals(chunk.Kind, "terminal-resource-change", StringComparison.Ordinal) &&
+               chunk.Metadata is not null &&
+               chunk.Metadata.TryGetValue("resourceChangeRequestId", out var value) &&
+               Guid.TryParse(value, out requestId);
     }
 
     private async Task FailAsync(IChatTurnService turns, Guid turnId, string code, string message, CancellationToken cancellationToken)

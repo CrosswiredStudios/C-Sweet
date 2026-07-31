@@ -64,6 +64,28 @@ public sealed class ChatStreamRouterTests
     }
 
     [Fact]
+    public void TerminalResourceChangeChunk_RequiresFinalKindAndDurableRequestId()
+    {
+        var requestId = Guid.NewGuid();
+        var terminal = new ChatStreamChunk(
+            1,
+            string.Empty,
+            IsFinal: true,
+            Kind: "terminal-resource-change",
+            Metadata: new Dictionary<string, string>
+            {
+                ["resourceChangeRequestId"] = requestId.ToString("D")
+            });
+
+        Assert.True(ChatTurnWorker.TryGetTerminalResourceChangeRequestId(terminal, out var parsed));
+        Assert.Equal(requestId, parsed);
+        Assert.False(ChatTurnWorker.TryGetTerminalResourceChangeRequestId(
+            terminal with { IsFinal = false }, out _));
+        Assert.False(ChatTurnWorker.TryGetTerminalResourceChangeRequestId(
+            terminal with { Metadata = null }, out _));
+    }
+
+    [Fact]
     public async Task Complete_CompletesAndRemovesConversation()
     {
         var router = new ChatStreamRouter();

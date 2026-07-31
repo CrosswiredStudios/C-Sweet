@@ -68,7 +68,8 @@ public sealed record CommunicationHubMessageResponse(
     Guid? ChatTurnId = null,
     ExecutiveDecisionCardResponse? Decision = null,
     IReadOnlyList<SuggestedUserActionResponse>? Actions = null,
-    CSweet.Contracts.Core.ResourceChangeRequestResponse? ResourceChange = null)
+    CSweet.Contracts.Core.ResourceChangeRequestResponse? ResourceChange = null,
+    CSweet.Contracts.Core.HiringWorkflowApprovalResponse? HiringWorkflow = null)
 {
     public string MessageType { get; init; } = CommunicationMessageTypes.Standard;
 }
@@ -78,6 +79,7 @@ public static class CommunicationMessageTypes
     public const string Standard = "Standard";
     public const string SystemAction = "SystemAction";
     public const string ResourceChangeApproval = "ResourceChangeApproval";
+    public const string HiringWorkflowApproval = "HiringWorkflowApproval";
 }
 
 public static class SuggestedUserActionCapabilities

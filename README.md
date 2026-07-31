@@ -3,7 +3,7 @@
   <h1>C-Sweet</h1>
   <p><strong>Your idea. Your company. Your workforce.</strong></p>
   <p>
-    An open-source, self-hostable operating environment for agent-first companies.<br />
+    A self-hostable operating environment for agent-first companies.<br />
     Tell your Chief of Staff what you want to build; C-Sweet helps turn that intent into a company that can plan, staff, execute, and improve.
   </p>
   <p>
@@ -23,17 +23,7 @@
   </p>
 </div>
 
-![A founder directing an AI-assisted company from a calm command center](assets/readme/csweet-hero.png)
-
-## Agent runtime documentation
-
-Protocol-v2 executable agents use the transport-neutral SDK over C-Sweet's private, outbound-only
-MCP runtime and durable work inbox:
-
-- [Architecture](Documentation/Architecture/MCP_AGENT_RUNTIME.md)
-- [Threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md)
-- [Implementation and migration](Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md)
-- [Operations runbook](Documentation/Operations/MCP_AGENT_RUNTIME_RUNBOOK.md)
+![A founder directing an AI-assisted company from a calm command center](assets/readme/csweet-hero.webp)
 
 ## A company can start with one person
 
@@ -99,11 +89,29 @@ The ambition is simple: make entrepreneurship feel less like juggling every job 
 - Agent import, validation, configuration, containerized runtime management, and memory
 - Human and agent employee directory with reporting relationships
 - Scheduled and on-demand executive briefings
-- Planning workflows and editable planning documents
+- Team-scoped work boards with Kanban workflows, sprint planning, estimates, capacity, collaboration, and delivery reports
+- Role-driven hiring recommendations with explicit owner review and approval
+- Brokered Git workspaces for software-development assignments and reviewable pull-request handoff
 - Plugin foundations and communication-provider integrations
 - Persistent PostgreSQL state, migrations, health checks, and OpenTelemetry foundations
 
+![C-Sweet sign-in screen for the self-hosted command center](assets/readme/csweet-login.png)
+
 The core can optionally connect to C-Sweet Marketplace for in-app agent browsing and Chief-of-Staff capability matching while continuing to work offline. Marketplace purchase and verified-install handoff remain link-based. See [marketplace discovery integration](docs/MARKETPLACE_INTEGRATION.md), the [product vision](docs/00-product-vision.md), and the [prototype roadmap](docs/09-prototype-roadmap.md).
+
+## Start with a first-party team
+
+C-Sweet's embedded catalog includes five first-party agents that are available to install through the same permission review and hiring workflow used for any other agent.
+
+| Agent | What it enables |
+|---|---|
+| [**Chief of Staff**](https://github.com/CrosswiredStudios/CSweet.Agent.ChiefOfStaff) | Turns executive direction into priorities, organizational plans, hiring recommendations, coordination, and executive briefings. |
+| [**Product Manager**](https://github.com/CrosswiredStudios/CSweet.Agent.ProductManager) | Drives product discovery, strategy, roadmaps, requirements, prioritization, and product-team design. |
+| [**Software Architect**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareArchitect) | Converts approved requirements into architecture decisions, incremental plans, sprints, and developer-ready tickets. |
+| [**Software Developer**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper) | Implements assigned tickets in an isolated Git workspace, validates changes, and opens reviewable pull requests. |
+| [**Software QA**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA) | Validates the assigned commit against acceptance criteria and returns structured release evidence and a pass, fail, or blocked verdict. |
+
+Direction flows from Chief of Staff through product planning, architecture, implementation, and QA. These agents are not automatically installed: importing their GitHub source requires repository access and explicit owner approval.
 
 ## Bring your own models and infrastructure
 
@@ -180,6 +188,16 @@ The repository also contains MAUI host foundations, plugin SDK contracts, unit a
 
 </details>
 
+### Agent runtime documentation
+
+Protocol-v2 executable agents use the transport-neutral SDK over C-Sweet's private, outbound-only MCP runtime and durable work inbox:
+
+- [Architecture](Documentation/Architecture/MCP_AGENT_RUNTIME.md)
+- [Software Developer runtime](Documentation/Architecture/SOFTWARE_DEVELOPER_RUNTIME.md)
+- [Threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md)
+- [Implementation and migration](Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md)
+- [Operations runbook](Documentation/Operations/MCP_AGENT_RUNTIME_RUNBOOK.md)
+
 ## Documentation
 
 | Start here | Go deeper |
@@ -190,7 +208,7 @@ The repository also contains MAUI host foundations, plugin SDK contracts, unit a
 | [Docker deployment](docs/deployment/docker.md) | [Application architecture](docs/08-application-architecture.md) |
 | [Implementation plans](docs/implementation/README.md) | [Budgeting and governance](docs/06-budgeting-and-governance.md) |
 
-The complete document index lives in [`docs/README.md`](docs/README.md).
+The main document index lives in [`docs/README.md`](docs/README.md).
 
 ## Build and test
 

@@ -1,6 +1,7 @@
 using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
 using CSweet.Contracts.Communications;
+using System.Text.Json;
 
 namespace CSweet.UnitTests;
 
@@ -45,5 +46,44 @@ public sealed class McpCapabilityRegistryTests
             new HashSet<string>([PlatformCapabilities.TeamRosterRead], StringComparer.Ordinal)));
         Assert.Equal("read_team_roster", tool.Name);
         Assert.Equal(McpToolExecutionPolicy.ReadOnly, tool.ExecutionPolicy);
+    }
+
+    [Fact]
+    public void ResourceChangeSchema_AcceptsTheTypedSdkRequestIncludingRoleTeamId()
+    {
+        var registry = new McpToolCatalog([]);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([PlatformCapabilities.ResourceChangePropose], StringComparer.Ordinal)));
+        var request = new ResourceChangeProposalRequest(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Validate a browser game prototype.",
+            "A compact delivery team is required for the approved proof of concept.",
+            1,
+            [
+                new ResourceChangeRole(
+                    "web-game-developer",
+                    "Product",
+                    "Web Game Developer",
+                    "Build the playable prototype.",
+                    1,
+                    1,
+                    "Now",
+                    ["web-game-development"],
+                    false,
+                    null,
+                    null)
+                {
+                    TeamId = null
+                }
+            ],
+            [],
+            [],
+            null,
+            "resource-change-schema-test");
+
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            tool.InputSchema);
     }
 }

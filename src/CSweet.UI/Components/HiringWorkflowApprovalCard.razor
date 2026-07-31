@@ -1,0 +1,264 @@
+@using System.Net.Http.Json
+@using System.Text.Json
+@using CSweet.Contracts.Agents
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.Llm
+@using CSweet.Contracts.Plugins
+@using ContractAgentConfigurationFieldTypes = CSweet.Contracts.Agents.AgentConfigurationFieldTypes
+@inject HttpClient Http
+@inject ILlmProviderApiClient LlmProviderApi
+
+<section class="executive-decision-card hiring-workflow-card" aria-label="Hiring workflow approval">
+    <header>
+        <span>HIRING APPROVAL</span>
+        <strong>@Workflow.RoleTitle</strong>
+    </header>
+    <MudText Typo="Typo.body2">
+        Hire <strong>@Workflow.EmployeeDisplayName</strong> from @Workflow.CandidateSource,
+        reporting to <strong>@Workflow.ReportsToDisplayName</strong>.
+    </MudText>
+    <MudText Typo="Typo.caption" Color="Color.Secondary">@Workflow.InstallationConsequence</MudText>
+
+    @if (Workflow.RequestedCapabilities.Count > 0 || Workflow.Subscriptions.Count > 0 || Workflow.NetworkAccess.Count > 0)
+    {
+        <MudStack Row="true" Spacing="1" Class="mt-2" Style="flex-wrap: wrap">
+            @foreach (var capability in Workflow.RequestedCapabilities)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Capability: @capability</MudChip>
+            }
+            @foreach (var subscription in Workflow.Subscriptions)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Subscription: @subscription</MudChip>
+            }
+            @foreach (var host in Workflow.NetworkAccess)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Network: @host</MudChip>
+            }
+        </MudStack>
+    }
+
+    @if (CanDecide && Workflow.Status == "Pending")
+    {
+        @if (Workflow.ConfigurationFields.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-3">Required configuration</MudText>
+            @foreach (var field in Workflow.ConfigurationFields)
+            {
+                @if (IsProviderField(field))
+                {
+                    <MudSelect T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                               ValueChanged="@(value => SetProviderAsync(field.Key, value))"
+                               Variant="Variant.Outlined" Disabled="_busy">
+                        @foreach (var provider in _providers.Where(provider => provider.IsEnabled))
+                        {
+                            <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                else if (IsModelField(field))
+                {
+                    <MudSelect T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                               ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                               Variant="Variant.Outlined" Disabled="@(_busy || SelectedProvider is null || _loadingModels)">
+                        @foreach (var model in _models)
+                        {
+                            <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                {
+                    <MudCheckBox T="bool" Label="@FieldLabel(field)" Value="@ConfigurationBoolean(field.Key)"
+                                 ValueChanged="@(value => SetConfiguration(field.Key, value))" Disabled="_busy" />
+                }
+                else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase))
+                {
+                    <MudNumericField T="decimal?" Label="@FieldLabel(field)" Value="@ConfigurationNumber(field.Key)"
+                                     ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                     Variant="Variant.Outlined" Disabled="_busy" />
+                }
+                else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                {
+                    <MudSelect T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                               ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                               Variant="Variant.Outlined" Disabled="_busy">
+                        @foreach (var option in field.Options ?? [])
+                        {
+                            <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                else
+                {
+                    <MudTextField T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                                  ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                  Variant="Variant.Outlined" Disabled="_busy" />
+                }
+                @if (!string.IsNullOrWhiteSpace(field.Description))
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@field.Description</MudText>
+                }
+            }
+        }
+
+        <MudTextField @bind-Value="_feedback" Label="Decision feedback (optional)"
+                      Lines="2" Variant="Variant.Outlined" Class="mt-2" Disabled="_busy" />
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+        }
+        <MudStack Row="true" Spacing="1">
+            <MudButton Color="Color.Success" Variant="Variant.Filled"
+                       Disabled="@(_busy || HasMissingRequiredConfiguration)"
+                       OnClick="@(() => DecideAsync(HiringWorkflowDecisionKinds.Approve))">Approve and hire</MudButton>
+            <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="_busy"
+                       OnClick="@(() => DecideAsync(HiringWorkflowDecisionKinds.Reject))">Deny</MudButton>
+        </MudStack>
+    }
+    else
+    {
+        <MudText Typo="Typo.caption"><strong>Status:</strong> @Workflow.Status @Workflow.DecisionComment</MudText>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public HiringWorkflowApprovalResponse Workflow { get; set; } = default!;
+    [Parameter] public bool CanDecide { get; set; }
+    [Parameter] public EventCallback DecisionCompleted { get; set; }
+
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
+    private IReadOnlyList<LlmProviderProfileResponse> _providers = [];
+    private IReadOnlyList<string> _models = [];
+    private Guid _initializedWorkflowId;
+    private bool _loadingModels;
+    private bool _busy;
+    private string? _feedback;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_initializedWorkflowId == Workflow.Id)
+            return;
+        _initializedWorkflowId = Workflow.Id;
+        _configurationValues.Clear();
+        _models = [];
+        _feedback = null;
+        _error = null;
+        if (Workflow.ConfigurationFields.Any(IsProviderField))
+            _providers = await LlmProviderApi.ListAsync();
+        var provider = _providers.FirstOrDefault(candidate => candidate.IsEnabled);
+        foreach (var field in Workflow.ConfigurationFields)
+        {
+            if (IsProviderField(field) && provider is not null)
+                _configurationValues[field.Key] = provider.Id.ToString();
+            else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                _configurationValues[field.Key] = false;
+            else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                _configurationValues[field.Key] = field.Options?.FirstOrDefault()?.Value;
+            else
+                _configurationValues[field.Key] = null;
+        }
+        if (provider is not null && Workflow.ConfigurationFields.Any(IsModelField))
+        {
+            await LoadModelsAsync(provider);
+            SetDefaultModel(provider, overwrite: false);
+        }
+    }
+
+    private async Task DecideAsync(string decision)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var request = new DecideHiringWorkflowRequest(decision, _feedback, $"hiring-decision:{Workflow.Id:D}:{decision}")
+            {
+                ConfigurationSettings = decision == HiringWorkflowDecisionKinds.Approve
+                    ? _configurationValues.Where(pair => pair.Value is not null).ToDictionary(
+                        pair => pair.Key,
+                        pair => JsonSerializer.SerializeToElement(pair.Value, SerializerOptions),
+                        StringComparer.Ordinal)
+                    : new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            };
+            var response = await Http.PostAsJsonAsync(
+                $"api/core/organizations/{OrganizationId:D}/hiring/workflows/{Workflow.Id:D}/decide",
+                request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var failure = await response.Content.ReadFromJsonAsync<HiringApiError>();
+                throw new InvalidOperationException(failure?.Message ?? "The hiring decision could not be completed.");
+            }
+            await DecisionCompleted.InvokeAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SetProviderAsync(string key, string value)
+    {
+        _configurationValues[key] = value;
+        var provider = SelectedProvider;
+        if (provider is null) return;
+        await LoadModelsAsync(provider);
+        SetDefaultModel(provider, overwrite: true);
+    }
+
+    private async Task LoadModelsAsync(LlmProviderProfileResponse provider)
+    {
+        _loadingModels = true;
+        try
+        {
+            var catalog = await LlmProviderApi.GetModelCatalogAsync(provider.Id);
+            _models = catalog.Models.Select(model => model.Id).Append(provider.DefaultChatModel)
+                .Where(model => !string.IsNullOrWhiteSpace(model)).Distinct(StringComparer.Ordinal).ToList();
+        }
+        finally { _loadingModels = false; }
+    }
+
+    private void SetDefaultModel(LlmProviderProfileResponse provider, bool overwrite)
+    {
+        var model = _models.Contains(provider.DefaultChatModel, StringComparer.Ordinal)
+            ? provider.DefaultChatModel : _models.FirstOrDefault() ?? string.Empty;
+        foreach (var field in Workflow.ConfigurationFields.Where(IsModelField))
+            if (overwrite || string.IsNullOrWhiteSpace(ConfigurationString(field.Key)))
+                _configurationValues[field.Key] = model;
+    }
+
+    private LlmProviderProfileResponse? SelectedProvider
+    {
+        get
+        {
+            var configField = Workflow.ConfigurationFields.FirstOrDefault(IsProviderField);
+            return configField is null || !Guid.TryParse(ConfigurationString(configField.Key), out var id)
+                ? null : _providers.FirstOrDefault(provider => provider.Id == id && provider.IsEnabled);
+        }
+    }
+
+    private bool HasMissingRequiredConfiguration =>
+        Workflow.ConfigurationFields.Any(configField => configField.Required && !HasConfigurationValue(configField));
+    private static bool IsProviderField(PluginConfigurationField field) =>
+        field.Type.Equals("provider", StringComparison.OrdinalIgnoreCase) ||
+        field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmProvider, StringComparison.OrdinalIgnoreCase);
+    private static bool IsModelField(PluginConfigurationField field) =>
+        field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) ||
+        field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmModel, StringComparison.OrdinalIgnoreCase);
+    private static string FieldLabel(PluginConfigurationField field) => field.Required ? $"{field.Label} (required)" : field.Label;
+    private string ConfigurationString(string key) => _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
+    private bool ConfigurationBoolean(string key) => _configurationValues.GetValueOrDefault(key) is true;
+    private decimal? ConfigurationNumber(string key) => _configurationValues.GetValueOrDefault(key) as decimal?;
+    private void SetConfiguration(string key, object? value) => _configurationValues[key] = value;
+    private bool HasConfigurationValue(PluginConfigurationField field) =>
+        _configurationValues.TryGetValue(field.Key, out var value) && value is not null &&
+        (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase) ||
+         field.Type.Equals(ContractAgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase) ||
+         !string.IsNullOrWhiteSpace(value.ToString()));
+    private sealed record HiringApiError(string? Error, string? Message);
+}

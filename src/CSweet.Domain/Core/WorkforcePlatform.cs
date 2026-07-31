@@ -239,9 +239,15 @@ public sealed class StaffingActionProposal
     public Guid RequestingInstallationId { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
     public Guid? ApprovedByOrganizationUserId { get; set; }
+    public Guid? DecidedByOrganizationUserId { get; set; }
     public Guid? ResultOrganizationUserId { get; set; }
+    public Guid? ConversationId { get; set; }
+    public Guid? ConversationMessageId { get; set; }
+    public Guid? ChatTurnId { get; set; }
+    public string? DecisionComment { get; set; }
     public ProposalStatus Status { get; set; } = ProposalStatus.Pending;
     public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? SubmittedAt { get; set; }
     public DateTimeOffset? DecidedAt { get; set; }
 }
 

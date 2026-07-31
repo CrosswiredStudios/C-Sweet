@@ -26,6 +26,7 @@ public sealed class HiringService(
     ITeamService? teams = null) : IHiringService, IAgentHireOrchestrator
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    public const string ApprovalMessageSource = "HiringWorkflowApproval";
 
     public async Task<HiringRecommendationResponse> UpsertRecommendationAsync(
         Guid organizationId,
@@ -212,18 +213,78 @@ public sealed class HiringService(
                 cancellationToken))
             throw new ArgumentException("The proposed manager does not belong to this organization.");
 
+        var requester = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId &&
+            x.AgentInstallationId == requestingInstallationId &&
+            x.IsActive,
+            cancellationToken) ?? throw new UnauthorizedAccessException(
+                "The requesting installation is not an active employee.");
+        var owners = await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
+            x.OrganizationId == organizationId &&
+            x.PermissionLevel == OrganizationPermissionLevel.Owner &&
+            x.IsActive).ToListAsync(cancellationToken);
+        if (owners.Count == 0)
+            throw new InvalidOperationException(
+                "The organization has no active owner available to approve this hire.");
+        if (!request.ConversationId.HasValue || !request.ChatTurnId.HasValue)
+            throw new ArgumentException("A submitted hiring workflow must originate from an owner conversation turn.");
+        var conversation = await db.CoreConversations.Include(x => x.Participants).SingleOrDefaultAsync(x =>
+            x.Id == request.ConversationId.Value &&
+            x.OrganizationId == organizationId &&
+            x.ArchivedAt == null,
+            cancellationToken) ?? throw new ArgumentException("The hiring workflow conversation was not found.");
+        var participantIds = conversation.Participants.Where(x => x.LeftAt == null)
+            .Select(x => x.OrganizationUserId).ToHashSet();
+        var owner = owners.SingleOrDefault(candidate => participantIds.Contains(candidate.Id))
+            ?? throw new UnauthorizedAccessException(
+                "The hiring workflow conversation does not include an active organization owner.");
+        if (conversation.Kind != ConversationKind.DirectHumanAgent ||
+            participantIds.Count != 2 ||
+            !participantIds.Contains(requester.Id) ||
+            !participantIds.Contains(owner.Id))
+            throw new UnauthorizedAccessException(
+                "A hiring workflow must be attached to the requesting agent's direct owner conversation.");
+        var validTurn = await db.ChatTurns.AsNoTracking().Include(x => x.UserMessage).AnyAsync(x =>
+            x.Id == request.ChatTurnId.Value &&
+            x.OrganizationId == organizationId &&
+            x.ConversationId == conversation.Id &&
+            x.TargetAgentOrganizationUserId == requester.Id &&
+            x.UserMessage != null &&
+            x.UserMessage.SenderOrganizationUserId == owner.Id,
+            cancellationToken);
+        if (!validTurn)
+            throw new UnauthorizedAccessException("The hiring workflow must originate from the current owner turn.");
+
         var snapshot = await BuildWorkflowSnapshotAsync(candidate, roleTitle, request.ReportsToOrganizationUserId,
             request.RequiredGrants ?? [], cancellationToken, teamId: recommendation.TeamId);
         var now = DateTimeOffset.UtcNow;
+        var messageId = Guid.NewGuid();
         var workflow = new StaffingActionProposal
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, WorkforcePlanId = recommendation.Id,
             RequestingInstallationId = requestingInstallationId, IdempotencyKey = key,
             ActionType = "install-and-hire", CandidateSource = candidate.Source,
             CandidateId = request.CandidateReference, PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions),
-            Status = ProposalStatus.Pending, CreatedAt = now
+            Status = ProposalStatus.Pending, CreatedAt = now, SubmittedAt = now,
+            ConversationId = conversation.Id, ConversationMessageId = messageId, ChatTurnId = request.ChatTurnId
         };
         db.StaffingActionProposals.Add(workflow);
+        db.CoreConversationMessages.Add(new ConversationMessage
+        {
+            Id = messageId,
+            ConversationId = conversation.Id,
+            Role = ConversationRole.Assistant,
+            Content = $"Approval requested to hire {candidate.DisplayName} as {roleTitle}.",
+            CreatedAt = now,
+            ChatTurnId = request.ChatTurnId,
+            SenderOrganizationUserId = requester.Id,
+            CorrelationId = workflow.Id,
+            CausationId = request.ChatTurnId,
+            DeliveryIntent = CommunicationDeliveryIntent.RequestResponse,
+            SourceProvider = ApprovalMessageSource,
+            IdempotencyKey = $"hiring-workflow:{workflow.Id:N}"
+        });
+        conversation.UpdatedAt = now;
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("hiring.workflow.staged", nameof(StaffingActionProposal), workflow.Id,
             $"Staged {roleTitle} hiring workflow for owner approval.", cancellationToken: cancellationToken);
@@ -398,6 +459,23 @@ public sealed class HiringService(
             Status = ProposalStatus.Pending,
             CreatedAt = now
         };
+        if (request.SupersedesWorkflowId.HasValue)
+        {
+            var superseded = await db.StaffingActionProposals.SingleOrDefaultAsync(x =>
+                x.Id == request.SupersedesWorkflowId.Value &&
+                x.OrganizationId == organizationId &&
+                x.RequestingInstallationId == Guid.Empty &&
+                x.SubmittedAt == null &&
+                x.Status == ProposalStatus.Pending,
+                cancellationToken);
+            if (superseded is not null)
+            {
+                superseded.Status = ProposalStatus.Cancelled;
+                superseded.DecidedByOrganizationUserId = owner.Id;
+                superseded.DecisionComment = "Superseded by an updated Marketplace review.";
+                superseded.DecidedAt = now;
+            }
+        }
         db.StaffingActionProposals.Add(workflow);
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("hiring.marketplace.previewed", nameof(StaffingActionProposal), workflow.Id,
@@ -421,12 +499,119 @@ public sealed class HiringService(
         CancellationToken cancellationToken) =>
         ConfirmWorkflowAsync(organizationId, workflowId, applicationUserId, request, cancellationToken);
 
-    public async Task<HiringWorkflowResponse?> ConfirmWorkflowAsync(
+    public Task<HiringWorkflowResponse?> ConfirmWorkflowAsync(
         Guid organizationId,
         Guid workflowId,
         Guid applicationUserId,
         ConfirmHiringWorkflowRequest request,
+        CancellationToken cancellationToken = default) =>
+        DecideWorkflowAsync(
+            organizationId,
+            workflowId,
+            applicationUserId,
+            new DecideHiringWorkflowRequest(
+                HiringWorkflowDecisionKinds.Approve,
+                null,
+                request.IdempotencyKey)
+            {
+                ConfigurationSettings = request.ConfigurationSettings
+            },
+            cancellationToken);
+
+    public async Task<HiringWorkflowResponse?> DecideWorkflowAsync(
+        Guid organizationId,
+        Guid workflowId,
+        Guid applicationUserId,
+        DecideHiringWorkflowRequest request,
         CancellationToken cancellationToken = default)
+    {
+        _ = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
+        var decision = Required(request.Decision, 16, nameof(request.Decision));
+        if (decision is not HiringWorkflowDecisionKinds.Approve and not HiringWorkflowDecisionKinds.Reject)
+            throw new ArgumentException("A hiring workflow decision must be Approve or Reject.");
+
+        DateTimeOffset? relationalClaimedAt = null;
+        Guid? claimingOwnerId = null;
+        try
+        {
+            if (db.Database.IsRelational())
+            {
+                var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.OrganizationId == organizationId &&
+                    x.ApplicationUserId == applicationUserId &&
+                    x.IsActive,
+                    cancellationToken);
+                if (owner?.PermissionLevel != OrganizationPermissionLevel.Owner)
+                    throw new UnauthorizedAccessException("Only an organization owner may decide a hiring workflow.");
+                var claimedAt = DateTimeOffset.UtcNow;
+                var claimed = await db.StaffingActionProposals
+                    .Where(x => x.Id == workflowId &&
+                                x.OrganizationId == organizationId &&
+                                x.Status == ProposalStatus.Pending &&
+                                x.DecidedAt == null)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(x => x.DecidedByOrganizationUserId, owner.Id)
+                        .SetProperty(x => x.DecidedAt, claimedAt), cancellationToken);
+                if (claimed == 0)
+                {
+                    var current = await db.StaffingActionProposals.AsNoTracking().SingleOrDefaultAsync(x =>
+                        x.Id == workflowId && x.OrganizationId == organizationId, cancellationToken);
+                    if (current is null) return null;
+                    if ((decision == HiringWorkflowDecisionKinds.Approve && current.Status == ProposalStatus.Approved) ||
+                        (decision == HiringWorkflowDecisionKinds.Reject && current.Status == ProposalStatus.Rejected))
+                        return ToWorkflow(current);
+                    throw new InvalidOperationException(
+                        current.Status == ProposalStatus.Pending
+                            ? "The hiring workflow is already being decided."
+                            : "The hiring workflow is no longer pending.");
+                }
+                relationalClaimedAt = claimedAt;
+                claimingOwnerId = owner.Id;
+            }
+            if (decision == HiringWorkflowDecisionKinds.Reject)
+                return await RejectWorkflowCoreAsync(
+                    organizationId, workflowId, applicationUserId, request.Comment, cancellationToken);
+            return await ConfirmWorkflowCoreAsync(
+                organizationId,
+                workflowId,
+                applicationUserId,
+                new ConfirmHiringWorkflowRequest(request.IdempotencyKey)
+                {
+                    ConfigurationSettings = request.ConfigurationSettings
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            if (relationalClaimedAt.HasValue && claimingOwnerId.HasValue)
+            {
+                try
+                {
+                    await db.StaffingActionProposals
+                        .Where(x => x.Id == workflowId &&
+                                    x.OrganizationId == organizationId &&
+                                    x.Status == ProposalStatus.Pending &&
+                                    x.DecidedByOrganizationUserId == claimingOwnerId &&
+                                    x.DecidedAt == relationalClaimedAt)
+                        .ExecuteUpdateAsync(setters => setters
+                            .SetProperty(x => x.DecidedByOrganizationUserId, (Guid?)null)
+                            .SetProperty(x => x.DecidedAt, (DateTimeOffset?)null), CancellationToken.None);
+                }
+                catch
+                {
+                    // Preserve the actionable decision failure if the best-effort claim release also fails.
+                }
+            }
+            throw;
+        }
+    }
+
+    private async Task<HiringWorkflowResponse?> ConfirmWorkflowCoreAsync(
+        Guid organizationId,
+        Guid workflowId,
+        Guid applicationUserId,
+        ConfirmHiringWorkflowRequest request,
+        CancellationToken cancellationToken)
     {
         _ = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
         var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
@@ -584,6 +769,7 @@ CompleteWorkflow:
         }
         workflow.Status = ProposalStatus.Approved;
         workflow.ApprovedByOrganizationUserId = owner.Id;
+        workflow.DecidedByOrganizationUserId = owner.Id;
         workflow.ResultOrganizationUserId = resultUserId;
         workflow.DecidedAt = DateTimeOffset.UtcNow;
         if (workflow.WorkforcePlanId != Guid.Empty)
@@ -597,6 +783,90 @@ CompleteWorkflow:
         await audit.WriteAsync("hiring.workflow.approved", nameof(StaffingActionProposal), workflow.Id,
             $"Owner approved and completed the {snapshot.RoleTitle} workflow.", cancellationToken: cancellationToken);
         return ToWorkflow(workflow);
+    }
+
+    private async Task<HiringWorkflowResponse?> RejectWorkflowCoreAsync(
+        Guid organizationId,
+        Guid workflowId,
+        Guid applicationUserId,
+        string? comment,
+        CancellationToken cancellationToken)
+    {
+        var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.ApplicationUserId == applicationUserId && x.IsActive,
+            cancellationToken);
+        if (owner?.PermissionLevel != OrganizationPermissionLevel.Owner)
+            throw new UnauthorizedAccessException("Only an organization owner may reject a hiring workflow.");
+        var workflow = await db.StaffingActionProposals.SingleOrDefaultAsync(x =>
+            x.Id == workflowId && x.OrganizationId == organizationId, cancellationToken);
+        if (workflow is null) return null;
+        if (workflow.Status == ProposalStatus.Rejected) return ToWorkflow(workflow);
+        if (workflow.Status != ProposalStatus.Pending)
+            throw new InvalidOperationException("The hiring workflow is no longer pending.");
+
+        workflow.Status = ProposalStatus.Rejected;
+        workflow.DecidedByOrganizationUserId = owner.Id;
+        workflow.DecisionComment = string.IsNullOrWhiteSpace(comment) ? null : Required(comment, 2048, nameof(comment));
+        workflow.DecidedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("hiring.workflow.rejected", nameof(StaffingActionProposal), workflow.Id,
+            workflow.DecisionComment ?? "Owner rejected the hiring workflow.", cancellationToken: cancellationToken);
+        return ToWorkflow(workflow);
+    }
+
+    public async Task<HiringWorkflowResponse?> CancelMarketplacePreviewAsync(
+        Guid organizationId,
+        Guid workflowId,
+        Guid applicationUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.ApplicationUserId == applicationUserId && x.IsActive,
+            cancellationToken);
+        if (owner?.PermissionLevel != OrganizationPermissionLevel.Owner)
+            throw new UnauthorizedAccessException("Only an organization owner may cancel a Marketplace review.");
+        var workflow = await db.StaffingActionProposals.SingleOrDefaultAsync(x =>
+            x.Id == workflowId && x.OrganizationId == organizationId &&
+            x.RequestingInstallationId == Guid.Empty && x.SubmittedAt == null,
+            cancellationToken);
+        if (workflow is null) return null;
+        if (workflow.Status == ProposalStatus.Pending)
+        {
+            workflow.Status = ProposalStatus.Cancelled;
+            workflow.DecidedByOrganizationUserId = owner.Id;
+            workflow.DecisionComment = "Marketplace review cancelled.";
+            workflow.DecidedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        return ToWorkflow(workflow);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, HiringWorkflowApprovalResponse>> ListApprovalCardsAsync(
+        Guid organizationId,
+        Guid? conversationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = db.StaffingActionProposals.AsNoTracking().Where(x =>
+            x.OrganizationId == organizationId &&
+            (x.SubmittedAt != null || x.Status != ProposalStatus.Pending));
+        if (conversationId.HasValue)
+            query = query.Where(x => x.ConversationId == conversationId);
+        var workflows = await query.OrderByDescending(x => x.CreatedAt).Take(250).ToListAsync(cancellationToken);
+        var candidateIds = workflows.Select(x => ParseCandidateReference(x.CandidateId)).Distinct().ToList();
+        var candidates = await db.WorkforceCandidates.AsNoTracking()
+            .Where(x => candidateIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, cancellationToken);
+        var managerIds = workflows.Select(x =>
+                JsonSerializer.Deserialize<WorkflowSnapshot>(x.PayloadJson, JsonOptions)?.ReportsToOrganizationUserId)
+            .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+        var managerNames = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => managerIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.DisplayName, cancellationToken);
+        return workflows.Where(x => candidates.ContainsKey(ParseCandidateReference(x.CandidateId)))
+            .ToDictionary(
+                x => x.Id,
+                x => ToApprovalCard(
+                    x,
+                    candidates[ParseCandidateReference(x.CandidateId)],
+                    managerNames));
     }
 
     private async Task<WorkflowSnapshot> BuildWorkflowSnapshotAsync(
@@ -832,8 +1102,50 @@ CompleteWorkflow:
     {
         var snapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions);
         return new(workflow.Id, workflow.WorkforcePlanId, workflow.CandidateId, snapshot?.RoleTitle ?? "Role",
-            workflow.Status.ToString(), workflow.Status == ProposalStatus.Pending ? "Awaiting owner approval." : "Workflow completed.",
+            workflow.Status.ToString(), workflow.Status switch
+            {
+                ProposalStatus.Pending when workflow.SubmittedAt.HasValue => "Awaiting owner approval.",
+                ProposalStatus.Pending => "Marketplace review draft.",
+                ProposalStatus.Rejected => "Workflow rejected.",
+                ProposalStatus.Cancelled => "Workflow cancelled.",
+                _ => "Workflow completed."
+            },
             workflow.CreatedAt, workflow.ResultOrganizationUserId);
+    }
+
+    private static HiringWorkflowApprovalResponse ToApprovalCard(
+        StaffingActionProposal workflow,
+        WorkforceCandidate candidate,
+        IReadOnlyDictionary<Guid, string> managerNames)
+    {
+        var snapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions)
+            ?? throw new InvalidOperationException("The hiring workflow snapshot is invalid.");
+        var embedded = snapshot.EmbeddedAgent;
+        return new HiringWorkflowApprovalResponse(
+            workflow.Id,
+            snapshot.RoleTitle,
+            workflow.CandidateId,
+            candidate.DisplayName,
+            candidate.Source,
+            ResolveEmployeeDisplayName(snapshot, candidate.DisplayName),
+            snapshot.ReportsToOrganizationUserId,
+            snapshot.ReportsToOrganizationUserId.HasValue
+                ? managerNames.GetValueOrDefault(snapshot.ReportsToOrganizationUserId.Value)
+                : null,
+            workflow.Status.ToString(),
+            candidate.Source == "InstalledPlugin"
+                ? "Use the existing enabled installation and create the employee."
+                : candidate.Source == "CurrentStaff"
+                    ? "Assign the approved role to the existing employee."
+                    : "Import the reviewed source snapshot, install it with the approved access, and create the employee.",
+            embedded?.RequestedCapabilities ?? snapshot.RequiredGrants,
+            embedded?.Subscriptions ?? [],
+            embedded?.NetworkAccess ?? [],
+            embedded?.ConfigurationFields ?? [],
+            workflow.CreatedAt,
+            workflow.SubmittedAt,
+            workflow.DecidedAt,
+            workflow.DecisionComment);
     }
 
     private static MarketplaceHirePreviewResponse ToMarketplacePreview(

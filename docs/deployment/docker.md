@@ -36,6 +36,7 @@ The Docker distribution includes:
 | `csweet-app` | 8080 | 8080 (configurable via `APP_PORT`) | Blazor WASM frontend served by nginx |
 | `csweet-migrator` | - | Internal only | One-shot database migration and setup seed runner |
 | `csweet-api` | 8080 | Internal only | API and application services |
+| `csweet-agenthost` | 8080, 8081 | Internal only | Brokered agent API and private MCP runtime gateway |
 | `csweet-worker` | - | Internal only | Local worker runtime |
 | `postgres` | 5432 | Internal only | PostgreSQL database |
 
@@ -80,6 +81,7 @@ docker-compose.yml
 .dockerignore
 docker/api.Dockerfile
 docker/app.Dockerfile
+docker/agenthost.Dockerfile
 docker/migrator.Dockerfile
 docker/worker.Dockerfile
 ```
@@ -99,6 +101,9 @@ CSWEET_LLM__DEFAULT_PROVIDER_TYPE=LMStudio
 CSWEET_LLM__DEFAULT_BASE_URL=http://host.docker.internal:1234/v1
 CSWEET_LLM__DEFAULT_API_KEY=lm-studio
 CSWEET_LLM__DEFAULT_CHAT_MODEL=
+
+# Override when intentionally running multiple C-Sweet Compose stacks.
+CSWEET_AGENTHOST_CONTAINER_NAME=csweet-agenthost
 ```
 
 Do not commit a real `.env` file.
@@ -162,10 +167,10 @@ The Compose defaults are:
 
 ```env
 CSWEET_AGENT_RUNTIME_CLEANUP_ON_STARTUP=true
-CSWEET_AGENT_RUNTIME_BROKER_WATCHDOG_ENABLED=true
-CSWEET_AGENT_RUNTIME_BROKER_WATCHDOG_STARTUP_GRACE_SECONDS=30
-CSWEET_AGENT_RUNTIME_BROKER_WATCHDOG_INTERVAL_SECONDS=10
-CSWEET_AGENT_RUNTIME_BROKER_DISCONNECT_SHUTDOWN_SECONDS=120
+CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_ENABLED=true
+CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_STARTUP_GRACE_SECONDS=30
+CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_INTERVAL_SECONDS=10
+CSWEET_AGENT_RUNTIME_SESSION_DISCONNECT_SHUTDOWN_SECONDS=120
 ```
 
 Disable startup cleanup when multiple independent scheduler processes intentionally share the same Docker daemon. The watchdog requires the supported Linux .NET runtime image to provide `/bin/bash`.
@@ -175,8 +180,10 @@ Disable startup cleanup when multiple independent scheduler processes intentiona
 ```text
 docker compose up -d
   → postgres starts and becomes healthy (pg_isready health check)
-  → API starts and exposes /api/health
-  → app starts after API is healthy (/api/health check)
+  → migrator applies database migrations and seed data
+  → agenthost starts the private MCP runtime gateway
+  → API starts after migrations complete and exposes /api/health
+  → worker and app start after API is healthy
   → user opens http://localhost:8080
   → setup wizard opens
   → user configures LM Studio using host.docker.internal

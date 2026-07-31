@@ -27,11 +27,37 @@ public sealed class ResourceChangeServiceTests
         Assert.All(first.Deltas, x => Assert.Equal("Add", x.ChangeKind));
         Assert.Equal(2, first.Roles.Count);
         Assert.Single(await db.ResourceChangeRequests.ToListAsync());
-        Assert.Single(await db.CoreConversationMessages.Where(x =>
+        var approvalMessage = Assert.Single(await db.CoreConversationMessages.Where(x =>
             x.SourceProvider == ResourceChangeService.MessageSource).ToListAsync());
+        Assert.Equal(setup.TurnId, approvalMessage.ChatTurnId);
         var requested = Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
             x.EventType == ResourceChangeEvents.Requested).ToListAsync());
         Assert.Equal(setup.ManagerInstallationId, requested.TargetInstallationId);
+    }
+
+    [Fact]
+    public async Task HumanManagerNotification_IsConciseAndLinksToApprovals()
+    {
+        await using var db = CreateDb();
+        var setup = SeedManagerConversation(db);
+        await db.SaveChangesAsync();
+        var requester = await db.CoreOrganizationUsers.SingleAsync(x => x.Id == setup.RequesterId);
+        var manager = await db.CoreOrganizationUsers.SingleAsync(
+            x => x.Id == requester.ReportsToOrganizationUserId);
+        manager.EmployeeType = EmployeeType.Human;
+        manager.AgentInstallationId = null;
+        await db.SaveChangesAsync();
+        var service = new ResourceChangeService(db, new TestAuditEventWriter());
+
+        await service.ProposeAsync(
+            setup.OrganizationId,
+            setup.RequesterInstallationId,
+            Proposal(setup, "human-manager-notification"));
+
+        var notification = Assert.Single(await db.UserNotifications.ToListAsync());
+        Assert.Equal("Hiring plan approval needed", notification.Title);
+        Assert.Equal($"/organizations/{setup.OrganizationId:D}/approvals", notification.ActionUri);
+        Assert.DoesNotContain("Resource change approval requested", notification.Body, StringComparison.Ordinal);
     }
 
     [Fact]

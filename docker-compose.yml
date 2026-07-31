@@ -12,7 +12,7 @@ services:
       csweet-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -107,6 +107,7 @@ services:
       CSWEET_AGENT_SOURCE_VOLUME: csweet-agent-sources
       CSWEET_AGENT_PACKAGE_VOLUME: csweet-agent-packages
       CSweet__AgentRuntime__McpEndpoint: http://csweet-agenthost:8081/mcp
+      CSweet__AgentRuntime__McpGatewayContainer: ${CSWEET_AGENTHOST_CONTAINER_NAME:-csweet-agenthost}
       CSweet__AgentRuntime__DockerNetworkName: csweet-runtime
       CSweet__AgentRuntime__CleanupContainersOnStartup: ${CSWEET_AGENT_RUNTIME_CLEANUP_ON_STARTUP:-true}
       CSweet__AgentRuntime__SessionWatchdogEnabled: ${CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_ENABLED:-true}
@@ -123,7 +124,7 @@ services:
       - csweet-agent-packages:/var/lib/csweet/agents/packages
 
   csweet-agenthost:
-    container_name: agenthost
+    container_name: ${CSWEET_AGENTHOST_CONTAINER_NAME:-csweet-agenthost}
     build:
       context: .
       dockerfile: docker/agenthost.Dockerfile
@@ -182,7 +183,3 @@ volumes:
   csweet-media:
     name: csweet-media
     driver: local
-
-networks:
-  default:
-    name: csweet-runtime

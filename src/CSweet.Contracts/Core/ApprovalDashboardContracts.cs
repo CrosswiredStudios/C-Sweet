@@ -20,7 +20,8 @@ public sealed record ApprovalDashboardItemResponse(
     DateTimeOffset? DecidedAt,
     string ActionUri,
     bool CanDecide,
-    ResourceChangeRequestResponse? ResourceChange = null);
+    ResourceChangeRequestResponse? ResourceChange = null,
+    HiringWorkflowApprovalResponse? HiringWorkflow = null);
 
 public sealed record ApprovalDashboardResponse(
     Guid CurrentOrganizationUserId,

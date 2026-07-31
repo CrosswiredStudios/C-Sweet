@@ -43,6 +43,12 @@ public sealed class ApprovalDashboardServiceTests
             CreatedAt = DateTimeOffset.UtcNow
         };
         var createdAt = DateTimeOffset.UtcNow;
+        var candidate = new WorkforceCandidate
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, Source = "CSweetEmbeddedCatalog",
+            ExternalCandidateId = Guid.NewGuid().ToString("D"), DisplayName = "Web Game Developer",
+            CapabilitiesJson = "[]", ExplanationJson = "{}", Score = .9m, IsAvailable = true
+        };
         var resourceChange = new ResourceChangeRequestResponse(
             Guid.NewGuid(),
             organizationId,
@@ -67,6 +73,7 @@ public sealed class ApprovalDashboardServiceTests
         db.AddRange(
             owner,
             productManager,
+            candidate,
             new ActionProposal
             {
                 Id = Guid.NewGuid(),
@@ -84,13 +91,23 @@ public sealed class ApprovalDashboardServiceTests
                 Id = Guid.NewGuid(),
                 OrganizationId = organizationId,
                 RequestingInstallationId = installationId,
-                CandidateId = "candidate:1",
-                CandidateSource = "catalog",
+                CandidateId = $"candidate:{candidate.Id:N}",
+                CandidateSource = candidate.Source,
                 ActionType = "install-and-hire",
-                PayloadJson = """{"roleTitle":"Web Game Developer"}""",
+                PayloadJson = $$"""{"roleTitle":"Web Game Developer","employeeDisplayName":"Web Game Developer","reportsToOrganizationUserId":"{{owner.Id:D}}","requiredGrants":[],"embeddedAgent":null}""",
                 IdempotencyKey = Guid.NewGuid().ToString("N"),
                 Status = ProposalStatus.Pending,
-                CreatedAt = createdAt
+                CreatedAt = createdAt,
+                SubmittedAt = createdAt
+            },
+            new StaffingActionProposal
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId,
+                RequestingInstallationId = Guid.Empty,
+                CandidateId = $"candidate:{candidate.Id:N}", CandidateSource = candidate.Source,
+                ActionType = "marketplace-install-and-hire", PayloadJson = "{}",
+                IdempotencyKey = Guid.NewGuid().ToString("N"), Status = ProposalStatus.Pending,
+                CreatedAt = createdAt, SubmittedAt = null
             },
             new Artifact
             {
@@ -106,7 +123,8 @@ public sealed class ApprovalDashboardServiceTests
         await db.SaveChangesAsync();
         var service = new ApprovalDashboardService(
             db,
-            new StubResourceChangeService([resourceChange]));
+            new StubResourceChangeService([resourceChange]),
+            new HiringService(db, null!, null!));
 
         var result = await service.GetAsync(
             organizationId,
@@ -114,6 +132,7 @@ public sealed class ApprovalDashboardServiceTests
 
         Assert.Equal(4, result.PendingCount);
         Assert.Equal(4, result.Items.Count);
+        Assert.DoesNotContain(result.Items, item => item.Summary.Contains("draft", StringComparison.OrdinalIgnoreCase));
         var teamApproval = Assert.Single(
             result.Items,
             x => x.Kind == ApprovalDashboardKinds.ResourceChange);

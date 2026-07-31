@@ -270,6 +270,8 @@ internal static class CoreConfigurations
             entity.HasIndex(x => new { x.OrganizationId, x.RequestingInstallationId, x.IdempotencyKey }).IsUnique(); entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.CandidateSource).HasMaxLength(80).IsRequired(); entity.Property(x => x.CandidateId).HasMaxLength(256).IsRequired();
             entity.Property(x => x.PayloadJson).HasColumnType("jsonb"); entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.DecisionComment).HasMaxLength(2048);
+            entity.HasIndex(x => x.ConversationMessageId).IsUnique().HasFilter("\"ConversationMessageId\" IS NOT NULL");
         });
         modelBuilder.Entity<Responsibility>(entity =>
         {

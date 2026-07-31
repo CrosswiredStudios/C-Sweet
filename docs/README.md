@@ -1,6 +1,6 @@
-# CSweet Planning Documents
+# C-Sweet Documentation
 
-This directory captures the current product, architecture, marketplace, security, and delivery plan.
+This index covers the main product, architecture, runtime, deployment, marketplace, security, and delivery documentation.
 
 The normative plugin contract, grant lifecycle, proxy policy, administrator runbook, and readiness checklist are in [`plugin-platform/README.md`](plugin-platform/README.md).
 
@@ -21,6 +21,23 @@ The normative plugin contract, grant lifecycle, proxy policy, administrator runb
 13. `12-example-scenarios.md`
 14. `13-system-boundaries-and-deployment.md`
 15. `14-application-design-system.md`
+
+## Product and platform guides
+
+- [Docker deployment](deployment/docker.md)
+- [Marketplace integration](MARKETPLACE_INTEGRATION.md)
+- [Plugin platform](plugin-platform/README.md)
+- [Implementation plans](implementation/README.md)
+- [Legacy and dead-code audit](analysis/legacy-and-dead-code-audit.md)
+
+## Agent runtime, security, and operations
+
+- [MCP agent runtime architecture](../Documentation/Architecture/MCP_AGENT_RUNTIME.md)
+- [Software Developer runtime](../Documentation/Architecture/SOFTWARE_DEVELOPER_RUNTIME.md)
+- [Brokered MCP and hiring](../Documentation/BROKERED_MCP_AND_HIRING.md)
+- [Agent runtime threat model](../Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md)
+- [MCP-only agent migration](../Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md)
+- [Agent runtime operations runbook](../Documentation/Operations/MCP_AGENT_RUNTIME_RUNBOOK.md)
 
 ## Maintenance guidance
 

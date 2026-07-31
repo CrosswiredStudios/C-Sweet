@@ -5,6 +5,7 @@
 @inject CommunicationUnreadState Unread
 @inject IBusinessContext Businesses
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 @code {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -60,9 +61,29 @@
                 "Important" => Severity.Warning,
                 _ => Severity.Info
             };
-            _ = InvokeAsync(() => Snackbar.Add($"{notification.Title}: {notification.Body}", severity));
+            _ = InvokeAsync(() => ShowNotification(notification, severity));
         }
         catch (JsonException) { }
+    }
+
+    private void ShowNotification(AppNotificationEvent notification, Severity severity)
+    {
+        var message = notification.Category == "ResourceChangeApproval"
+            ? "Hiring plan approval needed"
+            : $"{notification.Title}: {notification.Body}";
+        Snackbar.Add(message, severity, options =>
+        {
+            if (string.IsNullOrWhiteSpace(notification.ActionUri)) return;
+            options.Action = notification.Category == "ResourceChangeApproval" ? "Review" : "Open";
+            options.ActionColor = Color.Primary;
+            options.ActionVariant = Variant.Filled;
+            options.CloseAfterNavigation = true;
+            options.OnClick = _ =>
+            {
+                Navigation.NavigateTo(notification.ActionUri);
+                return Task.CompletedTask;
+            };
+        }, key: $"notification:{notification.NotificationId:D}");
     }
 
     public void Dispose()

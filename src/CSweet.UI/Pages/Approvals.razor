@@ -125,6 +125,13 @@
                                 </MudAlert>
                             }
                         }
+                        else if (item.HiringWorkflow is { } hiringWorkflow)
+                        {
+                            <HiringWorkflowApprovalCard OrganizationId="OrganizationId"
+                                                        Workflow="hiringWorkflow"
+                                                        CanDecide="item.CanDecide"
+                                                        DecisionCompleted="LoadAsync" />
+                        }
                         else if (item.Status == "Pending")
                         {
                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">

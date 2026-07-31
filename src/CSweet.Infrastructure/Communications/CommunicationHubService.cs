@@ -18,7 +18,8 @@ public sealed class CommunicationHubService(
     IAuditEventWriter audit,
     IChatTurnService turns,
     IExecutiveDecisionService? decisions = null,
-    IResourceChangeService? resourceChanges = null) : ICommunicationHubService
+    IResourceChangeService? resourceChanges = null,
+    IHiringService? hiring = null) : ICommunicationHubService
 {
     public async Task<Guid?> ResolveOrganizationUserIdAsync(
         Guid organizationId,
@@ -152,6 +153,10 @@ public sealed class CommunicationHubService(
             ? new Dictionary<Guid, Contracts.Core.ResourceChangeRequestResponse>()
             : (await resourceChanges.ListForDashboardAsync(organizationId, cancellationToken))
                 .ToDictionary(x => x.Id);
+        var hiringCards = hiring is null
+            ? new Dictionary<Guid, Contracts.Core.HiringWorkflowApprovalResponse>()
+            : (await hiring.ListApprovalCardsAsync(organizationId, chatId, cancellationToken))
+                .ToDictionary(x => x.Key, x => x.Value);
         return messages.Select(x => MapMessage(
             x,
             users,
@@ -163,6 +168,9 @@ public sealed class CommunicationHubService(
                  action.ChatTurnId == x.ChatTurnId)).Select(ToAction).ToList(),
             x.CorrelationId != Guid.Empty && resourceChangeCards.TryGetValue(x.CorrelationId, out var resourceChange)
                 ? resourceChange
+                : null,
+            x.CorrelationId != Guid.Empty && hiringCards.TryGetValue(x.CorrelationId, out var hiringWorkflow)
+                ? hiringWorkflow
                 : null))
             .ToList();
     }
@@ -676,7 +684,8 @@ public sealed class CommunicationHubService(
         IReadOnlyDictionary<Guid, OrganizationUser> users,
         IReadOnlyDictionary<Guid, ExecutiveDecisionCardResponse>? decisions = null,
         IReadOnlyList<SuggestedUserActionResponse>? actions = null,
-        Contracts.Core.ResourceChangeRequestResponse? resourceChange = null)
+        Contracts.Core.ResourceChangeRequestResponse? resourceChange = null,
+        Contracts.Core.HiringWorkflowApprovalResponse? hiringWorkflow = null)
     {
         var sender = message.SenderOrganizationUserId.HasValue && users.TryGetValue(message.SenderOrganizationUserId.Value, out var user) ? user : null;
         var isSystemAction = string.Equals(
@@ -690,9 +699,12 @@ public sealed class CommunicationHubService(
             !isSystemAction && message.Role == ConversationRole.Assistant && message.ChatTurnId.HasValue &&
             decisions?.TryGetValue(message.ChatTurnId.Value, out var decision) == true ? decision : null,
             actions ?? [],
-            resourceChange)
+            resourceChange,
+            hiringWorkflow)
         {
-            MessageType = resourceChange is not null
+            MessageType = hiringWorkflow is not null
+                ? CommunicationMessageTypes.HiringWorkflowApproval
+                : resourceChange is not null
                 ? CommunicationMessageTypes.ResourceChangeApproval
                 : isSystemAction
                 ? CommunicationMessageTypes.SystemAction

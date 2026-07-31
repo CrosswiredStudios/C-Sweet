@@ -198,52 +198,70 @@
                                         @ThinkingButton(messageTurn)
                                     }
                                 </div>
-                                 <ChatMarkdown Content="@message.Content" />
+                                  @if (message.ResourceChange is null)
+                                  {
+                                      <ChatMarkdown Content="@message.Content" />
+                                  }
                                  @if (message.ResourceChange is { } resourceChange)
                                  {
-                                     <section class="executive-decision-card resource-change-card" aria-label="Resource change approval">
-                                         <header>
-                                             <span>TEAM DESIGN APPROVAL</span>
-                                             <strong>@resourceChange.ProductGoal</strong>
-                                         </header>
-                                         <MudText Typo="Typo.body2">@resourceChange.Rationale</MudText>
-                                         <MudList T="string" Dense="true">
+                                      <section class="hub-system-action-message hub-resource-change-approval" aria-label="Hiring plan approval">
+                                          <div class="hub-system-action-icon">
+                                              <MudIcon Icon="@Icons.Material.Outlined.Groups" />
+                                          </div>
+                                          <div class="hub-system-action-content">
+                                              <span>HIRING PLAN APPROVAL</span>
+                                              <strong>@(resourceChange.TeamName ?? "Review proposed product team")</strong>
+                                              <p>@resourceChange.ProductGoal</p>
+                                              <div class="hub-resource-change-roles">
                                              @foreach (var delta in resourceChange.Deltas)
                                              {
-                                                 <MudListItem>
-                                                     <MudText><strong>@delta.ChangeKind:</strong> @delta.Role.Title · @delta.Role.Team · @delta.Role.Headcount headcount · priority @delta.Role.Priority</MudText>
-                                                     <MudText Typo="Typo.caption" Color="Color.Secondary">@delta.Role.Purpose</MudText>
-                                                 </MudListItem>
+                                                  <div class="hub-resource-change-role">
+                                                      <div>
+                                                          <strong>@delta.Role.Title</strong>
+                                                          <span>@delta.ChangeKind · @delta.Role.Headcount position@(delta.Role.Headcount == 1 ? null : "s") · Priority @delta.Role.Priority</span>
+                                                      </div>
+                                                      <p>@delta.Role.Purpose</p>
+                                                  </div>
                                              }
-                                         </MudList>
+                                              </div>
                                          @if (!_hub.IsReadOnlyPerspective &&
                                               resourceChange.Status == "Pending" &&
                                               resourceChange.ManagerOrganizationUserId == _hub.CurrentOrganizationUserId)
                                          {
-                                             <MudTextField @bind-Value="_resourceFeedback"
-                                                           Label="Feedback (required for revision)"
-                                                           Lines="2" Variant="Variant.Outlined" />
+                                              <MudTextField @bind-Value="_resourceFeedback"
+                                                            Label="Revision feedback"
+                                                            Placeholder="Required only when requesting a revision"
+                                                            Lines="2" Variant="Variant.Outlined" Class="hub-resource-change-feedback" />
                                              @if (!string.IsNullOrWhiteSpace(_resourceDecisionError))
                                              {
                                                  <MudAlert Severity="Severity.Error" Dense="true">@_resourceDecisionError</MudAlert>
                                              }
-                                             <MudStack Row="true" Spacing="1">
-                                                 <MudButton Color="Color.Success" Variant="Variant.Filled"
-                                                            Disabled="@_resourceDecisionBusy"
-                                                            OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.Approve))">Approve team</MudButton>
-                                                 <MudButton Color="Color.Warning" Variant="Variant.Outlined"
+                                              <div class="hub-system-action-buttons">
+                                                  <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                                                             StartIcon="@Icons.Material.Outlined.Check"
+                                                             Disabled="@_resourceDecisionBusy"
+                                                             OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.Approve))">Approve plan</MudButton>
+                                                  <MudButton Color="Color.Primary" Variant="Variant.Outlined"
                                                             Disabled="@_resourceDecisionBusy"
                                                             OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.RequestRevision))">Request revision</MudButton>
                                                  <MudButton Color="Color.Error" Variant="Variant.Text"
                                                             Disabled="@_resourceDecisionBusy"
                                                             OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.Reject))">Reject</MudButton>
-                                             </MudStack>
+                                              </div>
                                          }
                                          else
                                          {
-                                             <MudText Typo="Typo.caption"><strong>Status:</strong> @resourceChange.Status @resourceChange.DecisionComment</MudText>
-                                         }
-                                     </section>
+                                              <div class="hub-resource-change-status"><strong>@resourceChange.Status</strong> @resourceChange.DecisionComment</div>
+                                          }
+                                          </div>
+                                      </section>
+                                 }
+                                 @if (message.HiringWorkflow is { } hiringWorkflow)
+                                 {
+                                     <HiringWorkflowApprovalCard OrganizationId="OrganizationId"
+                                                                         Workflow="hiringWorkflow"
+                                                                         CanDecide="@(!_hub.IsReadOnlyPerspective && hiringWorkflow.Status == "Pending")"
+                                                                         DecisionCompleted="@(() => LoadMessagesAsync(markRead: false))" />
                                  }
                                  @if (!_hub.IsReadOnlyPerspective && message.Actions is { Count: > 0 })
                                 {

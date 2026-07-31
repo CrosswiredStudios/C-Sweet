@@ -244,7 +244,7 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" OnClick="CloseReview" Disabled="_reviewBusy">Cancel</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="CloseReviewAsync" Disabled="_reviewBusy">Cancel</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
                    Disabled="@(_reviewBusy || _preview is null || !_reportsToId.HasValue || string.IsNullOrWhiteSpace(_employeeDisplayName) || HasMissingRequiredConfiguration)"
                    OnClick="ConfirmHireAsync">
@@ -386,6 +386,7 @@
     private async Task LoadPreviewAsync()
     {
         if (_selectedAgent is null) return;
+        var supersededWorkflowId = _preview?.WorkflowId;
         var role = string.IsNullOrWhiteSpace(_role)
             ? _selectedAgent.RoleAliases.FirstOrDefault() ?? _selectedAgent.Name
             : _role.Trim();
@@ -398,7 +399,8 @@
                 _reportsToId,
                 $"marketplace-preview:{Guid.NewGuid():N}")
             {
-                TeamId = _teamId
+                TeamId = _teamId,
+                SupersedesWorkflowId = supersededWorkflowId
             });
         if (!response.IsSuccessStatusCode)
         {
@@ -458,8 +460,22 @@
         }
     }
 
-    private void CloseReview()
+    private async Task CloseReviewAsync()
     {
+        var workflowId = _preview?.WorkflowId;
+        if (workflowId.HasValue)
+        {
+            try
+            {
+                await Http.PostAsync(
+                    $"api/core/organizations/{OrganizationId:D}/hiring/workflows/{workflowId:D}/cancel-preview",
+                    content: null);
+            }
+            catch
+            {
+                // Closing the local dialog must not trap the user if cancellation transport fails.
+            }
+        }
         _reviewOpen = false;
         _preview = null;
         _selectedAgent = null;

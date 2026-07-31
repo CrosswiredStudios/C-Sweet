@@ -103,7 +103,11 @@ public sealed record StageHiringWorkflowRequest(
     [property: Required, MaxLength(160)] string RoleTitle,
     Guid? ReportsToOrganizationUserId,
     IReadOnlyList<string>? RequiredGrants,
-    [property: Required, MaxLength(160)] string IdempotencyKey);
+    [property: Required, MaxLength(160)] string IdempotencyKey)
+{
+    public Guid? ConversationId { get; init; }
+    public Guid? ChatTurnId { get; init; }
+}
 
 public sealed record HiringWorkflowResponse(
     Guid Id,
@@ -122,6 +126,41 @@ public sealed record ConfirmHiringWorkflowRequest(
         new Dictionary<string, JsonElement>(StringComparer.Ordinal);
 }
 
+public static class HiringWorkflowDecisionKinds
+{
+    public const string Approve = "Approve";
+    public const string Reject = "Reject";
+}
+
+public sealed record DecideHiringWorkflowRequest(
+    [property: Required, MaxLength(16)] string Decision,
+    [property: MaxLength(2048)] string? Comment,
+    [property: Required, MaxLength(160)] string IdempotencyKey)
+{
+    public IReadOnlyDictionary<string, JsonElement> ConfigurationSettings { get; init; } =
+        new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+}
+
+public sealed record HiringWorkflowApprovalResponse(
+    Guid Id,
+    string RoleTitle,
+    string CandidateReference,
+    string CandidateName,
+    string CandidateSource,
+    string EmployeeDisplayName,
+    Guid? ReportsToOrganizationUserId,
+    string? ReportsToDisplayName,
+    string Status,
+    string InstallationConsequence,
+    IReadOnlyList<string> RequestedCapabilities,
+    IReadOnlyList<string> Subscriptions,
+    IReadOnlyList<string> NetworkAccess,
+    IReadOnlyList<PluginConfigurationField> ConfigurationFields,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? SubmittedAt,
+    DateTimeOffset? DecidedAt,
+    string? DecisionComment);
+
 public sealed record HiringDashboardResponse(
     IReadOnlyList<HiringRecommendationResponse> Recommendations,
     IReadOnlyList<HiringWorkflowResponse> Workflows)
@@ -138,6 +177,7 @@ public sealed record PreviewMarketplaceHireRequest(
     [property: Required, MaxLength(160)] string IdempotencyKey)
 {
     public Guid? TeamId { get; init; }
+    public Guid? SupersedesWorkflowId { get; init; }
 }
 
 public sealed record MarketplaceHirePreviewResponse(

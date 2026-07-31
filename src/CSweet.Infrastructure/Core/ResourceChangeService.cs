@@ -135,6 +135,7 @@ public sealed class ResourceChangeService(
             SenderOrganizationUserId = requester.Id,
             CorrelationId = record.Id,
             CausationId = request.ChatTurnId == Guid.Empty ? null : request.ChatTurnId,
+            ChatTurnId = request.ChatTurnId == Guid.Empty ? null : request.ChatTurnId,
             DeliveryIntent = CommunicationDeliveryIntent.RequestResponse,
             SourceProvider = MessageSource,
             IdempotencyKey = $"resource-change:{record.Id:N}"
@@ -151,9 +152,9 @@ public sealed class ResourceChangeService(
                 OriginatingAgentOrganizationUserId = requester.Id,
                 Severity = NotificationSeverity.Important,
                 Category = "ResourceChangeApproval",
-                Title = $"{requester.DisplayName} requested team approval",
-                Body = summary.Length <= 1024 ? summary : summary[..1024],
-                ActionUri = $"/organizations/{organizationId:D}/communications/{conversation.Id:D}",
+                Title = "Hiring plan approval needed",
+                Body = $"{requester.DisplayName} submitted a team plan for review.",
+                ActionUri = $"/organizations/{organizationId:D}/approvals",
                 DeduplicationKey = $"resource-change:{record.Id:N}",
                 CreatedAt = now
             });

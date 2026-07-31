@@ -18,6 +18,12 @@ public interface IHiringService
     Task<HiringDashboardResponse> GetDashboardAsync(Guid organizationId, CancellationToken cancellationToken = default);
     Task<HiringWorkflowResponse?> ConfirmWorkflowAsync(Guid organizationId, Guid workflowId, Guid applicationUserId,
         ConfirmHiringWorkflowRequest request, CancellationToken cancellationToken = default);
+    Task<HiringWorkflowResponse?> DecideWorkflowAsync(Guid organizationId, Guid workflowId, Guid applicationUserId,
+        DecideHiringWorkflowRequest request, CancellationToken cancellationToken = default);
+    Task<HiringWorkflowResponse?> CancelMarketplacePreviewAsync(Guid organizationId, Guid workflowId,
+        Guid applicationUserId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyDictionary<Guid, HiringWorkflowApprovalResponse>> ListApprovalCardsAsync(
+        Guid organizationId, Guid? conversationId = null, CancellationToken cancellationToken = default);
     Task<MarketplaceHirePreviewResponse> PreviewMarketplaceHireAsync(Guid organizationId, Guid applicationUserId,
         PreviewMarketplaceHireRequest request, CancellationToken cancellationToken = default);
 }

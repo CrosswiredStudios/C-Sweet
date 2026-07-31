@@ -9,7 +9,8 @@ namespace CSweet.Infrastructure.Core;
 
 public sealed class ApprovalDashboardService(
     CSweetDbContext db,
-    IResourceChangeService resourceChanges) : IApprovalDashboardService
+    IResourceChangeService resourceChanges,
+    IHiringService hiring) : IApprovalDashboardService
 {
     public async Task<ApprovalDashboardResponse> GetAsync(
         Guid organizationId,
@@ -79,23 +80,32 @@ public sealed class ApprovalDashboardService(
             $"/organizations/{organizationId:D}/command-center",
             false)));
 
+        var hiringCards = await hiring.ListApprovalCardsAsync(organizationId, cancellationToken: cancellationToken);
+        var hiringWorkflowIds = hiringCards.Keys.ToList();
         var hiringWorkflows = await db.StaffingActionProposals.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId)
-            .OrderByDescending(x => x.CreatedAt)
-            .Take(250)
-            .ToListAsync(cancellationToken);
-        items.AddRange(hiringWorkflows.Select(workflow => new ApprovalDashboardItemResponse(
+            .Where(x => x.OrganizationId == organizationId && hiringWorkflowIds.Contains(x.Id))
+            .OrderByDescending(x => x.CreatedAt).Take(250).ToListAsync(cancellationToken);
+        items.AddRange(hiringWorkflows.Select(workflow =>
+        {
+            var card = hiringCards[workflow.Id];
+            return new ApprovalDashboardItemResponse(
             workflow.Id,
             ApprovalDashboardKinds.HiringWorkflow,
-            $"Hiring workflow: {ReadRoleTitle(workflow.PayloadJson)}",
-            $"Candidate {workflow.CandidateId} via {workflow.CandidateSource}.",
+            $"Hiring workflow: {card.RoleTitle}",
+            $"Hire {card.EmployeeDisplayName} from {card.CandidateSource}.",
             workflow.Status.ToString(),
             Name(installationNames, workflow.RequestingInstallationId, "Hiring workflow"),
             ownerLabel,
             workflow.CreatedAt,
             workflow.DecidedAt,
-            $"/organizations/{organizationId:D}/employees?tab=hiring",
-            false)));
+            workflow.ConversationId.HasValue
+                ? $"/organizations/{organizationId:D}/communications/{workflow.ConversationId:D}"
+                : $"/organizations/{organizationId:D}/approvals",
+            actor.PermissionLevel == OrganizationPermissionLevel.Owner &&
+            workflow.Status == ProposalStatus.Pending &&
+            workflow.SubmittedAt.HasValue,
+            HiringWorkflow: card);
+        }));
 
         var artifacts = await db.CoreArtifacts.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId &&

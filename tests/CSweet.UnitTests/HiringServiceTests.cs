@@ -170,8 +170,30 @@ public sealed class HiringServiceTests
         var service = new HiringService(db, new OrganizationUserService(db, new TestAuditEventWriter()), new TestAuditEventWriter());
         var recommendation = await service.UpsertRecommendationAsync(organizationId, installationId,
             new("Operations lead", "Own reliable delivery", null, [$"candidate:{candidate.Id:N}"], $"candidate:{candidate.Id:N}", "rec-1"));
+        var origin = await AddHiringOriginAsync(db, organizationId, owner, installationId);
         var workflow = await service.StageWorkflowAsync(organizationId, installationId,
-            new(recommendation.Id, recommendation.RecommendedCandidateReference!, "Operations Lead", null, [], "workflow-1"));
+            new(recommendation.Id, recommendation.RecommendedCandidateReference!, "Operations Lead", null, [], "workflow-1")
+            {
+                ConversationId = origin.ConversationId,
+                ChatTurnId = origin.ChatTurnId
+            });
+
+        var rejected = await service.DecideWorkflowAsync(
+            organizationId,
+            workflow.Id,
+            applicationUserId,
+            new(HiringWorkflowDecisionKinds.Reject, "Use the existing reporting structure.", "reject-workflow-1"));
+        Assert.Equal("Rejected", rejected?.Status);
+        Assert.Equal("Use the existing reporting structure.",
+            (await db.StaffingActionProposals.SingleAsync(item => item.Id == workflow.Id)).DecisionComment);
+        Assert.Null((await db.CoreOrganizationUsers.SingleAsync(x => x.Id == employee.Id)).RoleId);
+
+        workflow = await service.StageWorkflowAsync(organizationId, installationId,
+            new(recommendation.Id, recommendation.RecommendedCandidateReference!, "Operations Lead", null, [], "workflow-2")
+            {
+                ConversationId = origin.ConversationId,
+                ChatTurnId = origin.ChatTurnId
+            });
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ConfirmWorkflowAsync(organizationId, workflow.Id,
             Guid.NewGuid(), new("not-owner")));
@@ -249,6 +271,8 @@ public sealed class HiringServiceTests
             {
                 Priority = 1
             });
+        var owner = await db.CoreOrganizationUsers.SingleAsync(user => user.Id == ownerId);
+        var origin = await AddHiringOriginAsync(db, organizationId, owner, chiefInstallationId);
         await Assert.ThrowsAsync<ArgumentException>(() => service.StageWorkflowAsync(
             organizationId,
             chiefInstallationId,
@@ -268,7 +292,11 @@ public sealed class HiringServiceTests
                 "Product Manager",
                 ownerId,
                 [],
-                "install-product-manager"));
+                "install-product-manager")
+            {
+                ConversationId = origin.ConversationId,
+                ChatTurnId = origin.ChatTurnId
+            });
 
         var approved = await service.ConfirmWorkflowAsync(
             organizationId,
@@ -515,6 +543,57 @@ public sealed class HiringServiceTests
 
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+    private static async Task<(Guid ConversationId, Guid ChatTurnId)> AddHiringOriginAsync(
+        CSweetDbContext db,
+        Guid organizationId,
+        OrganizationUser owner,
+        Guid installationId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var requester = new OrganizationUser
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            AgentInstallationId = installationId,
+            ReportsToOrganizationUserId = owner.Id,
+            DisplayName = "Hiring agent",
+            EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Contributor,
+            IsActive = true,
+            CreatedAt = now
+        };
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            AgentOrganizationUserId = requester.Id,
+            InitiatedByOrganizationUserId = owner.Id,
+            Kind = ConversationKind.DirectHumanAgent,
+            CreatedAt = now,
+            UpdatedAt = now,
+            Participants =
+            [
+                new ConversationParticipant { Id = Guid.NewGuid(), OrganizationUserId = owner.Id, JoinedAt = now },
+                new ConversationParticipant { Id = Guid.NewGuid(), OrganizationUserId = requester.Id, JoinedAt = now }
+            ]
+        };
+        var message = new ConversationMessage
+        {
+            Id = Guid.NewGuid(), ConversationId = conversation.Id, Sequence = 1,
+            Role = ConversationRole.User, Content = "Submit the hiring request.",
+            SenderOrganizationUserId = owner.Id, CreatedAt = now
+        };
+        var turn = new ChatTurn
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, ConversationId = conversation.Id,
+            TargetAgentOrganizationUserId = requester.Id, UserMessageId = message.Id, UserMessage = message,
+            Status = ChatTurnStatus.Running, CreatedAt = now, UpdatedAt = now
+        };
+        db.AddRange(requester, conversation, message, turn);
+        await db.SaveChangesAsync();
+        return (conversation.Id, turn.Id);
+    }
 
     private sealed class RecordingImportPreview(string repositoryUrl) : IAgentImportPreviewService
     {
