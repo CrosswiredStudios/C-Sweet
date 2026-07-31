@@ -1,3 +1,4 @@
+using CSweet.Domain.Core;
 using CSweet.Domain.Security;
 
 namespace CSweet.Domain.WorkManagement;
@@ -90,11 +91,67 @@ public sealed class WorkSprint
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public decimal? CapacityPoints { get; set; }
+    public int? Sequence { get; set; }
     public long Revision { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
     public WorkBoard? Board { get; set; }
+}
+
+public sealed class WorkItemDependency
+{
+    public Guid WorkItemId { get; set; }
+    public Guid DependsOnWorkItemId { get; set; }
+    public WorkTask? WorkItem { get; set; }
+    public WorkTask? DependsOnWorkItem { get; set; }
+}
+
+public sealed class WorkDeliveryPipeline
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid BoardId { get; set; }
+    public Guid DeveloperInstallationId { get; set; }
+    public Guid QualityInstallationId { get; set; }
+    public Guid DevelopmentColumnId { get; set; }
+    public Guid QualityColumnId { get; set; }
+    public Guid DoneColumnId { get; set; }
+    public Guid RepositoryConnectionId { get; set; }
+    public string BaseBranch { get; set; } = "main";
+    public string MergeStrategy { get; set; } = "Squash";
+    public bool IsEnabled { get; set; }
+    public string Status { get; set; } = "Disabled";
+    public string Stage { get; set; } = "Idle";
+    public Guid? ActiveSprintId { get; set; }
+    public Guid? ActiveWorkItemId { get; set; }
+    public int QualityCycle { get; set; }
+    public string MergeStatus { get; set; } = "None";
+    public string? SourcePullRequestUrl { get; set; }
+    public string? SourceCommitSha { get; set; }
+    public string? LastError { get; set; }
+    public string? ResumeAction { get; set; }
+    public int ConsecutiveInfrastructureFailures { get; set; }
+    public DateTimeOffset? LastFailureAt { get; set; }
+    public long Revision { get; set; } = 1;
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class WorkQualityRun
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid BoardId { get; set; }
+    public Guid WorkItemId { get; set; }
+    public Guid QualityInstallationId { get; set; }
+    public long AssignmentRevision { get; set; }
+    public int QualityCycle { get; set; }
+    public string SourceCommitSha { get; set; } = string.Empty;
+    public string Verdict { get; set; } = string.Empty;
+    public string ResultJson { get; set; } = "{}";
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
 }
 
 public sealed class WorkSprintSnapshot

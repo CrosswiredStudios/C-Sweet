@@ -3,6 +3,7 @@ using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Application.Security;
 using CSweet.Application.Setup;
+using CSweet.Application.WorkManagement;
 using CSweet.Contracts.Realtime;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Core;
@@ -20,7 +21,8 @@ namespace CSweet.AgentHost.Broker;
 public sealed class WorkManagementCapabilityHandler(
     CSweetDbContext db,
     IScopedActionAuthorizationService authorization,
-    IAuditEventWriter audit) : IPlatformCapabilityHandler
+    IAuditEventWriter audit,
+    IWorkDeliveryPipelineService? deliveryPipeline = null) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly HashSet<string> HandledCapabilities =
@@ -37,6 +39,7 @@ public sealed class WorkManagementCapabilityHandler(
         WorkItemActions.Cancel,
         WorkItemActions.Reopen,
         WorkItemActions.Transfer,
+        WorkItemActions.QualitySubmit,
         WorkSprintActions.Read,
         WorkSprintActions.Create,
         WorkSprintActions.Start,
@@ -124,6 +127,14 @@ public sealed class WorkManagementCapabilityHandler(
                     await TransferItemAsync(
                         session, organizationId, installation,
                         Read<Wire.TransferWorkItemRequest>(request), cancellationToken)),
+                WorkItemActions.QualitySubmit => Success(
+                    request.RequestId,
+                    await SubmitQualityAsync(
+                        session,
+                        organizationId,
+                        installation,
+                        Read<Wire.SubmitQualityResultRequest>(request),
+                        cancellationToken)),
                 WorkSprintActions.Read => Success(
                     request.RequestId,
                     await ListSprintsAsync(
@@ -468,6 +479,8 @@ public sealed class WorkManagementCapabilityHandler(
         if (input.StartsAt.HasValue && input.EndsAt.HasValue &&
             input.EndsAt <= input.StartsAt)
             throw new ArgumentException("Sprint end must be after its start.");
+        if (input.Sequence is <= 0)
+            throw new ArgumentException("Sprint sequence must be positive when supplied.");
         if (!await db.WorkBoards.AnyAsync(x =>
                 x.Id == input.BoardId &&
                 x.OrganizationId == organizationId &&
@@ -484,6 +497,7 @@ public sealed class WorkManagementCapabilityHandler(
             Goal = input.Goal?.Trim() ?? string.Empty,
             StartsAt = input.StartsAt,
             EndsAt = input.EndsAt,
+            Sequence = input.Sequence,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -1202,6 +1216,20 @@ public sealed class WorkManagementCapabilityHandler(
                 x.OrganizationId == organizationId &&
                 x.BoardId == board.Id, cancellationToken))
             throw new ArgumentException("The parent work item must belong to the same board.");
+        if (input.Delivery is not null)
+        {
+            if (input.Delivery.RepositoryConnectionId == Guid.Empty ||
+                input.Delivery.Requirements.Count == 0 ||
+                input.Delivery.AcceptanceCriteria.Count == 0)
+                throw new ArgumentException("The delivery specification is incomplete.");
+            var dependencyCount = await db.CoreWorkTasks.CountAsync(x =>
+                x.OrganizationId == organizationId &&
+                x.BoardId == board.Id &&
+                input.Delivery.DependencyItemIds.Contains(x.Id), cancellationToken);
+            if (dependencyCount != input.Delivery.DependencyItemIds.Distinct().Count())
+                throw new ArgumentException(
+                    "Every delivery dependency must already exist on the same board.");
+        }
 
         var now = DateTimeOffset.UtcNow;
         var item = new WorkTask
@@ -1220,11 +1248,24 @@ public sealed class WorkManagementCapabilityHandler(
                 .Where(x => x.BoardColumnId == column.Id)
                 .MaxAsync(x => (long?)x.BoardRank, cancellationToken) ?? 0) + 1024,
             DueDate = input.DueDate,
+            DeliverySpecificationJson = input.Delivery is null
+                ? null
+                : JsonSerializer.Serialize(input.Delivery, JsonOptions),
+            IsQaTrackingDefect = input.Delivery?.IsQaTrackingDefect ?? false,
             CreatedAt = now,
             UpdatedAt = now
         };
         var result = ToAgentItem(item);
         db.CoreWorkTasks.Add(item);
+        if (input.Delivery is not null)
+        {
+            foreach (var dependencyId in input.Delivery.DependencyItemIds.Distinct())
+                db.WorkItemDependencies.Add(new WorkItemDependency
+                {
+                    WorkItemId = item.Id,
+                    DependsOnWorkItemId = dependencyId
+                });
+        }
         AddActivity(
             organizationId, board.Id, item.Id, installation.Id,
             string.IsNullOrWhiteSpace(session.AgentId) ? "Agent" : session.AgentId,
@@ -1486,6 +1527,47 @@ public sealed class WorkManagementCapabilityHandler(
         return result;
     }
 
+    private async Task<Wire.QualityRunResult> SubmitQualityAsync(
+        AgentSession session,
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.SubmitQualityResultRequest input,
+        CancellationToken cancellationToken)
+    {
+        if (deliveryPipeline is null)
+            throw new InvalidOperationException("The delivery coordinator is unavailable.");
+        var grant = await RequireForItemAsync(
+            organizationId,
+            installation.Id,
+            WorkItemActions.QualitySubmit,
+            input.BoardId,
+            input.ItemId,
+            cancellationToken);
+        var result = await deliveryPipeline.SubmitQualityAsync(
+            organizationId,
+            installation.Id,
+            input,
+            cancellationToken);
+        await WriteAuditAsync(
+            organizationId,
+            installation.Id,
+            input.BoardId,
+            WorkItemActions.QualitySubmit,
+            grant,
+            new
+            {
+                input.ItemId,
+                input.AssignmentRevision,
+                input.SourceCommitSha,
+                input.Verdict,
+                result.QualityRunId,
+                input.IdempotencyKey
+            },
+            cancellationToken,
+            session);
+        return result;
+    }
+
     private async Task<Wire.WorkItem> TransitionItemAsync(
         AgentSession session,
         Guid organizationId,
@@ -1542,6 +1624,44 @@ public sealed class WorkManagementCapabilityHandler(
         if (item.Revision != input.ExpectedRevision)
             throw new DbUpdateConcurrencyException(
                 $"Expected work item revision {input.ExpectedRevision}, current revision is {item.Revision}.");
+        if (action == WorkItemActions.Complete &&
+            deliveryPipeline is not null &&
+            await deliveryPipeline.RoutePublishedDevelopmentAsync(
+                organizationId,
+                input.BoardId,
+                item.Id,
+                installation.Id,
+                input.ExpectedRevision,
+                input.IdempotencyKey,
+                cancellationToken))
+        {
+            var routed = ToAgentItem(item);
+            AddReceipt(
+                organizationId,
+                installation.Id,
+                action,
+                input.IdempotencyKey,
+                item.Id,
+                routed);
+            await db.SaveChangesAsync(cancellationToken);
+            await WriteAuditAsync(
+                organizationId,
+                installation.Id,
+                input.BoardId,
+                action,
+                grant,
+                new
+                {
+                    input.BoardId,
+                    item.Id,
+                    routedToQuality = true,
+                    item.Revision,
+                    input.IdempotencyKey
+                },
+                cancellationToken,
+                session);
+            return routed;
+        }
         var columns = await db.WorkBoardColumns
             .Where(x => x.BoardId == input.BoardId)
             .OrderBy(x => x.Position)
@@ -1991,7 +2111,12 @@ public sealed class WorkManagementCapabilityHandler(
         item.AssignedEmployeeId,
         item.AssignedAgentInstallationId,
         null,
-        DeserializeDevelopmentBrief(item.DevelopmentBriefJson));
+        DeserializeDevelopmentBrief(item.DevelopmentBriefJson))
+    {
+        Quality = DeserializeJson<Wire.SoftwareQualityBrief>(item.QualityBriefJson),
+        Delivery = DeserializeJson<Wire.WorkItemDeliverySpecification>(
+            item.DeliverySpecificationJson)
+    };
 
     private async Task<Wire.WorkItem> ToAgentItemAsync(
         WorkTask item,
@@ -2020,6 +2145,19 @@ public sealed class WorkManagementCapabilityHandler(
         }
     }
 
+    private static T? DeserializeJson<T>(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return default;
+        try
+        {
+            return JsonSerializer.Deserialize<T>(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return default;
+        }
+    }
+
     private static Wire.WorkSprint ToAgentSprint(
         WorkSprint sprint,
         int itemCount,
@@ -2029,7 +2167,10 @@ public sealed class WorkManagementCapabilityHandler(
         sprint.Id, sprint.BoardId, sprint.Name, sprint.Goal,
         sprint.Status.ToString(), sprint.StartsAt, sprint.EndsAt,
         sprint.StartedAt, sprint.CompletedAt, sprint.CapacityPoints,
-        itemCount, completedItemCount, plannedPoints, completedPoints, sprint.Revision);
+        itemCount, completedItemCount, plannedPoints, completedPoints, sprint.Revision)
+    {
+        Sequence = sprint.Sequence
+    };
 
     private static Wire.WorkSprintReport ToWireReport(
         WorkSprintReportResponse report) => new(

@@ -76,7 +76,7 @@
           "RoleAliases": [ "Software Architect", "Solution Architect", "Technical Architect" ],
           "Keywords": [ "architecture", "system design", "technical strategy" ],
           "IsFeatured": false,
-          "Availability": "Planned",
+          "Availability": "Available",
           "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareArchitect",
           "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareArchitect#readme"
         },
@@ -95,7 +95,7 @@
           "RoleAliases": [ "Software QA", "Quality Engineer", "QA Engineer" ],
           "Keywords": [ "quality assurance", "testing", "release validation" ],
           "IsFeatured": false,
-          "Availability": "Planned",
+          "Availability": "Available",
           "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA",
           "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA#readme"
         }

@@ -117,7 +117,10 @@ public sealed class SoftwareDevelopmentWorkService(
             PermittedRepositoryPath = permittedRepositoryPath,
             AuthenticationMode = authentication,
             AllowedOperations = GitAllowedOperation.ReadFetch |
-                (request.AllowPush ? GitAllowedOperation.PushTicketBranch : 0),
+                (request.AllowPush ? GitAllowedOperation.PushTicketBranch : 0) |
+                (request.AllowGovernedMerge
+                    ? GitAllowedOperation.MergeQaApprovedPullRequest
+                    : 0),
             DefaultBranch = ValidateGitReference(request.DefaultBranch, nameof(request.DefaultBranch)),
             PullRequestProvider = pullRequestProvider,
             AllowedHostsJson = JsonSerializer.Serialize(hosts, JsonOptions),
@@ -147,6 +150,10 @@ public sealed class SoftwareDevelopmentWorkService(
         if (request.CanPushTicketBranch &&
             !connection.AllowedOperations.HasFlag(GitAllowedOperation.PushTicketBranch))
             throw new InvalidOperationException("The repository connection does not allow push.");
+        if (request.CanMergeQaApprovedPullRequest &&
+            !connection.AllowedOperations.HasFlag(GitAllowedOperation.MergeQaApprovedPullRequest))
+            throw new InvalidOperationException(
+                "The repository connection does not allow governed QA-approved merge.");
 
         var existing = await db.GitRepositoryConnectionGrants.SingleOrDefaultAsync(x =>
             x.RepositoryConnectionId == connectionId &&
@@ -162,8 +169,13 @@ public sealed class SoftwareDevelopmentWorkService(
             };
             db.GitRepositoryConnectionGrants.Add(existing);
         }
+        else
+        {
+            existing.Revision++;
+        }
         existing.CanReadFetch = request.CanReadFetch;
         existing.CanPushTicketBranch = request.CanPushTicketBranch;
+        existing.CanMergeQaApprovedPullRequest = request.CanMergeQaApprovedPullRequest;
         existing.RevokedAt = null;
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -675,6 +687,7 @@ public sealed class SoftwareDevelopmentWorkService(
             connection.AuthenticationMode.ToString(),
             connection.AllowedOperations.HasFlag(GitAllowedOperation.ReadFetch),
             connection.AllowedOperations.HasFlag(GitAllowedOperation.PushTicketBranch),
+            connection.AllowedOperations.HasFlag(GitAllowedOperation.MergeQaApprovedPullRequest),
             connection.DefaultBranch,
             connection.PullRequestProvider.ToString(),
             Deserialize<string>(connection.AllowedHostsJson),

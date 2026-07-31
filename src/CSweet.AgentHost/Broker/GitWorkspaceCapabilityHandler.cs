@@ -156,6 +156,12 @@ public sealed class GitWorkspaceCapabilityHandler(
         var baseBranch = string.IsNullOrWhiteSpace(input.BaseBranch)
             ? context.Connection.DefaultBranch
             : ValidateGitReference(input.BaseBranch);
+        var expectedCommitSha = string.IsNullOrWhiteSpace(input.ExpectedCommitSha)
+            ? null
+            : ValidateCommitSha(input.ExpectedCommitSha);
+        if (input.ResumePublishedBranch && expectedCommitSha is null)
+            throw new ArgumentException(
+                "Resuming a published branch requires its expected commit SHA.");
         var expectedPath =
             $"/workspace/{input.WorkItemId:N}/{input.AssignmentRevision}";
 
@@ -209,6 +215,8 @@ public sealed class GitWorkspaceCapabilityHandler(
             expectedPath,
             baseBranch,
             expectedBranch,
+            expectedCommitSha,
+            input.ResumePublishedBranch,
             authentication);
         var result = await ExecuteInRuntimeAsync(
             context.ContainerId,
@@ -239,6 +247,7 @@ public sealed class GitWorkspaceCapabilityHandler(
             throw new InvalidOperationException("The repository exceeds the approved workspace quota.");
         }
         workspace.Status = GitTicketWorkspaceStatus.Ready;
+        workspace.CommitSha = expectedCommitSha;
         workspace.LastError = null;
         workspace.RetainUntil = null;
         workspace.UpdatedAt = DateTimeOffset.UtcNow;
@@ -251,7 +260,10 @@ public sealed class GitWorkspaceCapabilityHandler(
             workspace.BaseBranch,
             workspace.BranchName,
             workspace.Status.ToString(),
-            resumed);
+            resumed)
+        {
+            CheckoutCommitSha = metadata.CommitSha
+        };
     }
 
     private async Task<GitWorkspaceInspection> InspectAsync(
@@ -272,6 +284,13 @@ public sealed class GitWorkspaceCapabilityHandler(
             printf '%s\n' 'CSWEET_COMMITS_BEGIN'
             git log --format='%H %s' {Quote($"origin/{workspace.BaseBranch}..HEAD")}
             printf '%s\n' 'CSWEET_COMMITS_END'
+            printf '%s\n' 'CSWEET_TRACKED_BEGIN'
+            (git diff --name-only; git diff --cached --name-only; {(
+                string.IsNullOrWhiteSpace(workspace.CommitSha)
+                    ? "true"
+                    : $"git diff --name-only {Quote(workspace.CommitSha)} HEAD")}) | sort -u
+            printf '%s\n' 'CSWEET_TRACKED_END'
+            printf 'CSWEET_HEAD=%s\n' "$(git rev-parse HEAD)"
             """;
         var result = await ExecuteInRuntimeAsync(
             containerId, script, null, [], cancellationToken);
@@ -283,6 +302,14 @@ public sealed class GitWorkspaceCapabilityHandler(
             .Where(x => x.Length > 0)
             .ToList();
         var commits = Between(result.StandardOutput, "CSWEET_COMMITS_BEGIN", "CSWEET_COMMITS_END");
+        var tracked = Between(
+            result.StandardOutput, "CSWEET_TRACKED_BEGIN", "CSWEET_TRACKED_END");
+        var headCommit = result.StandardOutput.Split(
+                '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .LastOrDefault(x => x.StartsWith("CSWEET_HEAD=", StringComparison.Ordinal))
+            ?["CSWEET_HEAD=".Length..];
+        var headChanged = !string.IsNullOrWhiteSpace(workspace.CommitSha) &&
+            !string.Equals(workspace.CommitSha, headCommit, StringComparison.OrdinalIgnoreCase);
         workspace.ChangedFilesJson = JsonSerializer.Serialize(changed, JsonOptions);
         workspace.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
@@ -293,7 +320,11 @@ public sealed class GitWorkspaceCapabilityHandler(
             changed,
             commits,
             JsonSerializer.Deserialize<IReadOnlyList<GitValidationResult>>(
-                workspace.ValidationsJson, JsonOptions) ?? []);
+                workspace.ValidationsJson, JsonOptions) ?? [])
+        {
+            HasTrackedChanges = tracked.Count > 0 || headChanged,
+            TrackedChangedFiles = tracked
+        };
     }
 
     private async Task<GitWorkspacePublication> PublishAsync(
@@ -468,6 +499,10 @@ public sealed class GitWorkspaceCapabilityHandler(
                 x.Id == connectionId && x.OrganizationId == organizationId,
                 cancellationToken)
             ?? throw new KeyNotFoundException("The repository connection was not found.");
+        var assignedRepositoryId = DeserializeAssignedRepositoryId(item);
+        if (assignedRepositoryId != connectionId)
+            throw new UnauthorizedAccessException(
+                "The repository is not the one pinned to this assignment.");
         var grant = await db.GitRepositoryConnectionGrants.AsNoTracking()
             .SingleOrDefaultAsync(x =>
                 x.RepositoryConnectionId == connectionId &&
@@ -481,6 +516,21 @@ public sealed class GitWorkspaceCapabilityHandler(
                     ? "The repository grant does not allow ticket-branch push."
                     : "The repository grant does not allow clone/fetch.");
         return new WorkspaceContext(item, connection, runtime.ContainerId!);
+    }
+
+    private static Guid? DeserializeAssignedRepositoryId(WorkTask item)
+    {
+        foreach (var json in new[] { item.QualityBriefJson, item.DevelopmentBriefJson })
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                continue;
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.TryGetProperty(
+                    "repositoryConnectionId", out var property) &&
+                property.TryGetGuid(out var repositoryConnectionId))
+                return repositoryConnectionId;
+        }
+        return null;
     }
 
     private async Task<(GitTicketWorkspace Workspace, string ContainerId)> RequireWorkspaceAsync(
@@ -679,6 +729,8 @@ public sealed class GitWorkspaceCapabilityHandler(
         string workspacePath,
         string baseBranch,
         string branchName,
+        string? expectedCommitSha,
+        bool resumePublishedBranch,
         GitAuthentication authentication)
     {
         var auth = AuthenticationPrefix(connection, authentication);
@@ -702,11 +754,19 @@ public sealed class GitWorkspaceCapabilityHandler(
               cd "$workspace"
               git fetch --prune origin {{Quote(baseBranch)}}
             fi
-            if git show-ref --verify --quiet {{Quote($"refs/heads/{branchName}")}}; then
-              git checkout {{Quote(branchName)}}
-            else
-              git checkout -b {{Quote(branchName)}} {{Quote($"origin/{baseBranch}")}}
-            fi
+            {{(resumePublishedBranch
+                ? $"git fetch --prune origin {Quote($"refs/heads/{branchName}:refs/remotes/origin/{branchName}")}\ngit checkout -B {Quote(branchName)} {Quote($"origin/{branchName}")}"
+                : $"""
+                  if git show-ref --verify --quiet {Quote($"refs/heads/{branchName}")}; then
+                    git checkout {Quote(branchName)}
+                  else
+                    git checkout -b {Quote(branchName)} {Quote($"origin/{baseBranch}")}
+                  fi
+                  """)}}
+            {{(expectedCommitSha is null
+                ? string.Empty
+                : $"test \"$(git rev-parse HEAD)\" = {Quote(expectedCommitSha)}")}}
+            commit=$(git rev-parse HEAD)
             bytes=$(du -sb . | cut -f1)
             files=$(find . -xdev -type f | wc -l)
             python3 - "$PWD" <<'PY'
@@ -718,7 +778,7 @@ public sealed class GitWorkspaceCapabilityHandler(
                     if root not in target.parents and target != root:
                         raise SystemExit(f"symlink escapes workspace: {path.relative_to(root)}")
             PY
-            printf 'CSWEET_BYTES=%s\nCSWEET_FILES=%s\n' "$bytes" "$files"
+            printf 'CSWEET_BYTES=%s\nCSWEET_FILES=%s\nCSWEET_COMMIT=%s\n' "$bytes" "$files" "$commit"
             """;
     }
 
@@ -845,6 +905,7 @@ public sealed class GitWorkspaceCapabilityHandler(
     {
         long bytes = 0;
         var files = 0;
+        string? commitSha = null;
         foreach (var line in output.Split(
                      '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
@@ -852,8 +913,10 @@ public sealed class GitWorkspaceCapabilityHandler(
                 long.TryParse(line["CSWEET_BYTES=".Length..], out bytes);
             else if (line.StartsWith("CSWEET_FILES=", StringComparison.Ordinal))
                 int.TryParse(line["CSWEET_FILES=".Length..], out files);
+            else if (line.StartsWith("CSWEET_COMMIT=", StringComparison.Ordinal))
+                commitSha = line["CSWEET_COMMIT=".Length..];
         }
-        return new CommandMetadata(bytes, files);
+        return new CommandMetadata(bytes, files, commitSha);
     }
 
     private static string Redact(string value, IReadOnlyList<string> secrets)
@@ -912,6 +975,14 @@ public sealed class GitWorkspaceCapabilityHandler(
         return value;
     }
 
+    private static string ValidateCommitSha(string value)
+    {
+        var result = value.Trim().ToLowerInvariant();
+        if (result.Length != 40 || result.Any(x => !char.IsAsciiHexDigit(x)))
+            throw new ArgumentException("The expected commit SHA must be a full 40-character SHA.");
+        return result;
+    }
+
     private static void ValidateIdempotencyKey(string key)
     {
         if (string.IsNullOrWhiteSpace(key) || key.Length > 160)
@@ -959,7 +1030,12 @@ public sealed class GitWorkspaceCapabilityHandler(
             workspace.CommitSha!,
             true,
             Uri.TryCreate(workspace.PullRequestUrl, UriKind.Absolute, out var url) ? url : null,
-            workspace.Status.ToString());
+            workspace.Status.ToString())
+        {
+            MergeStatus = workspace.MergeStatus,
+            MergeCommitSha = workspace.MergeCommitSha,
+            MergedAt = workspace.MergedAt
+        };
 
     private sealed record WorkspaceContext(
         WorkTask Item,
@@ -972,5 +1048,5 @@ public sealed class GitWorkspaceCapabilityHandler(
         string? ApiToken,
         IReadOnlyList<string> KnownSecrets);
 
-    private sealed record CommandMetadata(long Bytes, int Files);
+    private sealed record CommandMetadata(long Bytes, int Files, string? CommitSha);
 }

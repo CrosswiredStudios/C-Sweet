@@ -14,7 +14,8 @@ public sealed record CreateGitRepositoryConnectionRequest(
     string PullRequestProvider,
     IReadOnlyList<string> AllowedHosts,
     IReadOnlyList<int> AllowedPorts,
-    IReadOnlyList<string>? SshHostFingerprints = null);
+    IReadOnlyList<string>? SshHostFingerprints = null,
+    bool AllowGovernedMerge = false);
 
 public sealed record GitRepositoryConnectionResponse(
     Guid Id,
@@ -26,6 +27,7 @@ public sealed record GitRepositoryConnectionResponse(
     string AuthenticationMode,
     bool CanReadFetch,
     bool CanPushTicketBranch,
+    bool CanMergeQaApprovedPullRequest,
     string DefaultBranch,
     string PullRequestProvider,
     IReadOnlyList<string> AllowedHosts,
@@ -37,7 +39,8 @@ public sealed record GitRepositoryConnectionResponse(
 public sealed record GrantGitRepositoryConnectionRequest(
     Guid AgentInstallationId,
     bool CanReadFetch = true,
-    bool CanPushTicketBranch = false);
+    bool CanPushTicketBranch = false,
+    bool CanMergeQaApprovedPullRequest = false);
 
 /// <summary>
 /// Sets one encrypted credential component. Values are write-only and never appear

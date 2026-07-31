@@ -18,7 +18,8 @@ public enum GitAuthenticationMode
 public enum GitAllowedOperation
 {
     ReadFetch = 1,
-    PushTicketBranch = 2
+    PushTicketBranch = 2,
+    MergeQaApprovedPullRequest = 4
 }
 
 public enum GitPullRequestProvider
@@ -59,6 +60,8 @@ public sealed class GitRepositoryConnectionGrant
     public Guid AgentInstallationId { get; set; }
     public bool CanReadFetch { get; set; } = true;
     public bool CanPushTicketBranch { get; set; }
+    public bool CanMergeQaApprovedPullRequest { get; set; }
+    public long Revision { get; set; } = 1;
     public DateTimeOffset GrantedAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
 
@@ -95,6 +98,9 @@ public sealed class GitTicketWorkspace
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? RetainUntil { get; set; }
+    public string MergeStatus { get; set; } = "None";
+    public string? MergeCommitSha { get; set; }
+    public DateTimeOffset? MergedAt { get; set; }
 
     public GitRepositoryConnection? RepositoryConnection { get; set; }
     public AgentInstallation? AgentInstallation { get; set; }

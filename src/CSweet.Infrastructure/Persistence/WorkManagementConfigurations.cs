@@ -68,6 +68,9 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.CapacityPoints).HasPrecision(8, 2);
             entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasIndex(x => new { x.BoardId, x.Name });
+            entity.HasIndex(x => new { x.BoardId, x.Sequence })
+                .IsUnique()
+                .HasFilter("\"Sequence\" IS NOT NULL");
             entity.HasIndex(x => new { x.BoardId, x.Status })
                 .IsUnique()
                 .HasFilter("\"Status\" = 'Active'");
@@ -78,6 +81,84 @@ internal static class WorkManagementConfigurations
             entity.HasOne(x => x.Board)
                 .WithMany(x => x.Sprints)
                 .HasForeignKey(x => x.BoardId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WorkItemDependency>(entity =>
+        {
+            entity.HasKey(x => new { x.WorkItemId, x.DependsOnWorkItemId });
+            entity.ToTable(table => table.HasCheckConstraint(
+                "CK_WorkItemDependencies_NotSelf",
+                "\"WorkItemId\" <> \"DependsOnWorkItemId\""));
+            entity.HasOne(x => x.WorkItem)
+                .WithMany(x => x.Dependencies)
+                .HasForeignKey(x => x.WorkItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.DependsOnWorkItem)
+                .WithMany(x => x.Dependents)
+                .HasForeignKey(x => x.DependsOnWorkItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(x => x.DependsOnWorkItemId);
+        });
+
+        modelBuilder.Entity<WorkDeliveryPipeline>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.BaseBranch).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.MergeStrategy).HasMaxLength(24).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Stage).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.MergeStatus).HasMaxLength(24).IsRequired();
+            entity.Property(x => x.SourcePullRequestUrl).HasMaxLength(2048);
+            entity.Property(x => x.SourceCommitSha).HasMaxLength(128);
+            entity.Property(x => x.LastError).HasMaxLength(4096);
+            entity.Property(x => x.ResumeAction).HasMaxLength(512);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.BoardId).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.IsEnabled, x.Status });
+            entity.HasOne<Organization>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<WorkBoard>()
+                .WithMany()
+                .HasForeignKey(x => x.BoardId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<WorkSprint>()
+                .WithMany()
+                .HasForeignKey(x => x.ActiveSprintId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<WorkTask>()
+                .WithMany()
+                .HasForeignKey(x => x.ActiveWorkItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WorkQualityRun>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceCommitSha).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.Verdict).HasMaxLength(24).IsRequired();
+            entity.Property(x => x.ResultJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.HasIndex(x => new
+            {
+                x.QualityInstallationId,
+                x.WorkItemId,
+                x.IdempotencyKey
+            }).IsUnique();
+            entity.HasIndex(x => new { x.WorkItemId, x.QualityCycle });
+            entity.HasOne<Organization>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<WorkBoard>()
+                .WithMany()
+                .HasForeignKey(x => x.BoardId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<WorkTask>()
+                .WithMany()
+                .HasForeignKey(x => x.WorkItemId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

@@ -217,6 +217,12 @@
                                StartIcon="@Icons.Material.Outlined.AutoFixHigh"
                                OnClick="OpenAutomationsAsync">Automations</MudButton>
                 }
+                @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.Configure))
+                {
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Outlined.AccountTree"
+                               OnClick="OpenDeliveryPipelineAsync">Delivery pipeline</MudButton>
+                }
                 @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ConfigureColumns) &&
                      !_detail.Board.IsArchived)
                 {
@@ -231,6 +237,52 @@
                                OnClick="OpenAgentAccessAsync">Agent access</MudButton>
                 }
             </MudStack>
+            @if (_deliveryPipeline is not null)
+            {
+                <MudPaper Outlined="true" Class="pa-3 mt-3">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                        <div>
+                            <MudText Typo="Typo.subtitle1"><b>Delivery pipeline</b></MudText>
+                            <MudText Typo="Typo.body2">
+                                @_deliveryPipeline.Status · @_deliveryPipeline.Stage
+                                @if (_deliveryPipeline.QualityCycle > 0)
+                                {
+                                    <span> · QA cycle @_deliveryPipeline.QualityCycle</span>
+                                }
+                                @if (_deliveryPipeline.MergeStatus != "None")
+                                {
+                                    <span> · merge @_deliveryPipeline.MergeStatus</span>
+                                }
+                            </MudText>
+                            @if (_deliveryPipeline.ActiveSprintId.HasValue)
+                            {
+                                <MudText Typo="Typo.caption">
+                                    Sprint @_deliveryPipeline.ActiveSprintId · ticket @_deliveryPipeline.ActiveWorkItemId
+                                </MudText>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_deliveryPipeline.SourcePullRequestUrl))
+                            {
+                                <MudLink Href="@_deliveryPipeline.SourcePullRequestUrl" Target="_blank">
+                                    Source pull request
+                                </MudLink>
+                            }
+                        </div>
+                        <MudChip T="string" Color="@PipelineColor(_deliveryPipeline.Status)">
+                            @_deliveryPipeline.Status
+                        </MudChip>
+                    </MudStack>
+                    @if (!string.IsNullOrWhiteSpace(_deliveryPipeline.LastError))
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-2">
+                            @_deliveryPipeline.LastError
+                            @if (!string.IsNullOrWhiteSpace(_deliveryPipeline.ResumeAction))
+                            {
+                                <div>@_deliveryPipeline.ResumeAction</div>
+                            }
+                        </MudAlert>
+                    }
+                </MudPaper>
+            }
             <div class="mt-4" style="display:flex; gap:16px; overflow-x:auto; align-items:flex-start;">
                 @foreach (var column in _detail.Columns)
                 {
@@ -837,6 +889,87 @@
     </DialogActions>
 </MudDialog>
 
+<MudDialog @bind-Visible="_deliveryOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Delivery pipeline</MudText></TitleContent>
+    <DialogContent>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            Enabling is the one-time authorization for sequential Developer → QA → governed merge
+            processing across approved sprints.
+        </MudAlert>
+        <MudSelect T="Guid?" Label="Software Developer" @bind-Value="_pipelineDeveloperId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var agent in _pipelineAgents.Where(x => x.AgentId == "com.csweet.software-developer"))
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)agent.Id)">@agent.AgentName (@agent.AgentVersion)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" Label="Software QA" @bind-Value="_pipelineQualityId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var agent in _pipelineAgents.Where(x => x.AgentId == "com.csweet.software-qa"))
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)agent.Id)">@agent.AgentName (@agent.AgentVersion)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" Label="Development column" @bind-Value="_pipelineDevelopmentColumnId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var column in _detail?.Columns.Where(x => x.Category != "Done") ?? [])
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" Label="QA column" @bind-Value="_pipelineQualityColumnId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var column in _detail?.Columns.Where(x => x.Category != "Done") ?? [])
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" Label="Done column" @bind-Value="_pipelineDoneColumnId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var column in _detail?.Columns.Where(x => x.Category == "Done") ?? [])
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" Label="Repository" @bind-Value="_pipelineRepositoryId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var connection in _repositoryConnections)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)connection.Id)">
+                    @connection.Name — @connection.PermittedRepositoryPath
+                </MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField T="string" Label="Base branch" @bind-Value="_pipelineBaseBranch"
+                      Variant="Variant.Outlined" Class="mt-3" />
+        @if (!string.IsNullOrWhiteSpace(_pipelineError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                @_pipelineError
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_deliveryPipeline?.IsEnabled == true)
+        {
+            <MudButton Color="Color.Warning" OnClick="@(() => ChangePipelineAsync("pause"))">Pause</MudButton>
+            <MudButton Color="Color.Error" OnClick="@(() => ChangePipelineAsync("disable"))">Disable</MudButton>
+        }
+        @if (_deliveryPipeline?.Status == "Paused")
+        {
+            <MudButton Color="Color.Success" OnClick="@(() => ChangePipelineAsync("resume"))">Resume</MudButton>
+        }
+        <MudSpacer />
+        <MudButton OnClick="@(() => _deliveryOpen = false)">Close</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_saving || !PipelineFormComplete)"
+                   OnClick="SaveDeliveryPipelineAsync">
+            @(_deliveryPipeline is null ? "Enable pipeline" : "Save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
 <MudDialog @bind-Visible="_agentAccessOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
     <TitleContent><MudText Typo="Typo.h6">Agent board access</MudText></TitleContent>
@@ -1052,6 +1185,7 @@
     private bool _capacityOpen;
     private bool _carryoverOpen;
     private bool _developerAssignmentOpen;
+    private bool _deliveryOpen;
     private bool _realtimeRefreshRunning;
     private bool _realtimeRefreshPending;
     private string _itemTitle = "";
@@ -1092,6 +1226,16 @@
     private IReadOnlyList<AgentInstallationResponse> _boardAgents = [];
     private IReadOnlyList<AgentInstallationResponse> _developerInstallations = [];
     private IReadOnlyList<GitRepositoryConnectionResponse> _repositoryConnections = [];
+    private IReadOnlyList<AgentInstallationResponse> _pipelineAgents = [];
+    private DeliveryPipelineResponse? _deliveryPipeline;
+    private Guid? _pipelineDeveloperId;
+    private Guid? _pipelineQualityId;
+    private Guid? _pipelineDevelopmentColumnId;
+    private Guid? _pipelineQualityColumnId;
+    private Guid? _pipelineDoneColumnId;
+    private Guid? _pipelineRepositoryId;
+    private string _pipelineBaseBranch = "main";
+    private string? _pipelineError;
     private Guid? _developerInstallationId;
     private Guid? _developerConnectionId;
     private string _developerBaseBranch = "main";
@@ -1126,6 +1270,14 @@
             .OrderByDescending(x => x.Status == "Active")
             .ThenBy(x => x.Name)
             .ToList();
+    private bool PipelineFormComplete =>
+        _pipelineDeveloperId.HasValue &&
+        _pipelineQualityId.HasValue &&
+        _pipelineDevelopmentColumnId.HasValue &&
+        _pipelineQualityColumnId.HasValue &&
+        _pipelineDoneColumnId.HasValue &&
+        _pipelineRepositoryId.HasValue &&
+        !string.IsNullOrWhiteSpace(_pipelineBaseBranch);
 
     protected override void OnInitialized() =>
         Realtime.EventReceived += OnRealtimeEvent;
@@ -1283,6 +1435,7 @@
             }
 
             await LoadSprintsAsync();
+            await LoadDeliveryPipelineAsync();
             await ReloadAsync();
         }
         catch (TaskCanceledException)
@@ -1381,6 +1534,139 @@
             _developerAssignmentError = exception.Message;
             _developerAssignmentOpen = true;
         }
+    }
+
+    private async Task LoadDeliveryPipelineAsync()
+    {
+        if (_detail is null) return;
+        var response = await Http.GetAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/delivery-pipeline");
+        _deliveryPipeline = response.StatusCode == HttpStatusCode.NotFound
+            ? null
+            : response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<DeliveryPipelineResponse>()
+                : _deliveryPipeline;
+    }
+
+    private async Task OpenDeliveryPipelineAsync()
+    {
+        if (_detail is null) return;
+        _pipelineError = null;
+        try
+        {
+            await LoadDeliveryPipelineAsync();
+            _pipelineAgents = (await Http.GetFromJsonAsync<IReadOnlyList<AgentInstallationResponse>>(
+                    "api/agents/installations") ?? [])
+                .Where(x =>
+                    x.IsEnabled &&
+                    x.RevisionStatus == "Active" &&
+                    Guid.TryParse(x.BusinessId, out var businessId) &&
+                    businessId == OrganizationId)
+                .ToList();
+            _repositoryConnections =
+                await Http.GetFromJsonAsync<IReadOnlyList<GitRepositoryConnectionResponse>>(
+                    $"api/organizations/{OrganizationId:D}/git/repositories") ?? [];
+            _pipelineDeveloperId = _deliveryPipeline?.DeveloperInstallationId ??
+                _pipelineAgents.SingleOrDefault(
+                    x => x.AgentId == "com.csweet.software-developer")?.Id;
+            _pipelineQualityId = _deliveryPipeline?.QualityInstallationId ??
+                _pipelineAgents.SingleOrDefault(
+                    x => x.AgentId == "com.csweet.software-qa")?.Id;
+            _pipelineDevelopmentColumnId = _deliveryPipeline?.DevelopmentColumnId ??
+                _detail.Columns.FirstOrDefault(x => x.Category == "InProgress")?.Id;
+            _pipelineQualityColumnId = _deliveryPipeline?.QualityColumnId ??
+                _detail.Columns.FirstOrDefault(x =>
+                    x.Category != "Done" &&
+                    x.Name.Contains("QA", StringComparison.OrdinalIgnoreCase))?.Id;
+            _pipelineDoneColumnId = _deliveryPipeline?.DoneColumnId ??
+                _detail.Columns.FirstOrDefault(x => x.Category == "Done")?.Id;
+            _pipelineRepositoryId = _deliveryPipeline?.RepositoryConnectionId ??
+                (_repositoryConnections.Count == 1 ? _repositoryConnections[0].Id : null);
+            _pipelineBaseBranch = _deliveryPipeline?.BaseBranch ??
+                _repositoryConnections.SingleOrDefault(
+                    x => x.Id == _pipelineRepositoryId)?.DefaultBranch ?? "main";
+            _deliveryOpen = true;
+        }
+        catch (Exception exception)
+        {
+            _pipelineError = exception.Message;
+            _deliveryOpen = true;
+        }
+    }
+
+    private async Task SaveDeliveryPipelineAsync()
+    {
+        if (_detail is null || !PipelineFormComplete) return;
+        _saving = true;
+        _pipelineError = null;
+        try
+        {
+            var response = await Http.PutAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/delivery-pipeline",
+                new ConfigureDeliveryPipelineRequest(
+                    _pipelineDeveloperId!.Value,
+                    _pipelineQualityId!.Value,
+                    _pipelineDevelopmentColumnId!.Value,
+                    _pipelineQualityColumnId!.Value,
+                    _pipelineDoneColumnId!.Value,
+                    _pipelineRepositoryId!.Value,
+                    _pipelineBaseBranch,
+                    "Squash",
+                    true,
+                    _deliveryPipeline?.Revision ?? 0));
+            if (!response.IsSuccessStatusCode)
+            {
+                _pipelineError = await ApiErrorAsync(response);
+                return;
+            }
+            _deliveryPipeline =
+                await response.Content.ReadFromJsonAsync<DeliveryPipelineResponse>();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ChangePipelineAsync(string action)
+    {
+        if (_detail is null || _deliveryPipeline is null) return;
+        _saving = true;
+        _pipelineError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/delivery-pipeline/{action}",
+                new ChangeDeliveryPipelineStateRequest(_deliveryPipeline.Revision));
+            if (!response.IsSuccessStatusCode)
+            {
+                _pipelineError = await ApiErrorAsync(response);
+                return;
+            }
+            _deliveryPipeline =
+                await response.Content.ReadFromJsonAsync<DeliveryPipelineResponse>();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static Color PipelineColor(string status) => status switch
+    {
+        "Paused" => Color.Warning,
+        "Completed" => Color.Success,
+        "Running" => Color.Primary,
+        "Disabled" => Color.Default,
+        _ => Color.Info
+    };
+
+    private static async Task<string> ApiErrorAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        return string.IsNullOrWhiteSpace(body)
+            ? $"The server returned HTTP {(int)response.StatusCode}."
+            : body;
     }
 
     private void SelectDeveloperConnection(Guid? connectionId)

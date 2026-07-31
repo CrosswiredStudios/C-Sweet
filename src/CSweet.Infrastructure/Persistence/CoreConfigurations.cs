@@ -418,6 +418,14 @@ internal static class CoreConfigurations
         entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();
         entity.Property(x => x.EstimatePoints).HasPrecision(8, 2);
         entity.Property(x => x.DevelopmentBriefJson).HasColumnType("text");
+        entity.Property(x => x.DeliverySpecificationJson).HasColumnType("text");
+        entity.Property(x => x.QualityBriefJson).HasColumnType("text");
+        entity.Property(x => x.MergeStatus).HasMaxLength(24).IsRequired();
+        entity.Property(x => x.MergeCommitSha).HasMaxLength(128);
+        entity.Property(x => x.QualityFindingFingerprint).HasMaxLength(128);
+        entity.HasIndex(x => new { x.ParentWorkTaskId, x.QualityFindingFingerprint })
+            .IsUnique()
+            .HasFilter("\"QualityFindingFingerprint\" IS NOT NULL");
         entity.HasIndex(x => new { x.BoardColumnId, x.BoardRank });
         entity.HasIndex(x => new { x.SprintId, x.BoardRank });
 

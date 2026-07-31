@@ -87,6 +87,9 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<WorkItemMutationReceipt> WorkItemMutationReceipts => Set<WorkItemMutationReceipt>();
     public DbSet<WorkItemComment> WorkItemComments => Set<WorkItemComment>();
     public DbSet<WorkItemActivity> WorkItemActivities => Set<WorkItemActivity>();
+    public DbSet<WorkItemDependency> WorkItemDependencies => Set<WorkItemDependency>();
+    public DbSet<WorkDeliveryPipeline> WorkDeliveryPipelines => Set<WorkDeliveryPipeline>();
+    public DbSet<WorkQualityRun> WorkQualityRuns => Set<WorkQualityRun>();
     public DbSet<ScopedActionGrant> ScopedActionGrants => Set<ScopedActionGrant>();
     public DbSet<TaskRun> CoreTaskRuns => Set<TaskRun>();
     public DbSet<Artifact> CoreArtifacts => Set<Artifact>();
@@ -623,6 +626,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         modelBuilder.Entity<GitRepositoryConnectionGrant>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasIndex(x => new { x.RepositoryConnectionId, x.AgentInstallationId }).IsUnique();
             entity.HasOne(x => x.RepositoryConnection)
                 .WithMany(x => x.InstallationGrants)
@@ -646,6 +650,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.ChangedFilesJson).HasColumnType("text").IsRequired();
             entity.Property(x => x.ValidationsJson).HasColumnType("text").IsRequired();
             entity.Property(x => x.LastError).HasMaxLength(2048);
+            entity.Property(x => x.MergeStatus).HasMaxLength(24).IsRequired();
+            entity.Property(x => x.MergeCommitSha).HasMaxLength(128);
             entity.HasIndex(x => new
             {
                 x.AgentInstallationId,

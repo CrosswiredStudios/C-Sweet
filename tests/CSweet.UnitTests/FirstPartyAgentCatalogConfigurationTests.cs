@@ -29,6 +29,60 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
             developer.GetProperty("RepositoryUrl").GetString());
     }
 
+    [Fact]
+    public void SoftwareArchitect_IsAvailableFromItsStandaloneRepository()
+    {
+        var path = Path.Combine(
+            RepositoryRoot(),
+            "src",
+            "CSweet.Api",
+            "first-party-agents.json");
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var agents = document.RootElement
+            .GetProperty("CSweet")
+            .GetProperty("Marketplace")
+            .GetProperty("FirstPartyAgents");
+        var architect = agents.EnumerateArray().Single(x =>
+            x.GetProperty("AgentId").GetString() ==
+            "com.csweet.software-architect");
+
+        Assert.Equal(
+            "Available",
+            architect.GetProperty("Availability").GetString());
+        Assert.Equal(
+            "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareArchitect",
+            architect.GetProperty("RepositoryUrl").GetString());
+        Assert.Contains(
+            architect.GetProperty("Capabilities").EnumerateArray(),
+            capability => capability.GetString() == "engineering.architecture");
+    }
+
+    [Fact]
+    public void SoftwareQa_IsAvailableFromItsStandaloneRepository()
+    {
+        var path = Path.Combine(
+            RepositoryRoot(),
+            "src",
+            "CSweet.Api",
+            "first-party-agents.json");
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var qa = document.RootElement
+            .GetProperty("CSweet")
+            .GetProperty("Marketplace")
+            .GetProperty("FirstPartyAgents")
+            .EnumerateArray()
+            .Single(x => x.GetProperty("AgentId").GetString() ==
+                         "com.csweet.software-qa");
+
+        Assert.Equal("Available", qa.GetProperty("Availability").GetString());
+        Assert.Equal(
+            "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA",
+            qa.GetProperty("RepositoryUrl").GetString());
+        Assert.Contains(
+            qa.GetProperty("Capabilities").EnumerateArray(),
+            capability => capability.GetString() == "engineering.quality");
+    }
+
     private static string RepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

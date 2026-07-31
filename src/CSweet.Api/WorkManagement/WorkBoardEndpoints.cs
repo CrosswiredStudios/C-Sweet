@@ -14,6 +14,82 @@ public static class WorkBoardEndpoints
             endpoints.MapGroup("/api/organizations/{organizationId:guid}/work/grants");
         var repositoryGroup =
             endpoints.MapGroup("/api/organizations/{organizationId:guid}/git/repositories");
+        var deliveryGroup =
+            endpoints.MapGroup(
+                "/api/organizations/{organizationId:guid}/work/boards/{boardId:guid}/delivery-pipeline");
+
+        deliveryGroup.MapGet("", async (
+            Guid organizationId,
+            Guid boardId,
+            HttpContext http,
+            IWorkDeliveryPipelineService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                var pipeline = await service.GetAsync(
+                    organizationId, boardId, userId.Value, cancellationToken);
+                return pipeline is null ? Results.NotFound() : Results.Ok(pipeline);
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+
+        deliveryGroup.MapPut("", async (
+            Guid organizationId,
+            Guid boardId,
+            ConfigureDeliveryPipelineRequest request,
+            HttpContext http,
+            IWorkDeliveryPipelineService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                return Results.Ok(await service.ConfigureAsync(
+                    organizationId, boardId, userId.Value, request, cancellationToken));
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (DbUpdateConcurrencyException exception)
+            {
+                return Results.Conflict(new { error = "revision_conflict", message = exception.Message });
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                return Results.BadRequest(new { error = "invalid_delivery_pipeline", message = exception.Message });
+            }
+        });
+
+        deliveryGroup.MapPost("/{action}", async (
+            Guid organizationId,
+            Guid boardId,
+            string action,
+            ChangeDeliveryPipelineStateRequest request,
+            HttpContext http,
+            IWorkDeliveryPipelineService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                return Results.Ok(await service.ChangeStateAsync(
+                    organizationId, boardId, userId.Value, action, request, cancellationToken));
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (DbUpdateConcurrencyException exception)
+            {
+                return Results.Conflict(new { error = "revision_conflict", message = exception.Message });
+            }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_delivery_pipeline_action", message = exception.Message });
+            }
+        });
 
         repositoryGroup.MapGet("", async (
             Guid organizationId,

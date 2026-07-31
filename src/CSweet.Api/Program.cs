@@ -112,6 +112,7 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<IApplicationRealtimePublisher, SignalRApplicationRealtimePublisher>();
 builder.Services.AddHostedService<ApplicationRealtimeOutboxWorker>();
 builder.Services.AddHostedService<WorkAutomationWorker>();
+builder.Services.AddHostedService<WorkDeliveryPipelineWorker>();
 
 var app = builder.Build();
 app.UseExceptionHandler();
