@@ -133,6 +133,7 @@ public sealed record HiringDashboardResponse(
 public sealed record PreviewMarketplaceHireRequest(
     [property: Required, MaxLength(512)] string AgentReference,
     [property: Required, MaxLength(160)] string RoleTitle,
+    [property: Required, MaxLength(160)] string EmployeeDisplayName,
     Guid? ReportsToOrganizationUserId,
     [property: Required, MaxLength(160)] string IdempotencyKey)
 {
@@ -143,6 +144,7 @@ public sealed record MarketplaceHirePreviewResponse(
     Guid WorkflowId,
     string AgentReference,
     string AgentName,
+    string EmployeeDisplayName,
     string RoleTitle,
     Guid? ReportsToOrganizationUserId,
     string Source,

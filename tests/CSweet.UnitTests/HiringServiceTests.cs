@@ -5,6 +5,7 @@ using CSweet.Contracts.Agents;
 using CSweet.Contracts.Core;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -358,11 +359,19 @@ public sealed class HiringServiceTests
         await Assert.ThrowsAsync<ArgumentException>(() => orchestrator.PreviewAsync(
             organizationId,
             applicationUserId,
-            new("first-party:product-manager", "Product Manager", null, "marketplace-preview-without-manager")));
+            new("first-party:product-manager", "Product Manager", "   ", ownerId, "marketplace-preview-blank-name")));
+        await Assert.ThrowsAsync<ArgumentException>(() => orchestrator.PreviewAsync(
+            organizationId,
+            applicationUserId,
+            new("first-party:product-manager", "Product Manager", new string('a', 161), ownerId, "marketplace-preview-long-name")));
+        await Assert.ThrowsAsync<ArgumentException>(() => orchestrator.PreviewAsync(
+            organizationId,
+            applicationUserId,
+            new("first-party:product-manager", "Product Manager", "Avery", null, "marketplace-preview-without-manager")));
         var preview = await orchestrator.PreviewAsync(
             organizationId,
             applicationUserId,
-            new("first-party:product-manager", "Product Manager", ownerId, "marketplace-preview"));
+            new("first-party:product-manager", "Product Manager", "  Avery  ", ownerId, "marketplace-preview"));
         var confirmed = await orchestrator.ConfirmAsync(
             organizationId,
             preview.WorkflowId,
@@ -372,18 +381,136 @@ public sealed class HiringServiceTests
                 ConfigurationSettings = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
                 {
                     ["llmProviderId"] = JsonSerializer.SerializeToElement(Guid.NewGuid().ToString("D")),
-                    ["llmModel"] = JsonSerializer.SerializeToElement("test-model")
+                    ["llmModel"] = JsonSerializer.SerializeToElement("test-model"),
+                    ["responseTone"] = JsonSerializer.SerializeToElement("concise")
                 }
             });
+        var duplicate = await orchestrator.ConfirmAsync(
+            organizationId,
+            preview.WorkflowId,
+            applicationUserId,
+            new("marketplace-confirm-retry"));
 
         Assert.Equal("Pending", preview.Status);
         Assert.Equal("Approved", confirmed?.Status);
+        Assert.Equal(confirmed, duplicate);
         Assert.Equal(Guid.Empty, confirmed?.RecommendationId);
         Assert.Equal(2, import.Requests.Count);
-        Assert.Equal(2, preview.ConfigurationFields.Count);
+        Assert.Equal(3, preview.ConfigurationFields.Count);
+        var tone = preview.ConfigurationFields.Single(field => field.Key == "responseTone");
+        Assert.Equal("Controls response detail.", tone.Description);
+        Assert.Equal(["concise", "balanced", "detailed"], tone.Options!.Select(option => option.Value).ToArray());
+        Assert.Equal("Avery", preview.EmployeeDisplayName);
         Assert.Equal(1, installations.InstallCount);
         Assert.Equal("test-model", installations.Request!.ConfigurationSettings["llmModel"].GetString());
+        Assert.Equal("Avery", organizationUsers.CreatedRequest?.DisplayName);
         Assert.Equal(installations.InstallationId, organizationUsers.CreatedRequest?.AgentInstallationId);
+        Assert.Equal(1, organizationUsers.CreateCount);
+    }
+
+    [Fact]
+    public async Task MarketplacePreview_UsesAliasForAlreadyInstalledAgent()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var applicationUserId = Guid.NewGuid();
+        var owner = new OrganizationUser
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            ApplicationUserId = applicationUserId,
+            DisplayName = "Owner",
+            EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner,
+            CreatedAt = now
+        };
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(),
+            AgentId = "com.csweet.product-manager",
+            AgentName = "C-Sweet Product Manager",
+            Version = "1.4.0",
+            PublisherId = "com.csweet",
+            PublisherName = "C-Sweet",
+            ManifestDigest = new string('b', 64),
+            RuntimeType = "dotnet-project",
+            ImportedAt = now
+        };
+        var installationId = Guid.NewGuid();
+        db.CoreOrganizations.Add(new Organization
+        {
+            Id = organizationId, Name = "Product Company", CreatedAt = now, UpdatedAt = now
+        });
+        db.CoreOrganizationUsers.Add(owner);
+        db.AgentInstallations.Add(new AgentInstallation
+        {
+            Id = installationId,
+            InstallationKey = Guid.NewGuid(),
+            PackageVersionId = package.Id,
+            PackageVersion = package,
+            BusinessId = organizationId.ToString("D"),
+            CreatedAt = now,
+            UpdatedAt = now,
+            Grant = new AgentInstallationGrant
+            {
+                Id = Guid.NewGuid(),
+                AgentInstallationId = installationId,
+                ApprovedAt = now
+            }
+        });
+        await db.SaveChangesAsync();
+        var agent = new CSweet.Agent.SDK.AvailableAgent(
+            $"installed:{installationId:D}",
+            package.AgentId,
+            CSweet.Agent.SDK.AgentCatalogSource.Installed,
+            [],
+            CSweet.Agent.SDK.AgentAvailabilityState.InstalledEnabled,
+            installationId,
+            package.AgentName,
+            "Own product outcomes.",
+            package.PublisherName,
+            "Product",
+            ["Product Manager"],
+            ["product"],
+            ["product.strategy"],
+            null,
+            null,
+            null,
+            0,
+            null,
+            null,
+            1m,
+            "Installed");
+        var organizationUsers = new RecordingOrganizationUserService();
+        IAgentHireOrchestrator orchestrator = new HiringService(
+            db,
+            organizationUsers,
+            new TestAuditEventWriter(),
+            agentCatalog: new RecordingAgentCatalog(agent));
+
+        var preview = await orchestrator.PreviewAsync(
+            organizationId,
+            applicationUserId,
+            new(agent.AgentReference, "Product Manager", "Riley", owner.Id, "marketplace-installed-preview"));
+        var confirmed = await orchestrator.ConfirmAsync(
+            organizationId,
+            preview.WorkflowId,
+            applicationUserId,
+            new("marketplace-installed-confirm"));
+        var duplicate = await orchestrator.ConfirmAsync(
+            organizationId,
+            preview.WorkflowId,
+            applicationUserId,
+            new("marketplace-installed-confirm-retry"));
+
+        Assert.Equal("C-Sweet Product Manager", preview.AgentName);
+        Assert.Equal("Riley", preview.EmployeeDisplayName);
+        Assert.Equal("Approved", confirmed?.Status);
+        Assert.Equal(confirmed, duplicate);
+        Assert.Equal("Riley", organizationUsers.CreatedRequest?.DisplayName);
+        Assert.Equal(installationId, organizationUsers.CreatedRequest?.AgentInstallationId);
+        Assert.Equal(1, organizationUsers.CreateCount);
     }
 
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
@@ -435,6 +562,20 @@ public sealed class HiringServiceTests
                     new PluginConfigurationField
                     {
                         Key = "llmModel", Type = "model", Label = "Model", Required = true
+                    },
+                    new PluginConfigurationField
+                    {
+                        Key = "responseTone",
+                        Type = "select",
+                        Label = "Response tone",
+                        Required = true,
+                        Description = "Controls response detail.",
+                        Options =
+                        [
+                            new("concise", "Concise"),
+                            new("balanced", "Balanced"),
+                            new("detailed", "Detailed")
+                        ]
                     }
                 ]
             });
@@ -538,6 +679,7 @@ public sealed class HiringServiceTests
     private sealed class RecordingOrganizationUserService : IOrganizationUserService
     {
         public CreateOrganizationUserRequest? CreatedRequest { get; private set; }
+        public int CreateCount { get; private set; }
 
         public Task<CoreActionResponse> CreateAsync(
             Guid organizationId,
@@ -546,6 +688,7 @@ public sealed class HiringServiceTests
             Guid? hiringApplicationUserId = null,
             string hiringSource = "Manual")
         {
+            CreateCount++;
             CreatedRequest = request;
             return Task.FromResult(new CoreActionResponse(
                 true,

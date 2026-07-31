@@ -968,6 +968,13 @@ code {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.agent-configuration-field {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
 .agent-import-values {
     display: flex;
     flex-wrap: wrap;

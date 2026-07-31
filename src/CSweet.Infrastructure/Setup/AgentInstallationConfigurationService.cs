@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using CSweet.Application.Setup;
+using CSweet.Contracts.Agents;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -120,6 +121,15 @@ public sealed class AgentInstallationConfigurationService(
             if (configField.Type.Equals("number", StringComparison.OrdinalIgnoreCase) &&
                 value.ValueKind != JsonValueKind.Number)
                 throw new AgentInstallationException($"'{configField.Label}' must be a number.");
+            if (configField.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase) &&
+                configField.Options is { Count: > 0 } &&
+                (value.ValueKind != JsonValueKind.String ||
+                 !configField.Options.Any(option =>
+                     string.Equals(option.Value, value.GetString(), StringComparison.Ordinal))))
+            {
+                throw new AgentInstallationException(
+                    $"'{configField.Label}' must be one of the values declared by the agent.");
+            }
             if ((configField.Type.Equals("provider", StringComparison.OrdinalIgnoreCase) ||
                  configField.Type.Equals("llmProvider", StringComparison.OrdinalIgnoreCase)) &&
                 (value.ValueKind != JsonValueKind.String ||

@@ -415,7 +415,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .SingleOrDefaultAsync(x => x.AgentInstallationId == installation.Id, cancellationToken);
         if (nextManifest.Configuration.Any(field => !field.Secret))
         {
+            var nextConfigurationKeys = nextManifest.Configuration
+                .Where(field => !field.Secret)
+                .Select(field => field.Key)
+                .ToHashSet(StringComparer.Ordinal);
             var compatibleSettings = DeserializeConfigurationSettings(previousConfiguration?.SettingsJson)
+                .Where(pair => nextConfigurationKeys.Contains(pair.Key))
                 .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
             staged.Configuration = CreateConfiguration(
                 staged.Id,
@@ -1124,6 +1129,15 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             if (type.Equals("number", StringComparison.OrdinalIgnoreCase) &&
                 value.ValueKind != JsonValueKind.Number)
                 throw new AgentInstallationException($"'{field.Label}' must be a number.");
+            if (type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase) &&
+                field.Options is { Count: > 0 } &&
+                (value.ValueKind != JsonValueKind.String ||
+                 !field.Options.Any(option =>
+                     string.Equals(option.Value, value.GetString(), StringComparison.Ordinal))))
+            {
+                throw new AgentInstallationException(
+                    $"'{field.Label}' must be one of the values declared by the agent.");
+            }
             if (IsProviderConfigurationType(type))
             {
                 if (value.ValueKind != JsonValueKind.String ||
@@ -1146,7 +1160,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         }
 
         return settings
-            .Where(pair => allowUnknownSettings || publicFields.ContainsKey(pair.Key))
+            .Where(pair => publicFields.ContainsKey(pair.Key))
             .ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal);
     }
 

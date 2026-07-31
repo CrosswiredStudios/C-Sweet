@@ -111,7 +111,7 @@
 
 <MudDialog @bind-Visible="_reviewOpen" Options="_dialogOptions">
     <TitleContent>
-        <MudText Typo="Typo.h5">Review and hire @_preview?.AgentName</MudText>
+        <MudText Typo="Typo.h5">Review and hire @_employeeDisplayName</MudText>
     </TitleContent>
     <DialogContent>
         @if (_reviewBusy)
@@ -125,10 +125,17 @@
         @if (_preview is not null)
         {
             <MudStack Spacing="2">
+                <MudText><strong>Package:</strong> @_preview.AgentName</MudText>
                 <MudText><strong>Role:</strong> @_preview.RoleTitle</MudText>
                 <MudText><strong>Source:</strong> @_preview.Source · @_preview.Trust</MudText>
                 <MudText><strong>Price:</strong> @(_preview.Price.HasValue ? $"{_preview.Price:0.##} {_preview.Currency}" : "No listed cost")</MudText>
                 <MudText Color="Color.Secondary">@_preview.InstallationConsequence</MudText>
+                <MudTextField T="string" Label="Name" @bind-Value="_employeeDisplayName"
+                              Variant="Variant.Outlined" Required="true" MaxLength="160"
+                              Disabled="_reviewBusy" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    The employee name used in chats, teams, reporting relationships, and agent identity.
+                </MudText>
                 <MudSelect T="Guid?" Label="Reports to" @bind-Value="_reportsToId"
                            Variant="Variant.Outlined" Required="true" Clearable="false" Disabled="_reviewBusy">
                     @foreach (var manager in _people)
@@ -210,11 +217,26 @@
                                              ValueChanged="@(value => SetConfiguration(field.Key, value))"
                                              Variant="Variant.Outlined" Disabled="_reviewBusy" />
                         }
+                        else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                        {
+                            <MudSelect T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                                       ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                       Variant="Variant.Outlined" Disabled="_reviewBusy">
+                                @foreach (var option in field.Options ?? [])
+                                {
+                                    <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
                         else
                         {
                             <MudTextField T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
                                           ValueChanged="@(value => SetConfiguration(field.Key, value))"
                                           Variant="Variant.Outlined" Disabled="_reviewBusy" />
+                        }
+                        @if (!string.IsNullOrWhiteSpace(field.Description))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@field.Description</MudText>
                         }
                     }
                 }
@@ -224,7 +246,7 @@
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="CloseReview" Disabled="_reviewBusy">Cancel</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   Disabled="@(_reviewBusy || _preview is null || !_reportsToId.HasValue || HasMissingRequiredConfiguration)"
+                   Disabled="@(_reviewBusy || _preview is null || !_reportsToId.HasValue || string.IsNullOrWhiteSpace(_employeeDisplayName) || HasMissingRequiredConfiguration)"
                    OnClick="ConfirmHireAsync">
             Approve and hire
         </MudButton>
@@ -248,6 +270,7 @@
     private string? _reviewError;
     private MarketplaceHirePreviewResponse? _preview;
     private AvailableAgent? _selectedAgent;
+    private string _employeeDisplayName = string.Empty;
     private Guid? _reportsToId;
     private Guid? _teamId;
     private IReadOnlyList<OrganizationUserResponse> _people = [];
@@ -328,8 +351,10 @@
         _reviewBusy = true;
         _reviewError = null;
         _preview = null;
+        _employeeDisplayName = agent.Name;
         _reportsToId = null;
         _teamId = null;
+        _configurationValues.Clear();
         try
         {
             var peopleTask = Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
@@ -369,6 +394,7 @@
             new PreviewMarketplaceHireRequest(
                 _selectedAgent.AgentReference,
                 role,
+                _employeeDisplayName,
                 _reportsToId,
                 $"marketplace-preview:{Guid.NewGuid():N}")
             {
@@ -392,7 +418,11 @@
         try
         {
             if (_preview.ReportsToOrganizationUserId != _reportsToId ||
-                _preview.TeamId != _teamId)
+                _preview.TeamId != _teamId ||
+                !string.Equals(
+                    _preview.EmployeeDisplayName,
+                    _employeeDisplayName.Trim(),
+                    StringComparison.Ordinal))
             {
                 await LoadPreviewAsync();
                 if (_preview is null) return;
@@ -435,29 +465,39 @@
         _selectedAgent = null;
         _reviewError = null;
         _reportsToId = null;
+        _employeeDisplayName = string.Empty;
         _configurationValues.Clear();
         _models = [];
     }
 
     private async Task InitializeConfigurationAsync()
     {
+        var existing = _configurationValues.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.Ordinal);
         _configurationValues.Clear();
         if (_preview is null)
             return;
         var provider = _providers.FirstOrDefault(candidate => candidate.IsEnabled);
         foreach (var field in _preview.ConfigurationFields)
         {
-            if (IsProviderField(field) && provider is not null)
+            if (existing.TryGetValue(field.Key, out var existingValue) && existingValue is not null)
+                _configurationValues[field.Key] = existingValue;
+            else if (IsProviderField(field) && provider is not null)
                 _configurationValues[field.Key] = provider.Id.ToString();
             else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
                 _configurationValues[field.Key] = false;
+            else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                _configurationValues[field.Key] = field.Options?.FirstOrDefault()?.Value;
             else
                 _configurationValues[field.Key] = null;
         }
-        if (provider is not null && _preview.ConfigurationFields.Any(IsModelField))
+        var selectedProvider = SelectedProvider ?? provider;
+        if (selectedProvider is not null && _preview.ConfigurationFields.Any(IsModelField))
         {
-            await LoadModelsAsync(provider);
-            SetDefaultModel(provider);
+            await LoadModelsAsync(selectedProvider);
+            SetDefaultModel(selectedProvider, overwrite: false);
         }
     }
 
@@ -468,7 +508,7 @@
         if (provider is null)
             return;
         await LoadModelsAsync(provider);
-        SetDefaultModel(provider);
+        SetDefaultModel(provider, overwrite: true);
     }
 
     private async Task LoadModelsAsync(LlmProviderProfileResponse provider)
@@ -490,7 +530,7 @@
         }
     }
 
-    private void SetDefaultModel(LlmProviderProfileResponse provider)
+    private void SetDefaultModel(LlmProviderProfileResponse provider, bool overwrite)
     {
         if (_preview is null)
             return;
@@ -498,7 +538,10 @@
             ? provider.DefaultChatModel
             : _models.FirstOrDefault() ?? string.Empty;
         foreach (var field in _preview.ConfigurationFields.Where(IsModelField))
-            _configurationValues[field.Key] = model;
+        {
+            if (overwrite || string.IsNullOrWhiteSpace(ConfigurationString(field.Key)))
+                _configurationValues[field.Key] = model;
+        }
     }
 
     private LlmProviderProfileResponse? SelectedProvider

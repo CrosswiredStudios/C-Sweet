@@ -421,6 +421,32 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                 errors.Add($"Configurable agents must provide '{AgentConfigurationCapabilities.Update}'.");
         }
 
+        foreach (var field in manifest.Configuration)
+        {
+            if (!field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (field.Options is null || field.Options.Count == 0)
+            {
+                errors.Add($"Select configuration field '{field.Key}' must declare at least one option.");
+                continue;
+            }
+
+            if (field.Options.Any(option =>
+                    string.IsNullOrWhiteSpace(option.Value) ||
+                    string.IsNullOrWhiteSpace(option.Label)))
+            {
+                errors.Add($"Select configuration field '{field.Key}' options require non-empty values and labels.");
+            }
+
+            if (field.Options
+                .GroupBy(option => option.Value, StringComparer.Ordinal)
+                .Any(group => group.Count() > 1))
+            {
+                errors.Add($"Select configuration field '{field.Key}' option values must be unique.");
+            }
+        }
+
         foreach (var contribution in manifest.Ui.Where(x => !string.IsNullOrWhiteSpace(x.Capability)))
         {
             if (!provided.Contains(contribution.Capability!))

@@ -618,47 +618,64 @@
                                 <div class="agent-import-form-grid">
                                     @foreach (var field in _importPreview.ConfigurationFields.Where(field => !field.Secret))
                                     {
-                                        @if (IsImportProviderField(field))
-                                        {
-                                            <MudSelect T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
-                                                       ValueChanged="@(value => SetImportProviderAsync(field.Key, value))"
-                                                       Variant="Variant.Outlined" Disabled="@_isInstallingImport">
-                                                @foreach (var provider in _providerProfiles.Where(provider => provider.IsEnabled))
-                                                {
-                                                    <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        }
-                                        else if (IsImportModelField(field))
-                                        {
-                                            <MudSelect T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
-                                                       ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
-                                                       Variant="Variant.Outlined"
-                                                       Disabled="@(_isInstallingImport || ImportModelProvider() is null || _loadingProviderModels.Contains(ImportModelProvider()!.Id))">
-                                                @foreach (var model in ImportModelOptions())
-                                                {
-                                                    <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        }
-                                        else if (field.Type.Equals(AgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            <MudCheckBox T="bool" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationBoolean(field.Key)"
-                                                         ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
-                                                         Disabled="@_isInstallingImport" />
-                                        }
-                                        else if (field.Type.Equals(AgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            <MudNumericField T="decimal?" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationNumber(field.Key)"
+                                        <div class="agent-configuration-field">
+                                            @if (IsImportProviderField(field))
+                                            {
+                                                <MudSelect T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
+                                                           ValueChanged="@(value => SetImportProviderAsync(field.Key, value))"
+                                                           Variant="Variant.Outlined" Disabled="@_isInstallingImport">
+                                                    @foreach (var provider in _providerProfiles.Where(provider => provider.IsEnabled))
+                                                    {
+                                                        <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
+                                                    }
+                                                </MudSelect>
+                                            }
+                                            else if (IsImportModelField(field))
+                                            {
+                                                <MudSelect T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
+                                                           ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
+                                                           Variant="Variant.Outlined"
+                                                           Disabled="@(_isInstallingImport || ImportModelProvider() is null || _loadingProviderModels.Contains(ImportModelProvider()!.Id))">
+                                                    @foreach (var model in ImportModelOptions())
+                                                    {
+                                                        <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                                                    }
+                                                </MudSelect>
+                                            }
+                                            else if (field.Type.Equals(AgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <MudCheckBox T="bool" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationBoolean(field.Key)"
                                                              ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
-                                                             Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                        }
-                                        else
-                                        {
-                                            <MudTextField T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
-                                                          ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
-                                                          Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                        }
+                                                             Disabled="@_isInstallingImport" />
+                                            }
+                                            else if (field.Type.Equals(AgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <MudNumericField T="decimal?" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationNumber(field.Key)"
+                                                                 ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
+                                                                 Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                            }
+                                            else if (field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <MudSelect T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
+                                                           ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
+                                                           Variant="Variant.Outlined" Disabled="@_isInstallingImport">
+                                                    @foreach (var option in field.Options ?? [])
+                                                    {
+                                                        <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+                                                    }
+                                                </MudSelect>
+                                            }
+                                            else
+                                            {
+                                                <MudTextField T="string" Label="@ImportFieldLabel(field)" Value="@ImportConfigurationString(field.Key)"
+                                                              ValueChanged="@(value => SetImportConfiguration(field.Key, value))"
+                                                              Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(field.Description))
+                                            {
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@field.Description</MudText>
+                                            }
+                                        </div>
                                     }
                                 </div>
                                 @if (HasMissingRequiredImportConfiguration)
@@ -1168,6 +1185,8 @@
                 _importConfigurationValues[field.Key] = provider.Id.ToString();
             else if (field.Type.Equals(AgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
                 _importConfigurationValues[field.Key] = false;
+            else if (field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                _importConfigurationValues[field.Key] = field.Options?.FirstOrDefault()?.Value;
             else
                 _importConfigurationValues[field.Key] = null;
         }

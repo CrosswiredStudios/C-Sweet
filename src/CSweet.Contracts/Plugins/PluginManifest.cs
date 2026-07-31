@@ -88,7 +88,11 @@ public sealed record PluginConfigurationField
     public string Label { get; init; } = string.Empty;
     public bool Required { get; init; }
     public bool Secret { get; init; }
+    public string? Description { get; init; }
+    public IReadOnlyList<PluginConfigurationOption>? Options { get; init; }
 }
+
+public sealed record PluginConfigurationOption(string Value, string Label);
 
 public sealed record PluginCredentialBinding
 {

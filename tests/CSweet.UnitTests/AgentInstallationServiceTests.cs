@@ -435,6 +435,16 @@ public sealed class AgentInstallationServiceTests
         };
         var service = CreateService(dbContext);
         var installed = await service.InstallAsync(current.Id, configuredRequest);
+        var currentConfiguration = await dbContext.AgentInstallationConfigurations
+            .SingleAsync(x => x.AgentInstallationId == installed.Id);
+        currentConfiguration.SettingsJson = JsonSerializer.Serialize(
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["llmProviderId"] = providerId.ToString("D"),
+                ["llmModel"] = "test-model",
+                ["customInstructions"] = "Legacy instructions"
+            });
+        await dbContext.SaveChangesAsync();
         current.Status = AgentPackageVersionStatus.Built;
 
         var manifest = JsonNode.Parse(current.ManifestJson)!.AsObject();
@@ -465,6 +475,7 @@ public sealed class AgentInstallationServiceTests
         var stagedConfiguration = await dbContext.AgentInstallationConfigurations
             .SingleAsync(x => x.AgentInstallationId == staged.Id);
         Assert.Contains("test-model", stagedConfiguration.SettingsJson);
+        Assert.DoesNotContain("customInstructions", stagedConfiguration.SettingsJson);
 
         var approved = await service.ApproveUpdateAsync(
             staged.Id,
@@ -475,6 +486,7 @@ public sealed class AgentInstallationServiceTests
             .SingleAsync(x => x.AgentInstallationId == approved.Id);
         Assert.Contains("test-model", approvedConfiguration.SettingsJson);
         Assert.Contains(providerId.ToString("D"), approvedConfiguration.SettingsJson);
+        Assert.DoesNotContain("customInstructions", approvedConfiguration.SettingsJson);
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System.Text;
 using CSweet.Agent.SDK;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
+using CSweet.Contracts.Plugins;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
@@ -61,6 +62,49 @@ public class AgentImportPreviewServiceTests
         var version = Assert.Single(await dbContext.AgentPackageVersions.ToListAsync());
         Assert.Equal(result.ImportId, version.Id);
         Assert.Equal(result.ManifestDigest, version.ManifestDigest);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_PreservesSelectOptionsAndDescription()
+    {
+        await using var dbContext = CreateDbContext();
+        var manifest = ValidManifest().Replace(
+            """{"key":"workspaceId","type":"string","label":"Workspace ID","required":true,"secret":false}""",
+            """{"key":"responseTone","type":"select","label":"Response tone","required":true,"secret":false,"description":"Controls response detail.","options":[{"value":"concise","label":"Concise"},{"value":"balanced","label":"Balanced"}]}""",
+            StringComparison.Ordinal);
+        var service = new AgentImportPreviewService(
+            dbContext,
+            new FakeGitHubAgentRepositoryClient(manifest),
+            new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest(
+            "https://github.com/example/research-agent"));
+
+        var field = Assert.Single(result.ConfigurationFields);
+        Assert.Equal("Controls response detail.", field.Description);
+        var options = Assert.IsAssignableFrom<IReadOnlyList<PluginConfigurationOption>>(field.Options);
+        Assert.Equal(["concise", "balanced"], options.Select(option => option.Value).ToArray());
+        Assert.Equal(["Concise", "Balanced"], options.Select(option => option.Label).ToArray());
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RejectsSelectWithoutOptions()
+    {
+        await using var dbContext = CreateDbContext();
+        var manifest = ValidManifest().Replace(
+            """{"key":"workspaceId","type":"string","label":"Workspace ID","required":true,"secret":false}""",
+            """{"key":"responseTone","type":"select","label":"Response tone","required":true,"secret":false}""",
+            StringComparison.Ordinal);
+        var service = new AgentImportPreviewService(
+            dbContext,
+            new FakeGitHubAgentRepositoryClient(manifest),
+            new TestAuditEventWriter());
+
+        var exception = await Assert.ThrowsAsync<AgentImportPreviewException>(() =>
+            service.PreviewAsync(new PreviewAgentImportRequest(
+                "https://github.com/example/research-agent")));
+
+        Assert.Contains("must declare at least one option", exception.Message);
     }
 
     [Fact]

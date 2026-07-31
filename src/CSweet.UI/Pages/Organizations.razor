@@ -222,32 +222,49 @@
                                     <div class="agent-config-grid">
                                         @foreach (var field in _agentPreview.ConfigurationFields.Where(x => !x.Secret))
                                         {
-                                            @if (IsProviderField(field))
-                                            {
-                                                <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
-                                                           ValueChanged="@(value => OnProviderConfigurationChanged(field.Key, value))" Variant="Variant.Outlined" Disabled="@_saving">
-                                                    @foreach (var provider in _llmProviders)
-                                                    {
-                                                        <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
-                                                    }
-                                                </MudSelect>
-                                            }
-                                            else if (IsModelField(field))
-                                            {
-                                                <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
-                                                           ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined"
-                                                           Disabled="@(_saving || _loadingModels || _availableModels.Count == 0)" HelperText="@ModelSelectHelperText">
-                                                    @foreach (var model in _availableModels)
-                                                    {
-                                                        <MudSelectItem T="string" Value="@model.Id">@model.Id</MudSelectItem>
-                                                    }
-                                                </MudSelect>
-                                            }
-                                            else
-                                            {
-                                                <MudTextField T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
-                                                              ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined" Disabled="@_saving" />
-                                            }
+                                            <div class="agent-configuration-field">
+                                                @if (IsProviderField(field))
+                                                {
+                                                    <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
+                                                               ValueChanged="@(value => OnProviderConfigurationChanged(field.Key, value))" Variant="Variant.Outlined" Disabled="@_saving">
+                                                        @foreach (var provider in _llmProviders)
+                                                        {
+                                                            <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
+                                                        }
+                                                    </MudSelect>
+                                                }
+                                                else if (IsModelField(field))
+                                                {
+                                                    <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
+                                                               ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined"
+                                                               Disabled="@(_saving || _loadingModels || _availableModels.Count == 0)" HelperText="@ModelSelectHelperText">
+                                                        @foreach (var model in _availableModels)
+                                                        {
+                                                            <MudSelectItem T="string" Value="@model.Id">@model.Id</MudSelectItem>
+                                                        }
+                                                    </MudSelect>
+                                                }
+                                                else if (field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
+                                                               ValueChanged="@(value => SetConfigurationValue(field.Key, value))"
+                                                               Variant="Variant.Outlined" Disabled="@_saving">
+                                                        @foreach (var option in field.Options ?? [])
+                                                        {
+                                                            <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+                                                        }
+                                                    </MudSelect>
+                                                }
+                                                else
+                                                {
+                                                    <MudTextField T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
+                                                                  ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined" Disabled="@_saving" />
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(field.Description))
+                                                {
+                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@field.Description</MudText>
+                                                }
+                                            </div>
                                         }
                                         @foreach (var field in _agentPreview.ConfigurationFields.Where(x => x.Secret))
                                         {
@@ -499,6 +516,9 @@
                 _configurationValues[field.Key] = provider.Id.ToString();
             else if (IsModelField(field) && provider is not null)
                 _configurationValues[field.Key] = provider.DefaultChatModel;
+            else if (field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase) &&
+                     field.Options?.FirstOrDefault() is { } option)
+                _configurationValues[field.Key] = option.Value;
         }
 
         if (provider is not null && preview.ConfigurationFields.Any(IsModelField))

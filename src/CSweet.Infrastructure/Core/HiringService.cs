@@ -303,6 +303,10 @@ public sealed class HiringService(
         if (owner?.PermissionLevel != OrganizationPermissionLevel.Owner)
             throw new UnauthorizedAccessException("Only an organization owner may review an agent hire.");
         var roleTitle = Required(request.RoleTitle, 160, nameof(request.RoleTitle));
+        var employeeDisplayName = Required(
+            request.EmployeeDisplayName,
+            160,
+            nameof(request.EmployeeDisplayName));
         var key = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
         if (!request.ReportsToOrganizationUserId.HasValue)
             throw new ArgumentException("A managing employee is required when hiring an agent.");
@@ -377,7 +381,8 @@ public sealed class HiringService(
             [],
             cancellationToken,
             teamId: request.TeamId,
-            objective: $"Hire {roleTitle} through Marketplace.");
+            objective: $"Hire {roleTitle} through Marketplace.",
+            employeeDisplayName: employeeDisplayName);
         var now = DateTimeOffset.UtcNow;
         var workflow = new StaffingActionProposal
         {
@@ -396,7 +401,7 @@ public sealed class HiringService(
         db.StaffingActionProposals.Add(workflow);
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("hiring.marketplace.previewed", nameof(StaffingActionProposal), workflow.Id,
-            $"Prepared an immutable Marketplace review for {agent.Name} as {roleTitle}.",
+            $"Prepared an immutable Marketplace review for {employeeDisplayName} ({agent.Name}) as {roleTitle}.",
             cancellationToken: cancellationToken);
         return ToMarketplacePreview(workflow, candidate);
     }
@@ -483,7 +488,10 @@ public sealed class HiringService(
                 goto CompleteWorkflow;
             }
             var result = await organizationUsers.CreateAsync(organizationId, new CreateOrganizationUserRequest(
-                candidate.DisplayName, null, (int)OrganizationPermissionLevel.Contributor, (int)EmployeeType.Agent,
+                ResolveEmployeeDisplayName(snapshot, candidate.DisplayName),
+                null,
+                (int)OrganizationPermissionLevel.Contributor,
+                (int)EmployeeType.Agent,
                 role.Id, null, snapshot.ReportsToOrganizationUserId, AgentInstallationId: installationId),
                 cancellationToken, applicationUserId,
                 workflow.ActionType == "marketplace-install-and-hire" ? "Marketplace" : "HiringWorkflow");
@@ -540,7 +548,7 @@ public sealed class HiringService(
                 goto CompleteWorkflow;
             }
             var result = await organizationUsers.CreateAsync(organizationId, new CreateOrganizationUserRequest(
-                    installation.AgentName,
+                    ResolveEmployeeDisplayName(snapshot, installation.AgentName),
                     null,
                     (int)OrganizationPermissionLevel.Contributor,
                     (int)EmployeeType.Agent,
@@ -599,7 +607,8 @@ CompleteWorkflow:
         CancellationToken token,
         Guid? workstreamId = null,
         Guid? teamId = null,
-        string? objective = null)
+        string? objective = null,
+        string? employeeDisplayName = null)
     {
         string? digest = null;
         IReadOnlyList<string> currentGrants = [];
@@ -684,7 +693,7 @@ CompleteWorkflow:
         if (string.IsNullOrWhiteSpace(objective))
             throw new InvalidOperationException("The hiring workflow objective is missing.");
         return new(roleTitle, reportsTo, workstreamId, teamId, objective, candidate.EstimatedCost, candidate.Currency,
-            digest, approvedRequiredGrants, currentGrants, embeddedAgent);
+            digest, approvedRequiredGrants, currentGrants, embeddedAgent, employeeDisplayName);
     }
 
     private async Task RevalidateAsync(Guid organizationId, WorkforceCandidate candidate, WorkflowSnapshot snapshot,
@@ -839,6 +848,7 @@ CompleteWorkflow:
             workflow.Id,
             metadata.CatalogReference ?? candidate.ExternalCandidateId,
             candidate.DisplayName,
+            ResolveEmployeeDisplayName(snapshot, candidate.DisplayName),
             snapshot.RoleTitle,
             snapshot.ReportsToOrganizationUserId,
             candidate.Source,
@@ -911,11 +921,17 @@ CompleteWorkflow:
         return result;
     }
 
+    private static string ResolveEmployeeDisplayName(WorkflowSnapshot snapshot, string fallback) =>
+        string.IsNullOrWhiteSpace(snapshot.EmployeeDisplayName)
+            ? fallback
+            : snapshot.EmployeeDisplayName.Trim();
+
     private sealed record WorkflowSnapshot(string RoleTitle, Guid? ReportsToOrganizationUserId, Guid? WorkstreamId,
         Guid? TeamId,
         string Objective, decimal? Price, string? Currency, string? PackageDigest,
         IReadOnlyList<string> RequiredGrants, IReadOnlyList<string> ApprovedGrants,
-        EmbeddedAgentInstallSnapshot? EmbeddedAgent = null);
+        EmbeddedAgentInstallSnapshot? EmbeddedAgent = null,
+        string? EmployeeDisplayName = null);
     private sealed record EmbeddedAgentInstallSnapshot(
         Guid ImportId,
         string RepositoryUrl,

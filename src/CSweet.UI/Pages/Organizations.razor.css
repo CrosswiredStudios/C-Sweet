@@ -197,6 +197,13 @@
     grid-column: 1 / -1;
 }
 
+.agent-configuration-field {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: .25rem;
+}
+
 .chief-heading {
     max-width: 47rem;
 }
