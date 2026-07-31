@@ -15,6 +15,92 @@ namespace CSweet.UnitTests;
 public sealed class HiringServiceTests
 {
     [Fact]
+    public async Task MultiSeatRecommendation_EmitsFulfillmentOnlyAfterEveryUniqueHire()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var sourceRequestId = Guid.NewGuid();
+        var first = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, DisplayName = "First QA",
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Contributor,
+            IsActive = true, CreatedAt = now
+        };
+        var second = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, DisplayName = "Second QA",
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Contributor,
+            IsActive = true, CreatedAt = now
+        };
+        db.CoreOrganizations.Add(new Organization
+        {
+            Id = organizationId, Name = "Example", CreatedAt = now, UpdatedAt = now
+        });
+        db.CoreOrganizationUsers.AddRange(first, second);
+        await db.SaveChangesAsync();
+        var service = new HiringService(
+            db,
+            new OrganizationUserService(db, new TestAuditEventWriter()),
+            new TestAuditEventWriter());
+        var recommendation = await service.UpsertRecommendationAsync(
+            organizationId,
+            installationId,
+            new UpsertHiringRecommendationRequest("QA Engineer", "Own release quality", null, [], null, "qa-two")
+            {
+                Headcount = 2,
+                RoleKey = "product:qa"
+            });
+        var plan = await db.WorkforcePlans.SingleAsync(x => x.Id == recommendation.Id);
+        plan.SourceResourceChangeRequestId = sourceRequestId;
+        await db.SaveChangesAsync();
+
+        var partial = await service.ResolveRecommendationAsync(
+            organizationId,
+            installationId,
+            new ResolveHiringRecommendationRequest(recommendation.Id, first.Id, "first-seat"));
+        var duplicate = await service.ResolveRecommendationAsync(
+            organizationId,
+            installationId,
+            new ResolveHiringRecommendationRequest(recommendation.Id, first.Id, "duplicate-employee"));
+
+        Assert.Equal("Pending", partial.Status);
+        Assert.Equal(1, partial.FulfilledHeadcount);
+        Assert.Equal(1, partial.RemainingHeadcount);
+        Assert.Equal(1, duplicate.FulfilledHeadcount);
+        Assert.Empty(await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == HiringEvents.RecommendationFulfilled).ToListAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ResolveRecommendationAsync(
+            organizationId,
+            installationId,
+            new ResolveHiringRecommendationRequest(recommendation.Id, second.Id, "first-seat")));
+
+        var fulfilled = await service.ResolveRecommendationAsync(
+            organizationId,
+            installationId,
+            new ResolveHiringRecommendationRequest(recommendation.Id, second.Id, "second-seat"));
+        var replay = await service.ResolveRecommendationAsync(
+            organizationId,
+            installationId,
+            new ResolveHiringRecommendationRequest(recommendation.Id, second.Id, "second-seat"));
+
+        Assert.Equal("Approved", fulfilled.Status);
+        Assert.Equal(2, fulfilled.FulfilledHeadcount);
+        Assert.Equal(0, fulfilled.RemainingHeadcount);
+        Assert.Equal(2, replay.FulfilledHeadcount);
+        Assert.Equal(2, await db.HiringRecommendationFulfillments.CountAsync());
+        var outbox = Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == HiringEvents.RecommendationFulfilled).ToListAsync());
+        var payload = JsonSerializer.Deserialize<HiringRecommendationFulfilledEvent>(
+            outbox.DataJson,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(payload);
+        Assert.Equal(sourceRequestId, payload.SourceResourceChangeRequestId);
+        Assert.Equal(new[] { first.Id, second.Id }.Order().ToArray(), payload.ResultOrganizationUserIds.Order().ToArray());
+    }
+
+    [Fact]
     public async Task LinkedRecommendation_CarriesTeamSnapshotAndAssignsCompletedHire()
     {
         await using var db = CreateDb();
@@ -118,7 +204,7 @@ public sealed class HiringServiceTests
                 Assert.Equal(1, item.Priority);
                 Assert.Empty(item.Candidates);
                 Assert.Equal(
-                    $"/organizations/{organizationId:D}/marketplace?role=Product%20Manager",
+                    $"/organizations/{organizationId:D}/marketplace?role=Product%20Manager&recommendationId={item.Id:D}",
                     item.HiringUrl);
             },
             item => { Assert.Equal("QA Engineer", item.Title); Assert.Equal(20, item.Priority); Assert.Empty(item.Candidates); });
@@ -321,6 +407,131 @@ public sealed class HiringServiceTests
         Assert.Equal(preview.ProvidedCapabilities, installations.Request.GrantedCapabilities);
         Assert.Equal(installations.InstallationId, organizationUsers.CreatedRequest?.AgentInstallationId);
         Assert.Equal("C-Sweet Product Manager", organizationUsers.CreatedRequest?.DisplayName);
+    }
+
+    [Fact]
+    public async Task MarketplacePreview_LinksAndValidatesPendingRecommendation()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var foreignOrganizationId = Guid.NewGuid();
+        var applicationUserId = Guid.NewGuid();
+        var owner = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, ApplicationUserId = applicationUserId,
+            DisplayName = "Owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true, CreatedAt = now
+        };
+        db.CoreOrganizations.Add(new Organization
+        {
+            Id = organizationId, Name = "Example", CreatedAt = now, UpdatedAt = now
+        });
+        db.CoreOrganizations.Add(new Organization
+        {
+            Id = foreignOrganizationId, Name = "Other Example", CreatedAt = now, UpdatedAt = now
+        });
+        db.CoreOrganizationUsers.Add(owner);
+        await db.SaveChangesAsync();
+        var repositoryUrl = "https://github.com/CrosswiredStudios/CSweet.Agent.ProductManager";
+        var available = new CSweet.Agent.SDK.AvailableAgent(
+            "first-party:product-manager", "com.csweet.product-manager",
+            CSweet.Agent.SDK.AgentCatalogSource.FirstPartyCatalog, [],
+            CSweet.Agent.SDK.AgentAvailabilityState.AvailableToInstall, null,
+            "C-Sweet Product Manager", "Own product outcomes.", "C-Sweet", "Product",
+            ["Product Manager"], ["product"], ["product.strategy"], null, null, null, 0,
+            null, repositoryUrl, .99m, "First-party verified");
+        var service = new HiringService(
+            db,
+            new RecordingOrganizationUserService(),
+            new TestAuditEventWriter(),
+            new RecordingImportPreview(repositoryUrl),
+            new RecordingInstallationService(organizationId),
+            new RecordingAgentCatalog(available));
+        var recommendation = await service.UpsertRecommendationAsync(
+            organizationId,
+            Guid.NewGuid(),
+            new UpsertHiringRecommendationRequest(
+                "Product Manager", "Own product outcomes", null, [], null, "linked-marketplace"));
+        var foreignRecommendation = await service.UpsertRecommendationAsync(
+            foreignOrganizationId,
+            Guid.NewGuid(),
+            new UpsertHiringRecommendationRequest(
+                "Product Manager", "Own product outcomes", null, [], null, "foreign-marketplace"));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.PreviewMarketplaceHireAsync(
+            organizationId,
+            applicationUserId,
+            new PreviewMarketplaceHireRequest(
+                available.AgentReference, "Product Manager", "Avery", owner.Id, "invalid-recommendation")
+            {
+                RecommendationId = Guid.NewGuid()
+            }));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.PreviewMarketplaceHireAsync(
+            organizationId,
+            applicationUserId,
+            new PreviewMarketplaceHireRequest(
+                available.AgentReference, "Product Manager", "Avery", owner.Id, "foreign-recommendation")
+            {
+                RecommendationId = foreignRecommendation.Id
+            }));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.PreviewMarketplaceHireAsync(
+            organizationId,
+            applicationUserId,
+            new PreviewMarketplaceHireRequest(
+                available.AgentReference, "Product Manager", "Avery", owner.Id, "wrong-team")
+            {
+                RecommendationId = recommendation.Id,
+                TeamId = Guid.NewGuid()
+            }));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.PreviewMarketplaceHireAsync(
+            organizationId,
+            applicationUserId,
+            new PreviewMarketplaceHireRequest(
+                available.AgentReference, "Project Manager", "Avery", owner.Id, "wrong-role")
+            {
+                RecommendationId = recommendation.Id
+            }));
+        var preview = await service.PreviewMarketplaceHireAsync(
+            organizationId,
+            applicationUserId,
+            new PreviewMarketplaceHireRequest(
+                available.AgentReference, "Product Manager", "Avery", owner.Id, "linked-preview")
+            {
+                RecommendationId = recommendation.Id
+            });
+
+        var workflow = await db.StaffingActionProposals.SingleAsync(x => x.Id == preview.WorkflowId);
+        var linkedCandidateId = Guid.Parse(workflow.CandidateId[10..]);
+        var candidate = await db.WorkforceCandidates.SingleAsync(x => x.Id == linkedCandidateId);
+        Assert.Equal(recommendation.Id, workflow.WorkforcePlanId);
+        Assert.Equal(recommendation.Id, candidate.WorkforcePlanId);
+        var anotherRecommendation = await service.UpsertRecommendationAsync(
+            organizationId,
+            Guid.NewGuid(),
+            new UpsertHiringRecommendationRequest(
+                "Product Manager", "Own another product outcome", null, [], null, "another-marketplace"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.PreviewMarketplaceHireAsync(
+            organizationId,
+            applicationUserId,
+            new PreviewMarketplaceHireRequest(
+                available.AgentReference, "Product Manager", "Avery", owner.Id, "linked-preview")
+            {
+                RecommendationId = anotherRecommendation.Id
+            }));
+
+        var completedRecommendation = await db.WorkforcePlans.SingleAsync(x => x.Id == recommendation.Id);
+        completedRecommendation.Status = ProposalStatus.Approved;
+        completedRecommendation.FulfilledHeadcount = completedRecommendation.Headcount;
+        await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<ArgumentException>(() => service.PreviewMarketplaceHireAsync(
+            organizationId,
+            applicationUserId,
+            new PreviewMarketplaceHireRequest(
+                available.AgentReference, "Product Manager", "Avery", owner.Id, "completed-recommendation")
+            {
+                RecommendationId = recommendation.Id
+            }));
     }
 
     [Fact]

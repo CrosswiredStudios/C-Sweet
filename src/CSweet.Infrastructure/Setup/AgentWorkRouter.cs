@@ -23,6 +23,30 @@ public sealed class AgentWorkRouter(
         DateTimeOffset? deadline = null,
         CancellationToken cancellationToken = default)
     {
+        var result = await EnqueueEventWithRecipientsAsync(
+            organizationId,
+            eventName,
+            payload,
+            eventId,
+            idempotencyKey,
+            exactInstallationId,
+            requireSubscription,
+            deadline,
+            cancellationToken);
+        return result.DeliveryCount;
+    }
+
+    public async Task<AgentEventRoutingResult> EnqueueEventWithRecipientsAsync(
+        string organizationId,
+        string eventName,
+        JsonElement payload,
+        Guid eventId,
+        string idempotencyKey,
+        Guid? exactInstallationId = null,
+        bool requireSubscription = true,
+        DateTimeOffset? deadline = null,
+        CancellationToken cancellationToken = default)
+    {
         var installations = await db.AgentInstallations.AsNoTracking()
             .Include(x => x.Grant)
             .Where(x => x.BusinessId == organizationId &&
@@ -30,7 +54,7 @@ public sealed class AgentWorkRouter(
                         x.RevisionStatus == PluginRevisionStatus.Active &&
                         (exactInstallationId == null || x.Id == exactInstallationId))
             .ToListAsync(cancellationToken);
-        var count = 0;
+        var recipients = new List<Guid>();
         foreach (var installation in installations)
         {
             if (requireSubscription && !Subscriptions(installation.Grant).Contains(eventName))
@@ -48,9 +72,9 @@ public sealed class AgentWorkRouter(
                 sourceId: eventId.ToString("D"),
                 maximumAttempts: 3,
                 cancellationToken: cancellationToken);
-            count++;
+            recipients.Add(installation.Id);
         }
-        return count;
+        return new AgentEventRoutingResult(recipients);
     }
 
     private static IReadOnlySet<string> Subscriptions(AgentInstallationGrant? grant)
@@ -68,4 +92,9 @@ public sealed class AgentWorkRouter(
             return new HashSet<string>();
         }
     }
+}
+
+public sealed record AgentEventRoutingResult(IReadOnlyList<Guid> RecipientInstallationIds)
+{
+    public int DeliveryCount => RecipientInstallationIds.Count;
 }

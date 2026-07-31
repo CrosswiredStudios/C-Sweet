@@ -90,6 +90,7 @@ public sealed class UserActionServiceTests
             db,
             new IUserActionWorkflowResolver[] { new HiringMarketplaceUserActionWorkflowResolver() });
 
+        var recommendationId = Guid.NewGuid();
         var action = await service.SuggestAsync(
             organization.Id,
             installationId,
@@ -102,12 +103,13 @@ public sealed class UserActionServiceTests
                 JsonSerializer.SerializeToElement(new
                 {
                     role = "Product Manager",
+                    recommendationId,
                     url = "https://attacker.example"
                 }),
                 "product-manager-action"));
 
         Assert.Equal(
-            $"/organizations/{organization.Id:D}/marketplace?role=Product%20Manager",
+            $"/organizations/{organization.Id:D}/marketplace?role=Product%20Manager&recommendationId={recommendationId:D}",
             action.NavigationUri);
         Assert.DoesNotContain("attacker", action.NavigationUri, StringComparison.OrdinalIgnoreCase);
         var persistedAction = Assert.Single(await db.SuggestedUserActions.ToListAsync());

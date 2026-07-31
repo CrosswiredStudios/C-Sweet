@@ -185,6 +185,7 @@ public sealed class WorkforcePlan
     public int Priority { get; set; } = 50;
     public string? RoleKey { get; set; }
     public int Headcount { get; set; } = 1;
+    public int FulfilledHeadcount { get; set; }
     public Guid? SourceResourceChangeRequestId { get; set; }
     public string AssignmentsJson { get; set; } = "[]";
     public string RejectedAlternativesJson { get; set; } = "[]";
@@ -194,6 +195,18 @@ public sealed class WorkforcePlan
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? DecidedAt { get; set; }
+}
+
+public sealed class HiringRecommendationFulfillment
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid WorkforcePlanId { get; set; }
+    public Guid ResultOrganizationUserId { get; set; }
+    public Guid? StaffingActionProposalId { get; set; }
+    public string Source { get; set; } = string.Empty;
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
 }
 
 public sealed class WorkforceCandidate

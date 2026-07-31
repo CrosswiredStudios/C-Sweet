@@ -41,7 +41,7 @@ public sealed class AgentPlatformEventDispatcher(
             try
             {
                 using var payload = JsonDocument.Parse(item.DataJson);
-                var deliveries = await router.EnqueueEventAsync(
+                var routing = await router.EnqueueEventWithRecipientsAsync(
                     item.OrganizationId.ToString("D"),
                     item.EventType,
                     payload.RootElement.Clone(),
@@ -53,13 +53,12 @@ public sealed class AgentPlatformEventDispatcher(
                         ? new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero)
                         : now.AddHours(1),
                     cancellationToken: cancellationToken);
-                if (deliveries > 0 &&
-                    item.EventType == WorkItemEvents.Assigned &&
-                    item.TargetInstallationId is { } developerInstallationId)
+                var deliveries = routing.DeliveryCount;
+                foreach (var recipientInstallationId in routing.RecipientInstallationIds)
                 {
                     await runtimeManager.EnsureRuntimeQueuedAsync(
-                        developerInstallationId,
-                        $"Assigned work item event {item.Id:D}.",
+                        recipientInstallationId,
+                        $"Received platform event {item.EventType} ({item.Id:D}).",
                         cancellationToken: cancellationToken);
                 }
                 if (item.EventType == ResourceChangeEvents.Requested &&

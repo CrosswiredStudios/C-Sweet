@@ -16,6 +16,7 @@ public static class HiringCapabilities
 public static class HiringEvents
 {
     public const string EmployeeHired = "com.csweet.employee.hired.v1";
+    public const string RecommendationFulfilled = "com.csweet.hiring-recommendation.fulfilled.v1";
 }
 
 public sealed record HiringCandidateResponse(
@@ -52,6 +53,8 @@ public sealed record HiringRecommendationResponse(
     public int Headcount { get; init; } = 1;
     public Guid? SourceResourceChangeRequestId { get; init; }
     public Guid? TeamId { get; init; }
+    public int FulfilledHeadcount { get; init; }
+    public int RemainingHeadcount { get; init; }
 }
 
 public sealed record HiringBacklogResponse(IReadOnlyList<HiringRecommendationResponse> Recommendations);
@@ -95,6 +98,20 @@ public sealed record EmployeeHiredEvent(
     Guid? ReportsToOrganizationUserId,
     Guid? HiringOrganizationUserId,
     string Source,
+    DateTimeOffset OccurredAt);
+
+public sealed record HiringRecommendationFulfilledEvent(
+    Guid OrganizationId,
+    Guid RecommendationId,
+    Guid? SourceResourceChangeRequestId,
+    Guid RequestingInstallationId,
+    string? RoleKey,
+    string RoleTitle,
+    Guid? TeamId,
+    Guid? WorkstreamId,
+    int RequestedHeadcount,
+    int FulfilledHeadcount,
+    IReadOnlyList<Guid> ResultOrganizationUserIds,
     DateTimeOffset OccurredAt);
 
 public sealed record StageHiringWorkflowRequest(
@@ -176,6 +193,7 @@ public sealed record PreviewMarketplaceHireRequest(
     Guid? ReportsToOrganizationUserId,
     [property: Required, MaxLength(160)] string IdempotencyKey)
 {
+    public Guid? RecommendationId { get; init; }
     public Guid? TeamId { get; init; }
     public Guid? SupersedesWorkflowId { get; init; }
 }

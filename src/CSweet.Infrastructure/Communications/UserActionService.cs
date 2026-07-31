@@ -169,9 +169,22 @@ public sealed class HiringMarketplaceUserActionWorkflowResolver : IUserActionWor
         var role = roleElement.GetString()?.Trim();
         if (string.IsNullOrWhiteSpace(role) || role.Length > 160)
             throw new ArgumentException("The role is required and cannot exceed 160 characters.");
-        var normalized = JsonSerializer.Serialize(new { role });
+        Guid? recommendationId = null;
+        if (parameters.TryGetProperty("recommendationId", out var recommendationElement) &&
+            recommendationElement.ValueKind is not JsonValueKind.Null)
+        {
+            if (recommendationElement.ValueKind != JsonValueKind.String ||
+                !recommendationElement.TryGetGuid(out var parsedRecommendationId) ||
+                parsedRecommendationId == Guid.Empty)
+                throw new ArgumentException("The hiring recommendation identifier is invalid.");
+            recommendationId = parsedRecommendationId;
+        }
+        var normalized = JsonSerializer.Serialize(new { role, recommendationId });
+        var recommendationQuery = recommendationId.HasValue
+            ? $"&recommendationId={recommendationId.Value:D}"
+            : string.Empty;
         return new(
-            $"/organizations/{organizationId:D}/marketplace?role={Uri.EscapeDataString(role)}",
+            $"/organizations/{organizationId:D}/marketplace?role={Uri.EscapeDataString(role)}{recommendationQuery}",
             normalized);
     }
 }

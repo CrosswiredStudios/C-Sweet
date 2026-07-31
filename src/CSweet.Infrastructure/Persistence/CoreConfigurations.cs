@@ -243,6 +243,7 @@ internal static class CoreConfigurations
             entity.Property(x => x.Priority).HasDefaultValue(50).IsRequired();
             entity.Property(x => x.RoleKey).HasMaxLength(160);
             entity.Property(x => x.Headcount).HasDefaultValue(1).IsRequired();
+            entity.Property(x => x.FulfilledHeadcount).HasDefaultValue(0).IsRequired().IsConcurrencyToken();
             entity.HasOne<OrganizationTeam>()
                 .WithMany()
                 .HasForeignKey(x => x.TeamId)
@@ -251,6 +252,22 @@ internal static class CoreConfigurations
                 .HasFilter("\"RoleKey\" IS NOT NULL");
             entity.Property(x => x.AssignmentsJson).HasColumnType("jsonb"); entity.Property(x => x.RejectedAlternativesJson).HasColumnType("jsonb");
             entity.Property(x => x.Currency).HasMaxLength(8); entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+        });
+        modelBuilder.Entity<HiringRecommendationFulfillment>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Source).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.HasIndex(x => new { x.WorkforcePlanId, x.ResultOrganizationUserId }).IsUnique();
+            entity.HasIndex(x => new { x.WorkforcePlanId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => x.StaffingActionProposalId).IsUnique()
+                .HasFilter("\"StaffingActionProposalId\" IS NOT NULL");
+            entity.HasOne<WorkforcePlan>().WithMany().HasForeignKey(x => x.WorkforcePlanId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.ResultOrganizationUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<StaffingActionProposal>().WithMany().HasForeignKey(x => x.StaffingActionProposalId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
         modelBuilder.Entity<WorkforceCandidate>(entity =>
         {

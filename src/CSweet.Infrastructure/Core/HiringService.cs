@@ -117,41 +117,62 @@ public sealed class HiringService(
         ResolveHiringRecommendationRequest request,
         CancellationToken cancellationToken = default)
     {
-        _ = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
+        var key = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
         var plan = await db.WorkforcePlans.SingleOrDefaultAsync(x =>
             x.Id == request.RecommendationId &&
             x.OrganizationId == organizationId &&
             x.RequestingInstallationId == requestingInstallationId,
             cancellationToken) ?? throw new ArgumentException("The hiring recommendation was not found.");
+        var fulfillmentByKey = await db.HiringRecommendationFulfillments.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.WorkforcePlanId == plan.Id && x.IdempotencyKey == key, cancellationToken);
+        if (fulfillmentByKey is not null &&
+            fulfillmentByKey.ResultOrganizationUserId != request.ResultOrganizationUserId)
+            throw new InvalidOperationException("The fulfillment idempotency key was already used for another employee.");
+        var fulfillmentByEmployee = await db.HiringRecommendationFulfillments.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.WorkforcePlanId == plan.Id &&
+                x.ResultOrganizationUserId == request.ResultOrganizationUserId, cancellationToken);
+        if (fulfillmentByKey is not null || fulfillmentByEmployee is not null)
+        {
+            var replayCandidates = await ResolveCandidatesAsync(organizationId, ReadIds(plan.AssignmentsJson)
+                .Select(CandidateReference).ToList(), cancellationToken);
+            return ToRecommendation(plan, replayCandidates);
+        }
         if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
                 x.Id == request.ResultOrganizationUserId &&
                 x.OrganizationId == organizationId &&
                 x.IsActive,
                 cancellationToken))
             throw new ArgumentException("The resulting employee was not found.");
-        if (plan.Status == ProposalStatus.Pending)
+        if (plan.Status != ProposalStatus.Pending || plan.FulfilledHeadcount >= plan.Headcount)
+            throw new InvalidOperationException("The hiring recommendation is already fulfilled.");
+        if (plan.TeamId.HasValue)
         {
-            if (plan.TeamId.HasValue)
-            {
-                var teamService = teams
-                    ?? throw new InvalidOperationException("Team management is unavailable for this hire.");
-                await teamService.AssignFromWorkflowAsync(
-                    organizationId,
-                    plan.TeamId.Value,
-                    request.ResultOrganizationUserId,
-                    teamRoleId: null,
-                    "HiringRecommendation",
-                    plan.Id,
-                    cancellationToken);
-            }
-            plan.Status = ProposalStatus.Approved;
-            plan.DecidedAt = DateTimeOffset.UtcNow;
-            plan.UpdatedAt = plan.DecidedAt.Value;
-            await db.SaveChangesAsync(cancellationToken);
-            await audit.WriteAsync("hiring.recommendation.resolved", nameof(WorkforcePlan), plan.Id,
-                $"Resolved {plan.Title} after employee {request.ResultOrganizationUserId:D} was hired.",
-                cancellationToken: cancellationToken);
+            var teamService = teams
+                ?? throw new InvalidOperationException("Team management is unavailable for this hire.");
+            await teamService.AssignFromWorkflowAsync(
+                organizationId,
+                plan.TeamId.Value,
+                request.ResultOrganizationUserId,
+                teamRoleId: null,
+                "HiringRecommendation",
+                plan.Id,
+                cancellationToken);
         }
+        var completed = await RecordRecommendationFulfillmentAsync(
+            plan,
+            request.ResultOrganizationUserId,
+            staffingActionProposalId: null,
+            source: "AgentResolution",
+            key,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync(
+            completed ? "hiring.recommendation.fulfilled" : "hiring.recommendation.progressed",
+            nameof(WorkforcePlan),
+            plan.Id,
+            $"Recorded employee {request.ResultOrganizationUserId:D} for {plan.Title} ({plan.FulfilledHeadcount}/{plan.Headcount}).",
+            cancellationToken: cancellationToken);
         var candidates = await ResolveCandidatesAsync(organizationId, ReadIds(plan.AssignmentsJson)
             .Select(CandidateReference).ToList(), cancellationToken);
         return ToRecommendation(plan, candidates);
@@ -196,7 +217,11 @@ public sealed class HiringService(
         if (existing is not null) return ToWorkflow(existing);
 
         var recommendation = await db.WorkforcePlans.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.Id == request.RecommendationId && x.OrganizationId == organizationId, cancellationToken)
+            x.Id == request.RecommendationId &&
+            x.OrganizationId == organizationId &&
+            x.Status == ProposalStatus.Pending &&
+            x.FulfilledHeadcount < x.Headcount,
+            cancellationToken)
             ?? throw new ArgumentException("The hiring recommendation was not found.");
         var candidateId = ParseCandidateReference(request.CandidateReference);
         if (!ReadIds(recommendation.AssignmentsJson).Contains(candidateId))
@@ -363,12 +388,28 @@ public sealed class HiringService(
             cancellationToken);
         if (owner?.PermissionLevel != OrganizationPermissionLevel.Owner)
             throw new UnauthorizedAccessException("Only an organization owner may review an agent hire.");
-        var roleTitle = Required(request.RoleTitle, 160, nameof(request.RoleTitle));
+        var requestedRoleTitle = Required(request.RoleTitle, 160, nameof(request.RoleTitle));
         var employeeDisplayName = Required(
             request.EmployeeDisplayName,
             160,
             nameof(request.EmployeeDisplayName));
         var key = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
+        WorkforcePlan? linkedRecommendation = null;
+        if (request.RecommendationId.HasValue)
+        {
+            linkedRecommendation = await db.WorkforcePlans.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == request.RecommendationId.Value &&
+                x.OrganizationId == organizationId &&
+                x.Status == ProposalStatus.Pending &&
+                x.FulfilledHeadcount < x.Headcount,
+                cancellationToken) ?? throw new ArgumentException("The linked hiring recommendation was not found or is already fulfilled.");
+            if (!string.Equals(requestedRoleTitle, linkedRecommendation.Title, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("The selected role does not match the linked hiring recommendation.");
+            if (request.TeamId.HasValue && request.TeamId != linkedRecommendation.TeamId)
+                throw new UnauthorizedAccessException("The selected team does not match the linked hiring recommendation.");
+        }
+        var roleTitle = linkedRecommendation?.Title ?? requestedRoleTitle;
+        var approvedTeamId = linkedRecommendation?.TeamId ?? request.TeamId;
         if (!request.ReportsToOrganizationUserId.HasValue)
             throw new ArgumentException("A managing employee is required when hiring an agent.");
         var existing = await db.StaffingActionProposals.AsNoTracking().SingleOrDefaultAsync(x =>
@@ -378,6 +419,10 @@ public sealed class HiringService(
             cancellationToken);
         if (existing is not null)
         {
+            var expectedWorkforcePlanId = linkedRecommendation?.Id ?? Guid.Empty;
+            if (existing.WorkforcePlanId != expectedWorkforcePlanId)
+                throw new InvalidOperationException(
+                    "The Marketplace preview idempotency key was already used for another hiring recommendation.");
             var existingCandidateId = ParseCandidateReference(existing.CandidateId);
             var existingCandidate = await db.WorkforceCandidates.AsNoTracking()
                 .SingleAsync(x => x.Id == existingCandidateId, cancellationToken);
@@ -424,6 +469,7 @@ public sealed class HiringService(
             Currency = agent.Currency,
             IsHuman = false,
             IsAvailable = true,
+            WorkforcePlanId = linkedRecommendation?.Id,
             ExplanationJson = JsonSerializer.Serialize(new
             {
                 ResourceType = "Agent",
@@ -441,15 +487,15 @@ public sealed class HiringService(
             request.ReportsToOrganizationUserId,
             [],
             cancellationToken,
-            teamId: request.TeamId,
-            objective: $"Hire {roleTitle} through Marketplace.",
+            teamId: approvedTeamId,
+            objective: linkedRecommendation?.Objective ?? $"Hire {roleTitle} through Marketplace.",
             employeeDisplayName: employeeDisplayName);
         var now = DateTimeOffset.UtcNow;
         var workflow = new StaffingActionProposal
         {
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
-            WorkforcePlanId = Guid.Empty,
+            WorkforcePlanId = linkedRecommendation?.Id ?? Guid.Empty,
             RequestingInstallationId = Guid.Empty,
             IdempotencyKey = key,
             ActionType = "marketplace-install-and-hire",
@@ -754,6 +800,21 @@ public sealed class HiringService(
         }
 
 CompleteWorkflow:
+        WorkforcePlan? fulfilledPlan = null;
+        if (workflow.WorkforcePlanId != Guid.Empty)
+        {
+            fulfilledPlan = await db.WorkforcePlans.SingleAsync(x =>
+                x.Id == workflow.WorkforcePlanId && x.OrganizationId == organizationId,
+                cancellationToken);
+            if (fulfilledPlan.Status != ProposalStatus.Pending ||
+                fulfilledPlan.FulfilledHeadcount >= fulfilledPlan.Headcount)
+                throw new InvalidOperationException("The linked hiring recommendation is already fulfilled.");
+            if (await db.HiringRecommendationFulfillments.AsNoTracking().AnyAsync(x =>
+                    x.WorkforcePlanId == fulfilledPlan.Id &&
+                    x.ResultOrganizationUserId == resultUserId,
+                    cancellationToken))
+                throw new InvalidOperationException("This employee already fulfills the linked hiring recommendation.");
+        }
         if (snapshot.TeamId.HasValue)
         {
             var teamService = teams
@@ -772,16 +833,28 @@ CompleteWorkflow:
         workflow.DecidedByOrganizationUserId = owner.Id;
         workflow.ResultOrganizationUserId = resultUserId;
         workflow.DecidedAt = DateTimeOffset.UtcNow;
-        if (workflow.WorkforcePlanId != Guid.Empty)
+        var recommendationCompleted = false;
+        if (fulfilledPlan is not null)
         {
-            var plan = await db.WorkforcePlans.SingleAsync(x => x.Id == workflow.WorkforcePlanId, cancellationToken);
-            plan.Status = ProposalStatus.Approved;
-            plan.DecidedAt = workflow.DecidedAt;
-            plan.UpdatedAt = workflow.DecidedAt.Value;
+            recommendationCompleted = await RecordRecommendationFulfillmentAsync(
+                fulfilledPlan,
+                resultUserId,
+                workflow.Id,
+                "HiringWorkflow",
+                $"workflow:{workflow.Id:N}",
+                workflow.DecidedAt.Value,
+                cancellationToken);
         }
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("hiring.workflow.approved", nameof(StaffingActionProposal), workflow.Id,
             $"Owner approved and completed the {snapshot.RoleTitle} workflow.", cancellationToken: cancellationToken);
+        if (fulfilledPlan is not null)
+            await audit.WriteAsync(
+                recommendationCompleted ? "hiring.recommendation.fulfilled" : "hiring.recommendation.progressed",
+                nameof(WorkforcePlan),
+                fulfilledPlan.Id,
+                $"Recorded employee {resultUserId:D} for {fulfilledPlan.Title} ({fulfilledPlan.FulfilledHeadcount}/{fulfilledPlan.Headcount}).",
+                cancellationToken: cancellationToken);
         return ToWorkflow(workflow);
     }
 
@@ -1057,6 +1130,82 @@ CompleteWorkflow:
             .ToListAsync(token);
     }
 
+    private async Task<bool> RecordRecommendationFulfillmentAsync(
+        WorkforcePlan plan,
+        Guid resultOrganizationUserId,
+        Guid? staffingActionProposalId,
+        string source,
+        string idempotencyKey,
+        DateTimeOffset occurredAt,
+        CancellationToken cancellationToken)
+    {
+        var existingByKey = await db.HiringRecommendationFulfillments.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.WorkforcePlanId == plan.Id && x.IdempotencyKey == idempotencyKey,
+            cancellationToken);
+        if (existingByKey is not null)
+        {
+            if (existingByKey.ResultOrganizationUserId != resultOrganizationUserId)
+                throw new InvalidOperationException("The fulfillment idempotency key was already used for another employee.");
+            return plan.Status == ProposalStatus.Approved;
+        }
+        if (await db.HiringRecommendationFulfillments.AsNoTracking().AnyAsync(x =>
+                x.WorkforcePlanId == plan.Id && x.ResultOrganizationUserId == resultOrganizationUserId,
+                cancellationToken))
+            throw new InvalidOperationException("This employee already fulfills the hiring recommendation.");
+        if (plan.Status != ProposalStatus.Pending || plan.FulfilledHeadcount >= plan.Headcount)
+            throw new InvalidOperationException("The hiring recommendation is already fulfilled.");
+
+        db.HiringRecommendationFulfillments.Add(new HiringRecommendationFulfillment
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = plan.OrganizationId,
+            WorkforcePlanId = plan.Id,
+            ResultOrganizationUserId = resultOrganizationUserId,
+            StaffingActionProposalId = staffingActionProposalId,
+            Source = source,
+            IdempotencyKey = idempotencyKey,
+            CreatedAt = occurredAt
+        });
+        plan.FulfilledHeadcount++;
+        plan.UpdatedAt = occurredAt;
+        if (plan.FulfilledHeadcount < plan.Headcount)
+            return false;
+
+        plan.Status = ProposalStatus.Approved;
+        plan.DecidedAt = occurredAt;
+        var resultIds = await db.HiringRecommendationFulfillments.AsNoTracking()
+            .Where(x => x.WorkforcePlanId == plan.Id)
+            .Select(x => x.ResultOrganizationUserId)
+            .ToListAsync(cancellationToken);
+        if (!resultIds.Contains(resultOrganizationUserId))
+            resultIds.Add(resultOrganizationUserId);
+        var fulfilledEvent = new HiringRecommendationFulfilledEvent(
+            plan.OrganizationId,
+            plan.Id,
+            plan.SourceResourceChangeRequestId,
+            plan.RequestingInstallationId,
+            plan.RoleKey,
+            plan.Title,
+            plan.TeamId,
+            plan.WorkstreamId,
+            plan.Headcount,
+            plan.FulfilledHeadcount,
+            resultIds.Distinct().Order().ToList(),
+            occurredAt);
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = plan.OrganizationId,
+            EventType = HiringEvents.RecommendationFulfilled,
+            DataJson = JsonSerializer.Serialize(fulfilledEvent, JsonOptions),
+            IdempotencyKey = $"hiring-recommendation-fulfilled:{plan.Id:N}",
+            Status = AgentPlatformEventOutboxStatus.Pending,
+            NextAttemptAt = occurredAt,
+            OccurredAt = occurredAt
+        });
+        return true;
+    }
+
     private static HiringRecommendationResponse ToRecommendation(
         WorkforcePlan plan,
         IReadOnlyList<WorkforceCandidate> candidates,
@@ -1069,10 +1218,12 @@ CompleteWorkflow:
             ordered, plan.CreatedAt, plan.UpdatedAt)
         {
             Priority = plan.Priority,
-            HiringUrl = $"/organizations/{plan.OrganizationId:D}/marketplace?role={Uri.EscapeDataString(plan.Title)}",
+            HiringUrl = $"/organizations/{plan.OrganizationId:D}/marketplace?role={Uri.EscapeDataString(plan.Title)}&recommendationId={plan.Id:D}",
             SuggestedBy = suggestedBy,
             RoleKey = plan.RoleKey,
             Headcount = plan.Headcount,
+            FulfilledHeadcount = plan.FulfilledHeadcount,
+            RemainingHeadcount = Math.Max(0, plan.Headcount - plan.FulfilledHeadcount),
             SourceResourceChangeRequestId = plan.SourceResourceChangeRequestId,
             TeamId = plan.TeamId
         };

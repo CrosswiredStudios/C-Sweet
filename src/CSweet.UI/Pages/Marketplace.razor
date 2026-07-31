@@ -144,7 +144,7 @@
                     }
                 </MudSelect>
                 <MudSelect T="Guid?" Label="Team assignment" @bind-Value="_teamId"
-                           Variant="Variant.Outlined" Clearable="true" Disabled="_reviewBusy">
+                           Variant="Variant.Outlined" Clearable="true" Disabled="@(_reviewBusy || RecommendationId.HasValue)">
                     @foreach (var team in _teams.Where(team => !team.IsArchived).OrderBy(team => team.Name))
                     {
                         <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem>
@@ -257,6 +257,8 @@
     [Parameter] public Guid OrganizationId { get; set; }
     [SupplyParameterFromQuery(Name = "role")]
     public string? RequestedRole { get; set; }
+    [SupplyParameterFromQuery(Name = "recommendationId")]
+    public Guid? RecommendationId { get; set; }
 
     private AvailableAgentSearchResult? _result;
     private bool _loading;
@@ -399,6 +401,7 @@
                 _reportsToId,
                 $"marketplace-preview:{Guid.NewGuid():N}")
             {
+                RecommendationId = RecommendationId,
                 TeamId = _teamId,
                 SupersedesWorkflowId = supersededWorkflowId
             });
@@ -409,6 +412,8 @@
         }
         _preview = await response.Content.ReadFromJsonAsync<MarketplaceHirePreviewResponse>()
             ?? throw new InvalidOperationException("The Marketplace hire preview was empty.");
+        if (RecommendationId.HasValue)
+            _teamId = _preview.TeamId;
         await InitializeConfigurationAsync();
     }
 
