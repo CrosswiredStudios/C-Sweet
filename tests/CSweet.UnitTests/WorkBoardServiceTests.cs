@@ -69,7 +69,7 @@ public sealed class WorkBoardServiceTests
         Assert.NotNull((await db.CoreWorkTasks.SingleAsync()).BoardColumnId);
         Assert.Equal(
             WorkBoardActions.All.Count + WorkItemActions.All.Count +
-            WorkSprintActions.All.Count + WorkAutomationActions.All.Count,
+            WorkSprintActions.All.Count + WorkOrchestrationActions.All.Count,
             await db.ScopedActionGrants.CountAsync());
         Assert.Contains(audit.Events, x => x.EventType == WorkBoardActions.Read);
     }
@@ -119,7 +119,7 @@ public sealed class WorkBoardServiceTests
             WorkBoardActions.All
                 .Concat(WorkItemActions.All)
                 .Concat(WorkSprintActions.All)
-                .Concat(WorkAutomationActions.All)
+                .Concat(WorkOrchestrationActions.All)
                 .Order(),
             ownerActions.Order());
     }
@@ -243,7 +243,7 @@ public sealed class WorkBoardServiceTests
         Assert.Contains("default board", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [Fact(Skip = "Direct card transitions are replaced by orchestration policy transitions.")]
     public async Task OwnerCanConfigureWorkflowCreateStoryCompleteAndReopenIt()
     {
         await using var db = CreateDb();
@@ -331,11 +331,11 @@ public sealed class WorkBoardServiceTests
 
         await service.CreateItemAsync(
             setup.OrganizationId, boardId, setup.ApplicationUserId,
-            new CreateBoardWorkItemRequest("First"));
+            new CreateBoardWorkItemRequest("First", Kind: "Epic"));
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CreateItemAsync(
                 setup.OrganizationId, boardId, setup.ApplicationUserId,
-                new CreateBoardWorkItemRequest("Second")));
+                new CreateBoardWorkItemRequest("Second", Kind: "Epic")));
 
         Assert.Contains("WIP limit", exception.Message);
     }

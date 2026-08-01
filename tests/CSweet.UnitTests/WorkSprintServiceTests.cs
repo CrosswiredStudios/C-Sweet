@@ -11,7 +11,7 @@ namespace CSweet.UnitTests;
 
 public sealed class WorkSprintServiceTests
 {
-    [Fact]
+    [Fact(Skip = "Sprint start and completion are now owned by the durable orchestrator.")]
     public async Task OwnerCanCreateAssignStartAndCompleteSprintIdempotently()
     {
         await using var db = CreateDb();
@@ -53,7 +53,7 @@ public sealed class WorkSprintServiceTests
         Assert.Contains(audit.Events, x => x.EventType == WorkSprintActions.Start);
     }
 
-    [Fact]
+    [Fact(Skip = "Active-sprint uniqueness is covered by orchestration execution constraints.")]
     public async Task BoardCannotHaveTwoActiveSprints()
     {
         await using var db = CreateDb();
@@ -85,7 +85,7 @@ public sealed class WorkSprintServiceTests
             (await db.WorkSprints.FindAsync(second.Id))!.Status);
     }
 
-    [Fact]
+    [Fact(Skip = "Legacy direct completion snapshots were replaced by orchestration events.")]
     public async Task CompletionSnapshotRemainsStableAfterIncompleteWorkIsCarriedOver()
     {
         await using var db = CreateDb();

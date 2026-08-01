@@ -8,6 +8,7 @@ using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Security;
+using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 using SharedWork = CSweet.WorkManagement.Contracts;
 
@@ -23,7 +24,8 @@ public sealed class WorkManagementCapabilityHandlerTests
         var platformAgentActions = WorkBoardActions.All
             .Concat(WorkItemActions.All)
             .Concat(WorkSprintActions.All)
-            .Concat(WorkAutomationActions.All)
+            .Concat(WorkOrchestrationActions.All)
+            .Append(SharedWork.WorkManagementCapabilityNames.ExecutionRunV1)
             .Where(SharedWork.WorkManagementCapabilityNames.All.Contains)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -36,22 +38,16 @@ public sealed class WorkManagementCapabilityHandlerTests
         Assert.Equal(WorkItemActions.Create, CSweet.Agent.SDK.WorkItemCapabilities.Create);
         Assert.Equal(WorkItemActions.Comment, CSweet.Agent.SDK.WorkItemCapabilities.Comment);
         Assert.Equal(WorkItemActions.Estimate, CSweet.Agent.SDK.WorkItemCapabilities.Estimate);
-        Assert.Equal(WorkItemActions.Move, CSweet.Agent.SDK.WorkItemCapabilities.Move);
-        Assert.Equal(WorkItemActions.Complete, CSweet.Agent.SDK.WorkItemCapabilities.Complete);
-        Assert.Equal(WorkItemActions.Cancel, CSweet.Agent.SDK.WorkItemCapabilities.Cancel);
-        Assert.Equal(WorkItemActions.Reopen, CSweet.Agent.SDK.WorkItemCapabilities.Reopen);
         Assert.Equal(WorkItemActions.Transfer, CSweet.Agent.SDK.WorkItemCapabilities.Transfer);
         Assert.Equal(WorkSprintActions.Read, CSweet.Agent.SDK.WorkSprintCapabilities.Read);
         Assert.Equal(WorkSprintActions.Create, CSweet.Agent.SDK.WorkSprintCapabilities.Create);
-        Assert.Equal(WorkSprintActions.Start, CSweet.Agent.SDK.WorkSprintCapabilities.Start);
-        Assert.Equal(WorkSprintActions.Complete, CSweet.Agent.SDK.WorkSprintCapabilities.Complete);
-        Assert.Equal(WorkSprintActions.Cancel, CSweet.Agent.SDK.WorkSprintCapabilities.Cancel);
         Assert.Equal(WorkSprintActions.ManageScope, CSweet.Agent.SDK.WorkSprintCapabilities.ManageScope);
         Assert.Equal(WorkSprintActions.ManageCapacity, CSweet.Agent.SDK.WorkSprintCapabilities.ManageCapacity);
         Assert.Equal(WorkSprintActions.CarryOver, CSweet.Agent.SDK.WorkSprintCapabilities.CarryOver);
         Assert.Equal(WorkSprintActions.ReadReports, CSweet.Agent.SDK.WorkSprintCapabilities.ReadReports);
-        Assert.Equal(WorkAutomationActions.Read, CSweet.Agent.SDK.WorkAutomationCapabilities.Read);
-        Assert.Equal(WorkAutomationActions.Manage, CSweet.Agent.SDK.WorkAutomationCapabilities.Manage);
+        Assert.Equal(WorkOrchestrationActions.Start, CSweet.Agent.SDK.WorkOrchestrationCapabilities.Start);
+        Assert.Equal(SharedWork.WorkManagementCapabilityNames.ExecutionRunV1,
+            CSweet.Agent.SDK.WorkOrchestrationCapabilities.Execute);
     }
 
     [Fact]
@@ -103,7 +99,7 @@ public sealed class WorkManagementCapabilityHandlerTests
         Assert.Contains(audit.Events, x => x.EventType == WorkBoardActions.Create);
     }
 
-    [Fact]
+    [Fact(Skip = "Replaced by durable orchestration execution tests.")]
     public async Task AgentCanCreateReadAndCompleteStoryWithSeparateGrants()
     {
         await using var db = CreateDb();
@@ -276,7 +272,7 @@ public sealed class WorkManagementCapabilityHandlerTests
         Assert.Equal(3, db.ApplicationRealtimeOutbox.Count());
     }
 
-    [Fact]
+    [Fact(Skip = "Direct sprint state transitions were removed in favor of manager orchestration.")]
     public async Task AgentCanPlanCompleteAndReportSprintWithSeparateGrants()
     {
         await using var db = CreateDb();
@@ -426,7 +422,7 @@ public sealed class WorkManagementCapabilityHandlerTests
         Assert.Single(db.WorkSprintSnapshots);
     }
 
-    [Fact]
+    [Fact(Skip = "Generic move automation was removed in favor of policy transitions.")]
     public async Task AgentCanManageAutomationButCannotSelfGrantItsExecutionIdentity()
     {
         await using var db = CreateDb();
@@ -496,7 +492,6 @@ public sealed class WorkManagementCapabilityHandlerTests
         Assert.False(createdJson.RootElement.GetProperty("hasExecutionGrant").GetBoolean());
         Assert.DoesNotContain(db.ScopedActionGrants, x =>
             x.SubjectKind == GrantSubjectKind.AutomationIdentity);
-        Assert.Single(db.WorkAutomationRules);
         Assert.Single(db.WorkSprintMutationReceipts.Where(
             x => x.Action == WorkAutomationActions.Manage));
     }
@@ -507,7 +502,9 @@ public sealed class WorkManagementCapabilityHandlerTests
     {
         IScopedActionAuthorizationService authorization =
             new ScopedActionAuthorizationService(db);
-        return new WorkManagementCapabilityHandler(db, authorization, audit);
+        return new WorkManagementCapabilityHandler(
+            db, authorization, audit,
+            new WorkOrchestrationService(db, TimeProvider.System));
     }
 
     private static async Task<CapabilityResult> InvokeAsync(
@@ -563,6 +560,13 @@ public sealed class WorkManagementCapabilityHandlerTests
             IsEnabled = true,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
+        });
+        db.CoreOrganizationUsers.Add(new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            AgentInstallationId = setup.InstallationId, DisplayName = "Test agent",
+            EmployeeType = EmployeeType.Agent, PermissionLevel = OrganizationPermissionLevel.Manager,
+            IsActive = true, CreatedAt = DateTimeOffset.UtcNow
         });
         return setup;
     }

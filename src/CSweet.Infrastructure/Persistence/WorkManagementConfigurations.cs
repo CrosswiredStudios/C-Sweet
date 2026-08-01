@@ -14,6 +14,8 @@ internal static class WorkManagementConfigurations
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Key).HasMaxLength(12).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.Key }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Name });
             entity.HasIndex(x => new { x.OrganizationId, x.IsDefault })
                 .IsUnique()
@@ -30,6 +32,10 @@ internal static class WorkManagementConfigurations
                 .WithMany()
                 .HasForeignKey(x => x.WorkstreamId)
                 .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<OrganizationUser>()
+                .WithMany()
+                .HasForeignKey(x => x.ManagerOrganizationUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<WorkBoardColumn>(entity =>
@@ -99,39 +105,6 @@ internal static class WorkManagementConfigurations
                 .HasForeignKey(x => x.DependsOnWorkItemId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(x => x.DependsOnWorkItemId);
-        });
-
-        modelBuilder.Entity<WorkDeliveryPipeline>(entity =>
-        {
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.BaseBranch).HasMaxLength(256).IsRequired();
-            entity.Property(x => x.MergeStrategy).HasMaxLength(24).IsRequired();
-            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
-            entity.Property(x => x.Stage).HasMaxLength(32).IsRequired();
-            entity.Property(x => x.MergeStatus).HasMaxLength(24).IsRequired();
-            entity.Property(x => x.SourcePullRequestUrl).HasMaxLength(2048);
-            entity.Property(x => x.SourceCommitSha).HasMaxLength(128);
-            entity.Property(x => x.LastError).HasMaxLength(4096);
-            entity.Property(x => x.ResumeAction).HasMaxLength(512);
-            entity.Property(x => x.Revision).IsConcurrencyToken();
-            entity.HasIndex(x => x.BoardId).IsUnique();
-            entity.HasIndex(x => new { x.OrganizationId, x.IsEnabled, x.Status });
-            entity.HasOne<Organization>()
-                .WithMany()
-                .HasForeignKey(x => x.OrganizationId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne<WorkBoard>()
-                .WithMany()
-                .HasForeignKey(x => x.BoardId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne<WorkSprint>()
-                .WithMany()
-                .HasForeignKey(x => x.ActiveSprintId)
-                .OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<WorkTask>()
-                .WithMany()
-                .HasForeignKey(x => x.ActiveWorkItemId)
-                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<WorkQualityRun>(entity =>
@@ -208,64 +181,6 @@ internal static class WorkManagementConfigurations
                 .WithMany()
                 .HasForeignKey(x => x.SprintId)
                 .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        modelBuilder.Entity<WorkAutomationRule>(entity =>
-        {
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
-            entity.Property(x => x.TriggerEventType).HasMaxLength(160).IsRequired();
-            entity.Property(x => x.Action).HasMaxLength(160).IsRequired();
-            entity.Property(x => x.Revision).IsConcurrencyToken();
-            entity.HasIndex(x => new { x.BoardId, x.IsEnabled });
-            entity.HasIndex(x => x.AutomationIdentityId).IsUnique();
-            entity.HasOne<Organization>()
-                .WithMany()
-                .HasForeignKey(x => x.OrganizationId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(x => x.Board)
-                .WithMany(x => x.AutomationRules)
-                .HasForeignKey(x => x.BoardId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne<WorkBoardColumn>()
-                .WithMany()
-                .HasForeignKey(x => x.ConditionColumnId)
-                .OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<WorkBoardColumn>()
-                .WithMany()
-                .HasForeignKey(x => x.TargetColumnId)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        modelBuilder.Entity<WorkAutomationExecution>(entity =>
-        {
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
-            entity.Property(x => x.RequiredAction).HasMaxLength(160).IsRequired();
-            entity.Property(x => x.ErrorCode).HasMaxLength(160);
-            entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
-            entity.HasIndex(x => new { x.RuleId, x.SourceActivityId }).IsUnique();
-            entity.HasIndex(x => new { x.BoardId, x.CompletedAt });
-            entity.HasOne<Organization>()
-                .WithMany()
-                .HasForeignKey(x => x.OrganizationId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne<WorkBoard>()
-                .WithMany()
-                .HasForeignKey(x => x.BoardId)
-                .OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne(x => x.Rule)
-                .WithMany()
-                .HasForeignKey(x => x.RuleId)
-                .OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<WorkItemActivity>()
-                .WithMany()
-                .HasForeignKey(x => x.SourceActivityId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne<ScopedActionGrant>()
-                .WithMany()
-                .HasForeignKey(x => x.AuthorizingGrantId)
-                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<WorkSprintMutationReceipt>(entity =>
@@ -398,6 +313,145 @@ internal static class WorkManagementConfigurations
                 .WithMany()
                 .HasForeignKey(x => x.AuthorizingGrantId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        ConfigureOrchestration(modelBuilder);
+    }
+
+    private static void ConfigureOrchestration(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<WorkOrchestrationPolicy>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.HasIndex(x => x.BoardId).IsUnique();
+            entity.HasOne(x => x.Board).WithMany(x => x.OrchestrationPolicies)
+                .HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WorkOrchestrationPolicyRevision>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.InitialStageKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.MergeMode).HasMaxLength(32).IsRequired();
+            entity.HasIndex(x => new { x.PolicyId, x.Revision }).IsUnique();
+            entity.HasIndex(x => new { x.BoardId, x.IsPublished });
+            entity.HasOne(x => x.Policy).WithMany(x => x.Revisions)
+                .HasForeignKey(x => x.PolicyId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WorkOrchestrationStage>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Key).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Type).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Instructions).HasMaxLength(16384).IsRequired();
+            entity.Property(x => x.InputSchemaJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.OutputSchemaJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.PlatformAction).HasMaxLength(160);
+            entity.HasIndex(x => new { x.PolicyRevisionId, x.Key }).IsUnique();
+            entity.HasOne(x => x.PolicyRevision).WithMany(x => x.Stages)
+                .HasForeignKey(x => x.PolicyRevisionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<WorkBoardColumn>().WithMany().HasForeignKey(x => x.ColumnId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WorkOrchestrationTransition>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.FromStageKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.OutcomeCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ToStageKey).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.PolicyRevisionId, x.FromStageKey, x.OutcomeCode }).IsUnique();
+            entity.HasOne(x => x.PolicyRevision).WithMany(x => x.Transitions)
+                .HasForeignKey(x => x.PolicyRevisionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WorkItemStageAssignment>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.StageKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.PrincipalKind).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.PlatformAction).HasMaxLength(160);
+            entity.HasIndex(x => new { x.WorkItemId, x.StageKey }).IsUnique();
+            entity.HasOne(x => x.WorkItem).WithMany(x => x.StageAssignments)
+                .HasForeignKey(x => x.WorkItemId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.OrganizationUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<CSweet.Domain.Setup.AgentInstallation>().WithMany().HasForeignKey(x => x.AgentInstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WorkSprintExecution>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.PolicySnapshotJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.AssignmentSnapshotJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.SprintId).IsUnique();
+            entity.HasIndex(x => x.BoardId)
+                .IsUnique().HasFilter("\"Status\" IN ('Active', 'Paused')");
+            entity.HasOne<WorkSprint>().WithMany().HasForeignKey(x => x.SprintId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<WorkOrchestrationPolicyRevision>().WithMany().HasForeignKey(x => x.PolicyRevisionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WorkItemExecution>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ItemIdentifier).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.CurrentStageKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.BlockedReason).HasMaxLength(4096);
+            entity.HasIndex(x => new { x.SprintExecutionId, x.WorkItemId }).IsUnique();
+            entity.HasOne(x => x.SprintExecution).WithMany(x => x.Items)
+                .HasForeignKey(x => x.SprintExecutionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.WorkItem).WithMany().HasForeignKey(x => x.WorkItemId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WorkStageExecution>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.StageKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.StageType).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.PrincipalKind).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.PlatformAction).HasMaxLength(160);
+            entity.Property(x => x.LastOutcomeCode).HasMaxLength(64);
+            entity.Property(x => x.LastSummary).HasMaxLength(4096);
+            entity.Property(x => x.LastError).HasMaxLength(4096);
+            entity.HasIndex(x => new { x.ItemExecutionId, x.StageKey, x.Traversal }).IsUnique();
+            entity.HasOne(x => x.ItemExecution).WithMany(x => x.Stages)
+                .HasForeignKey(x => x.ItemExecutionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WorkExecutionAttempt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.ResultJson).HasColumnType("jsonb");
+            entity.Property(x => x.ErrorCategory).HasMaxLength(80);
+            entity.Property(x => x.ErrorMessage).HasMaxLength(4096);
+            entity.HasIndex(x => new { x.StageExecutionId, x.Attempt }).IsUnique();
+            entity.HasIndex(x => x.StageExecutionId).IsUnique()
+                .HasFilter("\"Status\" IN ('Pending', 'Running')");
+            entity.HasIndex(x => x.AgentWorkItemId).IsUnique().HasFilter("\"AgentWorkItemId\" IS NOT NULL");
+            entity.HasOne(x => x.StageExecution).WithMany(x => x.Attempts)
+                .HasForeignKey(x => x.StageExecutionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.AgentWorkItem).WithMany().HasForeignKey(x => x.AgentWorkItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WorkOrchestrationEvent>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.EventType).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.DataJson).HasColumnType("jsonb").IsRequired();
+            entity.HasIndex(x => new { x.SprintExecutionId, x.OccurredAt });
+            entity.HasIndex(x => new { x.BoardId, x.OccurredAt });
         });
     }
 }

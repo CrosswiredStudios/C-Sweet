@@ -23,10 +23,19 @@ internal static class WorkBoardProvisioning
         if (board is null)
         {
             var now = DateTimeOffset.UtcNow;
+            var managerId = await db.CoreOrganizationUsers.AsNoTracking()
+                .Where(x => x.OrganizationId == organizationId && x.IsActive)
+                .OrderByDescending(x => x.PermissionLevel == OrganizationPermissionLevel.Owner)
+                .ThenBy(x => x.CreatedAt)
+                .Select(x => (Guid?)x.Id)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("An active organization user is required to manage the default board.");
             board = new WorkBoard
             {
                 Id = Guid.NewGuid(),
                 OrganizationId = organizationId,
+                ManagerOrganizationUserId = managerId,
+                Key = "COMPANY",
                 Name = "Company work",
                 Description = "The default board for company-wide work.",
                 IsDefault = true,
@@ -106,16 +115,16 @@ internal static class WorkBoardProvisioning
                     WorkSprintActions.All,
                 _ => [WorkSprintActions.Read]
             };
-            var automationActions = member.PermissionLevel switch
+            var orchestrationActions = member.PermissionLevel switch
             {
                 OrganizationPermissionLevel.Owner or OrganizationPermissionLevel.Manager =>
-                    WorkAutomationActions.All,
-                _ => [WorkAutomationActions.Read]
+                    WorkOrchestrationActions.All,
+                _ => [WorkOrchestrationActions.Read]
             };
             var actions = boardActions
                 .Concat(itemActions)
                 .Concat(sprintActions)
-                .Concat(automationActions);
+                .Concat(orchestrationActions);
             foreach (var action in actions)
             {
                 if (!initializedGrants.Add((member.Id, action)))
@@ -172,6 +181,12 @@ internal static class WorkBoardProvisioning
             .ToDictionaryAsync(x => x.ColumnId, x => x.Rank, cancellationToken);
         foreach (var task in tasks)
         {
+            if (string.IsNullOrWhiteSpace(task.Identifier))
+            {
+                task.IdentifierSequence = board.NextItemSequence;
+                task.Identifier = $"{board.Key}-{board.NextItemSequence}";
+                board.NextItemSequence++;
+            }
             var preferredCategory = task.Status switch
             {
                 WorkTaskStatus.Completed or WorkTaskStatus.Cancelled => WorkBoardColumnCategory.Done,

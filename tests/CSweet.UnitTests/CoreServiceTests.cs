@@ -631,6 +631,12 @@ public class CoreServiceTests
 
         var org = CreateOrganization();
         dbContext.CoreOrganizations.Add(org);
+        dbContext.CoreOrganizationUsers.Add(new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = org.Id, DisplayName = "Owner",
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner,
+            IsActive = true, CreatedAt = DateTimeOffset.UtcNow
+        });
         await dbContext.SaveChangesAsync();
 
         var worker = new Worker

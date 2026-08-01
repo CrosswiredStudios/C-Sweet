@@ -18,7 +18,7 @@ public sealed class WorkBoardGrantService(
 {
     private static readonly HashSet<string> KnownActions =
         WorkBoardActions.All.Concat(WorkItemActions.All).Concat(WorkSprintActions.All)
-            .Concat(WorkAutomationActions.All)
+            .Concat(WorkOrchestrationActions.All)
             .ToHashSet(StringComparer.Ordinal);
 
     public async Task<IReadOnlyList<WorkBoardGrantResponse>> ListOrganizationAsync(

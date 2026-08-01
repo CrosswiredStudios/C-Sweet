@@ -33,7 +33,7 @@ public static class WorkItemActions
     public const string QualitySubmit = WorkManagementCapabilityNames.ItemQualitySubmit;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Create, Update, Start, Move, Complete, Cancel, Reopen, Transfer, Comment, Estimate, QualitySubmit];
+        [Read, Create, Update, Transfer, Comment, Estimate];
 }
 
 public static class WorkSprintActions
@@ -49,7 +49,7 @@ public static class WorkSprintActions
     public const string ReadReports = WorkManagementCapabilityNames.SprintReadReports;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Create, Start, Complete, Cancel, ManageScope, ManageCapacity, CarryOver, ReadReports];
+        [Read, Create, ManageScope, ManageCapacity, CarryOver, ReadReports];
 }
 
 public static class WorkAutomationActions
@@ -92,6 +92,8 @@ public sealed record WorkBoardSummaryResponse(
     IReadOnlyList<string> AllowedActions)
 {
     public Guid? TeamId { get; init; }
+    public Guid? ManagerOrganizationUserId { get; init; }
+    public string Key { get; init; } = string.Empty;
 }
 
 public sealed record WorkBoardDetailResponse(
@@ -107,14 +109,22 @@ public sealed record CreateWorkBoardRequest(
     [property: Required, MaxLength(160)] string Name,
     [property: MaxLength(2048)] string? Description,
     Guid? WorkstreamId = null,
-    Guid? TeamId = null);
+    Guid? TeamId = null)
+{
+    public Guid? ManagerOrganizationUserId { get; init; }
+    public string? Key { get; init; }
+}
 
 public sealed record UpdateWorkBoardRequest(
     [property: Required, MaxLength(160)] string Name,
     [property: MaxLength(2048)] string? Description,
     Guid? WorkstreamId,
     bool IsDefault,
-    long? ExpectedRevision = null);
+    long? ExpectedRevision = null)
+{
+    public Guid? ManagerOrganizationUserId { get; init; }
+    public string? Key { get; init; }
+}
 
 public sealed record SetWorkBoardFavoriteRequest(bool IsFavorite);
 
@@ -157,7 +167,12 @@ public sealed record WorkBoardItemResponse(
     Guid? AssignedInstallationId = null,
     string? AssignedDisplayName = null,
     SoftwareDevelopmentBrief? Development = null,
-    long AssignmentRevision = 0);
+    long AssignmentRevision = 0)
+{
+    public string? Identifier { get; init; }
+    public Guid? AccountableOrganizationUserId { get; init; }
+    public IReadOnlyList<WorkStageAssignment> StageAssignments { get; init; } = [];
+}
 
 public sealed record CreateBoardWorkItemRequest(
     [property: Required, MaxLength(512)] string Title,
@@ -166,7 +181,11 @@ public sealed record CreateBoardWorkItemRequest(
     string Priority = "Medium",
     Guid? ColumnId = null,
     Guid? ParentItemId = null,
-    DateTimeOffset? DueDate = null);
+    DateTimeOffset? DueDate = null)
+{
+    public Guid? AccountableOrganizationUserId { get; init; }
+    public IReadOnlyList<WorkStageAssignment> StageAssignments { get; init; } = [];
+}
 
 public sealed record MoveBoardWorkItemRequest(
     Guid TargetColumnId,

@@ -18,6 +18,9 @@ public sealed class WorkTask
     public Guid? AssignedWorkerId { get; set; }
     public Guid? AssignedEmployeeId { get; set; }
     public Guid? AssignedAgentInstallationId { get; set; }
+    public Guid? AccountableOrganizationUserId { get; set; }
+    public long? IdentifierSequence { get; set; }
+    public string? Identifier { get; set; }
     public string? DevelopmentBriefJson { get; set; }
     public string? DeliverySpecificationJson { get; set; }
     public string? QualityBriefJson { get; set; }
@@ -58,4 +61,6 @@ public sealed class WorkTask
     public Worker? AssignedWorker { get; set; }
     public OrganizationUser? AssignedEmployee { get; set; }
     public CSweet.Domain.Setup.AgentInstallation? AssignedAgentInstallation { get; set; }
+    public OrganizationUser? AccountableOrganizationUser { get; set; }
+    public ICollection<CSweet.Domain.WorkManagement.WorkItemStageAssignment> StageAssignments { get; set; } = [];
 }

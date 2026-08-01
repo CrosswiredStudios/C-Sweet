@@ -1,10 +1,15 @@
 @page "/organizations/{OrganizationId:guid}/work"
 @using System.Net
 @using System.Net.Http.Json
+@using System.Text.Json
 @using CSweet.Contracts.WorkManagement
 @using CSweet.Contracts.Agents
 @using CSweet.Contracts.Realtime
+@using CSweet.Contracts.Core
 @using SoftwareDevelopmentBrief = CSweet.WorkManagement.Contracts.SoftwareDevelopmentBrief
+@using WorkSprintPreflightResult = CSweet.WorkManagement.Contracts.WorkSprintPreflightResult
+@using WorkOrchestrationPolicyRevision = CSweet.WorkManagement.Contracts.WorkOrchestrationPolicyRevision
+@using WorkStageAssignment = CSweet.WorkManagement.Contracts.WorkStageAssignment
 @implements IAsyncDisposable
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
@@ -154,6 +159,16 @@
                       Variant="Variant.Outlined" Required="true" Class="mt-2" />
         <MudTextField T="string" Label="Description" @bind-Value="_editorDescription"
                       Variant="Variant.Outlined" Lines="3" Class="mt-3" />
+        <MudTextField T="string" Label="Board key" @bind-Value="_editorKey"
+                      Variant="Variant.Outlined" Required="true" Class="mt-3"
+                      HelperText="2–12 uppercase letters or digits; used in immutable ticket identifiers." />
+        <MudSelect T="Guid?" Label="Board manager" @bind-Value="_editorManagerId"
+                   Variant="Variant.Outlined" Required="true" Class="mt-3">
+            @foreach (var person in _organizationUsers.Where(x => x.IsActive).OrderBy(x => x.DisplayName))
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)person.Id)">@person.DisplayName</MudSelectItem>
+            }
+        </MudSelect>
         @if (_editingBoard is not null)
         {
             <MudSwitch T="bool" @bind-Value="_editorDefault" Color="Color.Primary" Class="mt-3">
@@ -211,17 +226,11 @@
                                StartIcon="@Icons.Material.Outlined.EventNote"
                                OnClick="@(() => _sprintsOpen = true)">Sprints</MudButton>
                 }
-                @if (_detail.Board.AllowedActions.Contains(WorkAutomationActions.Read))
-                {
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Outlined.AutoFixHigh"
-                               OnClick="OpenAutomationsAsync">Automations</MudButton>
-                }
-                @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.Configure))
+                @if (_detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Read))
                 {
                     <MudButton Variant="Variant.Outlined"
                                StartIcon="@Icons.Material.Outlined.AccountTree"
-                               OnClick="OpenDeliveryPipelineAsync">Delivery pipeline</MudButton>
+                               OnClick="OpenOrchestrationAsync">Orchestration</MudButton>
                 }
                 @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ConfigureColumns) &&
                      !_detail.Board.IsArchived)
@@ -340,16 +349,6 @@
                                                    Size="Size.Small"
                                                    OnClick="@(() => OpenCollaborationAsync(item))"
                                                    aria-label="Comments and activity" />
-                                    @if (column.Category == "ToDo" &&
-                                         _detail.Board.AllowedActions.Contains(WorkItemActions.Update) &&
-                                         !_detail.Board.IsArchived)
-                                    {
-                                        <MudIconButton Icon="@Icons.Material.Outlined.Code"
-                                                       Size="Size.Small"
-                                                       Color="Color.Primary"
-                                                       OnClick="@(() => OpenDeveloperAssignmentAsync(item))"
-                                                       aria-label="Assign software developer" />
-                                    }
                                     @if (_detail.Board.AllowedActions.Contains(WorkItemActions.Estimate) &&
                                          !_detail.Board.IsArchived)
                                     {
@@ -660,29 +659,35 @@
                 </MudStack>
                 <MudStack Row="true" Class="mt-2">
                     @if (sprint.Status == "Planned" &&
-                         _detail?.Board.AllowedActions.Contains(WorkSprintActions.Start) == true)
+                         _detail?.Board.AllowedActions.Contains(WorkOrchestrationActions.Start) == true)
                     {
                         <MudButton Variant="Variant.Text" Color="Color.Success"
                                    Disabled="_saving"
-                                   OnClick="@(() => ChangeSprintStateAsync(sprint, "start"))">
-                            Start
+                                   OnClick="@(() => StartOrchestratedSprintAsync(sprint))">
+                            Preflight &amp; start
                         </MudButton>
                     }
                     @if (sprint.Status == "Active" &&
-                         _detail?.Board.AllowedActions.Contains(WorkSprintActions.Complete) == true)
+                         _detail?.Board.AllowedActions.Contains(WorkOrchestrationActions.Pause) == true)
                     {
-                        <MudButton Variant="Variant.Text" Color="Color.Primary"
+                        <MudButton Variant="Variant.Text" Color="Color.Warning"
                                    Disabled="_saving"
-                                   OnClick="@(() => ChangeSprintStateAsync(sprint, "complete"))">
-                            Complete
+                                   OnClick="@(() => ControlOrchestratedSprintAsync(sprint, "pause"))">
+                            Pause
                         </MudButton>
                     }
-                    @if ((sprint.Status == "Planned" || sprint.Status == "Active") &&
-                         _detail?.Board.AllowedActions.Contains(WorkSprintActions.Cancel) == true)
+                    @if (sprint.Status == "Paused" &&
+                         _detail?.Board.AllowedActions.Contains(WorkOrchestrationActions.Resume) == true)
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Success" Disabled="_saving"
+                                   OnClick="@(() => ControlOrchestratedSprintAsync(sprint, "resume"))">Resume</MudButton>
+                    }
+                    @if ((sprint.Status == "Active" || sprint.Status == "Paused") &&
+                         _detail?.Board.AllowedActions.Contains(WorkOrchestrationActions.Cancel) == true)
                     {
                         <MudButton Variant="Variant.Text" Color="Color.Error"
                                    Disabled="_saving"
-                                   OnClick="@(() => ChangeSprintStateAsync(sprint, "cancel"))">
+                                   OnClick="@(() => ControlOrchestratedSprintAsync(sprint, "cancel"))">
                             Cancel
                         </MudButton>
                     }
@@ -704,11 +709,72 @@
                             Carry over
                         </MudButton>
                     }
+                    @if (sprint.Status is "Active" or "Paused" or "Completed" or "Cancelled")
+                    {
+                        <MudButton Variant="Variant.Text" OnClick="@(() => OpenExecutionAsync(sprint))">Execution</MudButton>
+                    }
                 </MudStack>
             </MudPaper>
         }
     </DialogContent>
     <DialogActions><MudButton OnClick="@(() => _sprintsOpen = false)">Close</MudButton></DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_executionOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Sprint execution</MudText></TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrWhiteSpace(_executionError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_executionError</MudAlert>
+        }
+        @if (_execution is not null)
+        {
+            <MudStack Row="true" Spacing="2" Class="mb-3">
+                <MudChip T="string" Color="@ExecutionColor(_execution.Status)">@_execution.Status</MudChip>
+                <MudText Typo="Typo.caption">Policy @_execution.PolicyRevisionId · updated @RelativeTime(_execution.UpdatedAt)</MudText>
+            </MudStack>
+            @foreach (var item in _execution.Items.OrderBy(x => x.ItemIdentifier))
+            {
+                var current = item.Stages.OrderByDescending(x => x.UpdatedAt).FirstOrDefault();
+                <MudPaper Outlined="true" Class="pa-3 mt-2">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween">
+                        <div>
+                            <MudText Typo="Typo.subtitle1">@item.ItemIdentifier</MudText>
+                            <MudText Typo="Typo.body2">@item.CurrentStageKey · @item.Status</MudText>
+                            @if (current is not null)
+                            {
+                                <MudText Typo="Typo.caption">@current.PrincipalKind · attempt @current.AttemptCount · @current.LastSummary</MudText>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(item.BlockedReason))
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Error">@item.BlockedReason</MudText>
+                            }
+                        </div>
+                        @if (current is not null)
+                        {
+                            <MudStack Row="true" Spacing="1">
+                                @if (current.Status == "WaitingForApproval")
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Success" OnClick="@(() => DecideStageAsync(current, true))">Approve</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => DecideStageAsync(current, false))">Reject</MudButton>
+                                }
+                                @if (current.Status == "WaitingForHuman")
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => CompleteManualStageAsync(current))">Complete</MudButton>
+                                }
+                                @if (current.Status is "Blocked" or "Failed")
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => RetryStageAsync(current))">Retry</MudButton>
+                                }
+                            </MudStack>
+                        }
+                    </MudStack>
+                </MudPaper>
+            }
+        }
+    </DialogContent>
+    <DialogActions><MudButton OnClick="@(() => _executionOpen = false)">Close</MudButton></DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_estimateOpen"
@@ -889,6 +955,72 @@
     </DialogActions>
 </MudDialog>
 
+<MudDialog @bind-Visible="_orchestrationOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Board orchestration</MudText></TitleContent>
+    <DialogContent>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            Starting a sprint is the authorization boundary. C-Sweet dispatches only to the exact agents assigned on each ticket.
+        </MudAlert>
+        @if (PublishedPolicy is not null)
+        {
+            <MudText Typo="Typo.subtitle1" Class="mt-3">@PublishedPolicy.Name</MudText>
+            <MudText Typo="Typo.body2">Revision @PublishedPolicy.Revision · @PublishedPolicy.MergeMode · @PublishedPolicy.Stages.Count stages</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mt-3">No policy has been published for this board.</MudText>
+        }
+        <MudSelect T="Guid?" Label="Ready column" @bind-Value="_orchestrationReadyColumnId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var column in _detail?.Columns ?? [])
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" Label="Development column" @bind-Value="_orchestrationDevelopmentColumnId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var column in _detail?.Columns ?? [])
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" Label="QA column" @bind-Value="_orchestrationQualityColumnId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var column in _detail?.Columns ?? [])
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" Label="Done column" @bind-Value="_orchestrationDoneColumnId"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var column in _detail?.Columns ?? [])
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" Label="Merge policy" @bind-Value="_orchestrationMergeMode"
+                   Variant="Variant.Outlined" Class="mt-3">
+            <MudSelectItem T="string" Value="@("ManagerApproval")">Manager approval</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Automatic")">Governed automatic merge</MudSelectItem>
+        </MudSelect>
+        <MudNumericField T="int" Label="Maximum QA cycles" @bind-Value="_orchestrationQualityCycles"
+                         Min="1" Max="10" Variant="Variant.Outlined" Class="mt-3" />
+        @if (!string.IsNullOrWhiteSpace(_orchestrationError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">@_orchestrationError</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _orchestrationOpen = false)">Close</MudButton>
+        @if (_detail?.Board.AllowedActions.Contains(WorkOrchestrationActions.Configure) == true)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_saving || !OrchestrationTemplateComplete)"
+                       OnClick="PublishSoftwarePolicyAsync">Publish software policy</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
 <MudDialog @bind-Visible="_deliveryOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
     <TitleContent><MudText Typo="Typo.h6">Delivery pipeline</MudText></TitleContent>
@@ -1022,6 +1154,52 @@
                 <MudSelectItem T="string" Value="@kind">@kind</MudSelectItem>
             }
         </MudSelect>
+        @if (_itemKind is not ("Initiative" or "Epic"))
+        {
+            <MudSelect T="Guid?" Label="Accountable owner" @bind-Value="_itemAccountableOwnerId"
+                       Variant="Variant.Outlined" Class="mt-3" Required="true">
+                @foreach (var person in _organizationUsers.Where(x => x.IsActive).OrderBy(x => x.DisplayName))
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)person.Id)">@person.DisplayName</MudSelectItem>
+                }
+            </MudSelect>
+            @if (PublishedPolicy is null)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
+                    Publish an orchestration policy before creating executable work.
+                </MudAlert>
+            }
+            else
+            {
+                @foreach (var stage in PublishedPolicy.Stages.Where(x => x.StageType is "AgentExecution" or "ManualWork"))
+                {
+                    @if (stage.StageType == "AgentExecution")
+                    {
+                        <MudSelect T="Guid?" Label="@($"{stage.Name} agent")"
+                                   Value="@StageAgent(stage.Key)"
+                                   ValueChanged="@(value => SetStageAgent(stage.Key, value))"
+                                   Variant="Variant.Outlined" Class="mt-3" Required="true">
+                            @foreach (var agent in _itemAgentInstallations)
+                            {
+                                <MudSelectItem T="Guid?" Value="@((Guid?)agent.Id)">@agent.AgentName (@agent.AgentVersion)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    else
+                    {
+                        <MudSelect T="Guid?" Label="@($"{stage.Name} assignee")"
+                                   Value="@StageHuman(stage.Key)"
+                                   ValueChanged="@(value => SetStageHuman(stage.Key, value))"
+                                   Variant="Variant.Outlined" Class="mt-3" Required="true">
+                            @foreach (var person in _organizationUsers.Where(x => x.IsActive && x.EmployeeType == 0).OrderBy(x => x.DisplayName))
+                            {
+                                <MudSelectItem T="Guid?" Value="@((Guid?)person.Id)">@person.DisplayName</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                }
+            }
+        }
         @if (!string.IsNullOrWhiteSpace(_itemError))
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">@_itemError</MudAlert>
@@ -1163,6 +1341,8 @@
     private string _search = "";
     private string _editorName = "";
     private string _editorDescription = "";
+    private string _editorKey = "";
+    private Guid? _editorManagerId;
     private string? _error;
     private string? _editorError;
     private bool _includeArchived;
@@ -1186,11 +1366,18 @@
     private bool _carryoverOpen;
     private bool _developerAssignmentOpen;
     private bool _deliveryOpen;
+    private bool _orchestrationOpen;
+    private bool _executionOpen;
     private bool _realtimeRefreshRunning;
     private bool _realtimeRefreshPending;
     private string _itemTitle = "";
     private string _itemDescription = "";
     private string _itemKind = "Task";
+    private Guid? _itemAccountableOwnerId;
+    private IReadOnlyList<OrganizationUserResponse> _organizationUsers = [];
+    private IReadOnlyList<AgentInstallationResponse> _itemAgentInstallations = [];
+    private readonly Dictionary<string, Guid?> _stageAgentAssignments = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Guid?> _stageHumanAssignments = new(StringComparer.Ordinal);
     private string? _itemError;
     private string? _columnsError;
     private string? _detailError;
@@ -1228,6 +1415,17 @@
     private IReadOnlyList<GitRepositoryConnectionResponse> _repositoryConnections = [];
     private IReadOnlyList<AgentInstallationResponse> _pipelineAgents = [];
     private DeliveryPipelineResponse? _deliveryPipeline;
+    private WorkOrchestrationPolicyResponse? _orchestrationPolicy;
+    private WorkSprintExecutionResponse? _execution;
+    private WorkSprintResponse? _executionSprint;
+    private string? _executionError;
+    private Guid? _orchestrationReadyColumnId;
+    private Guid? _orchestrationDevelopmentColumnId;
+    private Guid? _orchestrationQualityColumnId;
+    private Guid? _orchestrationDoneColumnId;
+    private string _orchestrationMergeMode = "ManagerApproval";
+    private int _orchestrationQualityCycles = 3;
+    private string? _orchestrationError;
     private Guid? _pipelineDeveloperId;
     private Guid? _pipelineQualityId;
     private Guid? _pipelineDevelopmentColumnId;
@@ -1335,21 +1533,27 @@
         await ReloadAsync();
     }
 
-    private void OpenCreate()
+    private async Task OpenCreate()
     {
+        await LoadOrganizationUsersAsync();
         _editingBoard = null;
         _editorName = "";
         _editorDescription = "";
+        _editorKey = "";
+        _editorManagerId = _organizationUsers.FirstOrDefault(x => x.IsActive)?.Id;
         _editorDefault = false;
         _editorError = null;
         _editorOpen = true;
     }
 
-    private void OpenEdit(WorkBoardSummaryResponse board)
+    private async Task OpenEdit(WorkBoardSummaryResponse board)
     {
+        await LoadOrganizationUsersAsync();
         _editingBoard = board;
         _editorName = board.Name;
         _editorDescription = board.Description;
+        _editorKey = board.Key ?? "";
+        _editorManagerId = board.ManagerOrganizationUserId;
         _editorDefault = board.IsDefault;
         _editorError = null;
         _editorOpen = true;
@@ -1357,9 +1561,9 @@
 
     private async Task SaveEditorAsync()
     {
-        if (string.IsNullOrWhiteSpace(_editorName))
+        if (string.IsNullOrWhiteSpace(_editorName) || string.IsNullOrWhiteSpace(_editorKey) || !_editorManagerId.HasValue)
         {
-            _editorError = "Board name is required.";
+            _editorError = "Board name, key, and manager are required.";
             return;
         }
         _saving = true;
@@ -1371,7 +1575,11 @@
             {
                 response = await Http.PostAsJsonAsync(
                     $"api/organizations/{OrganizationId:D}/work/boards",
-                    new CreateWorkBoardRequest(_editorName, _editorDescription));
+                    new CreateWorkBoardRequest(_editorName, _editorDescription)
+                    {
+                        Key = _editorKey,
+                        ManagerOrganizationUserId = _editorManagerId
+                    });
             }
             else
             {
@@ -1379,7 +1587,11 @@
                     $"api/organizations/{OrganizationId:D}/work/boards/{_editingBoard.Id:D}",
                     new UpdateWorkBoardRequest(
                         _editorName, _editorDescription, _editingBoard.WorkstreamId,
-                        _editorDefault, _editingBoard.Revision));
+                        _editorDefault, _editingBoard.Revision)
+                    {
+                        Key = _editorKey,
+                        ManagerOrganizationUserId = _editorManagerId
+                    });
             }
             if (!response.IsSuccessStatusCode)
             {
@@ -1394,6 +1606,10 @@
             _saving = false;
         }
     }
+
+    private async Task LoadOrganizationUsersAsync() =>
+        _organizationUsers = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
+            $"api/core/organizations/{OrganizationId:D}/users") ?? [];
 
     private async Task OpenBoardAsync(WorkBoardSummaryResponse board)
     {
@@ -1435,7 +1651,7 @@
             }
 
             await LoadSprintsAsync();
-            await LoadDeliveryPipelineAsync();
+            await LoadOrchestrationAsync();
             await ReloadAsync();
         }
         catch (TaskCanceledException)
@@ -1456,12 +1672,35 @@
         }
     }
 
-    private void OpenItemCreator()
+    private async Task OpenItemCreator()
     {
         _itemTitle = "";
         _itemDescription = "";
         _itemKind = "Task";
+        _itemAccountableOwnerId = null;
+        _stageAgentAssignments.Clear();
+        _stageHumanAssignments.Clear();
         _itemError = null;
+        try
+        {
+            await LoadOrchestrationAsync();
+            _organizationUsers = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
+                $"api/core/organizations/{OrganizationId:D}/users") ?? [];
+            _itemAgentInstallations = (await Http.GetFromJsonAsync<IReadOnlyList<AgentInstallationResponse>>(
+                    "api/agents/installations") ?? [])
+                .Where(x => x.IsEnabled && x.RevisionStatus == "Active" &&
+                            Guid.TryParse(x.BusinessId, out var businessId) && businessId == OrganizationId)
+                .OrderBy(x => x.AgentName).ToList();
+            foreach (var stage in PublishedPolicy?.Stages ?? [])
+            {
+                if (stage.StageType == "AgentExecution") _stageAgentAssignments[stage.Key] = null;
+                if (stage.StageType == "ManualWork") _stageHumanAssignments[stage.Key] = null;
+            }
+        }
+        catch (Exception exception)
+        {
+            _itemError = exception.Message;
+        }
         _itemCreatorOpen = true;
     }
 
@@ -1476,9 +1715,14 @@
         _itemError = null;
         try
         {
+            var assignments = BuildItemStageAssignments();
             var response = await Http.PostAsJsonAsync(
                 $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items",
-                new CreateBoardWorkItemRequest(_itemTitle, _itemDescription, _itemKind));
+                new CreateBoardWorkItemRequest(_itemTitle, _itemDescription, _itemKind)
+                {
+                    AccountableOrganizationUserId = _itemKind is "Initiative" or "Epic" ? null : _itemAccountableOwnerId,
+                    StageAssignments = assignments
+                });
             if (!response.IsSuccessStatusCode)
             {
                 _itemError = await response.Content.ReadAsStringAsync();
@@ -1487,10 +1731,50 @@
             _itemCreatorOpen = false;
             await RefreshDetailAsync();
         }
+        catch (Exception exception)
+        {
+            _itemError = exception.Message;
+        }
         finally
         {
             _saving = false;
         }
+    }
+
+    private Guid? StageAgent(string key) => _stageAgentAssignments.GetValueOrDefault(key);
+    private Guid? StageHuman(string key) => _stageHumanAssignments.GetValueOrDefault(key);
+    private void SetStageAgent(string key, Guid? value) => _stageAgentAssignments[key] = value;
+    private void SetStageHuman(string key, Guid? value) => _stageHumanAssignments[key] = value;
+
+    private IReadOnlyList<WorkStageAssignment> BuildItemStageAssignments()
+    {
+        if (_itemKind is "Initiative" or "Epic") return [];
+        if (!_itemAccountableOwnerId.HasValue)
+            throw new InvalidOperationException("Choose an accountable owner.");
+        var result = new List<WorkStageAssignment>();
+        foreach (var stage in PublishedPolicy?.Stages ?? [])
+        {
+            switch (stage.StageType)
+            {
+                case "AgentExecution":
+                    if (!StageAgent(stage.Key).HasValue)
+                        throw new InvalidOperationException($"Choose an exact agent for {stage.Name}.");
+                    result.Add(new(stage.Key, "AgentInstallation", AgentInstallationId: StageAgent(stage.Key)));
+                    break;
+                case "ManualWork":
+                    if (!StageHuman(stage.Key).HasValue)
+                        throw new InvalidOperationException($"Choose a human assignee for {stage.Name}.");
+                    result.Add(new(stage.Key, "Human", OrganizationUserId: StageHuman(stage.Key)));
+                    break;
+                case "ManagerApproval":
+                    result.Add(new(stage.Key, "BoardManager"));
+                    break;
+                case "TrustedPlatformAction":
+                    result.Add(new(stage.Key, "PlatformAction", PlatformAction: stage.PlatformAction));
+                    break;
+            }
+        }
+        return result;
     }
 
     private async Task OpenDeveloperAssignmentAsync(WorkBoardItemResponse item)
@@ -1533,6 +1817,71 @@
         {
             _developerAssignmentError = exception.Message;
             _developerAssignmentOpen = true;
+        }
+    }
+
+    private WorkOrchestrationPolicyRevision? PublishedPolicy =>
+        _orchestrationPolicy?.Revisions.SingleOrDefault(x => x.RevisionId == _orchestrationPolicy.PublishedRevisionId);
+
+    private bool OrchestrationTemplateComplete =>
+        _orchestrationReadyColumnId.HasValue && _orchestrationDevelopmentColumnId.HasValue &&
+        _orchestrationQualityColumnId.HasValue && _orchestrationDoneColumnId.HasValue &&
+        _orchestrationQualityCycles is >= 1 and <= 10;
+
+    private async Task LoadOrchestrationAsync()
+    {
+        if (_detail is null) return;
+        var response = await Http.GetAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/policy");
+        _orchestrationPolicy = response.StatusCode == HttpStatusCode.NotFound
+            ? null
+            : response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<WorkOrchestrationPolicyResponse>()
+                : _orchestrationPolicy;
+    }
+
+    private async Task OpenOrchestrationAsync()
+    {
+        if (_detail is null) return;
+        _orchestrationError = null;
+        await LoadOrchestrationAsync();
+        _orchestrationReadyColumnId ??= _detail.Columns.FirstOrDefault(x => x.Category == "ToDo")?.Id;
+        _orchestrationDevelopmentColumnId ??= _detail.Columns.FirstOrDefault(x => x.Category == "InProgress")?.Id;
+        _orchestrationQualityColumnId ??= _detail.Columns.FirstOrDefault(x =>
+            x.Name.Contains("QA", StringComparison.OrdinalIgnoreCase) ||
+            x.Name.Contains("Quality", StringComparison.OrdinalIgnoreCase))?.Id ?? _orchestrationDevelopmentColumnId;
+        _orchestrationDoneColumnId ??= _detail.Columns.FirstOrDefault(x => x.Category == "Done")?.Id;
+        _orchestrationMergeMode = PublishedPolicy?.MergeMode ?? "ManagerApproval";
+        _orchestrationOpen = true;
+    }
+
+    private async Task PublishSoftwarePolicyAsync()
+    {
+        if (_detail is null || !OrchestrationTemplateComplete) return;
+        _saving = true;
+        _orchestrationError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/software-template",
+                new CreateSoftwareOrchestrationTemplateRequest(
+                    _orchestrationReadyColumnId!.Value,
+                    _orchestrationDevelopmentColumnId!.Value,
+                    _orchestrationQualityColumnId!.Value,
+                    _orchestrationDoneColumnId!.Value,
+                    _orchestrationMergeMode,
+                    _orchestrationQualityCycles,
+                    Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _orchestrationError = await ApiErrorAsync(response);
+                return;
+            }
+            await LoadOrchestrationAsync();
+        }
+        finally
+        {
+            _saving = false;
         }
     }
 
@@ -1800,32 +2149,133 @@
         }
     }
 
-    private async Task ChangeSprintStateAsync(
-        WorkSprintResponse sprint,
-        string transition)
+    private async Task StartOrchestratedSprintAsync(WorkSprintResponse sprint)
     {
         if (_detail is null) return;
         _saving = true;
         _sprintError = null;
         try
         {
+            var root = $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/sprints/{sprint.Id:D}";
+            var preflight = await Http.GetFromJsonAsync<WorkSprintPreflightResult>($"{root}/preflight");
+            if (preflight is null || !preflight.IsValid)
+            {
+                _sprintError = preflight is null
+                    ? "Sprint preflight returned no result."
+                    : string.Join(Environment.NewLine, preflight.Errors.Select(x => $"{x.Code}: {x.Message}"));
+                return;
+            }
             var response = await Http.PostAsJsonAsync(
-                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprints/{sprint.Id:D}/{transition}",
-                new ChangeWorkSprintStateRequest(
-                    sprint.Revision, Guid.NewGuid().ToString("N")));
+                $"{root}/start",
+                new WorkOrchestrationControlRequest(sprint.Revision, Guid.NewGuid().ToString("N")));
             if (!response.IsSuccessStatusCode)
             {
-                _sprintError = await response.Content.ReadAsStringAsync();
+                _sprintError = await ApiErrorAsync(response);
                 return;
             }
             await LoadSprintsAsync();
-            if (_sprintReport is not null) await LoadSprintReportAsync();
         }
         finally
         {
             _saving = false;
         }
     }
+
+    private async Task ControlOrchestratedSprintAsync(WorkSprintResponse sprint, string action)
+    {
+        if (_detail is null) return;
+        _saving = true;
+        _sprintError = null;
+        try
+        {
+            var root = $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/sprints/{sprint.Id:D}";
+            var execution = await Http.GetFromJsonAsync<WorkSprintExecutionResponse>($"{root}/execution");
+            if (execution is null)
+            {
+                _sprintError = "The sprint execution could not be loaded.";
+                return;
+            }
+            var response = await Http.PostAsJsonAsync(
+                $"{root}/{action}",
+                new WorkOrchestrationControlRequest(execution.Revision, Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode)
+            {
+                _sprintError = await ApiErrorAsync(response);
+                return;
+            }
+            await LoadSprintsAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task OpenExecutionAsync(WorkSprintResponse sprint)
+    {
+        _executionSprint = sprint;
+        _executionError = null;
+        _executionOpen = true;
+        await ReloadExecutionAsync();
+    }
+
+    private async Task ReloadExecutionAsync()
+    {
+        if (_detail is null || _executionSprint is null) return;
+        try
+        {
+            _execution = await Http.GetFromJsonAsync<WorkSprintExecutionResponse>(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/sprints/{_executionSprint.Id:D}/execution");
+        }
+        catch (Exception exception)
+        {
+            _executionError = exception.Message;
+        }
+    }
+
+    private async Task RetryStageAsync(WorkStageExecutionResponse stage)
+    {
+        if (_detail is null) return;
+        var response = await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/stages/{stage.Id:D}/retry",
+            new WorkOrchestrationControlRequest(_execution?.Revision ?? 1, Guid.NewGuid().ToString("N")));
+        if (!response.IsSuccessStatusCode) _executionError = await ApiErrorAsync(response);
+        else await ReloadExecutionAsync();
+    }
+
+    private async Task CompleteManualStageAsync(WorkStageExecutionResponse stage)
+    {
+        if (_detail is null || _execution is null) return;
+        var response = await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/stages/{stage.Id:D}/manual-completion",
+            new CSweet.WorkManagement.Contracts.CompleteManualWorkStageRequest(
+                _detail.Board.Id, _execution.Id, stage.Id, "completed", "Completed by the assigned human.",
+                JsonSerializer.SerializeToElement(new { }), Guid.NewGuid().ToString("N")));
+        if (!response.IsSuccessStatusCode) _executionError = await ApiErrorAsync(response);
+        else await ReloadExecutionAsync();
+    }
+
+    private async Task DecideStageAsync(WorkStageExecutionResponse stage, bool approved)
+    {
+        if (_detail is null || _execution is null) return;
+        var response = await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/stages/{stage.Id:D}/decision",
+            new CSweet.WorkManagement.Contracts.DecideWorkApprovalStageRequest(
+                _detail.Board.Id, _execution.Id, stage.Id, approved,
+                approved ? "Approved by the board manager." : "Rejected by the board manager.",
+                Guid.NewGuid().ToString("N")));
+        if (!response.IsSuccessStatusCode) _executionError = await ApiErrorAsync(response);
+        else await ReloadExecutionAsync();
+    }
+
+    private static Color ExecutionColor(string status) => status switch
+    {
+        "Active" => Color.Primary,
+        "Paused" => Color.Warning,
+        "Completed" => Color.Success,
+        "Cancelled" => Color.Error,
+        _ => Color.Default
+    };
 
     private async Task SetItemSprintAsync(
         WorkBoardItemResponse item,

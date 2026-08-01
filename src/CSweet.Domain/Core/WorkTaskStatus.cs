@@ -9,5 +9,6 @@ public enum WorkTaskStatus
     WaitingForApproval = 4,
     Completed = 5,
     Failed = 6,
-    Cancelled = 7
+    Cancelled = 7,
+    Blocked = 8
 }

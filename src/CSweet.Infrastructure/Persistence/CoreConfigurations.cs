@@ -425,7 +425,7 @@ internal static class CoreConfigurations
                 "\"Kind\" IN ('Initiative', 'Epic', 'Story', 'Task', 'Bug')");
             table.HasCheckConstraint(
                 "CK_CoreWorkTasks_Status",
-                "\"Status\" IN ('Backlog', 'Ready', 'Assigned', 'Running', 'WaitingForApproval', 'Completed', 'Failed', 'Cancelled')");
+                "\"Status\" IN ('Backlog', 'Ready', 'Assigned', 'Running', 'WaitingForApproval', 'Completed', 'Failed', 'Cancelled', 'Blocked')");
             table.HasCheckConstraint(
                 "CK_CoreWorkTasks_Priority",
                 "\"Priority\" IN ('Low', 'Medium', 'High', 'Critical')");
@@ -442,6 +442,11 @@ internal static class CoreConfigurations
         entity.Property(x => x.MergeStatus).HasMaxLength(24).IsRequired();
         entity.Property(x => x.MergeCommitSha).HasMaxLength(128);
         entity.Property(x => x.QualityFindingFingerprint).HasMaxLength(128);
+        entity.Property(x => x.Identifier).HasMaxLength(32);
+        entity.HasIndex(x => new { x.BoardId, x.Identifier }).IsUnique()
+            .HasFilter("\"Identifier\" IS NOT NULL");
+        entity.HasIndex(x => new { x.BoardId, x.IdentifierSequence }).IsUnique()
+            .HasFilter("\"IdentifierSequence\" IS NOT NULL");
         entity.HasIndex(x => new { x.ParentWorkTaskId, x.QualityFindingFingerprint })
             .IsUnique()
             .HasFilter("\"QualityFindingFingerprint\" IS NOT NULL");
@@ -497,6 +502,11 @@ internal static class CoreConfigurations
             .WithMany()
             .HasForeignKey(x => x.AssignedAgentInstallationId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        entity.HasOne(x => x.AccountableOrganizationUser)
+            .WithMany()
+            .HasForeignKey(x => x.AccountableOrganizationUserId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     static void ConfigureTaskRun(EntityTypeBuilder<TaskRun> entity)

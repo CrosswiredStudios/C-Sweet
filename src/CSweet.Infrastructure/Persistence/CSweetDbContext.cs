@@ -78,9 +78,6 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<WorkSprintSnapshot> WorkSprintSnapshots => Set<WorkSprintSnapshot>();
     public DbSet<WorkSprintMetricPoint> WorkSprintMetricPoints =>
         Set<WorkSprintMetricPoint>();
-    public DbSet<WorkAutomationRule> WorkAutomationRules => Set<WorkAutomationRule>();
-    public DbSet<WorkAutomationExecution> WorkAutomationExecutions =>
-        Set<WorkAutomationExecution>();
     public DbSet<WorkSprintMutationReceipt> WorkSprintMutationReceipts =>
         Set<WorkSprintMutationReceipt>();
     public DbSet<WorkBoardUserPreference> WorkBoardUserPreferences => Set<WorkBoardUserPreference>();
@@ -88,8 +85,17 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<WorkItemComment> WorkItemComments => Set<WorkItemComment>();
     public DbSet<WorkItemActivity> WorkItemActivities => Set<WorkItemActivity>();
     public DbSet<WorkItemDependency> WorkItemDependencies => Set<WorkItemDependency>();
-    public DbSet<WorkDeliveryPipeline> WorkDeliveryPipelines => Set<WorkDeliveryPipeline>();
     public DbSet<WorkQualityRun> WorkQualityRuns => Set<WorkQualityRun>();
+    public DbSet<WorkOrchestrationPolicy> WorkOrchestrationPolicies => Set<WorkOrchestrationPolicy>();
+    public DbSet<WorkOrchestrationPolicyRevision> WorkOrchestrationPolicyRevisions => Set<WorkOrchestrationPolicyRevision>();
+    public DbSet<WorkOrchestrationStage> WorkOrchestrationStages => Set<WorkOrchestrationStage>();
+    public DbSet<WorkOrchestrationTransition> WorkOrchestrationTransitions => Set<WorkOrchestrationTransition>();
+    public DbSet<WorkItemStageAssignment> WorkItemStageAssignments => Set<WorkItemStageAssignment>();
+    public DbSet<WorkSprintExecution> WorkSprintExecutions => Set<WorkSprintExecution>();
+    public DbSet<WorkItemExecution> WorkItemExecutions => Set<WorkItemExecution>();
+    public DbSet<WorkStageExecution> WorkStageExecutions => Set<WorkStageExecution>();
+    public DbSet<WorkExecutionAttempt> WorkExecutionAttempts => Set<WorkExecutionAttempt>();
+    public DbSet<WorkOrchestrationEvent> WorkOrchestrationEvents => Set<WorkOrchestrationEvent>();
     public DbSet<ScopedActionGrant> ScopedActionGrants => Set<ScopedActionGrant>();
     public DbSet<TaskRun> CoreTaskRuns => Set<TaskRun>();
     public DbSet<Artifact> CoreArtifacts => Set<Artifact>();

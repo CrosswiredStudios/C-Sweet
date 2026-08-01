@@ -5,8 +5,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageVersion Include="CSweet.Agent.SDK" Version="2.3.0" />
-    <PackageVersion Include="CSweet.WorkManagement.Contracts" Version="1.3.0" />
+    <PackageVersion Include="CSweet.Agent.SDK" Version="2.5.2" />
+    <PackageVersion Include="CSweet.WorkManagement.Contracts" Version="2.0.0" />
     <PackageVersion Include="CSweet.Memory" Version="0.1.1" />
     <PackageVersion Include="CSweet.Memory.Broker" Version="0.1.1" />
     <PackageVersion Include="CSweet.Memory.PostgreSql" Version="0.1.1" />

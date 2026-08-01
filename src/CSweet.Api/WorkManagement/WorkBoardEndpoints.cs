@@ -1,6 +1,7 @@
 using CSweet.Api.Auth;
 using CSweet.Application.WorkManagement;
 using CSweet.Contracts.WorkManagement;
+using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Api.WorkManagement;
@@ -14,41 +15,41 @@ public static class WorkBoardEndpoints
             endpoints.MapGroup("/api/organizations/{organizationId:guid}/work/grants");
         var repositoryGroup =
             endpoints.MapGroup("/api/organizations/{organizationId:guid}/git/repositories");
-        var deliveryGroup =
+        var orchestrationGroup =
             endpoints.MapGroup(
-                "/api/organizations/{organizationId:guid}/work/boards/{boardId:guid}/delivery-pipeline");
+                "/api/organizations/{organizationId:guid}/work/boards/{boardId:guid}/orchestration");
 
-        deliveryGroup.MapGet("", async (
+        orchestrationGroup.MapGet("/policy", async (
             Guid organizationId,
             Guid boardId,
             HttpContext http,
-            IWorkDeliveryPipelineService service,
+            IWorkOrchestrationService service,
             CancellationToken cancellationToken) =>
         {
             var userId = http.User.GetApplicationUserId();
             if (!userId.HasValue) return Results.Unauthorized();
             try
             {
-                var pipeline = await service.GetAsync(
+                var policy = await service.GetPolicyAsync(
                     organizationId, boardId, userId.Value, cancellationToken);
-                return pipeline is null ? Results.NotFound() : Results.Ok(pipeline);
+                return policy is null ? Results.NotFound() : Results.Ok(policy);
             }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
         });
 
-        deliveryGroup.MapPut("", async (
+        orchestrationGroup.MapPost("/policy/revisions", async (
             Guid organizationId,
             Guid boardId,
-            ConfigureDeliveryPipelineRequest request,
+            SaveWorkOrchestrationPolicyRequest request,
             HttpContext http,
-            IWorkDeliveryPipelineService service,
+            IWorkOrchestrationService service,
             CancellationToken cancellationToken) =>
         {
             var userId = http.User.GetApplicationUserId();
             if (!userId.HasValue) return Results.Unauthorized();
             try
             {
-                return Results.Ok(await service.ConfigureAsync(
+                return Results.Ok(await service.SavePolicyRevisionAsync(
                     organizationId, boardId, userId.Value, request, cancellationToken));
             }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
@@ -59,25 +60,24 @@ public static class WorkBoardEndpoints
             }
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
             {
-                return Results.BadRequest(new { error = "invalid_delivery_pipeline", message = exception.Message });
+                return Results.BadRequest(new { error = "invalid_orchestration_policy", message = exception.Message });
             }
         });
 
-        deliveryGroup.MapPost("/{action}", async (
+        orchestrationGroup.MapPost("/policy/publish", async (
             Guid organizationId,
             Guid boardId,
-            string action,
-            ChangeDeliveryPipelineStateRequest request,
+            PublishWorkOrchestrationPolicyRequest request,
             HttpContext http,
-            IWorkDeliveryPipelineService service,
+            IWorkOrchestrationService service,
             CancellationToken cancellationToken) =>
         {
             var userId = http.User.GetApplicationUserId();
             if (!userId.HasValue) return Results.Unauthorized();
             try
             {
-                return Results.Ok(await service.ChangeStateAsync(
-                    organizationId, boardId, userId.Value, action, request, cancellationToken));
+                return Results.Ok(await service.PublishPolicyRevisionAsync(
+                    organizationId, boardId, userId.Value, request, cancellationToken));
             }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
@@ -87,8 +87,155 @@ public static class WorkBoardEndpoints
             }
             catch (ArgumentException exception)
             {
-                return Results.BadRequest(new { error = "invalid_delivery_pipeline_action", message = exception.Message });
+                return Results.BadRequest(new { error = "invalid_orchestration_policy", message = exception.Message });
             }
+        });
+
+        orchestrationGroup.MapPost("/policy/software-template", async (
+            Guid organizationId, Guid boardId,
+            CreateSoftwareOrchestrationTemplateRequest request, HttpContext http,
+            IWorkOrchestrationService service, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            if (request.MaximumQualityCycles is < 1 or > 10)
+                return Results.BadRequest(new { error = "invalid_quality_cycles", message = "Maximum QA cycles must be between 1 and 10." });
+            try
+            {
+                var retry = new CSweet.WorkManagement.Contracts.WorkOrchestrationRetryPolicy();
+                var stages = new List<CSweet.WorkManagement.Contracts.WorkOrchestrationStageDefinition>
+                {
+                    new("ready", "Ready", "Queue", request.ReadyColumnId, "Wait until dependencies are complete.", "{}", "{}", 30, null, retry),
+                    new("development", "Development", "AgentExecution", request.DevelopmentColumnId,
+                        "Implement the approved ticket, validate it, and publish a reviewable pull request.", "{}",
+                        "{\"type\":\"object\",\"required\":[\"repositoryConnectionId\",\"sourceBranch\",\"commitSha\",\"pullRequestUrl\",\"summary\"]}", 3600, null, retry),
+                    new("quality", "Quality", "AgentExecution", request.QualityColumnId,
+                        "Validate the exact development commit without modifying tracked source.", "{}",
+                        "{\"type\":\"object\",\"required\":[\"verdict\",\"summary\",\"criteria\",\"validations\",\"findings\",\"remainingRisks\"]}", 1800, null, retry),
+                    new("merge-decision", "Merge decision",
+                        request.MergeMode == "Automatic" ? "Queue" : "ManagerApproval", request.QualityColumnId,
+                        "Authorize merge of the exact QA-approved commit.", "{}", "{}", 86400, 1, retry),
+                    new("governed-merge", "Governed merge", "TrustedPlatformAction", request.QualityColumnId,
+                        "Revalidate and merge the exact QA-approved commit.", "{}", "{}", 300, 1, retry,
+                        GovernedMergeWorkActionExecutor.ActionName),
+                    new("done", "Done", "Terminal", request.DoneColumnId, "Work is complete.", "{}", "{}", 30, null, retry, null, true),
+                    new("cancelled", "Cancelled", "Terminal", request.DoneColumnId, "Work was rejected.", "{}", "{}", 30, null, retry)
+                };
+                var transitions = new List<CSweet.WorkManagement.Contracts.WorkOrchestrationTransitionDefinition>
+                {
+                    new("ready", "ready", "development"),
+                    new("development", "completed", "quality"),
+                    new("quality", "passed", "merge-decision"),
+                    new("quality", "changes_requested", "development", request.MaximumQualityCycles),
+                    new("merge-decision", request.MergeMode == "Automatic" ? "ready" : "approved", "governed-merge"),
+                    new("merge-decision", "rejected", "cancelled"),
+                    new("governed-merge", "merged", "done")
+                };
+                var revision = await service.SavePolicyRevisionAsync(
+                    organizationId, boardId, userId.Value,
+                    new("Software delivery", "ready", request.MergeMode,
+                        new(100, 25, 10, 5, 1), stages, transitions, request.IdempotencyKey),
+                    cancellationToken);
+                return Results.Ok(await service.PublishPolicyRevisionAsync(
+                    organizationId, boardId, userId.Value,
+                    new(revision.RevisionId, $"{request.IdempotencyKey}:publish"), cancellationToken));
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (WorkOrchestrationValidationException exception) { return Results.BadRequest(new { error = "invalid_orchestration_policy", errors = exception.Errors }); }
+        });
+
+        orchestrationGroup.MapGet("/sprints/{sprintId:guid}/preflight", async (
+            Guid organizationId, Guid boardId, Guid sprintId, HttpContext http,
+            IWorkOrchestrationService service, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await service.PreflightAsync(organizationId, boardId, sprintId, userId.Value, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+
+        orchestrationGroup.MapGet("/sprints/{sprintId:guid}/execution", async (
+            Guid organizationId, Guid boardId, Guid sprintId, HttpContext http,
+            IWorkOrchestrationService service, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                var result = await service.GetExecutionAsync(organizationId, boardId, sprintId, userId.Value, cancellationToken);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+
+        orchestrationGroup.MapPost("/sprints/{sprintId:guid}/start", async (
+            Guid organizationId, Guid boardId, Guid sprintId,
+            WorkOrchestrationControlRequest request, HttpContext http,
+            IWorkOrchestrationService service, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await service.StartAsync(organizationId, boardId, sprintId, userId.Value, request, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (WorkOrchestrationValidationException exception) { return Results.BadRequest(new { error = "sprint_preflight_failed", errors = exception.Errors }); }
+            catch (DbUpdateConcurrencyException exception) { return Results.Conflict(new { error = "revision_conflict", message = exception.Message }); }
+        });
+
+        orchestrationGroup.MapPost("/sprints/{sprintId:guid}/{action}", async (
+            Guid organizationId, Guid boardId, Guid sprintId, string action,
+            WorkOrchestrationControlRequest request, HttpContext http,
+            IWorkOrchestrationService service, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            if (action is not ("pause" or "resume" or "cancel")) return Results.NotFound();
+            try
+            {
+                var result = await service.ControlAsync(organizationId, boardId, sprintId, userId.Value, action, request, cancellationToken);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (InvalidOperationException exception) { return Results.Conflict(new { error = "orchestration_conflict", message = exception.Message }); }
+            catch (DbUpdateConcurrencyException exception) { return Results.Conflict(new { error = "revision_conflict", message = exception.Message }); }
+        });
+
+        orchestrationGroup.MapPost("/stages/{stageExecutionId:guid}/retry", async (
+            Guid organizationId, Guid boardId, Guid stageExecutionId,
+            WorkOrchestrationControlRequest request, HttpContext http,
+            IWorkOrchestrationService service, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await service.RetryAsync(organizationId, boardId, stageExecutionId, userId.Value, request, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (InvalidOperationException exception) { return Results.Conflict(new { error = "orchestration_conflict", message = exception.Message }); }
+        });
+
+        orchestrationGroup.MapPost("/stages/{stageExecutionId:guid}/manual-completion", async (
+            Guid organizationId, Guid boardId, Guid stageExecutionId,
+            CSweet.WorkManagement.Contracts.CompleteManualWorkStageRequest request, HttpContext http,
+            IWorkOrchestrationService service, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await service.CompleteManualAsync(organizationId, boardId, stageExecutionId, userId.Value, request, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (InvalidOperationException exception) { return Results.Conflict(new { error = "orchestration_conflict", message = exception.Message }); }
+        });
+
+        orchestrationGroup.MapPost("/stages/{stageExecutionId:guid}/decision", async (
+            Guid organizationId, Guid boardId, Guid stageExecutionId,
+            CSweet.WorkManagement.Contracts.DecideWorkApprovalStageRequest request, HttpContext http,
+            IWorkOrchestrationService service, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await service.DecideApprovalAsync(organizationId, boardId, stageExecutionId, userId.Value, request, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (InvalidOperationException exception) { return Results.Conflict(new { error = "orchestration_conflict", message = exception.Message }); }
         });
 
         repositoryGroup.MapGet("", async (
@@ -374,67 +521,6 @@ public static class WorkBoardEndpoints
             }
         });
 
-        group.MapPut("/{boardId:guid}/items/{itemId:guid}/developer-assignment", async (
-            Guid organizationId,
-            Guid boardId,
-            Guid itemId,
-            AssignSoftwareDevelopmentWorkItemRequest request,
-            HttpContext http,
-            ISoftwareDevelopmentWorkService service,
-            CancellationToken cancellationToken) =>
-        {
-            var userId = http.User.GetApplicationUserId();
-            if (!userId.HasValue) return Results.Unauthorized();
-            try
-            {
-                return Results.Ok(await service.AssignAsync(
-                    organizationId, boardId, itemId, userId.Value, request, cancellationToken));
-            }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
-            catch (KeyNotFoundException) { return Results.NotFound(); }
-            catch (ArgumentException exception)
-            {
-                return Results.BadRequest(new { error = "invalid_development_assignment", message = exception.Message });
-            }
-            catch (InvalidOperationException exception)
-            {
-                return Results.Conflict(new { error = "development_assignment_conflict", message = exception.Message });
-            }
-            catch (DbUpdateConcurrencyException exception)
-            {
-                return Results.Conflict(new { error = "revision_conflict", message = exception.Message });
-            }
-        });
-
-        group.MapPost("/{boardId:guid}/items/{itemId:guid}/developer-assignment/unassign", async (
-            Guid organizationId,
-            Guid boardId,
-            Guid itemId,
-            UnassignSoftwareDevelopmentWorkItemRequest request,
-            HttpContext http,
-            ISoftwareDevelopmentWorkService service,
-            CancellationToken cancellationToken) =>
-        {
-            var userId = http.User.GetApplicationUserId();
-            if (!userId.HasValue) return Results.Unauthorized();
-            try
-            {
-                return Results.Ok(await service.UnassignAsync(
-                    organizationId, boardId, itemId, userId.Value, request, cancellationToken));
-            }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
-            catch (KeyNotFoundException) { return Results.NotFound(); }
-            catch (ArgumentException exception)
-            {
-                return Results.BadRequest(new { error = "invalid_development_unassignment", message = exception.Message });
-            }
-            catch (Exception exception) when (
-                exception is InvalidOperationException or DbUpdateConcurrencyException)
-            {
-                return Results.Conflict(new { error = "development_unassignment_conflict", message = exception.Message });
-            }
-        });
-
         group.MapPost("/{boardId:guid}/items/{itemId:guid}/move", async (
             Guid organizationId, Guid boardId, Guid itemId, MoveBoardWorkItemRequest request,
             HttpContext http, IWorkBoardService service, CancellationToken cancellationToken) =>
@@ -563,30 +649,6 @@ public static class WorkBoardEndpoints
                 return Results.BadRequest(new { error = "invalid_sprint", message = exception.Message });
             }
         });
-
-        group.MapPost("/{boardId:guid}/sprints/{sprintId:guid}/start", (
-            Guid organizationId, Guid boardId, Guid sprintId,
-            ChangeWorkSprintStateRequest request, HttpContext http,
-            IWorkSprintService service, CancellationToken cancellationToken) =>
-            ChangeSprintStateAsync(
-                organizationId, boardId, sprintId, WorkSprintActions.Start,
-                request, http, service, cancellationToken));
-
-        group.MapPost("/{boardId:guid}/sprints/{sprintId:guid}/complete", (
-            Guid organizationId, Guid boardId, Guid sprintId,
-            ChangeWorkSprintStateRequest request, HttpContext http,
-            IWorkSprintService service, CancellationToken cancellationToken) =>
-            ChangeSprintStateAsync(
-                organizationId, boardId, sprintId, WorkSprintActions.Complete,
-                request, http, service, cancellationToken));
-
-        group.MapPost("/{boardId:guid}/sprints/{sprintId:guid}/cancel", (
-            Guid organizationId, Guid boardId, Guid sprintId,
-            ChangeWorkSprintStateRequest request, HttpContext http,
-            IWorkSprintService service, CancellationToken cancellationToken) =>
-            ChangeSprintStateAsync(
-                organizationId, boardId, sprintId, WorkSprintActions.Cancel,
-                request, http, service, cancellationToken));
 
         group.MapPut("/{boardId:guid}/items/{itemId:guid}/sprint", async (
             Guid organizationId, Guid boardId, Guid itemId,
@@ -717,101 +779,6 @@ public static class WorkBoardEndpoints
             }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
-        });
-
-        group.MapGet("/{boardId:guid}/automations", async (
-            Guid organizationId, Guid boardId, HttpContext http,
-            IWorkAutomationService service, CancellationToken cancellationToken) =>
-        {
-            var userId = http.User.GetApplicationUserId();
-            if (!userId.HasValue) return Results.Unauthorized();
-            try
-            {
-                return Results.Ok(await service.ListAsync(
-                    organizationId, boardId, userId.Value, cancellationToken));
-            }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
-            catch (KeyNotFoundException) { return Results.NotFound(); }
-        });
-
-        group.MapPost("/{boardId:guid}/automations", async (
-            Guid organizationId, Guid boardId,
-            CreateWorkAutomationRuleRequest request, HttpContext http,
-            IWorkAutomationService service, CancellationToken cancellationToken) =>
-        {
-            var userId = http.User.GetApplicationUserId();
-            if (!userId.HasValue) return Results.Unauthorized();
-            try
-            {
-                var result = await service.CreateAsync(
-                    organizationId, boardId, userId.Value, request, cancellationToken);
-                return Results.Created(
-                    $"/api/organizations/{organizationId:D}/work/boards/{boardId:D}/automations/{result.Id:D}",
-                    result);
-            }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
-            catch (KeyNotFoundException) { return Results.NotFound(); }
-            catch (ArgumentException exception)
-            {
-                return Results.BadRequest(
-                    new { error = "invalid_automation", message = exception.Message });
-            }
-        });
-
-        group.MapPut("/{boardId:guid}/automations/{ruleId:guid}", async (
-            Guid organizationId, Guid boardId, Guid ruleId,
-            UpdateWorkAutomationRuleRequest request, HttpContext http,
-            IWorkAutomationService service, CancellationToken cancellationToken) =>
-        {
-            var userId = http.User.GetApplicationUserId();
-            if (!userId.HasValue) return Results.Unauthorized();
-            try
-            {
-                var result = await service.UpdateAsync(
-                    organizationId, boardId, ruleId, userId.Value,
-                    request, cancellationToken);
-                return result is null ? Results.NotFound() : Results.Ok(result);
-            }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
-            catch (KeyNotFoundException) { return Results.NotFound(); }
-            catch (ArgumentException exception)
-            {
-                return Results.BadRequest(
-                    new { error = "invalid_automation", message = exception.Message });
-            }
-            catch (DbUpdateConcurrencyException exception)
-            {
-                return Results.Conflict(
-                    new { error = "revision_conflict", message = exception.Message });
-            }
-        });
-
-        group.MapDelete("/{boardId:guid}/automations/{ruleId:guid}", async (
-            Guid organizationId, Guid boardId, Guid ruleId,
-            long expectedRevision, HttpContext http,
-            IWorkAutomationService service, CancellationToken cancellationToken) =>
-        {
-            var userId = http.User.GetApplicationUserId();
-            if (!userId.HasValue) return Results.Unauthorized();
-            try
-            {
-                return await service.DeleteAsync(
-                    organizationId, boardId, ruleId, userId.Value,
-                    expectedRevision, cancellationToken)
-                    ? Results.NoContent()
-                    : Results.NotFound();
-            }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
-            catch (InvalidOperationException exception)
-            {
-                return Results.Conflict(
-                    new { error = "automation_history_exists", message = exception.Message });
-            }
-            catch (DbUpdateConcurrencyException exception)
-            {
-                return Results.Conflict(
-                    new { error = "revision_conflict", message = exception.Message });
-            }
         });
 
         group.MapGet("/{boardId:guid}/grants", async (

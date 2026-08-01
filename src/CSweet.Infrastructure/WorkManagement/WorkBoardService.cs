@@ -10,6 +10,7 @@ using CSweet.Domain.Security;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
@@ -163,12 +164,22 @@ public sealed class WorkBoardService(
         await ValidateRequestAsync(
             organizationId, request.Name, request.WorkstreamId, request.TeamId, cancellationToken);
         var now = DateTimeOffset.UtcNow;
+        var managerId = request.ManagerOrganizationUserId ??
+            (request.TeamId.HasValue
+                ? await db.OrganizationTeams.Where(x => x.Id == request.TeamId.Value)
+                    .Select(x => x.LeadOrganizationUserId).SingleAsync(cancellationToken)
+                : member.Id);
+        await ValidateManagerAsync(organizationId, managerId, cancellationToken);
+        var boardKey = await ResolveBoardKeyAsync(
+            organizationId, request.Key, request.Name, null, cancellationToken);
         var board = new WorkBoard
         {
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
             WorkstreamId = request.WorkstreamId,
             TeamId = request.TeamId,
+            ManagerOrganizationUserId = managerId,
+            Key = boardKey,
             Name = request.Name.Trim(),
             Description = request.Description?.Trim() ?? string.Empty,
             CreatedAt = now,
@@ -221,6 +232,15 @@ public sealed class WorkBoardService(
         board.Name = request.Name.Trim();
         board.Description = request.Description?.Trim() ?? string.Empty;
         board.WorkstreamId = request.WorkstreamId;
+        if (request.ManagerOrganizationUserId.HasValue)
+        {
+            await ValidateManagerAsync(
+                organizationId, request.ManagerOrganizationUserId.Value, cancellationToken);
+            board.ManagerOrganizationUserId = request.ManagerOrganizationUserId;
+        }
+        if (!string.IsNullOrWhiteSpace(request.Key))
+            board.Key = await ResolveBoardKeyAsync(
+                organizationId, request.Key, request.Name, board.Id, cancellationToken);
         board.IsDefault = request.IsDefault || board.IsDefault;
         board.Revision++;
         board.UpdatedAt = DateTimeOffset.UtcNow;
@@ -389,6 +409,26 @@ public sealed class WorkBoardService(
                 x.BoardId == boardId, cancellationToken))
             throw new ArgumentException("The parent work item must belong to the same board.");
 
+        var executable = kind is not (WorkItemKind.Initiative or WorkItemKind.Epic);
+        if (executable && !request.AccountableOrganizationUserId.HasValue)
+            throw new ArgumentException("Executable work items require an accountable organization user.");
+        if (request.AccountableOrganizationUserId.HasValue)
+            await ValidateManagerAsync(
+                organizationId, request.AccountableOrganizationUserId.Value, cancellationToken);
+        var published = await db.WorkOrchestrationPolicies.AsNoTracking()
+            .Where(x => x.BoardId == boardId && x.PublishedRevisionId != null)
+            .Select(x => x.PublishedRevisionId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (executable && !published.HasValue)
+            throw new InvalidOperationException(
+                "Publish an orchestration policy before creating executable work items.");
+        var policyStages = published.HasValue
+            ? await db.WorkOrchestrationStages.AsNoTracking()
+                .Where(x => x.PolicyRevisionId == published.Value)
+                .ToListAsync(cancellationToken)
+            : [];
+        ValidateStageAssignments(executable, policyStages, request.StageAssignments);
+
         var now = DateTimeOffset.UtcNow;
         var item = new WorkTask
         {
@@ -396,6 +436,9 @@ public sealed class WorkBoardService(
             OrganizationId = organizationId,
             BoardId = boardId,
             BoardColumnId = column.Id,
+            AccountableOrganizationUserId = request.AccountableOrganizationUserId,
+            IdentifierSequence = board.NextItemSequence,
+            Identifier = $"{board.Key}-{board.NextItemSequence}",
             ParentWorkTaskId = request.ParentItemId,
             Kind = kind,
             Title = request.Title.Trim(),
@@ -409,7 +452,25 @@ public sealed class WorkBoardService(
             CreatedAt = now,
             UpdatedAt = now
         };
+        board.NextItemSequence++;
         db.CoreWorkTasks.Add(item);
+        foreach (var assignment in request.StageAssignments)
+        {
+            db.WorkItemStageAssignments.Add(new WorkItemStageAssignment
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = organizationId,
+                BoardId = boardId,
+                WorkItemId = item.Id,
+                StageKey = assignment.StageKey,
+                PrincipalKind = ParseEnum<WorkOrchestrationPrincipalKind>(
+                    assignment.PrincipalKind, "stage assignment principal kind"),
+                OrganizationUserId = assignment.OrganizationUserId,
+                AgentInstallationId = assignment.AgentInstallationId,
+                PlatformAction = assignment.PlatformAction,
+                CreatedAt = now
+            });
+        }
         AddActivity(
             organizationId, boardId, item.Id, member, WorkItemActions.Create,
             "item.created", decision, new { columnId = column.Id }, now);
@@ -439,6 +500,13 @@ public sealed class WorkBoardService(
         if (item is null) return null;
         if (item.Revision != request.ExpectedRevision)
             throw new DbUpdateConcurrencyException("The work item changed since it was loaded.");
+        if (await db.WorkItemExecutions.AnyAsync(x =>
+                x.WorkItemId == itemId &&
+                (x.SprintExecution!.Status == WorkSprintExecutionStatus.Active ||
+                 x.SprintExecution.Status == WorkSprintExecutionStatus.Paused),
+                cancellationToken))
+            throw new InvalidOperationException(
+                "Automated sprint cards are transitioned only by the work orchestrator.");
 
         var target = await db.WorkBoardColumns.SingleOrDefaultAsync(x =>
             x.Id == request.TargetColumnId && x.BoardId == boardId, cancellationToken)
@@ -569,7 +637,95 @@ public sealed class WorkBoardService(
         item.Revision,
         item.DueDate,
         item.CreatedAt,
-        item.UpdatedAt);
+        item.UpdatedAt)
+    {
+        Identifier = item.Identifier,
+        AccountableOrganizationUserId = item.AccountableOrganizationUserId,
+        StageAssignments = item.StageAssignments.Select(ToAssignmentContract).ToList()
+    };
+
+    private static CSweet.WorkManagement.Contracts.WorkStageAssignment ToAssignmentContract(
+        WorkItemStageAssignment assignment) => new(
+            assignment.StageKey,
+            assignment.PrincipalKind.ToString(),
+            assignment.OrganizationUserId,
+            assignment.AgentInstallationId,
+            assignment.PlatformAction);
+
+    private static void ValidateStageAssignments(
+        bool executable,
+        IReadOnlyList<WorkOrchestrationStage> stages,
+        IReadOnlyList<CSweet.WorkManagement.Contracts.WorkStageAssignment> assignments)
+    {
+        if (assignments.Select(x => x.StageKey).Distinct(StringComparer.Ordinal).Count() != assignments.Count)
+            throw new ArgumentException("A stage may have only one assignment.");
+        var stageByKey = stages.ToDictionary(x => x.Key, StringComparer.Ordinal);
+        foreach (var assignment in assignments)
+        {
+            if (!stageByKey.TryGetValue(assignment.StageKey, out var stage))
+                throw new ArgumentException($"Stage '{assignment.StageKey}' is not in the published policy.");
+            var kind = ParseEnum<WorkOrchestrationPrincipalKind>(
+                assignment.PrincipalKind, "stage assignment principal kind");
+            if (stage.Type == WorkOrchestrationStageType.AgentExecution &&
+                (kind != WorkOrchestrationPrincipalKind.AgentInstallation || !assignment.AgentInstallationId.HasValue))
+                throw new ArgumentException($"Agent stage '{stage.Key}' requires an exact agent installation.");
+            if (stage.Type == WorkOrchestrationStageType.ManualWork &&
+                (kind != WorkOrchestrationPrincipalKind.Human || !assignment.OrganizationUserId.HasValue))
+                throw new ArgumentException($"Manual stage '{stage.Key}' requires a human organization user.");
+            if (stage.Type == WorkOrchestrationStageType.ManagerApproval &&
+                kind != WorkOrchestrationPrincipalKind.BoardManager)
+                throw new ArgumentException($"Approval stage '{stage.Key}' must be assigned to the board manager.");
+            if (stage.Type == WorkOrchestrationStageType.TrustedPlatformAction &&
+                (kind != WorkOrchestrationPrincipalKind.PlatformAction || string.IsNullOrWhiteSpace(assignment.PlatformAction)))
+                throw new ArgumentException($"Platform stage '{stage.Key}' requires a registered platform action.");
+        }
+        if (!executable) return;
+        var required = stages.Where(x => x.Type is
+                WorkOrchestrationStageType.AgentExecution or
+                WorkOrchestrationStageType.ManualWork or
+                WorkOrchestrationStageType.ManagerApproval or
+                WorkOrchestrationStageType.TrustedPlatformAction)
+            .Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+        if (!required.SetEquals(assignments.Select(x => x.StageKey)))
+            throw new ArgumentException("Executable work items require one assignment for every work and approval stage.");
+    }
+
+    private async Task ValidateManagerAsync(
+        Guid organizationId,
+        Guid organizationUserId,
+        CancellationToken cancellationToken)
+    {
+        if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.Id == organizationUserId && x.OrganizationId == organizationId && x.IsActive,
+                cancellationToken))
+            throw new ArgumentException("The selected organization user is not active in this organization.");
+    }
+
+    private async Task<string> ResolveBoardKeyAsync(
+        Guid organizationId,
+        string? requested,
+        string name,
+        Guid? excludedBoardId,
+        CancellationToken cancellationToken)
+    {
+        var seed = string.IsNullOrWhiteSpace(requested)
+            ? new string(name.Where(char.IsLetterOrDigit).Take(6).ToArray())
+            : requested.Trim();
+        seed = seed.ToUpperInvariant();
+        if (seed.Length < 2) seed = $"B{seed}1";
+        if (!Regex.IsMatch(seed, "^[A-Z][A-Z0-9]{1,11}$"))
+            throw new ArgumentException("Board key must be 2-12 uppercase letters or digits and begin with a letter.");
+        var candidate = seed;
+        var suffix = 2;
+        while (await db.WorkBoards.AsNoTracking().AnyAsync(x =>
+                   x.OrganizationId == organizationId && x.Key == candidate &&
+                   (!excludedBoardId.HasValue || x.Id != excludedBoardId.Value), cancellationToken))
+        {
+            var tail = suffix++.ToString();
+            candidate = $"{seed[..Math.Min(seed.Length, 12 - tail.Length)]}{tail}";
+        }
+        return candidate;
+    }
 
     private async Task<bool> SetArchiveStateAsync(
         Guid organizationId,
@@ -803,6 +959,8 @@ public sealed class WorkBoardService(
                     x.DueDate,
                     x.CreatedAt,
                     x.UpdatedAt
+                    ,x.Identifier,
+                    x.AccountableOrganizationUserId
                 })
                 .ToListAsync(cancellationToken)
             : [];
@@ -823,7 +981,11 @@ public sealed class WorkBoardService(
                 x.Revision,
                 x.DueDate,
                 x.CreatedAt,
-                x.UpdatedAt))
+                x.UpdatedAt)
+            {
+                Identifier = x.Identifier,
+                AccountableOrganizationUserId = x.AccountableOrganizationUserId
+            })
             .ToList();
         return new WorkBoardDetailResponse(
             ToSummary(board, memberId, grants, all, preference?.IsFavorite ?? false,
@@ -867,7 +1029,9 @@ public sealed class WorkBoardService(
             board.Revision,
             board.CreatedAt, board.UpdatedAt, allowed)
         {
-            TeamId = board.TeamId
+            TeamId = board.TeamId,
+            ManagerOrganizationUserId = board.ManagerOrganizationUserId,
+            Key = board.Key
         };
     }
 

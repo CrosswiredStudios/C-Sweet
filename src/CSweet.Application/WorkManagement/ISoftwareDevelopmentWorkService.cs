@@ -29,19 +29,4 @@ public interface ISoftwareDevelopmentWorkService
         SetGitRepositoryCredentialRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<WorkBoardItemResponse> AssignAsync(
-        Guid organizationId,
-        Guid boardId,
-        Guid itemId,
-        Guid applicationUserId,
-        AssignSoftwareDevelopmentWorkItemRequest request,
-        CancellationToken cancellationToken = default);
-
-    Task<WorkBoardItemResponse> UnassignAsync(
-        Guid organizationId,
-        Guid boardId,
-        Guid itemId,
-        Guid applicationUserId,
-        UnassignSoftwareDevelopmentWorkItemRequest request,
-        CancellationToken cancellationToken = default);
 }

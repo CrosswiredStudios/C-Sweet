@@ -22,7 +22,7 @@ public sealed class WorkManagementCapabilityHandler(
     CSweetDbContext db,
     IScopedActionAuthorizationService authorization,
     IAuditEventWriter audit,
-    IWorkDeliveryPipelineService? deliveryPipeline = null) : IPlatformCapabilityHandler
+    IWorkOrchestrationService orchestration) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly HashSet<string> HandledCapabilities =
@@ -30,27 +30,21 @@ public sealed class WorkManagementCapabilityHandler(
         WorkBoardActions.Read,
         WorkBoardActions.Create,
         WorkItemActions.Read,
-        WorkItemActions.Start,
         WorkItemActions.Create,
         WorkItemActions.Comment,
         WorkItemActions.Estimate,
-        WorkItemActions.Move,
-        WorkItemActions.Complete,
-        WorkItemActions.Cancel,
-        WorkItemActions.Reopen,
         WorkItemActions.Transfer,
-        WorkItemActions.QualitySubmit,
         WorkSprintActions.Read,
         WorkSprintActions.Create,
-        WorkSprintActions.Start,
-        WorkSprintActions.Complete,
-        WorkSprintActions.Cancel,
         WorkSprintActions.ManageScope,
         WorkSprintActions.ManageCapacity,
         WorkSprintActions.CarryOver,
         WorkSprintActions.ReadReports,
-        WorkAutomationActions.Read,
-        WorkAutomationActions.Manage
+        WorkOrchestrationActions.Preflight,
+        WorkOrchestrationActions.Start,
+        WorkOrchestrationActions.Pause,
+        WorkOrchestrationActions.Resume,
+        WorkOrchestrationActions.Cancel,
     ];
 
     public bool CanHandle(string capability) => HandledCapabilities.Contains(capability);
@@ -127,14 +121,6 @@ public sealed class WorkManagementCapabilityHandler(
                     await TransferItemAsync(
                         session, organizationId, installation,
                         Read<Wire.TransferWorkItemRequest>(request), cancellationToken)),
-                WorkItemActions.QualitySubmit => Success(
-                    request.RequestId,
-                    await SubmitQualityAsync(
-                        session,
-                        organizationId,
-                        installation,
-                        Read<Wire.SubmitQualityResultRequest>(request),
-                        cancellationToken)),
                 WorkSprintActions.Read => Success(
                     request.RequestId,
                     await ListSprintsAsync(
@@ -145,13 +131,6 @@ public sealed class WorkManagementCapabilityHandler(
                     await CreateSprintAsync(
                         session, organizationId, installation,
                         Read<Wire.CreateWorkSprintRequest>(request), cancellationToken)),
-                WorkSprintActions.Start or
-                WorkSprintActions.Complete or
-                WorkSprintActions.Cancel => Success(
-                    request.RequestId,
-                    await ChangeSprintStateAsync(
-                        session, organizationId, installation, request.Capability,
-                        Read<Wire.ChangeWorkSprintStateRequest>(request), cancellationToken)),
                 WorkSprintActions.ManageScope => Success(
                     request.RequestId,
                     await SetItemSprintAsync(
@@ -172,29 +151,21 @@ public sealed class WorkManagementCapabilityHandler(
                     await ReadSprintReportAsync(
                         organizationId, installation.Id,
                         Read<Wire.WorkBoardReference>(request), cancellationToken)),
-                WorkAutomationActions.Read => Success(
+                WorkOrchestrationActions.Preflight => Success(
                     request.RequestId,
-                    await ReadAutomationsAsync(
+                    await PreflightOrchestrationAsync(
                         organizationId, installation.Id,
-                        Read<Wire.WorkBoardReference>(request), cancellationToken)),
-                WorkAutomationActions.Manage => Success(
+                        Read<Wire.StartWorkSprintExecutionRequest>(request), cancellationToken)),
+                WorkOrchestrationActions.Start => Success(
                     request.RequestId,
-                    await ManageAutomationAsync(
-                        session, organizationId, installation,
-                        Read<Wire.ManageWorkAutomationRequest>(request), cancellationToken)),
-                WorkItemActions.Move => Success(
+                    await StartOrchestrationAsync(
+                        organizationId, installation.Id,
+                        Read<Wire.StartWorkSprintExecutionRequest>(request), cancellationToken)),
+                WorkOrchestrationActions.Pause or WorkOrchestrationActions.Resume or WorkOrchestrationActions.Cancel => Success(
                     request.RequestId,
-                    await MoveItemAsync(
-                        session, organizationId, installation,
-                        Read<Wire.MoveWorkItemRequest>(request), cancellationToken)),
-                WorkItemActions.Start or
-                WorkItemActions.Complete or
-                WorkItemActions.Cancel or
-                WorkItemActions.Reopen => Success(
-                    request.RequestId,
-                    await TransitionItemAsync(
-                        session, organizationId, installation, request.Capability,
-                        Read<Wire.TransitionWorkItemRequest>(request), cancellationToken)),
+                    await ControlOrchestrationAsync(
+                        organizationId, installation.Id, request.Capability,
+                        Read<Wire.ControlWorkSprintExecutionRequest>(request), cancellationToken)),
                 _ => Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound,
                     "The work-management capability is not implemented.")
             };
@@ -224,6 +195,38 @@ public sealed class WorkManagementCapabilityHandler(
         {
             return Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound, exception.Message);
         }
+    }
+
+    private Task<Wire.WorkSprintPreflightResult> PreflightOrchestrationAsync(
+        Guid organizationId, Guid installationId, Wire.StartWorkSprintExecutionRequest input,
+        CancellationToken cancellationToken) =>
+        orchestration.PreflightAsync(
+            organizationId, input.BoardId, input.SprintId, installationId, cancellationToken);
+
+    private Task<WorkSprintExecutionResponse> StartOrchestrationAsync(
+        Guid organizationId, Guid installationId, Wire.StartWorkSprintExecutionRequest input,
+        CancellationToken cancellationToken) =>
+        orchestration.StartAsync(
+            organizationId, input.BoardId, input.SprintId, installationId,
+            new WorkOrchestrationControlRequest(
+                input.ExpectedSprintRevision, input.IdempotencyKey), cancellationToken);
+
+    private async Task<WorkSprintExecutionResponse> ControlOrchestrationAsync(
+        Guid organizationId, Guid installationId, string capability,
+        Wire.ControlWorkSprintExecutionRequest input, CancellationToken cancellationToken)
+    {
+        var action = capability switch
+        {
+            WorkOrchestrationActions.Pause => "pause",
+            WorkOrchestrationActions.Resume => "resume",
+            WorkOrchestrationActions.Cancel => "cancel",
+            _ => throw new ArgumentException("The orchestration action is invalid.")
+        };
+        return await orchestration.ControlAsync(
+            organizationId, input.BoardId, input.SprintId, installationId, action,
+            new WorkOrchestrationControlRequest(
+                input.ExpectedSprintRevision, input.IdempotencyKey, input.Reason), cancellationToken)
+            ?? throw new KeyNotFoundException("Sprint execution was not found.");
     }
 
     private Task<Wire.WorkItem> MoveItemAsync(
@@ -316,7 +319,7 @@ public sealed class WorkManagementCapabilityHandler(
                 x.Id == input.BoardId && x.OrganizationId == organizationId,
                 cancellationToken)
             ?? throw new KeyNotFoundException("Board was not found.");
-        var itemRows = await db.CoreWorkTasks.AsNoTracking()
+        var itemRows = await db.CoreWorkTasks.AsNoTracking().Include(x => x.StageAssignments)
             .Where(x => x.BoardId == board.Id && x.BoardColumnId != null)
             .OrderBy(x => x.BoardColumnId)
             .ThenBy(x => x.BoardRank)
@@ -392,7 +395,7 @@ public sealed class WorkManagementCapabilityHandler(
             input.BoardId,
             input.ItemId,
             cancellationToken);
-        var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
+        var item = await db.CoreWorkTasks.AsNoTracking().Include(x => x.StageAssignments).SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId &&
             x.BoardId == input.BoardId &&
             x.Id == input.ItemId, cancellationToken)
@@ -879,220 +882,6 @@ public sealed class WorkManagementCapabilityHandler(
         return result;
     }
 
-    private async Task<Wire.WorkAutomationDirectory> ReadAutomationsAsync(
-        Guid organizationId,
-        Guid installationId,
-        Wire.WorkBoardReference input,
-        CancellationToken cancellationToken)
-    {
-        await RequireAsync(
-            organizationId, installationId, WorkBoardActions.Read,
-            input.BoardId, cancellationToken);
-        var grant = await RequireAsync(
-            organizationId, installationId, WorkAutomationActions.Read,
-            input.BoardId, cancellationToken);
-        if (!await db.WorkBoards.AsNoTracking().AnyAsync(x =>
-                x.Id == input.BoardId && x.OrganizationId == organizationId,
-                cancellationToken))
-            throw new KeyNotFoundException("Board was not found.");
-        var rules = await db.WorkAutomationRules.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId && x.BoardId == input.BoardId)
-            .OrderBy(x => x.Name)
-            .ToListAsync(cancellationToken);
-        var ruleResponses = new List<Wire.WorkAutomationRule>(rules.Count);
-        foreach (var rule in rules)
-            ruleResponses.Add(await ToAutomationResponseAsync(rule, cancellationToken));
-        var executionRows = await db.WorkAutomationExecutions.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId && x.BoardId == input.BoardId)
-            .OrderByDescending(x => x.CompletedAt)
-            .Take(100)
-            .ToListAsync(cancellationToken);
-        var executions = executionRows
-            .Select(x => new Wire.WorkAutomationExecution(
-                x.Id, x.RuleId, x.SourceActivityId, x.WorkItemId,
-                x.Status.ToString(), x.RequiredAction,
-                x.AuthorizingGrantId, x.AuthorizingGrantRevision,
-                x.ErrorCode, x.ErrorMessage, x.CompletedAt))
-            .ToList();
-        await WriteAuditAsync(
-            organizationId, installationId, input.BoardId,
-            WorkAutomationActions.Read, grant,
-            new { ruleCount = ruleResponses.Count, executionCount = executions.Count },
-            cancellationToken);
-        return new Wire.WorkAutomationDirectory(ruleResponses, executions);
-    }
-
-    private async Task<Wire.WorkAutomationRule> ManageAutomationAsync(
-        AgentSession session,
-        Guid organizationId,
-        AgentInstallation installation,
-        Wire.ManageWorkAutomationRequest input,
-        CancellationToken cancellationToken)
-    {
-        var grant = await RequireAsync(
-            organizationId, installation.Id, WorkAutomationActions.Manage,
-            input.BoardId, cancellationToken);
-        ValidateIdempotencyKey(input.IdempotencyKey);
-        var replay = await ReplaySprintAsync<Wire.WorkAutomationRule>(
-            installation.Id, WorkAutomationActions.Manage,
-            input.IdempotencyKey, cancellationToken);
-        if (replay is not null) return replay;
-
-        WorkAutomationRule rule;
-        var operation = input.Operation?.Trim().ToLowerInvariant();
-        if (operation == "create")
-        {
-            await ValidateAutomationAsync(
-                organizationId, input.BoardId, input.Name, input.TriggerEventType,
-                input.ConditionColumnId, input.Action, input.TargetColumnId,
-                cancellationToken);
-            var now = DateTimeOffset.UtcNow;
-            var id = Guid.NewGuid();
-            rule = new WorkAutomationRule
-            {
-                Id = id,
-                OrganizationId = organizationId,
-                BoardId = input.BoardId,
-                AutomationIdentityId = id,
-                Name = input.Name!.Trim(),
-                TriggerEventType = input.TriggerEventType!.Trim(),
-                ConditionColumnId = input.ConditionColumnId,
-                Action = input.Action!.Trim(),
-                TargetColumnId = input.TargetColumnId!.Value,
-                IsEnabled = input.IsEnabled ?? false,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
-            db.WorkAutomationRules.Add(rule);
-        }
-        else
-        {
-            if (!input.RuleId.HasValue)
-                throw new ArgumentException("ruleId is required for update or delete.");
-            rule = await db.WorkAutomationRules.SingleOrDefaultAsync(x =>
-                x.Id == input.RuleId.Value &&
-                x.OrganizationId == organizationId &&
-                x.BoardId == input.BoardId, cancellationToken)
-                ?? throw new KeyNotFoundException("Automation rule was not found.");
-            if (!input.ExpectedRevision.HasValue ||
-                rule.Revision != input.ExpectedRevision.Value)
-                throw new DbUpdateConcurrencyException(
-                    "The automation rule changed since it was loaded.");
-            if (operation == "update")
-            {
-                await ValidateAutomationAsync(
-                    organizationId, input.BoardId, input.Name, input.TriggerEventType,
-                    input.ConditionColumnId, input.Action, input.TargetColumnId,
-                    cancellationToken);
-                rule.Name = input.Name!.Trim();
-                rule.TriggerEventType = input.TriggerEventType!.Trim();
-                rule.ConditionColumnId = input.ConditionColumnId;
-                rule.Action = input.Action!.Trim();
-                rule.TargetColumnId = input.TargetColumnId!.Value;
-                rule.IsEnabled = input.IsEnabled ?? rule.IsEnabled;
-                rule.Revision++;
-                rule.UpdatedAt = DateTimeOffset.UtcNow;
-            }
-            else if (operation == "delete")
-            {
-                if (await db.WorkAutomationExecutions.AnyAsync(
-                        x => x.RuleId == rule.Id, cancellationToken))
-                    throw new InvalidOperationException(
-                        "Rules with execution history cannot be deleted; disable the rule instead.");
-            }
-            else
-            {
-                throw new ArgumentException("operation must be Create, Update, or Delete.");
-            }
-        }
-
-        var result = await ToAutomationResponseAsync(rule, cancellationToken);
-        AddSprintReceipt(
-            organizationId, installation.Id, WorkAutomationActions.Manage,
-            input.IdempotencyKey, rule.Id, result);
-        if (operation == "delete")
-            db.WorkAutomationRules.Remove(rule);
-        await db.SaveChangesAsync(cancellationToken);
-        await WriteAuditAsync(
-            organizationId, installation.Id, input.BoardId,
-            WorkAutomationActions.Manage, grant,
-            new
-            {
-                operation,
-                rule.Id,
-                rule.AutomationIdentityId,
-                rule.Action,
-                input.IdempotencyKey
-            },
-            cancellationToken, session);
-        return result;
-    }
-
-    private async Task ValidateAutomationAsync(
-        Guid organizationId,
-        Guid boardId,
-        string? name,
-        string? trigger,
-        Guid? conditionColumnId,
-        string? action,
-        Guid? targetColumnId,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 160)
-            throw new ArgumentException("A rule name of at most 160 characters is required.");
-        var supportedTriggers = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "item.created", "item.moved", "item.completed", "item.cancelled",
-            "item.reopened", "item.sprint.assigned", "item.sprint.removed",
-            "item.estimate.changed", "comment.created"
-        };
-        if (!supportedTriggers.Contains(trigger?.Trim() ?? string.Empty))
-            throw new ArgumentException("The automation trigger is not supported.");
-        var supportedActions = new[]
-        {
-            WorkItemActions.Move, WorkItemActions.Complete,
-            WorkItemActions.Cancel, WorkItemActions.Reopen
-        };
-        if (!supportedActions.Contains(action?.Trim(), StringComparer.Ordinal))
-            throw new ArgumentException("The automation action is not supported.");
-        if (!targetColumnId.HasValue)
-            throw new ArgumentException("targetColumnId is required.");
-        var columns = await db.WorkBoardColumns.AsNoTracking()
-            .Where(x => x.BoardId == boardId &&
-                        x.Board!.OrganizationId == organizationId)
-            .ToListAsync(cancellationToken);
-        if (conditionColumnId.HasValue &&
-            columns.All(x => x.Id != conditionColumnId.Value))
-            throw new ArgumentException("The condition column does not belong to this board.");
-        var target = columns.SingleOrDefault(x => x.Id == targetColumnId.Value)
-            ?? throw new ArgumentException("The target column does not belong to this board.");
-        var valid = action!.Trim() switch
-        {
-            WorkItemActions.Complete => target.Category == WorkBoardColumnCategory.Done,
-            WorkItemActions.Cancel => target.Category == WorkBoardColumnCategory.Cancelled,
-            WorkItemActions.Move or WorkItemActions.Reopen =>
-                target.Category is WorkBoardColumnCategory.ToDo or WorkBoardColumnCategory.InProgress,
-            _ => false
-        };
-        if (!valid)
-            throw new ArgumentException("The target column is incompatible with the action.");
-    }
-
-    private async Task<Wire.WorkAutomationRule> ToAutomationResponseAsync(
-        WorkAutomationRule rule,
-        CancellationToken cancellationToken)
-    {
-        var executionGrant = await authorization.AuthorizeAsync(
-            rule.OrganizationId, GrantSubjectKind.AutomationIdentity,
-            rule.AutomationIdentityId, rule.Action,
-            GrantScopeKind.Board, rule.BoardId, cancellationToken);
-        return new Wire.WorkAutomationRule(
-            rule.Id, rule.BoardId, rule.AutomationIdentityId, rule.Name,
-            rule.TriggerEventType, rule.ConditionColumnId, rule.Action,
-            rule.TargetColumnId, rule.IsEnabled, executionGrant.Allowed,
-            rule.Revision, rule.CreatedAt, rule.UpdatedAt);
-    }
-
     private async Task<Wire.WorkBoardSummary> CreateBoardAsync(
         AgentSession session,
         Guid organizationId,
@@ -1109,6 +898,10 @@ public sealed class WorkManagementCapabilityHandler(
                 x.Id == input.TeamId && x.OrganizationId == organizationId && x.ArchivedAt == null,
                 cancellationToken))
             throw new ArgumentException("The selected team is not active in this organization.");
+        var manager = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive,
+            cancellationToken) ?? throw new InvalidOperationException(
+            "The agent installation must have an active organization-user identity before it can manage a board.");
         var replay = await ReplayAsync<Wire.WorkBoardSummary>(
             installation.Id, WorkBoardActions.Create, input.IdempotencyKey, cancellationToken);
         if (replay is not null) return replay;
@@ -1119,6 +912,8 @@ public sealed class WorkManagementCapabilityHandler(
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
             TeamId = input.TeamId,
+            ManagerOrganizationUserId = manager.Id,
+            Key = await ResolveBoardKeyAsync(organizationId, input.Key, input.Name, cancellationToken),
             Name = input.Name.Trim(),
             Description = input.Description?.Trim() ?? string.Empty,
             CreatedAt = now,
@@ -1133,7 +928,9 @@ public sealed class WorkManagementCapabilityHandler(
             board.Id, board.Name, board.Description, false, false, board.Revision,
             [WorkBoardActions.Create])
         {
-            TeamId = board.TeamId
+            TeamId = board.TeamId,
+            ManagerOrganizationUserId = board.ManagerOrganizationUserId,
+            Key = board.Key
         };
         db.WorkBoards.Add(board);
         AddReceipt(
@@ -1199,6 +996,7 @@ public sealed class WorkManagementCapabilityHandler(
 
         var board = await db.WorkBoards
             .Include(x => x.Columns)
+            .Include(x => x.OrchestrationPolicies).ThenInclude(x => x.Revisions).ThenInclude(x => x.Stages)
             .SingleOrDefaultAsync(x =>
                 x.Id == input.BoardId &&
                 x.OrganizationId == organizationId &&
@@ -1216,6 +1014,18 @@ public sealed class WorkManagementCapabilityHandler(
                 x.OrganizationId == organizationId &&
                 x.BoardId == board.Id, cancellationToken))
             throw new ArgumentException("The parent work item must belong to the same board.");
+        var executable = kind is not (WorkItemKind.Initiative or WorkItemKind.Epic);
+        if (executable && !input.AccountableOrganizationUserId.HasValue)
+            throw new ArgumentException("Executable work items require an accountable organization user.");
+        if (input.AccountableOrganizationUserId.HasValue && !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.Id == input.AccountableOrganizationUserId && x.OrganizationId == organizationId && x.IsActive,
+                cancellationToken))
+            throw new ArgumentException("The accountable organization user is not active.");
+        var publishedRevisionId = board.OrchestrationPolicies.SingleOrDefault()?.PublishedRevisionId;
+        var policyStages = publishedRevisionId.HasValue
+            ? board.OrchestrationPolicies.Single().Revisions.Single(x => x.Id == publishedRevisionId.Value).Stages.ToList()
+            : [];
+        ValidateStageAssignments(executable, policyStages, input.StageAssignments);
         if (input.Delivery is not null)
         {
             if (input.Delivery.RepositoryConnectionId == Guid.Empty ||
@@ -1239,6 +1049,9 @@ public sealed class WorkManagementCapabilityHandler(
             BoardId = board.Id,
             BoardColumnId = column.Id,
             ParentWorkTaskId = input.ParentItemId,
+            AccountableOrganizationUserId = input.AccountableOrganizationUserId,
+            IdentifierSequence = board.NextItemSequence,
+            Identifier = $"{board.Key}-{board.NextItemSequence}",
             Kind = kind,
             Title = input.Title.Trim(),
             Description = input.Description?.Trim() ?? string.Empty,
@@ -1257,6 +1070,17 @@ public sealed class WorkManagementCapabilityHandler(
         };
         var result = ToAgentItem(item);
         db.CoreWorkTasks.Add(item);
+        board.NextItemSequence++;
+        foreach (var assignment in input.StageAssignments)
+            db.WorkItemStageAssignments.Add(new WorkItemStageAssignment
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, BoardId = board.Id,
+                WorkItemId = item.Id, StageKey = assignment.StageKey,
+                PrincipalKind = Enum.Parse<WorkOrchestrationPrincipalKind>(assignment.PrincipalKind, true),
+                OrganizationUserId = assignment.OrganizationUserId,
+                AgentInstallationId = assignment.AgentInstallationId,
+                PlatformAction = assignment.PlatformAction, CreatedAt = now
+            });
         if (input.Delivery is not null)
         {
             foreach (var dependencyId in input.Delivery.DependencyItemIds.Distinct())
@@ -1527,47 +1351,6 @@ public sealed class WorkManagementCapabilityHandler(
         return result;
     }
 
-    private async Task<Wire.QualityRunResult> SubmitQualityAsync(
-        AgentSession session,
-        Guid organizationId,
-        AgentInstallation installation,
-        Wire.SubmitQualityResultRequest input,
-        CancellationToken cancellationToken)
-    {
-        if (deliveryPipeline is null)
-            throw new InvalidOperationException("The delivery coordinator is unavailable.");
-        var grant = await RequireForItemAsync(
-            organizationId,
-            installation.Id,
-            WorkItemActions.QualitySubmit,
-            input.BoardId,
-            input.ItemId,
-            cancellationToken);
-        var result = await deliveryPipeline.SubmitQualityAsync(
-            organizationId,
-            installation.Id,
-            input,
-            cancellationToken);
-        await WriteAuditAsync(
-            organizationId,
-            installation.Id,
-            input.BoardId,
-            WorkItemActions.QualitySubmit,
-            grant,
-            new
-            {
-                input.ItemId,
-                input.AssignmentRevision,
-                input.SourceCommitSha,
-                input.Verdict,
-                result.QualityRunId,
-                input.IdempotencyKey
-            },
-            cancellationToken,
-            session);
-        return result;
-    }
-
     private async Task<Wire.WorkItem> TransitionItemAsync(
         AgentSession session,
         Guid organizationId,
@@ -1624,44 +1407,6 @@ public sealed class WorkManagementCapabilityHandler(
         if (item.Revision != input.ExpectedRevision)
             throw new DbUpdateConcurrencyException(
                 $"Expected work item revision {input.ExpectedRevision}, current revision is {item.Revision}.");
-        if (action == WorkItemActions.Complete &&
-            deliveryPipeline is not null &&
-            await deliveryPipeline.RoutePublishedDevelopmentAsync(
-                organizationId,
-                input.BoardId,
-                item.Id,
-                installation.Id,
-                input.ExpectedRevision,
-                input.IdempotencyKey,
-                cancellationToken))
-        {
-            var routed = ToAgentItem(item);
-            AddReceipt(
-                organizationId,
-                installation.Id,
-                action,
-                input.IdempotencyKey,
-                item.Id,
-                routed);
-            await db.SaveChangesAsync(cancellationToken);
-            await WriteAuditAsync(
-                organizationId,
-                installation.Id,
-                input.BoardId,
-                action,
-                grant,
-                new
-                {
-                    input.BoardId,
-                    item.Id,
-                    routedToQuality = true,
-                    item.Revision,
-                    input.IdempotencyKey
-                },
-                cancellationToken,
-                session);
-            return routed;
-        }
         var columns = await db.WorkBoardColumns
             .Where(x => x.BoardId == input.BoardId)
             .OrderBy(x => x.Position)
@@ -2115,8 +1860,68 @@ public sealed class WorkManagementCapabilityHandler(
     {
         Quality = DeserializeJson<Wire.SoftwareQualityBrief>(item.QualityBriefJson),
         Delivery = DeserializeJson<Wire.WorkItemDeliverySpecification>(
-            item.DeliverySpecificationJson)
+            item.DeliverySpecificationJson),
+        Identifier = item.Identifier,
+        AccountableOrganizationUserId = item.AccountableOrganizationUserId,
+        StageAssignments = item.StageAssignments.Select(x => new Wire.WorkStageAssignment(
+            x.StageKey, x.PrincipalKind.ToString(), x.OrganizationUserId,
+            x.AgentInstallationId, x.PlatformAction)).ToList()
     };
+
+    private static void ValidateStageAssignments(
+        bool executable,
+        IReadOnlyList<WorkOrchestrationStage> stages,
+        IReadOnlyList<Wire.WorkStageAssignment> assignments)
+    {
+        if (!executable) return;
+        if (stages.Count == 0)
+            throw new ArgumentException("The board must have a published orchestration policy before executable work is created.");
+        var required = stages.Where(x => x.Type is WorkOrchestrationStageType.AgentExecution or
+                WorkOrchestrationStageType.ManualWork or WorkOrchestrationStageType.ManagerApproval or
+                WorkOrchestrationStageType.TrustedPlatformAction)
+            .ToDictionary(x => x.Key, StringComparer.Ordinal);
+        if (assignments.Select(x => x.StageKey).Distinct(StringComparer.Ordinal).Count() != assignments.Count ||
+            !required.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(assignments.Select(x => x.StageKey)))
+            throw new ArgumentException("Executable work items require one assignment for every work and approval stage.");
+        foreach (var assignment in assignments)
+        {
+            var stage = required[assignment.StageKey];
+            if (!Enum.TryParse<WorkOrchestrationPrincipalKind>(assignment.PrincipalKind, true, out var principal))
+                throw new ArgumentException($"Stage '{assignment.StageKey}' has an invalid principal kind.");
+            if (stage.Type == WorkOrchestrationStageType.AgentExecution &&
+                (principal != WorkOrchestrationPrincipalKind.AgentInstallation || !assignment.AgentInstallationId.HasValue))
+                throw new ArgumentException($"Agent stage '{stage.Key}' requires an exact installation.");
+            if (stage.Type == WorkOrchestrationStageType.ManualWork &&
+                (principal != WorkOrchestrationPrincipalKind.Human || !assignment.OrganizationUserId.HasValue))
+                throw new ArgumentException($"Manual stage '{stage.Key}' requires a human assignee.");
+            if (stage.Type == WorkOrchestrationStageType.ManagerApproval && principal != WorkOrchestrationPrincipalKind.BoardManager)
+                throw new ArgumentException($"Approval stage '{stage.Key}' must use the board manager.");
+            if (stage.Type == WorkOrchestrationStageType.TrustedPlatformAction &&
+                (principal != WorkOrchestrationPrincipalKind.PlatformAction || string.IsNullOrWhiteSpace(assignment.PlatformAction)))
+                throw new ArgumentException($"Platform stage '{stage.Key}' requires a trusted action.");
+        }
+    }
+
+    private async Task<string> ResolveBoardKeyAsync(
+        Guid organizationId, string? requested, string name, CancellationToken cancellationToken)
+    {
+        var seed = string.IsNullOrWhiteSpace(requested)
+            ? new string(name.Where(char.IsLetterOrDigit).Take(6).ToArray())
+            : requested.Trim();
+        seed = seed.ToUpperInvariant();
+        if (seed.Length < 2) seed = $"B{seed}1";
+        if (seed.Length > 12 || !char.IsLetter(seed[0]) || seed.Any(x => !char.IsLetterOrDigit(x)))
+            throw new ArgumentException("Board key must be 2-12 uppercase letters or digits and begin with a letter.");
+        var candidate = seed;
+        var suffix = 2;
+        while (await db.WorkBoards.AsNoTracking().AnyAsync(
+                   x => x.OrganizationId == organizationId && x.Key == candidate, cancellationToken))
+        {
+            var tail = (suffix++).ToString();
+            candidate = $"{seed[..Math.Min(seed.Length, 12 - tail.Length)]}{tail}";
+        }
+        return candidate;
+    }
 
     private async Task<Wire.WorkItem> ToAgentItemAsync(
         WorkTask item,

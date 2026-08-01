@@ -218,9 +218,10 @@ public static class DependencyInjection
         builder.Services.AddScoped<IWorkBoardGrantService, WorkBoardGrantService>();
         builder.Services.AddScoped<IWorkItemCollaborationService, WorkItemCollaborationService>();
         builder.Services.AddScoped<IWorkSprintService, WorkSprintService>();
-        builder.Services.AddScoped<IWorkDeliveryPipelineService, WorkDeliveryPipelineService>();
-        builder.Services.AddScoped<IWorkAutomationService, WorkAutomationService>();
-        builder.Services.AddScoped<IWorkAutomationDispatcher, WorkAutomationDispatcher>();
+        builder.Services.AddScoped<AgentWorkInbox>();
+        builder.Services.AddScoped<IWorkOrchestrationService, WorkOrchestrationService>();
+        builder.Services.AddScoped<IWorkOrchestrator, WorkOrchestrator>();
+        builder.Services.AddScoped<ITrustedWorkActionExecutor, GovernedMergeWorkActionExecutor>();
         builder.Services.AddScoped<ITaskRunService, TaskRunService>();
         builder.Services.AddScoped<IArtifactService, ArtifactService>();
         builder.Services.AddScoped<IArtifactApprovalService, ArtifactApprovalService>();

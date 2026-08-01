@@ -140,12 +140,6 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "List planned, active, and closed sprints on a granted board."),
         Write(WorkSprintActions.Create, "create_work_sprint",
             "Create a planned sprint with an optional goal and schedule."),
-        Write(WorkSprintActions.Start, "start_work_sprint",
-            "Start a planned sprint when the board has no other active sprint."),
-        Write(WorkSprintActions.Complete, "complete_work_sprint",
-            "Complete the board's active sprint."),
-        Write(WorkSprintActions.Cancel, "cancel_work_sprint",
-            "Cancel a planned or active sprint."),
         Write(WorkSprintActions.ManageScope, "set_work_item_sprint",
             "Assign a work item to a planned or active sprint, or return it to the backlog."),
         Write(WorkSprintActions.ManageCapacity, "set_work_sprint_capacity",
@@ -154,10 +148,16 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Move selected or all incomplete current items from a closed sprint into a planned or active sprint."),
         Read(WorkSprintActions.ReadReports, "read_work_sprint_report",
             "Read immutable completion snapshots, burndown history, and velocity/capacity forecasts for a board."),
-        Read(WorkAutomationActions.Read, "read_work_automations",
-            "Read automation rules, execution-grant health, and recent execution outcomes for a board."),
-        Write(WorkAutomationActions.Manage, "manage_work_automation",
-            "Create, update, enable, disable, or delete a board automation rule. Each rule runs as its own separately granted automation identity.")
+        Write(WorkOrchestrationActions.Preflight, "preflight_work_sprint",
+            "Validate that a planned sprint, policy, dependencies, and exact stage assignments are executable."),
+        Write(WorkOrchestrationActions.Start, "start_orchestrated_work_sprint",
+            "Intentionally authorize and start a validated sprint as its assigned board manager."),
+        Write(WorkOrchestrationActions.Pause, "pause_orchestrated_work_sprint",
+            "Pause dispatch for an active sprint as its assigned board manager."),
+        Write(WorkOrchestrationActions.Resume, "resume_orchestrated_work_sprint",
+            "Resume dispatch for a paused sprint as its assigned board manager."),
+        Write(WorkOrchestrationActions.Cancel, "cancel_orchestrated_work_sprint",
+            "Cancel an active or paused sprint and its outstanding work as its assigned board manager."),
     ];
 
     static McpToolCatalog()
@@ -381,9 +381,6 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         WorkSprintActions.Create => Schema("""
             {"type":"object","required":["boardId","name","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"name":{"type":"string","minLength":1,"maxLength":160},"goal":{"type":["string","null"],"maxLength":2048},"startsAt":{"type":["string","null"],"format":"date-time"},"endsAt":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
-        WorkSprintActions.Start or WorkSprintActions.Complete or WorkSprintActions.Cancel => Schema("""
-            {"type":"object","required":["boardId","sprintId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"sprintId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
-            """),
         WorkSprintActions.ManageScope => Schema("""
             {"type":"object","required":["boardId","itemId","expectedItemRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"sprintId":{"type":["string","null"],"format":"uuid"},"expectedItemRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
@@ -396,11 +393,11 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         WorkSprintActions.ReadReports => Schema("""
             {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"}},"additionalProperties":false}
             """),
-        WorkAutomationActions.Read => Schema("""
-            {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+        WorkOrchestrationActions.Preflight or WorkOrchestrationActions.Start => Schema("""
+            {"type":"object","required":["boardId","sprintId","expectedSprintRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"sprintId":{"type":"string","format":"uuid"},"expectedSprintRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
-        WorkAutomationActions.Manage => Schema("""
-            {"type":"object","required":["boardId","operation","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"operation":{"type":"string","enum":["Create","Update","Delete"]},"ruleId":{"type":["string","null"],"format":"uuid"},"name":{"type":["string","null"],"maxLength":160},"triggerEventType":{"type":["string","null"],"enum":["item.created","item.moved","item.completed","item.cancelled","item.reopened","item.sprint.assigned","item.sprint.removed","item.estimate.changed","comment.created",null]},"conditionColumnId":{"type":["string","null"],"format":"uuid"},"action":{"type":["string","null"],"enum":["work.item.move","work.item.complete","work.item.cancel","work.item.reopen",null]},"targetColumnId":{"type":["string","null"],"format":"uuid"},"isEnabled":{"type":["boolean","null"]},"expectedRevision":{"type":["integer","null"],"minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+        WorkOrchestrationActions.Pause or WorkOrchestrationActions.Resume or WorkOrchestrationActions.Cancel => Schema("""
+            {"type":"object","required":["boardId","sprintId","expectedSprintRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"sprintId":{"type":"string","format":"uuid"},"expectedSprintRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"reason":{"type":["string","null"],"maxLength":2048}},"additionalProperties":false}
             """),
         _ => Schema("""
             {"type":"object","description":"Arguments are validated by the broker capability handler."}
