@@ -15,6 +15,87 @@ namespace CSweet.UnitTests;
 public sealed class HiringServiceTests
 {
     [Fact]
+    public async Task SourceLinkedRecommendation_RequiresTheApprovedPlansRawRoleKey()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        const string roleKey = "gameplay-engineer";
+        db.CoreOrganizations.Add(new Organization
+        {
+            Id = organizationId,
+            Name = "Example",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        db.ResourceChangeRequests.Add(new ResourceChangeRequestRecord
+        {
+            Id = requestId,
+            OrganizationId = organizationId,
+            RequesterOrganizationUserId = Guid.NewGuid(),
+            RequesterInstallationId = Guid.NewGuid(),
+            ManagerOrganizationUserId = Guid.NewGuid(),
+            ConversationId = Guid.NewGuid(),
+            ChatTurnId = Guid.NewGuid(),
+            ConversationMessageId = Guid.NewGuid(),
+            ProductGoal = "Validate gameplay",
+            Rationale = "Add the smallest delivery team.",
+            IdempotencyKey = "approved-plan",
+            Status = ResourceChangeRequestStatus.Approved,
+            DeliveryStatus = "Delivered",
+            CreatedAt = now,
+            UpdatedAt = now,
+            DecidedAt = now,
+            Roles =
+            [
+                new ResourceChangeRoleRecord
+                {
+                    Id = Guid.NewGuid(),
+                    ResourceChangeRequestId = requestId,
+                    RoleKey = roleKey,
+                    Team = "Product",
+                    Title = "Gameplay Engineer",
+                    Purpose = "Build the validation prototype.",
+                    Headcount = 1,
+                    Priority = 1,
+                    Timing = "Now",
+                    ChangeKind = "Add",
+                    IsDesired = true
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+        var service = new HiringService(
+            db,
+            new OrganizationUserService(db, new TestAuditEventWriter()),
+            new TestAuditEventWriter());
+        var chiefInstallationId = Guid.NewGuid();
+
+        var recommendation = await service.UpsertRecommendationAsync(
+            organizationId,
+            chiefInstallationId,
+            new UpsertHiringRecommendationRequest(
+                "Gameplay Engineer", "Build the validation prototype.", null, [], null, "source-linked")
+            {
+                RoleKey = roleKey,
+                SourceResourceChangeRequestId = requestId
+            });
+
+        Assert.Equal(roleKey, recommendation.RoleKey);
+        Assert.Equal(requestId, recommendation.SourceResourceChangeRequestId);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.UpsertRecommendationAsync(
+            organizationId,
+            chiefInstallationId,
+            new UpsertHiringRecommendationRequest(
+                "Gameplay Engineer", "Build the validation prototype.", null, [], null, "prefixed-role")
+            {
+                RoleKey = $"{Guid.NewGuid():N}:{roleKey}",
+                SourceResourceChangeRequestId = requestId
+            }));
+    }
+
+    [Fact]
     public async Task MultiSeatRecommendation_EmitsFulfillmentOnlyAfterEveryUniqueHire()
     {
         await using var db = CreateDb();
