@@ -29,3 +29,8 @@ folder are rejected.
 
 Override the folder with `CSweet:AgentCatalog:LocalDirectoryPath` or the corresponding
 `CSweet__AgentCatalog__LocalDirectoryPath` environment variable.
+
+When C-Sweet is launched through the Aspire AppHost, it also detects agent repositories checked
+out beside the C-Sweet repository. This lets contributors review and hire a local first-party
+checkout without requiring anonymous access to its GitHub repository. An explicitly configured
+local directory always takes precedence.

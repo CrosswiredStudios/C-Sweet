@@ -43,10 +43,15 @@ public sealed class AgentCatalogServiceTests
     {
         var root = Path.Combine(Path.GetTempPath(), $"csweet-agent-catalog-{Guid.NewGuid():N}");
         var folder = Path.Combine(root, "ProductManager");
+        var serviceFolder = Path.Combine(root, "CommunicationService");
         Directory.CreateDirectory(Path.Combine(folder, "src", "ProductManager"));
+        Directory.CreateDirectory(serviceFolder);
         try
         {
             await File.WriteAllTextAsync(Path.Combine(folder, "csweet-plugin.json"), Manifest());
+            await File.WriteAllTextAsync(
+                Path.Combine(serviceFolder, "csweet-plugin.json"),
+                Manifest("Communication Service").Replace("\"kind\": \"agent\"", "\"kind\": \"service\"", StringComparison.Ordinal));
             await File.WriteAllTextAsync(Path.Combine(folder, "src", "ProductManager", "ProductManager.csproj"),
                 "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
             await File.WriteAllTextAsync(Path.Combine(folder, ".env"), "SECRET=do-not-copy");
@@ -60,6 +65,8 @@ public sealed class AgentCatalogServiceTests
             var result = await provider.SearchAsync(null, new(Role: "Product Manager"));
 
             var agent = Assert.Single(result.Agents);
+            Assert.True(result.Health.Available);
+            Assert.Null(result.Health.Message);
             Assert.Equal(AgentCatalogSource.LocalDirectory, agent.Source);
             Assert.StartsWith("local:com.csweet.product-manager:", agent.AgentReference);
             Assert.DoesNotContain(root, JsonSerializer.Serialize(agent), StringComparison.OrdinalIgnoreCase);

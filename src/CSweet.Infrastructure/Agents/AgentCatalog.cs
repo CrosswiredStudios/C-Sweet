@@ -512,8 +512,10 @@ public sealed class LocalDirectoryAgentCatalogProvider(
         var manifestBytes = await File.ReadAllBytesAsync(manifestPath, token);
         if (manifestBytes.Length > 1024 * 1024) throw new AgentImportPreviewException("Plugin manifest exceeds the 1 MB limit.");
         var envelope = manifestReader.Read(manifestBytes, "csweet-plugin.json");
-        if (!string.Equals(envelope.Kind, "agent", StringComparison.Ordinal))
-            throw new AgentImportPreviewException("Local catalog folders must contain an agent plugin.");
+        // A development workspace can contain agent, service, SDK, and application
+        // repositories side by side. Non-agent manifests are valid workspace entries,
+        // but they do not belong in the agent catalog.
+        if (!string.Equals(envelope.Kind, "agent", StringComparison.Ordinal)) return null;
         var manifest = JsonSerializer.Deserialize<PluginManifest>(envelope.ManifestJson, JsonOptions)
             ?? throw new JsonException("Plugin manifest is empty.");
         AgentImportPreviewService.ValidateManifest(manifest);

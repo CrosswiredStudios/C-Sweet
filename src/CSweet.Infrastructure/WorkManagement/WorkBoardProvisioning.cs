@@ -72,33 +72,19 @@ internal static class WorkBoardProvisioning
         if (requestingMember.PermissionLevel != OrganizationPermissionLevel.Owner)
             return;
 
-        var hasBoardGrants = await db.ScopedActionGrants.AnyAsync(x =>
-            x.OrganizationId == organizationId &&
-            x.Action.StartsWith("work.board.") &&
-            x.RevokedAt == null, cancellationToken);
-        var hasItemGrants = await db.ScopedActionGrants.AnyAsync(x =>
-            x.OrganizationId == organizationId &&
-            x.Action.StartsWith("work.item.") &&
-            x.RevokedAt == null, cancellationToken);
-        var hasSprintGrants = await db.ScopedActionGrants.AnyAsync(x =>
-            x.OrganizationId == organizationId &&
-            x.Action.StartsWith("work.sprint.") &&
-            x.RevokedAt == null, cancellationToken);
-        var hasAutomationGrants = await db.ScopedActionGrants.AnyAsync(x =>
-            x.OrganizationId == organizationId &&
-            x.Action.StartsWith("work.automation.") &&
-            x.RevokedAt == null, cancellationToken);
-        var hasGrantManagement = await db.ScopedActionGrants.AnyAsync(x =>
-            x.OrganizationId == organizationId &&
-            x.Action == WorkBoardActions.ManageGrants &&
-            x.RevokedAt == null, cancellationToken);
-        if (hasBoardGrants && hasItemGrants && hasSprintGrants &&
-            hasAutomationGrants && hasGrantManagement)
-            return;
-
         var members = await db.CoreOrganizationUsers
             .Where(x => x.OrganizationId == organizationId && x.IsActive)
             .ToListAsync(cancellationToken);
+        var initializedGrants = (await db.ScopedActionGrants
+                .Where(x =>
+                    x.OrganizationId == organizationId &&
+                    x.SubjectKind == GrantSubjectKind.OrganizationUser &&
+                    x.ScopeKind == GrantScopeKind.Organization &&
+                    x.ScopeId == null)
+                .Select(x => new { x.SubjectId, x.Action })
+                .ToListAsync(cancellationToken))
+            .Select(x => (x.SubjectId, x.Action))
+            .ToHashSet();
         var now = DateTimeOffset.UtcNow;
         foreach (var member in members)
         {
@@ -126,17 +112,15 @@ internal static class WorkBoardProvisioning
                     WorkAutomationActions.All,
                 _ => [WorkAutomationActions.Read]
             };
-            var missingManagementActions =
-                member.PermissionLevel == OrganizationPermissionLevel.Owner &&
-                !hasGrantManagement
-                    ? new[] { WorkBoardActions.ManageGrants }
-                    : [];
-            var actions = (hasBoardGrants ? missingManagementActions : boardActions)
-                .Concat(hasItemGrants ? [] : itemActions)
-                .Concat(hasSprintGrants ? [] : sprintActions)
-                .Concat(hasAutomationGrants ? [] : automationActions);
+            var actions = boardActions
+                .Concat(itemActions)
+                .Concat(sprintActions)
+                .Concat(automationActions);
             foreach (var action in actions)
             {
+                if (!initializedGrants.Add((member.Id, action)))
+                    continue;
+
                 db.ScopedActionGrants.Add(new ScopedActionGrant
                 {
                     Id = Guid.NewGuid(),

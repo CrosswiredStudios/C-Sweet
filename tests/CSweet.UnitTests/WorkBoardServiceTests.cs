@@ -75,6 +75,56 @@ public sealed class WorkBoardServiceTests
     }
 
     [Fact]
+    public async Task OwnerDirectory_RepairsMissingOwnerGrantsWhenAgentGrantAlreadyExists()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOrganization(db, OrganizationPermissionLevel.Owner);
+        var productBoard = Board(setup.OrganizationId, "Product team");
+        db.WorkBoards.Add(productBoard);
+        db.ScopedActionGrants.Add(new ScopedActionGrant
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            SubjectKind = GrantSubjectKind.AgentInstallation,
+            SubjectId = Guid.NewGuid(),
+            Action = WorkBoardActions.Create,
+            ScopeKind = GrantScopeKind.Team,
+            ScopeId = Guid.NewGuid(),
+            GrantedBySubjectKind = GrantSubjectKind.OrganizationUser,
+            GrantedBySubjectId = setup.OrganizationUserId,
+            GrantedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+
+        var directory = await service.ListDirectoryAsync(
+            setup.OrganizationId,
+            setup.ApplicationUserId,
+            new WorkBoardDirectoryQuery());
+        await service.ListDirectoryAsync(
+            setup.OrganizationId,
+            setup.ApplicationUserId,
+            new WorkBoardDirectoryQuery());
+
+        Assert.Contains(directory.Boards, x => x.Id == productBoard.Id);
+        Assert.True(directory.CanCreateBoard);
+        var ownerActions = await db.ScopedActionGrants
+            .Where(x =>
+                x.SubjectKind == GrantSubjectKind.OrganizationUser &&
+                x.SubjectId == setup.OrganizationUserId &&
+                x.ScopeKind == GrantScopeKind.Organization)
+            .Select(x => x.Action)
+            .ToListAsync();
+        Assert.Equal(
+            WorkBoardActions.All
+                .Concat(WorkItemActions.All)
+                .Concat(WorkSprintActions.All)
+                .Concat(WorkAutomationActions.All)
+                .Order(),
+            ownerActions.Order());
+    }
+
+    [Fact]
     public async Task Directory_ReturnsOnlyBoardsCoveredByReadGrant()
     {
         await using var db = CreateDb();

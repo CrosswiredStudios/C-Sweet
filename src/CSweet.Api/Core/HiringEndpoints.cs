@@ -92,6 +92,10 @@ public static class HiringEndpoints
             {
                 return Results.Conflict(new { error = "hire_unavailable", message = exception.Message });
             }
+            catch (AgentImportPreviewException exception)
+            {
+                return Results.Conflict(new { error = "agent_source_unavailable", message = exception.Message });
+            }
         });
 
         group.MapPost("/workflows/{workflowId:guid}/confirm", async (Guid organizationId, Guid workflowId,
