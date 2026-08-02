@@ -394,12 +394,21 @@ public sealed class CommunicationHubService(
                         : null);
         }
 
-        var targetAgentId = actor.EmployeeType == EmployeeType.Human &&
-            chat.Kind == ConversationKind.DirectHumanAgent &&
-            chat.AgentOrganizationUserId.HasValue &&
-            chat.Participants.Any(x => x.OrganizationUserId == chat.AgentOrganizationUserId.Value && x.LeftAt == null)
-                ? chat.AgentOrganizationUserId
-                : null;
+        var directRecipientIds = chat.Kind == ConversationKind.DirectHumanAgent
+            ? chat.Participants
+                .Where(x => x.LeftAt == null && x.OrganizationUserId != actor.Id)
+                .Select(x => x.OrganizationUserId)
+                .ToList()
+            : [];
+        var targetAgentId = directRecipientIds.Count == 1
+            ? await db.CoreOrganizationUsers
+                .Where(x => x.OrganizationId == organizationId &&
+                    x.Id == directRecipientIds[0] &&
+                    x.EmployeeType == EmployeeType.Agent &&
+                    x.IsActive)
+                .Select(x => (Guid?)x.Id)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
         if (targetAgentId.HasValue)
         {
             var started = await turns.StartForAgentAsync(

@@ -1,6 +1,7 @@
 using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
 using CSweet.Contracts.Communications;
+using CSweet.WorkManagement.Contracts;
 using System.Text.Json;
 
 namespace CSweet.UnitTests;
@@ -85,5 +86,40 @@ public sealed class McpCapabilityRegistryTests
         JsonSchemaValidator.Validate(
             JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
             tool.InputSchema);
+    }
+
+    [Fact]
+    public void CreateWorkBoardSchema_AcceptsTypedTeamAndKeyRequest()
+    {
+        var registry = new McpToolCatalog([]);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([CSweet.Contracts.WorkManagement.WorkBoardActions.Create], StringComparer.Ordinal)));
+        var request = new CreateWorkBoardRequest(
+            "Starfox delivery",
+            "The approved team's delivery board.",
+            "team-board-create-test")
+        {
+            TeamId = Guid.NewGuid(),
+            Key = "STARFOX"
+        };
+
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            tool.InputSchema);
+    }
+
+    [Fact]
+    public void ListWorkBoardsSchema_AcceptsTypedArrayResponse()
+    {
+        var registry = new McpToolCatalog([]);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([CSweet.Contracts.WorkManagement.WorkBoardActions.Read], StringComparer.Ordinal)));
+        var response = Array.Empty<WorkBoardSummary>();
+
+        Assert.NotNull(tool.OutputSchema);
+        Assert.Equal("array", tool.OutputSchema!.Value.GetProperty("type").GetString());
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(response, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            tool.OutputSchema.Value);
     }
 }

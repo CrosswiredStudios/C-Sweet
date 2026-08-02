@@ -143,8 +143,31 @@ public sealed class ChatTurnWorker(
             var bypassMemory = false;
             string? fallbackReason = null;
             var memoryWasRecalled = !string.IsNullOrWhiteSpace(recalledMemory);
+            var senderOrganizationUserId = userMessage.SenderOrganizationUserId ??
+                                           conversation.InitiatedByOrganizationUserId;
+            var sender = await db.CoreOrganizationUsers.AsNoTracking()
+                .Include(x => x.Role)
+                .SingleOrDefaultAsync(x => x.Id == senderOrganizationUserId &&
+                    x.OrganizationId == conversation.OrganizationId, hardTimeout.Token);
+            var senderContext = sender is null
+                ? null
+                : new ChatMessageSender(
+                    sender.Id,
+                    sender.DisplayName,
+                    sender.EmployeeType.ToString(),
+                    sender.Role?.Name);
+            var eventContext = senderContext is null
+                ? null
+                : new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [AgentChatContextKeys.SenderOrganizationUserId] = senderContext.OrganizationUserId.ToString("D"),
+                    [AgentChatContextKeys.SenderDisplayName] = senderContext.DisplayName,
+                    [AgentChatContextKeys.SenderEmployeeType] = senderContext.EmployeeType,
+                    [AgentChatContextKeys.SenderRole] = senderContext.Role ?? string.Empty
+                };
             var conversationPrompt = ChatPromptPolicy.BuildConversationPrompt(recalledMemory, userMessage.Content);
-            var agentPrompt = ChatPromptPolicy.BuildPrimaryAgentPrompt(conversation.Id, turnId, conversationPrompt);
+            var agentPrompt = ChatPromptPolicy.BuildPrimaryAgentPrompt(
+                conversation.Id, turnId, conversationPrompt, senderContext);
             try
             {
                 var readiness = await runtime.EnsureReadyAsync(installationId, hardTimeout.Token);
@@ -154,7 +177,14 @@ public sealed class ChatTurnWorker(
                 outputRouter.BindAlias(conversation.Id, turnId);
                 var reader = outputRouter.Subscribe(turnId);
                 var payload = new UserMessageReceived(
-                    providerId.Value, conversation.Id.ToString(), conversation.InitiatedByOrganizationUserId.ToString(), agentPrompt, null, turnId, turn.Attempt, turn.UserMessageId);
+                    providerId.Value,
+                    conversation.Id.ToString(),
+                    senderOrganizationUserId.ToString(),
+                    agentPrompt,
+                    eventContext,
+                    turnId,
+                    turn.Attempt,
+                    turn.UserMessageId);
 
                 await PublishTraceAsync(turns, turnId, "model", "model.dispatched", "running", "Assistant dispatched",
                     "The request was submitted as durable agent work.", new

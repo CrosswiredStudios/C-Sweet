@@ -9,6 +9,20 @@ internal static class AgentChatEvents
     public const string AssistantResponseChunkEvent = "com.csweet.assistant.response.chunk.v1";
 }
 
+internal static class AgentChatContextKeys
+{
+    public const string SenderOrganizationUserId = "senderOrganizationUserId";
+    public const string SenderDisplayName = "senderDisplayName";
+    public const string SenderEmployeeType = "senderEmployeeType";
+    public const string SenderRole = "senderRole";
+}
+
+internal sealed record ChatMessageSender(
+    Guid OrganizationUserId,
+    string DisplayName,
+    string EmployeeType,
+    string? Role);
+
 internal sealed record UserMessageReceived(
     Guid ProviderProfileId,
     string ConversationId,

@@ -38,16 +38,14 @@
                                 Icon="@Icons.Material.Outlined.Storefront" Class="business-nav-link">
                         Agent marketplace
                     </MudNavLink>
-                    <MudNavLink Href="@CommunicationsHref" Class="business-nav-link">
+                    <MudNavLink Href="@CommunicationsHref" Match="NavLinkMatch.Prefix"
+                                Icon="@Icons.Material.Outlined.Forum" Class="business-nav-link communications-nav-link">
                         <span class="communications-nav-content">
-                            <span class="communications-nav-icon">
-                                <MudIcon Icon="@Icons.Material.Outlined.Forum" />
-                                @if (CommunicationUnread.TotalUnreadCount > 0)
-                                {
-                                    <span class="communications-nav-badge">@UnreadLabel</span>
-                                }
-                            </span>
-                            <span>Communications</span>
+                            <span class="communications-nav-label">Communications</span>
+                            @if (CommunicationUnread.TotalUnreadCount > 0)
+                            {
+                                <span class="communications-nav-badge" aria-label="@UnreadAriaLabel">@UnreadLabel</span>
+                            }
                         </span>
                     </MudNavLink>
                     <MudNavLink Href="@SecurityHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Security" Class="business-nav-link">
@@ -121,6 +119,10 @@
 
     private string UnreadLabel => CommunicationUnread.TotalUnreadCount > 99
         ? "99+" : CommunicationUnread.TotalUnreadCount.ToString();
+
+    private string UnreadAriaLabel => CommunicationUnread.TotalUnreadCount == 1
+        ? "1 unread notification"
+        : $"{CommunicationUnread.TotalUnreadCount} unread notifications";
 
     private string UserLabel => string.IsNullOrWhiteSpace(AuthSession.Current?.Email)
         ? "User"

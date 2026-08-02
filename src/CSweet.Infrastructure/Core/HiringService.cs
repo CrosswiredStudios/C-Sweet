@@ -229,10 +229,15 @@ public sealed class HiringService(
         var candidate = await db.WorkforceCandidates.AsNoTracking().SingleAsync(x =>
             x.Id == candidateId && x.OrganizationId == organizationId, cancellationToken);
         if (!candidate.IsAvailable) throw new InvalidOperationException("The candidate is no longer available.");
-        if (!candidate.IsHuman && !request.ReportsToOrganizationUserId.HasValue)
+        var reportsToOrganizationUserId = await ResolveApprovedReportsToAsync(
+            organizationId,
+            recommendation,
+            request.ReportsToOrganizationUserId,
+            cancellationToken);
+        if (!candidate.IsHuman && !reportsToOrganizationUserId.HasValue)
             throw new ArgumentException("A managing employee is required when hiring an agent.");
-        if (request.ReportsToOrganizationUserId.HasValue && !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
-                x.Id == request.ReportsToOrganizationUserId &&
+        if (reportsToOrganizationUserId.HasValue && !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.Id == reportsToOrganizationUserId &&
                 x.OrganizationId == organizationId &&
                 x.IsActive,
                 cancellationToken))
@@ -280,7 +285,7 @@ public sealed class HiringService(
         if (!validTurn)
             throw new UnauthorizedAccessException("The hiring workflow must originate from the current owner turn.");
 
-        var snapshot = await BuildWorkflowSnapshotAsync(candidate, roleTitle, request.ReportsToOrganizationUserId,
+        var snapshot = await BuildWorkflowSnapshotAsync(candidate, roleTitle, reportsToOrganizationUserId,
             request.RequiredGrants ?? [], cancellationToken, teamId: recommendation.TeamId);
         var now = DateTimeOffset.UtcNow;
         var messageId = Guid.NewGuid();
@@ -408,7 +413,12 @@ public sealed class HiringService(
         }
         var roleTitle = requestedRoleTitle;
         var approvedTeamId = linkedRecommendation?.TeamId ?? request.TeamId;
-        if (!request.ReportsToOrganizationUserId.HasValue)
+        var reportsToOrganizationUserId = await ResolveApprovedReportsToAsync(
+            organizationId,
+            linkedRecommendation,
+            request.ReportsToOrganizationUserId,
+            cancellationToken);
+        if (!reportsToOrganizationUserId.HasValue)
             throw new ArgumentException("A managing employee is required when hiring an agent.");
         var existing = await db.StaffingActionProposals.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId &&
@@ -440,7 +450,7 @@ public sealed class HiringService(
                 cancellationToken))
             throw new InvalidOperationException("The selected agent installation already belongs to an active employee.");
         if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
-                x.Id == request.ReportsToOrganizationUserId.Value &&
+                x.Id == reportsToOrganizationUserId.Value &&
                 x.OrganizationId == organizationId &&
                 x.IsActive,
                 cancellationToken))
@@ -482,7 +492,7 @@ public sealed class HiringService(
         var snapshot = await BuildWorkflowSnapshotAsync(
             candidate,
             roleTitle,
-            request.ReportsToOrganizationUserId,
+            reportsToOrganizationUserId,
             [],
             cancellationToken,
             teamId: approvedTeamId,
@@ -1035,6 +1045,33 @@ CompleteWorkflow:
             throw new InvalidOperationException("The hiring workflow objective is missing.");
         return new(roleTitle, reportsTo, workstreamId, teamId, objective, candidate.EstimatedCost, candidate.Currency,
             digest, approvedRequiredGrants, currentGrants, embeddedAgent, employeeDisplayName);
+    }
+
+    private async Task<Guid?> ResolveApprovedReportsToAsync(
+        Guid organizationId,
+        WorkforcePlan? recommendation,
+        Guid? requestedReportsToOrganizationUserId,
+        CancellationToken cancellationToken)
+    {
+        if (recommendation?.SourceResourceChangeRequestId is not { } sourceRequestId)
+            return requestedReportsToOrganizationUserId;
+
+        var approvedRequest = await db.ResourceChangeRequests.AsNoTracking()
+            .Include(x => x.Roles)
+            .SingleOrDefaultAsync(x =>
+                x.Id == sourceRequestId &&
+                x.OrganizationId == organizationId &&
+                x.Status == ResourceChangeRequestStatus.Approved,
+                cancellationToken)
+            ?? throw new InvalidOperationException("The approved hiring plan linked to this recommendation is no longer available.");
+        var desiredRoles = approvedRequest.Roles.Where(x => x.IsDesired && x.TeamId == recommendation.TeamId);
+        var approvedRole = string.IsNullOrWhiteSpace(recommendation.RoleKey)
+            ? desiredRoles.Where(x => x.Title == recommendation.Title).Take(2).ToList() is [var only] ? only : null
+            : desiredRoles.SingleOrDefault(x => x.RoleKey == recommendation.RoleKey);
+
+        // A direct reporting target is part of the manager-approved plan and cannot be
+        // replaced by whichever owner happens to complete the Marketplace workflow.
+        return approvedRole?.ReportsToOrganizationUserId ?? requestedReportsToOrganizationUserId;
     }
 
     private async Task RevalidateAsync(Guid organizationId, WorkforceCandidate candidate, WorkflowSnapshot snapshot,

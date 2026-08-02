@@ -504,6 +504,14 @@ public sealed class HiringServiceTests
             DisplayName = "Owner", EmployeeType = EmployeeType.Human,
             PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true, CreatedAt = now
         };
+        var productManager = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            DisplayName = "Product manager", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Manager, IsActive = true, CreatedAt = now
+        };
+        var approvedRequestId = Guid.NewGuid();
+        const string approvedRoleKey = "product-manager-hire";
         db.CoreOrganizations.Add(new Organization
         {
             Id = organizationId, Name = "Example", CreatedAt = now, UpdatedAt = now
@@ -512,7 +520,44 @@ public sealed class HiringServiceTests
         {
             Id = foreignOrganizationId, Name = "Other Example", CreatedAt = now, UpdatedAt = now
         });
-        db.CoreOrganizationUsers.Add(owner);
+        db.CoreOrganizationUsers.AddRange(owner, productManager);
+        db.ResourceChangeRequests.Add(new ResourceChangeRequestRecord
+        {
+            Id = approvedRequestId,
+            OrganizationId = organizationId,
+            RequesterOrganizationUserId = productManager.Id,
+            RequesterInstallationId = Guid.NewGuid(),
+            ManagerOrganizationUserId = owner.Id,
+            ConversationId = Guid.NewGuid(),
+            ChatTurnId = Guid.NewGuid(),
+            ConversationMessageId = Guid.NewGuid(),
+            ProductGoal = "Expand the product team",
+            Rationale = "Add the approved product role.",
+            IdempotencyKey = "approved-product-hire",
+            Status = ResourceChangeRequestStatus.Approved,
+            DeliveryStatus = "Delivered",
+            CreatedAt = now,
+            UpdatedAt = now,
+            DecidedAt = now,
+            Roles =
+            [
+                new ResourceChangeRoleRecord
+                {
+                    Id = Guid.NewGuid(),
+                    ResourceChangeRequestId = approvedRequestId,
+                    RoleKey = approvedRoleKey,
+                    Team = "Product",
+                    Title = "Product Manager",
+                    Purpose = "Own product outcomes.",
+                    Headcount = 1,
+                    Priority = 1,
+                    Timing = "Now",
+                    ReportsToOrganizationUserId = productManager.Id,
+                    ChangeKind = "Add",
+                    IsDesired = true
+                }
+            ]
+        });
         await db.SaveChangesAsync();
         var repositoryUrl = "https://github.com/CrosswiredStudios/CSweet.Agent.ProductManager";
         var available = new CSweet.Agent.SDK.AvailableAgent(
@@ -533,7 +578,11 @@ public sealed class HiringServiceTests
             organizationId,
             Guid.NewGuid(),
             new UpsertHiringRecommendationRequest(
-                "Product Manager", "Own product outcomes", null, [], null, "linked-marketplace"));
+                "Product Manager", "Own product outcomes", null, [], null, "linked-marketplace")
+            {
+                RoleKey = approvedRoleKey,
+                SourceResourceChangeRequestId = approvedRequestId
+            });
         var foreignRecommendation = await service.UpsertRecommendationAsync(
             foreignOrganizationId,
             Guid.NewGuid(),
@@ -586,6 +635,8 @@ public sealed class HiringServiceTests
             {
                 RecommendationId = recommendation.Id
             });
+
+        Assert.Equal(productManager.Id, preview.ReportsToOrganizationUserId);
 
         var workflow = await db.StaffingActionProposals.SingleAsync(x => x.Id == preview.WorkflowId);
         var linkedCandidateId = Guid.Parse(workflow.CandidateId[10..]);

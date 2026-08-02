@@ -51,6 +51,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
     private static readonly JsonElement ObjectOutput = Schema("""
         { "type": "object" }
         """);
+    private static readonly JsonElement ArrayOutput = Schema("""
+        { "type": "array", "items": { "type": "object" } }
+        """);
 
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
     [
@@ -181,7 +184,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             JsonSchemaValidator.ValidateSchema(tool.InputSchema);
             if (tool.OutputSchema is { } output)
             {
-                RequireObjectSchema(tool.Capability, "output", output);
+                RequireOutputSchema(tool.Capability, output);
                 JsonSchemaValidator.ValidateSchema(output);
             }
         }
@@ -272,16 +275,24 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         .SingleOrDefault(tool => string.Equals(tool.Name, name, StringComparison.Ordinal));
 
     private static McpToolDescriptor Read(string capability, string name, string description) =>
-        new(capability, name, description, InputFor(capability), ObjectOutput, McpToolExecutionPolicy.ReadOnly,
+        new(capability, name, description, InputFor(capability), OutputFor(capability), McpToolExecutionPolicy.ReadOnly,
             RiskClass: "read-only", OwningService: OwnerFor(capability));
 
     private static McpToolDescriptor Write(string capability, string name, string description) =>
-        new(capability, name, description, InputFor(capability), ObjectOutput, McpToolExecutionPolicy.AdvisoryWrite,
+        new(capability, name, description, InputFor(capability), OutputFor(capability), McpToolExecutionPolicy.AdvisoryWrite,
             RiskClass: "reversible-write", ApprovalBehavior: "policy-dependent", OwningService: OwnerFor(capability));
 
     private static McpToolDescriptor Approval(string capability, string name, string description) =>
-        new(capability, name, description, InputFor(capability), ObjectOutput, McpToolExecutionPolicy.ApprovalCreating,
+        new(capability, name, description, InputFor(capability), OutputFor(capability), McpToolExecutionPolicy.ApprovalCreating,
             RiskClass: "approval-required", ApprovalBehavior: "always-create-approval", OwningService: OwnerFor(capability));
+
+    private static JsonElement OutputFor(string capability) => capability switch
+    {
+        WorkBoardActions.Read or
+        WorkSprintActions.Read or
+        GitRepositoryCapabilities.TeamOptions => ArrayOutput,
+        _ => ObjectOutput
+    };
 
     private static string OwnerFor(string capability) =>
         capability.StartsWith("communication.", StringComparison.Ordinal) ? "communication-hub" :
@@ -349,7 +360,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
             """),
         WorkBoardActions.Create => Schema("""
-            {"type":"object","required":["name","idempotencyKey"],"properties":{"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"teamId":{"type":["string","null"],"format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["name","idempotencyKey"],"properties":{"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"teamId":{"type":["string","null"],"format":"uuid"},"key":{"type":["string","null"],"minLength":2,"maxLength":12},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkBoardActions.ConfigureColumns => Schema("""
             {"type":"object","required":["boardId","expectedRevision","columns","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"columns":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","required":["name","category","wipPolicy"],"properties":{"id":{"type":["string","null"],"format":"uuid"},"name":{"type":"string","minLength":1,"maxLength":160},"category":{"type":"string","enum":["ToDo","InProgress","Done","Cancelled"]},"wipPolicy":{"type":"string","enum":["Disabled","Warning","HardLimit"]},"wipLimit":{"type":["integer","null"],"minimum":1}},"additionalProperties":false}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
@@ -429,6 +440,16 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             type.GetString() != "object")
             throw new InvalidOperationException(
                 $"Capability '{capability}' has an invalid {direction} schema. Registry schemas must have an object root.");
+    }
+
+    private static void RequireOutputSchema(string capability, JsonElement schema)
+    {
+        if (schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("type", out var type) ||
+            type.ValueKind != JsonValueKind.String ||
+            type.GetString() is not ("object" or "array"))
+            throw new InvalidOperationException(
+                $"Capability '{capability}' has an invalid output schema. Registry outputs must have an object or array root.");
     }
 
     private static string ToToolName(string capability)

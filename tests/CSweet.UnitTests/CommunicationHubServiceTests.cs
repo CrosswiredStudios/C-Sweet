@@ -182,6 +182,82 @@ public sealed class CommunicationHubServiceTests
     }
 
     [Fact]
+    public async Task DirectAgentMessage_QueuesExactlyOneTurnForTheOtherAgentAndSupportsReverseDirection()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var architect = User(organization.Id, "Software Architect", OrganizationPermissionLevel.Contributor);
+        architect.EmployeeType = EmployeeType.Agent;
+        var productManager = User(organization.Id, "Product Manager", OrganizationPermissionLevel.Manager);
+        productManager.EmployeeType = EmployeeType.Agent;
+        db.AddRange(organization, architect, productManager);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var chat = (await service.CreateAsync(
+            organization.Id,
+            architect.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [productManager.Id]))).Chat!;
+        var first = await service.SendAsync(
+            organization.Id,
+            chat.Id,
+            architect.Id,
+            new SendCommunicationMessageRequest("Begin delivery planning.", "architect-kickoff"));
+        var duplicate = await service.SendAsync(
+            organization.Id,
+            chat.Id,
+            architect.Id,
+            new SendCommunicationMessageRequest("Begin delivery planning.", "architect-kickoff"));
+
+        Assert.NotNull(first?.Turn);
+        Assert.Equal(productManager.Id, first!.Turn!.TargetAgentOrganizationUserId);
+        Assert.Equal(first.Message.Id, duplicate!.Message.Id);
+        Assert.Equal(first.Turn.Id, duplicate.Turn!.Id);
+        var firstTurn = await db.ChatTurns.SingleAsync();
+        firstTurn.Status = ChatTurnStatus.Completed;
+        firstTurn.CompletedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+
+        var reverse = await service.SendAsync(
+            organization.Id,
+            chat.Id,
+            productManager.Id,
+            new SendCommunicationMessageRequest("Clarify the first increment.", "pm-clarification"));
+
+        Assert.NotNull(reverse?.Turn);
+        Assert.Equal(architect.Id, reverse!.Turn!.TargetAgentOrganizationUserId);
+        Assert.Equal(2, await db.ChatTurns.CountAsync());
+        Assert.Equal(2, await db.CoreConversationMessages.CountAsync());
+    }
+
+    [Fact]
+    public async Task DirectAgentToHumanMessage_RemainsInformational()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var agent = User(organization.Id, "Product Manager", OrganizationPermissionLevel.Manager);
+        agent.EmployeeType = EmployeeType.Agent;
+        var manager = User(organization.Id, "Manager", OrganizationPermissionLevel.Manager);
+        db.AddRange(organization, agent, manager);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var chat = (await service.CreateAsync(
+            organization.Id,
+            agent.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [manager.Id]))).Chat!;
+
+        var sent = await service.SendAsync(
+            organization.Id,
+            chat.Id,
+            agent.Id,
+            new SendCommunicationMessageRequest("A manager decision is required."));
+
+        Assert.NotNull(sent);
+        Assert.Null(sent!.Turn);
+        Assert.Empty(await db.ChatTurns.ToListAsync());
+    }
+
+    [Fact]
     public async Task GroupMessage_WithAgentParticipant_DoesNotQueueTurn()
     {
         await using var db = CreateDb();

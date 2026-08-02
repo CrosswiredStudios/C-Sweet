@@ -14,6 +14,21 @@ public sealed class ChatPromptPolicyTests
     }
 
     [Fact]
+    public void PrimaryPrompt_IncludesBrokerAuthoritativeSenderIdentity()
+    {
+        var senderId = Guid.NewGuid();
+        var prompt = ChatPromptPolicy.BuildPrimaryAgentPrompt(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Start planning.",
+            new ChatMessageSender(senderId, "Software Architect", "Agent", "Software Architect"));
+
+        Assert.Contains(senderId.ToString("D"), prompt, StringComparison.Ordinal);
+        Assert.Contains("Software Architect", prompt, StringComparison.Ordinal);
+        Assert.Contains("broker-authoritative identity metadata", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FallbackPrompt_ContainsNoAskUserInstructionAndRequiresPlainTextChoices()
     {
         var messages = ChatPromptPolicy.BuildFallbackMessages("Choose a team.");
