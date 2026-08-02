@@ -1,0 +1,42 @@
+<li class="suggested-team-role-branch">
+    <div class="suggested-team-role-cohort"
+         style="--seat-count: @Cohort.Seats.Count"
+         aria-label="@CohortLabel"
+         title="@CohortLabel">
+        @foreach (var seat in Cohort.Seats)
+        {
+            <div @key="seat.Key" class="suggested-team-seat @(seat.IsRemainder ? "remainder" : null)">
+                <span class="suggested-team-seat-icon" aria-hidden="true"></span>
+                <span>
+                    <strong>@seat.Label</strong>
+                    <small>@seat.Detail</small>
+                </span>
+            </div>
+        }
+        <div class="suggested-team-role-meta">
+            <span>@Cohort.Timing</span>
+            <span>Priority @Cohort.Priority</span>
+            @if (Cohort.HumanRequired)
+            {
+                <span>Human required</span>
+            }
+        </div>
+    </div>
+    @if (Cohort.Children.Count > 0)
+    {
+        <ol class="suggested-team-role-children">
+            @foreach (var child in Cohort.Children)
+            {
+                <SuggestedTeamStructureBranch @key="child.RoleKey" Cohort="child" />
+            }
+        </ol>
+    }
+</li>
+
+@code {
+    [Parameter, EditorRequired] public SuggestedTeamRoleCohort Cohort { get; set; } = default!;
+
+    private string CohortLabel =>
+        $"{Cohort.Title}, {Cohort.Headcount} proposed seat" +
+        $"{(Cohort.Headcount == 1 ? string.Empty : "s")}";
+}

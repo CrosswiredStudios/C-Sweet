@@ -1,0 +1,143 @@
+.suggested-team-role-branch {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1rem .55rem 0;
+}
+
+.suggested-team-role-branch::before,
+.suggested-team-role-branch::after {
+    position: absolute;
+    top: 0;
+    right: 50%;
+    width: 50%;
+    height: 1rem;
+    border-top: 2px solid #88a7bd;
+    content: "";
+}
+
+.suggested-team-role-branch::after {
+    right: auto;
+    left: 50%;
+    border-left: 2px solid #88a7bd;
+}
+
+.suggested-team-role-branch:only-child::before,
+.suggested-team-role-branch:only-child::after {
+    display: none;
+}
+
+.suggested-team-role-branch:only-child {
+    padding-top: 0;
+}
+
+.suggested-team-role-branch:first-child::before,
+.suggested-team-role-branch:last-child::after {
+    border: 0;
+}
+
+.suggested-team-role-branch:last-child::before {
+    border-right: 2px solid #88a7bd;
+    border-radius: 0 6px 0 0;
+}
+
+.suggested-team-role-branch:first-child::after {
+    border-radius: 6px 0 0;
+}
+
+.suggested-team-role-cohort {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(var(--seat-count, 1), minmax(8.6rem, 10rem));
+    max-width: 53rem;
+    gap: .45rem;
+    padding: .55rem;
+    border: 1px dashed #88a7bd;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, .94);
+}
+
+.suggested-team-seat {
+    display: grid;
+    grid-template-columns: .7rem minmax(0, 1fr);
+    gap: .45rem;
+    align-items: center;
+    min-width: 8.6rem;
+    padding: .55rem .6rem;
+    border: 1px solid var(--cs-border);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--cs-navy);
+    box-shadow: 0 4px 10px rgba(24, 35, 63, .06);
+}
+
+.suggested-team-seat > span:last-child {
+    display: grid;
+    min-width: 0;
+    gap: .12rem;
+}
+
+.suggested-team-seat strong,
+.suggested-team-seat small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suggested-team-seat strong {
+    font-size: .78rem;
+}
+
+.suggested-team-seat small {
+    color: var(--cs-muted);
+    font-size: .68rem;
+}
+
+.suggested-team-seat-icon {
+    width: .65rem;
+    height: .65rem;
+    border-radius: 50%;
+    background: var(--cs-mint-strong);
+}
+
+.suggested-team-seat.remainder {
+    border-style: dashed;
+    background: #f7f8f8;
+}
+
+.suggested-team-seat.remainder .suggested-team-seat-icon {
+    background: #aeb4ba;
+}
+
+.suggested-team-role-meta {
+    display: flex;
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: .3rem .75rem;
+    padding-top: .15rem;
+    color: var(--cs-muted);
+    font-size: .66rem;
+}
+
+.suggested-team-role-children {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    min-width: max-content;
+    margin: 0;
+    padding: 1.65rem 0 0;
+    list-style: none;
+}
+
+.suggested-team-role-children::before {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 2px;
+    height: 1.65rem;
+    background: #88a7bd;
+    content: "";
+}

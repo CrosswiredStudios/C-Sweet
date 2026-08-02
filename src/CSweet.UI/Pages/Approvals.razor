@@ -80,6 +80,9 @@
 
                         @if (item.ResourceChange is { } request)
                         {
+                            <SuggestedTeamStructureGraph Request="request"
+                                                         ProductManagerDisplayName="item.RequestedBy"
+                                                         ManagerDisplayName="item.AssignedTo" />
                             <div class="approval-role-list">
                                 @foreach (var delta in request.Deltas)
                                 {

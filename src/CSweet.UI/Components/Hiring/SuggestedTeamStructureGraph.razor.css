@@ -1,0 +1,112 @@
+.suggested-team-structure {
+    min-width: 0;
+    margin-block: .9rem;
+    overflow: hidden;
+    border: 1px solid var(--cs-border);
+    border-radius: 12px;
+    background:
+        linear-gradient(rgba(24, 35, 63, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(24, 35, 63, .025) 1px, transparent 1px),
+        #fffdfa;
+    background-size: 24px 24px;
+}
+
+.suggested-team-structure-scroll {
+    overflow-x: auto;
+    padding: 1rem;
+}
+
+.suggested-team-tree,
+.suggested-team-tree ol {
+    display: flex;
+    justify-content: center;
+    min-width: max-content;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.suggested-team-tree li {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.suggested-team-tree > li > ol,
+.suggested-team-tree > li > ol > li > .suggested-team-role-branches {
+    position: relative;
+    padding-top: 1.65rem;
+}
+
+.suggested-team-tree > li > ol::before,
+.suggested-team-tree > li > ol > li > .suggested-team-role-branches::before {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 2px;
+    height: 1.65rem;
+    background: #88a7bd;
+    content: "";
+}
+
+.suggested-team-person {
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+    width: 13.5rem;
+    gap: .65rem;
+    align-items: center;
+    padding: .65rem .75rem;
+    border: 1px solid var(--cs-border);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--cs-navy);
+    box-shadow: 0 5px 14px rgba(24, 35, 63, .07);
+}
+
+.suggested-team-person > span:last-child {
+    display: grid;
+    min-width: 0;
+    gap: .12rem;
+}
+
+.suggested-team-person strong,
+.suggested-team-person small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suggested-team-person small {
+    color: var(--cs-muted);
+    font-size: .72rem;
+}
+
+.suggested-team-avatar {
+    display: inline-grid;
+    width: 2.25rem;
+    height: 2.25rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--cs-navy);
+    color: #fff;
+    font-size: .72rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+}
+
+.product-manager-node {
+    border-color: var(--cs-mint-strong);
+    box-shadow: 0 0 0 2px rgba(35, 132, 92, .1), 0 5px 14px rgba(24, 35, 63, .07);
+}
+
+.product-manager-node .suggested-team-avatar {
+    background: var(--cs-mint-strong);
+}
+
+@media (max-width: 640px) {
+    .suggested-team-structure-scroll {
+        padding: .8rem;
+    }
+}

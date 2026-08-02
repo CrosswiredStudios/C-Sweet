@@ -209,10 +209,13 @@
                                               <MudIcon Icon="@Icons.Material.Outlined.Groups" />
                                           </div>
                                           <div class="hub-system-action-content">
-                                              <span>HIRING PLAN APPROVAL</span>
-                                              <strong>@(resourceChange.TeamName ?? "Review proposed product team")</strong>
-                                              <p>@resourceChange.ProductGoal</p>
-                                              <div class="hub-resource-change-roles">
+                                               <span>HIRING PLAN APPROVAL</span>
+                                               <strong>@(resourceChange.TeamName ?? "Review proposed product team")</strong>
+                                               <p>@resourceChange.ProductGoal</p>
+                                               <SuggestedTeamStructureGraph Request="resourceChange"
+                                                                            ProductManagerDisplayName="@PersonName(resourceChange.RequesterOrganizationUserId, "Product manager")"
+                                                                            ManagerDisplayName="@PersonName(resourceChange.ManagerOrganizationUserId, "Manager")" />
+                                               <div class="hub-resource-change-roles">
                                              @foreach (var delta in resourceChange.Deltas)
                                              {
                                                   <div class="hub-resource-change-role">
@@ -565,6 +568,8 @@
         .OrderBy(x => x.DisplayName);
     private string ViewedPersonName => _hub?.People
         .FirstOrDefault(x => x.Id == _hub.ViewedOrganizationUserId)?.DisplayName ?? "this agent";
+    private string PersonName(Guid organizationUserId, string fallback) => _hub?.People
+        .FirstOrDefault(x => x.Id == organizationUserId)?.DisplayName ?? fallback;
     private IEnumerable<CommunicationChatResponse> FilteredChats => (_hub?.Chats ?? []).Where(x => string.IsNullOrWhiteSpace(_search) || x.Title.Contains(_search, StringComparison.OrdinalIgnoreCase));
     private IEnumerable<CommunicationPersonResponse> VisiblePeople => _selected is null || !_showMembers
         ? (_hub?.People ?? [])

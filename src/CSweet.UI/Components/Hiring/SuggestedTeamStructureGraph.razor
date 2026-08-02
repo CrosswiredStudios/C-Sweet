@@ -1,0 +1,60 @@
+@using CSweet.Contracts.Core
+
+<section class="suggested-team-structure" aria-label="Suggested team reporting structure">
+    <div class="suggested-team-structure-scroll">
+        <ol class="suggested-team-tree">
+            <li>
+                <div class="suggested-team-person manager-node" aria-label="Manager: @Model.ManagerDisplayName">
+                    <span class="suggested-team-avatar" aria-hidden="true">@Initials(Model.ManagerDisplayName)</span>
+                    <span>
+                        <strong>@Model.ManagerDisplayName</strong>
+                        <small>Product manager's manager</small>
+                    </span>
+                </div>
+                <ol>
+                    <li>
+                        <div class="suggested-team-person product-manager-node" aria-label="Product manager: @Model.ProductManagerDisplayName">
+                            <span class="suggested-team-avatar" aria-hidden="true">@Initials(Model.ProductManagerDisplayName)</span>
+                            <span>
+                                <strong>@Model.ProductManagerDisplayName</strong>
+                                <small>Product manager</small>
+                            </span>
+                        </div>
+                        @if (Model.RoleCohorts.Count > 0)
+                        {
+                            <ol class="suggested-team-role-branches">
+                                @foreach (var cohort in Model.RoleCohorts)
+                                {
+                                    <SuggestedTeamStructureBranch @key="cohort.RoleKey" Cohort="cohort" />
+                                }
+                            </ol>
+                        }
+                    </li>
+                </ol>
+            </li>
+        </ol>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public ResourceChangeRequestResponse Request { get; set; } = default!;
+    [Parameter] public string? ProductManagerDisplayName { get; set; }
+    [Parameter] public string? ManagerDisplayName { get; set; }
+
+    private SuggestedTeamStructureGraphModel Model { get; set; } =
+        new("Manager", "Product manager", []);
+
+    protected override void OnParametersSet()
+    {
+        Model = SuggestedTeamStructureGraphBuilder.Build(
+            Request,
+            ProductManagerDisplayName,
+            ManagerDisplayName);
+    }
+
+    private static string Initials(string name)
+    {
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return string.Concat(words.Take(2).Select(word => char.ToUpperInvariant(word[0])));
+    }
+}
