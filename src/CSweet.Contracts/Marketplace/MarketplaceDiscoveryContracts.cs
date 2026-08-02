@@ -19,7 +19,14 @@ public sealed record MarketplaceAgentResponse(
     string RepositoryUrl,
     string DocumentationUrl,
     string ListingUrl,
-    bool IsFirstParty = false);
+    bool IsFirstParty = false,
+    string? RoleKey = null,
+    string? RoleName = null,
+    IReadOnlyList<string>? RoleAliases = null,
+    IReadOnlyList<string>? Keywords = null,
+    string? LicenseSpdxId = null,
+    string? LicenseUrl = null,
+    IReadOnlyList<string>? IconUrls = null);
 
 public sealed record MarketplaceDiscoveryResponse(
     IReadOnlyList<MarketplaceAgentResponse> Items,

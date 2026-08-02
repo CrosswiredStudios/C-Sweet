@@ -67,6 +67,11 @@ public sealed class PluginPlatformTests
               "id": "com.example.software-developer",
               "name": "Software Developer",
               "version": "1.0.0",
+              "catalog": {
+                "role": { "key": "software-developer", "name": "Software Developer" },
+                "license": { "spdxId": "Apache-2.0" },
+                "iconUrls": ["https://example.com/software-developer.png"]
+              },
               "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },
               "provides": [{
                 "name": "work.execution.run.v1",

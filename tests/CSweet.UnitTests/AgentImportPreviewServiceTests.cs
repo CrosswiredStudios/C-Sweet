@@ -249,6 +249,11 @@ public class AgentImportPreviewServiceTests
           "webAccess": {
             "mode": "Allowlist",
             "rules": [{"scheme":"https","host":"api.example.com","pathPrefix":"/","methods":["GET"],"protocol":"http","purpose":"Research","credential":"service-token"}]
+          },
+          "catalog": {
+            "role": { "key": "researcher", "name": "Researcher" },
+            "license": { "spdxId": "MIT" },
+            "iconUrls": ["https://example.com/research-agent.png"]
           }
         }
         """;

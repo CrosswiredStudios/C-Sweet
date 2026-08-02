@@ -31,6 +31,11 @@ public sealed class FirstPartyMarketplaceAgentOptions
     public string Name { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
     public string Category { get; set; } = "Operations";
+    public string RoleKey { get; set; } = string.Empty;
+    public string RoleName { get; set; } = string.Empty;
+    public string LicenseSpdxId { get; set; } = string.Empty;
+    public string LicenseUrl { get; set; } = string.Empty;
+    public List<string> IconUrls { get; set; } = [];
     public List<string> Capabilities { get; set; } = [];
     public List<string> RoleAliases { get; set; } = [];
     public List<string> Keywords { get; set; } = [];
@@ -209,7 +214,9 @@ public sealed class MarketplaceDiscoveryClient(
             item.Summary, item.Category, item.Capabilities, item.PricingModel,
             item.PriceInCents, item.BillingUnitQuantity, item.Currency, item.Rating,
             item.RatingCount, item.IsFeatured, item.RepositoryUrl, item.DocumentationUrl,
-            new Uri(http.BaseAddress!, item.ListingPath).ToString());
+            new Uri(http.BaseAddress!, item.ListingPath).ToString(), false,
+            item.RoleKey, item.RoleName, item.RoleAliases, item.Keywords,
+            item.LicenseSpdxId, item.LicenseUrl, item.IconUrls);
 
     private IReadOnlyList<MarketplaceAgentResponse> FirstPartyAgents() =>
         options.Value.FirstPartyAgents
@@ -239,7 +246,14 @@ public sealed class MarketplaceDiscoveryClient(
                     ? $"{x.RepositoryUrl}#readme"
                     : x.DocumentationUrl,
                 x.RepositoryUrl,
-                true))
+                true,
+                NullIfWhiteSpace(x.RoleKey),
+                NullIfWhiteSpace(x.RoleName),
+                x.RoleAliases,
+                x.Keywords,
+                NullIfWhiteSpace(x.LicenseSpdxId),
+                NullIfWhiteSpace(x.LicenseUrl),
+                x.IconUrls))
             .ToArray();
 
     private static IReadOnlyList<MarketplaceAgentResponse> FilterFirstParty(
@@ -252,6 +266,9 @@ public sealed class MarketplaceDiscoveryClient(
             var search = query.Search.Trim();
             filtered = filtered.Where(x =>
                 x.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                (x.RoleKey?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (x.RoleName?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (x.RoleAliases?.Any(alias => alias.Contains(search, StringComparison.OrdinalIgnoreCase)) ?? false) ||
                 x.Summary.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                 x.Category.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                 x.Capabilities.Any(capability =>
@@ -320,5 +337,15 @@ public sealed class MarketplaceDiscoveryClient(
         bool IsFeatured,
         string RepositoryUrl,
         string DocumentationUrl,
-        string ListingPath);
+        string ListingPath,
+        string? RoleKey = null,
+        string? RoleName = null,
+        IReadOnlyList<string>? RoleAliases = null,
+        IReadOnlyList<string>? Keywords = null,
+        string? LicenseSpdxId = null,
+        string? LicenseUrl = null,
+        IReadOnlyList<string>? IconUrls = null);
+
+    private static string? NullIfWhiteSpace(string value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

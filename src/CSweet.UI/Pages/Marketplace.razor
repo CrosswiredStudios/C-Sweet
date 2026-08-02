@@ -390,7 +390,7 @@
         if (_selectedAgent is null) return;
         var supersededWorkflowId = _preview?.WorkflowId;
         var role = string.IsNullOrWhiteSpace(_role)
-            ? _selectedAgent.RoleAliases.FirstOrDefault() ?? _selectedAgent.Name
+            ? _selectedAgent.RoleName ?? _selectedAgent.RoleAliases.FirstOrDefault() ?? _selectedAgent.Name
             : _role.Trim();
         var response = await Http.PostAsJsonAsync(
             $"api/core/organizations/{OrganizationId:D}/hiring/marketplace/preview",

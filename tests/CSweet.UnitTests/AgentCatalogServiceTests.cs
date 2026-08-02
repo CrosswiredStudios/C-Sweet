@@ -20,7 +20,13 @@ public sealed class AgentCatalogServiceTests
     public async Task Aggregate_DeduplicatesByAgentIdAndPrefersLocalSource()
     {
         var firstParty = Agent("first-party:1", AgentCatalogSource.FirstPartyCatalog);
-        var local = Agent("local:1", AgentCatalogSource.LocalDirectory);
+        var local = Agent("local:1", AgentCatalogSource.LocalDirectory) with
+        {
+            RoleKey = null,
+            RoleName = null,
+            LicenseSpdxId = null,
+            IconUrls = []
+        };
         var service = new AgentCatalogService(
             [
                 new StubProvider(AgentCatalogSource.FirstPartyCatalog, firstParty),
@@ -36,6 +42,30 @@ public sealed class AgentCatalogServiceTests
         Assert.Equal(AgentCatalogSource.LocalDirectory, agent.Source);
         Assert.Contains(AgentCatalogSource.FirstPartyCatalog, agent.AlternateSources);
         Assert.Equal("com.csweet.product-manager", agent.AgentId);
+        Assert.Equal("product-manager", agent.RoleKey);
+        Assert.Equal("Product Manager", agent.RoleName);
+    }
+
+    [Fact]
+    public async Task CanonicalRole_MatchesAgentWithSpecificDisplayName()
+    {
+        var candidate = Agent("first-party:1", AgentCatalogSource.FirstPartyCatalog) with
+        {
+            Name = "Software PM",
+            RoleKey = "product-manager",
+            RoleName = "Product Manager",
+            RoleAliases = ["Software Product Manager", "Software PM"]
+        };
+        var service = new AgentCatalogService(
+            [new StubProvider(AgentCatalogSource.FirstPartyCatalog, candidate)],
+            NullLogger<AgentCatalogService>.Instance);
+
+        var result = await service.GetAvailableAgentsAsync(null, new(Role: "Product Manager"));
+
+        var agent = Assert.Single(result.Agents);
+        Assert.Equal("Software PM", agent.Name);
+        Assert.Equal("product-manager", agent.RoleKey);
+        Assert.Equal("Product Manager", agent.RoleName);
     }
 
     [Fact]
@@ -72,6 +102,10 @@ public sealed class AgentCatalogServiceTests
             Assert.DoesNotContain(root, JsonSerializer.Serialize(agent), StringComparison.OrdinalIgnoreCase);
             Assert.Null(agent.RepositoryUrl);
             Assert.Equal(["product.strategy", "product.discovery"], agent.Capabilities);
+            Assert.Equal("product-manager", agent.RoleKey);
+            Assert.Equal("Product Manager", agent.RoleName);
+            Assert.Equal("MIT", agent.LicenseSpdxId);
+            Assert.Contains("https://example.com/product-manager.png", agent.IconUrls!);
 
             var snapshot = await provider.CreateArchiveAsync(agent.AgentReference);
             using var stream = new MemoryStream(snapshot.Content);
@@ -127,7 +161,12 @@ public sealed class AgentCatalogServiceTests
         null,
         source == AgentCatalogSource.FirstPartyCatalog ? "https://github.com/example/product-manager" : null,
         0.8m,
-        "Test");
+        "Test",
+        "product-manager",
+        "Product Manager",
+        "MIT",
+        null,
+        ["https://example.com/product-manager.png"]);
 
     private static AgentInstallation Installation(Guid organizationId, string name)
     {
@@ -202,6 +241,9 @@ public sealed class AgentCatalogServiceTests
       "catalog": {
         "summary": "Owns product outcomes.",
         "category": "Product",
+        "role": { "key": "product-manager", "name": "Product Manager" },
+        "license": { "spdxId": "MIT" },
+        "iconUrls": [ "https://example.com/product-manager.png" ],
         "roleAliases": [ "Product Manager" ],
         "keywords": [ "roadmap" ]
       }

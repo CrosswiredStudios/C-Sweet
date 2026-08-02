@@ -259,6 +259,11 @@ public class AgentImportPreviewEndpointTests
               "id": "com.example.research-agent",
               "name": "Research Agent",
               "version": "1.2.3",
+              "catalog": {
+                "role": { "key": "researcher", "name": "Researcher" },
+                "license": { "spdxId": "MIT" },
+                "iconUrls": ["https://example.com/research-agent.png"]
+              },
               "publisher": { "id": "com.example", "name": "Example" },
               "runtime": {
                 "type": "dotnet-project",

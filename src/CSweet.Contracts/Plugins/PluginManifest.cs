@@ -27,9 +27,24 @@ public sealed record PluginCatalogMetadata
 {
     public string? Summary { get; init; }
     public string? Category { get; init; }
+    public PluginCatalogRole? Role { get; init; }
+    public PluginCatalogLicense? License { get; init; }
+    public IReadOnlyList<string> IconUrls { get; init; } = [];
     public IReadOnlyList<string> RoleAliases { get; init; } = [];
     public IReadOnlyList<string> Keywords { get; init; } = [];
     public string? DocumentationUrl { get; init; }
+}
+
+public sealed record PluginCatalogRole
+{
+    public string Key { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+}
+
+public sealed record PluginCatalogLicense
+{
+    public string SpdxId { get; init; } = string.Empty;
+    public string? Url { get; init; }
 }
 
 public sealed record PluginPublisher

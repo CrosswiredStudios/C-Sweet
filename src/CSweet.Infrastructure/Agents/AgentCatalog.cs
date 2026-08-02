@@ -118,6 +118,8 @@ public sealed class AgentCatalogService(
 
     private static bool Contains(AvailableAgent agent, string value) =>
         agent.Name.Contains(value, StringComparison.OrdinalIgnoreCase) ||
+        (agent.RoleKey?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (agent.RoleName?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false) ||
         agent.Summary.Contains(value, StringComparison.OrdinalIgnoreCase) ||
         agent.Publisher.Contains(value, StringComparison.OrdinalIgnoreCase) ||
         agent.Category.Contains(value, StringComparison.OrdinalIgnoreCase) ||
@@ -132,6 +134,8 @@ public sealed class AgentCatalogService(
         {
             var role = query.Role.Trim();
             score += string.Equals(agent.Name, role, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(agent.RoleKey, role, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(agent.RoleName, role, StringComparison.OrdinalIgnoreCase) ||
                      agent.RoleAliases.Contains(role, StringComparer.OrdinalIgnoreCase)
                 ? 0.30m
                 : 0.20m;
@@ -165,6 +169,13 @@ public sealed class AgentCatalogService(
         {
             AlternateSources = ordered.Skip(1).Select(x => x.Source).Distinct().ToArray(),
             Capabilities = ordered.SelectMany(x => x.Capabilities).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            RoleKey = ordered.Select(x => x.RoleKey).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+            RoleName = ordered.Select(x => x.RoleName).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+            RoleAliases = ordered.SelectMany(x => x.RoleAliases).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            Keywords = ordered.SelectMany(x => x.Keywords).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            LicenseSpdxId = ordered.Select(x => x.LicenseSpdxId).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+            LicenseUrl = ordered.Select(x => x.LicenseUrl).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+            IconUrls = ordered.SelectMany(x => x.IconUrls ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             Score = ordered.Max(x => x.Score)
         };
     }
@@ -259,7 +270,12 @@ public sealed class InstalledAgentCatalogProvider(CSweetDbContext db) : IAgentCa
             manifest.Catalog.DocumentationUrl,
             package.PackageSource?.Host == "github.com" ? package.PackageSource.RepositoryUrl : null,
             0.9m,
-            "Organization approved");
+            "Organization approved",
+            manifest.Catalog.Role?.Key,
+            manifest.Catalog.Role?.Name,
+            manifest.Catalog.License?.SpdxId,
+            manifest.Catalog.License?.Url,
+            manifest.Catalog.IconUrls);
     }
 
     private static IReadOnlyList<string> ReadList(string? json)
@@ -329,7 +345,12 @@ public sealed class FirstPartyAgentCatalogProvider(IOptions<MarketplaceOptions> 
         string.IsNullOrWhiteSpace(item.DocumentationUrl) ? $"{item.RepositoryUrl}#readme" : item.DocumentationUrl,
         item.RepositoryUrl,
         item.IsFeatured ? 0.8m : 0.7m,
-        "C-Sweet first party");
+        "C-Sweet first party",
+        NullIfWhiteSpace(item.RoleKey),
+        NullIfWhiteSpace(item.RoleName),
+        NullIfWhiteSpace(item.LicenseSpdxId),
+        NullIfWhiteSpace(item.LicenseUrl),
+        item.IconUrls);
 
     private static string? NullIfWhiteSpace(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
     private static bool TryGuid(string reference, string prefix, out Guid id)
@@ -383,8 +404,8 @@ public sealed class MarketplaceAgentCatalogProvider(IMarketplaceDiscoveryService
         item.Summary,
         item.PublisherName,
         item.Category,
-        [item.Name],
-        [],
+        item.RoleAliases is { Count: > 0 } ? item.RoleAliases : [item.Name],
+        item.Keywords ?? [],
         item.Capabilities,
         item.PriceInCents / 100m,
         item.Currency,
@@ -393,7 +414,12 @@ public sealed class MarketplaceAgentCatalogProvider(IMarketplaceDiscoveryService
         item.DocumentationUrl,
         item.RepositoryUrl,
         item.Rating is { } rating ? Math.Clamp(rating / 10m, 0m, 0.99m) : 0.6m,
-        "Marketplace publisher");
+        "Marketplace publisher",
+        item.RoleKey,
+        item.RoleName,
+        item.LicenseSpdxId,
+        item.LicenseUrl,
+        item.IconUrls);
 
     private static bool TryGuid(string reference, string prefix, out Guid id)
     {
@@ -545,7 +571,12 @@ public sealed class LocalDirectoryAgentCatalogProvider(
             manifest.Catalog.DocumentationUrl,
             null,
             0.75m,
-            "User-provided local source");
+            "User-provided local source",
+            manifest.Catalog.Role?.Key,
+            manifest.Catalog.Role?.Name,
+            manifest.Catalog.License?.SpdxId,
+            manifest.Catalog.License?.Url,
+            manifest.Catalog.IconUrls);
     }
 
     private async Task<string> DigestAsync(string directory, CancellationToken token)

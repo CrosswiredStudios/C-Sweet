@@ -4,9 +4,16 @@
     <MudCardContent>
         <div class="marketplace-agent-card-heading">
             <div class="marketplace-agent-icon">
-                <MudIcon Icon="@(Agent.Source == AgentCatalogSource.FirstPartyCatalog
-                    ? Icons.Material.Outlined.Verified
-                    : Icons.Material.Outlined.SmartToy)" />
+                @if (IconUrl is not null)
+                {
+                    <img src="@IconUrl" alt="@($"{Agent.Name} icon")" />
+                }
+                else
+                {
+                    <MudIcon Icon="@(Agent.Source == AgentCatalogSource.FirstPartyCatalog
+                        ? Icons.Material.Outlined.Verified
+                        : Icons.Material.Outlined.SmartToy)" />
+                }
             </div>
             <MudStack Row="true" Spacing="1" Class="marketplace-agent-badges">
                 <MudChip T="string" Size="Size.Small"
@@ -23,7 +30,7 @@
         </div>
 
         <MudText Typo="Typo.overline" Color="Color.Secondary">
-            @Agent.Category · @Agent.Publisher
+            @Agent.Category · @(Agent.RoleName ?? "Unclassified role") · @Agent.Publisher
         </MudText>
         <MudText Typo="Typo.h5" Class="marketplace-agent-name">@Agent.Name</MudText>
         <MudText Color="Color.Secondary" Class="marketplace-agent-summary">@Agent.Summary</MudText>
@@ -44,6 +51,10 @@
                     ? $"{Agent.Rating:0.0}/10 · {Agent.RatingCount} reviews"
                     : Agent.Trust)
             </MudText>
+            @if (!string.IsNullOrWhiteSpace(Agent.LicenseSpdxId))
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">License: @Agent.LicenseSpdxId</MudText>
+            }
         </div>
     </MudCardContent>
     <MudCardActions Class="marketplace-agent-actions">
@@ -86,6 +97,7 @@
     };
 
     private string? DetailsHref => Agent.DocumentationUrl ?? Agent.RepositoryUrl;
+    private string? IconUrl => Agent.IconUrls?.FirstOrDefault();
 
     private bool CanReviewHire =>
         Agent.Availability is AgentAvailabilityState.AvailableToInstall or AgentAvailabilityState.InstalledEnabled &&

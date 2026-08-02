@@ -17,6 +17,23 @@ catalog starts or refreshes. Discovery never builds or executes the source. Inst
 local agent creates an immutable source snapshot and still requires manifest, grant, and owner
 approval.
 
+Every `kind: "agent"` manifest must be self-describing for hiring and marketplace discovery:
+
+```json
+"catalog": {
+  "category": "Product",
+  "role": { "key": "product-manager", "name": "Product Manager" },
+  "license": { "spdxId": "MIT", "url": "https://example.com/license" },
+  "iconUrls": ["https://example.com/product-manager.png"],
+  "roleAliases": ["Software Product Manager", "Software PM"],
+  "keywords": ["product strategy", "roadmap"]
+}
+```
+
+The role key is a stable lowercase kebab-case identifier. The role name is the generic job title;
+the plugin's top-level `name` remains free to be branded or specialized. License values use SPDX
+identifiers or expressions, and icon URLs must use HTTPS.
+
 Executable entries must use manifest v2 and SDK 1.0. The SDK owns the private MCP session and
 durable work protocol; agent code implements only callbacks and typed platform calls. See the
 [runtime architecture](../../Documentation/Architecture/MCP_AGENT_RUNTIME.md), [migration

@@ -1576,6 +1576,13 @@ body { color: var(--cs-navy); }
     border-radius: 11px;
     background: #eaf7f1;
     color: var(--cs-mint-strong);
+    overflow: hidden;
+}
+
+.marketplace-agent-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .marketplace-agent-badges {
