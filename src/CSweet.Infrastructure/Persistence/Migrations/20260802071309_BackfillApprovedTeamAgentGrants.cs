@@ -17,7 +17,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     "GrantedBySubjectKind", "GrantedBySubjectId", "Revision",
                     "GrantedAt", "ExpiresAt", "RevokedAt")
                 SELECT
-                    md5(ai."Id"::text || ':' || tm."TeamId"::text || ':' || requirement.value->>'name')::uuid,
+                    md5(ai."Id"::text || ':' || tm."TeamId"::text || ':' || (requirement.value->>'name'))::uuid,
                     tm."OrganizationId",
                     'AgentInstallation',
                     ai."Id",
@@ -107,7 +107,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                   AND package."Id" = ai."PackageVersionId"
                   AND requirement.value->>'scope' IN ('team', 'board')
                   AND grant_row."Id" = md5(
-                      ai."Id"::text || ':' || tm."TeamId"::text || ':' || requirement.value->>'name')::uuid;
+                      ai."Id"::text || ':' || tm."TeamId"::text || ':' || (requirement.value->>'name'))::uuid;
                 """);
         }
     }
