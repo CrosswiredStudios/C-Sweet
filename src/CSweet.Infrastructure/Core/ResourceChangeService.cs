@@ -329,6 +329,19 @@ public sealed class ResourceChangeService(
         Guid managerId,
         CancellationToken token)
     {
+        if (record.TeamId.HasValue)
+        {
+            var created = await TeamAgentGrantProvisioner.EnsureAsync(
+                db,
+                record.OrganizationId,
+                record.RequesterInstallationId,
+                record.TeamId.Value,
+                managerId,
+                record.DecidedAt ?? DateTimeOffset.UtcNow,
+                token);
+            return created.Count > 0;
+        }
+
         var requiredCapabilitiesJson = await (
             from installation in db.AgentInstallations.AsNoTracking()
             join grant in db.AgentInstallationGrants.AsNoTracking()
@@ -344,8 +357,8 @@ public sealed class ResourceChangeService(
             return false;
 
         var now = DateTimeOffset.UtcNow;
-        var scopeKind = record.TeamId.HasValue ? GrantScopeKind.Team : GrantScopeKind.Organization;
-        var scopeId = record.TeamId;
+        const GrantScopeKind scopeKind = GrantScopeKind.Organization;
+        Guid? scopeId = null;
         var alreadyGranted = await db.ScopedActionGrants.AnyAsync(x =>
             x.OrganizationId == record.OrganizationId &&
             x.SubjectKind == GrantSubjectKind.AgentInstallation &&
@@ -383,7 +396,7 @@ public sealed class ResourceChangeService(
             nameof(ScopedActionGrant),
             record.RequesterInstallationId,
             record.TeamId.HasValue
-                ? "Granted team-scoped work-board creation after manager approval."
+                ? "Granted declared nondelegable team-scoped work actions after manager approval."
                 : "Granted organization-scoped work-board creation after manager approval.",
             cancellationToken: token);
 

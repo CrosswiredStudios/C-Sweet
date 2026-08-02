@@ -14,11 +14,13 @@ public static class WorkOrchestrationActions
     public const string Resume = WorkManagementCapabilityNames.OrchestrationResume;
     public const string Cancel = WorkManagementCapabilityNames.OrchestrationCancel;
     public const string Retry = WorkManagementCapabilityNames.OrchestrationRetry;
+    public const string ConfigureSoftwareTemplate =
+        WorkManagementCapabilityNames.OrchestrationConfigureSoftwareTemplate;
     public const string CompleteManual = "work.orchestration.manual.complete";
     public const string DecideApproval = "work.orchestration.approval.decide";
 
     public static IReadOnlyList<string> All { get; } =
-        [Read, Configure, Publish, Preflight, Start, Pause, Resume, Cancel, Retry, CompleteManual, DecideApproval];
+        [Read, Configure, Publish, ConfigureSoftwareTemplate, Preflight, Start, Pause, Resume, Cancel, Retry, CompleteManual, DecideApproval];
 }
 
 public sealed record SaveWorkOrchestrationPolicyRequest(
@@ -37,7 +39,9 @@ public sealed record PublishWorkOrchestrationPolicyRequest(
 public sealed record CreateSoftwareOrchestrationTemplateRequest(
     Guid ReadyColumnId,
     Guid DevelopmentColumnId,
+    Guid DevCompleteColumnId,
     Guid QualityColumnId,
+    Guid ReadyToMergeColumnId,
     Guid DoneColumnId,
     string MergeMode,
     int MaximumQualityCycles,

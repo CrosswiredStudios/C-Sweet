@@ -27,8 +27,10 @@ public static class PluginManifestLoader
                 string.IsNullOrWhiteSpace(x.Description) ||
                 x.InputSchema.ValueKind != JsonValueKind.Object ||
                 x.OutputSchema.ValueKind != JsonValueKind.Object ||
-                x.ExecutionTimeoutSeconds is < 1 or > 900))
-            throw new InvalidOperationException("Every provided capability must include schemas and a bounded execution timeout.");
+                x.ExecutionTimeoutSeconds is < 1 or > PluginCapabilityDeclaration.MaximumExecutionTimeoutSeconds))
+            throw new InvalidOperationException(
+                $"Every provided capability must include schemas and an execution timeout between 1 and " +
+                $"{PluginCapabilityDeclaration.MaximumExecutionTimeoutSeconds} seconds.");
         if (manifest.Runtime.WorkspaceAccess is not ("None" or "ReadOnly" or "ReadWrite"))
             throw new InvalidOperationException(
                 "runtime.workspaceAccess must be None, ReadOnly, or ReadWrite.");

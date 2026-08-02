@@ -29,10 +29,12 @@ public sealed class WorkManagementCapabilityHandler(
     [
         WorkBoardActions.Read,
         WorkBoardActions.Create,
+        WorkBoardActions.ConfigureColumns,
         WorkItemActions.Read,
         WorkItemActions.Create,
         WorkItemActions.Comment,
         WorkItemActions.Estimate,
+        WorkItemActions.Move,
         WorkItemActions.Transfer,
         WorkSprintActions.Read,
         WorkSprintActions.Create,
@@ -45,6 +47,7 @@ public sealed class WorkManagementCapabilityHandler(
         WorkOrchestrationActions.Pause,
         WorkOrchestrationActions.Resume,
         WorkOrchestrationActions.Cancel,
+        WorkOrchestrationActions.ConfigureSoftwareTemplate,
     ];
 
     public bool CanHandle(string capability) => HandledCapabilities.Contains(capability);
@@ -101,6 +104,11 @@ public sealed class WorkManagementCapabilityHandler(
                     await CreateBoardAsync(
                         session, organizationId, installation,
                         Read<Wire.CreateWorkBoardRequest>(request), cancellationToken)),
+                WorkBoardActions.ConfigureColumns => Success(
+                    request.RequestId,
+                    await ConfigureBoardColumnsAsync(
+                        session, organizationId, installation,
+                        Read<Wire.ConfigureWorkBoardColumnsRequest>(request), cancellationToken)),
                 WorkItemActions.Create => Success(
                     request.RequestId,
                     await CreateItemAsync(
@@ -116,6 +124,11 @@ public sealed class WorkManagementCapabilityHandler(
                     await EstimateItemAsync(
                         session, organizationId, installation,
                         Read<Wire.EstimateWorkItemRequest>(request), cancellationToken)),
+                WorkItemActions.Move => Success(
+                    request.RequestId,
+                    await MoveItemAsync(
+                        session, organizationId, installation,
+                        Read<Wire.MoveWorkItemRequest>(request), cancellationToken)),
                 WorkItemActions.Transfer => Success(
                     request.RequestId,
                     await TransferItemAsync(
@@ -166,6 +179,11 @@ public sealed class WorkManagementCapabilityHandler(
                     await ControlOrchestrationAsync(
                         organizationId, installation.Id, request.Capability,
                         Read<Wire.ControlWorkSprintExecutionRequest>(request), cancellationToken)),
+                WorkOrchestrationActions.ConfigureSoftwareTemplate => Success(
+                    request.RequestId,
+                    await ConfigureSoftwareTemplateAsync(
+                        organizationId, installation,
+                        Read<Wire.ConfigureSoftwareOrchestrationTemplateRequest>(request), cancellationToken)),
                 _ => Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound,
                     "The work-management capability is not implemented.")
             };
@@ -229,6 +247,88 @@ public sealed class WorkManagementCapabilityHandler(
             ?? throw new KeyNotFoundException("Sprint execution was not found.");
     }
 
+    private async Task<Wire.WorkOrchestrationPolicyRevision> ConfigureSoftwareTemplateAsync(
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.ConfigureSoftwareOrchestrationTemplateRequest input,
+        CancellationToken cancellationToken)
+    {
+        var grant = await RequireAsync(
+            organizationId, installation.Id, WorkOrchestrationActions.ConfigureSoftwareTemplate,
+            input.BoardId, cancellationToken);
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        if (input.MaximumQualityCycles is < 1 or > 10)
+            throw new ArgumentException("Maximum QA cycles must be between 1 and 10.");
+        var replay = await ReplayAsync<Wire.WorkOrchestrationPolicyRevision>(
+            installation.Id, WorkOrchestrationActions.ConfigureSoftwareTemplate,
+            input.IdempotencyKey, cancellationToken);
+        if (replay is not null) return replay;
+
+        var retry = new Wire.WorkOrchestrationRetryPolicy();
+        var stages = new List<Wire.WorkOrchestrationStageDefinition>
+        {
+            new("ready", "Ready For Development", Wire.WorkOrchestrationStageTypes.Queue,
+                input.ReadyColumnId, "Wait until dependencies are complete.", "{}", "{}", 30, null, retry),
+            new("development", "In Development", Wire.WorkOrchestrationStageTypes.AgentExecution,
+                input.DevelopmentColumnId,
+                "Implement the approved ticket, validate it, and publish a reviewable pull request.", "{}",
+                "{\"type\":\"object\",\"required\":[\"repositoryConnectionId\",\"sourceBranch\",\"commitSha\",\"pullRequestUrl\",\"summary\"]}",
+                3600, null, retry),
+            new("dev-complete", "Dev Complete", Wire.WorkOrchestrationStageTypes.Queue,
+                input.DevCompleteColumnId,
+                "Development is complete and ready for independent testing.", "{}", "{}", 30, null, retry),
+            new("quality", "In Testing", Wire.WorkOrchestrationStageTypes.AgentExecution,
+                input.QualityColumnId,
+                "Validate the exact development commit without modifying tracked source.", "{}",
+                "{\"type\":\"object\",\"required\":[\"verdict\",\"summary\",\"criteria\",\"validations\",\"findings\",\"remainingRisks\"]}",
+                1800, null, retry),
+            new("merge-decision", "Ready To Merge",
+                input.MergeMode == Wire.WorkMergeModes.Automatic
+                    ? Wire.WorkOrchestrationStageTypes.Queue
+                    : Wire.WorkOrchestrationStageTypes.ManagerApproval,
+                input.ReadyToMergeColumnId,
+                "Authorize merge of the exact QA-approved commit.", "{}", "{}", 86400, 1, retry),
+            new("governed-merge", "Governed merge", Wire.WorkOrchestrationStageTypes.TrustedPlatformAction,
+                input.ReadyToMergeColumnId,
+                "Revalidate and merge the exact QA-approved commit.", "{}", "{}", 300, 1, retry,
+                GovernedMergeWorkActionExecutor.ActionName),
+            new("done", "Done", Wire.WorkOrchestrationStageTypes.Terminal,
+                input.DoneColumnId, "Work is complete.", "{}", "{}", 30, null, retry, null, true),
+            new("cancelled", "Cancelled", Wire.WorkOrchestrationStageTypes.Terminal,
+                input.DoneColumnId, "Work was rejected.", "{}", "{}", 30, null, retry)
+        };
+        var transitions = new List<Wire.WorkOrchestrationTransitionDefinition>
+        {
+            new("ready", "ready", "development"),
+            new("development", "completed", "dev-complete"),
+            new("dev-complete", "ready", "quality"),
+            new("quality", "passed", "merge-decision"),
+            new("quality", "changes_requested", "development", input.MaximumQualityCycles),
+            new("merge-decision", input.MergeMode == Wire.WorkMergeModes.Automatic ? "ready" : "approved", "governed-merge"),
+            new("merge-decision", "rejected", "cancelled"),
+            new("governed-merge", "merged", "done")
+        };
+        var revision = await orchestration.SavePolicyRevisionAsync(
+            organizationId, input.BoardId, installation.Id,
+            new SaveWorkOrchestrationPolicyRequest(
+                "Software delivery", "ready", input.MergeMode,
+                new Wire.WorkOrchestrationConcurrencyLimits(100, 25, 10, 5, 1),
+                stages, transitions, input.IdempotencyKey), cancellationToken);
+        var published = await orchestration.PublishPolicyRevisionAsync(
+            organizationId, input.BoardId, installation.Id,
+            new PublishWorkOrchestrationPolicyRequest(
+                revision.RevisionId, $"{input.IdempotencyKey}:publish"), cancellationToken);
+        AddReceipt(
+            organizationId, installation.Id, WorkOrchestrationActions.ConfigureSoftwareTemplate,
+            input.IdempotencyKey, published.RevisionId, published);
+        await db.SaveChangesAsync(cancellationToken);
+        await WriteAuditAsync(
+            organizationId, installation.Id, input.BoardId,
+            WorkOrchestrationActions.ConfigureSoftwareTemplate, grant,
+            new { published.RevisionId, input.IdempotencyKey }, cancellationToken);
+        return published;
+    }
+
     private Task<Wire.WorkItem> MoveItemAsync(
         AgentSession session,
         Guid organizationId,
@@ -263,12 +363,19 @@ public sealed class WorkManagementCapabilityHandler(
                 x.ScopeId.HasValue)
             .Select(x => x.ScopeId!.Value)
             .ToHashSet();
-        if (!organizationRead && boardIds.Count == 0)
+        var teamIds = grants.Where(x =>
+                x.Action == WorkBoardActions.Read &&
+                x.ScopeKind == GrantScopeKind.Team &&
+                x.ScopeId.HasValue)
+            .Select(x => x.ScopeId!.Value)
+            .ToHashSet();
+        if (!organizationRead && boardIds.Count == 0 && teamIds.Count == 0)
             throw new UnauthorizedAccessException("The installation has no board read grant.");
 
         var query = db.WorkBoards.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId)
-            .Where(x => organizationRead || boardIds.Contains(x.Id));
+            .Where(x => organizationRead || boardIds.Contains(x.Id) ||
+                        (x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value)));
         if (!input.IncludeArchived)
             query = query.Where(x => x.ArchivedAt == null);
         if (!string.IsNullOrWhiteSpace(input.Search))
@@ -283,9 +390,10 @@ public sealed class WorkManagementCapabilityHandler(
             .ToListAsync(cancellationToken);
         var result = boards.Select(board =>
         {
-            var allowed = grants.Where(x =>
+                var allowed = grants.Where(x =>
                     x.ScopeKind == GrantScopeKind.Organization ||
-                    (x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id))
+                    (x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id) ||
+                    (x.ScopeKind == GrantScopeKind.Team && x.ScopeId == board.TeamId))
                 .Select(x => x.Action)
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(x => x, StringComparer.Ordinal)
@@ -973,6 +1081,125 @@ public sealed class WorkManagementCapabilityHandler(
                 : "The installation does not have organization board-create access.");
     }
 
+    private async Task<Wire.WorkBoardDetail> ConfigureBoardColumnsAsync(
+        AgentSession session,
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.ConfigureWorkBoardColumnsRequest input,
+        CancellationToken cancellationToken)
+    {
+        var grant = await RequireAsync(
+            organizationId, installation.Id, WorkBoardActions.ConfigureColumns,
+            input.BoardId, cancellationToken);
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        var replay = await ReplayAsync<Wire.WorkBoardDetail>(
+            installation.Id, WorkBoardActions.ConfigureColumns,
+            input.IdempotencyKey, cancellationToken);
+        if (replay is not null) return replay;
+
+        var board = await db.WorkBoards.Include(x => x.Columns).SingleOrDefaultAsync(x =>
+            x.Id == input.BoardId && x.OrganizationId == organizationId, cancellationToken)
+            ?? throw new KeyNotFoundException("Board was not found.");
+        if (board.ArchivedAt.HasValue)
+            throw new InvalidOperationException(
+                "Archived boards must be restored before their columns can be configured.");
+        if (board.Revision != input.ExpectedRevision)
+            throw new DbUpdateConcurrencyException(
+                $"Expected board revision {input.ExpectedRevision}, current revision is {board.Revision}.");
+        if (input.Columns.Count == 0)
+            throw new ArgumentException("At least one board column is required.");
+
+        var parsed = input.Columns.Select((column, position) =>
+        {
+            if (!Enum.TryParse<WorkBoardColumnCategory>(column.Category, true, out var category) ||
+                !Enum.IsDefined(category))
+                throw new ArgumentException("A board column category is invalid.");
+            if (!Enum.TryParse<WorkBoardWipPolicy>(column.WipPolicy, true, out var wipPolicy) ||
+                !Enum.IsDefined(wipPolicy))
+                throw new ArgumentException("A board column WIP policy is invalid.");
+            return new
+            {
+                column.Id,
+                Name = column.Name.Trim(),
+                Category = category,
+                WipPolicy = wipPolicy,
+                column.WipLimit,
+                Position = position
+            };
+        }).ToList();
+        if (parsed.Any(x => string.IsNullOrWhiteSpace(x.Name)))
+            throw new ArgumentException("Every board column requires a name.");
+        if (parsed.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != parsed.Count)
+            throw new ArgumentException("Board column names must be unique.");
+        if (!parsed.Any(x => x.Category == WorkBoardColumnCategory.ToDo) ||
+            !parsed.Any(x => x.Category == WorkBoardColumnCategory.Done))
+            throw new ArgumentException("A board requires at least one To Do column and one Done column.");
+        if (parsed.Any(x => x.WipPolicy != WorkBoardWipPolicy.Disabled &&
+                            (!x.WipLimit.HasValue || x.WipLimit <= 0)))
+            throw new ArgumentException("Warning and hard WIP policies require a positive limit.");
+
+        var requestedIds = parsed.Where(x => x.Id.HasValue).Select(x => x.Id!.Value).ToHashSet();
+        if (requestedIds.Count != parsed.Count(x => x.Id.HasValue) ||
+            requestedIds.Any(id => board.Columns.All(x => x.Id != id)))
+            throw new ArgumentException(
+                "A column identifier is duplicated or does not belong to this board.");
+        var removed = board.Columns.Where(x => !requestedIds.Contains(x.Id)).ToList();
+        var removedIds = removed.Select(x => x.Id).ToHashSet();
+        if (removedIds.Count > 0 && await db.CoreWorkTasks.AnyAsync(x =>
+                x.BoardId == board.Id && x.BoardColumnId.HasValue &&
+                removedIds.Contains(x.BoardColumnId.Value), cancellationToken))
+            throw new InvalidOperationException("Move all cards out of a column before removing it.");
+
+        db.WorkBoardColumns.RemoveRange(removed);
+        var configured = new List<WorkBoardColumn>();
+        foreach (var value in parsed)
+        {
+            var column = value.Id.HasValue
+                ? board.Columns.Single(x => x.Id == value.Id.Value)
+                : new WorkBoardColumn { Id = Guid.NewGuid(), BoardId = board.Id };
+            column.Name = value.Name;
+            column.Category = value.Category;
+            column.Position = value.Position;
+            column.WipPolicy = value.WipPolicy;
+            column.WipLimit = value.WipPolicy == WorkBoardWipPolicy.Disabled ? null : value.WipLimit;
+            if (!value.Id.HasValue) db.WorkBoardColumns.Add(column);
+            configured.Add(column);
+        }
+        board.Revision++;
+        board.UpdatedAt = DateTimeOffset.UtcNow;
+
+        var itemRows = await db.CoreWorkTasks.Include(x => x.StageAssignments)
+            .Where(x => x.OrganizationId == organizationId && x.BoardId == board.Id && x.BoardColumnId != null)
+            .OrderBy(x => x.BoardColumnId).ThenBy(x => x.BoardRank)
+            .ToListAsync(cancellationToken);
+        var items = new List<Wire.WorkItem>(itemRows.Count);
+        foreach (var item in itemRows)
+            items.Add(await ToAgentItemAsync(item, cancellationToken));
+        var result = new Wire.WorkBoardDetail(
+            new Wire.WorkBoardSummary(
+                board.Id, board.Name, board.Description, board.IsDefault,
+                board.ArchivedAt.HasValue, board.Revision,
+                [WorkBoardActions.Read, WorkBoardActions.ConfigureColumns, WorkItemActions.Read])
+            {
+                TeamId = board.TeamId,
+                ManagerOrganizationUserId = board.ManagerOrganizationUserId,
+                Key = board.Key
+            },
+            configured.OrderBy(x => x.Position).Select(x => new Wire.WorkBoardColumn(
+                x.Id, x.Name, x.Category.ToString(), x.Position,
+                x.WipPolicy.ToString(), x.WipLimit)).ToList(),
+            items);
+        AddReceipt(
+            organizationId, installation.Id, WorkBoardActions.ConfigureColumns,
+            input.IdempotencyKey, board.Id, result);
+        await db.SaveChangesAsync(cancellationToken);
+        await WriteAuditAsync(
+            organizationId, installation.Id, board.Id, WorkBoardActions.ConfigureColumns, grant,
+            new { board.Id, board.Revision, columnCount = configured.Count, input.IdempotencyKey },
+            cancellationToken, session);
+        return result;
+    }
+
     private async Task<Wire.WorkItem> CreateItemAsync(
         AgentSession session,
         Guid organizationId,
@@ -1612,6 +1839,25 @@ public sealed class WorkManagementCapabilityHandler(
             boardId,
             cancellationToken);
         if (decision.Allowed) return decision;
+        if (boardId.HasValue)
+        {
+            var teamId = await db.WorkBoards.AsNoTracking()
+                .Where(x => x.OrganizationId == organizationId && x.Id == boardId.Value)
+                .Select(x => x.TeamId)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (teamId.HasValue)
+            {
+                decision = await authorization.AuthorizeAsync(
+                    organizationId,
+                    GrantSubjectKind.AgentInstallation,
+                    installationId,
+                    action,
+                    GrantScopeKind.Team,
+                    teamId,
+                    cancellationToken);
+                if (decision.Allowed) return decision;
+            }
+        }
         await WriteAuditAsync(
             organizationId, installationId, boardId, action, null,
             new { action, boardId }, cancellationToken, outcome: "Denied");

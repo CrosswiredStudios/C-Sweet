@@ -280,6 +280,8 @@ public sealed class TeamService(
             actor.Id,
             timeProvider.GetUtcNow(),
             cancellationToken);
+        await EnsureMemberTeamGrantsAsync(
+            team, employee, actor.Id, timeProvider.GetUtcNow(), cancellationToken);
         Touch(team, timeProvider.GetUtcNow());
         await SaveWithConcurrencyAsync(cancellationToken);
         await CommitAsync(transaction, cancellationToken);
@@ -313,6 +315,14 @@ public sealed class TeamService(
         if (membership.EndedAt is null)
         {
             membership.EndedAt = timeProvider.GetUtcNow();
+            var installationId = await db.CoreOrganizationUsers.AsNoTracking()
+                .Where(x => x.Id == organizationUserId && x.OrganizationId == organizationId)
+                .Select(x => x.AgentInstallationId)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (installationId.HasValue)
+                await TeamAgentGrantProvisioner.RevokeAsync(
+                    db, organizationId, installationId.Value, teamId,
+                    membership.EndedAt.Value, cancellationToken);
             Touch(team, membership.EndedAt.Value);
             await SaveWithConcurrencyAsync(cancellationToken);
         }
@@ -413,9 +423,30 @@ public sealed class TeamService(
             sourceId,
             timeProvider.GetUtcNow(),
             cancellationToken);
+        await EnsureMemberTeamGrantsAsync(
+            team, employee, team.LeadOrganizationUserId,
+            timeProvider.GetUtcNow(), cancellationToken);
         Touch(team, timeProvider.GetUtcNow());
         await SaveWithConcurrencyAsync(cancellationToken);
         await CommitAsync(transaction, cancellationToken);
+    }
+
+    private async Task EnsureMemberTeamGrantsAsync(
+        OrganizationTeam team,
+        OrganizationUser employee,
+        Guid grantedByOrganizationUserId,
+        DateTimeOffset grantedAt,
+        CancellationToken cancellationToken)
+    {
+        if (!employee.AgentInstallationId.HasValue) return;
+        await TeamAgentGrantProvisioner.EnsureAsync(
+            db,
+            team.OrganizationId,
+            employee.AgentInstallationId.Value,
+            team.Id,
+            grantedByOrganizationUserId,
+            grantedAt,
+            cancellationToken);
     }
 
     private async Task UpsertMembershipCoreAsync(

@@ -1,6 +1,7 @@
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -105,6 +106,89 @@ public sealed class TeamServiceTests
             new TeamRevisionRequest(archived.Team.Revision));
         Assert.False(restored.Team.IsArchived);
         Assert.NotNull((await db.ScopedActionGrants.SingleAsync()).RevokedAt);
+    }
+
+    [Fact]
+    public async Task MembershipRemovalRevokesGeneratedGrantButPreservesManualGrant()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        var now = DateTimeOffset.UtcNow;
+        var installationId = setup.Agent.AgentInstallationId!.Value;
+        var packageVersionId = Guid.NewGuid();
+        db.AgentPackageVersions.Add(new AgentPackageVersion
+        {
+            Id = packageVersionId,
+            PackageSourceId = Guid.NewGuid(),
+            ManifestJson = """
+                { "requires": [{ "name": "work.board.read", "scope": "team" }] }
+                """,
+            AgentId = "com.example.team-agent",
+            AgentName = "Team agent",
+            Version = "1.0.0",
+            ImportedAt = now
+        });
+        db.AgentInstallations.Add(new AgentInstallation
+        {
+            Id = installationId,
+            InstallationKey = Guid.NewGuid(),
+            PackageVersionId = packageVersionId,
+            BusinessId = setup.OrganizationId.ToString("D"),
+            Scope = PluginInstallationScope.Organization,
+            IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        db.AgentInstallationGrants.Add(new AgentInstallationGrant
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installationId,
+            RequiredCapabilitiesJson = "[\"work.board.read\"]",
+            ApprovedAt = now
+        });
+        await db.SaveChangesAsync();
+
+        var service = Service(db);
+        var team = (await service.CreateAsync(
+            setup.OrganizationId,
+            setup.ManagerApplicationUserId,
+            new CreateTeamRequest("Delivery", null, setup.Manager.Id))).Team;
+        db.ScopedActionGrants.Add(new ScopedActionGrant
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            SubjectKind = GrantSubjectKind.AgentInstallation,
+            SubjectId = installationId,
+            Action = "manual.team.action",
+            ScopeKind = GrantScopeKind.Team,
+            ScopeId = team.Id,
+            GrantedBySubjectKind = GrantSubjectKind.OrganizationUser,
+            GrantedBySubjectId = setup.Manager.Id,
+            GrantedAt = now
+        });
+        await db.SaveChangesAsync();
+
+        team = (await service.UpsertMemberAsync(
+            setup.OrganizationId,
+            setup.ManagerApplicationUserId,
+            team.Id,
+            setup.Agent.Id,
+            new UpsertTeamMembershipRequest(null, team.Revision))).Team;
+        var active = await db.ScopedActionGrants.Where(x => x.RevokedAt == null).ToListAsync();
+        Assert.Contains(active, x => x.Action == "work.board.read");
+        Assert.Contains(active, x => x.Action == "manual.team.action");
+
+        await service.RemoveMemberAsync(
+            setup.OrganizationId,
+            setup.ManagerApplicationUserId,
+            team.Id,
+            setup.Agent.Id,
+            new TeamRevisionRequest(team.Revision));
+
+        var grants = await db.ScopedActionGrants.ToListAsync();
+        Assert.NotNull(grants.Single(x => x.Action == "work.board.read").RevokedAt);
+        Assert.Null(grants.Single(x => x.Action == "manual.team.action").RevokedAt);
     }
 
     [Fact]

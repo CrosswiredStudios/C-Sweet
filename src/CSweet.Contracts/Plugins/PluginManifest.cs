@@ -58,6 +58,8 @@ public sealed record PluginProtocol
 
 public sealed record PluginCapabilityDeclaration
 {
+    public const int MaximumExecutionTimeoutSeconds = 86_400;
+
     public string Name { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public JsonElement InputSchema { get; init; }

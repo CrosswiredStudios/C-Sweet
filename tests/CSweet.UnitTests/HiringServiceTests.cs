@@ -565,14 +565,19 @@ public sealed class HiringServiceTests
                 RecommendationId = recommendation.Id,
                 TeamId = Guid.NewGuid()
             }));
-        await Assert.ThrowsAsync<ArgumentException>(() => service.PreviewMarketplaceHireAsync(
+        var overriddenPreview = await service.PreviewMarketplaceHireAsync(
             organizationId,
             applicationUserId,
             new PreviewMarketplaceHireRequest(
-                available.AgentReference, "Project Manager", "Avery", owner.Id, "wrong-role")
+                available.AgentReference, "Project Manager", "Avery", owner.Id, "overridden-role")
             {
                 RecommendationId = recommendation.Id
-            }));
+            });
+        Assert.Equal("Project Manager", overriddenPreview.RoleTitle);
+        var overriddenWorkflow = await db.StaffingActionProposals
+            .SingleAsync(x => x.Id == overriddenPreview.WorkflowId);
+        Assert.Equal(recommendation.Id, overriddenWorkflow.WorkforcePlanId);
+        Assert.Equal("Product Manager", (await db.WorkforcePlans.SingleAsync(x => x.Id == recommendation.Id)).Title);
         var preview = await service.PreviewMarketplaceHireAsync(
             organizationId,
             applicationUserId,

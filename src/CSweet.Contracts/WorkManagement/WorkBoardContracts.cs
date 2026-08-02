@@ -8,7 +8,7 @@ public static class WorkBoardActions
     public const string Read = WorkManagementCapabilityNames.BoardRead;
     public const string Create = WorkManagementCapabilityNames.BoardCreate;
     public const string Configure = "work.board.configure";
-    public const string ConfigureColumns = "work.board.columns.configure";
+    public const string ConfigureColumns = WorkManagementCapabilityNames.BoardConfigureColumns;
     public const string ManageGrants = "work.board.grants.manage";
     public const string Archive = "work.board.archive";
     public const string Restore = "work.board.restore";
@@ -33,7 +33,7 @@ public static class WorkItemActions
     public const string QualitySubmit = WorkManagementCapabilityNames.ItemQualitySubmit;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Create, Update, Transfer, Comment, Estimate];
+        [Read, Create, Update, Move, Transfer, Comment, Estimate];
 }
 
 public static class WorkSprintActions

@@ -58,6 +58,33 @@ public sealed class PluginPlatformTests
     }
 
     [Fact]
+    public void ManifestReader_AcceptsLongRunningCapabilityWithinSdkLimit()
+    {
+        var manifest = """
+            {
+              "manifestVersion": "2.0",
+              "kind": "agent",
+              "id": "com.example.software-developer",
+              "name": "Software Developer",
+              "version": "1.0.0",
+              "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },
+              "provides": [{
+                "name": "work.execution.run.v1",
+                "description": "Execute one workflow stage.",
+                "inputSchema": { "type": "object" },
+                "outputSchema": { "type": "object" },
+                "executionTimeoutSeconds": 3600,
+                "idempotency": "work-item"
+              }]
+            }
+            """u8.ToArray();
+
+        var result = new PluginManifestReader().Read(manifest, "csweet-plugin.json");
+
+        Assert.Equal("agent", result.Kind);
+    }
+
+    [Fact]
     public async Task SecretStore_EncryptsPersistedValueAndRoundTripsPlaintext()
     {
         await using var db = CreateDb();

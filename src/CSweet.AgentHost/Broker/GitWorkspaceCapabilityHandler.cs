@@ -3,9 +3,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Agent.SDK;
+using CSweet.Application.Security;
 using CSweet.Application.Setup;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Domain.Security;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using CSweet.Infrastructure.WorkManagement;
@@ -22,7 +24,8 @@ public sealed class GitWorkspaceCapabilityHandler(
     CSweetDbContext db,
     IDockerCommandExecutor docker,
     IPluginSecretStore secrets,
-    IHttpClientFactory httpClientFactory) : IPlatformCapabilityHandler
+    IHttpClientFactory httpClientFactory,
+    IScopedActionAuthorizationService authorization) : IPlatformCapabilityHandler
 {
     private const long MaximumRepositoryBytes = 2L * 1024 * 1024 * 1024;
     private const int MaximumRepositoryFiles = 250_000;
@@ -32,7 +35,8 @@ public sealed class GitWorkspaceCapabilityHandler(
         GitWorkspaceCapabilities.Prepare,
         GitWorkspaceCapabilities.Inspect,
         GitWorkspaceCapabilities.Publish,
-        GitWorkspaceCapabilities.Cleanup
+        GitWorkspaceCapabilities.Cleanup,
+        GitRepositoryCapabilities.TeamOptions
     ];
 
     public bool CanHandle(string capability) => Handled.Contains(capability);
@@ -91,6 +95,11 @@ public sealed class GitWorkspaceCapabilityHandler(
                     runtimeInstanceId,
                     Read<CleanupGitWorkspaceRequest>(request),
                     cancellationToken),
+                GitRepositoryCapabilities.TeamOptions => await ListTeamRepositoryOptionsAsync(
+                    organizationId,
+                    installationId,
+                    Read<TeamRepositoryOptionsRequest>(request),
+                    cancellationToken),
                 _ => throw new KeyNotFoundException("The Git workspace capability is not implemented.")
             };
             response = Success(request.RequestId, value);
@@ -131,6 +140,79 @@ public sealed class GitWorkspaceCapabilityHandler(
                 exception.Message);
         }
         yield return response;
+    }
+
+    private async Task<IReadOnlyList<TeamRepositoryOption>> ListTeamRepositoryOptionsAsync(
+        Guid organizationId,
+        Guid installationId,
+        TeamRepositoryOptionsRequest input,
+        CancellationToken cancellationToken)
+    {
+        var team = await db.OrganizationTeams.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == input.TeamId && x.OrganizationId == organizationId && x.ArchivedAt == null,
+            cancellationToken) ?? throw new KeyNotFoundException("The active team was not found.");
+        var callerId = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId &&
+                        x.AgentInstallationId == installationId && x.IsActive)
+            .Select(x => (Guid?)x.Id)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new UnauthorizedAccessException(
+                "The installation does not have an active organization-user identity.");
+        if (!await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.TeamId == team.Id &&
+                x.OrganizationUserId == callerId && x.EndedAt == null, cancellationToken))
+            throw new UnauthorizedAccessException("The installation is not an active member of this team.");
+        var decision = await authorization.AuthorizeAsync(
+            organizationId, GrantSubjectKind.AgentInstallation, installationId,
+            GitRepositoryCapabilities.TeamOptions, GrantScopeKind.Team, team.Id,
+            cancellationToken);
+        if (!decision.Allowed)
+            throw new UnauthorizedAccessException(
+                "The installation does not have permission to list repository options for this team.");
+
+        var memberships = await db.TeamMemberships.AsNoTracking()
+            .Include(x => x.OrganizationUser)
+            .Include(x => x.TeamRole)
+            .Where(x => x.OrganizationId == organizationId && x.TeamId == team.Id &&
+                        x.EndedAt == null)
+            .ToListAsync(cancellationToken);
+        Guid? FindInstallation(string role) => memberships
+            .Where(x => x.OrganizationUser is { IsActive: true, AgentInstallationId: not null } &&
+                        string.Equals(x.TeamRole?.Name, role, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.OrganizationUser!.AgentInstallationId)
+            .SingleOrDefault();
+        var developerId = FindInstallation("Software Developer")
+            ?? throw new InvalidOperationException("The team does not have an active Software Developer.");
+        var qualityId = FindInstallation("Software QA")
+            ?? throw new InvalidOperationException("The team does not have an active Software QA.");
+
+        var connections = await db.GitRepositoryConnections.AsNoTracking()
+            .Include(x => x.InstallationGrants)
+            .Where(x => x.OrganizationId == organizationId)
+            .OrderBy(x => x.Name)
+            .ToListAsync(cancellationToken);
+        return connections.Where(connection => IsCommonDeliveryRepository(
+                connection.InstallationGrants, developerId, qualityId))
+            .Select(x => new TeamRepositoryOption(
+            x.Id, x.Name, x.Provider.ToString(), x.PermittedRepositoryPath, x.DefaultBranch))
+            .ToList();
+    }
+
+    internal static bool IsCommonDeliveryRepository(
+        IEnumerable<GitRepositoryConnectionGrant> grants,
+        Guid developerInstallationId,
+        Guid qualityInstallationId)
+    {
+        var developer = grants.SingleOrDefault(x =>
+            x.AgentInstallationId == developerInstallationId && x.RevokedAt == null);
+        var quality = grants.SingleOrDefault(x =>
+            x.AgentInstallationId == qualityInstallationId && x.RevokedAt == null);
+        return developer is
+               {
+                   CanReadFetch: true,
+                   CanPushTicketBranch: true,
+                   CanMergeQaApprovedPullRequest: true
+               } && quality is { CanReadFetch: true };
     }
 
     private async Task<GitWorkspaceResult> PrepareAsync(

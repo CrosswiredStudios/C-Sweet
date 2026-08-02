@@ -1862,12 +1862,20 @@
         _orchestrationError = null;
         try
         {
+            var devCompleteColumnId = _detail.Columns.FirstOrDefault(x =>
+                x.Name.Equals("Dev Complete", StringComparison.OrdinalIgnoreCase))?.Id
+                ?? _orchestrationQualityColumnId!.Value;
+            var readyToMergeColumnId = _detail.Columns.FirstOrDefault(x =>
+                x.Name.Equals("Ready To Merge", StringComparison.OrdinalIgnoreCase))?.Id
+                ?? _orchestrationQualityColumnId!.Value;
             var response = await Http.PostAsJsonAsync(
                 $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/software-template",
                 new CreateSoftwareOrchestrationTemplateRequest(
                     _orchestrationReadyColumnId!.Value,
                     _orchestrationDevelopmentColumnId!.Value,
+                    devCompleteColumnId,
                     _orchestrationQualityColumnId!.Value,
+                    readyToMergeColumnId,
                     _orchestrationDoneColumnId!.Value,
                     _orchestrationMergeMode,
                     _orchestrationQualityCycles,

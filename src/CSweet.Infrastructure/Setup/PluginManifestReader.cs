@@ -41,10 +41,11 @@ public sealed class PluginManifestReader : IPluginManifestReader
             if (string.IsNullOrWhiteSpace(capability.Description) ||
                 capability.InputSchema.ValueKind != JsonValueKind.Object ||
                 capability.OutputSchema.ValueKind != JsonValueKind.Object ||
-                capability.ExecutionTimeoutSeconds is < 1 or > 900 ||
+                capability.ExecutionTimeoutSeconds is < 1 or > PluginCapabilityDeclaration.MaximumExecutionTimeoutSeconds ||
                 capability.Idempotency is not ("work-item" or "caller-key" or "none"))
                 throw new JsonException(
-                    $"Provided capability '{capability.Name}' must declare description, input/output schemas, a bounded timeout, and idempotency.");
+                    $"Provided capability '{capability.Name}' must declare description, input/output schemas, " +
+                    $"an execution timeout between 1 and {PluginCapabilityDeclaration.MaximumExecutionTimeoutSeconds} seconds, and idempotency.");
         }
         return new PluginManifestEnvelope(
             manifestFileName,

@@ -110,6 +110,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Read a granted board or one assigned work item when itemId is provided."),
         Write(WorkBoardActions.Create, "create_work_board",
             "Create an operational board with default To Do and Done columns."),
+        Write(WorkBoardActions.ConfigureColumns, "configure_work_board_columns",
+            "Configure an exact ordered workflow on a granted board using optimistic concurrency."),
         Write(WorkItemActions.Create, "create_work_item",
             "Create a typed Initiative, Epic, Story, Task, or Bug on a granted board."),
         Write(WorkItemActions.Comment, "comment_on_work_item",
@@ -136,6 +138,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Commit and push the ticket branch and create a pull request when a review provider is configured."),
         Write(GitWorkspaceCapabilities.Cleanup, "cleanup_git_workspace",
             "Remove a successful ticket workspace or retain a failed workspace for recovery."),
+        Read(GitRepositoryCapabilities.TeamOptions, "list_team_repository_options",
+            "List safe repository metadata for connections granted to both the team's Software Developer and Software QA."),
         Read(WorkSprintActions.Read, "list_work_sprints",
             "List planned, active, and closed sprints on a granted board."),
         Write(WorkSprintActions.Create, "create_work_sprint",
@@ -158,6 +162,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Resume dispatch for a paused sprint as its assigned board manager."),
         Write(WorkOrchestrationActions.Cancel, "cancel_orchestrated_work_sprint",
             "Cancel an active or paused sprint and its outstanding work as its assigned board manager."),
+        Write(WorkOrchestrationActions.ConfigureSoftwareTemplate, "configure_software_delivery_template",
+            "Publish the bounded software delivery workflow for a granted team board."),
     ];
 
     static McpToolCatalog()
@@ -345,6 +351,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         WorkBoardActions.Create => Schema("""
             {"type":"object","required":["name","idempotencyKey"],"properties":{"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"teamId":{"type":["string","null"],"format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
+        WorkBoardActions.ConfigureColumns => Schema("""
+            {"type":"object","required":["boardId","expectedRevision","columns","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"columns":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","required":["name","category","wipPolicy"],"properties":{"id":{"type":["string","null"],"format":"uuid"},"name":{"type":"string","minLength":1,"maxLength":160},"category":{"type":"string","enum":["ToDo","InProgress","Done","Cancelled"]},"wipPolicy":{"type":"string","enum":["Disabled","Warning","HardLimit"]},"wipLimit":{"type":["integer","null"],"minimum":1}},"additionalProperties":false}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
         WorkItemActions.Create => Schema("""
             {"type":"object","required":["boardId","title","kind","priority","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"kind":{"type":"string","enum":["Initiative","Epic","Story","Task","Bug"]},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"columnId":{"type":["string","null"],"format":"uuid"},"parentItemId":{"type":["string","null"],"format":"uuid"},"dueDate":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
@@ -375,6 +384,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         GitWorkspaceCapabilities.Cleanup => Schema("""
             {"type":"object","required":["workspaceId"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"retainOnFailure":{"type":"boolean"}},"additionalProperties":false}
             """),
+        GitRepositoryCapabilities.TeamOptions => Schema("""
+            {"type":"object","required":["teamId"],"properties":{"teamId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
         WorkSprintActions.Read => Schema("""
             {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"}},"additionalProperties":false}
             """),
@@ -398,6 +410,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         WorkOrchestrationActions.Pause or WorkOrchestrationActions.Resume or WorkOrchestrationActions.Cancel => Schema("""
             {"type":"object","required":["boardId","sprintId","expectedSprintRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"sprintId":{"type":"string","format":"uuid"},"expectedSprintRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"reason":{"type":["string","null"],"maxLength":2048}},"additionalProperties":false}
+            """),
+        WorkOrchestrationActions.ConfigureSoftwareTemplate => Schema("""
+            {"type":"object","required":["boardId","readyColumnId","developmentColumnId","devCompleteColumnId","qualityColumnId","readyToMergeColumnId","doneColumnId","mergeMode","maximumQualityCycles","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"readyColumnId":{"type":"string","format":"uuid"},"developmentColumnId":{"type":"string","format":"uuid"},"devCompleteColumnId":{"type":"string","format":"uuid"},"qualityColumnId":{"type":"string","format":"uuid"},"readyToMergeColumnId":{"type":"string","format":"uuid"},"doneColumnId":{"type":"string","format":"uuid"},"mergeMode":{"type":"string","enum":["ManagerApproval","Automatic"]},"maximumQualityCycles":{"type":"integer","minimum":1,"maximum":10},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         _ => Schema("""
             {"type":"object","description":"Arguments are validated by the broker capability handler."}

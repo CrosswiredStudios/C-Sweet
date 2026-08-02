@@ -88,6 +88,25 @@ public class AgentImportPreviewServiceTests
     }
 
     [Fact]
+    public async Task PreviewAsync_AcceptsLongRunningCapabilityWithinSdkLimit()
+    {
+        await using var dbContext = CreateDbContext();
+        var manifest = ValidManifest().Replace(
+            "\"executionTimeoutSeconds\":120",
+            "\"executionTimeoutSeconds\":3600",
+            StringComparison.Ordinal);
+        var service = new AgentImportPreviewService(
+            dbContext,
+            new FakeGitHubAgentRepositoryClient(manifest),
+            new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest(
+            "https://github.com/example/research-agent"));
+
+        Assert.Equal("Previewed", result.Status);
+    }
+
+    [Fact]
     public async Task PreviewAsync_RejectsSelectWithoutOptions()
     {
         await using var dbContext = CreateDbContext();

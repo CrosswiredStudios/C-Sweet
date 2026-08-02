@@ -189,7 +189,17 @@ public sealed class ResourceChangeServiceTests
     {
         await using var db = CreateDb();
         var setup = SeedManagerConversation(db);
-        SeedRequesterInstallation(db, setup, [WorkBoardActions.Create]);
+        SeedRequesterInstallation(
+            db,
+            setup,
+            [WorkBoardActions.Create],
+            """
+            {
+              "requires": [
+                { "name": "work.board.create", "scope": "team" }
+              ]
+            }
+            """);
         await db.SaveChangesAsync();
         var service = new ResourceChangeService(db, new TestAuditEventWriter());
         var request = await service.ProposeAsync(
@@ -252,7 +262,17 @@ public sealed class ResourceChangeServiceTests
     {
         await using var db = CreateDb();
         var setup = SeedManagerConversation(db);
-        SeedRequesterInstallation(db, setup, [WorkBoardActions.Create]);
+        SeedRequesterInstallation(
+            db,
+            setup,
+            [WorkBoardActions.Create],
+            """
+            {
+              "requires": [
+                { "name": "work.board.create", "scope": "team" }
+              ]
+            }
+            """);
         await db.SaveChangesAsync();
         var teamService = new TeamService(db, new TestAuditEventWriter(), TimeProvider.System);
         var service = new ResourceChangeService(db, new TestAuditEventWriter(), teamService);
@@ -285,6 +305,73 @@ public sealed class ResourceChangeServiceTests
         var grant = Assert.Single(await db.ScopedActionGrants.ToListAsync());
         Assert.Equal(GrantScopeKind.Team, grant.ScopeKind);
         Assert.Equal(team.Id, grant.ScopeId);
+    }
+
+    [Fact]
+    public async Task ApprovedTeamProposal_GrantsOnlyReviewedTeamOrBoardManifestActions()
+    {
+        await using var db = CreateDb();
+        var setup = SeedManagerConversation(db);
+        var requested = new[]
+        {
+            WorkBoardActions.Create,
+            WorkBoardActions.Read,
+            WorkBoardActions.ConfigureColumns,
+            WorkItemActions.Move,
+            WorkItemActions.Read
+        };
+        SeedRequesterInstallation(
+            db,
+            setup,
+            requested,
+            """
+            {
+              "requires": [
+                { "name": "work.board.create", "scope": "team" },
+                { "name": "work.board.read", "scope": "board" },
+                { "name": "work.board.columns.configure", "scope": "board" },
+                { "name": "work.item.move", "scope": "board" },
+                { "name": "work.item.read", "scope": "work-item" }
+              ]
+            }
+            """);
+        await db.SaveChangesAsync();
+        var service = new ResourceChangeService(
+            db,
+            new TestAuditEventWriter(),
+            new TeamService(db, new TestAuditEventWriter(), TimeProvider.System));
+        var proposal = Proposal(setup, "manifest-team-grants") with
+        {
+            TeamKey = $"software:{setup.RequesterId:N}",
+            TeamName = "Software Delivery",
+            TeamDescription = "Approved software team."
+        };
+
+        var pending = await service.ProposeAsync(
+            setup.OrganizationId, setup.RequesterInstallationId, proposal);
+        var approved = await service.DecideForInstallationAsync(
+            setup.OrganizationId,
+            setup.ManagerInstallationId,
+            new ResourceChangeDecisionRequest(
+                pending.Id, ResourceChangeDecisionKinds.Approve, null, "approve-manifest-team"));
+
+        var grants = await db.ScopedActionGrants.OrderBy(x => x.Action).ToListAsync();
+        Assert.Equal(
+            new[]
+            {
+                WorkBoardActions.ConfigureColumns,
+                WorkBoardActions.Create,
+                WorkBoardActions.Read,
+                WorkItemActions.Move
+            }.Order(StringComparer.Ordinal),
+            grants.Select(x => x.Action));
+        Assert.All(grants, grant =>
+        {
+            Assert.Equal(GrantScopeKind.Team, grant.ScopeKind);
+            Assert.Equal(approved.TeamId, grant.ScopeId);
+            Assert.False(grant.CanDelegate);
+        });
+        Assert.DoesNotContain(grants, x => x.Action == WorkItemActions.Read);
     }
 
     private static ResourceChangeProposalRequest Proposal(Setup setup, string key) =>
@@ -391,14 +478,16 @@ public sealed class ResourceChangeServiceTests
     private static void SeedRequesterInstallation(
         CSweetDbContext db,
         Setup setup,
-        IReadOnlyList<string> requiredCapabilities)
+        IReadOnlyList<string> requiredCapabilities,
+        string? manifestJson = null)
     {
         var now = DateTimeOffset.UtcNow;
+        var packageVersionId = Guid.NewGuid();
         db.AgentInstallations.Add(new AgentInstallation
         {
             Id = setup.RequesterInstallationId,
             InstallationKey = Guid.NewGuid(),
-            PackageVersionId = Guid.NewGuid(),
+            PackageVersionId = packageVersionId,
             BusinessId = setup.OrganizationId.ToString("D"),
             Scope = PluginInstallationScope.Organization,
             IsEnabled = true,
@@ -406,6 +495,17 @@ public sealed class ResourceChangeServiceTests
             CreatedAt = now,
             UpdatedAt = now
         });
+        if (manifestJson is not null)
+            db.AgentPackageVersions.Add(new AgentPackageVersion
+            {
+                Id = packageVersionId,
+                PackageSourceId = Guid.NewGuid(),
+                ManifestJson = manifestJson,
+                AgentId = "com.example.product-manager",
+                AgentName = "Product Manager",
+                Version = "1.0.0",
+                ImportedAt = now
+            });
         db.AgentInstallationGrants.Add(new AgentInstallationGrant
         {
             Id = Guid.NewGuid(),

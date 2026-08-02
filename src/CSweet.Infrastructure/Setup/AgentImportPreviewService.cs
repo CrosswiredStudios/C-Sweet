@@ -256,8 +256,9 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             if (capability.InputSchema.ValueKind != JsonValueKind.Object ||
                 capability.OutputSchema.ValueKind != JsonValueKind.Object)
                 errors.Add($"provides capability '{capability.Name}' requires object inputSchema and outputSchema values.");
-            if (capability.ExecutionTimeoutSeconds is < 1 or > 900)
-                errors.Add($"provides capability '{capability.Name}' executionTimeoutSeconds must be between 1 and 900.");
+            if (capability.ExecutionTimeoutSeconds is < 1 or > PluginCapabilityDeclaration.MaximumExecutionTimeoutSeconds)
+                errors.Add(
+                    $"provides capability '{capability.Name}' executionTimeoutSeconds must be between 1 and {PluginCapabilityDeclaration.MaximumExecutionTimeoutSeconds}.");
             if (capability.Idempotency is not ("work-item" or "caller-key" or "none"))
                 errors.Add($"provides capability '{capability.Name}' idempotency is unsupported.");
             var descriptorHash = DescriptorHash(capability);

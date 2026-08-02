@@ -496,6 +496,197 @@ public sealed class WorkManagementCapabilityHandlerTests
             x => x.Action == WorkAutomationActions.Manage));
     }
 
+    [Fact]
+    public async Task TeamScopedAgentCanConfigureSoftwareColumnsAndMoveOnlyItsTeamItem()
+    {
+        await using var db = CreateDb();
+        var setup = SeedInstallation(db);
+        var leadId = db.ChangeTracker.Entries<OrganizationUser>().Single().Entity.Id;
+        var team = new OrganizationTeam
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            TeamKey = "software-team",
+            NormalizedName = "SOFTWARE TEAM",
+            Name = "Software Team",
+            LeadOrganizationUserId = leadId,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var board = new WorkBoard
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            TeamId = team.Id,
+            ManagerOrganizationUserId = leadId,
+            Name = "Software",
+            Description = "",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Columns =
+            [
+                Column("To Do", WorkBoardColumnCategory.ToDo, 0),
+                Column("Done", WorkBoardColumnCategory.Done, 1)
+            ]
+        };
+        var otherTeam = new OrganizationTeam
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            TeamKey = "other-team",
+            NormalizedName = "OTHER TEAM",
+            Name = "Other Team",
+            LeadOrganizationUserId = leadId,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var otherBoard = new WorkBoard
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            TeamId = otherTeam.Id,
+            ManagerOrganizationUserId = leadId,
+            Name = "Other Software",
+            Description = "",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Columns =
+            [
+                Column("Backlog", WorkBoardColumnCategory.ToDo, 0),
+                Column("Ready For Development", WorkBoardColumnCategory.ToDo, 1),
+                Column("Done", WorkBoardColumnCategory.Done, 2)
+            ]
+        };
+        db.OrganizationTeams.AddRange(team, otherTeam);
+        db.WorkBoards.AddRange(board, otherBoard);
+        foreach (var action in new[]
+                 {
+                     WorkBoardActions.Read,
+                     WorkBoardActions.ConfigureColumns,
+                     WorkItemActions.Read,
+                     WorkItemActions.Move
+                 })
+            Grant(db, setup, action, GrantScopeKind.Team, team.Id);
+        await db.SaveChangesAsync();
+        var handler = CreateHandler(db, new TestAuditEventWriter());
+        var session = Session(
+            setup, WorkBoardActions.Read, WorkBoardActions.ConfigureColumns,
+            WorkItemActions.Read, WorkItemActions.Move);
+
+        var softwareColumns = new[]
+        {
+            new { name = "Backlog", category = "ToDo", wipPolicy = "Disabled" },
+            new { name = "Ready For Development", category = "ToDo", wipPolicy = "Disabled" },
+            new { name = "In Development", category = "InProgress", wipPolicy = "Disabled" },
+            new { name = "Dev Complete", category = "InProgress", wipPolicy = "Disabled" },
+            new { name = "In Testing", category = "InProgress", wipPolicy = "Disabled" },
+            new { name = "Ready To Merge", category = "InProgress", wipPolicy = "Disabled" },
+            new { name = "Done", category = "Done", wipPolicy = "Disabled" }
+        };
+        object ConfigurePayload(Guid boardId, long revision, string key) => new
+        {
+            boardId,
+            expectedRevision = revision,
+            columns = softwareColumns,
+            idempotencyKey = key
+        };
+        var initialRevision = board.Revision;
+        var configured = await InvokeAsync(
+            handler, session, WorkBoardActions.ConfigureColumns,
+            ConfigurePayload(board.Id, initialRevision, "software-columns-v1"));
+        var replay = await InvokeAsync(
+            handler, session, WorkBoardActions.ConfigureColumns,
+            ConfigurePayload(board.Id, initialRevision, "software-columns-v1"));
+        var conflict = await InvokeAsync(
+            handler, session, WorkBoardActions.ConfigureColumns,
+            ConfigurePayload(board.Id, initialRevision, "software-columns-conflict"));
+        var crossTeamConfigure = await InvokeAsync(
+            handler, session, WorkBoardActions.ConfigureColumns,
+            ConfigurePayload(otherBoard.Id, otherBoard.Revision, "other-software-columns"));
+        Assert.True(configured.Succeeded, configured.Error);
+        Assert.True(replay.Succeeded, replay.Error);
+        Assert.False(conflict.Succeeded);
+        Assert.False(crossTeamConfigure.Succeeded);
+        using (var configuredJson = JsonDocument.Parse(configured.Payload.ToByteArray()))
+        {
+            var columns = configuredJson.RootElement.GetProperty("columns").EnumerateArray().ToList();
+            Assert.Equal(
+                softwareColumns.Select(x => x.name),
+                columns.Select(x => x.GetProperty("name").GetString()));
+            Assert.All(columns, column =>
+            {
+                Assert.Equal("Disabled", column.GetProperty("wipPolicy").GetString());
+                Assert.Equal(JsonValueKind.Null, column.GetProperty("wipLimit").ValueKind);
+            });
+        }
+        var backlog = await db.WorkBoardColumns.SingleAsync(x => x.BoardId == board.Id && x.Name == "Backlog");
+        var ready = await db.WorkBoardColumns.SingleAsync(x => x.BoardId == board.Id && x.Name == "Ready For Development");
+        var item = new WorkTask
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            BoardId = board.Id,
+            BoardColumnId = backlog.Id,
+            Kind = WorkItemKind.Story,
+            Title = "First sprint story",
+            Description = "",
+            Status = WorkTaskStatus.Ready,
+            Priority = WorkTaskPriority.High,
+            BoardRank = 1024,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CoreWorkTasks.Add(item);
+        var otherItem = new WorkTask
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            BoardId = otherBoard.Id,
+            BoardColumnId = otherBoard.Columns.Single(x => x.Name == "Backlog").Id,
+            Kind = WorkItemKind.Story,
+            Title = "Other team story",
+            Description = "",
+            Status = WorkTaskStatus.Ready,
+            Priority = WorkTaskPriority.High,
+            BoardRank = 1024,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CoreWorkTasks.Add(otherItem);
+        await db.SaveChangesAsync();
+
+        var moved = await InvokeAsync(
+            handler, session, WorkItemActions.Move,
+            new
+            {
+                boardId = board.Id,
+                itemId = item.Id,
+                targetColumnId = ready.Id,
+                expectedRevision = item.Revision,
+                idempotencyKey = "first-sprint-ready"
+            });
+        var listed = await InvokeAsync(
+            handler, session, WorkBoardActions.Read,
+            new { includeArchived = false });
+        var crossTeamMove = await InvokeAsync(
+            handler, session, WorkItemActions.Move,
+            new
+            {
+                boardId = otherBoard.Id,
+                itemId = otherItem.Id,
+                targetColumnId = otherBoard.Columns.Single(x => x.Name == "Ready For Development").Id,
+                expectedRevision = otherItem.Revision,
+                idempotencyKey = "other-team-ready"
+            });
+
+        Assert.True(moved.Succeeded, moved.Error);
+        Assert.True(listed.Succeeded, listed.Error);
+        Assert.False(crossTeamMove.Succeeded);
+        Assert.Equal(ready.Id, (await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id)).BoardColumnId);
+        using var boardsJson = JsonDocument.Parse(listed.Payload.ToByteArray());
+        Assert.Equal(board.Id, Assert.Single(boardsJson.RootElement.EnumerateArray()).GetProperty("id").GetGuid());
+    }
+
     private static WorkManagementCapabilityHandler CreateHandler(
         CSweetDbContext db,
         TestAuditEventWriter audit)

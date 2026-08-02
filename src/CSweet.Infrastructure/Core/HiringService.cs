@@ -403,12 +403,10 @@ public sealed class HiringService(
                 x.Status == ProposalStatus.Pending &&
                 x.FulfilledHeadcount < x.Headcount,
                 cancellationToken) ?? throw new ArgumentException("The linked hiring recommendation was not found or is already fulfilled.");
-            if (!string.Equals(requestedRoleTitle, linkedRecommendation.Title, StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException("The selected role does not match the linked hiring recommendation.");
             if (request.TeamId.HasValue && request.TeamId != linkedRecommendation.TeamId)
                 throw new UnauthorizedAccessException("The selected team does not match the linked hiring recommendation.");
         }
-        var roleTitle = linkedRecommendation?.Title ?? requestedRoleTitle;
+        var roleTitle = requestedRoleTitle;
         var approvedTeamId = linkedRecommendation?.TeamId ?? request.TeamId;
         if (!request.ReportsToOrganizationUserId.HasValue)
             throw new ArgumentException("A managing employee is required when hiring an agent.");
