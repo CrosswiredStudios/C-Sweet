@@ -1,8 +1,11 @@
 using System.Runtime.CompilerServices;
+using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.AI.Providers;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -130,6 +133,13 @@ public sealed class PlatformLlmCapabilityHandler
         }
 
         var identity = await _employeeIdentityResolver.ResolveAsync(session, requestToken);
+        var runLog = CreateRunLog(
+            session,
+            identity?.EmployeeId,
+            input.ProviderProfileId,
+            selectedModel,
+            request.Payload.Span);
+        var runStopwatch = Stopwatch.StartNew();
         var messages = input.Messages.Select(ToChatMessage).ToList();
         var options = new ChatOptions
         {
@@ -174,6 +184,15 @@ public sealed class PlatformLlmCapabilityHandler
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            CompleteRunLog(
+                runLog,
+                runStopwatch,
+                "Cancelled",
+                inputTokenCount,
+                outputTokenCount,
+                responseText,
+                "The platform LLM request was cancelled.");
+            await TryPersistRunLogAsync(runLog, CancellationToken.None);
             throw;
         }
         catch (OperationCanceledException) when (requestToken.IsCancellationRequested)
@@ -195,6 +214,15 @@ public sealed class PlatformLlmCapabilityHandler
 
         if (providerError is not null || updates is null)
         {
+            CompleteRunLog(
+                runLog,
+                runStopwatch,
+                "Failed",
+                inputTokenCount,
+                outputTokenCount,
+                responseText,
+                providerError);
+            await TryPersistRunLogAsync(runLog, CancellationToken.None);
             yield return Failure(request.RequestId, providerError ?? "The platform LLM provider could not start the request.");
             yield break;
         }
@@ -215,6 +243,15 @@ public sealed class PlatformLlmCapabilityHandler
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
+                    CompleteRunLog(
+                        runLog,
+                        runStopwatch,
+                        "Cancelled",
+                        inputTokenCount,
+                        outputTokenCount,
+                        responseText,
+                        "The platform LLM request was cancelled.");
+                    await TryPersistRunLogAsync(runLog, CancellationToken.None);
                     throw;
                 }
                 catch (OperationCanceledException) when (requestToken.IsCancellationRequested)
@@ -236,6 +273,15 @@ public sealed class PlatformLlmCapabilityHandler
 
                 if (providerError is not null)
                 {
+                    CompleteRunLog(
+                        runLog,
+                        runStopwatch,
+                        "Failed",
+                        inputTokenCount,
+                        outputTokenCount,
+                        responseText,
+                        providerError);
+                    await TryPersistRunLogAsync(runLog, CancellationToken.None);
                     yield return Failure(request.RequestId, providerError);
                     yield break;
                 }
@@ -261,6 +307,16 @@ public sealed class PlatformLlmCapabilityHandler
             }
         }
 
+        CompleteRunLog(
+            runLog,
+            runStopwatch,
+            "Completed",
+            inputTokenCount,
+            outputTokenCount,
+            responseText,
+            failureMessage: null);
+        await TryPersistRunLogAsync(runLog, CancellationToken.None);
+
         // MCP tools/call has a single result. Aggregate provider updates here so the
         // gateway does not discard every content chunk in favor of an empty terminal
         // marker. The SDK still exposes this through its streaming authoring surface.
@@ -275,6 +331,88 @@ public sealed class PlatformLlmCapabilityHandler
             sequence: 0,
             hasMore: false);
     }
+
+    private static AgentRunLog CreateRunLog(
+        AgentSession session,
+        string? employeeId,
+        Guid providerProfileId,
+        string model,
+        ReadOnlySpan<byte> requestPayload)
+    {
+        _ = Guid.TryParse(session.BusinessId, out var organizationId);
+        _ = Guid.TryParse(employeeId, out var parsedEmployeeId);
+        _ = Guid.TryParse(session.InstallationId, out var installationId);
+
+        return new AgentRunLog
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId == Guid.Empty ? null : organizationId,
+            EmployeeId = parsedEmployeeId == Guid.Empty ? null : parsedEmployeeId,
+            AgentInstallationId = installationId == Guid.Empty ? null : installationId,
+            AgentKey = session.AgentId,
+            ProviderProfileId = providerProfileId,
+            Model = model,
+            StartedAt = DateTimeOffset.UtcNow,
+            Status = "Running",
+            PromptHash = Convert.ToBase64String(SHA256.HashData(requestPayload))
+        };
+    }
+
+    private static void CompleteRunLog(
+        AgentRunLog runLog,
+        Stopwatch stopwatch,
+        string status,
+        long? inputTokenCount,
+        long? outputTokenCount,
+        StringBuilder responseText,
+        string? failureMessage)
+    {
+        stopwatch.Stop();
+        runLog.CompletedAt = DateTimeOffset.UtcNow;
+        runLog.Status = status;
+        runLog.TokenInputCount = ToNullableInt(inputTokenCount);
+        runLog.TokenOutputCount = ToNullableInt(outputTokenCount);
+        runLog.OutputPreview = responseText.Length == 0
+            ? null
+            : Truncate(responseText.ToString(), 500);
+        runLog.FailureMessage = Truncate(failureMessage, 2048);
+        runLog.DurationMs = stopwatch.ElapsedMilliseconds;
+    }
+
+    private async Task TryPersistRunLogAsync(
+        AgentRunLog runLog,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _dbContext.AgentRunLogs.Add(runLog);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _dbContext.Entry(runLog).State = EntityState.Detached;
+            _logger.LogWarning(
+                exception,
+                "Could not persist inference usage for agent {AgentId}, installation {InstallationId}, provider {ProviderProfileId}, model {Model}.",
+                runLog.AgentKey,
+                runLog.AgentInstallationId,
+                runLog.ProviderProfileId,
+                runLog.Model);
+        }
+    }
+
+    private static int? ToNullableInt(long? value) => value switch
+    {
+        null => null,
+        > int.MaxValue => int.MaxValue,
+        < 0 => 0,
+        _ => (int)value.Value
+    };
+
+    private static string? Truncate(string? value, int maximumLength) =>
+        string.IsNullOrEmpty(value) || value.Length <= maximumLength
+            ? value
+            : value[..maximumLength];
 
     private async Task<bool> IsModelApprovedAsync(
         AgentSession session,

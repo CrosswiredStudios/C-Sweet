@@ -26,6 +26,7 @@ using CSweet.Infrastructure.Agents;
 using CSweet.Application.Security;
 using CSweet.Application.Marketplace;
 using CSweet.Application.WorkManagement;
+using CSweet.Application.Analytics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -36,6 +37,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using CSweet.Memory;
 using CSweet.Communications.Abstractions;
 using CSweet.Infrastructure.WorkManagement;
+using CSweet.Infrastructure.Analytics;
 
 namespace CSweet.Infrastructure;
 
@@ -157,6 +159,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ILlmProviderProfileService, LlmProviderProfileService>();
         builder.Services.AddScoped<ILocalLlmProviderDiscoveryService, LocalLlmProviderDiscoveryService>();
         builder.Services.AddScoped<ILlmTokenUsageService, LlmTokenUsageService>();
+        builder.Services.AddScoped<IInferenceAnalyticsService, InferenceAnalyticsService>();
         builder.Services.AddHttpClient("GenAi", client =>
         {
             client.Timeout = TimeSpan.FromMinutes(5);

@@ -58,6 +58,11 @@ public static class BusinessNavigation
             {
                 return $"/organizations/{businessId}/command-center";
             }
+
+            if (string.Equals(segments[2], "analytics", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"/organizations/{businessId}/analytics";
+            }
         }
 
         return $"/organizations/{businessId}/command-center";

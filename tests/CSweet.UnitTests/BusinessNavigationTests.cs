@@ -33,6 +33,7 @@ public sealed class BusinessNavigationTests
     [InlineData("organizations/{0}/employees", "employees")]
     [InlineData("organizations/{0}/employees/00000000-0000-0000-0000-000000000001/memory", "employees")]
     [InlineData("organizations/{0}/communications/00000000-0000-0000-0000-000000000001", "communications")]
+    [InlineData("organizations/{0}/analytics", "analytics")]
     [InlineData("settings/security", "command-center")]
     public void SwitchDestination_PreservesSafeBusinessSection(string pathTemplate, string expectedSection)
     {
@@ -57,6 +58,7 @@ public sealed class BusinessNavigationTests
     {
         Assert.Contains("/organizations/{OrganizationId:guid}/communications", RoutesFor<CSweet.UI.Pages.Communications>());
         Assert.Contains("/organizations/{OrganizationId:guid}/communications/{ChatId:guid}", RoutesFor<CSweet.UI.Pages.Communications>());
+        Assert.Contains("/organizations/{OrganizationId:guid}/analytics", RoutesFor<CSweet.UI.Pages.Analytics>());
         Assert.Contains("/settings/llm-providers", RoutesFor<CSweet.UI.Pages.LlmProviders>());
         Assert.Contains("/settings/agents", RoutesFor<CSweet.UI.Pages.Agents>());
         Assert.Contains("/settings/agents/marketplace", RoutesFor<CSweet.UI.Pages.AgentMarketplace>());

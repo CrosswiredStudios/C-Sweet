@@ -1,0 +1,179 @@
+@page "/organizations/{OrganizationId:guid}/analytics"
+@using System.Net
+@using CSweet.Contracts.Analytics
+@inject HttpClient Http
+
+<PageTitle>Analytics - C-Sweet</PageTitle>
+
+<div class="analytics-page">
+    <MudPaper Elevation="0" Class="page-header analytics-header">
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Business intelligence</MudText>
+            <MudText Typo="Typo.h3">Analytics</MudText>
+            <MudText Color="Color.Secondary">Understand how your agent workforce uses inference resources.</MudText>
+        </div>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
+                   Disabled="_loading" OnClick="LoadAsync">Refresh</MudButton>
+    </MudPaper>
+
+    <MudTabs Rounded="true" ApplyEffectsToContainer="true" Class="analytics-tabs">
+        <MudTabPanel Text="Inference" Icon="@Icons.Material.Outlined.Memory">
+            <div class="analytics-toolbar">
+                <div>
+                    <MudText Typo="Typo.h6">Inference usage</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Provider-reported token usage grouped by employee and model.</MudText>
+                </div>
+                <MudSelect T="string" Label="Time range" Value="_window" ValueChanged="OnWindowChanged"
+                           Variant="Variant.Outlined" Dense="true" Disabled="_loading" Class="analytics-window-select">
+                    <MudSelectItem T="string" Value="@("24h")">Last 24 hours</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("7d")">Last 7 days</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("30d")">Last 30 days</MudSelectItem>
+                </MudSelect>
+            </div>
+
+            @if (_forbidden)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
+                    Inference analytics are restricted to signed-in human Owners and Managers for this business.
+                </MudAlert>
+            }
+            else if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
+                    @_error
+                    <MudButton Variant="Variant.Text" Color="Color.Inherit" OnClick="LoadAsync">Try again</MudButton>
+                </MudAlert>
+            }
+            else if (_loading && _analytics is null)
+            {
+                <div class="analytics-loading" role="status">
+                    <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                    <MudText Color="Color.Secondary">Loading inference analytics...</MudText>
+                </div>
+            }
+            else if (_analytics is not null)
+            {
+                <section class="analytics-summary-grid" aria-label="Inference token summary">
+                    @SummaryCard("Input tokens", _analytics.Totals.InputTokens, Icons.Material.Outlined.Input)
+                    @SummaryCard("Output tokens", _analytics.Totals.OutputTokens, Icons.Material.Outlined.Output)
+                    @SummaryCard("Total tokens", _analytics.Totals.TotalTokens, Icons.Material.Outlined.DataUsage)
+                    @SummaryCard("Requests", _analytics.Totals.RequestCount, Icons.Material.Outlined.Send)
+                </section>
+
+                <MudTable T="EmployeeModelInferenceUsageResponse" Items="_analytics.Employees" Dense="true" Hover="true"
+                          Breakpoint="Breakpoint.Md" Loading="_loading" Class="analytics-table" AriaLabel="Employee inference usage">
+                    <HeaderContent>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.EmployeeName))">Employee</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.Model ?? string.Empty))">Model</MudTableSortLabel></MudTh>
+                        <MudTh>Provider</MudTh>
+                        <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.InputTokens))">Input</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.OutputTokens))">Output</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.TotalTokens))">Total</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.RequestCount))">Requests</MudTableSortLabel></MudTh>
+                        <MudTh>Last used</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Employee">
+                            <MudText Typo="Typo.body2"><strong>@context.EmployeeName</strong></MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@context.AgentKey</MudText>
+                            @if (!context.IsActive)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">Archived</MudChip>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Model">
+                            <MudText Typo="Typo.body2">@(context.Model ?? "Not configured")</MudText>
+                            @if (context.IsCurrentModel)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Current</MudChip>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Provider">@(context.ProviderName ?? "Not configured")</MudTd>
+                        <MudTd DataLabel="Input">@FormatTokens(context.InputTokens)</MudTd>
+                        <MudTd DataLabel="Output">@FormatTokens(context.OutputTokens)</MudTd>
+                        <MudTd DataLabel="Total"><strong>@FormatTokens(context.TotalTokens)</strong></MudTd>
+                        <MudTd DataLabel="Requests">@context.RequestCount.ToString("N0")</MudTd>
+                        <MudTd DataLabel="Last used">@FormatTimestamp(context.LastUsedAt)</MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Color="Color.Secondary" Class="pa-4">No agent employees are available for inference analytics.</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="analytics-generated-at">
+                    Updated @_analytics.GeneratedAt.ToLocalTime().ToString("g")
+                </MudText>
+            }
+        </MudTabPanel>
+    </MudTabs>
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+
+    private string _window = "30d";
+    private bool _loading;
+    private bool _forbidden;
+    private string? _error;
+    private InferenceAnalyticsResponse? _analytics;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _forbidden = false;
+        _error = null;
+        try
+        {
+            using var response = await Http.GetAsync(
+                $"api/organizations/{OrganizationId:D}/analytics/inference?window={Uri.EscapeDataString(_window)}");
+            if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+            {
+                _analytics = null;
+                _forbidden = true;
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new ApiClientException(response.StatusCode, "Inference analytics could not be loaded.");
+            }
+
+            _analytics = await response.Content.ReadFromJsonAsync<InferenceAnalyticsResponse>()
+                ?? throw new ApiClientException(response.StatusCode, "Inference analytics response was empty.");
+        }
+        catch (Exception exception)
+        {
+            _analytics = null;
+            _error = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Task OnWindowChanged(string value)
+    {
+        _window = value;
+        return LoadAsync();
+    }
+
+    private static RenderFragment SummaryCard(string label, long value, string icon) => @<MudPaper Elevation="1" Class="analytics-summary-card">
+        <MudIcon Icon="@icon" Color="Color.Primary" />
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Secondary">@label</MudText>
+            <MudText Typo="Typo.h5">@FormatTokens(value)</MudText>
+        </div>
+    </MudPaper>;
+
+    private static string FormatTokens(long tokens) => tokens >= 1_000_000
+        ? $"{tokens / 1_000_000d:0.##}M"
+        : tokens >= 1_000
+            ? $"{tokens / 1_000d:0.#}K"
+            : tokens.ToString("N0");
+
+    private static string FormatTimestamp(DateTimeOffset? value) =>
+        value?.ToLocalTime().ToString("g") ?? "Never";
+}

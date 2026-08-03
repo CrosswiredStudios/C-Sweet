@@ -4,8 +4,12 @@ public sealed class AgentRunLog
 {
     public Guid Id { get; set; }
     public Guid? TaskRunId { get; set; }
+    public Guid? OrganizationId { get; set; }
+    public Guid? EmployeeId { get; set; }
+    public Guid? AgentInstallationId { get; set; }
     public string AgentKey { get; set; } = string.Empty;
     public Guid ProviderProfileId { get; set; }
+    public string? Model { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public string Status { get; set; } = string.Empty;

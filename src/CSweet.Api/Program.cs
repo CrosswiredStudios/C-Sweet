@@ -21,6 +21,7 @@ using CSweet.Api.Marketplace;
 using CSweet.Api.GenAi;
 using CSweet.Application.Notifications;
 using CSweet.Api.WorkManagement;
+using CSweet.Api.Analytics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -171,6 +172,7 @@ app.MapSecurityAuditEndpoints();
 app.MapMarketplaceDiscoveryEndpoints();
 app.MapAgentCatalogEndpoints();
 app.MapWorkBoardEndpoints();
+app.MapAnalyticsEndpoints();
 
 app.MapControllers();
 app.MapHub<AppEventsHub>("/hubs/app-events");
