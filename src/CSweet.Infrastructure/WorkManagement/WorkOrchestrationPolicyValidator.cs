@@ -109,8 +109,12 @@ public static partial class WorkOrchestrationPolicyValidator
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var stack = new Stack<string>(); stack.Push(start);
-        while (stack.TryPop(out var current) && seen.Add(current))
-            if (adjacency.TryGetValue(current, out var next)) foreach (var item in next) stack.Push(item);
+        while (stack.TryPop(out var current))
+        {
+            if (!seen.Add(current)) continue;
+            if (adjacency.TryGetValue(current, out var next))
+                foreach (var item in next) stack.Push(item);
+        }
         return seen;
     }
 

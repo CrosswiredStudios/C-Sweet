@@ -32,6 +32,49 @@ public sealed class WorkOrchestrationPolicyValidatorTests
     }
 
     [Fact]
+    public void BrokerSoftwareTemplate_IsAccepted()
+    {
+        var ready = Guid.NewGuid();
+        var development = Guid.NewGuid();
+        var devComplete = Guid.NewGuid();
+        var quality = Guid.NewGuid();
+        var readyToMerge = Guid.NewGuid();
+        var done = Guid.NewGuid();
+        var columns = new HashSet<Guid>
+        {
+            ready, development, devComplete, quality, readyToMerge, done
+        };
+        var errors = WorkOrchestrationPolicyValidator.Validate(
+            "ready", WorkMergeModes.ManagerApproval,
+            new(100, 25, 10, 5, 1),
+            [
+                Stage("ready", WorkOrchestrationStageTypes.Queue, ready),
+                Stage("development", WorkOrchestrationStageTypes.AgentExecution, development),
+                Stage("dev-complete", WorkOrchestrationStageTypes.Queue, devComplete),
+                Stage("quality", WorkOrchestrationStageTypes.AgentExecution, quality),
+                Stage("merge-decision", WorkOrchestrationStageTypes.ManagerApproval, readyToMerge),
+                new("governed-merge", "Governed merge", WorkOrchestrationStageTypes.TrustedPlatformAction,
+                    readyToMerge, "", "{}", "{}", 300, 1, Retry, "git.governed-merge.v1"),
+                Stage("done", WorkOrchestrationStageTypes.Terminal, done, true),
+                Stage("cancelled", WorkOrchestrationStageTypes.Terminal, done)
+            ],
+            [
+                new("ready", "ready", "development"),
+                new("development", "completed", "dev-complete"),
+                new("dev-complete", "ready", "quality"),
+                new("quality", "passed", "merge-decision"),
+                new("quality", "changes_requested", "development", 3),
+                new("merge-decision", "approved", "governed-merge"),
+                new("merge-decision", "rejected", "cancelled"),
+                new("governed-merge", "merged", "done")
+            ],
+            columns);
+
+        Assert.True(errors.Count == 0,
+            string.Join(Environment.NewLine, errors.Select(x => $"{x.Code}: {x.Message}")));
+    }
+
+    [Fact]
     public void UnboundedCycle_IsRejectedDeterministically()
     {
         var errors = WorkOrchestrationPolicyValidator.Validate(

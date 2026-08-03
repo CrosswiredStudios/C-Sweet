@@ -70,7 +70,7 @@ public class BusinessOnboardingServiceTests
         await dbContext.SaveChangesAsync();
 
         var result = await service.CompleteAsync(new CompleteBusinessOnboardingRequest(
-            "Example Co", "Software", "Help teams make better operating decisions.", installation.Id),
+            "Example Co", "Software", "Help teams make better operating decisions.", installation.Id, "Avery"),
             applicationUserId: applicationUser.Id);
 
         Assert.True(result.Succeeded);
@@ -86,6 +86,7 @@ public class BusinessOnboardingServiceTests
         var leadership = await dbContext.LeadershipAssignments.SingleAsync(x => x.OrganizationUserId == chief.Id);
         Assert.Equal(OrganizationStatus.Active, organization.Status);
         Assert.Equal(EmployeeType.Agent, chief.EmployeeType);
+        Assert.Equal("Avery", chief.DisplayName);
         Assert.Equal(applicationUser.Id, ceo.ApplicationUserId);
         Assert.Equal("chief-of-staff", leadership.PositionKey);
         Assert.Equal(organization.Id.ToString("D"), installation.BusinessId);

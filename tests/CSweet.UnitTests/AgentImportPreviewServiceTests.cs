@@ -70,7 +70,7 @@ public class AgentImportPreviewServiceTests
         await using var dbContext = CreateDbContext();
         var manifest = ValidManifest().Replace(
             """{"key":"workspaceId","type":"string","label":"Workspace ID","required":true,"secret":false}""",
-            """{"key":"responseTone","type":"select","label":"Response tone","required":true,"secret":false,"description":"Controls response detail.","options":[{"value":"concise","label":"Concise"},{"value":"balanced","label":"Balanced"}]}""",
+            """{"key":"responseTone","type":"select","label":"Response tone","required":true,"secret":false,"description":"Controls response detail.","defaultValue":"balanced","options":[{"value":"concise","label":"Concise"},{"value":"balanced","label":"Balanced"}]}""",
             StringComparison.Ordinal);
         var service = new AgentImportPreviewService(
             dbContext,
@@ -82,6 +82,7 @@ public class AgentImportPreviewServiceTests
 
         var field = Assert.Single(result.ConfigurationFields);
         Assert.Equal("Controls response detail.", field.Description);
+        Assert.Equal("balanced", field.DefaultValue?.GetString());
         var options = Assert.IsAssignableFrom<IReadOnlyList<PluginConfigurationOption>>(field.Options);
         Assert.Equal(["concise", "balanced"], options.Select(option => option.Value).ToArray());
         Assert.Equal(["Concise", "Balanced"], options.Select(option => option.Label).ToArray());

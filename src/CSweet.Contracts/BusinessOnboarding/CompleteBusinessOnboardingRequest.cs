@@ -6,4 +6,5 @@ public sealed record CompleteBusinessOnboardingRequest(
     [Required] string BusinessName,
     string? Industry,
     string? MissionStatement,
-    Guid ChiefAgentInstallationId);
+    Guid ChiefAgentInstallationId,
+    [StringLength(160)] string? ChiefDisplayName = null);

@@ -183,6 +183,11 @@
                                     </button>
                                 </header>
 
+                                <MudTextField T="string" Label="Chief of Staff name" @bind-Value="_chiefDisplayName"
+                                              Required="true" MaxLength="160" Counter="160"
+                                              HelperText="This is the name your team will see for this employee."
+                                              Variant="Variant.Outlined" Disabled="@_saving" />
+
                                 @if (_agentDetailsExpanded)
                                 {
                                     <div class="agent-review-details">
@@ -365,6 +370,7 @@
     private string _formName = string.Empty;
     private string _formIndustry = string.Empty;
     private string _formMission = string.Empty;
+    private string _chiefDisplayName = string.Empty;
     private string _agentRepositoryUrl = RecommendedChiefRepository;
     private string _agentRef = string.Empty;
     private string? _formError;
@@ -379,7 +385,7 @@
         (_runtimeSettings?.EnableImportedAgents != true ||
          (string.Equals(ActivationMode, "AlwaysOn", StringComparison.OrdinalIgnoreCase) && _runtimeSettings?.AllowAlwaysOnCommunityAgents != true));
     private string ActivationMode => _agentPreview?.DefaultActivationMode ?? _runtimeSettings?.DefaultActivationMode ?? "Periodic";
-    private bool CanCreateBusiness => _agentPreview is not null && _agentApproved &&
+    private bool CanCreateBusiness => _agentPreview is not null && _agentApproved && !string.IsNullOrWhiteSpace(_chiefDisplayName) &&
         (_agentPreview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _allPublicWebApproved) &&
         (!RuntimeApprovalRequired || _runtimeApproved) &&
         _agentPreview.ConfigurationFields.Where(x => x.Required && !x.Secret).All(x => HasValue(_configurationValues, x.Key)) &&
@@ -444,6 +450,7 @@
     private void ResetForm()
     {
         _wizardStep = 0; _formName = string.Empty; _formIndustry = string.Empty; _formMission = string.Empty;
+        _chiefDisplayName = string.Empty;
         _agentRepositoryUrl = RecommendedChiefRepository; _agentRef = string.Empty; _customAgent = false;
         _agentPreview = null; _installedChief = null; _agentApproved = false; _allPublicWebApproved = false;
         _runtimeApproved = false; _agentDetailsExpanded = false; _loadingModels = false;
@@ -483,6 +490,7 @@
     private void InvalidatePreview()
     {
         _agentPreview = null; _installedChief = null; _agentApproved = false; _allPublicWebApproved = false;
+        _chiefDisplayName = string.Empty;
         _runtimeApproved = false; _agentDetailsExpanded = false; _loadingModels = false;
         _formError = null; _modelCatalogMessage = null; _availableModels = []; _modelCatalogProviderId = null;
         _configurationValues.Clear(); _secretValues.Clear();
@@ -501,6 +509,7 @@
             if (!string.Equals(preview.PluginKind, "Agent", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("The selected repository must contain an agent plugin.");
             _agentPreview = preview;
+            _chiefDisplayName = preview.AgentName;
             await InitializeConfigurationAsync(preview);
         }
         catch (Exception exception) { _formError = exception.Message; }
@@ -635,7 +644,7 @@
                 await PluginApi.SetSecretAsync(_installedChief.Id, secret.Key, secret.Value.Trim());
 
             var onboarding = await BusinessOnboardingApi.CompleteAsync(new CompleteBusinessOnboardingRequest(
-                _formName.Trim(), TrimOrNull(_formIndustry), TrimOrNull(_formMission), _installedChief.Id));
+                _formName.Trim(), TrimOrNull(_formIndustry), TrimOrNull(_formMission), _installedChief.Id, _chiefDisplayName.Trim()));
 
             _showForm = false;
             await LoadAsync();

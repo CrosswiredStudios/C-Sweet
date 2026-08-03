@@ -607,6 +607,8 @@
         {
             if (existing.TryGetValue(field.Key, out var existingValue) && existingValue is not null)
                 _configurationValues[field.Key] = existingValue;
+            else if (ConfigurationDefaultValue(field) is { } defaultValue)
+                _configurationValues[field.Key] = defaultValue;
             else if (IsProviderField(field) && provider is not null)
                 _configurationValues[field.Key] = provider.Id.ToString();
             else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
@@ -688,6 +690,20 @@
 
     private static string FieldLabel(PluginConfigurationField field) =>
         field.Required ? $"{field.Label} (required)" : field.Label;
+
+    private static object? ConfigurationDefaultValue(PluginConfigurationField field)
+    {
+        if (field.DefaultValue is not { } value)
+            return null;
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number when value.TryGetDecimal(out var number) => number,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
 
     private string ConfigurationString(string key) =>
         _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;

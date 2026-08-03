@@ -67,6 +67,12 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             return Failure("chief_agent_required", "Select and approve a Chief of Staff agent before creating the business.");
         }
 
+        var chiefDisplayName = TrimOrNull(request.ChiefDisplayName);
+        if (chiefDisplayName is { Length: > 160 })
+        {
+            return Failure("validation_error", "Chief of Staff name cannot exceed 160 characters.");
+        }
+
         var chiefValidation = await ValidateChiefInstallationAsync(request.ChiefAgentInstallationId, cancellationToken);
         if (!chiefValidation.Succeeded)
             return Failure(chiefValidation.ErrorCode!, chiefValidation.Message!);
@@ -177,6 +183,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         var assignment = await CreateChiefAssignmentAsync(
             organizationId,
             request.ChiefAgentInstallationId,
+            chiefDisplayName,
             cancellationToken);
         if (!assignment.Succeeded)
         {
@@ -236,7 +243,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         if (current)
             return new(false, "chief_already_assigned", "The organization already has an active Chief of Staff assignment.");
 
-        var assignment = await CreateChiefAssignmentAsync(organizationId, request.AgentInstallationId, cancellationToken);
+        var assignment = await CreateChiefAssignmentAsync(organizationId, request.AgentInstallationId, null, cancellationToken);
         if (!assignment.Succeeded)
             return new(false, assignment.ErrorCode, assignment.Message);
 
@@ -276,7 +283,11 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         return ChiefAssignmentResult.ValidationSuccess();
     }
 
-    private async Task<ChiefAssignmentResult> CreateChiefAssignmentAsync(Guid organizationId, Guid installationId, CancellationToken cancellationToken)
+    private async Task<ChiefAssignmentResult> CreateChiefAssignmentAsync(
+        Guid organizationId,
+        Guid installationId,
+        string? displayName,
+        CancellationToken cancellationToken)
     {
         var installation = await _dbContext.AgentInstallations
             .Include(x => x.PackageVersion)
@@ -348,7 +359,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             ReportsToOrganizationUserId = ceo.Id,
             RoleId = chiefRole.Id,
             AgentInstallationId = installation.Id,
-            DisplayName = installation.PackageVersion.AgentName,
+            DisplayName = displayName ?? installation.PackageVersion.AgentName,
             EmployeeType = EmployeeType.Agent,
             PermissionLevel = OrganizationPermissionLevel.Manager,
             CreatedAt = now,
@@ -372,7 +383,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             "leadership_assignment.created",
             "LeadershipAssignment",
             chief.Id,
-            $"Assigned '{installation.PackageVersion.AgentName}' as Chief of Staff.",
+            $"Assigned '{chief.DisplayName}' as Chief of Staff.",
             cancellationToken: cancellationToken);
 
         return ChiefAssignmentResult.Success(

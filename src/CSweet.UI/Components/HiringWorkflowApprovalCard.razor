@@ -151,7 +151,9 @@
         var provider = _providers.FirstOrDefault(candidate => candidate.IsEnabled);
         foreach (var field in Workflow.ConfigurationFields)
         {
-            if (IsProviderField(field) && provider is not null)
+            if (ConfigurationDefaultValue(field) is { } defaultValue)
+                _configurationValues[field.Key] = defaultValue;
+            else if (IsProviderField(field) && provider is not null)
                 _configurationValues[field.Key] = provider.Id.ToString();
             else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
                 _configurationValues[field.Key] = false;
@@ -251,6 +253,19 @@
         field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) ||
         field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmModel, StringComparison.OrdinalIgnoreCase);
     private static string FieldLabel(PluginConfigurationField field) => field.Required ? $"{field.Label} (required)" : field.Label;
+    private static object? ConfigurationDefaultValue(PluginConfigurationField field)
+    {
+        if (field.DefaultValue is not { } value)
+            return null;
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number when value.TryGetDecimal(out var number) => number,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
     private string ConfigurationString(string key) => _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
     private bool ConfigurationBoolean(string key) => _configurationValues.GetValueOrDefault(key) is true;
     private decimal? ConfigurationNumber(string key) => _configurationValues.GetValueOrDefault(key) as decimal?;
