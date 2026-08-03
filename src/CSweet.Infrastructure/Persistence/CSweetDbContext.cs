@@ -131,6 +131,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<ChatTurnTraceEvent> ChatTurnTraceEvents => Set<ChatTurnTraceEvent>();
     public DbSet<ExecutiveDecision> ExecutiveDecisions => Set<ExecutiveDecision>();
     public DbSet<ConversationParticipant> ConversationParticipants => Set<ConversationParticipant>();
+    public DbSet<Domain.Communications.AgentCoordinationSession> AgentCoordinationSessions => Set<Domain.Communications.AgentCoordinationSession>();
+    public DbSet<Domain.Communications.AgentCoordinationTurn> AgentCoordinationTurns => Set<Domain.Communications.AgentCoordinationTurn>();
     public DbSet<CommunicationConnection> CommunicationConnections => Set<CommunicationConnection>();
     public DbSet<ManagedExternalResource> ManagedExternalResources => Set<ManagedExternalResource>();
     public DbSet<ExternalIdentityLink> ExternalIdentityLinks => Set<ExternalIdentityLink>();
@@ -805,6 +807,62 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 .HasForeignKey(x => x.RuntimeInstanceId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.AgentInstallation).WithMany()
                 .HasForeignKey(x => x.AgentInstallationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Domain.Communications.AgentCoordinationSession>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Subject).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Objective).HasMaxLength(4096).IsRequired();
+            entity.Property(x => x.SuccessCriteriaJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.FinalSummary).HasMaxLength(32768);
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.ConversationId, x.Status });
+            entity.HasIndex(x => new { x.OrganizationId, x.SourceConversationId, x.Status });
+            entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.SourceConversationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ChatTurn>().WithMany().HasForeignKey(x => x.SourceChatTurnId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ConversationMessage>().WithMany().HasForeignKey(x => x.SourceMessageId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.InitiatorOrganizationUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.TargetOrganizationUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentInstallation>().WithMany().HasForeignKey(x => x.InitiatorInstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentInstallation>().WithMany().HasForeignKey(x => x.TargetInstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.CurrentOrganizationUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<AgentWorkItem>().WithMany().HasForeignKey(x => x.CurrentAgentWorkItemId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<Domain.Communications.AgentCoordinationTurn>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Disposition).HasMaxLength(24).IsRequired();
+            entity.Property(x => x.Content).HasMaxLength(32768).IsRequired();
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.HasIndex(x => new { x.SessionId, x.Ordinal }).IsUnique();
+            entity.HasIndex(x => new { x.SessionId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => x.EventId).IsUnique();
+            entity.HasOne(x => x.Session).WithMany(x => x.Turns)
+                .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.SpeakerOrganizationUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentWorkItem>().WithMany().HasForeignKey(x => x.AgentWorkItemId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<ConversationMessage>().WithMany().HasForeignKey(x => x.ConversationMessageId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<AgentWorkItem>(entity =>

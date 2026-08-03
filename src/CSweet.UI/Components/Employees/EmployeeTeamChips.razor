@@ -9,9 +9,9 @@ else
     <span class="team-chips" aria-label="Team memberships">
         @foreach (var team in VisibleTeams)
         {
-            <span class="team-chip" style="@($"--team-color:{team.Color}")">
+            <span class="team-chip" style="@($"--team-color:{team.Color}")" title="@team.TeamName">
                 <span class="team-chip-dot" aria-hidden="true"></span>
-                @team.TeamName
+                <span class="team-chip-name">@team.TeamName</span>
                 @if (!string.IsNullOrWhiteSpace(team.TeamRole))
                 {
                     <small>@team.TeamRole</small>

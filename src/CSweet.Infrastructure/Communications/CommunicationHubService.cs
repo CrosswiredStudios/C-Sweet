@@ -711,6 +711,7 @@ public sealed class CommunicationHubService(
             resourceChange,
             hiringWorkflow)
         {
+            CoordinationSessionId = message.CoordinationSessionId,
             MessageType = hiringWorkflow is not null
                 ? CommunicationMessageTypes.HiringWorkflowApproval
                 : resourceChange is not null

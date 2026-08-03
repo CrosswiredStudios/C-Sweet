@@ -9,6 +9,7 @@ public sealed class ConversationMessage
     public string Content { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; }
     public Guid? ChatTurnId { get; set; }
+    public Guid? CoordinationSessionId { get; set; }
     public Guid? SenderOrganizationUserId { get; set; }
     public Guid? ReplyToMessageId { get; set; }
     public Guid CorrelationId { get; set; }

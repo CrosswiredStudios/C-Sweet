@@ -25,8 +25,14 @@ docker build `
     --build-arg "UV_IMAGE=$UvImage" `
     --tag $Tag `
     $PSScriptRoot
+if ($LASTEXITCODE -ne 0) {
+    throw "docker build failed with exit code $LASTEXITCODE."
+}
 
 $imageId = docker image inspect $Tag --format '{{.Id}}'
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($imageId)) {
+    throw "docker image inspect failed for '$Tag'."
+}
 $record = [ordered]@{
     profile = "software-development-polyglot-v1"
     tag = $Tag

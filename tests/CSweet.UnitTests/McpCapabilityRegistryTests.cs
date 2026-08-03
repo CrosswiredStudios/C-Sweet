@@ -9,6 +9,30 @@ namespace CSweet.UnitTests;
 public sealed class McpCapabilityRegistryTests
 {
     [Fact]
+    public void CoordinationTools_HaveStrictSchemasAndStayHiddenFromModelDiscovery()
+    {
+        var registry = new McpToolCatalog([]);
+        var grants = new HashSet<string>(
+            [
+                CommunicationCapabilities.CoordinationStart,
+                CommunicationCapabilities.CoordinationRespond,
+                CommunicationCapabilities.CoordinationRead,
+                CommunicationCapabilities.CoordinationCancel
+            ], StringComparer.Ordinal);
+
+        var descriptors = registry.List(grants);
+        Assert.Equal(4, descriptors.Count);
+        Assert.DoesNotContain(descriptors, x => x.ModelVisible);
+        foreach (var capability in grants)
+        {
+            var descriptor = descriptors.SingleOrDefault(x => x.Capability == capability);
+            Assert.NotNull(descriptor);
+            Assert.False(descriptor!.ModelVisible);
+            Assert.False(descriptor.InputSchema.GetProperty("additionalProperties").GetBoolean());
+        }
+    }
+
+    [Fact]
     public void BaselineToolsStillRequireAnExplicitGrant()
     {
         var registry = new McpToolCatalog([]);

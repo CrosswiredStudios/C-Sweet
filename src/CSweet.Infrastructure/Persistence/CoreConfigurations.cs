@@ -618,6 +618,7 @@ internal static class CoreConfigurations
         entity.HasIndex(x => new { x.ConversationId, x.CreatedAt });
         entity.HasIndex(x => x.Sequence).IsUnique();
         entity.HasIndex(x => x.ChatTurnId);
+        entity.HasIndex(x => x.CoordinationSessionId);
         entity.HasIndex(x => x.IdempotencyKey).IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
     }
 

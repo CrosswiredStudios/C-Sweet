@@ -2,6 +2,9 @@ using CSweet.Api.Auth;
 using CSweet.Application.Communications;
 using CSweet.Application.Core;
 using CSweet.Contracts.Communications;
+using CSweet.Domain.Core;
+using CSweet.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Api.Communications;
 
@@ -125,6 +128,50 @@ public static class CommunicationEndpoints
             }
         });
 
+        group.MapGet("/hub/chats/{chatId:guid}/coordination-sessions", async (
+            Guid organizationId, Guid chatId, bool? activeOnly, HttpContext http,
+            ICommunicationHubService hub, IAgentCoordinationService coordination,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = await ResolveActorAsync(organizationId, http, hub, cancellationToken);
+            if (actorId is null) return Results.Forbid();
+            var sessions = await coordination.ListForChatAsync(
+                organizationId, actorId.Value, chatId, activeOnly ?? false, cancellationToken);
+            return Results.Ok(sessions.Select(MapCoordination).ToList());
+        });
+
+        group.MapPost("/hub/chats/{chatId:guid}/coordination-sessions/{sessionId:guid}/stop", async (
+            Guid organizationId, Guid chatId, Guid sessionId, StopAgentCoordinationRequest request,
+            HttpContext http, ICommunicationHubService hub, IAgentCoordinationService coordination,
+            CSweetDbContext db, CancellationToken cancellationToken) =>
+        {
+            var actorId = await ResolveActorAsync(organizationId, http, hub, cancellationToken);
+            if (actorId is null) return Results.Forbid();
+            var canManage = await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.Id == actorId.Value && x.OrganizationId == organizationId && x.IsActive &&
+                x.PermissionLevel >= OrganizationPermissionLevel.Manager, cancellationToken);
+            if (!canManage) return Results.Forbid();
+            var belongsToChat = await db.AgentCoordinationSessions.AsNoTracking().AnyAsync(x =>
+                x.Id == sessionId && x.OrganizationId == organizationId &&
+                (x.ConversationId == chatId || x.SourceConversationId == chatId), cancellationToken);
+            if (!belongsToChat) return Results.NotFound();
+            try
+            {
+                var session = await coordination.CancelAsync(
+                    organizationId, actorId.Value, true,
+                    new CSweet.Agent.SDK.CancelAgentCoordinationRequest(
+                        sessionId, request.ExpectedRevision, request.Reason, request.IdempotencyKey),
+                    cancellationToken);
+                return Results.Ok(MapCoordination(session));
+            }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { errorCode = "coordination_conflict", message = exception.Message });
+            }
+        });
+
         group.MapPost("/hub/chats/{chatId:guid}/decisions/{decisionId:guid}/respond", async (
             Guid organizationId, Guid chatId, Guid decisionId, AnswerExecutiveDecisionRequest request,
             HttpContext http, ICommunicationHubService hub, IExecutiveDecisionService decisions,
@@ -241,4 +288,30 @@ public static class CommunicationEndpoints
         "chat_not_found" or "actor_not_found" => Results.NotFound(result),
         _ => Results.BadRequest(result)
     };
+
+    private static AgentCoordinationSessionResponse MapCoordination(
+        CSweet.Agent.SDK.AgentCoordinationSession session) => new(
+        session.Id,
+        session.ConversationId,
+        session.SourceConversationId,
+        new AgentCoordinationParticipantResponse(
+            session.Initiator.OrganizationUserId, session.Initiator.AgentInstallationId,
+            session.Initiator.DisplayName, session.Initiator.Role),
+        new AgentCoordinationParticipantResponse(
+            session.Target.OrganizationUserId, session.Target.AgentInstallationId,
+            session.Target.DisplayName, session.Target.Role),
+        session.Subject,
+        session.Objective,
+        session.SuccessCriteria,
+        session.Status,
+        session.Revision,
+        session.NextTurnOrdinal,
+        session.CurrentOrganizationUserId,
+        session.IsFinalization,
+        session.FinalSummary,
+        session.CreatedAt,
+        session.UpdatedAt,
+        session.Turns.Select(x => new AgentCoordinationTurnResponse(
+            x.Id, x.Ordinal, x.SpeakerOrganizationUserId,
+            x.Disposition, x.Content, x.CreatedAt)).ToList());
 }

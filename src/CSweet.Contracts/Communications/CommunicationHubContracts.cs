@@ -72,7 +72,46 @@ public sealed record CommunicationHubMessageResponse(
     CSweet.Contracts.Core.HiringWorkflowApprovalResponse? HiringWorkflow = null)
 {
     public string MessageType { get; init; } = CommunicationMessageTypes.Standard;
+    public Guid? CoordinationSessionId { get; init; }
 }
+
+public sealed record AgentCoordinationParticipantResponse(
+    Guid OrganizationUserId,
+    Guid InstallationId,
+    string DisplayName,
+    string Role);
+
+public sealed record AgentCoordinationTurnResponse(
+    Guid Id,
+    long Ordinal,
+    Guid SpeakerOrganizationUserId,
+    string Disposition,
+    string Content,
+    DateTimeOffset CreatedAt);
+
+public sealed record AgentCoordinationSessionResponse(
+    Guid Id,
+    Guid ConversationId,
+    Guid SourceConversationId,
+    AgentCoordinationParticipantResponse Initiator,
+    AgentCoordinationParticipantResponse Target,
+    string Subject,
+    string Objective,
+    IReadOnlyList<string> SuccessCriteria,
+    string Status,
+    long Revision,
+    long NextTurnOrdinal,
+    Guid? CurrentOrganizationUserId,
+    bool IsFinalization,
+    string? FinalSummary,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<AgentCoordinationTurnResponse> Turns);
+
+public sealed record StopAgentCoordinationRequest(
+    long ExpectedRevision,
+    [property: Required, MaxLength(1000)] string Reason,
+    [property: Required, MaxLength(160)] string IdempotencyKey);
 
 public static class CommunicationMessageTypes
 {

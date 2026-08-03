@@ -170,7 +170,12 @@ public sealed class ChatTurnWorker(
                 conversation.Id, turnId, conversationPrompt, senderContext);
             try
             {
-                var readiness = await runtime.EnsureReadyAsync(installationId, hardTimeout.Token);
+                var readiness = await WaitForRuntimeReadyAsync(
+                    runtime,
+                    installationId,
+                    options.Value.RuntimeStartupTimeout,
+                    options.Value.CapabilityRetryDelay,
+                    hardTimeout.Token);
                 if (!readiness.IsReady) throw new InvalidOperationException(readiness.Reason ?? "The agent runtime is not ready.");
 
                 await turns.SetStatusAsync(turnId, ChatTurnStatus.Dispatching.ToString(), cancellationToken: hardTimeout.Token);
@@ -220,6 +225,8 @@ public sealed class ChatTurnWorker(
                     if (chunk.Attempt != 0 && chunk.Attempt != turn.Attempt) continue;
                     if (await db.ChatTurns.AsNoTracking().AnyAsync(x => x.Id == turnId && x.Status == ChatTurnStatus.Cancelled, hardTimeout.Token))
                         return;
+                    if (string.Equals(chunk.Error, "agent_no_response", StringComparison.Ordinal))
+                        throw new AgentNoResponseException(chunk.Delta);
                     if (!string.IsNullOrWhiteSpace(chunk.Error)) throw new InvalidOperationException(chunk.Delta);
                     if (TryGetTerminalResourceChangeRequestId(chunk, out var resourceChangeRequestId))
                     {
@@ -342,6 +349,12 @@ public sealed class ChatTurnWorker(
             await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId, "timeout",
                 $"I couldn't complete that request because it exceeded the {options.Value.HardTimeout.TotalMinutes:g}-minute safety limit. Please try again.", CancellationToken.None);
         }
+        catch (AgentNoResponseException exception)
+        {
+            logger.LogWarning(exception, "Agent produced no response for chat turn {TurnId}.", turnId);
+            await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId, "agent_no_response",
+                "The agent completed its work without providing a response. Please try again.", CancellationToken.None);
+        }
         catch (Exception exception)
         {
             logger.LogError(exception, "Chat turn {TurnId} failed.", turnId);
@@ -366,6 +379,33 @@ public sealed class ChatTurnWorker(
                chunk.Metadata is not null &&
                chunk.Metadata.TryGetValue("resourceChangeRequestId", out var value) &&
                Guid.TryParse(value, out requestId);
+    }
+
+    internal static async Task<AgentRuntimeReadinessResponse> WaitForRuntimeReadyAsync(
+        IAgentInteractiveRuntimeService runtime,
+        Guid installationId,
+        TimeSpan startupTimeout,
+        TimeSpan retryDelay,
+        CancellationToken cancellationToken)
+    {
+        var readiness = await runtime.EnsureReadyAsync(installationId, cancellationToken);
+        if (readiness.IsReady || readiness.IsTerminal || startupTimeout <= TimeSpan.Zero)
+            return readiness;
+
+        var delay = retryDelay > TimeSpan.Zero ? retryDelay : TimeSpan.FromMilliseconds(100);
+        var waiting = Stopwatch.StartNew();
+        while (waiting.Elapsed < startupTimeout)
+        {
+            var remaining = startupTimeout - waiting.Elapsed;
+            if (remaining <= TimeSpan.Zero)
+                break;
+            await Task.Delay(remaining < delay ? remaining : delay, cancellationToken);
+            readiness = await runtime.GetStatusAsync(installationId, cancellationToken);
+            if (readiness.IsReady || readiness.IsTerminal)
+                return readiness;
+        }
+
+        return readiness;
     }
 
     private async Task FailAsync(IChatTurnService turns, Guid turnId, string code, string message, CancellationToken cancellationToken)
@@ -421,8 +461,10 @@ public sealed class ChatTurnWorker(
                              x.Value.Deserialize<AssistantResponseChunk>(JsonOptions)?.IsFinal != true))
                     outputRouter.Publish(turnId, new ChatStreamChunk(
                         checked((int)sequence + 1),
-                        string.Empty,
+                        "The agent completed its work without providing a response.",
                         true,
+                        "agent_no_response",
+                        "error",
                         Attempt: attempt));
                 return;
             }
@@ -440,6 +482,8 @@ public sealed class ChatTurnWorker(
             await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
         }
     }
+
+    private sealed class AgentNoResponseException(string message) : Exception(message);
 
     private async Task CompleteVisibleFailureAsync(
         IServiceProvider services,

@@ -89,6 +89,24 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Read management cadence, executive briefing schedule, and quiet hours."),
         Write(CommunicationHubCapabilities.AskUser, "ask_user",
             "Ask the user one structured multiple-choice question with two to four mutually exclusive options. Put the recommended option first. The UI automatically adds Something else with a free-text response."),
+        HiddenWrite(CommunicationCapabilities.ChatCreate, "create_communication_chat",
+            "Create or reuse a granted direct chat, or create a granted group chat."),
+        HiddenRead(CommunicationCapabilities.ChatRead, "read_communication_chat",
+            "Read the caller's communication directory or one visible chat."),
+        HiddenWrite(CommunicationCapabilities.ChatModify, "modify_communication_chat",
+            "Modify a granted group chat."),
+        HiddenWrite(CommunicationCapabilities.ChatDelete, "archive_communication_chat",
+            "Archive a granted group chat while retaining its history."),
+        HiddenWrite(CommunicationCapabilities.MessageSend, "send_communication_message",
+            "Persist a message and start the recipient turn when the direct recipient is an agent."),
+        HiddenWrite(CommunicationCapabilities.CoordinationStart, "start_agent_coordination",
+            "Start a durable, bounded-authority collaboration with one exact agent employee."),
+        HiddenWrite(CommunicationCapabilities.CoordinationRespond, "respond_to_agent_coordination",
+            "Continue, complete, or block the current durable coordination turn."),
+        HiddenRead(CommunicationCapabilities.CoordinationRead, "read_agent_coordination",
+            "Read a coordination session visible to the calling participant."),
+        HiddenWrite(CommunicationCapabilities.CoordinationCancel, "cancel_agent_coordination",
+            "Cancel a coordination session when separately authorized."),
         Write(SuggestedUserActionCapabilities.Suggest, "suggest_user_action",
             "Attach a safe, platform-resolved workflow action to this agent's message or chat turn. Use hiring.marketplace.browse.v1 with a role to let the user browse candidates."),
         Read(HiringCapabilities.ListRecommendations, "list_hiring_recommendations",
@@ -286,6 +304,12 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         new(capability, name, description, InputFor(capability), OutputFor(capability), McpToolExecutionPolicy.ApprovalCreating,
             RiskClass: "approval-required", ApprovalBehavior: "always-create-approval", OwningService: OwnerFor(capability));
 
+    private static McpToolDescriptor HiddenRead(string capability, string name, string description) =>
+        Read(capability, name, description) with { ModelVisible = false };
+
+    private static McpToolDescriptor HiddenWrite(string capability, string name, string description) =>
+        Write(capability, name, description) with { ModelVisible = false };
+
     private static JsonElement OutputFor(string capability) => capability switch
     {
         WorkBoardActions.Read or
@@ -308,6 +332,33 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         PlatformCapabilities.FinanceProfileRead or
         PlatformCapabilities.ManagementCycleRead or
         HiringCapabilities.ListRecommendations => EmptyInput,
+        CommunicationCapabilities.ChatRead => Schema("""
+            {"type":"object","properties":{"chatId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
+            """),
+        CommunicationCapabilities.ChatCreate => Schema("""
+            {"type":"object","required":["isDirect","isPrivate","participantOrganizationUserIds"],"properties":{"title":{"type":["string","null"],"maxLength":256},"description":{"type":["string","null"],"maxLength":2048},"isDirect":{"type":"boolean"},"isPrivate":{"type":"boolean"},"participantOrganizationUserIds":{"type":"array","maxItems":250,"items":{"type":"string","format":"uuid"}},"audienceRoleIds":{"type":["array","null"],"items":{"type":"string","format":"uuid"}},"audienceWorkstreamIds":{"type":["array","null"],"items":{"type":"string","format":"uuid"}}},"additionalProperties":false}
+            """),
+        CommunicationCapabilities.ChatModify => Schema("""
+            {"type":"object","required":["chatId","title","isPrivate","participantOrganizationUserIds"],"properties":{"chatId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":256},"description":{"type":["string","null"],"maxLength":2048},"isPrivate":{"type":"boolean"},"participantOrganizationUserIds":{"type":"array","maxItems":250,"items":{"type":"string","format":"uuid"}},"audienceRoleIds":{"type":["array","null"],"items":{"type":"string","format":"uuid"}},"audienceWorkstreamIds":{"type":["array","null"],"items":{"type":"string","format":"uuid"}}},"additionalProperties":false}
+            """),
+        CommunicationCapabilities.ChatDelete => Schema("""
+            {"type":"object","required":["chatId"],"properties":{"chatId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        CommunicationCapabilities.MessageSend => Schema("""
+            {"type":"object","required":["chatId","content"],"properties":{"chatId":{"type":"string","format":"uuid"},"content":{"type":"string","minLength":1,"maxLength":32768},"idempotencyKey":{"type":["string","null"],"maxLength":160}},"additionalProperties":false}
+            """),
+        CommunicationCapabilities.CoordinationStart => Schema("""
+            {"type":"object","required":["targetOrganizationUserId","subject","objective","successCriteria","initialMessage","sourceConversationId","sourceChatTurnId","sourceMessageId","idempotencyKey"],"properties":{"targetOrganizationUserId":{"type":"string","format":"uuid"},"subject":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":4096},"successCriteria":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","minLength":1,"maxLength":2048}},"initialMessage":{"type":"string","minLength":1,"maxLength":32768},"sourceConversationId":{"type":"string","format":"uuid"},"sourceChatTurnId":{"type":"string","format":"uuid"},"sourceMessageId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        CommunicationCapabilities.CoordinationRespond => Schema("""
+            {"type":"object","required":["sessionId","expectedRevision","expectedTurnOrdinal","disposition","content","idempotencyKey"],"properties":{"sessionId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"expectedTurnOrdinal":{"type":"integer","minimum":1},"disposition":{"type":"string","enum":["Continue","Completed","Blocked"]},"content":{"type":"string","minLength":1,"maxLength":32768},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        CommunicationCapabilities.CoordinationRead => Schema("""
+            {"type":"object","required":["sessionId"],"properties":{"sessionId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        CommunicationCapabilities.CoordinationCancel => Schema("""
+            {"type":"object","required":["sessionId","expectedRevision","reason","idempotencyKey"],"properties":{"sessionId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"reason":{"type":"string","minLength":1,"maxLength":2048},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
         PlatformCapabilities.BusinessPatternSearch => Schema("""
             {"type":"object","properties":{"businessType":{"type":["string","null"]},"lifecycleStage":{"type":["string","null"]},"jurisdictions":{"type":["array","null"],"items":{"type":"string"}},"maximumResults":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}
             """),

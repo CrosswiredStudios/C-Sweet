@@ -34,10 +34,11 @@ COPY --from=powershell /opt/microsoft/powershell/7/ /opt/microsoft/powershell/7/
 COPY --from=uv /uv /uvx /usr/local/bin/
 
 RUN ln -s /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh \
-    && corepack enable \
-    && groupadd --gid 1654 csweet \
-    && useradd --uid 1654 --gid 1654 --create-home --home-dir /home/csweet --shell /bin/bash csweet \
-    && mkdir -p /workspace /tmp/csweet-developer \
+    && rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx \
+    && corepack enable --install-directory /usr/local/bin \
+    && (getent group 1654 >/dev/null || groupadd --gid 1654 csweet) \
+    && (getent passwd 1654 >/dev/null || useradd --uid 1654 --gid 1654 --create-home --home-dir /home/csweet --shell /bin/bash csweet) \
+    && mkdir -p /workspace /tmp/csweet-developer /home/csweet \
     && chown -R 1654:1654 /workspace /tmp/csweet-developer /home/csweet
 
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \

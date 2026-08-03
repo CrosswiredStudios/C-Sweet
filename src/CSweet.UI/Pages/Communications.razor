@@ -129,10 +129,32 @@
                     </div>
                 </header>
 
-                @if (!string.IsNullOrWhiteSpace(_notice))
-                {
-                    <div class="hub-notice">@_notice</div>
-                }
+                <div class="hub-status-stack">
+                    @if (!string.IsNullOrWhiteSpace(_notice))
+                    {
+                        <div class="hub-notice">@_notice</div>
+                    }
+
+                    @foreach (var coordination in _coordinationSessions)
+                    {
+                        <section class="hub-coordination-card" aria-label="Active agent collaboration">
+                            <div class="hub-coordination-icon"><MudIcon Icon="@Icons.Material.Outlined.Hub" /></div>
+                            <div class="hub-coordination-content">
+                                <span>AGENT COLLABORATION · @coordination.Status</span>
+                                <strong>@coordination.Subject</strong>
+                                <p>@coordination.Initiator.DisplayName and @coordination.Target.DisplayName are collaborating on this task.</p>
+                            </div>
+                            @if (_hub.CanManageChats)
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                           Disabled="@_stoppingCoordination.Contains(coordination.Id)"
+                                           OnClick="@(() => StopCoordinationAsync(coordination))">
+                                    Stop collaboration
+                                </MudButton>
+                            }
+                        </section>
+                    }
+                </div>
 
                 <section class="hub-message-list" role="log" aria-live="polite" @ref="_messageList">
                     @if (_messages.Count == 0)
@@ -532,6 +554,8 @@
     private CommunicationChatResponse? _selected;
     private CommunicationChatResponse? _editing;
     private readonly List<CommunicationHubMessageResponse> _messages = [];
+    private readonly List<AgentCoordinationSessionResponse> _coordinationSessions = [];
+    private readonly HashSet<Guid> _stoppingCoordination = [];
     private readonly Dictionary<Guid, TurnView> _turns = [];
     private readonly HashSet<Guid> _observingTurns = [];
     private readonly HashSet<Guid> _selectedMembers = [];
@@ -675,6 +699,10 @@
             $"{BasePath}/chats/{_selected.Id}/messages{PerspectiveApiQuery}",
             token) ?? [];
         _messages.Clear(); _messages.AddRange(items);
+        var coordination = await Http.GetFromJsonAsync<List<AgentCoordinationSessionResponse>>(
+            $"{BasePath}/chats/{_selected.Id}/coordination-sessions?activeOnly=true", token) ?? [];
+        _coordinationSessions.Clear();
+        _coordinationSessions.AddRange(coordination);
         if (_hub?.IsReadOnlyPerspective == true)
             _turns.Clear();
         else
@@ -691,6 +719,34 @@
                 new MarkCommunicationChatReadRequest(last.Sequence), token);
             if (response.IsSuccessStatusCode && await response.Content.ReadFromJsonAsync<CommunicationUnreadSummaryResponse>(token) is { } summary)
                 Unread.Apply(summary);
+        }
+    }
+
+    private async Task StopCoordinationAsync(AgentCoordinationSessionResponse session)
+    {
+        if (_selected is null || !_stoppingCoordination.Add(session.Id)) return;
+        _notice = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"{BasePath}/chats/{_selected.Id}/coordination-sessions/{session.Id}/stop",
+                new StopAgentCoordinationRequest(
+                    session.Revision,
+                    "Stopped from the communications workspace.",
+                    $"ui-stop:{session.Id:N}:{session.Revision}"),
+                _disposeCts.Token);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(await response.Content.ReadAsStringAsync(_disposeCts.Token));
+            _notice = "The collaboration was stopped. Its transcript remains available for audit.";
+            await LoadMessagesAsync(markRead: false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _notice = $"Collaboration could not be stopped: {exception.Message}";
+        }
+        finally
+        {
+            _stoppingCoordination.Remove(session.Id);
         }
     }
 

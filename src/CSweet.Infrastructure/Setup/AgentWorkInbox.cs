@@ -2,6 +2,8 @@ using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CSweet.Domain.Communications;
+using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.AspNetCore.DataProtection;
@@ -134,6 +136,7 @@ public sealed class AgentWorkInbox(
         {
             expiredItem.Status = AgentWorkStatus.DeadLetter;
             expiredItem.LastError = "The work deadline elapsed before the item could be claimed.";
+            await FailCoordinationForWorkAsync(expiredItem, expiredItem.LastError, now, cancellationToken);
             AgentRuntimeMetrics.Work("dead_lettered", expiredItem.Kind);
         }
 
@@ -153,6 +156,8 @@ public sealed class AgentWorkInbox(
                 : AgentWorkStatus.Pending;
             work.AvailableAt = now;
             work.LastError = "The prior runtime lease expired.";
+            if (work.Status == AgentWorkStatus.DeadLetter)
+                await FailCoordinationForWorkAsync(work, work.LastError, now, cancellationToken);
             AgentRuntimeMetrics.Work(
                 work.Status == AgentWorkStatus.DeadLetter ? "dead_lettered" : "requeued",
                 work.Kind);
@@ -312,6 +317,8 @@ public sealed class AgentWorkInbox(
             ? AgentWorkStatus.DeadLetter
             : AgentWorkStatus.Pending;
         item.AvailableAt = now.AddSeconds(Math.Min(60, Math.Pow(2, attemptNumber)));
+        if (item.Status == AgentWorkStatus.DeadLetter)
+            await FailCoordinationForWorkAsync(item, item.LastError, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         AgentRuntimeMetrics.Work(
             item.Status == AgentWorkStatus.DeadLetter ? "dead_lettered" : "failed",
@@ -377,6 +384,74 @@ public sealed class AgentWorkInbox(
             completion = JsonSerializer.Deserialize<AgentWorkCompletion>(
                 _protector.Unprotect(item.ProtectedResult));
         return new AgentWorkState(item.Status, completion, item.LastError);
+    }
+
+    public async Task<bool> CancelAsync(
+        Guid workId,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var item = await db.AgentWorkItems.SingleOrDefaultAsync(x => x.Id == workId, cancellationToken);
+        if (item is null || item.Status is AgentWorkStatus.Completed or AgentWorkStatus.Cancelled or AgentWorkStatus.DeadLetter)
+            return false;
+        item.Status = AgentWorkStatus.Cancelled;
+        item.CompletedAt = timeProvider.GetUtcNow();
+        item.LastError = Truncate(reason, 2048);
+        var activeAttempts = await db.AgentWorkAttempts.Where(x =>
+            x.AgentWorkItemId == workId && x.FinishedAt == null).ToListAsync(cancellationToken);
+        foreach (var attempt in activeAttempts)
+        {
+            attempt.FinishedAt = item.CompletedAt;
+            attempt.Error = "cancelled";
+        }
+        await db.SaveChangesAsync(cancellationToken);
+        AgentRuntimeMetrics.Work("cancelled", item.Kind);
+        return true;
+    }
+
+    private async Task FailCoordinationForWorkAsync(
+        AgentWorkItem item,
+        string? error,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(item.SourceType, "agent-coordination", StringComparison.Ordinal) ||
+            !Guid.TryParse(item.CorrelationId, out var sessionId))
+            return;
+        var session = await db.AgentCoordinationSessions.SingleOrDefaultAsync(x =>
+            x.Id == sessionId &&
+            (x.Status == AgentCoordinationStatus.Active ||
+             x.Status == AgentCoordinationStatus.Summarizing), cancellationToken);
+        if (session is null) return;
+
+        var detail = string.IsNullOrWhiteSpace(error)
+            ? "The assigned agent work could not be completed."
+            : Truncate(error, 1000);
+        session.Status = AgentCoordinationStatus.Failed;
+        session.Revision++;
+        session.CurrentOrganizationUserId = null;
+        session.CurrentAgentWorkItemId = null;
+        session.CompletedAt = session.UpdatedAt = now;
+        session.FinalSummary = $"Collaboration failed because an agent turn could not continue: {detail}";
+        var summaryKey = $"coordination:{session.Id:N}:summary";
+        if (!await db.CoreConversationMessages.AnyAsync(x =>
+                x.ConversationId == session.SourceConversationId &&
+                x.IdempotencyKey == summaryKey, cancellationToken))
+        {
+            db.CoreConversationMessages.Add(new ConversationMessage
+            {
+                Id = Guid.NewGuid(), ConversationId = session.SourceConversationId,
+                CoordinationSessionId = session.Id,
+                SenderOrganizationUserId = session.InitiatorOrganizationUserId,
+                Role = ConversationRole.Assistant,
+                Content = session.FinalSummary,
+                CorrelationId = session.Id,
+                DeliveryIntent = CommunicationDeliveryIntent.Response,
+                SourceProvider = "InApp",
+                IdempotencyKey = summaryKey,
+                CreatedAt = now
+            });
+        }
     }
 
     private async Task<AgentWorkAttempt> GetActiveAttemptAsync(
