@@ -1,0 +1,88 @@
+@page "/source-control/github-callback"
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>Finishing GitHub setup</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="py-12">
+    <MudPaper Outlined="true" Class="pa-6">
+        <MudStack AlignItems="AlignItems.Center" Spacing="3">
+            @if (_working)
+            {
+                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                <MudText Typo="Typo.h6">Verifying your GitHub organization</MudText>
+                <MudText Typo="Typo.body2" Align="Align.Center" Color="Color.Secondary">
+                    C-Sweet is confirming the installation directly with GitHub. No access token is
+                    being placed in your browser or given to an agent.
+                </MudText>
+            }
+            else
+            {
+                <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Color="Color.Error" Size="Size.Large" />
+                <MudText Typo="Typo.h6">GitHub setup could not be completed</MudText>
+                <MudText Typo="Typo.body2">@_error</MudText>
+            }
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    [SupplyParameterFromQuery(Name = "state")] public string? State { get; set; }
+    [SupplyParameterFromQuery(Name = "installation_id")] public long InstallationId { get; set; }
+    [SupplyParameterFromQuery(Name = "setup_action")] public string? SetupAction { get; set; }
+
+    private bool _working = true;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(State) || InstallationId <= 0 ||
+            !TryReadState(State, out var organizationId, out var sessionId))
+        {
+            Fail("The GitHub response did not match a valid C-Sweet setup session.");
+            return;
+        }
+
+        try
+        {
+            var dashboard = await Http.GetFromJsonAsync<SourceControlDashboardResponse>(
+                $"api/organizations/{organizationId:D}/source-control/dashboard");
+            var active = dashboard?.ActiveOnboarding;
+            if (active is null || active.SessionId != sessionId)
+                throw new InvalidOperationException("This setup session has expired or was replaced.");
+            var appKind = active.CurrentStep == "authorize-provisioner" ? "Provisioner" : "SourceAccess";
+            using var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{organizationId:D}/source-control/onboarding/{sessionId:D}/github-installation",
+                new CompleteGitHubAppInstallationRequest(State, InstallationId, appKind));
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
+            var result = await response.Content.ReadFromJsonAsync<CompleteGitHubAppInstallationResponse>()
+                ?? throw new InvalidOperationException("C-Sweet returned no setup result.");
+            if (!string.IsNullOrWhiteSpace(result.NextAuthorizationUrl))
+                Navigation.NavigateTo(result.NextAuthorizationUrl, forceLoad: true);
+            else
+                Navigation.NavigateTo($"/organizations/{organizationId:D}/source-control", forceLoad: true);
+        }
+        catch (Exception exception)
+        {
+            Fail(exception.Message);
+        }
+    }
+
+    private void Fail(string message)
+    {
+        _working = false;
+        _error = message;
+    }
+
+    private static bool TryReadState(string state, out Guid organizationId, out Guid sessionId)
+    {
+        organizationId = Guid.Empty;
+        sessionId = Guid.Empty;
+        var segments = state.Split('.', 3, StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 3 &&
+               Guid.TryParseExact(segments[0], "N", out organizationId) &&
+               Guid.TryParseExact(segments[1], "N", out sessionId);
+    }
+}

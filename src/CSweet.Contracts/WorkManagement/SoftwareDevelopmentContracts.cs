@@ -3,53 +3,15 @@ using CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Contracts.WorkManagement;
 
-public sealed record CreateGitRepositoryConnectionRequest(
-    [property: Required, MaxLength(160)] string Name,
-    string Provider,
-    [property: Required, MaxLength(2048)] string CloneUrl,
-    [property: Required, MaxLength(512)] string PermittedRepositoryPath,
-    string AuthenticationMode,
-    bool AllowPush,
-    [property: Required, MaxLength(255)] string DefaultBranch,
-    string PullRequestProvider,
-    IReadOnlyList<string> AllowedHosts,
-    IReadOnlyList<int> AllowedPorts,
-    IReadOnlyList<string>? SshHostFingerprints = null,
-    bool AllowGovernedMerge = false);
-
-public sealed record GitRepositoryConnectionResponse(
+public sealed record SourceControlRepositoryOptionResponse(
     Guid Id,
     Guid OrganizationId,
     string Name,
     string Provider,
-    string CloneUrl,
-    string PermittedRepositoryPath,
-    string AuthenticationMode,
-    bool CanReadFetch,
-    bool CanPushTicketBranch,
-    bool CanMergeQaApprovedPullRequest,
+    string CanonicalPath,
     string DefaultBranch,
-    string PullRequestProvider,
-    IReadOnlyList<string> AllowedHosts,
-    IReadOnlyList<int> AllowedPorts,
-    IReadOnlyList<string> SshHostFingerprints,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
-
-public sealed record GrantGitRepositoryConnectionRequest(
-    Guid AgentInstallationId,
-    bool CanReadFetch = true,
-    bool CanPushTicketBranch = false,
-    bool CanMergeQaApprovedPullRequest = false);
-
-/// <summary>
-/// Sets one encrypted credential component. Values are write-only and never appear
-/// in a response or audit payload.
-/// </summary>
-public sealed record SetGitRepositoryCredentialRequest(
-    Guid AgentInstallationId,
-    [property: Required, MaxLength(80)] string Component,
-    [property: Required, MaxLength(65536)] string Value);
+    string DeliveryKind,
+    bool IsManaged);
 
 public sealed record AssignSoftwareDevelopmentWorkItemRequest(
     Guid AssignedInstallationId,

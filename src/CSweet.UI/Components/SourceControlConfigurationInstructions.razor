@@ -1,0 +1,71 @@
+<MudTabs @bind-ActivePanelIndex="_activeTab"
+         Rounded="true"
+         ApplyEffectsToContainer="true"
+         Class="source-control-configuration-tabs">
+    <MudTabPanel Text="Local AppHost">
+        <MudText Typo="Typo.body2" Class="mb-2">
+            Run these PowerShell commands from the repository root after replacing the example values.
+        </MudText>
+        @if (AppKind == "source")
+        {
+            <pre class="source-control-setup-command"><code>$sourcePem = [Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\secure\csweet-source.pem'))
+$trustedKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+
+dotnet user-secrets set 'CSweet:SourceControl:TrustedServiceKeyBase64' $trustedKey --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:SourceAccessAppId' '123456' --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:SourceAccessPrivateKeyBase64' $sourcePem --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:SourceAccessInstallUrl' 'https://github.com/apps/YOUR-SOURCE-SLUG/installations/new' --project src/CSweet.AppHost</code></pre>
+        }
+        else
+        {
+            <pre class="source-control-setup-command"><code>$provisionerPem = [Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\secure\csweet-provisioner.pem'))
+
+dotnet user-secrets set 'CSweet:SourceControl:ProvisionerAppId' '234567' --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:ProvisionerPrivateKeyBase64' $provisionerPem --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:ProvisionerInstallUrl' 'https://github.com/apps/YOUR-PROVISIONER-SLUG/installations/new' --project src/CSweet.AppHost</code></pre>
+        }
+    </MudTabPanel>
+    <MudTabPanel Text="Deployed installation">
+        <MudText Typo="Typo.body2" Class="mb-2">
+            Store the values below in your deployment's secret manager and expose them to the
+            C-Sweet AppHost process. Do not place secret values in source-controlled files.
+        </MudText>
+        @if (AppKind == "source")
+        {
+            <ul class="source-control-configuration-keys">
+                <li><code>CSweet__SourceControl__TrustedServiceKeyBase64</code> — random 32-byte key encoded as Base64</li>
+                <li><code>CSweet__SourceControl__SourceAccessAppId</code> — numeric App ID</li>
+                <li><code>CSweet__SourceControl__SourceAccessPrivateKeyBase64</code> — PEM file encoded as Base64</li>
+                <li><code>CSweet__SourceControl__SourceAccessInstallUrl</code> — App installation URL</li>
+            </ul>
+        }
+        else
+        {
+            <ul class="source-control-configuration-keys">
+                <li><code>CSweet__SourceControl__ProvisionerAppId</code> — numeric App ID</li>
+                <li><code>CSweet__SourceControl__ProvisionerPrivateKeyBase64</code> — PEM file encoded as Base64</li>
+                <li><code>CSweet__SourceControl__ProvisionerInstallUrl</code> — App installation URL</li>
+            </ul>
+        }
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private bool _initialized;
+    private int _activeTab;
+
+    [Parameter, EditorRequired]
+    public string AppKind { get; set; } = "source";
+
+    [Parameter]
+    public int DefaultTabIndex { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (_initialized)
+            return;
+
+        _activeTab = DefaultTabIndex;
+        _initialized = true;
+    }
+}

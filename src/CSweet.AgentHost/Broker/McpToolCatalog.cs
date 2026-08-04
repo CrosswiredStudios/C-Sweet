@@ -152,15 +152,23 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         Write(WorkItemActions.Transfer, "transfer_work_item",
             "Transfer one canonical, non-hierarchical work item between two granted boards."),
         Write(GitWorkspaceCapabilities.Prepare, "prepare_git_workspace",
-            "Clone or resume the repository granted to this assigned ticket and create its deterministic branch."),
+            "Materialize the assigned repository as a credential-free snapshot; Core derives its repository and ref."),
+        Write(GitWorkspaceCapabilities.Refresh, "refresh_git_workspace",
+            "Refresh an assigned credential-free snapshot against its authorized base and return bounded conflicts."),
         Read(GitWorkspaceCapabilities.Inspect, "inspect_git_workspace",
-            "Inspect changed files and commits in an assigned ticket workspace without exposing credentials."),
+            "Inspect bounded changes in an assigned credential-free ticket workspace."),
         Write(GitWorkspaceCapabilities.Publish, "publish_git_workspace",
-            "Commit and push the ticket branch and create a pull request when a review provider is configured."),
+            "Ask trusted GitHost to reconstruct, commit, and publish the assigned change artifact."),
         Write(GitWorkspaceCapabilities.Cleanup, "cleanup_git_workspace",
             "Remove a successful ticket workspace or retain a failed workspace for recovery."),
-        Read(GitRepositoryCapabilities.TeamOptions, "list_team_repository_options",
-            "List safe repository metadata for connections granted to both the team's Software Developer and Software QA."),
+        Read(SourceControlCapabilities.TeamRepositoryOptions, "list_team_repository_options",
+            "List safe repository metadata enabled by the current team's delivery policy."),
+        Write(SourceControlCapabilities.ProvisionRepository, "provision_source_control_repository",
+            "Request one policy-bounded private Managed GitHub code project for an approved product or workstream."),
+        Read(GitMergeCapabilities.Review, "review_git_merge",
+            "Review the exact candidate SHA, QA evidence, and required checks as the canonical team lead."),
+        Write(GitMergeCapabilities.Authorize, "authorize_git_merge",
+            "Approve or reject the exact reviewed candidate SHA as the canonical team lead."),
         Read(WorkSprintActions.Read, "list_work_sprints",
             "List planned, active, and closed sprints on a granted board."),
         Write(WorkSprintActions.Create, "create_work_sprint",
@@ -314,7 +322,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
     {
         WorkBoardActions.Read or
         WorkSprintActions.Read or
-        GitRepositoryCapabilities.TeamOptions => ArrayOutput,
+        SourceControlCapabilities.TeamRepositoryOptions => ArrayOutput,
         _ => ObjectOutput
     };
 
@@ -435,19 +443,31 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["boardId","itemId","targetBoardId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"targetBoardId":{"type":"string","format":"uuid"},"targetColumnId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Prepare => Schema("""
-            {"type":"object","required":["workItemId","assignmentRevision","repositoryConnectionId","branchName","idempotencyKey"],"properties":{"workItemId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"repositoryConnectionId":{"type":"string","format":"uuid"},"baseBranch":{"type":["string","null"],"maxLength":255},"branchName":{"type":"string","minLength":1,"maxLength":255},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["workItemId","assignmentRevision","idempotencyKey"],"properties":{"workItemId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        GitWorkspaceCapabilities.Refresh => Schema("""
+            {"type":"object","required":["workspaceId","assignmentRevision","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Inspect => Schema("""
-            {"type":"object","required":["workspaceId"],"properties":{"workspaceId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            {"type":"object","required":["workspaceId","assignmentRevision"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Publish => Schema("""
-            {"type":"object","required":["workspaceId","commitMessage","pullRequestTitle","pullRequestBody","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"commitMessage":{"type":"string","minLength":1,"maxLength":512},"pullRequestTitle":{"type":"string","minLength":1,"maxLength":256},"pullRequestBody":{"type":"string","maxLength":32768},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["workspaceId","assignmentRevision","commitMessage","proposedChangeTitle","proposedChangeBody","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"commitMessage":{"type":"string","minLength":1,"maxLength":512},"proposedChangeTitle":{"type":"string","minLength":1,"maxLength":256},"proposedChangeBody":{"type":"string","maxLength":32768},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Cleanup => Schema("""
-            {"type":"object","required":["workspaceId"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"retainOnFailure":{"type":"boolean"}},"additionalProperties":false}
+            {"type":"object","required":["workspaceId","assignmentRevision"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"retainOnFailure":{"type":"boolean"}},"additionalProperties":false}
             """),
-        GitRepositoryCapabilities.TeamOptions => Schema("""
+        SourceControlCapabilities.TeamRepositoryOptions => Schema("""
             {"type":"object","required":["teamId"],"properties":{"teamId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        SourceControlCapabilities.ProvisionRepository => Schema("""
+            {"type":"object","required":["productOrWorkstreamId","projectDisplayName","templateId","idempotencyKey"],"properties":{"productOrWorkstreamId":{"type":"string","format":"uuid"},"projectDisplayName":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"templateId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        GitMergeCapabilities.Review => Schema("""
+            {"type":"object","required":["workItemId","assignmentRevision","idempotencyKey"],"properties":{"workItemId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        GitMergeCapabilities.Authorize => Schema("""
+            {"type":"object","required":["workItemId","assignmentRevision","publicationId","candidateCommitSha","decision","idempotencyKey"],"properties":{"workItemId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"publicationId":{"type":"string","format":"uuid"},"candidateCommitSha":{"type":"string","minLength":40,"maxLength":64},"decision":{"type":"string","enum":["Approve","Reject"]},"feedback":{"type":["string","null"],"maxLength":4000},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkSprintActions.Read => Schema("""
             {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"}},"additionalProperties":false}
@@ -505,7 +525,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
 
     private static string ToToolName(string capability)
     {
-        var withoutVersion = capability.EndsWith(".v1", StringComparison.Ordinal)
+        var withoutVersion = capability.EndsWith(".v1", StringComparison.Ordinal) ||
+                             capability.EndsWith(".v2", StringComparison.Ordinal)
             ? capability[..^3]
             : capability;
         return string.Concat(withoutVersion.Select(x => char.IsLetterOrDigit(x) ? char.ToLowerInvariant(x) : '_'))

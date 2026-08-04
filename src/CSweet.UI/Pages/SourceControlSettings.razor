@@ -1,0 +1,91 @@
+@page "/settings/source-control"
+@layout SettingsLayout
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+
+<PageTitle>Source Control Settings - C-Sweet</PageTitle>
+
+<div class="setup-shell">
+    <MudPaper Elevation="0" Class="page-header">
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Enterprise platform</MudText>
+            <MudText Typo="Typo.h3">Source control</MudText>
+            <MudText Color="Color.Secondary">
+                Configure the GitHub Apps used across this C-Sweet installation. Businesses connect
+                their own GitHub organizations and projects after the enterprise integration is active.
+            </MudText>
+        </div>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh"
+                   OnClick="LoadAsync" Disabled="_loading">Refresh</MudButton>
+    </MudPaper>
+
+    @if (_loading)
+    {
+        <MudPaper Elevation="1" Class="surface-panel surface-panel-narrow" aria-live="polite">
+            <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+            <MudText Color="Color.Secondary">Loading enterprise source-control setup...</MudText>
+        </MudPaper>
+    }
+    else if (_accessDenied)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+            <MudText Typo="Typo.subtitle1">Enterprise administrator access is required</MudText>
+            <MudText Typo="Typo.body2">
+                Only a C-Sweet system administrator can configure the installation-wide GitHub Apps.
+            </MudText>
+        </MudAlert>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">Try again</MudButton>
+    }
+    else if (_setup is not null)
+    {
+        @if (_setup.Readiness.ConfigurationMode == "ExternallyManaged")
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                This installation uses operator-managed GitHub credentials. They remain active and
+                have not been imported into C-Sweet.
+            </MudAlert>
+        }
+        <SourceControlPlatformSetupWizard Setup="_setup" SetupChanged="HandleSetupChanged" />
+    }
+</div>
+
+@code {
+    private PlatformSourceControlSetupResponse? _setup;
+    private bool _loading = true;
+    private bool _accessDenied;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _accessDenied = false;
+        _error = null;
+        try
+        {
+            using var response = await Http.GetAsync("api/source-control/platform-setup/");
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                _accessDenied = true;
+                _setup = null;
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            _setup = await response.Content.ReadFromJsonAsync<PlatformSourceControlSetupResponse>()
+                ?? throw new InvalidOperationException("Enterprise source-control setup returned no data.");
+        }
+        catch (Exception exception)
+        {
+            _setup = null;
+            _error = exception.Message;
+        }
+        finally { _loading = false; }
+    }
+
+    private void HandleSetupChanged(PlatformSourceControlSetupResponse updated) => _setup = updated;
+}

@@ -2,6 +2,7 @@ using System.Text.Json;
 using CSweet.Application.Core;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -106,6 +107,107 @@ public sealed class ApprovalDashboardService(
             workflow.SubmittedAt.HasValue,
             HiringWorkflow: card);
         }));
+
+        var sourceApprovals = await db.SourceControlApprovals.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId)
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(250)
+            .ToListAsync(cancellationToken);
+        var provisioningIds = sourceApprovals
+            .Where(x => x.ProvisioningRequestId.HasValue)
+            .Select(x => x.ProvisioningRequestId!.Value)
+            .ToList();
+        var provisioning = await db.RepositoryProvisioningRequests.AsNoTracking()
+            .Include(x => x.Connection)
+            .Include(x => x.Policy)
+            .Include(x => x.Template)
+            .Where(x => x.OrganizationId == organizationId && provisioningIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+        var teamIds = provisioning.Values
+            .Where(x => x.TeamId.HasValue)
+            .Select(x => x.TeamId!.Value)
+            .Distinct()
+            .ToList();
+        var teamNames = await db.OrganizationTeams.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && teamIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
+        var mergeIds = sourceApprovals
+            .Where(x => x.MergeJobId.HasValue)
+            .Select(x => x.MergeJobId!.Value)
+            .ToList();
+        var mergeJobs = await db.SourceControlMergeJobs.AsNoTracking()
+            .Include(x => x.Publication)!.ThenInclude(x => x!.Repository)
+            .Where(x => x.OrganizationId == organizationId && mergeIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+
+        foreach (var approval in sourceApprovals)
+        {
+            SourceControlApprovalCardResponse card;
+            string title;
+            string summary;
+            string kind;
+            if (approval.Kind == SourceControlApprovalKind.RepositoryProvisioning &&
+                approval.ProvisioningRequestId.HasValue &&
+                provisioning.TryGetValue(approval.ProvisioningRequestId.Value, out var request))
+            {
+                title = $"New private code project: {request.RepositoryName}";
+                summary = $"Create a private code project in {request.Connection?.AccountLogin}.";
+                kind = ApprovalDashboardKinds.RepositoryProvisioning;
+                card = new SourceControlApprovalCardResponse(
+                    approval.Id,
+                    approval.Kind.ToString(),
+                    request.Id,
+                    null,
+                    request.RepositoryName,
+                    request.Connection?.AccountLogin ?? "GitHub organization",
+                    true,
+                    request.Template?.DisplayName,
+                    request.TeamId.HasValue && teamNames.TryGetValue(request.TeamId.Value, out var teamName)
+                        ? teamName
+                        : null,
+                    request.Policy?.MaximumRepositories,
+                    approval.Status.ToString(),
+                    approval.Revision);
+            }
+            else if (approval.MergeJobId.HasValue &&
+                     mergeJobs.TryGetValue(approval.MergeJobId.Value, out var merge))
+            {
+                title = $"Code merge: {merge.Publication?.Repository?.Name ?? "code project"}";
+                summary = $"Merge exact version {merge.ExpectedHeadSha[..Math.Min(12, merge.ExpectedHeadSha.Length)]}.";
+                kind = ApprovalDashboardKinds.Merge;
+                card = new SourceControlApprovalCardResponse(
+                    approval.Id,
+                    approval.Kind.ToString(),
+                    null,
+                    merge.Id,
+                    merge.Publication?.Repository?.Name ?? "Code project",
+                    merge.Publication?.Repository?.Owner ?? "GitHub",
+                    merge.Publication?.Repository?.IsPrivate ?? true,
+                    null,
+                    null,
+                    null,
+                    approval.Status.ToString(),
+                    approval.Revision);
+            }
+            else
+            {
+                continue;
+            }
+
+            items.Add(new ApprovalDashboardItemResponse(
+                approval.Id,
+                kind,
+                title,
+                summary,
+                approval.Status.ToString(),
+                Name(names, approval.RequestedByOrganizationUserId, "Software team"),
+                ownerLabel,
+                approval.CreatedAt,
+                approval.DecidedAt,
+                $"/organizations/{organizationId:D}/approvals",
+                approval.Status == ApprovalStatus.Pending,
+                SourceControl: card));
+        }
 
         var artifacts = await db.CoreArtifacts.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId &&

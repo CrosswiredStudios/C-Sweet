@@ -1,0 +1,28 @@
+.source-control-configuration-tabs {
+    max-width: 100%;
+}
+
+.source-control-setup-command {
+    background: var(--mud-palette-background-gray);
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--mud-default-borderradius);
+    margin: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 1rem;
+    white-space: pre-wrap;
+}
+
+.source-control-setup-command code,
+.source-control-configuration-keys code {
+    overflow-wrap: anywhere;
+}
+
+.source-control-configuration-keys {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.source-control-configuration-keys li + li {
+    margin-top: 0.5rem;
+}

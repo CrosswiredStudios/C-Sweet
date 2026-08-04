@@ -22,6 +22,9 @@ using CSweet.Api.GenAi;
 using CSweet.Application.Notifications;
 using CSweet.Api.WorkManagement;
 using CSweet.Api.Analytics;
+using CSweet.Api.SourceControl;
+using CSweet.TrustedServices;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -39,6 +42,7 @@ builder.Services.AddAgentManagement();
 builder.Services.AddAgentRateLimiting();
 builder.Services.AddHostedService<MemoryCaptureWorker>();
 builder.Services.AddHostedService<ChatTurnWorker>();
+builder.Services.AddHostedService<SourceControlPlatformReconciliationWorker>();
 builder.Services.AddSingleton<IChatTurnEventRouter, ChatTurnEventRouter>();
 builder.Services.Configure<ChatTurnOptions>(builder.Configuration.GetSection("ChatTurns"));
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
@@ -71,6 +75,11 @@ builder.Services.ConfigureApplicationCookie(options =>
 });
 var authorization = builder.Services.AddAuthorizationBuilder();
 authorization.AddPolicy("PluginAdministration", policy =>
+{
+    if (builder.Environment.IsEnvironment("Testing")) policy.RequireAssertion(_ => true);
+    else policy.RequireRole(CSweet.Infrastructure.Auth.AuthenticationService.AdministratorRole);
+});
+authorization.AddPolicy("SourceControlAdministration", policy =>
 {
     if (builder.Environment.IsEnvironment("Testing")) policy.RequireAssertion(_ => true);
     else policy.RequireRole(CSweet.Infrastructure.Auth.AuthenticationService.AdministratorRole);
@@ -109,13 +118,21 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddProblemDetails();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                               ForwardedHeaders.XForwardedHost |
+                               ForwardedHeaders.XForwardedProto;
+});
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IApplicationRealtimePublisher, SignalRApplicationRealtimePublisher>();
 builder.Services.AddHostedService<ApplicationRealtimeOutboxWorker>();
 builder.Services.AddHostedService<WorkOrchestrationWorker>();
 
 var app = builder.Build();
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
+app.UseAgentBrokerAuthentication();
 
 if (app.Environment.IsDevelopment())
 {
@@ -172,6 +189,8 @@ app.MapSecurityAuditEndpoints();
 app.MapMarketplaceDiscoveryEndpoints();
 app.MapAgentCatalogEndpoints();
 app.MapWorkBoardEndpoints();
+app.MapSourceControlEndpoints();
+app.MapAgentWorkspaceBrokerEndpoints();
 app.MapAnalyticsEndpoints();
 
 app.MapControllers();

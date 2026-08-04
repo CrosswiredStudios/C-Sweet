@@ -1,42 +1,42 @@
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Application.Security;
-using CSweet.Application.Setup;
+using CSweet.Application.SourceControl;
 using CSweet.Domain.Core;
-using CSweet.Domain.Setup;
+using CSweet.Domain.Communications;
 using CSweet.Domain.Security;
+using CSweet.Domain.Setup;
+using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
-using CSweet.Infrastructure.Setup;
-using CSweet.Infrastructure.WorkManagement;
 using CSweet.WorkManagement.Contracts;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
 
 /// <summary>
-/// Executes narrowly-scoped Git operations inside the authenticated agent runtime.
-/// Credential values travel only over docker-exec stdin and are redacted from errors.
+/// Authorizes assignment-scoped source-control operations and delegates them to CSweet.GitHost.
+/// This process never handles provider credentials and never executes Git or repository code.
 /// </summary>
 public sealed class GitWorkspaceCapabilityHandler(
     CSweetDbContext db,
-    IDockerCommandExecutor docker,
-    IPluginSecretStore secrets,
-    IHttpClientFactory httpClientFactory,
-    IScopedActionAuthorizationService authorization) : IPlatformCapabilityHandler
+    ITrustedGitHostClient gitHost,
+    IScopedActionAuthorizationService authorization,
+    ISourceControlDecisionSigner decisionSigner) : IPlatformCapabilityHandler
 {
-    private const long MaximumRepositoryBytes = 2L * 1024 * 1024 * 1024;
-    private const int MaximumRepositoryFiles = 250_000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly HashSet<string> Handled =
     [
         GitWorkspaceCapabilities.Prepare,
+        GitWorkspaceCapabilities.Refresh,
         GitWorkspaceCapabilities.Inspect,
         GitWorkspaceCapabilities.Publish,
         GitWorkspaceCapabilities.Cleanup,
-        GitRepositoryCapabilities.TeamOptions
+        GitMergeCapabilities.Review,
+        GitMergeCapabilities.Authorize,
+        SourceControlCapabilities.TeamRepositoryOptions,
+        SourceControlCapabilities.ProvisionRepository
     ];
 
     public bool CanHandle(string capability) => Handled.Contains(capability);
@@ -49,19 +49,14 @@ public sealed class GitWorkspaceCapabilityHandler(
     {
         if (!session.Grant.RequestedCapabilities.Contains(request.Capability))
         {
-            yield return Failure(
-                request.RequestId,
-                PlatformCapabilityErrorCode.Denied,
+            yield return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied,
                 $"The installation capability grant does not include '{request.Capability}'.");
             yield break;
         }
         if (!Guid.TryParse(session.BusinessId, out var organizationId) ||
-            !Guid.TryParse(session.InstallationId, out var installationId) ||
-            !Guid.TryParse(session.RuntimeInstanceId, out var runtimeInstanceId))
+            !Guid.TryParse(session.InstallationId, out var installationId))
         {
-            yield return Failure(
-                request.RequestId,
-                PlatformCapabilityErrorCode.Denied,
+            yield return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied,
                 "The authenticated runtime identity is invalid.");
             yield break;
         }
@@ -72,72 +67,56 @@ public sealed class GitWorkspaceCapabilityHandler(
             object value = request.Capability switch
             {
                 GitWorkspaceCapabilities.Prepare => await PrepareAsync(
-                    organizationId,
-                    installationId,
-                    runtimeInstanceId,
-                    Read<PrepareGitWorkspaceRequest>(request),
-                    cancellationToken),
+                    organizationId, installationId,
+                    Read<PrepareGitWorkspaceRequest>(request), cancellationToken),
+                GitWorkspaceCapabilities.Refresh => await RefreshAsync(
+                    organizationId, installationId,
+                    Read<RefreshGitWorkspaceRequest>(request), cancellationToken),
                 GitWorkspaceCapabilities.Inspect => await InspectAsync(
-                    organizationId,
-                    installationId,
-                    runtimeInstanceId,
-                    Read<InspectGitWorkspaceRequest>(request),
-                    cancellationToken),
+                    organizationId, installationId,
+                    Read<InspectGitWorkspaceRequest>(request), cancellationToken),
                 GitWorkspaceCapabilities.Publish => await PublishAsync(
-                    organizationId,
-                    installationId,
-                    runtimeInstanceId,
-                    Read<PublishGitWorkspaceRequest>(request),
-                    cancellationToken),
+                    organizationId, installationId,
+                    Read<PublishGitWorkspaceRequest>(request), cancellationToken),
                 GitWorkspaceCapabilities.Cleanup => await CleanupAsync(
-                    organizationId,
-                    installationId,
-                    runtimeInstanceId,
-                    Read<CleanupGitWorkspaceRequest>(request),
-                    cancellationToken),
-                GitRepositoryCapabilities.TeamOptions => await ListTeamRepositoryOptionsAsync(
-                    organizationId,
-                    installationId,
-                    Read<TeamRepositoryOptionsRequest>(request),
-                    cancellationToken),
-                _ => throw new KeyNotFoundException("The Git workspace capability is not implemented.")
+                    organizationId, installationId,
+                    Read<CleanupGitWorkspaceRequest>(request), cancellationToken),
+                GitMergeCapabilities.Review => await ReviewMergeAsync(
+                    organizationId, installationId,
+                    Read<ReviewGitMergeRequest>(request), cancellationToken),
+                GitMergeCapabilities.Authorize => await AuthorizeMergeAsync(
+                    organizationId, installationId,
+                    Read<AuthorizeGitMergeRequest>(request), cancellationToken),
+                SourceControlCapabilities.TeamRepositoryOptions => await ListTeamRepositoryOptionsAsync(
+                    organizationId, installationId,
+                    Read<TeamRepositoryOptionsRequest>(request), cancellationToken),
+                SourceControlCapabilities.ProvisionRepository => await ProvisionRepositoryAsync(
+                    organizationId, installationId,
+                    Read<ProvisionSourceControlRepositoryRequest>(request), cancellationToken),
+                _ => throw new KeyNotFoundException("The source-control capability is not implemented.")
             };
             response = Success(request.RequestId, value);
         }
         catch (JsonException)
         {
-            response = Failure(
-                request.RequestId,
-                PlatformCapabilityErrorCode.ValidationFailed,
+            response = Failure(request.RequestId, PlatformCapabilityErrorCode.ValidationFailed,
                 "The capability payload is not valid JSON.");
         }
         catch (UnauthorizedAccessException exception)
         {
-            response = Failure(
-                request.RequestId,
-                PlatformCapabilityErrorCode.Denied,
-                exception.Message);
+            response = Failure(request.RequestId, PlatformCapabilityErrorCode.Denied, exception.Message);
         }
         catch (KeyNotFoundException exception)
         {
-            response = Failure(
-                request.RequestId,
-                PlatformCapabilityErrorCode.NotFound,
-                exception.Message);
+            response = Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound, exception.Message);
         }
         catch (ArgumentException exception)
         {
-            response = Failure(
-                request.RequestId,
-                PlatformCapabilityErrorCode.ValidationFailed,
-                exception.Message);
+            response = Failure(request.RequestId, PlatformCapabilityErrorCode.ValidationFailed, exception.Message);
         }
         catch (InvalidOperationException exception)
         {
-            response = Failure(
-                request.RequestId,
-                PlatformCapabilityErrorCode.Conflict,
-                exception.Message);
+            response = Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict, exception.Message);
         }
         yield return response;
     }
@@ -148,884 +127,775 @@ public sealed class GitWorkspaceCapabilityHandler(
         TeamRepositoryOptionsRequest input,
         CancellationToken cancellationToken)
     {
-        var team = await db.OrganizationTeams.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.Id == input.TeamId && x.OrganizationId == organizationId && x.ArchivedAt == null,
-            cancellationToken) ?? throw new KeyNotFoundException("The active team was not found.");
-        var callerId = await db.CoreOrganizationUsers.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId &&
-                        x.AgentInstallationId == installationId && x.IsActive)
-            .Select(x => (Guid?)x.Id)
-            .SingleOrDefaultAsync(cancellationToken)
-            ?? throw new UnauthorizedAccessException(
-                "The installation does not have an active organization-user identity.");
-        if (!await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
-                x.OrganizationId == organizationId && x.TeamId == team.Id &&
-                x.OrganizationUserId == callerId && x.EndedAt == null, cancellationToken))
-            throw new UnauthorizedAccessException("The installation is not an active member of this team.");
-        var decision = await authorization.AuthorizeAsync(
-            organizationId, GrantSubjectKind.AgentInstallation, installationId,
-            GitRepositoryCapabilities.TeamOptions, GrantScopeKind.Team, team.Id,
-            cancellationToken);
-        if (!decision.Allowed)
-            throw new UnauthorizedAccessException(
-                "The installation does not have permission to list repository options for this team.");
+        await RequireActiveTeamMemberAsync(
+            organizationId, installationId, input.TeamId, cancellationToken);
+        await RequireAuthorizationAsync(
+            organizationId, installationId,
+            SourceControlCapabilities.TeamRepositoryOptions,
+            GrantScopeKind.Team, input.TeamId, cancellationToken);
 
-        var memberships = await db.TeamMemberships.AsNoTracking()
-            .Include(x => x.OrganizationUser)
-            .Include(x => x.TeamRole)
-            .Where(x => x.OrganizationId == organizationId && x.TeamId == team.Id &&
-                        x.EndedAt == null)
+        return await (
+            from policy in db.TeamRepositoryPolicies.AsNoTracking()
+            join repository in db.SourceControlRepositories.AsNoTracking()
+                on new { policy.OrganizationId, Id = policy.RepositoryId }
+                equals new { repository.OrganizationId, repository.Id }
+            join connection in db.SourceControlConnections.AsNoTracking()
+                on new { repository.OrganizationId, Id = repository.ConnectionId }
+                equals new { connection.OrganizationId, connection.Id }
+            where policy.OrganizationId == organizationId &&
+                  policy.TeamId == input.TeamId &&
+                  policy.DisabledAt == null &&
+                  repository.Status == SourceControlRepositoryStatus.Ready &&
+                  repository.ArchivedAt == null &&
+                  connection.Status == SourceControlConnectionStatus.Connected
+            orderby policy.IsPrimary descending, repository.Name
+            select new TeamRepositoryOption(
+                repository.Id,
+                repository.Name,
+                connection.Provider.ToString(),
+                repository.CanonicalPath,
+                repository.DefaultBranch,
+                connection.Provider == SourceControlProvider.GitHub
+                    ? GitDeliveryKinds.PullRequest
+                    : GitDeliveryKinds.BranchOnly))
             .ToListAsync(cancellationToken);
-        Guid? FindInstallation(string role) => memberships
-            .Where(x => x.OrganizationUser is { IsActive: true, AgentInstallationId: not null } &&
-                        string.Equals(x.TeamRole?.Name, role, StringComparison.OrdinalIgnoreCase))
-            .Select(x => x.OrganizationUser!.AgentInstallationId)
-            .SingleOrDefault();
-        var developerId = FindInstallation("Software Developer")
-            ?? throw new InvalidOperationException("The team does not have an active Software Developer.");
-        var qualityId = FindInstallation("Software QA")
-            ?? throw new InvalidOperationException("The team does not have an active Software QA.");
-
-        var connections = await db.GitRepositoryConnections.AsNoTracking()
-            .Include(x => x.InstallationGrants)
-            .Where(x => x.OrganizationId == organizationId)
-            .OrderBy(x => x.Name)
-            .ToListAsync(cancellationToken);
-        return connections.Where(connection => IsCommonDeliveryRepository(
-                connection.InstallationGrants, developerId, qualityId))
-            .Select(x => new TeamRepositoryOption(
-            x.Id, x.Name, x.Provider.ToString(), x.PermittedRepositoryPath, x.DefaultBranch))
-            .ToList();
     }
 
-    internal static bool IsCommonDeliveryRepository(
-        IEnumerable<GitRepositoryConnectionGrant> grants,
-        Guid developerInstallationId,
-        Guid qualityInstallationId)
+    private async Task<RepositoryProvisioningResult> ProvisionRepositoryAsync(
+        Guid organizationId,
+        Guid installationId,
+        ProvisionSourceControlRepositoryRequest input,
+        CancellationToken cancellationToken)
     {
-        var developer = grants.SingleOrDefault(x =>
-            x.AgentInstallationId == developerInstallationId && x.RevokedAt == null);
-        var quality = grants.SingleOrDefault(x =>
-            x.AgentInstallationId == qualityInstallationId && x.RevokedAt == null);
-        return developer is
-               {
-                   CanReadFetch: true,
-                   CanPushTicketBranch: true,
-                   CanMergeQaApprovedPullRequest: true
-               } && quality is { CanReadFetch: true };
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        RequireBounded(input.ProjectDisplayName, 160, "project display name");
+        if (input.Description?.Length > 350)
+            throw new ArgumentException("The project description is too long.");
+        if (input.ProductOrWorkstreamId == Guid.Empty || input.TemplateId == Guid.Empty)
+            throw new ArgumentException("A workstream and approved template are required.");
+
+        await RequireAuthorizationAsync(
+            organizationId, installationId,
+            SourceControlCapabilities.ProvisionRepository,
+            GrantScopeKind.Organization, organizationId, cancellationToken);
+        var caller = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId &&
+            x.AgentInstallationId == installationId && x.IsActive,
+            cancellationToken) ?? throw new UnauthorizedAccessException(
+            "The installation has no active organization identity.");
+        var agentId = await (
+            from installation in db.AgentInstallations.AsNoTracking()
+            join package in db.AgentPackageVersions.AsNoTracking()
+                on installation.PackageVersionId equals package.Id
+            where installation.Id == installationId
+            select package.AgentId)
+            .SingleAsync(cancellationToken);
+        if (agentId is not ("com.csweet.software-product-manager" or
+                            "com.csweet.software-architect"))
+            throw new UnauthorizedAccessException(
+                "Only an explicitly granted Product Manager or Software Architect may request a code project.");
+        if (!await db.Workstreams.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == input.ProductOrWorkstreamId,
+                cancellationToken))
+            throw new KeyNotFoundException("The requested workstream was not found.");
+
+        var replay = await db.RepositoryProvisioningRequests.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+                                       x.IdempotencyKey == input.IdempotencyKey,
+                cancellationToken);
+        if (replay is not null)
+            return ToProvisioningResult(replay);
+
+        var policies = await db.RepositoryProvisioningPolicies.AsNoTracking()
+            .Include(x => x.Connection)
+            .Where(x => x.OrganizationId == organizationId && x.IsEnabled &&
+                        x.Connection!.Mode == SourceControlConnectionMode.ManagedGitHub &&
+                        x.Connection.Status == SourceControlConnectionStatus.Connected &&
+                        x.Connection.AccountType == "Organization")
+            .ToListAsync(cancellationToken);
+        if (policies.Count != 1)
+            return new RepositoryProvisioningResult(
+                Guid.Empty, "Blocked", null, null,
+                policies.Count == 0
+                    ? "Connect one Managed GitHub organization and enable its private-project policy."
+                    : "Choose one default Managed GitHub organization in Source Control settings.");
+        var policy = policies[0];
+        var approvedTemplateIds = JsonSerializer.Deserialize<IReadOnlyList<Guid>>(
+            policy.ApprovedTemplatesJson, JsonOptions) ?? [];
+        if (!approvedTemplateIds.Contains(input.TemplateId))
+            throw new UnauthorizedAccessException(
+                "The requested repository template is not approved by this business policy.");
+        var template = await db.SourceControlRepositoryTemplates.AsNoTracking()
+            .SingleOrDefaultAsync(candidate =>
+                candidate.OrganizationId == organizationId &&
+                candidate.ConnectionId == policy.ConnectionId &&
+                candidate.Id == input.TemplateId &&
+                candidate.IsEnabled,
+                cancellationToken)
+            ?? throw new UnauthorizedAccessException(
+                "The approved repository template is unavailable or disabled.");
+        var createdCount = await db.SourceControlRepositories.AsNoTracking().CountAsync(x =>
+            x.OrganizationId == organizationId && x.ConnectionId == policy.ConnectionId &&
+            x.IsManaged && x.ArchivedAt == null,
+            cancellationToken);
+        if (createdCount >= policy.MaximumRepositories)
+            return new RepositoryProvisioningResult(
+                Guid.Empty, "Blocked", null, null,
+                "The Managed GitHub private-project quota has been reached.");
+
+        var slug = Slug(input.ProjectDisplayName);
+        var repositoryName = string.IsNullOrWhiteSpace(policy.NamePrefix)
+            ? slug
+            : $"{policy.NamePrefix.Trim().TrimEnd('-')}-{slug}";
+        if (repositoryName.Length > 100)
+            repositoryName = repositoryName[..100].TrimEnd('-');
+        var now = DateTimeOffset.UtcNow;
+        var provisioning = new RepositoryProvisioningRequest
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            ConnectionId = policy.ConnectionId,
+            PolicyId = policy.Id,
+            RequestedByOrganizationUserId = caller.Id,
+            RequestedByAgentInstallationId = installationId,
+            WorkstreamId = input.ProductOrWorkstreamId,
+            TeamId = policy.DefaultTeamId,
+            TemplateId = template.Id,
+            PolicyRevision = policy.Revision,
+            ProjectDisplayName = input.ProjectDisplayName.Trim(),
+            Description = input.Description?.Trim() ?? string.Empty,
+            RepositoryName = repositoryName,
+            IdempotencyKey = input.IdempotencyKey,
+            Status = policy.RequiresManagerApproval
+                ? RepositoryProvisioningStatus.AwaitingApproval
+                : RepositoryProvisioningStatus.Pending,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        db.RepositoryProvisioningRequests.Add(provisioning);
+        if (policy.RequiresManagerApproval)
+        {
+            var approval = new SourceControlApproval
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = organizationId,
+                Kind = SourceControlApprovalKind.RepositoryProvisioning,
+                Status = CSweet.Domain.Core.ApprovalStatus.Pending,
+                RequestedByOrganizationUserId = caller.Id,
+                RequestedByAgentInstallationId = installationId,
+                ProvisioningRequestId = provisioning.Id,
+                IdempotencyKey = $"provision-approval:{provisioning.Id:N}",
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            provisioning.ApprovalId = approval.Id;
+            db.SourceControlApprovals.Add(approval);
+            var approvers = await db.CoreOrganizationUsers.AsNoTracking()
+                .Where(candidate => candidate.OrganizationId == organizationId &&
+                                    candidate.IsActive &&
+                                    candidate.EmployeeType == EmployeeType.Human &&
+                                    candidate.PermissionLevel >= OrganizationPermissionLevel.Manager)
+                .Select(candidate => candidate.Id)
+                .ToListAsync(cancellationToken);
+            foreach (var approverId in approvers)
+            {
+                db.UserNotifications.Add(new UserNotification
+                {
+                    Id = Guid.NewGuid(),
+                    OrganizationId = organizationId,
+                    RecipientOrganizationUserId = approverId,
+                    OriginatingAgentOrganizationUserId = caller.Id,
+                    Severity = NotificationSeverity.Important,
+                    Category = "RepositoryProvisioningApproval",
+                    Title = "New code project approval needed",
+                    Body = $"Review the private code project {repositoryName} for {policy.Connection!.AccountLogin}.",
+                    ActionUri = $"/organizations/{organizationId:D}/approvals",
+                    DeduplicationKey = $"source-control-approval:{approval.Id:N}:{approverId:N}",
+                    CreatedAt = now
+                });
+            }
+        }
+        await db.SaveChangesAsync(cancellationToken);
+        return ToProvisioningResult(provisioning);
     }
 
     private async Task<GitWorkspaceResult> PrepareAsync(
         Guid organizationId,
         Guid installationId,
-        Guid runtimeInstanceId,
         PrepareGitWorkspaceRequest input,
         CancellationToken cancellationToken)
     {
-        ValidateIdempotencyKey(input.IdempotencyKey);
-        var context = await RequireContextAsync(
-            organizationId,
-            installationId,
-            runtimeInstanceId,
-            input.WorkItemId,
-            input.AssignmentRevision,
-            input.RepositoryConnectionId,
-            requirePush: false,
-            cancellationToken);
-        var expectedBranch = DeterministicBranch(input.WorkItemId, context.Item.Title);
-        if (!string.Equals(input.BranchName, expectedBranch, StringComparison.Ordinal))
-            throw new ArgumentException($"The ticket branch must be '{expectedBranch}'.");
-        var baseBranch = string.IsNullOrWhiteSpace(input.BaseBranch)
-            ? context.Connection.DefaultBranch
-            : ValidateGitReference(input.BaseBranch);
-        var expectedCommitSha = string.IsNullOrWhiteSpace(input.ExpectedCommitSha)
-            ? null
-            : ValidateCommitSha(input.ExpectedCommitSha);
-        if (input.ResumePublishedBranch && expectedCommitSha is null)
-            throw new ArgumentException(
-                "Resuming a published branch requires its expected commit SHA.");
-        var expectedPath =
-            $"/workspace/{input.WorkItemId:N}/{input.AssignmentRevision}";
+        ValidateAssignmentRequest(input.WorkItemId, input.AssignmentRevision, input.IdempotencyKey);
+        var context = await RequireAssignmentContextAsync(
+            organizationId, installationId, input.WorkItemId,
+            input.AssignmentRevision, GitWorkspaceCapabilities.Prepare, cancellationToken);
 
-        var workspace = await db.GitTicketWorkspaces.SingleOrDefaultAsync(x =>
+        var existing = await db.SourceControlWorkspaces.SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId &&
             x.AgentInstallationId == installationId &&
             x.WorkItemId == input.WorkItemId &&
             x.AssignmentRevision == input.AssignmentRevision,
             cancellationToken);
-        var resumed = workspace is not null;
-        if (workspace is null)
+        if (existing is not null && existing.Status == SourceControlWorkspaceStatus.Ready)
         {
-            var now = DateTimeOffset.UtcNow;
-            workspace = new GitTicketWorkspace
-            {
-                Id = Guid.NewGuid(),
-                OrganizationId = organizationId,
-                AgentInstallationId = installationId,
-                WorkItemId = input.WorkItemId,
-                AssignmentRevision = input.AssignmentRevision,
-                RepositoryConnectionId = input.RepositoryConnectionId,
-                WorkspacePath = expectedPath,
-                BaseBranch = baseBranch,
-                BranchName = expectedBranch,
-                Status = GitTicketWorkspaceStatus.Preparing,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
-            db.GitTicketWorkspaces.Add(workspace);
-            await db.SaveChangesAsync(cancellationToken);
-        }
-        else if (workspace.RepositoryConnectionId != input.RepositoryConnectionId ||
-                 workspace.WorkspacePath != expectedPath ||
-                 workspace.BaseBranch != baseBranch ||
-                 workspace.BranchName != expectedBranch)
-        {
-            throw new InvalidOperationException(
-                "The assignment workspace is already bound to different repository parameters.");
-        }
-        workspace.Status = GitTicketWorkspaceStatus.Preparing;
-        workspace.LastError = null;
-        workspace.RetainUntil = null;
-        workspace.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
-
-        var authentication = await ResolveAuthenticationAsync(
-            context.Connection,
-            installationId,
-            cancellationToken);
-        var script = BuildPrepareScript(
-            context.Connection,
-            expectedPath,
-            baseBranch,
-            expectedBranch,
-            expectedCommitSha,
-            input.ResumePublishedBranch,
-            authentication);
-        var result = await ExecuteInRuntimeAsync(
-            context.ContainerId,
-            script,
-            authentication.StandardInput,
-            authentication.KnownSecrets,
-            cancellationToken);
-        if (result.ExitCode != 0)
-        {
-            workspace.Status = GitTicketWorkspaceStatus.Failed;
-            workspace.LastError = Bounded(result.StandardError);
-            workspace.RetainUntil = DateTimeOffset.UtcNow.AddHours(24);
-            workspace.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(cancellationToken);
-            throw new InvalidOperationException(
-                $"Repository preparation failed: {workspace.LastError}");
+            return ToWorkspaceResult(existing, context, AgentWorkspacePath(existing), true);
         }
 
-        var metadata = ParseCommandMetadata(result.StandardOutput);
-        if (metadata.Bytes > MaximumRepositoryBytes ||
-            metadata.Files > MaximumRepositoryFiles)
+        var now = DateTimeOffset.UtcNow;
+        var workspace = existing ?? new SourceControlWorkspace
         {
-            workspace.Status = GitTicketWorkspaceStatus.Failed;
-            workspace.LastError = "The repository exceeds the approved workspace quota.";
-            workspace.RetainUntil = DateTimeOffset.UtcNow.AddHours(24);
-            workspace.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(cancellationToken);
-            throw new InvalidOperationException("The repository exceeds the approved workspace quota.");
-        }
-        workspace.Status = GitTicketWorkspaceStatus.Ready;
-        workspace.CommitSha = expectedCommitSha;
-        workspace.LastError = null;
-        workspace.RetainUntil = null;
-        workspace.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
-        return new GitWorkspaceResult(
-            workspace.Id,
-            workspace.WorkItemId,
-            workspace.WorkspacePath,
-            workspace.RepositoryConnectionId,
-            workspace.BaseBranch,
-            workspace.BranchName,
-            workspace.Status.ToString(),
-            resumed)
-        {
-            CheckoutCommitSha = metadata.CommitSha
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            TeamId = context.TeamId,
+            RepositoryId = context.Repository.Id,
+            AgentInstallationId = installationId,
+            WorkItemId = input.WorkItemId,
+            AssignmentRevision = input.AssignmentRevision,
+            BranchName = DeterministicBranch(context.Item),
+            Status = SourceControlWorkspaceStatus.Preparing,
+            CreatedAt = now
         };
+        if (existing is null) db.SourceControlWorkspaces.Add(workspace);
+        workspace.Status = SourceControlWorkspaceStatus.Preparing;
+        workspace.LastError = null;
+        workspace.UpdatedAt = now;
+        workspace.Revision++;
+        await db.SaveChangesAsync(cancellationToken);
+
+        TrustedWorkspaceMaterialization materialized;
+        try
+        {
+            materialized = await gitHost.PrepareAsync(
+                new TrustedWorkspacePrepareRequest(
+                    organizationId, installationId, context.Repository.Id, workspace.Id,
+                    input.WorkItemId, input.AssignmentRevision, workspace.BranchName,
+                    context.ExpectedCommitSha,
+                    input.IdempotencyKey),
+                cancellationToken);
+        }
+        catch
+        {
+            workspace.Status = SourceControlWorkspaceStatus.Failed;
+            workspace.LastError = "Trusted workspace materialization failed.";
+            workspace.UpdatedAt = DateTimeOffset.UtcNow;
+            workspace.Revision++;
+            await db.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
+        ValidateAgentWorkspacePath(materialized.AgentWorkspacePath, workspace.Id);
+        workspace.WorkspaceKey = RequireBounded(materialized.WorkspaceKey, 256, "workspace key");
+        workspace.BaseCommitSha = ValidateCommitSha(materialized.BaseCommitSha);
+        if (context.ExpectedCommitSha is not null &&
+            !FixedTimeEquals(workspace.BaseCommitSha, context.ExpectedCommitSha))
+            throw new InvalidOperationException(
+                "GitHost materialized a commit other than the exact assigned QA commit.");
+        workspace.Status = SourceControlWorkspaceStatus.Ready;
+        workspace.LastError = null;
+        workspace.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+
+        return ToWorkspaceResult(
+            workspace, context, materialized.AgentWorkspacePath, materialized.Resumed);
+    }
+
+    private async Task<GitWorkspaceRefreshResult> RefreshAsync(
+        Guid organizationId,
+        Guid installationId,
+        RefreshGitWorkspaceRequest input,
+        CancellationToken cancellationToken)
+    {
+        ValidateAssignmentRevision(input.AssignmentRevision);
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        var context = await RequireWorkspaceContextAsync(
+            organizationId, installationId, input.WorkspaceId,
+            input.AssignmentRevision, GitWorkspaceCapabilities.Refresh, cancellationToken);
+        var result = await gitHost.RefreshAsync(
+            Operation(context, input.IdempotencyKey), cancellationToken);
+        context.Workspace.BaseCommitSha = ValidateCommitSha(result.BaseCommitSha);
+        context.Workspace.UpdatedAt = DateTimeOffset.UtcNow;
+        context.Workspace.Revision++;
+        await db.SaveChangesAsync(cancellationToken);
+        return new GitWorkspaceRefreshResult(
+            context.Workspace.Id, result.Status, result.BaseCommitSha,
+            result.Conflicts.Take(100).ToList());
     }
 
     private async Task<GitWorkspaceInspection> InspectAsync(
         Guid organizationId,
         Guid installationId,
-        Guid runtimeInstanceId,
         InspectGitWorkspaceRequest input,
         CancellationToken cancellationToken)
     {
-        var (workspace, containerId) = await RequireWorkspaceAsync(
-            organizationId, installationId, runtimeInstanceId, input.WorkspaceId, cancellationToken);
-        var script = $"""
-            set -euo pipefail
-            cd {Quote(workspace.WorkspacePath)}
-            printf '%s\n' 'CSWEET_CHANGED_BEGIN'
-            git status --porcelain=v1
-            printf '%s\n' 'CSWEET_CHANGED_END'
-            printf '%s\n' 'CSWEET_COMMITS_BEGIN'
-            git log --format='%H %s' {Quote($"origin/{workspace.BaseBranch}..HEAD")}
-            printf '%s\n' 'CSWEET_COMMITS_END'
-            printf '%s\n' 'CSWEET_TRACKED_BEGIN'
-            (git diff --name-only; git diff --cached --name-only; {(
-                string.IsNullOrWhiteSpace(workspace.CommitSha)
-                    ? "true"
-                    : $"git diff --name-only {Quote(workspace.CommitSha)} HEAD")}) | sort -u
-            printf '%s\n' 'CSWEET_TRACKED_END'
-            printf 'CSWEET_HEAD=%s\n' "$(git rev-parse HEAD)"
-            """;
-        var result = await ExecuteInRuntimeAsync(
-            containerId, script, null, [], cancellationToken);
-        if (result.ExitCode != 0)
-            throw new InvalidOperationException(
-                $"Could not inspect the ticket workspace: {Bounded(result.StandardError)}");
-        var changed = Between(result.StandardOutput, "CSWEET_CHANGED_BEGIN", "CSWEET_CHANGED_END")
-            .Select(x => x.Length > 3 ? x[3..] : x)
-            .Where(x => x.Length > 0)
-            .ToList();
-        var commits = Between(result.StandardOutput, "CSWEET_COMMITS_BEGIN", "CSWEET_COMMITS_END");
-        var tracked = Between(
-            result.StandardOutput, "CSWEET_TRACKED_BEGIN", "CSWEET_TRACKED_END");
-        var headCommit = result.StandardOutput.Split(
-                '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .LastOrDefault(x => x.StartsWith("CSWEET_HEAD=", StringComparison.Ordinal))
-            ?["CSWEET_HEAD=".Length..];
-        var headChanged = !string.IsNullOrWhiteSpace(workspace.CommitSha) &&
-            !string.Equals(workspace.CommitSha, headCommit, StringComparison.OrdinalIgnoreCase);
-        workspace.ChangedFilesJson = JsonSerializer.Serialize(changed, JsonOptions);
-        workspace.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
-        return new GitWorkspaceInspection(
-            workspace.Id,
-            workspace.Status.ToString(),
-            changed.Count > 0 || commits.Count > 0,
-            changed,
-            commits,
-            JsonSerializer.Deserialize<IReadOnlyList<GitValidationResult>>(
-                workspace.ValidationsJson, JsonOptions) ?? [])
-        {
-            HasTrackedChanges = tracked.Count > 0 || headChanged,
-            TrackedChangedFiles = tracked
-        };
+        ValidateAssignmentRevision(input.AssignmentRevision);
+        var context = await RequireWorkspaceContextAsync(
+            organizationId, installationId, input.WorkspaceId,
+            input.AssignmentRevision, GitWorkspaceCapabilities.Inspect, cancellationToken);
+        return await gitHost.InspectAsync(
+            Operation(context, $"inspect:{context.Workspace.Revision}"), cancellationToken);
     }
 
     private async Task<GitWorkspacePublication> PublishAsync(
         Guid organizationId,
         Guid installationId,
-        Guid runtimeInstanceId,
         PublishGitWorkspaceRequest input,
         CancellationToken cancellationToken)
     {
+        ValidateAssignmentRevision(input.AssignmentRevision);
         ValidateIdempotencyKey(input.IdempotencyKey);
-        if (string.IsNullOrWhiteSpace(input.CommitMessage) || input.CommitMessage.Length > 512)
-            throw new ArgumentException("A commit message of at most 512 characters is required.");
-        if (string.IsNullOrWhiteSpace(input.PullRequestTitle) ||
-            input.PullRequestTitle.Length > 256)
-            throw new ArgumentException("A pull-request title of at most 256 characters is required.");
-        if (input.PullRequestBody is null || input.PullRequestBody.Length > 32_768)
-            throw new ArgumentException("The pull-request body is too long.");
-        if (input.Validations is null || input.Validations.Count == 0)
-            throw new ArgumentException(
-                "At least one successful validation result is required before publication.");
-        if (input.Validations.Count > 100 ||
-            input.Validations.Any(x =>
-                string.IsNullOrWhiteSpace(x.Command) ||
-                x.Command.Length > 2_000 ||
-                !x.Succeeded ||
-                x.ExitCode != 0 ||
-                (x.DiagnosticExcerpt?.Length ?? 0) > 4_000))
-            throw new ArgumentException(
-                "Validation results must be bounded and every validation must have succeeded.");
+        RequireBounded(input.CommitMessage, 512, "commit message");
+        RequireBounded(input.ProposedChangeTitle, 256, "proposed change title");
+        if (input.ProposedChangeBody.Length > 32_768)
+            throw new ArgumentException("The proposed change body is too long.");
+        var validations = (input.Validations ?? []).Take(100).ToList();
+        if (validations.Count == 0 || validations.Any(x => !x.Succeeded || x.ExitCode != 0))
+            throw new InvalidOperationException("Publication requires successful validation evidence.");
 
-        var (workspace, containerId) = await RequireWorkspaceAsync(
-            organizationId, installationId, runtimeInstanceId, input.WorkspaceId, cancellationToken);
-        if (workspace.Status == GitTicketWorkspaceStatus.Published &&
-            !string.IsNullOrWhiteSpace(workspace.CommitSha))
-            return ToPublication(workspace);
-        var context = await RequireContextAsync(
-            organizationId,
-            installationId,
-            runtimeInstanceId,
-            workspace.WorkItemId,
-            workspace.AssignmentRevision,
-            workspace.RepositoryConnectionId,
-            requirePush: true,
+        var context = await RequireWorkspaceContextAsync(
+            organizationId, installationId, input.WorkspaceId,
+            input.AssignmentRevision, GitWorkspaceCapabilities.Publish, cancellationToken);
+        var result = await gitHost.PublishAsync(
+            new TrustedWorkspacePublishRequest(
+                Operation(context, input.IdempotencyKey),
+                input.CommitMessage,
+                input.ProposedChangeTitle,
+                input.ProposedChangeBody,
+                validations),
             cancellationToken);
-        var authentication = await ResolveAuthenticationAsync(
-            context.Connection, installationId, cancellationToken);
-        workspace.ValidationsJson = JsonSerializer.Serialize(input.Validations, JsonOptions);
-        var script = BuildPublishScript(
-            context.Connection,
-            workspace,
-            input.CommitMessage,
-            authentication);
-        var result = await ExecuteInRuntimeAsync(
-            containerId,
-            script,
-            authentication.StandardInput,
-            authentication.KnownSecrets,
-            cancellationToken);
-        if (result.ExitCode != 0)
+        var commitSha = ValidateCommitSha(result.CommitSha);
+        if (!string.Equals(result.BranchName, context.Workspace.BranchName, StringComparison.Ordinal))
+            throw new InvalidOperationException("GitHost returned a non-authorized branch.");
+        if (result.DeliveryKind == GitDeliveryKinds.PullRequest && result.PullRequestUrl is null)
+            throw new InvalidOperationException("GitHub publication did not return a proposed-change URL.");
+        if (result.DeliveryKind == GitDeliveryKinds.BranchOnly && result.PullRequestUrl is not null)
+            throw new InvalidOperationException("Branch-only publication returned an unexpected pull request.");
+
+        var now = DateTimeOffset.UtcNow;
+        var superseded = await (
+            from prior in db.SourceControlPublications
+            join priorWorkspace in db.SourceControlWorkspaces.AsNoTracking()
+                on new { prior.OrganizationId, Id = prior.WorkspaceId }
+                equals new { priorWorkspace.OrganizationId, priorWorkspace.Id }
+            where prior.OrganizationId == organizationId &&
+                  priorWorkspace.WorkItemId == context.Workspace.WorkItemId &&
+                  priorWorkspace.AssignmentRevision == context.Workspace.AssignmentRevision &&
+                  prior.Status != SourceControlPublicationStatus.Merged &&
+                  prior.Status != SourceControlPublicationStatus.BranchPublishedExternalMerge &&
+                  prior.Status != SourceControlPublicationStatus.Superseded
+            select prior)
+            .ToListAsync(cancellationToken);
+        foreach (var prior in superseded)
         {
-            workspace.Status = GitTicketWorkspaceStatus.Failed;
-            workspace.LastError = Bounded(result.StandardError);
-            workspace.RetainUntil = DateTimeOffset.UtcNow.AddHours(24);
-            workspace.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(cancellationToken);
-            throw new InvalidOperationException($"Branch publication failed: {workspace.LastError}");
+            prior.Status = SourceControlPublicationStatus.Superseded;
+            prior.UpdatedAt = now;
+            prior.Revision++;
         }
-        var commitSha = result.StandardOutput.Split(
-                '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .LastOrDefault(x => x.StartsWith("CSWEET_COMMIT=", StringComparison.Ordinal))
-            ?["CSWEET_COMMIT=".Length..];
-        if (string.IsNullOrWhiteSpace(commitSha))
-            throw new InvalidOperationException("Git did not return a published commit.");
-
-        Uri? pullRequestUrl = null;
-        try
+        if (superseded.Count > 0)
         {
-            if (context.Connection.PullRequestProvider == GitPullRequestProvider.GitHub)
+            var supersededIds = superseded.Select(x => x.Id).ToArray();
+            var priorValidations = await db.SourceControlValidations
+                .Where(x => supersededIds.Contains(x.PublicationId) &&
+                            x.Status != SourceControlValidationStatus.Superseded)
+                .ToListAsync(cancellationToken);
+            foreach (var priorValidation in priorValidations)
             {
-                var apiToken = authentication.ApiToken ??
-                    throw new InvalidOperationException(
-                        "The GitHub review provider requires an API credential.");
-                pullRequestUrl = await CreateGitHubPullRequestAsync(
-                    context.Connection,
-                    workspace,
-                    input,
-                    apiToken,
-                    cancellationToken);
+                priorValidation.Status = SourceControlValidationStatus.Superseded;
+                priorValidation.SupersededAt = now;
+                priorValidation.UpdatedAt = now;
             }
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        var publication = new SourceControlPublication
         {
-            workspace.CommitSha = commitSha;
-            workspace.Status = GitTicketWorkspaceStatus.Failed;
-            workspace.LastError = Bounded(exception.Message);
-            workspace.RetainUntil = DateTimeOffset.UtcNow.AddHours(24);
-            workspace.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(cancellationToken);
-            throw new InvalidOperationException(
-                $"The branch was pushed, but pull-request creation failed: {workspace.LastError}");
-        }
-        workspace.CommitSha = commitSha;
-        workspace.PullRequestUrl = pullRequestUrl?.AbsoluteUri;
-        workspace.Status = GitTicketWorkspaceStatus.Published;
-        workspace.LastError = null;
-        workspace.RetainUntil = null;
-        workspace.UpdatedAt = DateTimeOffset.UtcNow;
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            WorkspaceId = context.Workspace.Id,
+            RepositoryId = context.Workspace.RepositoryId,
+            CommitSha = commitSha,
+            TargetBranch = context.Repository.DefaultBranch,
+            TicketBranch = context.Workspace.BranchName,
+            PullRequestUrl = result.PullRequestUrl?.ToString(),
+            Status = result.DeliveryKind == GitDeliveryKinds.BranchOnly
+                ? SourceControlPublicationStatus.BranchPublishedExternalMerge
+                : SourceControlPublicationStatus.AwaitingValidation,
+            ChangedFilesJson = "[]",
+            ValidationResultsJson = JsonSerializer.Serialize(validations, JsonOptions),
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        db.SourceControlPublications.Add(publication);
+        context.Workspace.Status = SourceControlWorkspaceStatus.Published;
+        context.Workspace.UpdatedAt = now;
+        context.Workspace.Revision++;
         await db.SaveChangesAsync(cancellationToken);
-        return ToPublication(workspace);
+        return new GitWorkspacePublication(
+            publication.Id,
+            context.Workspace.Id,
+            context.Repository.Id,
+            result.Provider,
+            result.DeliveryKind,
+            result.BranchName,
+            commitSha,
+            result.PullRequestUrl,
+            publication.Status.ToString());
     }
 
     private async Task<GitWorkspaceCleanupResult> CleanupAsync(
         Guid organizationId,
         Guid installationId,
-        Guid runtimeInstanceId,
         CleanupGitWorkspaceRequest input,
         CancellationToken cancellationToken)
     {
-        var (workspace, containerId) = await RequireWorkspaceAsync(
-            organizationId, installationId, runtimeInstanceId, input.WorkspaceId, cancellationToken);
-        if (workspace.Status != GitTicketWorkspaceStatus.Published && input.RetainOnFailure)
-        {
-            workspace.RetainUntil = DateTimeOffset.UtcNow.AddHours(24);
-            workspace.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(cancellationToken);
-            return new GitWorkspaceCleanupResult(
-                workspace.Id, false, workspace.RetainUntil);
-        }
-        ValidateWorkspacePath(
-            workspace.WorkspacePath, workspace.WorkItemId, workspace.AssignmentRevision);
-        var result = await ExecuteInRuntimeAsync(
-            containerId,
-            $"set -euo pipefail\nfind {Quote(workspace.WorkspacePath)} -depth -mindepth 1 -delete\nrmdir {Quote(workspace.WorkspacePath)}",
-            null,
-            [],
+        ValidateAssignmentRevision(input.AssignmentRevision);
+        var context = await RequireWorkspaceContextAsync(
+            organizationId, installationId, input.WorkspaceId,
+            input.AssignmentRevision, GitWorkspaceCapabilities.Cleanup, cancellationToken);
+        var result = await gitHost.CleanupAsync(
+            new TrustedWorkspaceCleanupRequest(
+                Operation(context, $"cleanup:{context.Workspace.Revision}"),
+                input.RetainOnFailure),
             cancellationToken);
-        if (result.ExitCode != 0)
-            throw new InvalidOperationException(
-                $"Workspace cleanup failed: {Bounded(result.StandardError)}");
-        workspace.Status = GitTicketWorkspaceStatus.Removed;
-        workspace.RetainUntil = null;
-        workspace.UpdatedAt = DateTimeOffset.UtcNow;
+        context.Workspace.Status = result.Removed
+            ? SourceControlWorkspaceStatus.Removed
+            : context.Workspace.Status;
+        context.Workspace.RetainUntil = result.RetainUntil;
+        context.Workspace.UpdatedAt = DateTimeOffset.UtcNow;
+        context.Workspace.Revision++;
         await db.SaveChangesAsync(cancellationToken);
-        return new GitWorkspaceCleanupResult(workspace.Id, true, null);
-    }
-
-    private async Task<WorkspaceContext> RequireContextAsync(
-        Guid organizationId,
-        Guid installationId,
-        Guid runtimeInstanceId,
-        Guid workItemId,
-        long assignmentRevision,
-        Guid connectionId,
-        bool requirePush,
-        CancellationToken cancellationToken)
-    {
-        var runtime = await db.AgentRuntimeInstances.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.Id == runtimeInstanceId &&
-            x.AgentInstallationId == installationId &&
-            x.ContainerId != null &&
-            x.Status == AgentRuntimeStatus.Running, cancellationToken)
-            ?? throw new UnauthorizedAccessException("The agent runtime is not active.");
-        var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.OrganizationId == organizationId &&
-            x.Id == workItemId &&
-            x.AssignedAgentInstallationId == installationId &&
-            x.AssignmentRevision == assignmentRevision, cancellationToken)
-            ?? throw new UnauthorizedAccessException(
-                "The work item is not assigned to this installation revision.");
-        var connection = await db.GitRepositoryConnections.AsNoTracking()
-            .SingleOrDefaultAsync(x =>
-                x.Id == connectionId && x.OrganizationId == organizationId,
-                cancellationToken)
-            ?? throw new KeyNotFoundException("The repository connection was not found.");
-        var assignedRepositoryId = DeserializeAssignedRepositoryId(item);
-        if (assignedRepositoryId != connectionId)
-            throw new UnauthorizedAccessException(
-                "The repository is not the one pinned to this assignment.");
-        var grant = await db.GitRepositoryConnectionGrants.AsNoTracking()
-            .SingleOrDefaultAsync(x =>
-                x.RepositoryConnectionId == connectionId &&
-                x.AgentInstallationId == installationId &&
-                x.RevokedAt == null, cancellationToken)
-            ?? throw new UnauthorizedAccessException(
-                "The repository connection is not granted to this installation.");
-        if (!grant.CanReadFetch || (requirePush && !grant.CanPushTicketBranch))
-            throw new UnauthorizedAccessException(
-                requirePush
-                    ? "The repository grant does not allow ticket-branch push."
-                    : "The repository grant does not allow clone/fetch.");
-        return new WorkspaceContext(item, connection, runtime.ContainerId!);
-    }
-
-    private static Guid? DeserializeAssignedRepositoryId(WorkTask item)
-    {
-        foreach (var json in new[] { item.QualityBriefJson, item.DevelopmentBriefJson })
-        {
-            if (string.IsNullOrWhiteSpace(json))
-                continue;
-            using var document = JsonDocument.Parse(json);
-            if (document.RootElement.TryGetProperty(
-                    "repositoryConnectionId", out var property) &&
-                property.TryGetGuid(out var repositoryConnectionId))
-                return repositoryConnectionId;
-        }
-        return null;
-    }
-
-    private async Task<(GitTicketWorkspace Workspace, string ContainerId)> RequireWorkspaceAsync(
-        Guid organizationId,
-        Guid installationId,
-        Guid runtimeInstanceId,
-        Guid workspaceId,
-        CancellationToken cancellationToken)
-    {
-        var workspace = await db.GitTicketWorkspaces.SingleOrDefaultAsync(x =>
-            x.Id == workspaceId &&
-            x.OrganizationId == organizationId &&
-            x.AgentInstallationId == installationId, cancellationToken)
-            ?? throw new KeyNotFoundException("The ticket workspace was not found.");
-        ValidateWorkspacePath(
-            workspace.WorkspacePath, workspace.WorkItemId, workspace.AssignmentRevision);
-        var runtime = await db.AgentRuntimeInstances.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.Id == runtimeInstanceId &&
-            x.AgentInstallationId == installationId &&
-            x.ContainerId != null &&
-            x.Status == AgentRuntimeStatus.Running, cancellationToken)
-            ?? throw new UnauthorizedAccessException("The agent runtime is not active.");
-        return (workspace, runtime.ContainerId!);
-    }
-
-    private async Task<GitAuthentication> ResolveAuthenticationAsync(
-        GitRepositoryConnection connection,
-        Guid installationId,
-        CancellationToken cancellationToken)
-    {
-        switch (connection.AuthenticationMode)
-        {
-            case GitAuthenticationMode.Anonymous:
-                return new GitAuthentication("anonymous", null, null, []);
-            case GitAuthenticationMode.HttpsCredential:
-            {
-                var token = await RequireSecretAsync(
-                    installationId, connection.Id, "https-token", cancellationToken);
-                return new GitAuthentication(
-                    "https", token, token, [token]);
-            }
-            case GitAuthenticationMode.Ssh:
-            {
-                var key = await RequireSecretAsync(
-                    installationId, connection.Id, "ssh-private-key", cancellationToken);
-                var passphrase = await secrets.GetAsync(
-                    installationId,
-                    SoftwareDevelopmentWorkService.CredentialKey(
-                        connection.Id, "ssh-key-passphrase"),
-                    cancellationToken);
-                string? apiToken = null;
-                if (connection.PullRequestProvider == GitPullRequestProvider.GitHub)
-                    apiToken = await RequireSecretAsync(
-                        installationId, connection.Id, "github-api-token", cancellationToken);
-                var passphraseLine = passphrase is null
-                    ? string.Empty
-                    : Convert.ToBase64String(Encoding.UTF8.GetBytes(passphrase));
-                var standardInput = $"{passphraseLine}\n{key}";
-                var knownSecrets = new List<string> { key };
-                if (passphrase is not null) knownSecrets.Add(passphrase);
-                if (apiToken is not null) knownSecrets.Add(apiToken);
-                return new GitAuthentication(
-                    "ssh", standardInput, apiToken, knownSecrets);
-            }
-            case GitAuthenticationMode.GitHubApp:
-            {
-                var appId = await RequireSecretAsync(
-                    installationId, connection.Id, "github-app-id", cancellationToken);
-                var githubInstallationId = await RequireSecretAsync(
-                    installationId, connection.Id, "github-installation-id", cancellationToken);
-                var privateKey = await RequireSecretAsync(
-                    installationId, connection.Id, "github-private-key", cancellationToken);
-                var token = await MintGitHubAppTokenAsync(
-                    appId, githubInstallationId, privateKey, cancellationToken);
-                return new GitAuthentication("https", token, token, [token, privateKey]);
-            }
-            default:
-                throw new InvalidOperationException("The repository authentication mode is unsupported.");
-        }
-    }
-
-    private async Task<string> RequireSecretAsync(
-        Guid installationId,
-        Guid connectionId,
-        string component,
-        CancellationToken cancellationToken) =>
-        await secrets.GetAsync(
-            installationId,
-            SoftwareDevelopmentWorkService.CredentialKey(connectionId, component),
-            cancellationToken)
-        ?? throw new InvalidOperationException(
-            $"The repository credential component '{component}' is unavailable.");
-
-    private async Task<string> MintGitHubAppTokenAsync(
-        string appId,
-        string installationId,
-        string privateKey,
-        CancellationToken cancellationToken)
-    {
-        if (!long.TryParse(appId, out _) || !long.TryParse(installationId, out _))
-            throw new InvalidOperationException("The GitHub App identity is invalid.");
-        var now = DateTimeOffset.UtcNow;
-        var header = Base64Url("""{"alg":"RS256","typ":"JWT"}""");
-        var payload = Base64Url(JsonSerializer.Serialize(new
-        {
-            iat = now.AddSeconds(-30).ToUnixTimeSeconds(),
-            exp = now.AddMinutes(9).ToUnixTimeSeconds(),
-            iss = appId
-        }));
-        var unsigned = $"{header}.{payload}";
-        using var rsa = RSA.Create();
-        rsa.ImportFromPem(privateKey);
-        var signature = Base64Url(rsa.SignData(
-            Encoding.UTF8.GetBytes(unsigned),
-            HashAlgorithmName.SHA256,
-            RSASignaturePadding.Pkcs1));
-        var client = httpClientFactory.CreateClient();
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"https://api.github.com/app/installations/{installationId}/access_tokens");
-        request.Headers.Authorization = new AuthenticationHeaderValue(
-            "Bearer", $"{unsigned}.{signature}");
-        request.Headers.Accept.ParseAdd("application/vnd.github+json");
-        request.Headers.UserAgent.ParseAdd("CSweet-AgentHost/1.0");
-        using var response = await client.SendAsync(request, cancellationToken);
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(
-                $"GitHub App token exchange failed with HTTP {(int)response.StatusCode}.");
-        using var document = JsonDocument.Parse(json);
-        return document.RootElement.GetProperty("token").GetString()
-            ?? throw new InvalidOperationException("GitHub did not return an installation token.");
-    }
-
-    private async Task<Uri> CreateGitHubPullRequestAsync(
-        GitRepositoryConnection connection,
-        GitTicketWorkspace workspace,
-        PublishGitWorkspaceRequest input,
-        string token,
-        CancellationToken cancellationToken)
-    {
-        var repository = connection.PermittedRepositoryPath.Trim('/');
-        var client = httpClientFactory.CreateClient();
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post, $"https://api.github.com/repos/{repository}/pulls");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.Accept.ParseAdd("application/vnd.github+json");
-        request.Headers.UserAgent.ParseAdd("CSweet-AgentHost/1.0");
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(new
-            {
-                title = input.PullRequestTitle,
-                head = workspace.BranchName,
-                @base = workspace.BaseBranch,
-                body = input.PullRequestBody
-            }, JsonOptions),
-            Encoding.UTF8,
-            "application/json");
-        using var response = await client.SendAsync(request, cancellationToken);
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
-        {
-            var owner = repository.Split('/', StringSplitOptions.RemoveEmptyEntries)[0];
-            using var lookup = new HttpRequestMessage(
-                HttpMethod.Get,
-                $"https://api.github.com/repos/{repository}/pulls?state=open&head={Uri.EscapeDataString($"{owner}:{workspace.BranchName}")}&base={Uri.EscapeDataString(workspace.BaseBranch)}");
-            lookup.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            lookup.Headers.Accept.ParseAdd("application/vnd.github+json");
-            lookup.Headers.UserAgent.ParseAdd("CSweet-AgentHost/1.0");
-            using var lookupResponse = await client.SendAsync(lookup, cancellationToken);
-            var lookupJson = await lookupResponse.Content.ReadAsStringAsync(cancellationToken);
-            if (lookupResponse.IsSuccessStatusCode)
-            {
-                using var lookupDocument = JsonDocument.Parse(lookupJson);
-                var existing = lookupDocument.RootElement.EnumerateArray().FirstOrDefault();
-                if (existing.ValueKind != JsonValueKind.Undefined)
-                {
-                    var existingUrl = existing.GetProperty("html_url").GetString();
-                    if (Uri.TryCreate(existingUrl, UriKind.Absolute, out var existingUri))
-                        return existingUri;
-                }
-            }
-        }
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(
-                $"GitHub pull-request creation failed with HTTP {(int)response.StatusCode}.");
-        using var document = JsonDocument.Parse(json);
-        var url = document.RootElement.GetProperty("html_url").GetString();
-        return Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            ? uri
-            : throw new InvalidOperationException("GitHub returned an invalid pull-request URL.");
-    }
-
-    private static string BuildPrepareScript(
-        GitRepositoryConnection connection,
-        string workspacePath,
-        string baseBranch,
-        string branchName,
-        string? expectedCommitSha,
-        bool resumePublishedBranch,
-        GitAuthentication authentication)
-    {
-        var auth = AuthenticationPrefix(connection, authentication);
-        return $$"""
-            set -euo pipefail
-            {{auth}}
-            workspace={{Quote(workspacePath)}}
-            parent=$(dirname "$workspace")
-            mkdir -p "$parent"
-            test "$(realpath -m "$workspace")" = {{Quote(workspacePath)}}
-            if [ -d "$workspace/.git" ]; then
-              cd "$workspace"
-              git remote set-url origin {{Quote(connection.CloneUrl)}}
-              git fetch --prune origin {{Quote(baseBranch)}}
-            else
-              if [ -e "$workspace" ]; then
-                test "$(realpath -m "$workspace")" = {{Quote(workspacePath)}}
-                find "$workspace" -depth -mindepth 1 -delete
-              fi
-              git clone --no-checkout {{Quote(connection.CloneUrl)}} "$workspace"
-              cd "$workspace"
-              git fetch --prune origin {{Quote(baseBranch)}}
-            fi
-            {{(resumePublishedBranch
-                ? $"git fetch --prune origin {Quote($"refs/heads/{branchName}:refs/remotes/origin/{branchName}")}\ngit checkout -B {Quote(branchName)} {Quote($"origin/{branchName}")}"
-                : $"""
-                  if git show-ref --verify --quiet {Quote($"refs/heads/{branchName}")}; then
-                    git checkout {Quote(branchName)}
-                  else
-                    git checkout -b {Quote(branchName)} {Quote($"origin/{baseBranch}")}
-                  fi
-                  """)}}
-            {{(expectedCommitSha is null
-                ? string.Empty
-                : $"test \"$(git rev-parse HEAD)\" = {Quote(expectedCommitSha)}")}}
-            commit=$(git rev-parse HEAD)
-            bytes=$(du -sb . | cut -f1)
-            files=$(find . -xdev -type f | wc -l)
-            python3 - "$PWD" <<'PY'
-            import os, pathlib, sys
-            root = pathlib.Path(sys.argv[1]).resolve()
-            for path in root.rglob("*"):
-                if path.is_symlink():
-                    target = (path.parent / os.readlink(path)).resolve()
-                    if root not in target.parents and target != root:
-                        raise SystemExit(f"symlink escapes workspace: {path.relative_to(root)}")
-            PY
-            printf 'CSWEET_BYTES=%s\nCSWEET_FILES=%s\nCSWEET_COMMIT=%s\n' "$bytes" "$files" "$commit"
-            """;
-    }
-
-    private static string BuildPublishScript(
-        GitRepositoryConnection connection,
-        GitTicketWorkspace workspace,
-        string commitMessage,
-        GitAuthentication authentication)
-    {
-        var auth = authentication.Mode switch
-        {
-            "https" => HttpsAuthenticationPrefix(),
-            "ssh" => SshAuthenticationPrefix(connection),
-            _ => string.Empty
-        };
-        return $"""
-            set -euo pipefail
-            {auth}
-            cd {Quote(workspace.WorkspacePath)}
-            test "$(git branch --show-current)" = {Quote(workspace.BranchName)}
-            git config user.name 'C-Sweet Software Developer'
-            git config user.email 'software-developer@agents.csweet.local'
-            git add -A
-            if ! git diff --cached --quiet; then
-              git commit -m {Quote(commitMessage)}
-            fi
-            commit=$(git rev-parse HEAD)
-            git push origin {Quote($"HEAD:refs/heads/{workspace.BranchName}")}
-            printf 'CSWEET_COMMIT=%s\n' "$commit"
-            """;
-    }
-
-    private static string AuthenticationPrefix(
-        GitRepositoryConnection connection,
-        GitAuthentication authentication) =>
-        authentication.Mode switch
-        {
-            "https" => HttpsAuthenticationPrefix(),
-            "ssh" => SshAuthenticationPrefix(connection),
-            _ => "export GIT_TERMINAL_PROMPT=0"
-        };
-
-    private static string HttpsAuthenticationPrefix() => """
-        authdir=$(mktemp -d)
-        trap 'rm -rf "$authdir"' EXIT
-        chmod 700 "$authdir"
-        cat > "$authdir/token"
-        chmod 600 "$authdir/token"
-        cat > "$authdir/askpass" <<'SH'
-        #!/bin/sh
-        case "$1" in
-          *Username*) printf '%s\n' 'x-access-token' ;;
-          *) cat "$CSWEET_GIT_TOKEN_FILE" ;;
-        esac
-        SH
-        chmod 700 "$authdir/askpass"
-        export CSWEET_GIT_TOKEN_FILE="$authdir/token"
-        export GIT_ASKPASS="$authdir/askpass"
-        export GIT_TERMINAL_PROMPT=0
-        """;
-
-    private static string SshAuthenticationPrefix(GitRepositoryConnection connection)
-    {
-        var uri = new Uri(connection.CloneUrl);
-        var port = uri.IsDefaultPort ? 22 : uri.Port;
-        var fingerprints = JsonSerializer.Deserialize<IReadOnlyList<string>>(
-            connection.SshHostFingerprintsJson, JsonOptions) ?? [];
-        if (fingerprints.Count == 0)
-            throw new InvalidOperationException(
-                "SSH repository connections require known-host fingerprints.");
-        var comparisons = string.Join(
-            "\n",
-            fingerprints.Select(x =>
-                $"  [ \"$actual\" = {Quote(x)} ] && matched=1"));
-        return $$"""
-        authdir=$(mktemp -d)
-        trap 'rm -rf "$authdir"' EXIT
-        chmod 700 "$authdir"
-        IFS= read -r passphrase_b64
-        cat > "$authdir/id"
-        chmod 600 "$authdir/id"
-        if [ -n "$passphrase_b64" ]; then
-          printf '%s' "$passphrase_b64" | base64 -d > "$authdir/passphrase"
-          chmod 600 "$authdir/passphrase"
-          cat > "$authdir/askpass" <<'SH'
-        #!/bin/sh
-        cat "$CSWEET_SSH_PASSPHRASE_FILE"
-        SH
-          chmod 700 "$authdir/askpass"
-          export CSWEET_SSH_PASSPHRASE_FILE="$authdir/passphrase"
-          export SSH_ASKPASS="$authdir/askpass"
-          export SSH_ASKPASS_REQUIRE=force
-          export DISPLAY=csweet:0
-        fi
-        ssh-keyscan -p {{port}} {{Quote(uri.Host)}} > "$authdir/known_hosts" 2>/dev/null
-        matched=0
-        while read -r actual; do
-        {{comparisons}}
-        done < <(ssh-keygen -lf "$authdir/known_hosts" -E sha256 | awk '{print $2}')
-        [ "$matched" = 1 ] || { echo 'SSH host fingerprint verification failed.' >&2; exit 71; }
-        export GIT_SSH_COMMAND="ssh -i $authdir/id -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$authdir/known_hosts"
-        """;
-    }
-
-    private async Task<DockerCommandResult> ExecuteInRuntimeAsync(
-        string containerId,
-        string script,
-        string? standardInput,
-        IReadOnlyList<string> knownSecrets,
-        CancellationToken cancellationToken)
-    {
-        var result = await docker.ExecuteAsync(
-            ["exec", "-i", "--workdir", "/workspace", containerId, "/bin/bash", "-c", script],
-            cancellationToken,
-            standardInput);
-        return result with
-        {
-            StandardOutput = Redact(result.StandardOutput, knownSecrets),
-            StandardError = Redact(result.StandardError, knownSecrets)
-        };
-    }
-
-    private static CommandMetadata ParseCommandMetadata(string output)
-    {
-        long bytes = 0;
-        var files = 0;
-        string? commitSha = null;
-        foreach (var line in output.Split(
-                     '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            if (line.StartsWith("CSWEET_BYTES=", StringComparison.Ordinal))
-                long.TryParse(line["CSWEET_BYTES=".Length..], out bytes);
-            else if (line.StartsWith("CSWEET_FILES=", StringComparison.Ordinal))
-                int.TryParse(line["CSWEET_FILES=".Length..], out files);
-            else if (line.StartsWith("CSWEET_COMMIT=", StringComparison.Ordinal))
-                commitSha = line["CSWEET_COMMIT=".Length..];
-        }
-        return new CommandMetadata(bytes, files, commitSha);
-    }
-
-    private static string Redact(string value, IReadOnlyList<string> secrets)
-    {
-        foreach (var secret in secrets.Where(x => !string.IsNullOrEmpty(x)))
-            value = value.Replace(secret, "[REDACTED]", StringComparison.Ordinal);
-        return value;
-    }
-
-    private static IReadOnlyList<string> Between(string value, string start, string end)
-    {
-        var lines = value.Split(
-            '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var collecting = false;
-        var result = new List<string>();
-        foreach (var line in lines)
-        {
-            if (line == start) { collecting = true; continue; }
-            if (line == end) break;
-            if (collecting) result.Add(line);
-        }
         return result;
     }
 
-    private static string DeterministicBranch(Guid workItemId, string title)
+    private async Task<GitMergeReview> ReviewMergeAsync(
+        Guid organizationId,
+        Guid installationId,
+        ReviewGitMergeRequest input,
+        CancellationToken cancellationToken)
     {
-        var slug = new string(title.ToLowerInvariant()
+        ValidateAssignmentRequest(input.WorkItemId, input.AssignmentRevision, input.IdempotencyKey);
+        var lead = await RequireTeamLeadAsync(
+            organizationId, installationId, input.WorkItemId,
+            input.AssignmentRevision, GitMergeCapabilities.Review, cancellationToken);
+        var publication = await LatestPublicationAsync(
+            organizationId, input.WorkItemId, input.AssignmentRevision, cancellationToken);
+        var evidenceJson = await db.SourceControlValidations.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId &&
+                        x.PublicationId == publication.Id &&
+                        x.CommitSha == publication.CommitSha &&
+                        x.Status == SourceControlValidationStatus.Passed &&
+                        x.SupersededAt == null)
+            .Select(x => x.ResultsJson)
+            .ToListAsync(cancellationToken);
+        var evidence = evidenceJson
+            .SelectMany(x => JsonSerializer.Deserialize<List<GitValidationResult>>(
+                x, JsonOptions) ?? [])
+            .Take(100)
+            .ToList();
+        if (evidence.Count == 0)
+            throw new InvalidOperationException("The exact candidate SHA does not have passing QA evidence.");
+        var repositoryName = await db.SourceControlRepositories.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.Id == publication.RepositoryId)
+            .Select(x => x.Name)
+            .SingleAsync(cancellationToken);
+        return new GitMergeReview(
+            publication.Id, publication.RepositoryId, input.WorkItemId,
+            repositoryName, publication.CommitSha,
+            Uri.TryCreate(publication.PullRequestUrl, UriKind.Absolute, out var pr) ? pr : null,
+            $"Candidate {publication.CommitSha[..Math.Min(12, publication.CommitSha.Length)]} for team {lead.TeamId:D}.",
+            evidence, [], publication.Status.ToString());
+    }
+
+    private async Task<GitMergeAuthorizationResult> AuthorizeMergeAsync(
+        Guid organizationId,
+        Guid installationId,
+        AuthorizeGitMergeRequest input,
+        CancellationToken cancellationToken)
+    {
+        ValidateAssignmentRequest(input.WorkItemId, input.AssignmentRevision, input.IdempotencyKey);
+        if (input.Decision is not (GitMergeDecisions.Approve or GitMergeDecisions.Reject))
+            throw new ArgumentException("The merge decision must be Approve or Reject.");
+        if (input.Decision == GitMergeDecisions.Reject && string.IsNullOrWhiteSpace(input.Feedback))
+            throw new ArgumentException("A rejected merge requires feedback.");
+        var lead = await RequireTeamLeadAsync(
+            organizationId, installationId, input.WorkItemId,
+            input.AssignmentRevision, GitMergeCapabilities.Authorize, cancellationToken);
+        var publication = await LatestPublicationAsync(
+            organizationId, input.WorkItemId, input.AssignmentRevision, cancellationToken);
+        if (publication.Id != input.PublicationId ||
+            !FixedTimeEquals(publication.CommitSha, ValidateCommitSha(input.CandidateCommitSha)))
+            throw new InvalidOperationException("The merge candidate changed; review the current exact SHA.");
+
+        var policy = await db.TeamRepositoryPolicies.SingleAsync(x =>
+            x.OrganizationId == organizationId && x.TeamId == lead.TeamId &&
+            x.RepositoryId == publication.RepositoryId && x.DisabledAt == null,
+            cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        if (input.Decision == GitMergeDecisions.Reject)
+        {
+            publication.Status = SourceControlPublicationStatus.Superseded;
+            publication.UpdatedAt = now;
+            publication.Revision++;
+            await db.SaveChangesAsync(cancellationToken);
+            return new GitMergeAuthorizationResult(
+                publication.Id, publication.CommitSha, input.Decision,
+                publication.Status.ToString(), now, null);
+        }
+        var hasPassingQa = await db.SourceControlValidations.AsNoTracking().AnyAsync(x =>
+            x.OrganizationId == organizationId && x.PublicationId == publication.Id &&
+            x.CommitSha == publication.CommitSha &&
+            x.Status == SourceControlValidationStatus.Passed && x.SupersededAt == null,
+            cancellationToken);
+        if (!hasPassingQa)
+            throw new InvalidOperationException("The exact candidate SHA does not have passing QA evidence.");
+        var expiresAt = now.AddHours(24);
+        var authorizationRecord = new SourceControlMergeAuthorization
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            PublicationId = publication.Id,
+            AuthorizedByOrganizationUserId = lead.OrganizationUserId,
+            CommitSha = publication.CommitSha,
+            TeamPolicyRevision = policy.Revision,
+            AuthorizedAt = now,
+            ExpiresAt = expiresAt
+        };
+        authorizationRecord.DecisionSignature = decisionSigner.Sign(
+            new SourceControlMergeDecision(
+                organizationId, publication.Id, publication.CommitSha,
+                lead.OrganizationUserId, policy.Revision, now, expiresAt));
+        db.SourceControlMergeAuthorizations.Add(authorizationRecord);
+        publication.Status = policy.MergeApprovalMode == TeamMergeApprovalMode.LeadAuthorizedAutoMerge
+            ? SourceControlPublicationStatus.ReadyToMerge
+            : SourceControlPublicationStatus.AwaitingAdministratorApproval;
+        publication.UpdatedAt = now;
+        publication.Revision++;
+        await db.SaveChangesAsync(cancellationToken);
+        return new GitMergeAuthorizationResult(
+            publication.Id, publication.CommitSha, input.Decision,
+            publication.Status.ToString(), now, null);
+    }
+
+    private async Task<AssignmentContext> RequireAssignmentContextAsync(
+        Guid organizationId,
+        Guid installationId,
+        Guid workItemId,
+        long assignmentRevision,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.Id == workItemId,
+            cancellationToken) ?? throw new KeyNotFoundException("The assigned work item was not found.");
+        if (item.AssignmentRevision != assignmentRevision)
+            throw new UnauthorizedAccessException("The source-control assignment revision is stale.");
+        var activeStageKey = await (
+            from stage in db.WorkStageExecutions.AsNoTracking()
+            join itemExecution in db.WorkItemExecutions.AsNoTracking()
+                on stage.ItemExecutionId equals itemExecution.Id
+            where itemExecution.WorkItemId == workItemId &&
+                  stage.AgentInstallationId == installationId &&
+                  (stage.Status == WorkStageExecutionStatus.Dispatching ||
+                   stage.Status == WorkStageExecutionStatus.Running)
+            orderby stage.CreatedAt descending
+            select stage.StageKey)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (item.AssignedAgentInstallationId != installationId && activeStageKey is null)
+            throw new UnauthorizedAccessException(
+                "The source-control assignment belongs to another installation.");
+        var development = JsonSerializer.Deserialize<SoftwareDevelopmentBrief>(
+            item.DevelopmentBriefJson ?? "null", JsonOptions)
+            ?? throw new InvalidOperationException("The work item has no software delivery assignment.");
+        var repository = await db.SourceControlRepositories.AsNoTracking()
+            .Include(x => x.Connection)
+            .SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.Id == development.RepositoryId &&
+            x.Status == SourceControlRepositoryStatus.Ready && x.ArchivedAt == null,
+            cancellationToken) ?? throw new InvalidOperationException("The assigned repository is not ready.");
+        var teamId = await db.WorkBoards.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.Id == item.BoardId)
+            .Select(x => x.TeamId)
+            .SingleAsync(cancellationToken)
+            ?? throw new InvalidOperationException("The software board is not assigned to a team.");
+        var policy = await db.TeamRepositoryPolicies.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.TeamId == teamId &&
+            x.RepositoryId == repository.Id && x.DisabledAt == null,
+            cancellationToken) ?? throw new InvalidOperationException("The team repository policy is unavailable.");
+        await RequireActiveTeamMemberAsync(
+            organizationId, installationId, teamId, cancellationToken);
+        await RequireAuthorizationAsync(
+            organizationId, installationId, action,
+            GrantScopeKind.WorkItem, workItemId, cancellationToken);
+        string? expectedCommitSha = null;
+        if (string.Equals(activeStageKey, "quality", StringComparison.Ordinal))
+        {
+            expectedCommitSha = await (
+                from publication in db.SourceControlPublications.AsNoTracking()
+                join workspace in db.SourceControlWorkspaces.AsNoTracking()
+                    on new { publication.OrganizationId, Id = publication.WorkspaceId }
+                    equals new { workspace.OrganizationId, workspace.Id }
+                where publication.OrganizationId == organizationId &&
+                      workspace.WorkItemId == workItemId &&
+                      workspace.AssignmentRevision == assignmentRevision &&
+                      publication.Status != SourceControlPublicationStatus.Superseded
+                orderby publication.CreatedAt descending
+                select publication.CommitSha)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException(
+                    "QA cannot prepare a workspace until an exact source publication exists.");
+            expectedCommitSha = ValidateCommitSha(expectedCommitSha);
+        }
+        return new AssignmentContext(item, teamId, repository, policy, expectedCommitSha);
+    }
+
+    private async Task<WorkspaceContext> RequireWorkspaceContextAsync(
+        Guid organizationId,
+        Guid installationId,
+        Guid workspaceId,
+        long assignmentRevision,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        var workspace = await db.SourceControlWorkspaces.SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.Id == workspaceId &&
+            x.AgentInstallationId == installationId,
+            cancellationToken) ?? throw new KeyNotFoundException("The source-control workspace was not found.");
+        if (workspace.AssignmentRevision != assignmentRevision)
+            throw new UnauthorizedAccessException("The source-control workspace assignment is stale.");
+        var assignment = await RequireAssignmentContextAsync(
+            organizationId, installationId, workspace.WorkItemId,
+            assignmentRevision, action, cancellationToken);
+        if (workspace.RepositoryId != assignment.Repository.Id ||
+            workspace.TeamId != assignment.TeamId)
+            throw new UnauthorizedAccessException("The source-control workspace no longer matches its assignment.");
+        return new WorkspaceContext(workspace, assignment.Repository);
+    }
+
+    private async Task<TeamLeadContext> RequireTeamLeadAsync(
+        Guid organizationId,
+        Guid installationId,
+        Guid workItemId,
+        long assignmentRevision,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.Id == workItemId,
+            cancellationToken) ?? throw new KeyNotFoundException("The work item was not found.");
+        if (item.AssignmentRevision != assignmentRevision)
+            throw new UnauthorizedAccessException("The merge review assignment is stale.");
+        var teamId = await db.WorkBoards.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.Id == item.BoardId)
+            .Select(x => x.TeamId)
+            .SingleAsync(cancellationToken)
+            ?? throw new InvalidOperationException("The software board is not assigned to a team.");
+        var caller = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive,
+            cancellationToken) ?? throw new UnauthorizedAccessException("The installation has no active employee identity.");
+        var leadId = await db.OrganizationTeams.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.Id == teamId && x.ArchivedAt == null)
+            .Select(x => x.LeadOrganizationUserId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (leadId == Guid.Empty || leadId != caller.Id)
+            throw new UnauthorizedAccessException("Only the current canonical team lead may decide this merge.");
+        await RequireAuthorizationAsync(
+            organizationId, installationId, action,
+            GrantScopeKind.WorkItem, workItemId, cancellationToken);
+        return new TeamLeadContext(teamId, caller.Id);
+    }
+
+    private async Task<SourceControlPublication> LatestPublicationAsync(
+        Guid organizationId,
+        Guid workItemId,
+        long assignmentRevision,
+        CancellationToken cancellationToken) =>
+        await (
+            from publication in db.SourceControlPublications
+            join workspace in db.SourceControlWorkspaces.AsNoTracking()
+                on new { publication.OrganizationId, Id = publication.WorkspaceId }
+                equals new { workspace.OrganizationId, workspace.Id }
+            where publication.OrganizationId == organizationId &&
+                  workspace.WorkItemId == workItemId &&
+                  workspace.AssignmentRevision == assignmentRevision &&
+                  publication.Status != SourceControlPublicationStatus.Superseded
+            orderby publication.CreatedAt descending
+            select publication)
+            .FirstOrDefaultAsync(cancellationToken)
+        ?? throw new KeyNotFoundException("No current publication exists for this assignment.");
+
+    private async Task<Guid> RequireActiveTeamMemberAsync(
+        Guid organizationId,
+        Guid installationId,
+        Guid teamId,
+        CancellationToken cancellationToken)
+    {
+        var organizationUserId = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId &&
+                        x.AgentInstallationId == installationId && x.IsActive)
+            .Select(x => (Guid?)x.Id)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new UnauthorizedAccessException("The installation has no active employee identity.");
+        if (!await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.TeamId == teamId &&
+                x.OrganizationUserId == organizationUserId && x.EndedAt == null,
+                cancellationToken))
+            throw new UnauthorizedAccessException("The installation is not an active member of this team.");
+        return organizationUserId;
+    }
+
+    private async Task RequireAuthorizationAsync(
+        Guid organizationId,
+        Guid installationId,
+        string action,
+        GrantScopeKind scope,
+        Guid scopeId,
+        CancellationToken cancellationToken)
+    {
+        var decision = await authorization.AuthorizeAsync(
+            organizationId, GrantSubjectKind.AgentInstallation, installationId,
+            action, scope, scopeId, cancellationToken);
+        if (!decision.Allowed)
+            throw new UnauthorizedAccessException("The installation is not authorized for this source-control operation.");
+    }
+
+    private static TrustedWorkspaceOperationRequest Operation(
+        WorkspaceContext context,
+        string idempotencyKey) => new(
+            context.Workspace.OrganizationId,
+            context.Workspace.RepositoryId,
+            context.Workspace.Id,
+            context.Workspace.WorkspaceKey,
+            context.Workspace.WorkItemId,
+            context.Workspace.AssignmentRevision,
+            idempotencyKey);
+
+    private static GitWorkspaceResult ToWorkspaceResult(
+        SourceControlWorkspace workspace,
+        AssignmentContext context,
+        string path,
+        bool resumed) => new(
+            workspace.Id,
+            workspace.WorkItemId,
+            path,
+            workspace.RepositoryId,
+            context.Repository.Connection?.Provider.ToString() ?? SourceControlProvider.GenericGit.ToString(),
+            context.Repository.Connection?.Provider == SourceControlProvider.GitHub
+                ? GitDeliveryKinds.PullRequest
+                : GitDeliveryKinds.BranchOnly,
+            workspace.BaseCommitSha,
+            workspace.Status.ToString(),
+            resumed);
+
+    private static string AgentWorkspacePath(SourceControlWorkspace workspace) =>
+        $"/workspace/{workspace.WorkItemId:N}/{workspace.AssignmentRevision}";
+
+    private static void ValidateAgentWorkspacePath(string path, Guid workspaceId)
+    {
+        if (string.IsNullOrWhiteSpace(path) ||
+            !path.StartsWith("/workspace/", StringComparison.Ordinal) ||
+            path.Contains("..", StringComparison.Ordinal))
+            throw new InvalidOperationException($"GitHost returned an invalid agent workspace for {workspaceId:D}.");
+    }
+
+    private static string DeterministicBranch(WorkTask item)
+    {
+        var slug = new string(item.Title.ToLowerInvariant()
             .Select(x => char.IsAsciiLetterOrDigit(x) ? x : '-')
             .ToArray());
         while (slug.Contains("--", StringComparison.Ordinal))
@@ -1033,55 +903,72 @@ public sealed class GitWorkspaceCapabilityHandler(
         slug = slug.Trim('-');
         if (slug.Length > 48) slug = slug[..48].TrimEnd('-');
         if (slug.Length == 0) slug = "work";
-        return $"csweet/{workItemId:N}-{slug}";
+        return $"csweet/{item.Id:N}-{slug}";
     }
 
-    private static void ValidateWorkspacePath(
-        string path,
+    private static void ValidateAssignmentRequest(
         Guid workItemId,
-        long assignmentRevision)
+        long assignmentRevision,
+        string idempotencyKey)
     {
-        var expected = $"/workspace/{workItemId:N}/{assignmentRevision}";
-        if (!string.Equals(path, expected, StringComparison.Ordinal))
-            throw new UnauthorizedAccessException("The workspace path is outside the assignment root.");
+        if (workItemId == Guid.Empty) throw new ArgumentException("A work item is required.");
+        ValidateAssignmentRevision(assignmentRevision);
+        ValidateIdempotencyKey(idempotencyKey);
     }
 
-    private static string ValidateGitReference(string value)
+    private static void ValidateAssignmentRevision(long value)
     {
-        if (string.IsNullOrWhiteSpace(value) ||
-            value.StartsWith('-') ||
-            value.Contains("..", StringComparison.Ordinal) ||
-            value.Any(char.IsWhiteSpace) ||
-            value.Any(x => x is '~' or '^' or ':' or '?' or '*' or '[' or '\\'))
-            throw new ArgumentException("The Git reference is invalid.");
-        return value;
+        if (value < 1) throw new ArgumentException("The authoritative assignment revision is required.");
     }
+
+    private static RepositoryProvisioningResult ToProvisioningResult(
+        RepositoryProvisioningRequest request) => new(
+        request.Id,
+        request.Status.ToString(),
+        request.RepositoryId,
+        request.ApprovalId,
+        request.Status switch
+        {
+            RepositoryProvisioningStatus.AwaitingApproval =>
+                "A manager or owner must approve this private code project.",
+            RepositoryProvisioningStatus.Failed => request.FailureMessage,
+            _ => null
+        });
+
+    private static string Slug(string value)
+    {
+        var slug = new string(value.Trim().ToLowerInvariant()
+            .Select(x => char.IsAsciiLetterOrDigit(x) ? x : '-')
+            .ToArray());
+        while (slug.Contains("--", StringComparison.Ordinal))
+            slug = slug.Replace("--", "-", StringComparison.Ordinal);
+        slug = slug.Trim('-');
+        return string.IsNullOrWhiteSpace(slug) ? "project" : slug;
+    }
+
+    private static void ValidateIdempotencyKey(string value) =>
+        RequireBounded(value, 160, "idempotency key");
 
     private static string ValidateCommitSha(string value)
     {
-        var result = value.Trim().ToLowerInvariant();
-        if (result.Length != 40 || result.Any(x => !char.IsAsciiHexDigit(x)))
-            throw new ArgumentException("The expected commit SHA must be a full 40-character SHA.");
-        return result;
+        value = RequireBounded(value, 64, "commit SHA");
+        if (value.Length < 40 || value.Any(x => !Uri.IsHexDigit(x)))
+            throw new ArgumentException("The commit SHA is invalid.");
+        return value.ToLowerInvariant();
     }
 
-    private static void ValidateIdempotencyKey(string key)
+    private static string RequireBounded(string value, int maximum, string label)
     {
-        if (string.IsNullOrWhiteSpace(key) || key.Length > 160)
-            throw new ArgumentException("A bounded idempotency key is required.");
+        value = value?.Trim() ?? string.Empty;
+        if (value.Length == 0 || value.Length > maximum)
+            throw new ArgumentException($"The {label} must contain 1 to {maximum} characters.");
+        return value;
     }
 
-    private static string Quote(string value) =>
-        $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";
-
-    private static string Base64Url(string value) =>
-        Base64Url(Encoding.UTF8.GetBytes(value));
-
-    private static string Base64Url(byte[] value) =>
-        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    private static string Bounded(string value) =>
-        value.Length <= 2000 ? value.Trim() : value[..2000].Trim();
+    private static bool FixedTimeEquals(string left, string right) =>
+        CryptographicOperations.FixedTimeEquals(
+            Encoding.ASCII.GetBytes(left.ToLowerInvariant()),
+            Encoding.ASCII.GetBytes(right.ToLowerInvariant()));
 
     private static T Read<T>(RequestCapability request) =>
         request.Payload.ToElement().Deserialize<T>(JsonOptions)
@@ -1105,30 +992,16 @@ public sealed class GitWorkspaceCapabilityHandler(
         Payload = JsonPayload.From(new { code = code.ToString(), error }, JsonOptions)
     };
 
-    private static GitWorkspacePublication ToPublication(GitTicketWorkspace workspace) =>
-        new(
-            workspace.Id,
-            workspace.BranchName,
-            workspace.CommitSha!,
-            true,
-            Uri.TryCreate(workspace.PullRequestUrl, UriKind.Absolute, out var url) ? url : null,
-            workspace.Status.ToString())
-        {
-            MergeStatus = workspace.MergeStatus,
-            MergeCommitSha = workspace.MergeCommitSha,
-            MergedAt = workspace.MergedAt
-        };
+    private sealed record AssignmentContext(
+        WorkTask Item,
+        Guid TeamId,
+        SourceControlRepository Repository,
+        TeamRepositoryPolicy Policy,
+        string? ExpectedCommitSha);
 
     private sealed record WorkspaceContext(
-        WorkTask Item,
-        GitRepositoryConnection Connection,
-        string ContainerId);
+        SourceControlWorkspace Workspace,
+        SourceControlRepository Repository);
 
-    private sealed record GitAuthentication(
-        string Mode,
-        string? StandardInput,
-        string? ApiToken,
-        IReadOnlyList<string> KnownSecrets);
-
-    private sealed record CommandMetadata(long Bytes, int Files, string? CommitSha);
+    private sealed record TeamLeadContext(Guid TeamId, Guid OrganizationUserId);
 }

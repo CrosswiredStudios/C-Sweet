@@ -4,29 +4,25 @@ namespace CSweet.Application.WorkManagement;
 
 public interface ISoftwareDevelopmentWorkService
 {
-    Task<IReadOnlyList<GitRepositoryConnectionResponse>> ListConnectionsAsync(
+    Task<IReadOnlyList<SourceControlRepositoryOptionResponse>> ListRepositoriesAsync(
         Guid organizationId,
         Guid applicationUserId,
         CancellationToken cancellationToken = default);
 
-    Task<GitRepositoryConnectionResponse> CreateConnectionAsync(
+    Task<WorkBoardItemResponse> AssignAsync(
         Guid organizationId,
+        Guid boardId,
+        Guid itemId,
         Guid applicationUserId,
-        CreateGitRepositoryConnectionRequest request,
+        AssignSoftwareDevelopmentWorkItemRequest request,
         CancellationToken cancellationToken = default);
 
-    Task GrantConnectionAsync(
+    Task<WorkBoardItemResponse> UnassignAsync(
         Guid organizationId,
-        Guid connectionId,
+        Guid boardId,
+        Guid itemId,
         Guid applicationUserId,
-        GrantGitRepositoryConnectionRequest request,
-        CancellationToken cancellationToken = default);
-
-    Task SetCredentialAsync(
-        Guid organizationId,
-        Guid connectionId,
-        Guid applicationUserId,
-        SetGitRepositoryCredentialRequest request,
+        UnassignSoftwareDevelopmentWorkItemRequest request,
         CancellationToken cancellationToken = default);
 
 }

@@ -160,6 +160,9 @@ public sealed partial class WorkOrchestrator(
             FailStage(stage, attempt.ErrorMessage, now); return;
         }
         var error = ValidateOutcome(policy, stage, attempt, outcome);
+        if (error is null)
+            error = await RecordQualityValidationAsync(
+                execution, stage, outcome!, now, cancellationToken);
         if (error is not null)
         {
             attempt.Status = WorkExecutionAttemptStatus.Failed;
@@ -191,6 +194,113 @@ public sealed partial class WorkOrchestrator(
             "attempt.result.accepted", new { outcome.Disposition, outcome.OutcomeCode, outcome.Summary });
     }
 
+    private async Task<string?> RecordQualityValidationAsync(
+        WorkSprintExecution execution,
+        WorkStageExecution stage,
+        Shared.WorkExecutionOutcomeV1 outcome,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(stage.StageKey, "quality", StringComparison.Ordinal) ||
+            outcome.Disposition != Shared.WorkExecutionDispositions.Completed)
+            return null;
+        if (outcome.OutcomeCode is not ("passed" or "changes_requested"))
+            return "The quality stage returned an unsupported source-control outcome.";
+        if (!stage.AgentInstallationId.HasValue)
+            return "The quality stage has no validator installation.";
+
+        var commitEvidence = outcome.Evidence
+            .Where(x => string.Equals(x.Kind, "commit", StringComparison.Ordinal))
+            .Select(x => x.Value?.Trim().ToLowerInvariant())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (commitEvidence.Length != 1 ||
+            commitEvidence[0]!.Length is not (40 or 64) ||
+            commitEvidence[0]!.Any(x => !Uri.IsHexDigit(x)))
+            return "QA must identify exactly one valid source commit SHA.";
+
+        var item = stage.ItemExecution!.WorkItem!;
+        var publication = await (
+            from candidate in db.SourceControlPublications
+            join workspace in db.SourceControlWorkspaces.AsNoTracking()
+                on new { candidate.OrganizationId, Id = candidate.WorkspaceId }
+                equals new { workspace.OrganizationId, workspace.Id }
+            where candidate.OrganizationId == execution.OrganizationId &&
+                  workspace.WorkItemId == item.Id &&
+                  workspace.AssignmentRevision == item.AssignmentRevision &&
+                  candidate.Status != SourceControlPublicationStatus.Superseded
+            orderby candidate.CreatedAt descending
+            select candidate)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (publication is null)
+            return "QA evidence has no current source publication for this assignment revision.";
+        if (!string.Equals(publication.CommitSha, commitEvidence[0], StringComparison.OrdinalIgnoreCase))
+            return "QA evidence does not match the exact current publication SHA.";
+
+        var stale = await (
+            from validation in db.SourceControlValidations
+            join candidate in db.SourceControlPublications.AsNoTracking()
+                on new { validation.OrganizationId, Id = validation.PublicationId }
+                equals new { candidate.OrganizationId, candidate.Id }
+            join workspace in db.SourceControlWorkspaces.AsNoTracking()
+                on new { candidate.OrganizationId, Id = candidate.WorkspaceId }
+                equals new { workspace.OrganizationId, workspace.Id }
+            where validation.OrganizationId == execution.OrganizationId &&
+                  workspace.WorkItemId == item.Id &&
+                  workspace.AssignmentRevision == item.AssignmentRevision &&
+                  validation.PublicationId != publication.Id &&
+                  validation.Status != SourceControlValidationStatus.Superseded
+            select validation)
+            .ToListAsync(cancellationToken);
+        foreach (var validation in stale)
+        {
+            validation.Status = SourceControlValidationStatus.Superseded;
+            validation.SupersededAt = now;
+            validation.UpdatedAt = now;
+        }
+
+        var record = await db.SourceControlValidations.SingleOrDefaultAsync(x =>
+            x.OrganizationId == execution.OrganizationId &&
+            x.PublicationId == publication.Id &&
+            x.ValidatorAgentInstallationId == stage.AgentInstallationId.Value &&
+            x.CommitSha == publication.CommitSha,
+            cancellationToken);
+        if (record is null)
+        {
+            record = new SourceControlValidation
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = execution.OrganizationId,
+                PublicationId = publication.Id,
+                ValidatorAgentInstallationId = stage.AgentInstallationId.Value,
+                CommitSha = publication.CommitSha,
+                CreatedAt = now
+            };
+            db.SourceControlValidations.Add(record);
+        }
+        record.Status = outcome.OutcomeCode == "passed"
+            ? SourceControlValidationStatus.Passed
+            : SourceControlValidationStatus.Failed;
+        record.ResultsJson = outcome.Output.GetRawText();
+        record.FailureMessage = record.Status == SourceControlValidationStatus.Failed
+            ? outcome.Summary
+            : null;
+        record.UpdatedAt = now;
+        record.CompletedAt = now;
+        record.SupersededAt = null;
+
+        if (publication.Status != SourceControlPublicationStatus.BranchPublishedExternalMerge)
+        {
+            publication.Status = record.Status == SourceControlValidationStatus.Passed
+                ? SourceControlPublicationStatus.AwaitingLeadAuthorization
+                : SourceControlPublicationStatus.AwaitingValidation;
+            publication.UpdatedAt = now;
+            publication.Revision++;
+        }
+        return null;
+    }
+
     private async Task DispatchAsync(
         WorkSprintExecution execution,
         WorkOrchestrationPolicyRevision policy,
@@ -212,6 +322,7 @@ public sealed partial class WorkOrchestrator(
         var assignment = new Shared.WorkExecutionAssignmentV1(
             execution.Id, stage.ItemExecutionId, stage.Id, attempt.Id,
             execution.OrganizationId, execution.BoardId, execution.SprintId, item.Id,
+            item.AssignmentRevision,
             item.Identifier!.Split('-')[0], item.Identifier, execution.PolicyRevisionId,
             stage.StageKey, stage.Traversal, attemptNumber, now.AddSeconds(definition.TimeoutSeconds),
             definition.Instructions,
@@ -237,7 +348,8 @@ public sealed partial class WorkOrchestrator(
         stage.Attempts.Add(attempt); stage.Status = WorkStageExecutionStatus.Running;
         stage.UpdatedAt = now; stage.ItemExecution.Status = WorkItemExecutionStatus.Running;
         stage.ItemExecution.UpdatedAt = now; item.Status = WorkTaskStatus.Running; item.UpdatedAt = now; item.Revision++;
-        EnsureAttemptGrants(execution, item.Id, installationId, attempt.Id, now);
+        EnsureAttemptGrants(
+            execution, item.Id, installationId, attempt.Id, stage.StageKey, now);
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.dispatched", new { workId = work.Id, installationId, attempt = attemptNumber });
         await db.SaveChangesAsync(cancellationToken);
@@ -490,9 +602,45 @@ public sealed partial class WorkOrchestrator(
     }
 
     private void EnsureAttemptGrants(
-        WorkSprintExecution execution, Guid workItemId, Guid installationId, Guid attemptId, DateTimeOffset now)
+        WorkSprintExecution execution,
+        Guid workItemId,
+        Guid installationId,
+        Guid attemptId,
+        string stageKey,
+        DateTimeOffset now)
     {
-        foreach (var action in new[] { WorkItemActions.Read, WorkItemActions.Comment })
+        var actions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            WorkItemActions.Read,
+            WorkItemActions.Comment
+        };
+        if (string.Equals(stageKey, "development", StringComparison.Ordinal))
+        {
+            actions.UnionWith([
+                CSweet.Agent.SDK.GitWorkspaceCapabilities.Prepare,
+                CSweet.Agent.SDK.GitWorkspaceCapabilities.Refresh,
+                CSweet.Agent.SDK.GitWorkspaceCapabilities.Inspect,
+                CSweet.Agent.SDK.GitWorkspaceCapabilities.Publish,
+                CSweet.Agent.SDK.GitWorkspaceCapabilities.Cleanup
+            ]);
+        }
+        else if (string.Equals(stageKey, "quality", StringComparison.Ordinal))
+        {
+            actions.UnionWith([
+                CSweet.Agent.SDK.GitWorkspaceCapabilities.Prepare,
+                CSweet.Agent.SDK.GitWorkspaceCapabilities.Inspect,
+                CSweet.Agent.SDK.GitWorkspaceCapabilities.Cleanup
+            ]);
+        }
+        else if (string.Equals(stageKey, "merge-decision", StringComparison.Ordinal))
+        {
+            actions.UnionWith([
+                CSweet.Agent.SDK.GitMergeCapabilities.Review,
+                CSweet.Agent.SDK.GitMergeCapabilities.Authorize
+            ]);
+        }
+
+        foreach (var action in actions)
             db.ScopedActionGrants.Add(new ScopedActionGrant
             {
                 Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId,

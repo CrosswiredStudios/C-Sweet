@@ -1255,7 +1255,7 @@ public sealed class WorkManagementCapabilityHandler(
         ValidateStageAssignments(executable, policyStages, input.StageAssignments);
         if (input.Delivery is not null)
         {
-            if (input.Delivery.RepositoryConnectionId == Guid.Empty ||
+            if (input.Delivery.RepositoryId == Guid.Empty ||
                 input.Delivery.Requirements.Count == 0 ||
                 input.Delivery.AcceptanceCriteria.Count == 0)
                 throw new ArgumentException("The delivery specification is incomplete.");
@@ -1611,25 +1611,29 @@ public sealed class WorkManagementCapabilityHandler(
             item.AssignedAgentInstallationId == installation.Id &&
             !string.IsNullOrWhiteSpace(item.DevelopmentBriefJson))
         {
-            var published = await db.GitTicketWorkspaces
+            var published = await (
+                from publication in db.SourceControlPublications.AsNoTracking()
+                join workspace in db.SourceControlWorkspaces.AsNoTracking()
+                    on new { publication.OrganizationId, Id = publication.WorkspaceId }
+                    equals new { workspace.OrganizationId, workspace.Id }
+                where publication.OrganizationId == organizationId &&
+                      workspace.AgentInstallationId == installation.Id &&
+                      workspace.WorkItemId == item.Id &&
+                      workspace.AssignmentRevision == item.AssignmentRevision &&
+                      workspace.Status == SourceControlWorkspaceStatus.Published &&
+                      publication.Status != SourceControlPublicationStatus.Superseded
+                orderby publication.CreatedAt descending
+                select publication)
                 .AsNoTracking()
-                .Where(x =>
-                    x.OrganizationId == organizationId &&
-                    x.AgentInstallationId == installation.Id &&
-                    x.WorkItemId == item.Id &&
-                    x.AssignmentRevision == item.AssignmentRevision &&
-                    x.Status == GitTicketWorkspaceStatus.Published &&
-                    x.PullRequestUrl != null)
-                .Select(x => new { x.ValidationsJson })
-                .SingleOrDefaultAsync(cancellationToken);
+                .FirstOrDefaultAsync(cancellationToken);
             var validations = published is null
                 ? []
                 : JsonSerializer.Deserialize<IReadOnlyList<GitValidationResult>>(
-                    published.ValidationsJson, JsonOptions) ?? [];
+                    published.ValidationResultsJson, JsonOptions) ?? [];
             if (validations.Count == 0 ||
                 validations.Any(x => !x.Succeeded || x.ExitCode != 0))
                 throw new InvalidOperationException(
-                    "A development ticket can be completed only after successful validation and creation of a reviewable pull request.");
+                    "A development ticket can be completed only after successful validation and a current reviewable source publication.");
         }
         if (item.Revision != input.ExpectedRevision)
             throw new DbUpdateConcurrencyException(

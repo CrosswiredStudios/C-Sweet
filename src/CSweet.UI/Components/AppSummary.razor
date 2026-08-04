@@ -1,0 +1,21 @@
+@using CSweet.Contracts.SourceControl
+
+@if (App is not null)
+{
+    <MudPaper Outlined="true" Class="pa-3 app-summary">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@(App.Status is "Verified" or "Active" ? Icons.Material.Outlined.Verified : Icons.Material.Outlined.Pending)"
+                     Color="@(App.Status is "Verified" or "Active" ? Color.Success : Color.Warning)" />
+            <div>
+                <MudText Typo="Typo.subtitle2">@App.AppName</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @App.OwnerLogin · @App.AppSlug · App ID @App.AppId · @App.Status
+                </MudText>
+            </div>
+        </MudStack>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public PlatformGitHubAppSummary? App { get; set; }
+}

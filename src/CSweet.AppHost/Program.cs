@@ -43,6 +43,15 @@ var marketplaceBaseUrl = builder.Configuration["CSweet:Marketplace:BaseUrl"]
     ?? "https://marketplace.csweet.com/";
 var marketplaceTimeoutSeconds =
     builder.Configuration["CSweet:Marketplace:TimeoutSeconds"] ?? "10";
+var trustedServiceKey = EnsureTrustedServiceKey(
+    builder.Configuration["CSweet:SourceControl:TrustedServiceKeyBase64"]);
+var agentBrokerKey = DeriveScopedKey(trustedServiceKey, "csweet-agent-broker-v2");
+var sourceAccessAppId = builder.Configuration["CSweet:SourceControl:SourceAccessAppId"];
+var sourceAccessPrivateKey = builder.Configuration["CSweet:SourceControl:SourceAccessPrivateKeyBase64"];
+var provisionerAppId = builder.Configuration["CSweet:SourceControl:ProvisionerAppId"];
+var provisionerPrivateKey = builder.Configuration["CSweet:SourceControl:ProvisionerPrivateKeyBase64"];
+var sourceAccessInstallUrl = builder.Configuration["CSweet:SourceControl:SourceAccessInstallUrl"];
+var provisionerInstallUrl = builder.Configuration["CSweet:SourceControl:ProvisionerInstallUrl"];
 
 var migrator = builder.AddProject<Projects.CSweet_Migrator>("migrator")
     .WithReference(postgres)
@@ -82,19 +91,107 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WaitFor(agentHost)
     .WaitForCompletion(migrator);
 
-builder.AddProject<Projects.CSweet_App>("app", launchProfileName: appLaunchProfile)
-    .WithHttpEndpoint(port: 5097, name: "http")
-    .WithReference(api)
-    .WaitFor(api);
-
-builder.AddProject<Projects.CSweet_WorkerHost>("workerhost")
+var workerHost = builder.AddProject<Projects.CSweet_WorkerHost>("workerhost")
     .WithReference(api)
     .WithReference(postgres)
     .WaitFor(postgres)
     .WaitForCompletion(migrator)
     .WaitFor(api);
 
+var gitHost = builder.AddProject<Projects.CSweet_GitHost>("githost")
+    .WithEnvironment("TrustedServiceAuthentication__KeyId", "core")
+    .WithEnvironment("TrustedServiceAuthentication__SharedKeyBase64", trustedServiceKey);
+if (HasGitHubAppConfiguration(sourceAccessAppId, sourceAccessPrivateKey))
+{
+    gitHost.WithEnvironment("GitHubApp__AppId", sourceAccessAppId!)
+        .WithEnvironment("GitHubApp__PrivateKeyBase64", sourceAccessPrivateKey!);
+}
+var gitHostEndpoint = gitHost.GetEndpoint("http");
+
+api.WithReference(gitHost)
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyId", "core")
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyBase64", trustedServiceKey)
+    .WithEnvironment("CSweet__SourceControl__GitHostBaseUrl", gitHostEndpoint)
+    .WaitFor(gitHost);
+api.WithEnvironment("CSweet__SourceControl__AgentBrokerKeyId", "agenthost")
+    .WithEnvironment("CSweet__SourceControl__AgentBrokerKeyBase64", agentBrokerKey!);
+agentHost.WithEnvironment("CSweet__SourceControl__AgentBrokerKeyId", "agenthost")
+    .WithEnvironment("CSweet__SourceControl__AgentBrokerKeyBase64", agentBrokerKey!)
+    .WithEnvironment("CSweet__SourceControl__CoreBrokerBaseUrl", api.GetEndpoint("http"));
+if (!string.IsNullOrWhiteSpace(sourceAccessInstallUrl))
+    api.WithEnvironment("CSweet__SourceControl__SourceAccessInstallUrl", sourceAccessInstallUrl);
+workerHost.WithReference(gitHost)
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyId", "core")
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyBase64", trustedServiceKey)
+    .WithEnvironment("CSweet__SourceControl__GitHostBaseUrl", gitHostEndpoint)
+    .WaitFor(gitHost);
+
+var provisionerHost = builder.AddProject<Projects.CSweet_SourceControlProvisionerHost>("provisionerhost")
+    .WithEnvironment("TrustedServiceAuthentication__KeyId", "core")
+    .WithEnvironment("TrustedServiceAuthentication__SharedKeyBase64", trustedServiceKey);
+if (HasGitHubAppConfiguration(provisionerAppId, provisionerPrivateKey))
+{
+    provisionerHost.WithEnvironment("GitHubApp__AppId", provisionerAppId!)
+        .WithEnvironment("GitHubApp__PrivateKeyBase64", provisionerPrivateKey!);
+}
+var provisionerHostEndpoint = provisionerHost.GetEndpoint("http");
+
+api.WithReference(provisionerHost)
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyId", "core")
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyBase64", trustedServiceKey)
+    .WithEnvironment("CSweet__SourceControl__ProvisionerHostBaseUrl", provisionerHostEndpoint)
+    .WaitFor(provisionerHost);
+if (!string.IsNullOrWhiteSpace(provisionerInstallUrl))
+    api.WithEnvironment("CSweet__SourceControl__ProvisionerInstallUrl", provisionerInstallUrl);
+workerHost.WithReference(provisionerHost)
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyId", "core")
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyBase64", trustedServiceKey)
+    .WithEnvironment("CSweet__SourceControl__ProvisionerHostBaseUrl", provisionerHostEndpoint)
+    .WaitFor(provisionerHost);
+
+builder.AddProject<Projects.CSweet_App>("app", launchProfileName: appLaunchProfile)
+    .WithHttpEndpoint(port: 5097, name: "http")
+    .WithReference(api)
+    .WaitFor(api);
+
 builder.Build().Run();
+
+static bool HasGitHubAppConfiguration(params string?[] values) =>
+    values.All(value => !string.IsNullOrWhiteSpace(value));
+
+static string EnsureTrustedServiceKey(string? configured)
+{
+    try
+    {
+        if (!string.IsNullOrWhiteSpace(configured) &&
+            Convert.FromBase64String(configured).Length >= 32)
+            return configured;
+    }
+    catch (FormatException)
+    {
+        // Generate an ephemeral per-AppHost key below.
+    }
+    return Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+}
+
+static string? DeriveScopedKey(string? rootKeyBase64, string purpose)
+{
+    if (string.IsNullOrWhiteSpace(rootKeyBase64))
+        return null;
+    try
+    {
+        var rootKey = Convert.FromBase64String(rootKeyBase64);
+        if (rootKey.Length < 32)
+            return null;
+        return Convert.ToBase64String(System.Security.Cryptography.HMACSHA256.HashData(
+            rootKey,
+            System.Text.Encoding.UTF8.GetBytes(purpose)));
+    }
+    catch (FormatException)
+    {
+        return null;
+    }
+}
 
 static string ResolveLocalAgentDirectory(string? configured, string repositoryRoot)
 {

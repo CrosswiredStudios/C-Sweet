@@ -1,42 +1,28 @@
 using CSweet.AgentHost.Broker;
-using CSweet.Domain.Setup;
 
 namespace CSweet.UnitTests;
 
 public sealed class GitWorkspaceCapabilityHandlerTests
 {
     [Fact]
-    public void TeamRepositoryOptionRequiresDeveloperDeliveryRightsAndQaReadAccess()
+    public async Task UnconfiguredGitHostFailsClosedWithoutLocalFallback()
     {
-        var developerId = Guid.NewGuid();
-        var qualityId = Guid.NewGuid();
-        var developer = Grant(developerId, read: true, push: true, merge: true);
-        var quality = Grant(qualityId, read: true, push: false, merge: false);
+        ITrustedGitHostClient client = new UnavailableTrustedGitHostClient();
+        var request = new TrustedWorkspacePrepareRequest(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            1,
+            "csweet/ticket",
+            null,
+            "prepare-1");
 
-        Assert.True(GitWorkspaceCapabilityHandler.IsCommonDeliveryRepository(
-            [developer, quality], developerId, qualityId));
-        Assert.False(GitWorkspaceCapabilityHandler.IsCommonDeliveryRepository(
-            [Grant(developerId, read: true, push: true, merge: false), quality], developerId, qualityId));
-        Assert.False(GitWorkspaceCapabilityHandler.IsCommonDeliveryRepository(
-            [developer, Grant(qualityId, read: false, push: false, merge: false)], developerId, qualityId));
-        var revokedQuality = Grant(qualityId, read: true, push: false, merge: false);
-        revokedQuality.RevokedAt = DateTimeOffset.UtcNow;
-        Assert.False(GitWorkspaceCapabilityHandler.IsCommonDeliveryRepository(
-            [developer, revokedQuality], developerId, qualityId));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.PrepareAsync(request, CancellationToken.None));
+
+        Assert.Contains("blocked", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("without exposing credentials", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
-
-    private static GitRepositoryConnectionGrant Grant(
-        Guid installationId,
-        bool read,
-        bool push,
-        bool merge) => new()
-    {
-        Id = Guid.NewGuid(),
-        RepositoryConnectionId = Guid.NewGuid(),
-        AgentInstallationId = installationId,
-        CanReadFetch = read,
-        CanPushTicketBranch = push,
-        CanMergeQaApprovedPullRequest = merge,
-        GrantedAt = DateTimeOffset.UtcNow
-    };
 }

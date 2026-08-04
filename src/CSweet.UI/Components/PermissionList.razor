@@ -1,0 +1,19 @@
+<MudPaper Outlined="true" Class="pa-3 permission-list">
+    @if (SourceAccess)
+    {
+        <ul>
+            <li><strong>Contents:</strong> Read and write</li>
+            <li><strong>Pull requests:</strong> Read and write</li>
+            <li><strong>Checks:</strong> Read-only</li>
+            <li><strong>Metadata:</strong> Read-only</li>
+        </ul>
+    }
+    else
+    {
+        <ul><li><strong>Repository administration:</strong> Read and write</li></ul>
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public bool SourceAccess { get; set; }
+}

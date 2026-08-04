@@ -1,23 +1,26 @@
-using System.Net;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
-using CSweet.Application.Setup;
+using CSweet.Application.SourceControl;
 using CSweet.Application.WorkManagement;
 using CSweet.Domain.Setup;
+using CSweet.Domain.Communications;
+using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Shared = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
+/// <summary>
+/// Revalidates durable exact-SHA governance and asks the trusted source-control host to merge.
+/// This executor never receives provider credentials, calls provider APIs, or executes repo code.
+/// </summary>
 public sealed class GovernedMergeWorkActionExecutor(
     CSweetDbContext db,
-    IPluginSecretStore secrets,
-    IHttpClientFactory clients,
+    ITrustedSourceControlHostClient sourceControlHost,
+    ISourceControlDecisionSigner decisionSigner,
     TimeProvider timeProvider) : ITrustedWorkActionExecutor
 {
-    public const string ActionName = "git.merge.qa-approved.v1";
+    public const string ActionName = "source-control.merge.execute.v2";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public string Action => ActionName;
 
@@ -25,127 +28,298 @@ public sealed class GovernedMergeWorkActionExecutor(
         TrustedWorkActionContext context,
         CancellationToken cancellationToken = default)
     {
+        var now = timeProvider.GetUtcNow();
         var itemExecution = await db.WorkItemExecutions
             .Include(x => x.WorkItem)
-            .Include(x => x.Stages).ThenInclude(x => x.Attempts)
             .SingleAsync(x => x.Id == context.ItemExecutionId, cancellationToken);
-        var outcomes = itemExecution.Stages.SelectMany(x => x.Attempts)
-            .Where(x => !string.IsNullOrWhiteSpace(x.ResultJson))
-            .OrderBy(x => x.CompletedAt)
-            .Select(x => JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(x.ResultJson!, JsonOptions))
-            .Where(x => x is not null).Cast<Shared.WorkExecutionOutcomeV1>().ToList();
-        var development = outcomes.LastOrDefault(x =>
-            x.Disposition == Shared.WorkExecutionDispositions.Completed &&
-            x.Output.ValueKind == JsonValueKind.Object &&
-            x.Output.TryGetProperty("pullRequestUrl", out _));
-        var quality = outcomes.LastOrDefault(x =>
-            x.Disposition == Shared.WorkExecutionDispositions.Completed && x.OutcomeCode == "passed");
-        if (development is null || quality is null)
-            return Blocked("Governed merge requires a completed development outcome and QA pass.");
-
-        var output = development.Output;
-        var connectionId = output.GetProperty("repositoryConnectionId").GetGuid();
-        var commitSha = output.GetProperty("commitSha").GetString();
-        var pullRequestUrl = output.GetProperty("pullRequestUrl").GetString();
-        if (string.IsNullOrWhiteSpace(commitSha) || string.IsNullOrWhiteSpace(pullRequestUrl) ||
-            !quality.Evidence.Any(x => x.Kind == "commit" &&
-                string.Equals(x.Value, commitSha, StringComparison.OrdinalIgnoreCase)))
-            return Blocked("The QA pass does not prove the exact development commit.");
-
-        var developerInstallationId = itemExecution.Stages
-            .Where(x => x.AgentInstallationId.HasValue && x.StageKey.Contains("develop", StringComparison.OrdinalIgnoreCase))
-            .Select(x => x.AgentInstallationId).FirstOrDefault();
-        if (!developerInstallationId.HasValue)
-            return Blocked("The development installation snapshot is unavailable.");
-        var connection = await db.GitRepositoryConnections.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == connectionId && x.OrganizationId == context.OrganizationId, cancellationToken);
-        if (connection is null || connection.Provider != GitRepositoryProvider.GitHub ||
-            !connection.AllowedOperations.HasFlag(GitAllowedOperation.MergeQaApprovedPullRequest))
-            return Blocked("The repository connection does not authorize governed GitHub merge.");
-        var grant = await db.GitRepositoryConnectionGrants.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.RepositoryConnectionId == connectionId && x.AgentInstallationId == developerInstallationId &&
-            x.RevokedAt == null && x.CanMergeQaApprovedPullRequest, cancellationToken);
-        if (grant is null) return Blocked("The governed merge grant is unavailable.");
-        var token = await secrets.GetAsync(developerInstallationId.Value,
-            SoftwareDevelopmentWorkService.CredentialKey(connection.Id, "github-api-token"), cancellationToken);
-        if (string.IsNullOrWhiteSpace(token)) return Blocked("The GitHub merge credential is unavailable.");
-
-        var uri = new Uri(pullRequestUrl);
-        var (owner, repository, number) = ParsePullRequest(uri);
-        if (!string.Equals($"{owner}/{repository}", connection.PermittedRepositoryPath, StringComparison.OrdinalIgnoreCase))
-            return Blocked("The pull request is outside the repository grant.");
-        var client = clients.CreateClient();
-        using var inspect = new HttpRequestMessage(HttpMethod.Get,
-            $"https://api.github.com/repos/{owner}/{repository}/pulls/{number}");
-        AddHeaders(inspect, token);
-        using var inspected = await client.SendAsync(inspect, cancellationToken);
-        if (!inspected.IsSuccessStatusCode)
-            return Blocked($"GitHub pull-request inspection failed with HTTP {(int)inspected.StatusCode}.");
-        using var pr = JsonDocument.Parse(await inspected.Content.ReadAsStringAsync(cancellationToken));
-        var remoteHead = pr.RootElement.GetProperty("head").GetProperty("sha").GetString();
-        if (!string.Equals(remoteHead, commitSha, StringComparison.OrdinalIgnoreCase))
-            return Blocked("The pull-request head changed after QA approval.");
-
-        var mergeSha = pr.RootElement.TryGetProperty("merged", out var alreadyMerged) && alreadyMerged.GetBoolean()
-            ? pr.RootElement.GetProperty("merge_commit_sha").GetString() : null;
-        if (mergeSha is null)
+        var item = itemExecution.WorkItem!;
+        var publication = await (
+            from candidate in db.SourceControlPublications
+            join workspace in db.SourceControlWorkspaces.AsNoTracking()
+                on new { candidate.OrganizationId, Id = candidate.WorkspaceId }
+                equals new { workspace.OrganizationId, workspace.Id }
+            where candidate.OrganizationId == context.OrganizationId &&
+                  workspace.WorkItemId == context.WorkItemId &&
+                  workspace.AssignmentRevision == item.AssignmentRevision &&
+                  candidate.Status != SourceControlPublicationStatus.Superseded
+            orderby candidate.CreatedAt descending
+            select new { Publication = candidate, Workspace = workspace })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (publication is null)
+            return Blocked("Governed merge requires a current source publication.");
+        if (publication.Publication.Status ==
+            SourceControlPublicationStatus.BranchPublishedExternalMerge)
         {
-            using var merge = new HttpRequestMessage(HttpMethod.Put,
-                $"https://api.github.com/repos/{owner}/{repository}/pulls/{number}/merge")
+            return Completed(
+                "published_external_merge",
+                "The credential-free generic Git branch was published for external review and merge.",
+                publication.Publication.CommitSha,
+                null,
+                publication.Publication.PullRequestUrl);
+        }
+
+        var repository = await db.SourceControlRepositories.AsNoTracking()
+            .Include(candidate => candidate.Connection)
+            .SingleOrDefaultAsync(candidate =>
+                candidate.OrganizationId == context.OrganizationId &&
+                candidate.Id == publication.Publication.RepositoryId,
+                cancellationToken);
+        if (repository?.Connection is null ||
+            repository.Connection.Provider != SourceControlProvider.GitHub ||
+            repository.Connection.Status != SourceControlConnectionStatus.Connected ||
+            !repository.Connection.SourceAccessInstallationId.HasValue)
+            return Blocked("Governed merge requires an active GitHub Source Access connection.");
+        if (!int.TryParse(publication.Publication.PullRequestId, out var pullRequestNumber) ||
+            pullRequestNumber <= 0)
+            return Blocked("Governed merge requires a provider-confirmed proposed-change identifier.");
+
+        var validation = await db.SourceControlValidations.AsNoTracking()
+            .Where(x => x.OrganizationId == context.OrganizationId &&
+                        x.PublicationId == publication.Publication.Id &&
+                        x.CommitSha == publication.Publication.CommitSha &&
+                        x.Status == SourceControlValidationStatus.Passed &&
+                        x.SupersededAt == null)
+            .OrderByDescending(x => x.CompletedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (validation is null)
+            return Blocked("Governed merge requires passing QA evidence for the exact current SHA.");
+
+        var policy = await db.TeamRepositoryPolicies.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == context.OrganizationId &&
+            x.TeamId == publication.Workspace.TeamId &&
+            x.RepositoryId == publication.Publication.RepositoryId &&
+            x.DisabledAt == null,
+            cancellationToken);
+        if (policy is null)
+            return Blocked("The current team repository policy is unavailable.");
+        var authorization = await db.SourceControlMergeAuthorizations.AsNoTracking()
+            .Where(x => x.OrganizationId == context.OrganizationId &&
+                        x.PublicationId == publication.Publication.Id &&
+                        x.CommitSha == publication.Publication.CommitSha &&
+                        x.TeamPolicyRevision == policy.Revision &&
+                        x.RevokedAt == null && x.ExpiresAt > now)
+            .OrderByDescending(x => x.AuthorizedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (authorization is null)
+            return Blocked("Governed merge requires an unexpired team-lead authorization for the exact current SHA.");
+        if (!decisionSigner.Verify(
+                new SourceControlMergeDecision(
+                    authorization.OrganizationId,
+                    authorization.PublicationId,
+                    authorization.CommitSha,
+                    authorization.AuthorizedByOrganizationUserId,
+                    authorization.TeamPolicyRevision,
+                    authorization.AuthorizedAt,
+                    authorization.ExpiresAt),
+                authorization.DecisionSignature))
+            return Blocked("The team-lead merge authorization signature is invalid.");
+
+        var idempotencyKey = $"merge:{publication.Publication.Id:N}:{publication.Publication.CommitSha}";
+        var job = await db.SourceControlMergeJobs.SingleOrDefaultAsync(x =>
+            x.OrganizationId == context.OrganizationId && x.IdempotencyKey == idempotencyKey,
+            cancellationToken);
+        if (job?.Status == SourceControlMergeStatus.Merged &&
+            !string.IsNullOrWhiteSpace(job.MergeCommitSha))
+        {
+            return Completed(
+                "merged", "The exact authorized SHA was already merged.",
+                publication.Publication.CommitSha, job.MergeCommitSha,
+                publication.Publication.PullRequestUrl);
+        }
+        if (job?.Status == SourceControlMergeStatus.Cancelled)
+            return Blocked(job.FailureMessage ?? "The required manager or owner rejected this merge.");
+        job ??= new SourceControlMergeJob
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = context.OrganizationId,
+            PublicationId = publication.Publication.Id,
+            LeadAuthorizationId = authorization.Id,
+            ExpectedHeadSha = publication.Publication.CommitSha,
+            ApprovalMode = policy.MergeApprovalMode,
+            IdempotencyKey = idempotencyKey,
+            Status = policy.MergeApprovalMode == TeamMergeApprovalMode.LeadAuthorizedAutoMerge
+                ? SourceControlMergeStatus.Ready
+                : SourceControlMergeStatus.AwaitingApproval,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        if (db.Entry(job).State == EntityState.Detached)
+            db.SourceControlMergeJobs.Add(job);
+        if (policy.MergeApprovalMode == TeamMergeApprovalMode.LeadAndAdministratorApproval &&
+            !job.AdministratorApprovalId.HasValue)
+        {
+            if (!await db.SourceControlApprovals.AnyAsync(candidate =>
+                    candidate.OrganizationId == context.OrganizationId &&
+                    candidate.MergeJobId == job.Id,
+                    cancellationToken))
             {
-                Content = JsonContent.Create(new { sha = commitSha, merge_method = "squash" })
-            };
-            AddHeaders(merge, token);
-            using var merged = await client.SendAsync(merge, cancellationToken);
-            if (merged.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.MethodNotAllowed)
-                return Blocked("Branch protection or mergeability currently prevents governed merge.");
-            if (!merged.IsSuccessStatusCode)
-                return Blocked($"GitHub rejected governed merge with HTTP {(int)merged.StatusCode}.");
-            using var response = JsonDocument.Parse(await merged.Content.ReadAsStringAsync(cancellationToken));
-            if (!response.RootElement.TryGetProperty("merged", out var didMerge) || !didMerge.GetBoolean())
-                return Blocked("GitHub did not confirm the governed merge.");
-            mergeSha = response.RootElement.GetProperty("sha").GetString();
+                var approval = new SourceControlApproval
+                {
+                    Id = Guid.NewGuid(),
+                    OrganizationId = context.OrganizationId,
+                    Kind = SourceControlApprovalKind.Merge,
+                    Status = CSweet.Domain.Core.ApprovalStatus.Pending,
+                    RequestedByOrganizationUserId = authorization.AuthorizedByOrganizationUserId,
+                    MergeJobId = job.Id,
+                    IdempotencyKey = $"merge-approval:{job.Id:N}",
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+                db.SourceControlApprovals.Add(approval);
+                var approvers = await db.CoreOrganizationUsers.AsNoTracking()
+                    .Where(candidate => candidate.OrganizationId == context.OrganizationId &&
+                                        candidate.IsActive &&
+                                        candidate.EmployeeType == EmployeeType.Human &&
+                                        candidate.PermissionLevel >= OrganizationPermissionLevel.Manager)
+                    .Select(candidate => candidate.Id)
+                    .ToListAsync(cancellationToken);
+                foreach (var approverId in approvers)
+                {
+                    db.UserNotifications.Add(new UserNotification
+                    {
+                        Id = Guid.NewGuid(),
+                        OrganizationId = context.OrganizationId,
+                        RecipientOrganizationUserId = approverId,
+                        OriginatingAgentOrganizationUserId = authorization.AuthorizedByOrganizationUserId,
+                        Severity = NotificationSeverity.Important,
+                        Category = "SourceControlMergeApproval",
+                        Title = "Code merge approval needed",
+                        Body = $"Review the exact QA-approved version for {repository.Name}.",
+                        ActionUri = $"/organizations/{context.OrganizationId:D}/approvals",
+                        DeduplicationKey = $"source-control-approval:{approval.Id:N}:{approverId:N}",
+                        CreatedAt = now
+                    });
+                }
+            }
+            await db.SaveChangesAsync(cancellationToken);
+            publication.Publication.Status = SourceControlPublicationStatus.AwaitingAdministratorApproval;
+            publication.Publication.UpdatedAt = now;
+            publication.Publication.Revision++;
+            await db.SaveChangesAsync(cancellationToken);
+            return Blocked("Governed merge is awaiting the required manager or owner approval.");
         }
-        if (string.IsNullOrWhiteSpace(mergeSha)) return Blocked("GitHub returned no merge commit SHA.");
 
-        var now = timeProvider.GetUtcNow();
-        itemExecution.WorkItem!.MergeStatus = "Merged";
-        itemExecution.WorkItem.MergeCommitSha = mergeSha;
-        itemExecution.WorkItem.MergedAt = now;
-        itemExecution.WorkItem.MergeAuthorizationGrantId = grant.Id;
-        itemExecution.WorkItem.MergeAuthorizationGrantRevision = grant.Revision;
-        var workspace = await db.GitTicketWorkspaces
-            .Where(x => x.WorkItemId == itemExecution.WorkItemId && x.CommitSha == commitSha)
-            .OrderByDescending(x => x.UpdatedAt).FirstOrDefaultAsync(cancellationToken);
-        if (workspace is not null)
-        {
-            workspace.MergeStatus = "Merged"; workspace.MergeCommitSha = mergeSha;
-            workspace.MergedAt = now; workspace.UpdatedAt = now;
-        }
+        job.Status = SourceControlMergeStatus.Merging;
+        job.UpdatedAt = now;
+        job.Revision++;
         await db.SaveChangesAsync(cancellationToken);
-        return new(Shared.WorkExecutionDispositions.Completed, "merged", "QA-approved commit merged.",
-            JsonSerializer.SerializeToElement(new { sourceCommitSha = commitSha, mergeCommitSha = mergeSha, pullRequestUrl }, JsonOptions),
-            []);
+
+        TrustedMergeResult result;
+        try
+        {
+            result = await sourceControlHost.MergeAsync(
+                new TrustedMergeRequest(
+                    context.OrganizationId,
+                    publication.Publication.RepositoryId,
+                    publication.Publication.Id,
+                    job.Id,
+                    repository.Connection.SourceAccessInstallationId.Value,
+                    repository.Owner,
+                    repository.Name,
+                    pullRequestNumber,
+                    publication.Publication.CommitSha,
+                    idempotencyKey),
+                cancellationToken);
+        }
+        catch (InvalidOperationException exception)
+        {
+            job.Status = SourceControlMergeStatus.Failed;
+            job.FailureCode = "trusted_host_unavailable";
+            job.FailureMessage = exception.Message;
+            job.UpdatedAt = timeProvider.GetUtcNow();
+            job.Revision++;
+            await db.SaveChangesAsync(cancellationToken);
+            return Blocked(exception.Message);
+        }
+
+        now = timeProvider.GetUtcNow();
+        if (!result.HeadMatched)
+        {
+            await InvalidateStaleHeadAsync(
+                publication.Publication, authorization.Id, now, cancellationToken);
+            job.Status = SourceControlMergeStatus.Superseded;
+            job.FailureCode = result.FailureCode ?? "head_changed";
+            job.FailureMessage = result.FailureMessage ??
+                "The proposed-change head changed after QA and lead authorization.";
+            job.UpdatedAt = now;
+            job.Revision++;
+            await db.SaveChangesAsync(cancellationToken);
+            return Blocked(job.FailureMessage);
+        }
+        if (!result.Merged || string.IsNullOrWhiteSpace(result.MergeCommitSha))
+        {
+            job.Status = SourceControlMergeStatus.Failed;
+            job.FailureCode = result.FailureCode ?? "merge_rejected";
+            job.FailureMessage = result.FailureMessage ?? "The provider did not confirm the merge.";
+            job.UpdatedAt = now;
+            job.Revision++;
+            await db.SaveChangesAsync(cancellationToken);
+            return Blocked(job.FailureMessage);
+        }
+
+        job.Status = SourceControlMergeStatus.Merged;
+        job.MergeCommitSha = result.MergeCommitSha;
+        job.CompletedAt = now;
+        job.UpdatedAt = now;
+        job.Revision++;
+        publication.Publication.Status = SourceControlPublicationStatus.Merged;
+        publication.Publication.UpdatedAt = now;
+        publication.Publication.Revision++;
+        item.MergeStatus = "Merged";
+        item.MergeCommitSha = result.MergeCommitSha;
+        item.MergedAt = now;
+        item.MergeAuthorizationGrantId = authorization.Id;
+        item.MergeAuthorizationGrantRevision = authorization.TeamPolicyRevision;
+        await db.SaveChangesAsync(cancellationToken);
+        return Completed(
+            "merged", "The exact QA-approved and lead-authorized SHA was merged.",
+            publication.Publication.CommitSha, result.MergeCommitSha,
+            publication.Publication.PullRequestUrl);
     }
+
+    private async Task InvalidateStaleHeadAsync(
+        SourceControlPublication publication,
+        Guid authorizationId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        publication.Status = SourceControlPublicationStatus.Superseded;
+        publication.UpdatedAt = now;
+        publication.Revision++;
+        var validations = await db.SourceControlValidations.Where(x =>
+            x.OrganizationId == publication.OrganizationId &&
+            x.PublicationId == publication.Id &&
+            x.Status != SourceControlValidationStatus.Superseded)
+            .ToListAsync(cancellationToken);
+        foreach (var validation in validations)
+        {
+            validation.Status = SourceControlValidationStatus.Superseded;
+            validation.SupersededAt = now;
+            validation.UpdatedAt = now;
+        }
+        var authorization = await db.SourceControlMergeAuthorizations
+            .SingleAsync(x => x.Id == authorizationId, cancellationToken);
+        authorization.RevokedAt = now;
+        authorization.RevocationReason = "The proposed-change head changed.";
+    }
+
+    private static TrustedWorkActionResult Completed(
+        string outcomeCode,
+        string summary,
+        string sourceCommitSha,
+        string? mergeCommitSha,
+        string? pullRequestUrl) => new(
+        Shared.WorkExecutionDispositions.Completed,
+        outcomeCode,
+        summary,
+        JsonSerializer.SerializeToElement(
+            new { sourceCommitSha, mergeCommitSha, pullRequestUrl }, JsonOptions),
+        []);
 
     private static TrustedWorkActionResult Blocked(string summary) => new(
-        Shared.WorkExecutionDispositions.Blocked, "blocked", summary,
-        JsonSerializer.SerializeToElement(new { }), [summary]);
-
-    private static (string Owner, string Repository, int Number) ParsePullRequest(Uri uri)
-    {
-        if (uri.Scheme != Uri.UriSchemeHttps || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("The approved pull request is not a GitHub HTTPS URL.");
-        var segments = uri.AbsolutePath.Trim('/').Split('/');
-        if (segments.Length != 4 || segments[2] != "pull" || !int.TryParse(segments[3], out var number))
-            throw new InvalidOperationException("The approved pull request URL is malformed.");
-        return (segments[0], segments[1], number);
-    }
-
-    private static void AddHeaders(HttpRequestMessage request, string token)
-    {
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.UserAgent.ParseAdd("CSweet-Board-Orchestrator/1.0");
-        request.Headers.Accept.ParseAdd("application/vnd.github+json");
-    }
+        Shared.WorkExecutionDispositions.Blocked,
+        "blocked",
+        summary,
+        JsonSerializer.SerializeToElement(new { }, JsonOptions),
+        [summary]);
 }

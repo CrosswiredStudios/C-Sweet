@@ -26,6 +26,7 @@ using CSweet.Infrastructure.Agents;
 using CSweet.Application.Security;
 using CSweet.Application.Marketplace;
 using CSweet.Application.WorkManagement;
+using CSweet.Application.SourceControl;
 using CSweet.Application.Analytics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.DataProtection;
@@ -37,7 +38,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using CSweet.Memory;
 using CSweet.Communications.Abstractions;
 using CSweet.Infrastructure.WorkManagement;
+using CSweet.Infrastructure.SourceControl;
 using CSweet.Infrastructure.Analytics;
+using CSweet.TrustedServices;
 
 namespace CSweet.Infrastructure;
 
@@ -122,7 +125,6 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentInteractiveRuntimeService, AgentInteractiveRuntimeService>();
         builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService>();
         builder.Services.AddScoped<IAgentRuntimeCleanupService, AgentRuntimeCleanupService>();
-        builder.Services.AddScoped<GitWorkspaceRetentionCleanupService>();
         builder.Services.AddScoped<AgentRuntimeStartupCleanupService>();
         builder.Services.AddOptions<AgentRuntimeManagerOptions>()
             .Bind(builder.Configuration.GetSection(AgentRuntimeManagerOptions.SectionName));
@@ -218,12 +220,81 @@ public static class DependencyInjection
         builder.Services.AddScoped<IWorkTaskService, WorkTaskService>();
         builder.Services.AddScoped<IWorkBoardService, WorkBoardService>();
         builder.Services.AddScoped<ISoftwareDevelopmentWorkService, SoftwareDevelopmentWorkService>();
+        builder.Services.AddScoped<RepositoryProvisioningProcessor>();
+        builder.Services.AddScoped<SourceControlPlatformSetupService>();
+        builder.Services.AddScoped<ISourceControlPlatformSetupService>(services =>
+            services.GetRequiredService<SourceControlPlatformSetupService>());
+        builder.Services.AddScoped<ISourceControlPlatformConfigurationProvider>(services =>
+            services.GetRequiredService<SourceControlPlatformSetupService>());
+        builder.Services.AddScoped<ISourceControlOnboardingService, SourceControlOnboardingService>();
+        builder.Services.AddScoped<ISourceControlApprovalService, SourceControlApprovalService>();
+        builder.Services.AddHttpClient<IPlatformGitHubManifestClient, GitHubAppManifestClient>(client =>
+        {
+            client.BaseAddress = new Uri("https://api.github.com/");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("CSweet-Platform-Setup/1.0");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+            client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        builder.Services.AddSingleton<WorkspaceArtifactValidator>();
+        builder.Services.AddScoped<IWorkspaceVolumeBridge, WorkspaceVolumeBridge>();
+        builder.Services.AddScoped<IAgentWorkspaceBroker, AgentWorkspaceBroker>();
+        builder.Services.TryAddSingleton<TrustedRequestReplayCache>();
+        builder.Services.Configure<AgentBrokerAuthenticationOptions>(options =>
+        {
+            options.KeyId = builder.Configuration["CSweet:SourceControl:AgentBrokerKeyId"] ?? "agenthost";
+            options.SharedKeyBase64 = builder.Configuration["CSweet:SourceControl:AgentBrokerKeyBase64"] ?? string.Empty;
+        });
         builder.Services.AddScoped<IWorkBoardGrantService, WorkBoardGrantService>();
         builder.Services.AddScoped<IWorkItemCollaborationService, WorkItemCollaborationService>();
         builder.Services.AddScoped<IWorkSprintService, WorkSprintService>();
         builder.Services.AddScoped<AgentWorkInbox>();
         builder.Services.AddScoped<IWorkOrchestrationService, WorkOrchestrationService>();
         builder.Services.AddScoped<IWorkOrchestrator, WorkOrchestrator>();
+        var trustedServiceKey = builder.Configuration["CSweet:SourceControl:TrustedServiceKeyBase64"];
+        var trustedServiceKeyId = builder.Configuration["CSweet:SourceControl:TrustedServiceKeyId"] ?? "core";
+        var hasTrustedServiceKey = TryDecodeTrustedServiceKey(trustedServiceKey);
+        if (hasTrustedServiceKey)
+        {
+            builder.Services.Configure<TrustedServiceAuthenticationOptions>(options =>
+            {
+                options.KeyId = trustedServiceKeyId;
+                options.SharedKeyBase64 = trustedServiceKey!;
+            });
+            builder.Services.AddTransient<TrustedServiceAuthenticationHandler>();
+        }
+
+        var gitHostBaseUrl = builder.Configuration["CSweet:SourceControl:GitHostBaseUrl"];
+        if (hasTrustedServiceKey && TryGetTrustedServiceUri(gitHostBaseUrl, out var gitHostUri))
+        {
+            builder.Services.AddHttpClient<TrustedSourceControlHostClient>(client =>
+                client.BaseAddress = gitHostUri)
+                .AddHttpMessageHandler<TrustedServiceAuthenticationHandler>();
+            builder.Services.AddTransient<ITrustedSourceControlHostClient>(services =>
+                services.GetRequiredService<TrustedSourceControlHostClient>());
+        }
+        else
+        {
+            builder.Services.AddSingleton<ITrustedSourceControlHostClient,
+                UnavailableTrustedSourceControlHostClient>();
+        }
+
+        var provisionerHostBaseUrl = builder.Configuration["CSweet:SourceControl:ProvisionerHostBaseUrl"];
+        if (hasTrustedServiceKey && TryGetTrustedServiceUri(provisionerHostBaseUrl, out var provisionerHostUri))
+        {
+            builder.Services.AddHttpClient<TrustedProvisioningHostClient>(client =>
+                client.BaseAddress = provisionerHostUri)
+                .AddHttpMessageHandler<TrustedServiceAuthenticationHandler>();
+            builder.Services.AddTransient<ITrustedProvisioningHostClient>(services =>
+                services.GetRequiredService<TrustedProvisioningHostClient>());
+        }
+        else
+        {
+            builder.Services.AddSingleton<ITrustedProvisioningHostClient,
+                UnavailableTrustedProvisioningHostClient>();
+        }
+        builder.Services.AddSingleton<ISourceControlDecisionSigner,
+            DataProtectionSourceControlDecisionSigner>();
         builder.Services.AddScoped<ITrustedWorkActionExecutor, GovernedMergeWorkActionExecutor>();
         builder.Services.AddScoped<ITaskRunService, TaskRunService>();
         builder.Services.AddScoped<IArtifactService, ArtifactService>();
@@ -284,5 +355,33 @@ public static class DependencyInjection
         return string.IsNullOrWhiteSpace(localAppData)
             ? Path.Combine(AppContext.BaseDirectory, ".csweet")
             : Path.Combine(localAppData, "CSweet");
+    }
+
+    private static bool TryDecodeTrustedServiceKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        try
+        {
+            return Convert.FromBase64String(value).Length >= 32;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetTrustedServiceUri(string? value, out Uri uri)
+    {
+        if (Uri.TryCreate(value, UriKind.Absolute, out var parsed) &&
+            (parsed.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase) ||
+             parsed.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ||
+             parsed.Scheme.Equals("https+http", StringComparison.OrdinalIgnoreCase)))
+        {
+            uri = parsed.AbsoluteUri.EndsWith('/') ? parsed : new Uri($"{parsed.AbsoluteUri}/");
+            return true;
+        }
+        uri = null!;
+        return false;
     }
 }

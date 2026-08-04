@@ -6,6 +6,8 @@ public static class ApprovalDashboardKinds
     public const string AgentAction = "AgentAction";
     public const string HiringWorkflow = "HiringWorkflow";
     public const string Artifact = "Artifact";
+    public const string RepositoryProvisioning = "RepositoryProvisioning";
+    public const string Merge = "Merge";
 }
 
 public sealed record ApprovalDashboardItemResponse(
@@ -21,7 +23,22 @@ public sealed record ApprovalDashboardItemResponse(
     string ActionUri,
     bool CanDecide,
     ResourceChangeRequestResponse? ResourceChange = null,
-    HiringWorkflowApprovalResponse? HiringWorkflow = null);
+    HiringWorkflowApprovalResponse? HiringWorkflow = null,
+    SourceControlApprovalCardResponse? SourceControl = null);
+
+public sealed record SourceControlApprovalCardResponse(
+    Guid ApprovalId,
+    string ApprovalKind,
+    Guid? ProvisioningRequestId,
+    Guid? MergeJobId,
+    string CodeProjectName,
+    string AccountLogin,
+    bool PrivateOnly,
+    string? TemplateName,
+    string? DefaultTeamName,
+    int? MaximumProjects,
+    string Status,
+    long Revision);
 
 public sealed record ApprovalDashboardResponse(
     Guid CurrentOrganizationUserId,

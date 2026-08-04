@@ -1110,12 +1110,10 @@
             @foreach (var connection in _repositoryConnections)
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)connection.Id)">
-                    @connection.Name — @connection.PermittedRepositoryPath
+                    @connection.Name — @connection.CanonicalPath
                 </MudSelectItem>
             }
         </MudSelect>
-        <MudTextField T="string" Label="Base branch" @bind-Value="_pipelineBaseBranch"
-                      Variant="Variant.Outlined" Class="mt-3" />
         @if (!string.IsNullOrWhiteSpace(_pipelineError))
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
@@ -1258,8 +1256,8 @@
     <TitleContent><MudText Typo="Typo.h6">Assign software developer</MudText></TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2" Color="Color.Secondary">
-            The selected installation will clone the granted repository into its isolated
-            container workspace, implement and validate this ticket, then publish a reviewable PR.
+            C-Sweet will materialize the selected code project into a credential-free workspace.
+            The developer can build and test changes, while C-Sweet owns commit and publication.
         </MudText>
         <MudSelect T="Guid?" Label="Developer installation"
                    @bind-Value="_developerInstallationId"
@@ -1271,19 +1269,17 @@
                 </MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="Repository connection"
+        <MudSelect T="Guid?" Label="Code project"
                    Value="_developerConnectionId"
                    ValueChanged="SelectDeveloperConnection"
                    Variant="Variant.Outlined" Class="mt-3" Required="true">
             @foreach (var connection in _repositoryConnections)
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)connection.Id)">
-                    @connection.Name — @connection.PermittedRepositoryPath
+                    @connection.Name — @connection.CanonicalPath
                 </MudSelectItem>
             }
         </MudSelect>
-        <MudTextField T="string" Label="Base branch" @bind-Value="_developerBaseBranch"
-                      Variant="Variant.Outlined" Class="mt-3" Required="true" />
         <MudTextField T="string" Label="Requirements (one per line)"
                       @bind-Value="_developerRequirements"
                       Variant="Variant.Outlined" Lines="5" Class="mt-3" Required="true" />
@@ -1294,9 +1290,8 @@
                       @bind-Value="_developerConstraints"
                       Variant="Variant.Outlined" Lines="3" Class="mt-3" />
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-            This agent has trusted shell and Git access inside its container. Repository-scoped
-            credentials, expiration, branch protection, and granted push permissions are the
-            primary controls.
+            The agent receives no Git credentials, provider tokens, remote URL, or `.git`
+            directory. The trusted GitHost validates the assigned repository, branch, and commit.
         </MudAlert>
         @if (!string.IsNullOrWhiteSpace(_developerAssignmentError))
         {
@@ -1458,7 +1453,7 @@
     private readonly List<ColumnDraft> _columnDrafts = [];
     private IReadOnlyList<AgentInstallationResponse> _boardAgents = [];
     private IReadOnlyList<AgentInstallationResponse> _developerInstallations = [];
-    private IReadOnlyList<GitRepositoryConnectionResponse> _repositoryConnections = [];
+    private IReadOnlyList<SourceControlRepositoryOptionResponse> _repositoryConnections = [];
     private IReadOnlyList<AgentInstallationResponse> _pipelineAgents = [];
     private DeliveryPipelineResponse? _deliveryPipeline;
     private WorkOrchestrationPolicyResponse? _orchestrationPolicy;
@@ -1478,11 +1473,9 @@
     private Guid? _pipelineQualityColumnId;
     private Guid? _pipelineDoneColumnId;
     private Guid? _pipelineRepositoryId;
-    private string _pipelineBaseBranch = "main";
     private string? _pipelineError;
     private Guid? _developerInstallationId;
     private Guid? _developerConnectionId;
-    private string _developerBaseBranch = "main";
     private string _developerRequirements = "";
     private string _developerAcceptanceCriteria = "";
     private string _developerConstraints = "";
@@ -1520,8 +1513,7 @@
         _pipelineDevelopmentColumnId.HasValue &&
         _pipelineQualityColumnId.HasValue &&
         _pipelineDoneColumnId.HasValue &&
-        _pipelineRepositoryId.HasValue &&
-        !string.IsNullOrWhiteSpace(_pipelineBaseBranch);
+        _pipelineRepositoryId.HasValue;
 
     protected override void OnInitialized() =>
         Realtime.EventReceived += OnRealtimeEvent;
@@ -1838,8 +1830,7 @@
     {
         _developerAssignmentItem = item;
         _developerInstallationId = item.AssignedInstallationId;
-        _developerConnectionId = item.Development?.RepositoryConnectionId;
-        _developerBaseBranch = item.Development?.BaseBranch ?? "main";
+        _developerConnectionId = item.Development?.RepositoryId;
         _developerRequirements = string.Join(
             Environment.NewLine,
             item.Development?.Requirements ?? [item.Description]);
@@ -1862,8 +1853,8 @@
                 .OrderBy(x => x.AgentName)
                 .ToList();
             _repositoryConnections =
-                await Http.GetFromJsonAsync<IReadOnlyList<GitRepositoryConnectionResponse>>(
-                    $"api/organizations/{OrganizationId:D}/git/repositories") ?? [];
+                await Http.GetFromJsonAsync<IReadOnlyList<SourceControlRepositoryOptionResponse>>(
+                    $"api/organizations/{OrganizationId:D}/source-control/repositories") ?? [];
             if (!_developerInstallationId.HasValue && _developerInstallations.Count == 1)
                 _developerInstallationId = _developerInstallations[0].Id;
             if (!_developerConnectionId.HasValue && _repositoryConnections.Count == 1)
@@ -1978,8 +1969,8 @@
                     businessId == OrganizationId)
                 .ToList();
             _repositoryConnections =
-                await Http.GetFromJsonAsync<IReadOnlyList<GitRepositoryConnectionResponse>>(
-                    $"api/organizations/{OrganizationId:D}/git/repositories") ?? [];
+                await Http.GetFromJsonAsync<IReadOnlyList<SourceControlRepositoryOptionResponse>>(
+                    $"api/organizations/{OrganizationId:D}/source-control/repositories") ?? [];
             _pipelineDeveloperId = _deliveryPipeline?.DeveloperInstallationId ??
                 _pipelineAgents.SingleOrDefault(
                     x => x.AgentId == "com.csweet.software-developer")?.Id;
@@ -1994,11 +1985,8 @@
                     x.Name.Contains("QA", StringComparison.OrdinalIgnoreCase))?.Id;
             _pipelineDoneColumnId = _deliveryPipeline?.DoneColumnId ??
                 _detail.Columns.FirstOrDefault(x => x.Category == "Done")?.Id;
-            _pipelineRepositoryId = _deliveryPipeline?.RepositoryConnectionId ??
+            _pipelineRepositoryId = _deliveryPipeline?.RepositoryId ??
                 (_repositoryConnections.Count == 1 ? _repositoryConnections[0].Id : null);
-            _pipelineBaseBranch = _deliveryPipeline?.BaseBranch ??
-                _repositoryConnections.SingleOrDefault(
-                    x => x.Id == _pipelineRepositoryId)?.DefaultBranch ?? "main";
             _deliveryOpen = true;
         }
         catch (Exception exception)
@@ -2024,7 +2012,6 @@
                     _pipelineQualityColumnId!.Value,
                     _pipelineDoneColumnId!.Value,
                     _pipelineRepositoryId!.Value,
-                    _pipelineBaseBranch,
                     "Squash",
                     true,
                     _deliveryPipeline?.Revision ?? 0));
@@ -2086,9 +2073,6 @@
     private void SelectDeveloperConnection(Guid? connectionId)
     {
         _developerConnectionId = connectionId;
-        var connection = _repositoryConnections.SingleOrDefault(x => x.Id == connectionId);
-        if (connection is not null)
-            _developerBaseBranch = connection.DefaultBranch;
     }
 
     private async Task AssignDeveloperAsync()
@@ -2115,7 +2099,6 @@
                 _developerInstallationId.Value,
                 new SoftwareDevelopmentBrief(
                     _developerConnectionId.Value,
-                    _developerBaseBranch,
                     "software-development-polyglot-v1",
                     requirements,
                     acceptanceCriteria,

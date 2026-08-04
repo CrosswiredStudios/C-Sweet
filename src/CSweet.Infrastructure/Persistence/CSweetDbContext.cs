@@ -54,9 +54,22 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<AgentCapabilityBinding> AgentCapabilityBindings => Set<AgentCapabilityBinding>();
     public DbSet<PluginOrganizationGrant> PluginOrganizationGrants => Set<PluginOrganizationGrant>();
     public DbSet<PluginSecret> PluginSecrets => Set<PluginSecret>();
-    public DbSet<GitRepositoryConnection> GitRepositoryConnections => Set<GitRepositoryConnection>();
-    public DbSet<GitRepositoryConnectionGrant> GitRepositoryConnectionGrants => Set<GitRepositoryConnectionGrant>();
-    public DbSet<GitTicketWorkspace> GitTicketWorkspaces => Set<GitTicketWorkspace>();
+    public DbSet<SourceControlConnection> SourceControlConnections => Set<SourceControlConnection>();
+    public DbSet<SourceControlCredential> SourceControlCredentials => Set<SourceControlCredential>();
+    public DbSet<SourceControlRepository> SourceControlRepositories => Set<SourceControlRepository>();
+    public DbSet<RepositoryProvisioningPolicy> RepositoryProvisioningPolicies => Set<RepositoryProvisioningPolicy>();
+    public DbSet<SourceControlRepositoryTemplate> SourceControlRepositoryTemplates => Set<SourceControlRepositoryTemplate>();
+    public DbSet<RepositoryProvisioningRequest> RepositoryProvisioningRequests => Set<RepositoryProvisioningRequest>();
+    public DbSet<SourceControlApproval> SourceControlApprovals => Set<SourceControlApproval>();
+    public DbSet<TeamRepositoryPolicy> TeamRepositoryPolicies => Set<TeamRepositoryPolicy>();
+    public DbSet<SourceControlOnboardingSession> SourceControlOnboardingSessions => Set<SourceControlOnboardingSession>();
+    public DbSet<SourceControlWorkspace> SourceControlWorkspaces => Set<SourceControlWorkspace>();
+    public DbSet<SourceControlPublication> SourceControlPublications => Set<SourceControlPublication>();
+    public DbSet<SourceControlValidation> SourceControlValidations => Set<SourceControlValidation>();
+    public DbSet<SourceControlMergeAuthorization> SourceControlMergeAuthorizations => Set<SourceControlMergeAuthorization>();
+    public DbSet<SourceControlMergeJob> SourceControlMergeJobs => Set<SourceControlMergeJob>();
+    public DbSet<PlatformGitHubAppCredential> PlatformGitHubAppCredentials => Set<PlatformGitHubAppCredential>();
+    public DbSet<PlatformSourceControlSetupSession> PlatformSourceControlSetupSessions => Set<PlatformSourceControlSetupSession>();
 
     // Planning entities
     public DbSet<PlanningTask> PlanningTasks => Set<PlanningTask>();
@@ -360,6 +373,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        SourceControlModelConfiguration.Configure(modelBuilder);
 
         modelBuilder.Entity<ApplicationUser>(entity =>
         {
@@ -622,68 +636,6 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 .WithMany()
                 .HasForeignKey(x => x.PackageVersionId)
                 .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        modelBuilder.Entity<GitRepositoryConnection>(entity =>
-        {
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
-            entity.Property(x => x.Provider).HasConversion<string>().HasMaxLength(32).IsRequired();
-            entity.Property(x => x.CloneUrl).HasMaxLength(2048).IsRequired();
-            entity.Property(x => x.PermittedRepositoryPath).HasMaxLength(512).IsRequired();
-            entity.Property(x => x.AuthenticationMode).HasConversion<string>().HasMaxLength(32).IsRequired();
-            entity.Property(x => x.AllowedOperations).HasConversion<string>().HasMaxLength(64).IsRequired();
-            entity.Property(x => x.DefaultBranch).HasMaxLength(255).IsRequired();
-            entity.Property(x => x.PullRequestProvider).HasConversion<string>().HasMaxLength(32).IsRequired();
-            entity.Property(x => x.AllowedHostsJson).HasColumnType("text").IsRequired();
-            entity.Property(x => x.AllowedPortsJson).HasColumnType("text").IsRequired();
-            entity.Property(x => x.SshHostFingerprintsJson).HasColumnType("text").IsRequired();
-            entity.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique();
-        });
-
-        modelBuilder.Entity<GitRepositoryConnectionGrant>(entity =>
-        {
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.Revision).IsConcurrencyToken();
-            entity.HasIndex(x => new { x.RepositoryConnectionId, x.AgentInstallationId }).IsUnique();
-            entity.HasOne(x => x.RepositoryConnection)
-                .WithMany(x => x.InstallationGrants)
-                .HasForeignKey(x => x.RepositoryConnectionId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(x => x.AgentInstallation)
-                .WithMany(x => x.RepositoryConnectionGrants)
-                .HasForeignKey(x => x.AgentInstallationId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<GitTicketWorkspace>(entity =>
-        {
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.WorkspacePath).HasMaxLength(1024).IsRequired();
-            entity.Property(x => x.BaseBranch).HasMaxLength(255).IsRequired();
-            entity.Property(x => x.BranchName).HasMaxLength(255).IsRequired();
-            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
-            entity.Property(x => x.CommitSha).HasMaxLength(64);
-            entity.Property(x => x.PullRequestUrl).HasMaxLength(2048);
-            entity.Property(x => x.ChangedFilesJson).HasColumnType("text").IsRequired();
-            entity.Property(x => x.ValidationsJson).HasColumnType("text").IsRequired();
-            entity.Property(x => x.LastError).HasMaxLength(2048);
-            entity.Property(x => x.MergeStatus).HasMaxLength(24).IsRequired();
-            entity.Property(x => x.MergeCommitSha).HasMaxLength(128);
-            entity.HasIndex(x => new
-            {
-                x.AgentInstallationId,
-                x.WorkItemId,
-                x.AssignmentRevision
-            }).IsUnique();
-            entity.HasOne(x => x.RepositoryConnection)
-                .WithMany()
-                .HasForeignKey(x => x.RepositoryConnectionId)
-                .OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne(x => x.AgentInstallation)
-                .WithMany()
-                .HasForeignKey(x => x.AgentInstallationId)
-                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<AgentInstallationGrant>(entity =>

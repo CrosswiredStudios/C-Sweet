@@ -1,0 +1,410 @@
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<MudPaper Outlined="true" Class="pa-5 platform-setup-wizard" role="region" aria-labelledby="platform-setup-title">
+    <MudStack Spacing="3">
+        <div>
+            <MudText Typo="Typo.h5" id="platform-setup-title">Set up GitHub source control</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                C-Sweet guides you through this one-time enterprise setup. You will review every
+                permission before GitHub creates anything; no terminal commands or private-key copying are required.
+            </MudText>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" role="alert">@_error</MudAlert>
+        }
+        @if (!string.IsNullOrWhiteSpace(Setup.Session?.LastError))
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" role="status">
+                @Setup.Session.LastError
+            </MudAlert>
+        }
+
+        @if (Setup.Session is null)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                You need administrator access to a central GitHub organization. C-Sweet will prepare
+                the Apps and securely store the generated credentials for you.
+            </MudAlert>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_working"
+                       StartIcon="@Icons.Material.Outlined.Start" OnClick="StartAsync">
+                Start guided setup
+            </MudButton>
+        }
+        else if (Setup.Session.Status is "Cancelled" or "Expired")
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                This setup session is no longer active. You can start a new guided setup whenever you are ready.
+            </MudAlert>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_working"
+                       OnClick="StartAsync">Start a new setup</MudButton>
+        }
+        else if (Setup.Session.Status == "Active" && Setup.Readiness.ManagedGitHubAvailable)
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+                <MudText Typo="Typo.subtitle1">Enterprise GitHub integration is active</MudText>
+                <MudText Typo="Typo.body2">
+                    Businesses can connect existing projects and create governed private projects.
+                </MudText>
+            </MudAlert>
+            <AppSummary App="Setup.Session.SourceAccessApp" />
+            <AppSummary App="Setup.Session.ProvisionerApp" />
+        }
+        else if (Setup.Session.Status == "Active")
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+                Existing GitHub projects are ready. Managed private projects can be enabled later.
+            </MudAlert>
+            <AppSummary App="Setup.Session.SourceAccessApp" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_working"
+                       OnClick="StartAsync">Set up managed private projects</MudButton>
+        }
+        else
+        {
+            <div aria-live="polite" class="wizard-status">
+                @StatusText
+            </div>
+            <MudStepper ActiveIndex="@ActiveIndex" Vertical="true" NonLinear="false"
+                        ShowResetButton="false" Class="enterprise-stepper">
+                <ChildContent>
+                <MudStep Title="GitHub organization" Completed="@OrganizationComplete"
+                         Disabled="@(ActiveIndex != 0)">
+                    <MudStack Spacing="2" Class="py-3">
+                        <MudText Typo="Typo.body2">
+                            Choose the central GitHub organization that will own both C-Sweet Apps.
+                            The Apps can then be installed by each business organization that approves them.
+                        </MudText>
+                        <MudTextField Label="GitHub organization" @bind-Value="_organization"
+                                      Variant="Variant.Outlined" Immediate="true"
+                                      HelperText="Enter the organization login from its GitHub URL."
+                                      Disabled="_working" />
+                        <MudCheckBox T="bool" @bind-Value="_prerequisitesConfirmed"
+                                     Label="I can create GitHub Apps for this organization."
+                                     Disabled="_working" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   Disabled="@(_working || !_prerequisitesConfirmed || string.IsNullOrWhiteSpace(_organization))"
+                                   OnClick="ConfirmOrganizationAsync">Continue</MudButton>
+                    </MudStack>
+                </MudStep>
+
+                <MudStep Title="Source Access permissions" Completed="@SourceReviewComplete"
+                         Disabled="@(ActiveIndex != 1)">
+                    <MudStack Spacing="2" Class="py-3">
+                        <MudText Typo="Typo.body2">
+                            Source Access lets C-Sweet work only with projects a business explicitly selects.
+                            Webhooks and GitHub user authorization are disabled.
+                        </MudText>
+                        <PermissionList SourceAccess="true" />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Public application URL: <code>@Setup.Session.PublicBaseUrl</code>
+                        </MudText>
+                        <MudCheckBox T="bool" @bind-Value="_sourcePermissionsConfirmed"
+                                     Label="I approve these Source Access permissions."
+                                     Disabled="@(_working || Setup.Session.SourceAccessPermissionsConfirmed)" />
+                        @if (!Setup.Session.SourceAccessPermissionsConfirmed)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       Disabled="@(_working || !_sourcePermissionsConfirmed)"
+                                       OnClick="ConfirmSourceReviewAsync">Confirm permissions</MudButton>
+                        }
+                        else if (_manifest is null)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_working"
+                                       StartIcon="@Icons.Custom.Brands.GitHub" OnClick="PrepareSourceManifestAsync">
+                                Prepare GitHub setup
+                            </MudButton>
+                        }
+                        else
+                        {
+                            <form action="@_manifest.PostUrl" method="post" class="github-manifest-form">
+                                <input type="hidden" name="manifest" value="@_manifest.ManifestJson" />
+                                <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                                           StartIcon="@Icons.Custom.Brands.GitHub">Continue to GitHub</MudButton>
+                            </form>
+                        }
+                    </MudStack>
+                </MudStep>
+
+                <MudStep Title="Confirm Source Access" Completed="@SourceAppComplete"
+                         Disabled="@(ActiveIndex != 2)">
+                    <MudStack Spacing="2" Class="py-3">
+                        <AppSummary App="Setup.Session.SourceAccessApp" />
+                        @if (Setup.Session.SourceAccessApp?.Status == "Failed")
+                        {
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                                The App was stored securely but could not be verified. Confirm again to retry verification.
+                            </MudAlert>
+                        }
+                        <MudCheckBox T="bool" @bind-Value="_sourceAppConfirmed"
+                                     Label="I recognize this GitHub App and want C-Sweet to use it."
+                                     Disabled="_working" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   Disabled="@(_working || !_sourceAppConfirmed)"
+                                   OnClick="ConfirmSourceAppAsync">Confirm and continue</MudButton>
+                    </MudStack>
+                </MudStep>
+
+                <MudStep Title="Project capabilities" Completed="@CapabilitiesComplete"
+                         Disabled="@(ActiveIndex != 3)">
+                    <MudStack Spacing="2" Class="py-3">
+                        <MudText Typo="Typo.body2">
+                            Existing projects are fully supported with Source Access. A second, separately
+                            scoped App is needed only when C-Sweet should create governed private projects.
+                        </MudText>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_working"
+                                   OnClick="@(() => ChooseProvisionerAsync(false))">
+                            Connect existing projects only
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_working"
+                                   OnClick="@(() => ChooseProvisionerAsync(true))">
+                            Also create managed private projects
+                        </MudButton>
+                    </MudStack>
+                </MudStep>
+
+                @if (Setup.Session.ProvisionerRequested == true ||
+                     Setup.Session.CurrentStep.StartsWith("provisioner", StringComparison.Ordinal))
+                {
+                    <MudStep Title="Repository Provisioner" Completed="@ProvisionerComplete"
+                             Disabled="@(ActiveIndex != 4)">
+                        <MudStack Spacing="2" Class="py-3">
+                            @if (Setup.Session.CurrentStep == "provisioner-review")
+                            {
+                                <MudText Typo="Typo.body2">
+                                    This separate App can create and configure private repositories. It cannot
+                                    manage members, secrets, deletion, transfers, or public visibility.
+                                </MudText>
+                                <PermissionList SourceAccess="false" />
+                                <MudCheckBox T="bool" @bind-Value="_provisionerPermissionsConfirmed"
+                                             Label="I approve the Repository Provisioner permission."
+                                             Disabled="@(_working || Setup.Session.ProvisionerPermissionsConfirmed)" />
+                                @if (!Setup.Session.ProvisionerPermissionsConfirmed)
+                                {
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                               Disabled="@(_working || !_provisionerPermissionsConfirmed)"
+                                               OnClick="ConfirmProvisionerReviewAsync">Confirm permission</MudButton>
+                                }
+                                else if (_manifest is null)
+                                {
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_working"
+                                               StartIcon="@Icons.Custom.Brands.GitHub" OnClick="PrepareProvisionerManifestAsync">
+                                        Prepare GitHub setup
+                                    </MudButton>
+                                }
+                                else
+                                {
+                                    <form action="@_manifest.PostUrl" method="post" class="github-manifest-form">
+                                        <input type="hidden" name="manifest" value="@_manifest.ManifestJson" />
+                                        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                                                   StartIcon="@Icons.Custom.Brands.GitHub">Continue to GitHub</MudButton>
+                                    </form>
+                                }
+                            }
+                            else
+                            {
+                                <AppSummary App="Setup.Session.ProvisionerApp" />
+                                <MudCheckBox T="bool" @bind-Value="_provisionerAppConfirmed"
+                                             Label="I recognize this GitHub App and want C-Sweet to use it."
+                                             Disabled="_working" />
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                           Disabled="@(_working || !_provisionerAppConfirmed)"
+                                           OnClick="ConfirmProvisionerAppAsync">Confirm and continue</MudButton>
+                            }
+                        </MudStack>
+                    </MudStep>
+                }
+
+                <MudStep Title="Review and activate" Completed="@(Setup.Session.Status == "Active")"
+                         Disabled="@(ActiveIndex != ReviewIndex)">
+                    <MudStack Spacing="2" Class="py-3">
+                        <MudText Typo="Typo.body2">
+                            Review the verified Apps below. Private keys stay encrypted and are never displayed.
+                        </MudText>
+                        <AppSummary App="Setup.Session.SourceAccessApp" />
+                        @if (Setup.Session.ProvisionerRequested == true)
+                        {
+                            <AppSummary App="Setup.Session.ProvisionerApp" />
+                        }
+                        <MudCheckBox T="bool" @bind-Value="_activationConfirmed"
+                                     Label="Activate this enterprise source-control configuration."
+                                     Disabled="_working" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Outlined.CheckCircle"
+                                   Disabled="@(_working || !_activationConfirmed)"
+                                   OnClick="ActivateAsync">Activate source control</MudButton>
+                    </MudStack>
+                </MudStep>
+                </ChildContent>
+                <ActionContent><span></span></ActionContent>
+            </MudStepper>
+
+            <MudExpansionPanels>
+                <MudExpansionPanel Text="Stop this setup">
+                    <MudStack Spacing="2" Class="py-2">
+                        <MudText Typo="Typo.body2">
+                            Cancelling removes pending credentials from C-Sweet. Any App already created
+                            on GitHub must be removed from the GitHub organization's App settings.
+                        </MudText>
+                        <MudCheckBox T="bool" @bind-Value="_cancelConfirmed"
+                                     Label="Cancel this enterprise setup session."
+                                     Disabled="_working" />
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                                   Disabled="@(_working || !_cancelConfirmed)"
+                                   OnClick="CancelAsync">Cancel setup</MudButton>
+                    </MudStack>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        }
+
+        <MudExpansionPanels>
+            <MudExpansionPanel Text="Advanced manual setup">
+                <MudText Typo="Typo.body2" Class="mb-3">
+                    Use manual configuration only for recovery, externally managed deployments, or GitHub Enterprise Server.
+                </MudText>
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Source Access App</MudText>
+                <SourceControlConfigurationInstructions AppKind="source" DefaultTabIndex="@DefaultConfigurationTab" />
+                <MudDivider Class="my-4" />
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Repository Provisioner App</MudText>
+                <SourceControlConfigurationInstructions AppKind="provisioner" DefaultTabIndex="@DefaultConfigurationTab" />
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public PlatformSourceControlSetupResponse Setup { get; set; } = default!;
+    [Parameter] public EventCallback<PlatformSourceControlSetupResponse> SetupChanged { get; set; }
+
+    private bool _working;
+    private string? _error;
+    private string _organization = string.Empty;
+    private bool _prerequisitesConfirmed;
+    private bool _sourcePermissionsConfirmed;
+    private bool _sourceAppConfirmed;
+    private bool _provisionerPermissionsConfirmed;
+    private bool _provisionerAppConfirmed;
+    private bool _activationConfirmed;
+    private bool _cancelConfirmed;
+    private PlatformGitHubManifestLaunchResponse? _manifest;
+
+    private int DefaultConfigurationTab => Uri.TryCreate(Navigation.BaseUri, UriKind.Absolute, out var uri) && uri.IsLoopback ? 0 : 1;
+    private bool OrganizationComplete => Setup.Session?.PrerequisitesConfirmed == true;
+    private bool SourceReviewComplete => Setup.Session?.SourceAccessPermissionsConfirmed == true;
+    private bool SourceAppComplete => Setup.Session?.SourceAccessAppConfirmed == true;
+    private bool CapabilitiesComplete => Setup.Session?.ProvisionerRequested.HasValue == true;
+    private bool ProvisionerComplete => Setup.Session?.ProvisionerRequested != true || Setup.Session.ProvisionerAppConfirmed;
+    private int ReviewIndex => Setup.Session?.ProvisionerRequested == true ? 5 : 4;
+    private string StatusText => Setup.Session?.Status == "AwaitingGitHub"
+        ? "Waiting for GitHub to return to C-Sweet."
+        : "Your progress is saved automatically.";
+
+    private int ActiveIndex => Setup.Session?.CurrentStep switch
+    {
+        "organization" => 0,
+        "source-access-review" => 1,
+        "source-access-confirm" => 2,
+        "capabilities" => 3,
+        "provisioner-review" or "provisioner-confirm" => 4,
+        "review-activate" or "complete" => ReviewIndex,
+        _ => 0
+    };
+
+    protected override void OnParametersSet()
+    {
+        if (Setup.Session is null) return;
+        _organization = Setup.Session.GitHubOrganization;
+        _prerequisitesConfirmed = Setup.Session.PrerequisitesConfirmed;
+        _sourcePermissionsConfirmed = Setup.Session.SourceAccessPermissionsConfirmed;
+        _sourceAppConfirmed = Setup.Session.SourceAccessAppConfirmed;
+        _provisionerPermissionsConfirmed = Setup.Session.ProvisionerPermissionsConfirmed;
+        _provisionerAppConfirmed = Setup.Session.ProvisionerAppConfirmed;
+        _activationConfirmed = Setup.Session.ActivationConfirmed;
+    }
+
+    private Task StartAsync() => SendAsync(() => Http.PostAsJsonAsync(
+        "api/source-control/platform-setup/sessions",
+        new StartPlatformSourceControlSetupRequest(Navigation.BaseUri.TrimEnd('/'))));
+
+    private Task ConfirmOrganizationAsync() => SendAsync(() => Http.PutAsJsonAsync(
+        $"api/source-control/platform-setup/sessions/{Setup.Session!.SessionId:D}/organization",
+        new ConfirmPlatformOrganizationRequest(
+            _organization, _prerequisitesConfirmed, Setup.Session.Revision)));
+
+    private Task ConfirmSourceReviewAsync() => ConfirmReviewAsync("source-access", _sourcePermissionsConfirmed);
+    private Task ConfirmProvisionerReviewAsync() => ConfirmReviewAsync("provisioner", _provisionerPermissionsConfirmed);
+    private Task ConfirmReviewAsync(string kind, bool confirmed) => SendAsync(() => Http.PutAsJsonAsync(
+        $"api/source-control/platform-setup/sessions/{Setup.Session!.SessionId:D}/apps/{kind}/review",
+        new ConfirmPlatformAppReviewRequest(confirmed, Setup.Session.Revision)));
+
+    private Task PrepareSourceManifestAsync() => PrepareManifestAsync("source-access");
+    private Task PrepareProvisionerManifestAsync() => PrepareManifestAsync("provisioner");
+    private async Task PrepareManifestAsync(string kind)
+    {
+        await WorkAsync(async () =>
+        {
+            using var response = await Http.PostAsync(
+                $"api/source-control/platform-setup/sessions/{Setup.Session!.SessionId:D}/apps/{kind}/manifest", null);
+            await EnsureSuccessAsync(response);
+            _manifest = await response.Content.ReadFromJsonAsync<PlatformGitHubManifestLaunchResponse>()
+                ?? throw new InvalidOperationException("C-Sweet returned no GitHub setup link.");
+        });
+    }
+
+    private Task ConfirmSourceAppAsync() => ConfirmAppAsync("source-access", _sourceAppConfirmed);
+    private Task ConfirmProvisionerAppAsync() => ConfirmAppAsync("provisioner", _provisionerAppConfirmed);
+    private Task ConfirmAppAsync(string kind, bool confirmed) => SendAsync(() => Http.PutAsJsonAsync(
+        $"api/source-control/platform-setup/sessions/{Setup.Session!.SessionId:D}/apps/{kind}/confirm",
+        new ConfirmPlatformAppRequest(confirmed, Setup.Session.Revision)));
+
+    private Task ChooseProvisionerAsync(bool enabled) => SendAsync(() => Http.PutAsJsonAsync(
+        $"api/source-control/platform-setup/sessions/{Setup.Session!.SessionId:D}/provisioner-choice",
+        new ChoosePlatformProvisionerRequest(enabled, Setup.Session.Revision)));
+
+    private Task ActivateAsync() => SendAsync(() => Http.PostAsJsonAsync(
+        $"api/source-control/platform-setup/sessions/{Setup.Session!.SessionId:D}/activate",
+        new ActivatePlatformSourceControlRequest(_activationConfirmed, Setup.Session.Revision)));
+
+    private Task CancelAsync() => SendAsync(() => Http.PostAsJsonAsync(
+        $"api/source-control/platform-setup/sessions/{Setup.Session!.SessionId:D}/cancel",
+        new CancelPlatformSourceControlSetupRequest(_cancelConfirmed, Setup.Session.Revision)));
+
+    private async Task SendAsync(Func<Task<HttpResponseMessage>> action)
+    {
+        await WorkAsync(async () =>
+        {
+            using var response = await action();
+            await EnsureSuccessAsync(response);
+            var updated = await response.Content.ReadFromJsonAsync<PlatformSourceControlSetupResponse>()
+                ?? throw new InvalidOperationException("C-Sweet returned no setup progress.");
+            _manifest = null;
+            await SetupChanged.InvokeAsync(updated);
+        });
+    }
+
+    private async Task WorkAsync(Func<Task> action)
+    {
+        _working = true;
+        _error = null;
+        try { await action(); }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _working = false; }
+    }
+
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var content = await response.Content.ReadAsStringAsync();
+        try
+        {
+            using var payload = System.Text.Json.JsonDocument.Parse(content);
+            if (payload.RootElement.TryGetProperty("message", out var message) &&
+                !string.IsNullOrWhiteSpace(message.GetString()))
+                throw new InvalidOperationException(message.GetString());
+        }
+        catch (System.Text.Json.JsonException) { }
+        throw new InvalidOperationException("C-Sweet could not complete this setup step.");
+    }
+}

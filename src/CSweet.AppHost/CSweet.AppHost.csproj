@@ -5,6 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UserSecretsId>csweet-apphost-development-source-control-v2</UserSecretsId>
     <!-- Aspire now ships via NuGet packages in .NET 10, no workload required -->
   </PropertyGroup>
 
@@ -17,7 +18,9 @@
     <ProjectReference Include="..\CSweet.AgentHost\CSweet.AgentHost.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\CSweet.Api\CSweet.Api.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\CSweet.App\CSweet.App.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\CSweet.GitHost\CSweet.GitHost.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\CSweet.Migrator\CSweet.Migrator.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\CSweet.SourceControlProvisionerHost\CSweet.SourceControlProvisionerHost.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\CSweet.WorkerHost\CSweet.WorkerHost.csproj" IsAspireProjectResource="true" />
   </ItemGroup>
 

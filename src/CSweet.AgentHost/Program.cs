@@ -8,6 +8,7 @@ using CSweet.Infrastructure.Agents;
 using CSweet.Memory;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
+using CSweet.TrustedServices;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -60,6 +61,21 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, AgentCoordinationCapabili
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentOnboardingCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkManagementCapabilityHandler>();
+var agentBrokerKey = builder.Configuration["CSweet:SourceControl:AgentBrokerKeyBase64"];
+var coreBrokerBaseUrl = builder.Configuration["CSweet:SourceControl:CoreBrokerBaseUrl"];
+if (HasValidBrokerConfiguration(agentBrokerKey, coreBrokerBaseUrl, out var coreBrokerUri))
+{
+    builder.Services.AddTransient<AgentBrokerAuthenticationHandler>();
+    builder.Services.AddHttpClient<CoreWorkspaceBrokerClient>(client =>
+        client.BaseAddress = coreBrokerUri)
+        .AddHttpMessageHandler<AgentBrokerAuthenticationHandler>();
+    builder.Services.AddTransient<ITrustedGitHostClient>(services =>
+        services.GetRequiredService<CoreWorkspaceBrokerClient>());
+}
+else
+{
+    builder.Services.AddSingleton<ITrustedGitHostClient, UnavailableTrustedGitHostClient>();
+}
 builder.Services.AddScoped<IPlatformCapabilityHandler, GitWorkspaceCapabilityHandler>();
 builder.Services.AddScoped<IAgentMemoryIdentityResolver, AgentMemoryIdentityResolver>();
 builder.Services.AddRateLimiter(options =>
@@ -94,5 +110,25 @@ app.MapGet("/", () => Results.Ok(new
 }));
 
 app.Run();
+
+static bool HasValidBrokerConfiguration(string? key, string? baseUrl, out Uri uri)
+{
+    uri = null!;
+    if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(baseUrl))
+        return false;
+    try
+    {
+        if (Convert.FromBase64String(key).Length < 32 ||
+            !Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsed) ||
+            parsed.Scheme is not ("http" or "https" or "https+http"))
+            return false;
+        uri = parsed.AbsoluteUri.EndsWith('/') ? parsed : new Uri(parsed.AbsoluteUri + "/");
+        return true;
+    }
+    catch (FormatException)
+    {
+        return false;
+    }
+}
 
 public partial class Program;

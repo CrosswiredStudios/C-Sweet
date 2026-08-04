@@ -14,7 +14,7 @@ internal static class TeamAgentGrantProvisioner
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly IReadOnlySet<string> SafeTeamActions = new HashSet<string>(
-        WorkManagementCapabilityNames.All.Append(GitRepositoryCapabilities.TeamOptions),
+        WorkManagementCapabilityNames.All.Append(SourceControlCapabilities.TeamRepositoryOptions),
         StringComparer.Ordinal);
 
     public static async Task<IReadOnlyList<string>> EnsureAsync(

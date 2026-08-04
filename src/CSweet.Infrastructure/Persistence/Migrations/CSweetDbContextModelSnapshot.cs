@@ -5351,214 +5351,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("GenAiProviderProfiles");
                 });
 
-            modelBuilder.Entity("CSweet.Domain.Setup.GitRepositoryConnection", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AllowedHostsJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("AllowedOperations")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("AllowedPortsJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("AuthenticationMode")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("CloneUrl")
-                        .IsRequired()
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DefaultBranch")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PermittedRepositoryPath")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("PullRequestProvider")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("SshHostFingerprintsJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrganizationId", "Name")
-                        .IsUnique();
-
-                    b.ToTable("GitRepositoryConnections");
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.GitRepositoryConnectionGrant", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AgentInstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("CanMergeQaApprovedPullRequest")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("CanPushTicketBranch")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("CanReadFetch")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset>("GrantedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("RepositoryConnectionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AgentInstallationId");
-
-                    b.HasIndex("RepositoryConnectionId", "AgentInstallationId")
-                        .IsUnique();
-
-                    b.ToTable("GitRepositoryConnectionGrants");
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.GitTicketWorkspace", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AgentInstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("AssignmentRevision")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("BaseBranch")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("BranchName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("ChangedFilesJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("CommitSha")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LastError")
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
-
-                    b.Property<string>("MergeCommitSha")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("MergeStatus")
-                        .IsRequired()
-                        .HasMaxLength(24)
-                        .HasColumnType("character varying(24)");
-
-                    b.Property<DateTimeOffset?>("MergedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PullRequestUrl")
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
-
-                    b.Property<Guid>("RepositoryConnectionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("RetainUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(24)
-                        .HasColumnType("character varying(24)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ValidationsJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("WorkItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("WorkspacePath")
-                        .IsRequired()
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RepositoryConnectionId");
-
-                    b.HasIndex("AgentInstallationId", "WorkItemId", "AssignmentRevision")
-                        .IsUnique();
-
-                    b.ToTable("GitTicketWorkspaces");
-                });
-
             modelBuilder.Entity("CSweet.Domain.Setup.LlmProviderProfile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5841,6 +5633,194 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("OnboardingSteps");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.PlatformGitHubAppCredential", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ActivatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("AppId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AppName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("AppSlug")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureMessage")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("InstallUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("OwnerLogin")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ProtectedPrivateKey")
+                        .IsRequired()
+                        .HasMaxLength(65536)
+                        .HasColumnType("character varying(65536)");
+
+                    b.Property<string>("ProtectionVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("SupersededAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Kind")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Active'");
+
+                    b.HasIndex("Kind", "Status", "UpdatedAt");
+
+                    b.ToTable("PlatformGitHubAppCredentials");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PlatformSourceControlSetupSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("ActivationConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentStep")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("GitHubOrganization")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("ManifestCallbackUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("PendingAppKind")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<bool>("PrerequisitesConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ProvisionerAppConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("ProvisionerCredentialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("ProvisionerPermissionsConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool?>("ProvisionerRequested")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("PublicBaseUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("SourceAccessAppConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("SourceAccessCredentialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("SourceAccessPermissionsConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("StartedByApplicationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("StateExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("StateNonceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StateNonceHash", "StateExpiresAt");
+
+                    b.HasIndex("StartedByApplicationUserId", "Status", "UpdatedAt");
+
+                    b.ToTable("PlatformSourceControlSetupSessions");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.PluginOrganizationGrant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5897,6 +5877,921 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("PluginSecrets");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.RepositoryProvisioningPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApprovedTemplatesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DefaultTeamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("MaximumRepositories")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("NamePrefix")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("NamingPattern")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("RequiresManagerApproval")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "ConnectionId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "DefaultTeamId");
+
+                    b.ToTable("RepositoryProvisioningPolicies");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.RepositoryProvisioningRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ApprovalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("FailureMessage")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PolicyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("PolicyRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProjectDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid?>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RepositoryName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("RequestedByAgentInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequestedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("TeamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("WorkstreamId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "ConnectionId");
+
+                    b.HasIndex("OrganizationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "PolicyId");
+
+                    b.HasIndex("OrganizationId", "RepositoryId");
+
+                    b.HasIndex("OrganizationId", "TemplateId");
+
+                    b.HasIndex("OrganizationId", "Status", "CreatedAt");
+
+                    b.ToTable("RepositoryProvisioningRequests");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlApproval", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DecidedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DecisionComment")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(48)
+                        .HasColumnType("character varying(48)");
+
+                    b.Property<Guid?>("MergeJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProvisioningRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RequestedByAgentInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequestedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("OrganizationId", "Id");
+
+                    b.HasIndex("OrganizationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "MergeJobId")
+                        .IsUnique()
+                        .HasFilter("\"MergeJobId\" IS NOT NULL");
+
+                    b.HasIndex("OrganizationId", "ProvisioningRequestId")
+                        .IsUnique()
+                        .HasFilter("\"ProvisioningRequestId\" IS NOT NULL");
+
+                    b.HasIndex("OrganizationId", "Status", "CreatedAt");
+
+                    b.ToTable("SourceControlApprovals");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlConnection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccountLogin")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("AccountType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("AllowedHost")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<int?>("AllowedPort")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DisconnectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastHealthError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset?>("LastVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ProviderAccountId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<long?>("ProvisionerInstallationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("SourceAccessInstallationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SshHostFingerprintsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "Name")
+                        .IsUnique();
+
+                    b.HasIndex("Provider", "ProviderAccountId")
+                        .IsUnique()
+                        .HasFilter("\"Provider\" = 'GitHub'");
+
+                    b.HasIndex("OrganizationId", "Provider", "ProviderAccountId")
+                        .IsUnique();
+
+                    b.ToTable("SourceControlConnections");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlCredential", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProtectedPayload")
+                        .IsRequired()
+                        .HasMaxLength(65536)
+                        .HasColumnType("character varying(65536)");
+
+                    b.Property<string>("ProtectionVersion")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("RotatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "ConnectionId", "RevokedAt");
+
+                    b.ToTable("SourceControlCredentials");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlMergeAuthorization", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AuthorizedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("AuthorizedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("DecisionSignature")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PublicationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RevocationReason")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("TeamPolicyRevision")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "ExpiresAt", "RevokedAt");
+
+                    b.HasIndex("OrganizationId", "PublicationId", "AuthorizedByOrganizationUserId", "CommitSha")
+                        .IsUnique();
+
+                    b.ToTable("SourceControlMergeAuthorizations");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlMergeJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AdministratorApprovalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApprovalMode")
+                        .IsRequired()
+                        .HasMaxLength(48)
+                        .HasColumnType("character varying(48)");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExpectedHeadSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("FailureMessage")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("LeadAuthorizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MergeCommitSha")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PublicationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "LeadAuthorizationId");
+
+                    b.HasIndex("OrganizationId", "PublicationId", "ExpectedHeadSha")
+                        .IsUnique();
+
+                    b.ToTable("SourceControlMergeJobs");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlOnboardingSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConnectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentStep")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("DraftJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SelectedMode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("StartedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StateNonceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StateNonceHash", "ExpiresAt")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "StartedByOrganizationUserId", "Status");
+
+                    b.ToTable("SourceControlOnboardingSessions");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlPublication", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ChangedFilesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("CommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PullRequestId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("PullRequestUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(48)
+                        .HasColumnType("character varying(48)");
+
+                    b.Property<string>("TargetBranch")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("TicketBranch")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ValidationResultsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "RepositoryId");
+
+                    b.HasIndex("OrganizationId", "WorkspaceId", "CommitSha")
+                        .IsUnique();
+
+                    b.ToTable("SourceControlPublications");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlRepository", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CanonicalPath")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("CloneUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DefaultBranch")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("ExternalRepositoryId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("IsManaged")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPrivate")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastHealthError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset?>("LastVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Owner")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "CanonicalPath")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "ConnectionId", "ExternalRepositoryId")
+                        .IsUnique();
+
+                    b.ToTable("SourceControlRepositories");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlRepositoryTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DefaultBranch")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("ExternalRepositoryId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Owner")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "ConnectionId", "ExternalRepositoryId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "ConnectionId", "Owner", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("IX_SourceControlRepositoryTemplates_OrganizationId_Connection~1");
+
+                    b.ToTable("SourceControlRepositoryTemplates");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlValidation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureMessage")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PublicationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResultsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("SupersededAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ValidatorAgentInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "PublicationId", "ValidatorAgentInstallationId", "CommitSha")
+                        .IsUnique();
+
+                    b.ToTable("SourceControlValidations");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlWorkspace", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("AssignmentRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("BaseCommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("BranchName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RetainUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("WorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WorkspaceKey")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceKey")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "RepositoryId");
+
+                    b.HasIndex("OrganizationId", "AgentInstallationId", "WorkItemId", "AssignmentRevision")
+                        .IsUnique();
+
+                    b.ToTable("SourceControlWorkspaces");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.SystemConfiguration", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5921,6 +6816,56 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("SystemConfigurations");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.TeamRepositoryPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DisabledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsPrimary")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("MergeApprovalMode")
+                        .IsRequired()
+                        .HasMaxLength(48)
+                        .HasColumnType("character varying(48)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "RepositoryId");
+
+                    b.HasIndex("OrganizationId", "TeamId", "IsPrimary")
+                        .IsUnique()
+                        .HasFilter("\"IsPrimary\" = TRUE AND \"DisabledAt\" IS NULL");
+
+                    b.HasIndex("OrganizationId", "TeamId", "RepositoryId")
+                        .IsUnique();
+
+                    b.ToTable("TeamRepositoryPolicies");
                 });
 
             modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkBoard", b =>
@@ -8323,44 +9268,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("OperationConfiguration");
                 });
 
-            modelBuilder.Entity("CSweet.Domain.Setup.GitRepositoryConnectionGrant", b =>
-                {
-                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", "AgentInstallation")
-                        .WithMany("RepositoryConnectionGrants")
-                        .HasForeignKey("AgentInstallationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Setup.GitRepositoryConnection", "RepositoryConnection")
-                        .WithMany("InstallationGrants")
-                        .HasForeignKey("RepositoryConnectionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AgentInstallation");
-
-                    b.Navigation("RepositoryConnection");
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.GitTicketWorkspace", b =>
-                {
-                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", "AgentInstallation")
-                        .WithMany()
-                        .HasForeignKey("AgentInstallationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Setup.GitRepositoryConnection", "RepositoryConnection")
-                        .WithMany()
-                        .HasForeignKey("RepositoryConnectionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("AgentInstallation");
-
-                    b.Navigation("RepositoryConnection");
-                });
-
             modelBuilder.Entity("CSweet.Domain.Setup.McpAgentSession", b =>
                 {
                     b.HasOne("CSweet.Domain.Setup.AgentInstallation", "AgentInstallation")
@@ -8421,6 +9328,191 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("PluginInstallation");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.RepositoryProvisioningPolicy", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlConnection", "Connection")
+                        .WithMany("ProvisioningPolicies")
+                        .HasForeignKey("OrganizationId", "ConnectionId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.RepositoryProvisioningRequest", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlConnection", "Connection")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "ConnectionId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.RepositoryProvisioningPolicy", "Policy")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "PolicyId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.SourceControlRepository", "Repository")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "RepositoryId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSweet.Domain.Setup.SourceControlRepositoryTemplate", "Template")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "TemplateId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+
+                    b.Navigation("Policy");
+
+                    b.Navigation("Repository");
+
+                    b.Navigation("Template");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlApproval", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.RepositoryProvisioningRequest", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "ProvisioningRequestId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlCredential", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlConnection", "Connection")
+                        .WithMany("Credentials")
+                        .HasForeignKey("OrganizationId", "ConnectionId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlMergeAuthorization", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlPublication", "Publication")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "PublicationId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Publication");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlMergeJob", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlMergeAuthorization", "LeadAuthorization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "LeadAuthorizationId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.SourceControlPublication", "Publication")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "PublicationId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("LeadAuthorization");
+
+                    b.Navigation("Publication");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlPublication", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlRepository", "Repository")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "RepositoryId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.SourceControlWorkspace", "Workspace")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "WorkspaceId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Repository");
+
+                    b.Navigation("Workspace");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlRepository", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlConnection", "Connection")
+                        .WithMany("Repositories")
+                        .HasForeignKey("OrganizationId", "ConnectionId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlRepositoryTemplate", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlConnection", "Connection")
+                        .WithMany("RepositoryTemplates")
+                        .HasForeignKey("OrganizationId", "ConnectionId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlValidation", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlPublication", "Publication")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "PublicationId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Publication");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlWorkspace", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlRepository", "Repository")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "RepositoryId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Repository");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.TeamRepositoryPolicy", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.SourceControlRepository", "Repository")
+                        .WithMany("TeamPolicies")
+                        .HasForeignKey("OrganizationId", "RepositoryId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Repository");
                 });
 
             modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkBoard", b =>
@@ -8876,8 +9968,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Navigation("Grant");
 
-                    b.Navigation("RepositoryConnectionGrants");
-
                     b.Navigation("RuntimeInstances");
 
                     b.Navigation("Schedule");
@@ -8900,9 +9990,20 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("Progress");
                 });
 
-            modelBuilder.Entity("CSweet.Domain.Setup.GitRepositoryConnection", b =>
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlConnection", b =>
                 {
-                    b.Navigation("InstallationGrants");
+                    b.Navigation("Credentials");
+
+                    b.Navigation("ProvisioningPolicies");
+
+                    b.Navigation("Repositories");
+
+                    b.Navigation("RepositoryTemplates");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.SourceControlRepository", b =>
+                {
+                    b.Navigation("TeamPolicies");
                 });
 
             modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkBoard", b =>

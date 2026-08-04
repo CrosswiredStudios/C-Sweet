@@ -1,5 +1,6 @@
 @page "/organizations/{OrganizationId:guid}/approvals"
 @using CSweet.Contracts.Core
+@using CSweet.Contracts.SourceControl
 @inject HttpClient Http
 
 <PageTitle>Approvals - C-Sweet</PageTitle>
@@ -9,7 +10,7 @@
         <div>
             <MudText Typo="Typo.h3">Approvals</MudText>
             <MudText Color="Color.Secondary">
-                One inbox for team designs, agent actions, hiring workflows, and artifact decisions.
+                One inbox for team designs, hiring, private code projects, exact-version merges, and artifact decisions.
             </MudText>
         </div>
         <MudChip T="string" Color="@(_dashboard?.PendingCount > 0 ? Color.Warning : Color.Success)"
@@ -135,6 +136,49 @@
                                                         CanDecide="item.CanDecide"
                                                         DecisionCompleted="LoadAsync" />
                         }
+                        else if (item.SourceControl is { } sourceControl)
+                        {
+                            <MudGrid Class="mt-3">
+                                <MudItem xs="12" md="6"><strong>Code project</strong><br />@sourceControl.CodeProjectName</MudItem>
+                                <MudItem xs="12" md="6"><strong>GitHub organization</strong><br />@sourceControl.AccountLogin</MudItem>
+                                @if (!string.IsNullOrWhiteSpace(sourceControl.TemplateName))
+                                {
+                                    <MudItem xs="12" md="6"><strong>Starter project</strong><br />@sourceControl.TemplateName</MudItem>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(sourceControl.DefaultTeamName))
+                                {
+                                    <MudItem xs="12" md="6"><strong>Default team</strong><br />@sourceControl.DefaultTeamName</MudItem>
+                                }
+                                <MudItem xs="12" md="6"><strong>Visibility</strong><br />@(sourceControl.PrivateOnly ? "Private only" : "Provider policy")</MudItem>
+                                @if (sourceControl.MaximumProjects.HasValue)
+                                {
+                                    <MudItem xs="12" md="6"><strong>Policy quota</strong><br />@sourceControl.MaximumProjects projects</MudItem>
+                                }
+                            </MudGrid>
+                            @if (item.CanDecide && item.Status == "Pending")
+                            {
+                                <MudTextField Value="@Feedback(item.Id)"
+                                              ValueChanged="@((string value) => SetFeedback(item.Id, value))"
+                                              Label="Decision feedback" Lines="2" Variant="Variant.Outlined" Class="mt-3"
+                                              HelperText="Feedback is required when rejecting a request." />
+                                @if (_decisionErrors.TryGetValue(item.Id, out var sourceDecisionError))
+                                {
+                                    <MudAlert Severity="Severity.Error" Dense="true">@sourceDecisionError</MudAlert>
+                                }
+                                <MudStack Row="true" Spacing="1">
+                                    <MudButton Color="Color.Success" Variant="Variant.Filled"
+                                               Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideSourceControlAsync(item, true))">
+                                        Approve
+                                    </MudButton>
+                                    <MudButton Color="Color.Error" Variant="Variant.Text"
+                                               Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideSourceControlAsync(item, false))">
+                                        Reject
+                                    </MudButton>
+                                </MudStack>
+                            }
+                        }
                         else if (item.Status == "Pending")
                         {
                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
@@ -226,6 +270,42 @@
         }
     }
 
+    private async Task DecideSourceControlAsync(ApprovalDashboardItemResponse item, bool approved)
+    {
+        if (item.SourceControl is null || _decidingId.HasValue) return;
+        var feedback = Feedback(item.Id);
+        if (!approved && string.IsNullOrWhiteSpace(feedback))
+        {
+            _decisionErrors[item.Id] = "Feedback is required when rejecting a code-project or merge request.";
+            return;
+        }
+
+        _decidingId = item.Id;
+        _decisionErrors.Remove(item.Id);
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/source-control/approvals/{item.Id:D}/decision",
+                new DecideSourceControlApprovalRequest(
+                    approved, feedback, item.SourceControl.Revision));
+            if (!response.IsSuccessStatusCode)
+            {
+                _decisionErrors[item.Id] = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _feedback.Remove(item.Id);
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            _decisionErrors[item.Id] = exception.Message;
+        }
+        finally
+        {
+            _decidingId = null;
+        }
+    }
+
     private string Feedback(Guid id) =>
         _feedback.TryGetValue(id, out var value) ? value : string.Empty;
 
@@ -246,6 +326,8 @@
         ApprovalDashboardKinds.AgentAction => "Agent action",
         ApprovalDashboardKinds.HiringWorkflow => "Hiring",
         ApprovalDashboardKinds.Artifact => "Artifact",
+        ApprovalDashboardKinds.RepositoryProvisioning => "Private code project",
+        ApprovalDashboardKinds.Merge => "Code merge",
         _ => kind
     };
 }

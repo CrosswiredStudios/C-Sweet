@@ -1,0 +1,13 @@
+.platform-setup-wizard { max-width: 980px; }
+.wizard-status { color: var(--mud-palette-text-secondary); font-size: .875rem; }
+.enterprise-stepper { overflow: hidden; }
+.permission-list ul { margin: 0; padding-left: 1.25rem; }
+.permission-list li + li { margin-top: .35rem; }
+.github-manifest-form { display: inline-flex; }
+.app-summary { overflow-wrap: anywhere; }
+code { overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+    .platform-setup-wizard { padding: 1rem !important; }
+    .github-manifest-form, .github-manifest-form .mud-button-root { width: 100%; }
+}
