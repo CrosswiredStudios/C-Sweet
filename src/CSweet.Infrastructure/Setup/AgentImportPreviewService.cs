@@ -14,6 +14,11 @@ namespace CSweet.Infrastructure.Setup;
 
 public sealed partial class AgentImportPreviewService : IPluginImportService
 {
+    private static readonly HashSet<string> SafeSetupKinds = new(StringComparer.Ordinal)
+    {
+        "permission-summary", "oauth-connect", "form", "account-selector", "health-check",
+        "confirmation", "permission-request", "disconnect"
+    };
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -271,6 +276,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         if (manifest.Events.Publishes.Count > 0)
             errors.Add("events.publishes is not supported in protocol v2; use explicit capabilities or work progress.");
         ValidateConfigurationContract(manifest, errors);
+        ValidateConnectionsAndSetup(manifest, errors);
         ValidateWebAccess(manifest, errors);
 
         if (errors.Count > 0)
@@ -359,7 +365,9 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             RequestedCapabilities = GrantRequiredCapabilities(manifest),
             WebAccess = manifest.WebAccess,
             ConfigurationFields = manifest.Configuration,
-            CredentialBindings = manifest.Credentials
+            CredentialBindings = manifest.Credentials,
+            Connections = manifest.Connections,
+            Setup = manifest.Setup
         };
 
     public static IReadOnlyList<string> WebGrantTokens(PluginManifest manifest) => manifest.WebAccess.Mode switch
@@ -404,7 +412,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
     {
         var port = rule.Port is null ? string.Empty : $":{rule.Port}";
         var methods = string.Join(',', rule.Methods.Select(x => x.ToUpperInvariant()).Order(StringComparer.Ordinal));
-        return $"{rule.Protocol.ToLowerInvariant()}|{rule.Scheme.ToLowerInvariant()}://{rule.Host.ToLowerInvariant()}{port}{rule.PathPrefix}|{methods}|{rule.Credential ?? string.Empty}";
+        return $"{rule.Protocol.ToLowerInvariant()}|{rule.Scheme.ToLowerInvariant()}://{rule.Host.ToLowerInvariant()}{port}{rule.PathPrefix}|{methods}|{rule.Credential ?? string.Empty}|{rule.Connection ?? string.Empty}|{(rule.Bootstrap ? "bootstrap" : "runtime")}";
     }
 
     private static void ValidateConfigurationContract(PluginManifest manifest, ICollection<string> errors)
@@ -497,7 +505,102 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                         errors.Add($"Credential '{rule.Credential}' is not bound to webAccess origin '{origin}'.");
                 }
             }
+            if (rule.Connection is not null)
+            {
+                var connection = manifest.Connections.SingleOrDefault(x => x.Id == rule.Connection);
+                if (connection is null)
+                    errors.Add($"webAccess rule references unknown connection '{rule.Connection}'.");
+                else
+                {
+                    var port = rule.Port is null ? string.Empty : $":{rule.Port}";
+                    var origin = $"{rule.Scheme}://{rule.Host}{port}";
+                    if (!connection.AllowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+                        errors.Add($"Connection '{rule.Connection}' is not bound to webAccess origin '{origin}'.");
+                }
+            }
+            if (rule.Credential is not null && rule.Connection is not null)
+                errors.Add("A webAccess rule cannot use both credential and connection bindings.");
         }
+    }
+
+    private static void ValidateConnectionsAndSetup(PluginManifest manifest, ICollection<string> errors)
+    {
+        var connectionIds = manifest.Connections.Select(x => x.Id).ToArray();
+        AddUniqueListError(connectionIds, "connections.id", errors);
+        foreach (var connection in manifest.Connections)
+        {
+            if (connection.Type != "oauth2")
+                errors.Add($"Connection '{connection.Id}' type must be 'oauth2'.");
+            if (string.IsNullOrWhiteSpace(connection.ProviderProfile) || !IdentifierRegex().IsMatch(connection.ProviderProfile))
+                errors.Add($"Connection '{connection.Id}' providerProfile is invalid.");
+            if (connection.AllowedOrigins.Count == 0)
+                errors.Add($"Connection '{connection.Id}' must declare at least one allowed origin.");
+            foreach (var origin in connection.AllowedOrigins)
+                if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+                    uri.AbsolutePath != "/" || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
+                    errors.Add($"Connection '{connection.Id}' allowed origin '{origin}' must be an HTTPS origin without path, query, or fragment.");
+            if (connection.SecretResponseFields.Any(x => string.IsNullOrWhiteSpace(x) || !x.StartsWith('/') || x.Contains("..", StringComparison.Ordinal)) ||
+                connection.SecretResponseFields.Distinct(StringComparer.Ordinal).Count() != connection.SecretResponseFields.Count)
+                errors.Add($"Connection '{connection.Id}' secretResponseFields must be unique JSON pointers.");
+
+            AddUniqueListError(connection.ScopeSets.Select(x => x.Id).ToArray(),
+                $"connections.{connection.Id}.scopeSets.id", errors);
+            foreach (var scopeSet in connection.ScopeSets)
+            {
+                if (string.IsNullOrWhiteSpace(scopeSet.Label) || string.IsNullOrWhiteSpace(scopeSet.Purpose))
+                    errors.Add($"Connection '{connection.Id}' scope set '{scopeSet.Id}' requires label and purpose.");
+                if (scopeSet.Scopes.Count == 0 || scopeSet.Scopes.Any(string.IsNullOrWhiteSpace) ||
+                    scopeSet.Scopes.Distinct(StringComparer.Ordinal).Count() != scopeSet.Scopes.Count)
+                    errors.Add($"Connection '{connection.Id}' scope set '{scopeSet.Id}' must contain unique, non-empty scopes.");
+            }
+        }
+
+        if (manifest.Setup is null) return;
+        var flowIds = manifest.Setup.Flows.Select(x => x.Id).ToArray();
+        AddUniqueListError(flowIds, "setup.flows.id", errors);
+        if (manifest.Setup.Required && manifest.Setup.Flows.Count == 0)
+            errors.Add("Required setup must declare at least one flow.");
+        if (!flowIds.Contains(manifest.Setup.EntryFlow, StringComparer.Ordinal))
+            errors.Add("setup.entryFlow must reference a declared setup flow.");
+
+        var provided = manifest.Provides.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
+        var configuration = manifest.Configuration.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var flow in manifest.Setup.Flows)
+        {
+            if (string.IsNullOrWhiteSpace(flow.Title)) errors.Add($"Setup flow '{flow.Id}' requires a title.");
+            AddUniqueListError(flow.Steps.Select(x => x.Id).ToArray(), $"setup.flows.{flow.Id}.steps.id", errors);
+            if (flow.Steps.Count == 0) errors.Add($"Setup flow '{flow.Id}' must declare at least one step.");
+            foreach (var step in flow.Steps)
+            {
+                if (!SafeSetupKinds.Contains(step.Kind))
+                    errors.Add($"Setup step '{step.Id}' uses unsafe or unsupported kind '{step.Kind}'.");
+                if (string.IsNullOrWhiteSpace(step.Title)) errors.Add($"Setup step '{step.Id}' requires a title.");
+                if (step.Kind is "oauth-connect" or "permission-request")
+                {
+                    var connection = manifest.Connections.FirstOrDefault(x => x.Id == step.Connection);
+                    if (connection is null)
+                        errors.Add($"Setup step '{step.Id}' references undeclared connection '{step.Connection}'.");
+                    else if (string.IsNullOrWhiteSpace(step.ScopeSet) || !connection.ScopeSets.Any(x => x.Id == step.ScopeSet))
+                        errors.Add($"Setup step '{step.Id}' references undeclared scope set '{step.ScopeSet}'.");
+                }
+                if (!string.IsNullOrWhiteSpace(step.Capability) && !provided.Contains(step.Capability))
+                    errors.Add($"Setup step '{step.Id}' references capability '{step.Capability}' that is not declared in provides.");
+                foreach (var key in step.ConfigurationKeys)
+                    if (!configuration.Contains(key))
+                        errors.Add($"Setup step '{step.Id}' references undeclared configuration key '{key}'.");
+            }
+        }
+        foreach (var contribution in manifest.Ui)
+            if (!string.IsNullOrWhiteSpace(contribution.Flow) && !flowIds.Contains(contribution.Flow, StringComparer.Ordinal))
+                errors.Add($"UI contribution '{contribution.Id}' references undeclared setup flow '{contribution.Flow}'.");
+    }
+
+    private static void AddUniqueListError(IReadOnlyList<string> values, string fieldName, ICollection<string> errors)
+    {
+        if (values.Any(string.IsNullOrWhiteSpace))
+            errors.Add($"Plugin manifest {fieldName} must be an array of non-empty strings.");
+        if (values.Distinct(StringComparer.Ordinal).Count() != values.Count)
+            errors.Add($"Plugin manifest {fieldName} must not contain duplicates.");
     }
 
     private static void AddRequiredIdentifierError(string? value, string fieldName, List<string> errors)

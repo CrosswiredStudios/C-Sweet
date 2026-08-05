@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using CSweet.Contracts.Agents;
+using CSweet.Contracts.Plugins;
 
 namespace CSweet.UI.Services;
 
@@ -38,6 +39,25 @@ public sealed class PluginApiClient(HttpClient httpClient) : IPluginApiClient
 
     public Task<RemoveAgentInstallationResponse> RemoveAsync(Guid installationId, CancellationToken cancellationToken = default) =>
         SendAsync<RemoveAgentInstallationResponse>(HttpMethod.Delete, $"api/plugins/installations/{installationId}", null, cancellationToken);
+
+    public async Task<IReadOnlyList<PluginProviderProfileResponse>> ListProviderProfilesAsync(
+        CancellationToken cancellationToken = default) =>
+        await httpClient.GetFromJsonAsync<IReadOnlyList<PluginProviderProfileResponse>>(
+            "api/plugins/provider-profiles", cancellationToken) ?? [];
+
+    public Task<PluginProviderProfileResponse> SaveProviderProfileAsync(string id,
+        UpsertPluginProviderProfileRequest request, CancellationToken cancellationToken = default) =>
+        SendAsync<PluginProviderProfileResponse>(HttpMethod.Put,
+            $"api/plugins/provider-profiles/{Uri.EscapeDataString(id)}", request, cancellationToken);
+
+    public async Task DeleteProviderProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        using var response = await httpClient.DeleteAsync(
+            $"api/plugins/provider-profiles/{Uri.EscapeDataString(id)}", cancellationToken);
+        if (response.IsSuccessStatusCode) return;
+        var error = await response.Content.ReadFromJsonAsync<PluginApiErrorResponse>(cancellationToken);
+        throw new ApiClientException(response.StatusCode, error?.Error ?? "Provider profile deletion failed.");
+    }
 
     private async Task<T> SendAsync<T>(HttpMethod method, string uri, object? content, CancellationToken cancellationToken)
     {

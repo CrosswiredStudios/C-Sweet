@@ -5,6 +5,7 @@ using System.Text.Json;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Contracts.Plugins;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +33,7 @@ public sealed class AgentWorkInbox(
     IDataProtectionProvider protectionProvider,
     TimeProvider timeProvider)
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(60);
     private const int MaximumPayloadBytes = 256 * 1024;
     private const int MaximumProgressBytes = 64 * 1024;
@@ -83,6 +85,18 @@ public sealed class AgentWorkInbox(
         var installation = await db.AgentInstallations.AsNoTracking().SingleAsync(
             x => x.Id == installationId && x.IsEnabled && x.BusinessId == organizationId,
             cancellationToken);
+        if (installation.SetupState != PluginSetupState.Ready)
+        {
+            var manifestJson = await db.AgentPackageVersions.AsNoTracking()
+                .Where(x => x.Id == installation.PackageVersionId).Select(x => x.ManifestJson)
+                .SingleOrDefaultAsync(cancellationToken);
+            var manifest = JsonSerializer.Deserialize<PluginManifest>(manifestJson ?? "{}", JsonOptions)
+                ?? throw new InvalidOperationException("The plugin manifest is unavailable during setup.");
+            var isBootstrap = kind == AgentWorkKind.Capability && sourceType == "plugin-setup" &&
+                manifest.Provides.Any(x => x.Name == name && x.RiskClass == "bootstrap");
+            if (!isBootstrap)
+                throw new InvalidOperationException("Only manifest-declared bootstrap callbacks may run before setup completes.");
+        }
         var queueDepth = await db.AgentWorkItems.CountAsync(
             x => x.AgentInstallationId == installationId &&
                  (x.Status == AgentWorkStatus.Pending || x.Status == AgentWorkStatus.Leased),

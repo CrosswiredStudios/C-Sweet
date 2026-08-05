@@ -1,4 +1,5 @@
 using CSweet.Contracts.Agents;
+using CSweet.Domain.Setup;
 
 namespace CSweet.Application.Setup;
 
@@ -39,10 +40,19 @@ public interface IPluginAuthorizationPolicy
         CancellationToken cancellationToken = default);
 }
 
+public interface IPluginOAuthTokenBroker
+{
+    Task<string?> GetAccessTokenAsync(
+        Guid installationId,
+        PluginConnection connection,
+        CancellationToken cancellationToken = default);
+}
+
 public static class PluginPlatformCapabilities
 {
     public const string WebFetch = "web.fetch.v1";
     public const string WebRequest = "web.request.v1";
     public const string WebRender = "web.render.v1";
     public const string WebSocket = "web.socket.v1";
+    public const string MediaTransfer = "platform.media.transfer.v1";
 }

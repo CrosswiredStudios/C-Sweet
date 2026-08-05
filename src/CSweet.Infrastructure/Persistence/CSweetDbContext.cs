@@ -34,6 +34,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<GenAiOperationDefault> GenAiOperationDefaults => Set<GenAiOperationDefault>();
     public DbSet<GenAiJob> GenAiJobs => Set<GenAiJob>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<MediaUploadSession> MediaUploadSessions => Set<MediaUploadSession>();
     public DbSet<OnboardingStep> OnboardingSteps => Set<OnboardingStep>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<AgentRunLog> AgentRunLogs => Set<AgentRunLog>();
@@ -54,6 +55,11 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<AgentCapabilityBinding> AgentCapabilityBindings => Set<AgentCapabilityBinding>();
     public DbSet<PluginOrganizationGrant> PluginOrganizationGrants => Set<PluginOrganizationGrant>();
     public DbSet<PluginSecret> PluginSecrets => Set<PluginSecret>();
+    public DbSet<PluginConnection> PluginConnections => Set<PluginConnection>();
+    public DbSet<PluginOAuthAttempt> PluginOAuthAttempts => Set<PluginOAuthAttempt>();
+    public DbSet<PluginOperationalState> PluginOperationalStates => Set<PluginOperationalState>();
+    public DbSet<PluginProviderProfile> PluginProviderProfiles => Set<PluginProviderProfile>();
+    public DbSet<PluginStandingPolicy> PluginStandingPolicies => Set<PluginStandingPolicy>();
     public DbSet<SourceControlConnection> SourceControlConnections => Set<SourceControlConnection>();
     public DbSet<SourceControlCredential> SourceControlCredentials => Set<SourceControlCredential>();
     public DbSet<SourceControlRepository> SourceControlRepositories => Set<SourceControlRepository>();
@@ -509,6 +515,17 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
+        modelBuilder.Entity<MediaUploadSession>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.FileName).HasMaxLength(255).IsRequired();
+            entity.Property(x => x.ContentType).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ExpectedSha256).HasMaxLength(64);
+            entity.HasIndex(x => new { x.OrganizationId, x.Status, x.ExpiresAt });
+            entity.HasOne(x => x.MediaAsset).WithMany().HasForeignKey(x => x.MediaAssetId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<OnboardingStep>(entity =>
         {
             entity.HasKey(x => x.Id);
@@ -631,6 +648,10 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasIndex(x => new { x.InstallationKey, x.RevisionNumber }).IsUnique();
             entity.Property(x => x.BusinessId).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Scope).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.SetupState).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.SetupFlowId).HasMaxLength(200);
+            entity.Property(x => x.SetupStepId).HasMaxLength(200);
+            entity.Property(x => x.SetupDataJson).HasColumnType("text").IsRequired();
             entity.HasIndex(x => new { x.PackageVersionId, x.BusinessId });
             entity.HasOne(x => x.PackageVersion)
                 .WithMany()
@@ -669,6 +690,65 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasIndex(x => new { x.PluginInstallationId, x.Key }).IsUnique();
             entity.HasOne(x => x.PluginInstallation).WithMany()
                 .HasForeignKey(x => x.PluginInstallationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PluginConnection>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.DeclarationId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.ProviderProfile).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.GrantedScopesJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.ExternalAccountId).HasMaxLength(512);
+            entity.Property(x => x.ExternalAccountName).HasMaxLength(512);
+            entity.Property(x => x.BoundResourceId).HasMaxLength(512);
+            entity.HasIndex(x => new { x.AgentInstallationId, x.DeclarationId }).IsUnique();
+            entity.HasOne(x => x.AgentInstallation).WithMany(x => x.Connections)
+                .HasForeignKey(x => x.AgentInstallationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PluginOAuthAttempt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ConnectionDeclarationId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.ScopeSetId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.StateHash).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.RedirectUri).HasMaxLength(2048).IsRequired();
+            entity.HasIndex(x => x.StateHash).IsUnique();
+            entity.HasIndex(x => new { x.AgentInstallationId, x.ExpiresAt });
+        });
+
+        modelBuilder.Entity<PluginProviderProfile>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasMaxLength(200);
+            entity.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.AuthorizationEndpoint).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.TokenEndpoint).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.RevocationEndpoint).HasMaxLength(2048);
+            entity.Property(x => x.ClientId).HasMaxLength(1024).IsRequired();
+            entity.Property(x => x.ProtectedClientSecret).HasMaxLength(8192).IsRequired();
+        });
+
+        modelBuilder.Entity<PluginStandingPolicy>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ChannelId).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.PolicyJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.PayloadHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.HasIndex(x => new { x.AgentInstallationId, x.Status });
+            entity.HasIndex(x => new { x.OrganizationId, x.AgentInstallationId, x.ChannelId });
+        });
+
+        modelBuilder.Entity<PluginOperationalState>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Kind).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.ExternalKey).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.PayloadJson).HasColumnType("text").IsRequired();
+            entity.HasIndex(x => new { x.AgentInstallationId, x.Kind, x.ExternalKey }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.Kind, x.UpdatedAt });
         });
 
             modelBuilder.Entity<AgentInstallationConfiguration>(entity =>

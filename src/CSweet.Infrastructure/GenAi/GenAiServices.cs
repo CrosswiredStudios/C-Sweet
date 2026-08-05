@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
 using CSweet.AI.Providers;
@@ -40,11 +41,20 @@ public sealed class GenAiProviderProfileService(
     {
         var validation = ValidateProfile(request.Name, request.BaseUrl);
         if (validation is not null) return validation;
+        var connectionTest = await TestDraftAsync(new(
+            null,
+            request.ProviderType,
+            request.BaseUrl,
+            request.ApiKey), cancellationToken);
+        if (!connectionTest.Succeeded)
+            return Failure(connectionTest.ErrorCode ?? "connection_test_failed", connectionTest.Message);
+
         var now = DateTimeOffset.UtcNow;
         var profile = new GenAiProviderProfile
         {
             Id = Guid.NewGuid(), Name = request.Name.Trim(), ProviderType = request.ProviderType,
-            BaseUrl = request.BaseUrl.TrimEnd('/'), IsEnabled = true, CreatedAt = now, UpdatedAt = now
+            BaseUrl = request.BaseUrl.TrimEnd('/'), IsEnabled = true,
+            LastSuccessfulConnectionAt = connectionTest.TestedAt, CreatedAt = now, UpdatedAt = now
         };
         if (!string.IsNullOrWhiteSpace(request.ApiKey))
         {
@@ -63,6 +73,23 @@ public sealed class GenAiProviderProfileService(
         if (validation is not null) return validation;
         var profile = await db.GenAiProviderProfiles.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (profile is null) return Failure("provider_not_found", "GenAI provider profile was not found.");
+        var normalizedBaseUrl = request.BaseUrl.TrimEnd('/');
+        var connectionChanged = profile.ProviderType != request.ProviderType ||
+            !string.Equals(profile.BaseUrl.TrimEnd('/'), normalizedBaseUrl, StringComparison.OrdinalIgnoreCase) ||
+            request.ReplaceApiKey;
+        GenAiConnectionTestResponse? connectionTest = null;
+        if (connectionChanged)
+        {
+            connectionTest = await TestDraftAsync(new(
+                id,
+                request.ProviderType,
+                normalizedBaseUrl,
+                request.ApiKey,
+                request.ReplaceApiKey), cancellationToken);
+            if (!connectionTest.Succeeded)
+                return Failure(connectionTest.ErrorCode ?? "connection_test_failed", connectionTest.Message);
+        }
+
         if (request.ReplaceApiKey)
         {
             if (string.IsNullOrWhiteSpace(request.ApiKey))
@@ -78,10 +105,11 @@ public sealed class GenAiProviderProfileService(
         }
         profile.Name = request.Name.Trim();
         profile.ProviderType = request.ProviderType;
-        profile.BaseUrl = request.BaseUrl.TrimEnd('/');
+        profile.BaseUrl = normalizedBaseUrl;
         profile.IsEnabled = request.IsEnabled;
         profile.UpdatedAt = DateTimeOffset.UtcNow;
-        profile.LastSuccessfulConnectionAt = null;
+        if (connectionTest is not null)
+            profile.LastSuccessfulConnectionAt = connectionTest.TestedAt;
         AddAudit(db, "genai_provider_profile.updated", nameof(GenAiProviderProfile), profile.Id, $"GenAI provider profile updated: {profile.Name}");
         await db.SaveChangesAsync(cancellationToken);
         return new(true, null, "GenAI provider updated.", await GetAsync(profile.Id, cancellationToken));
@@ -98,6 +126,44 @@ public sealed class GenAiProviderProfileService(
         AddAudit(db, "genai_provider_profile.deleted", nameof(GenAiProviderProfile), profile.Id, $"GenAI provider profile deleted: {profile.Name}");
         await db.SaveChangesAsync(cancellationToken);
         return new(true, null, "GenAI provider deleted.");
+    }
+
+    public async Task<GenAiConnectionTestResponse> TestDraftAsync(
+        TestGenAiProviderConnectionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Uri.TryCreate(request.BaseUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+            return new(false, "invalid_base_url", "Provider base URL must be an absolute HTTP or HTTPS URL.", DateTimeOffset.UtcNow);
+        if (!_adapters.TryGetValue(request.ProviderType, out var adapter))
+            return new(false, "adapter_not_found", "No adapter is registered for this provider.", DateTimeOffset.UtcNow);
+
+        string? apiKey;
+        if (request.ProviderProfileId is { } providerProfileId && !request.ReplaceApiKey)
+        {
+            var existing = await db.GenAiProviderProfiles.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == providerProfileId, cancellationToken);
+            if (existing is null)
+                return new(false, "provider_not_found", "GenAI provider profile was not found.", DateTimeOffset.UtcNow);
+            apiKey = existing.ApiKeySecretName is null
+                ? null
+                : await secrets.GetAsync(existing.ApiKeySecretName, cancellationToken);
+        }
+        else
+        {
+            apiKey = string.IsNullOrWhiteSpace(request.ApiKey) ? null : request.ApiKey.Trim();
+        }
+
+        var profile = new GenAiProviderProfile
+        {
+            Id = request.ProviderProfileId ?? Guid.NewGuid(),
+            Name = request.ProviderType.ToString(),
+            ProviderType = request.ProviderType,
+            BaseUrl = request.BaseUrl.TrimEnd('/'),
+            IsEnabled = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        return await adapter.TestAsync(profile, apiKey, cancellationToken);
     }
 
     public async Task<GenAiConnectionTestResponse> TestAsync(Guid id, CancellationToken cancellationToken = default)
@@ -229,14 +295,26 @@ public sealed class GenAiProviderProfileService(
         dbContext.AuditEvents.Add(new AuditEvent { Id = Guid.NewGuid(), EventType = eventType, EntityType = entityType, EntityId = entityId, Summary = summary, CreatedAt = DateTimeOffset.UtcNow });
 }
 
+public sealed class MediaAssetStorageOptions
+{
+    public const string SectionName = "CSweet:MediaAssets";
+    public const long AbsoluteMaximumFileSizeBytes = 256L * 1024 * 1024 * 1024;
+    public long MaximumFileSizeBytes { get; set; } = 1024L * 1024 * 1024;
+    public long MaximumOrganizationStorageBytes { get; set; } = 512L * 1024 * 1024 * 1024;
+    public int ResumableChunkSizeBytes { get; set; } = 8 * 1024 * 1024;
+    public int UploadSessionLifetimeHours { get; set; } = 24;
+}
+
 public sealed class FileMediaAssetStore : IMediaAssetStore
 {
     private readonly string _root;
-    public FileMediaAssetStore(IConfiguration configuration)
+    private readonly long _maximumFileSizeBytes;
+    public FileMediaAssetStore(IConfiguration configuration, IOptions<MediaAssetStorageOptions> options)
     {
         _root = Path.GetFullPath(configuration["CSweet:GenAi:MediaRoot"] ??
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CSweet", "media"));
         Directory.CreateDirectory(_root);
+        _maximumFileSizeBytes = Math.Clamp(options.Value.MaximumFileSizeBytes, 1, MediaAssetStorageOptions.AbsoluteMaximumFileSizeBytes);
     }
 
     public async Task<(string StorageKey, long SizeBytes, string Sha256)> SaveAsync(string fileName, Stream content, CancellationToken cancellationToken = default)
@@ -253,7 +331,8 @@ public sealed class FileMediaAssetStore : IMediaAssetStore
         while ((read = await content.ReadAsync(buffer, cancellationToken)) > 0)
         {
             total += read;
-            if (total > 1_073_741_824) throw new InvalidOperationException("Media asset exceeds the 1 GB limit.");
+            if (total > _maximumFileSizeBytes)
+                throw new InvalidOperationException($"Media asset exceeds the deployment limit of {_maximumFileSizeBytes} bytes.");
             hash.AppendData(buffer, 0, read);
             await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
         }
@@ -279,18 +358,33 @@ public sealed class FileMediaAssetStore : IMediaAssetStore
     }
 }
 
-public sealed class MediaAssetService(CSweetDbContext db, IMediaAssetStore store) : IMediaAssetService
+public sealed class MediaAssetService(
+    CSweetDbContext db,
+    IMediaAssetStore store,
+    IOptions<MediaAssetStorageOptions>? configuredOptions = null) : IMediaAssetService
 {
+    private readonly long _organizationQuota = Math.Max(1,
+        configuredOptions?.Value.MaximumOrganizationStorageBytes ?? 512L * 1024 * 1024 * 1024);
+
     public async Task<MediaAssetResponse> SaveUploadAsync(Guid organizationId, string fileName, string contentType, Stream content, CancellationToken cancellationToken = default)
     {
         if (!await db.CoreOrganizations.AnyAsync(x => x.Id == organizationId, cancellationToken))
             throw new InvalidOperationException("Organization was not found.");
         var safeName = Path.GetFileName(fileName);
         if (string.IsNullOrWhiteSpace(safeName)) throw new InvalidOperationException("A file name is required.");
+        var storedBytes = await db.MediaAssets.AsNoTracking().Where(x => x.OrganizationId == organizationId)
+            .SumAsync(x => (long?)x.SizeBytes, cancellationToken) ?? 0;
+        if (content.CanSeek && (content.Length - content.Position > _organizationQuota - storedBytes))
+            throw new InvalidOperationException("The organization's media storage quota would be exceeded.");
         var normalizedType = NormalizeContentType(contentType);
         await ValidateSignatureAsync(content, normalizedType, cancellationToken);
         if (content.CanSeek) content.Position = 0;
         var saved = await store.SaveAsync(safeName, content, cancellationToken);
+        if (saved.SizeBytes > _organizationQuota - storedBytes)
+        {
+            await store.DeleteAsync(saved.StorageKey, cancellationToken);
+            throw new InvalidOperationException("The organization's media storage quota would be exceeded.");
+        }
         var entity = new MediaAsset
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, FileName = safeName, ContentType = normalizedType,
@@ -326,7 +420,8 @@ public sealed class MediaAssetService(CSweetDbContext db, IMediaAssetStore store
     {
         "image/png" => "image/png", "image/jpeg" => "image/jpeg", "image/webp" => "image/webp",
         "video/mp4" => "video/mp4", "video/webm" => "video/webm",
-        _ => throw new InvalidOperationException("Only PNG, JPEG, WebP, MP4, and WebM media are supported.")
+        "text/vtt" => "text/vtt", "application/x-subrip" => "application/x-subrip", "text/plain" => "text/plain",
+        _ => throw new InvalidOperationException("Only PNG, JPEG, WebP, MP4, WebM, WebVTT, and SubRip media are supported.")
     };
 
     internal static async Task ValidateSignatureAsync(Stream stream, string contentType, CancellationToken token)
@@ -342,6 +437,8 @@ public sealed class MediaAssetService(CSweetDbContext db, IMediaAssetStore store
             "image/webp" => read >= 12 && Encoding.ASCII.GetString(header, 0, 4) == "RIFF" && Encoding.ASCII.GetString(header, 8, 4) == "WEBP",
             "video/mp4" => read >= 12 && Encoding.ASCII.GetString(header, 4, 4) == "ftyp",
             "video/webm" => read >= 4 && header.AsSpan(0, 4).SequenceEqual(new byte[] { 0x1a, 0x45, 0xdf, 0xa3 }),
+            "text/vtt" => read >= 6 && Encoding.UTF8.GetString(header, 0, read).TrimStart('\uFEFF').StartsWith("WEBVTT", StringComparison.Ordinal),
+            "application/x-subrip" or "text/plain" => read > 0 && !header.AsSpan(0, read).Contains((byte)0),
             _ => false
         };
         if (!valid) throw new InvalidOperationException("The media content does not match its declared type.");

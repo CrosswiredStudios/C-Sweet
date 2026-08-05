@@ -28,6 +28,9 @@ public sealed record AgentInstallationResponse(
     public Guid InstallationKey { get; init; }
     public int RevisionNumber { get; init; } = 1;
     public string RevisionStatus { get; init; } = "Active";
+    public string SetupState { get; init; } = "Ready";
+    public string? SetupFlowId { get; init; }
+    public string? SetupStepId { get; init; }
 }
 
 public sealed record AgentBuildSummaryResponse(

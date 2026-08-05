@@ -209,6 +209,36 @@ public class AgentImportPreviewServiceTests
         Assert.Single(await dbContext.AgentPackageVersions.ToListAsync());
     }
 
+    [Fact]
+    public async Task PreviewAsync_PreservesSafeSetupAndProgressiveConnections()
+    {
+        await using var dbContext = CreateDbContext();
+        var service = new AgentImportPreviewService(dbContext,
+            new FakeGitHubAgentRepositoryClient(ConnectedManifest("permission-summary")), new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest("https://github.com/example/research-agent"));
+
+        Assert.Equal("onboarding", result.Setup?.EntryFlow);
+        var connection = Assert.Single(result.Connections);
+        Assert.Equal("com.example.provider", connection.ProviderProfile);
+        Assert.Equal(["base", "publish"], connection.ScopeSets.Select(x => x.Id));
+    }
+
+    [Theory]
+    [InlineData("html")]
+    [InlineData("javascript")]
+    [InlineData("iframe")]
+    [InlineData("razor")]
+    public void ValidateManifest_RejectsExecutablePluginSetupUi(string kind)
+    {
+        var manifest = System.Text.Json.JsonSerializer.Deserialize<PluginManifest>(ConnectedManifest(kind),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+        var exception = Assert.Throws<AgentImportPreviewException>(() => AgentImportPreviewService.ValidateManifest(manifest));
+
+        Assert.Contains("unsafe or unsupported", exception.Message);
+    }
+
     private static CSweetDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<CSweetDbContext>()
@@ -256,6 +286,28 @@ public class AgentImportPreviewServiceTests
             "license": { "spdxId": "MIT" },
             "iconUrls": ["https://example.com/research-agent.png"]
           }
+        }
+        """;
+
+    private static string ConnectedManifest(string firstStepKind) => $$"""
+        {
+          "manifestVersion":"2.0","kind":"agent","id":"com.example.connected","name":"Connected","version":"1.0.0",
+          "publisher":{"id":"com.example","name":"Example"},
+          "runtime":{"type":"dotnet-project","projectPath":"src/Connected/Connected.csproj","targetFramework":"net10.0","defaultActivationMode":"Manual","supportsMultipleInstallations":true,"maximumConcurrentJobs":1,"workspaceAccess":"None"},
+          "protocol":{"minimumVersion":"2.0","maximumVersion":"2.x"},
+          "provides":[{"name":"example.setup.validate.v1","description":"Validate setup","inputSchema":{"type":"object"},"outputSchema":{"type":"object"},"executionTimeoutSeconds":30,"idempotency":"none"}],
+          "requires":[],"events":{"subscribes":[]},"configuration":[],"credentials":[],
+          "connections":[{"id":"provider","type":"oauth2","providerProfile":"com.example.provider","allowedOrigins":["https://api.example.com"],"scopeSets":[
+            {"id":"base","label":"Read","purpose":"Read account","required":true,"scopes":["account.read"]},
+            {"id":"publish","label":"Publish","purpose":"Publish content","required":false,"scopes":["content.write"]}
+          ]}],
+          "setup":{"required":true,"entryFlow":"onboarding","flows":[{"id":"onboarding","title":"Connect","steps":[
+            {"id":"intro","kind":"{{firstStepKind}}","title":"Review"},
+            {"id":"connect","kind":"oauth-connect","title":"Connect","connection":"provider","scopeSet":"base"},
+            {"id":"health","kind":"health-check","title":"Validate","capability":"example.setup.validate.v1"}
+          ]}]},
+          "webAccess":{"mode":"Allowlist","rules":[{"scheme":"https","host":"api.example.com","pathPrefix":"/","methods":["GET"],"protocol":"http","purpose":"Provider API","connection":"provider"}]},
+          "ui":[],"catalog":{"role":{"key":"connected-agent","name":"Connected Agent"},"license":{"spdxId":"MIT"},"iconUrls":[]}
         }
         """;
 

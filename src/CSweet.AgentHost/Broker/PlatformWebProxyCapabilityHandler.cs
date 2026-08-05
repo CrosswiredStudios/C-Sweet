@@ -5,12 +5,14 @@ using CSweet.Application.Setup;
 using CSweet.Contracts.Plugins;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Nodes;
 
 namespace CSweet.AgentHost.Broker;
 
 public sealed class PlatformWebProxyCapabilityHandler(
     CSweetDbContext db,
     IPluginSecretStore secrets,
+    IPluginOAuthTokenBroker tokenBroker,
     IAuditEventWriter audit,
     ILogger<PlatformWebProxyCapabilityHandler> logger)
 {
@@ -77,7 +79,8 @@ public sealed class PlatformWebProxyCapabilityHandler(
         {
             for (var redirect = 0; redirect <= MaximumRedirects; redirect++)
             {
-                var rule = Authorize(current, input.Method, input.Credential, manifest, grantedWeb);
+                var rule = Authorize(current, input.Method, input.Credential, input.Connection, manifest, grantedWeb,
+                    installation.SetupState != CSweet.Domain.Setup.PluginSetupState.Ready);
                 if (rule is null)
                     return await DeniedAsync(request.RequestId, installationId, current, "Destination is outside the approved web grant.", cancellationToken);
 
@@ -107,6 +110,24 @@ public sealed class PlatformWebProxyCapabilityHandler(
                     if (string.IsNullOrWhiteSpace(value)) return Failure(request.RequestId, "The requested credential is not configured.");
                     outbound.Headers.TryAddWithoutValidation("Authorization", value);
                 }
+                if (!string.IsNullOrWhiteSpace(input.Connection))
+                {
+                    if (!string.IsNullOrWhiteSpace(input.Credential))
+                        return Failure(request.RequestId, "A request cannot use both credential and OAuth connection bindings.");
+                    var declaration = manifest.Connections.SingleOrDefault(x => x.Id == input.Connection);
+                    if (declaration is null || !OutboundNetworkPolicy.IsAllowedOrigin(current, declaration.AllowedOrigins))
+                        return Failure(request.RequestId, "The requested connection is not bound to this origin.");
+                    var connection = await db.PluginConnections.AsNoTracking().SingleOrDefaultAsync(x =>
+                        x.AgentInstallationId == installationId && x.DeclarationId == input.Connection &&
+                        x.Status == CSweet.Domain.Setup.PluginConnectionStatus.Connected, timeout.Token);
+                    if (connection is null) return Failure(request.RequestId, "The requested connection is unavailable.");
+                    if (!string.IsNullOrWhiteSpace(connection.BoundResourceId) &&
+                        !string.Equals(connection.BoundResourceId, input.BoundResourceId, StringComparison.Ordinal))
+                        return Failure(request.RequestId, "The request is not bound to the installation's confirmed external resource.");
+                    var accessToken = await tokenBroker.GetAccessTokenAsync(installationId, connection, timeout.Token);
+                    if (accessToken is null) return Failure(request.RequestId, "The connection must be reauthorized.");
+                    outbound.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+                }
 
                 using var response = await client.SendAsync(outbound, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
                 if (IsRedirect(response.StatusCode) && response.Headers.Location is { } location)
@@ -119,6 +140,11 @@ public sealed class PlatformWebProxyCapabilityHandler(
                 var body = input.Method == "HEAD"
                     ? (Bytes: Array.Empty<byte>(), Truncated: false)
                     : await ReadBoundedAsync(response.Content, timeout.Token);
+                if (!string.IsNullOrWhiteSpace(input.Connection) && !body.Truncated && body.Bytes.Length > 0)
+                {
+                    var declaration = manifest.Connections.Single(x => x.Id == input.Connection);
+                    body = (await ExtractSecretFieldsAsync(installationId, declaration, body.Bytes, timeout.Token), false);
+                }
                 var result = new PlatformWebFetchResponse(
                     (int)response.StatusCode,
                     current.GetLeftPart(UriPartial.Path),
@@ -144,14 +170,16 @@ public sealed class PlatformWebProxyCapabilityHandler(
         return Failure(request.RequestId, "The web proxy request failed.");
     }
 
-    private static PluginWebAccessRule? Authorize(Uri uri, string method, string? credential, PluginManifest manifest, IReadOnlySet<string> grants)
+    private static PluginWebAccessRule? Authorize(Uri uri, string method, string? credential, string? connection,
+        PluginManifest manifest, IReadOnlySet<string> grants, bool bootstrapOnly)
     {
         if (uri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(uri.UserInfo) || uri.IsLoopback)
             return null;
-        if (manifest.WebAccess.Mode == PluginWebAccessMode.AllPublic && grants.Contains("all-public"))
-            return new PluginWebAccessRule { Scheme = uri.Scheme, Host = uri.Host, PathPrefix = "/", Methods = [method], Credential = credential };
+        if (!bootstrapOnly && manifest.WebAccess.Mode == PluginWebAccessMode.AllPublic && grants.Contains("all-public"))
+            return new PluginWebAccessRule { Scheme = uri.Scheme, Host = uri.Host, PathPrefix = "/", Methods = [method], Credential = credential, Connection = connection };
         foreach (var rule in manifest.WebAccess.Rules)
         {
+            if (bootstrapOnly && !rule.Bootstrap) continue;
             if (!grants.Contains(CSweet.Infrastructure.Setup.AgentImportPreviewService.WebGrantToken(rule))) continue;
             if (!string.Equals(rule.Protocol, "http", StringComparison.Ordinal) ||
                 !string.Equals(rule.Scheme, uri.Scheme, StringComparison.OrdinalIgnoreCase) ||
@@ -159,10 +187,39 @@ public sealed class PlatformWebProxyCapabilityHandler(
                 rule.Port is not null && rule.Port != uri.Port ||
                 !OutboundNetworkPolicy.IsPathWithinPrefix(uri.AbsolutePath, rule.PathPrefix) ||
                 !rule.Methods.Contains(method, StringComparer.Ordinal) ||
-                !string.Equals(rule.Credential, credential, StringComparison.Ordinal)) continue;
+                !string.Equals(rule.Credential, credential, StringComparison.Ordinal) ||
+                !string.Equals(rule.Connection, connection, StringComparison.Ordinal)) continue;
             return rule;
         }
         return null;
+    }
+
+    private async Task<byte[]> ExtractSecretFieldsAsync(Guid installationId,
+        PluginConnectionDeclaration declaration, byte[] body, CancellationToken cancellationToken)
+    {
+        if (declaration.SecretResponseFields.Count == 0) return body;
+        JsonNode? root;
+        try { root = JsonNode.Parse(body); }
+        catch (JsonException) { return body; }
+        if (root is null) return body;
+        foreach (var pointer in declaration.SecretResponseFields)
+        {
+            var segments = pointer.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal)).ToArray();
+            JsonNode? current = root;
+            for (var index = 0; index < segments.Length - 1; index++) current = current?[segments[index]];
+            if (current is not JsonObject parent || segments.Length == 0 || parent[segments[^1]] is not { } secretNode) continue;
+            var secretValue = secretNode is JsonValue value && value.TryGetValue<string>(out var textValue)
+                ? textValue : secretNode.ToJsonString();
+            if (string.IsNullOrWhiteSpace(secretValue)) continue;
+            var reference = $"plugin-secret:{Guid.NewGuid():N}";
+            await secrets.SetAsync(installationId, $"response.{reference[14..]}", secretValue, cancellationToken);
+            parent[segments[^1]] = new JsonObject { ["secretReference"] = reference };
+            await audit.WriteAsync("plugin.response-secret.extracted", "PluginInstallation", installationId,
+                $"Extracted a declared secret response field for connection {declaration.Id}.",
+                JsonSerializer.Serialize(new { installationId, connection = declaration.Id, pointer, reference }), cancellationToken);
+        }
+        return JsonSerializer.SerializeToUtf8Bytes(root, JsonOptions);
     }
 
     private async Task<CapabilityResult> DeniedAsync(string requestId, Guid installationId, Uri uri, string reason, CancellationToken token)
@@ -219,4 +276,5 @@ public sealed class PlatformWebProxyCapabilityHandler(
     {
         RequestId = requestId, Succeeded = false, ContentType = "application/json", Error = error
     };
+
 }

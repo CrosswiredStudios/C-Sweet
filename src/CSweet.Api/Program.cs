@@ -43,6 +43,7 @@ builder.Services.AddAgentRateLimiting();
 builder.Services.AddHostedService<MemoryCaptureWorker>();
 builder.Services.AddHostedService<ChatTurnWorker>();
 builder.Services.AddHostedService<SourceControlPlatformReconciliationWorker>();
+builder.Services.AddHostedService<MediaUploadCleanupWorker>();
 builder.Services.AddSingleton<IChatTurnEventRouter, ChatTurnEventRouter>();
 builder.Services.Configure<ChatTurnOptions>(builder.Configuration.GetSection("ChatTurns"));
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
@@ -185,6 +186,7 @@ app.MapAgentMemoryEndpoints();
 app.MapCommunicationEndpoints();
 app.MapAgentManagementEndpoints();
 app.MapPluginManagementEndpoints();
+app.MapPluginSetupEndpoints();
 app.MapSecurityAuditEndpoints();
 app.MapMarketplaceDiscoveryEndpoints();
 app.MapAgentCatalogEndpoints();

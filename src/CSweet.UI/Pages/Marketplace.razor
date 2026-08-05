@@ -550,10 +550,13 @@
                 var failure = await response.Content.ReadFromJsonAsync<MarketplaceApiError>();
                 throw new InvalidOperationException(failure?.Message ?? "The hire could not be completed.");
             }
+            var completed = await response.Content.ReadFromJsonAsync<CSweet.Contracts.Core.HiringWorkflowResponse>();
             _reviewOpen = false;
             _preview = null;
             _selectedAgent = null;
-            Navigation.NavigateTo($"/organizations/{OrganizationId:D}/employees");
+            Navigation.NavigateTo(completed?.ResultAgentInstallationId is Guid installationId
+                ? $"/organizations/{OrganizationId:D}/plugin-setup/{installationId:D}"
+                : $"/organizations/{OrganizationId:D}/employees");
         }
         catch (Exception exception)
         {

@@ -87,6 +87,31 @@ public sealed record GenAiConnectionTestResponse(
     string Message,
     DateTimeOffset TestedAt);
 
+public sealed record TestGenAiProviderConnectionRequest(
+    Guid? ProviderProfileId,
+    GenAiProviderType ProviderType,
+    string BaseUrl,
+    string? ApiKey,
+    bool ReplaceApiKey = false);
+
+public static class LocalGenAiProviderDiscoveryStatuses
+{
+    public const string Added = "added";
+    public const string AlreadyConfigured = "already_configured";
+    public const string NotFound = "not_found";
+}
+
+public sealed record LocalGenAiProviderDiscoveryResult(
+    GenAiProviderType ProviderType,
+    string Name,
+    string? BaseUrl,
+    string Status,
+    string? Message);
+
+public sealed record LocalGenAiProviderDiscoveryResponse(
+    IReadOnlyList<GenAiProviderProfileResponse> Profiles,
+    IReadOnlyList<LocalGenAiProviderDiscoveryResult> Results);
+
 public sealed record SetGenAiOperationDefaultRequest(Guid OperationConfigurationId);
 
 public sealed record GenAiMediaRequest(
@@ -125,3 +150,21 @@ public sealed record MediaAssetResponse(
     int? Height,
     double? DurationSeconds,
     DateTimeOffset CreatedAt);
+
+public sealed record CreateMediaUploadSessionRequest(
+    string FileName,
+    string ContentType,
+    long TotalBytes,
+    string? Sha256 = null);
+
+public sealed record MediaUploadSessionResponse(
+    Guid Id,
+    Guid OrganizationId,
+    string FileName,
+    string ContentType,
+    long TotalBytes,
+    long ReceivedBytes,
+    int ChunkSizeBytes,
+    string Status,
+    DateTimeOffset ExpiresAt,
+    MediaAssetResponse? Asset = null);

@@ -11,6 +11,37 @@ namespace CSweet.UnitTests;
 public sealed class AgentWorkInboxTests
 {
     [Fact]
+    public async Task NeedsSetup_AllowsOnlyDeclaredBootstrapCallbacksFromSetupSource()
+    {
+        await using var db = CreateDb();
+        var installation = Installation(DateTimeOffset.UtcNow);
+        installation.SetupState = PluginSetupState.NeedsSetup;
+        var package = new AgentPackageVersion
+        {
+            Id = installation.PackageVersionId,
+            AgentId = "com.example.setup",
+            Version = "1.0.0",
+            ManifestJson = """{"provides":[{"name":"example.setup.discover.v1","riskClass":"bootstrap"}]}"""
+        };
+        db.AddRange(package, installation);
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => inbox.EnqueueAsync(
+            installation.BusinessId, installation.Id, AgentWorkKind.Capability, "example.execute.v1",
+            Json("{}"), "normal", DateTimeOffset.UtcNow.AddMinutes(1), sourceType: "plugin-setup"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => inbox.EnqueueAsync(
+            installation.BusinessId, installation.Id, AgentWorkKind.Capability, "example.setup.discover.v1",
+            Json("{}"), "wrong-source", DateTimeOffset.UtcNow.AddMinutes(1), sourceType: "management-api"));
+
+        var accepted = await inbox.EnqueueAsync(installation.BusinessId, installation.Id,
+            AgentWorkKind.Capability, "example.setup.discover.v1", Json("{}"), "bootstrap",
+            DateTimeOffset.UtcNow.AddMinutes(1), sourceType: "plugin-setup");
+
+        Assert.Equal("example.setup.discover.v1", accepted.Name);
+    }
+
+    [Fact]
     public async Task EnqueueAsync_IsIdempotentOnlyForIdenticalContent()
     {
         await using var db = CreateDb();

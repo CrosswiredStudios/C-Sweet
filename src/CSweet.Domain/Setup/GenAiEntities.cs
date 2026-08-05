@@ -106,3 +106,30 @@ public sealed class MediaAsset
     public DateTimeOffset CreatedAt { get; set; }
     public GenAiJob? GenAiJob { get; set; }
 }
+
+public sealed class MediaUploadSession
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid? MediaAssetId { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = string.Empty;
+    public long TotalBytes { get; set; }
+    public long ReceivedBytes { get; set; }
+    public int ChunkSizeBytes { get; set; }
+    public string? ExpectedSha256 { get; set; }
+    public MediaUploadSessionStatus Status { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public MediaAsset? MediaAsset { get; set; }
+}
+
+public enum MediaUploadSessionStatus
+{
+    Active,
+    Completed,
+    Cancelled,
+    Failed,
+    Expired
+}

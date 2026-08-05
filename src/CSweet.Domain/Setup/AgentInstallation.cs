@@ -11,6 +11,10 @@ public sealed class AgentInstallation
     public string BusinessId { get; set; } = "default";
     public PluginInstallationScope Scope { get; set; } = PluginInstallationScope.Organization;
     public bool IsEnabled { get; set; } = true;
+    public PluginSetupState SetupState { get; set; } = PluginSetupState.Ready;
+    public string? SetupFlowId { get; set; }
+    public string? SetupStepId { get; set; }
+    public string SetupDataJson { get; set; } = "{}";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
@@ -19,6 +23,7 @@ public sealed class AgentInstallation
     public AgentInstallationConfiguration? Configuration { get; set; }
     public AgentSchedule? Schedule { get; set; }
     public ICollection<AgentRuntimeInstance> RuntimeInstances { get; set; } = [];
+    public ICollection<PluginConnection> Connections { get; set; } = [];
 }
 
 public enum PluginRevisionStatus
@@ -26,4 +31,12 @@ public enum PluginRevisionStatus
     Staged,
     Active,
     Retired
+}
+
+public enum PluginSetupState
+{
+    NeedsSetup,
+    Ready,
+    ConnectionRequired,
+    SetupFailed
 }

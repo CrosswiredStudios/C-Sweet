@@ -10,10 +10,16 @@ public interface IGenAiProviderProfileService
     Task<GenAiActionResponse> CreateAsync(CreateGenAiProviderProfileRequest request, CancellationToken cancellationToken = default);
     Task<GenAiActionResponse> UpdateAsync(Guid id, UpdateGenAiProviderProfileRequest request, CancellationToken cancellationToken = default);
     Task<GenAiActionResponse> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<GenAiConnectionTestResponse> TestDraftAsync(TestGenAiProviderConnectionRequest request, CancellationToken cancellationToken = default);
     Task<GenAiConnectionTestResponse> TestAsync(Guid id, CancellationToken cancellationToken = default);
     Task<GenAiActionResponse> SaveOperationAsync(Guid providerId, Guid? operationId, SaveGenAiOperationConfigurationRequest request, CancellationToken cancellationToken = default);
     Task<GenAiActionResponse> DeleteOperationAsync(Guid providerId, Guid operationId, CancellationToken cancellationToken = default);
     Task<GenAiActionResponse> SetDefaultAsync(Guid operationId, CancellationToken cancellationToken = default);
+}
+
+public interface ILocalGenAiProviderDiscoveryService
+{
+    Task<LocalGenAiProviderDiscoveryResponse> DiscoverAsync(CancellationToken cancellationToken = default);
 }
 
 public interface IGenAiJobService
@@ -36,6 +42,20 @@ public interface IMediaAssetStore
     Task<(string StorageKey, long SizeBytes, string Sha256)> SaveAsync(string fileName, Stream content, CancellationToken cancellationToken = default);
     Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default);
     Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default);
+}
+
+public interface IResumableMediaUploadService
+{
+    Task<MediaUploadSessionResponse> CreateAsync(Guid organizationId, CreateMediaUploadSessionRequest request,
+        CancellationToken cancellationToken = default);
+    Task<MediaUploadSessionResponse?> GetAsync(Guid organizationId, Guid sessionId,
+        CancellationToken cancellationToken = default);
+    Task<MediaUploadSessionResponse> AppendAsync(Guid organizationId, Guid sessionId, long offset,
+        long contentLength, Stream content, CancellationToken cancellationToken = default);
+    Task<MediaUploadSessionResponse> CompleteAsync(Guid organizationId, Guid sessionId,
+        CancellationToken cancellationToken = default);
+    Task CancelAsync(Guid organizationId, Guid sessionId, CancellationToken cancellationToken = default);
+    Task<int> CleanupExpiredAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed record GenAiAdapterSubmission(string ProviderJobId, bool IsComplete, IReadOnlyList<GenAiAdapterOutput> Outputs);

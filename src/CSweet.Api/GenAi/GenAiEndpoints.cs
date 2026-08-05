@@ -13,6 +13,11 @@ public static class GenAiEndpoints
         var providers = endpoints.MapGroup("/api/genai-provider-profiles").RequireAuthorization("PluginAdministration");
         providers.MapGet("", async (IGenAiProviderProfileService service, CancellationToken token) =>
             Results.Ok(await service.ListAsync(token)));
+        providers.MapPost("/discover-local", async (ILocalGenAiProviderDiscoveryService service, CancellationToken token) =>
+            Results.Ok(await service.DiscoverAsync(token)));
+        providers.MapPost("/test", async (TestGenAiProviderConnectionRequest request,
+            IGenAiProviderProfileService service, CancellationToken token) =>
+            Results.Ok(await service.TestDraftAsync(request, token)));
         providers.MapGet("/{id:guid}", async (Guid id, IGenAiProviderProfileService service, CancellationToken token) =>
             await service.GetAsync(id, token) is { } profile ? Results.Ok(profile) : Results.NotFound());
         providers.MapPost("", async (CreateGenAiProviderProfileRequest request, IGenAiProviderProfileService service, CancellationToken token) =>
@@ -71,6 +76,63 @@ public static class GenAiEndpoints
         });
 
         var media = endpoints.MapGroup("/api/media-assets");
+        media.MapPost("/uploads/organization/{organizationId:guid}", async (Guid organizationId,
+            CreateMediaUploadSessionRequest request, ClaimsPrincipal user, CSweetDbContext db,
+            IResumableMediaUploadService uploads, CancellationToken token) =>
+        {
+            if (!await CanAccessAsync(user, organizationId, db, token)) return Results.Forbid();
+            try { return Results.Ok(await uploads.CreateAsync(organizationId, request, token)); }
+            catch (InvalidOperationException exception)
+            {
+                return Results.BadRequest(new { errorCode = "invalid_upload", message = exception.Message });
+            }
+        });
+        media.MapGet("/uploads/{sessionId:guid}", async (Guid sessionId, Guid organizationId,
+            ClaimsPrincipal user, CSweetDbContext db, IResumableMediaUploadService uploads,
+            CancellationToken token) =>
+        {
+            if (!await CanAccessAsync(user, organizationId, db, token)) return Results.Forbid();
+            return await uploads.GetAsync(organizationId, sessionId, token) is { } session
+                ? Results.Ok(session) : Results.NotFound();
+        });
+        media.MapPut("/uploads/{sessionId:guid}/chunks/{offset:long}", async (Guid sessionId, long offset,
+            Guid organizationId, HttpRequest request, ClaimsPrincipal user, CSweetDbContext db,
+            IResumableMediaUploadService uploads, CancellationToken token) =>
+        {
+            if (!await CanAccessAsync(user, organizationId, db, token)) return Results.Forbid();
+            if (request.ContentLength is not { } contentLength)
+                return Results.BadRequest(new { errorCode = "content_length_required", message = "Each chunk requires Content-Length." });
+            try
+            {
+                return Results.Ok(await uploads.AppendAsync(organizationId, sessionId, offset, contentLength,
+                    request.Body, token));
+            }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { errorCode = "invalid_upload_offset", message = exception.Message });
+            }
+        });
+        media.MapPost("/uploads/{sessionId:guid}/complete", async (Guid sessionId, Guid organizationId,
+            ClaimsPrincipal user, CSweetDbContext db, IResumableMediaUploadService uploads,
+            CancellationToken token) =>
+        {
+            if (!await CanAccessAsync(user, organizationId, db, token)) return Results.Forbid();
+            try { return Results.Ok(await uploads.CompleteAsync(organizationId, sessionId, token)); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (InvalidOperationException exception)
+            {
+                return Results.BadRequest(new { errorCode = "upload_completion_failed", message = exception.Message });
+            }
+        });
+        media.MapDelete("/uploads/{sessionId:guid}", async (Guid sessionId, Guid organizationId,
+            ClaimsPrincipal user, CSweetDbContext db, IResumableMediaUploadService uploads,
+            CancellationToken token) =>
+        {
+            if (!await CanAccessAsync(user, organizationId, db, token)) return Results.Forbid();
+            await uploads.CancelAsync(organizationId, sessionId, token);
+            return Results.NoContent();
+        });
         media.MapPost("/organization/{organizationId:guid}", async (Guid organizationId, IFormFile file, ClaimsPrincipal user,
             CSweetDbContext db, IMediaAssetService service, CancellationToken token) =>
         {

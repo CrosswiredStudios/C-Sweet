@@ -60,6 +60,11 @@
     gap: clamp(1.5rem, 4vw, 3rem);
 }
 
+.provider-discovery-feedback {
+    margin-top: -1rem;
+    margin-bottom: 1.25rem;
+}
+
 .provider-roster {
     padding-right: clamp(1.5rem, 4vw, 3rem);
     border-right: 1px solid var(--cs-border);
@@ -434,6 +439,12 @@
     border: 1px solid #efbcc5;
     background: #fff3f5;
     color: #a83348;
+}
+
+.provider-feedback.checking {
+    border: 1px solid #bfd0e3;
+    background: #f2f7fc;
+    color: var(--cs-navy);
 }
 
 .provider-save-announcement {

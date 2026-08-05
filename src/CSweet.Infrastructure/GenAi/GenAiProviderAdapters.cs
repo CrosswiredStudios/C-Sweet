@@ -91,9 +91,22 @@ public abstract class ComfyUiGenAiProviderAdapter(IHttpClientFactory clients) : 
         {
             using var request = Request(profile, HttpMethod.Get, Cloud ? "/api/object_info" : "/object_info", apiKey);
             using var response = await clients.CreateClient("GenAi").SendAsync(request, cancellationToken);
-            return response.IsSuccessStatusCode
+            if (!response.IsSuccessStatusCode)
+                return new(false, "provider_http_error", $"ComfyUI returned HTTP {(int)response.StatusCode}.", DateTimeOffset.UtcNow);
+
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var isObjectInfo = json.RootElement.ValueKind == JsonValueKind.Object &&
+                json.RootElement.EnumerateObject().Any(node =>
+                    node.Value.ValueKind == JsonValueKind.Object &&
+                    node.Value.TryGetProperty("input", out var input) &&
+                    input.ValueKind == JsonValueKind.Object);
+            return isObjectInfo
                 ? new(true, null, "Connected to ComfyUI.", DateTimeOffset.UtcNow)
-                : new(false, "provider_http_error", $"ComfyUI returned HTTP {(int)response.StatusCode}.", DateTimeOffset.UtcNow);
+                : new(false, "provider_invalid_response", "The endpoint did not return ComfyUI object information.", DateTimeOffset.UtcNow);
+        }
+        catch (JsonException)
+        {
+            return new(false, "provider_invalid_response", "The endpoint did not return valid ComfyUI object information.", DateTimeOffset.UtcNow);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

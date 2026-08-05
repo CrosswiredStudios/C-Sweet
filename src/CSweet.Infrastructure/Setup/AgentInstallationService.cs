@@ -129,6 +129,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             cancellationToken);
 
         var now = DateTimeOffset.UtcNow;
+        var needsSetup = manifest.Setup?.Required == true;
         var installation = new AgentInstallation
         {
             Id = Guid.NewGuid(),
@@ -136,6 +137,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             BusinessId = businessId,
             Scope = scope,
             IsEnabled = true,
+            SetupState = needsSetup ? PluginSetupState.NeedsSetup : PluginSetupState.Ready,
+            SetupFlowId = needsSetup ? manifest.Setup!.EntryFlow : null,
+            SetupStepId = needsSetup ? manifest.Setup!.Flows.First(x => x.Id == manifest.Setup.EntryFlow).Steps.First().Id : null,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -1513,7 +1517,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             InstallationScope = installation.Scope.ToString(),
             InstallationKey = installation.InstallationKey == Guid.Empty ? installation.Id : installation.InstallationKey,
             RevisionNumber = installation.RevisionNumber,
-            RevisionStatus = installation.RevisionStatus.ToString()
+            RevisionStatus = installation.RevisionStatus.ToString(),
+            SetupState = installation.SetupState.ToString(),
+            SetupFlowId = installation.SetupFlowId,
+            SetupStepId = installation.SetupStepId
         };
     }
 

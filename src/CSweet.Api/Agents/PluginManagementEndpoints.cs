@@ -1,5 +1,6 @@
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
+using CSweet.Contracts.Plugins;
 
 namespace CSweet.Api.Agents;
 
@@ -9,6 +10,23 @@ public static class PluginManagementEndpoints
     {
         var group = endpoints.MapGroup("/api/plugins")
             .RequireAuthorization("PluginAdministration");
+
+        group.MapGet("/provider-profiles", async (IPluginProviderProfileRegistry profiles,
+            CancellationToken cancellationToken) => Results.Ok(await profiles.ListAsync(cancellationToken)));
+        group.MapPut("/provider-profiles/{profileId}", async (string profileId,
+            UpsertPluginProviderProfileRequest request, IPluginProviderProfileRegistry profiles,
+            CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await profiles.UpsertAsync(profileId, request, cancellationToken)); }
+            catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        });
+        group.MapDelete("/provider-profiles/{profileId}", async (string profileId,
+            IPluginProviderProfileRegistry profiles, CancellationToken cancellationToken) =>
+        {
+            try { await profiles.DeleteAsync(profileId, cancellationToken); return Results.NoContent(); }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            { return Results.BadRequest(new { error = exception.Message }); }
+        });
 
         group.MapPost("/imports/preview", async (PreviewAgentImportRequest request,
             IPluginImportService imports, CancellationToken cancellationToken) =>

@@ -30,4 +30,6 @@ public sealed record AgentImportPreviewResponse(
     public PluginWebAccess WebAccess { get; init; } = new();
     public IReadOnlyList<PluginConfigurationField> ConfigurationFields { get; init; } = [];
     public IReadOnlyList<PluginCredentialBinding> CredentialBindings { get; init; } = [];
+    public IReadOnlyList<PluginConnectionDeclaration> Connections { get; init; } = [];
+    public PluginSetupManifest? Setup { get; init; }
 }

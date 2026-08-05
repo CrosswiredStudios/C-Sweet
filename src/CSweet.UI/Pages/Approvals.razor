@@ -129,6 +129,35 @@
                                 </MudAlert>
                             }
                         }
+                        else if (item.AgentAction is { } agentAction)
+                        {
+                            <MudGrid Class="mt-3">
+                                <MudItem xs="12" md="6"><strong>Channel</strong><br />@agentAction.ChannelId</MudItem>
+                                <MudItem xs="12" md="6"><strong>Action</strong><br />@agentAction.ActionType</MudItem>
+                                @if (!string.IsNullOrWhiteSpace(agentAction.ResourceId))
+                                {
+                                    <MudItem xs="12"><strong>Resource</strong><br />@agentAction.ResourceId</MudItem>
+                                }
+                                <MudItem xs="12"><strong>Payload binding</strong><br /><code>@agentAction.PayloadHash</code></MudItem>
+                            </MudGrid>
+                            @if (item.CanDecide && item.Status == "Pending")
+                            {
+                                <MudTextField Value="@Feedback(item.Id)" ValueChanged="@((string value) => SetFeedback(item.Id, value))"
+                                              Label="Decision feedback" Lines="2" Variant="Variant.Outlined" Class="mt-3" />
+                                @if (_decisionErrors.TryGetValue(item.Id, out var actionError))
+                                {
+                                    <MudAlert Severity="Severity.Error" Dense="true">@actionError</MudAlert>
+                                }
+                                <MudStack Row="true" Spacing="1">
+                                    <MudButton Color="Color.Success" Variant="Variant.Filled" Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideAgentActionAsync(item, ResourceChangeDecisionKinds.Approve))">Approve</MudButton>
+                                    <MudButton Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideAgentActionAsync(item, ResourceChangeDecisionKinds.RequestRevision))">Request revision</MudButton>
+                                    <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideAgentActionAsync(item, ResourceChangeDecisionKinds.Reject))">Reject</MudButton>
+                                </MudStack>
+                            }
+                        }
                         else if (item.HiringWorkflow is { } hiringWorkflow)
                         {
                             <HiringWorkflowApprovalCard OrganizationId="OrganizationId"
@@ -304,6 +333,35 @@
         {
             _decidingId = null;
         }
+    }
+
+    private async Task DecideAgentActionAsync(ApprovalDashboardItemResponse item, string decision)
+    {
+        if (item.AgentAction is not { } action || _decidingId.HasValue) return;
+        var feedback = Feedback(item.Id);
+        if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(feedback))
+        {
+            _decisionErrors[item.Id] = "Feedback is required when requesting a revision.";
+            return;
+        }
+        _decidingId = item.Id;
+        _decisionErrors.Remove(item.Id);
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/core/organizations/{OrganizationId:D}/approvals/agent-actions/{item.Id:D}/decide",
+                new DecideManagedAgentActionRequest(item.Id, decision, feedback, action.PayloadHash,
+                    action.ExpectedRevision, action.IdempotencyKey, $"approval:{item.Id:N}:{decision}", action.ResourceId));
+            if (!response.IsSuccessStatusCode)
+            {
+                _decisionErrors[item.Id] = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _feedback.Remove(item.Id);
+            await LoadAsync();
+        }
+        catch (Exception exception) { _decisionErrors[item.Id] = exception.Message; }
+        finally { _decidingId = null; }
     }
 
     private string Feedback(Guid id) =>

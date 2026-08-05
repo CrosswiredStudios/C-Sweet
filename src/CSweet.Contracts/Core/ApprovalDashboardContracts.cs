@@ -24,7 +24,30 @@ public sealed record ApprovalDashboardItemResponse(
     bool CanDecide,
     ResourceChangeRequestResponse? ResourceChange = null,
     HiringWorkflowApprovalResponse? HiringWorkflow = null,
-    SourceControlApprovalCardResponse? SourceControl = null);
+    SourceControlApprovalCardResponse? SourceControl = null)
+{
+    public ManagedAgentActionApprovalResponse? AgentAction { get; init; }
+}
+
+public sealed record ManagedAgentActionApprovalResponse(
+    Guid ProposalId,
+    string ActionType,
+    string ChannelId,
+    string PayloadHash,
+    long? ExpectedRevision,
+    string IdempotencyKey,
+    bool AlwaysRequiresApproval,
+    string? ResourceId = null);
+
+public sealed record DecideManagedAgentActionRequest(
+    Guid ProposalId,
+    string Decision,
+    string? Comment,
+    string PayloadHash,
+    long? ExpectedRevision,
+    string ActionIdempotencyKey,
+    string DecisionIdempotencyKey,
+    string? ResourceId = null);
 
 public sealed record SourceControlApprovalCardResponse(
     Guid ApprovalId,

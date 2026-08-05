@@ -110,6 +110,14 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginOrganizationGrantService, PluginOrganizationGrantService>();
         builder.Services.AddScoped<IPluginAuthorizationPolicy, PersistedPluginAuthorizationPolicy>();
         builder.Services.AddScoped<IPluginSecretStore, DataProtectionPluginSecretStore>();
+        builder.Services.Configure<PluginConnectionOptions>(builder.Configuration.GetSection(PluginConnectionOptions.SectionName));
+        builder.Services.AddHttpClient(nameof(PluginSetupService), client => client.Timeout = TimeSpan.FromSeconds(30));
+        builder.Services.AddHttpClient(nameof(PluginOAuthTokenBroker), client => client.Timeout = TimeSpan.FromSeconds(30));
+        builder.Services.AddScoped<IPluginOAuthTokenBroker, PluginOAuthTokenBroker>();
+        builder.Services.AddScoped<IPluginProviderProfileRegistry, PluginProviderProfileRegistry>();
+        builder.Services.AddScoped<IPluginStandingPolicyService, PluginStandingPolicyService>();
+        builder.Services.AddScoped<IPluginSetupService, PluginSetupService>();
+        builder.Services.AddScoped<IPluginBootstrapCapabilityService, PluginBootstrapCapabilityService>();
         builder.Services.AddScoped<IAgentInstallationConfigurationService, AgentInstallationConfigurationService>();
         builder.Services.AddScoped<IAgentBuildService, AgentBuildService>();
         builder.Services.AddSingleton<DockerAgentBuildExecutor>();
@@ -173,9 +181,13 @@ public static class DependencyInjection
         builder.Services.AddScoped<IGenAiProviderAdapter, GoogleGeminiGenAiProviderAdapter>();
         builder.Services.AddScoped<IGenAiProviderAdapter, ReplicateGenAiProviderAdapter>();
         builder.Services.AddScoped<IGenAiProviderProfileService, GenAiProviderProfileService>();
+        builder.Services.AddScoped<ILocalGenAiProviderDiscoveryService, LocalGenAiProviderDiscoveryService>();
         builder.Services.AddScoped<IGenAiJobService, GenAiJobService>();
+        builder.Services.Configure<MediaAssetStorageOptions>(builder.Configuration.GetSection(MediaAssetStorageOptions.SectionName));
         builder.Services.AddSingleton<IMediaAssetStore, FileMediaAssetStore>();
         builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
+        builder.Services.AddSingleton<IResumableMediaUploadStore, FileResumableMediaUploadStore>();
+        builder.Services.AddScoped<IResumableMediaUploadService, ResumableMediaUploadService>();
         builder.Services.AddScoped<IAgentRunLogWriter, AgentRunLogWriter>();
         builder.Services.AddScoped<IAgentRunner, AgentFrameworkAgentRunner>();
         builder.Services.AddScoped<IAgentWorkflowRunner, AgentFrameworkWorkflowRunner>();

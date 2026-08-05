@@ -23,6 +23,49 @@
     }
 
     <MudPaper Elevation="1" Class="surface-panel">
+        <MudText Typo="Typo.h6">OAuth provider profiles</MudText>
+        <MudText Color="Color.Secondary">Configure a provider once for all compatible plugins. Client secrets are encrypted by C-Sweet and are never returned to this page or to an agent.</MudText>
+        <MudGrid Class="mt-2">
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_providerId" Label="Profile ID" Variant="Variant.Outlined" Disabled="@(_busy || _editingManagedProfile)" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_providerDisplayName" Label="Display name" Variant="Variant.Outlined" Disabled="_busy" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_providerClientId" Label="OAuth client ID" Variant="Variant.Outlined" Disabled="_busy" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_providerAuthorizationEndpoint" Label="Authorization endpoint" Variant="Variant.Outlined" Disabled="_busy" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_providerTokenEndpoint" Label="Token endpoint" Variant="Variant.Outlined" Disabled="_busy" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_providerRevocationEndpoint" Label="Revocation endpoint" Variant="Variant.Outlined" Disabled="_busy" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_providerClientSecret" Label="OAuth client secret" InputType="InputType.Password" Variant="Variant.Outlined" Disabled="@(_busy || _editingManagedProfile)" HelperText="Leave blank when editing to preserve the encrypted value." /></MudItem>
+        </MudGrid>
+        <MudCheckBox @bind-Value="_providerEnabled" Label="Enabled" Color="Color.Primary" Disabled="_busy" />
+        <MudStack Row="true" Spacing="1">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveProviderAsync"
+                       Disabled="@(_busy || _editingManagedProfile || string.IsNullOrWhiteSpace(_providerId) || string.IsNullOrWhiteSpace(_providerClientId))">Save provider profile</MudButton>
+            <MudButton Variant="Variant.Text" OnClick="ResetProviderForm" Disabled="_busy">Clear</MudButton>
+        </MudStack>
+        @foreach (var profile in _providerProfiles)
+        {
+            <MudPaper Elevation="0" Outlined="true" Class="pa-3 mt-3">
+                <div class="configuration-section-header">
+                    <div>
+                        <MudText Typo="Typo.subtitle1">@profile.DisplayName</MudText>
+                        <MudText Typo="Typo.caption">@profile.Id · @(profile.ManagedByDeployment ? "Managed deployment profile" : "Vault-backed self-hosted profile")</MudText>
+                    </div>
+                    <MudChip T="string" Color="@(profile.IsEnabled && profile.HasClientSecret ? Color.Success : Color.Warning)">
+                        @(profile.IsEnabled && profile.HasClientSecret ? "Ready" : "Needs attention")
+                    </MudChip>
+                </div>
+                <MudText Typo="Typo.body2">Client ID: @profile.ClientId</MudText>
+                <MudText Typo="Typo.body2">Authorization: @profile.AuthorizationEndpoint</MudText>
+                <MudStack Row="true" Class="mt-2">
+                    <MudButton Variant="Variant.Outlined" OnClick="@(() => EditProvider(profile))" Disabled="_busy">View or edit</MudButton>
+                    @if (!profile.ManagedByDeployment)
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => DeleteProviderAsync(profile))" Disabled="_busy">Delete</MudButton>
+                    }
+                </MudStack>
+            </MudPaper>
+        }
+    </MudPaper>
+
+    <MudPaper Elevation="1" Class="surface-panel">
         <MudText Typo="Typo.h6">Import from GitHub</MudText>
         <MudText Color="Color.Secondary">Use an exact 40-character commit SHA for reproducible imports. The manifest digest is shown before approval.</MudText>
         <MudTextField @bind-Value="_repositoryUrl" Label="Public GitHub repository URL" Variant="Variant.Outlined" Disabled="@_busy" />
@@ -98,6 +141,7 @@
 
 @code {
     private readonly List<AgentInstallationResponse> _installations = [];
+    private readonly List<PluginProviderProfileResponse> _providerProfiles = [];
     private AgentImportPreviewResponse? _preview;
     private string _repositoryUrl = string.Empty;
     private string _commitSha = string.Empty;
@@ -107,6 +151,15 @@
     private bool _error;
     private bool _approve;
     private readonly Dictionary<string, string> _configurationValues = new(StringComparer.Ordinal);
+    private string _providerId = "com.csweet.google.youtube";
+    private string _providerDisplayName = "Google / YouTube";
+    private string _providerAuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
+    private string _providerTokenEndpoint = "https://oauth2.googleapis.com/token";
+    private string _providerRevocationEndpoint = "https://oauth2.googleapis.com/revoke";
+    private string _providerClientId = string.Empty;
+    private string _providerClientSecret = string.Empty;
+    private bool _providerEnabled = true;
+    private bool _editingManagedProfile;
     private bool HasMissingConfiguration =>
         _preview?.ConfigurationFields
             .Where(configField => configField.Required && !configField.Secret)
@@ -121,9 +174,56 @@
         {
             _installations.Clear();
             _installations.AddRange(await PluginApi.ListAsync());
+            _providerProfiles.Clear();
+            _providerProfiles.AddRange(await PluginApi.ListProviderProfilesAsync());
         }
         catch (Exception exception) { ShowError(exception); }
         finally { _loading = false; }
+    }
+
+    private async Task SaveProviderAsync()
+    {
+        _busy = true;
+        try
+        {
+            await PluginApi.SaveProviderProfileAsync(_providerId.Trim(), new(
+                _providerDisplayName.Trim(), _providerAuthorizationEndpoint.Trim(), _providerTokenEndpoint.Trim(),
+                string.IsNullOrWhiteSpace(_providerRevocationEndpoint) ? null : _providerRevocationEndpoint.Trim(),
+                _providerClientId.Trim(), string.IsNullOrWhiteSpace(_providerClientSecret) ? null : _providerClientSecret,
+                _providerEnabled));
+            _providerClientSecret = string.Empty;
+            ShowSuccess("OAuth provider profile saved. The client secret is encrypted and will not be displayed again.");
+            await LoadAsync();
+        }
+        catch (Exception exception) { ShowError(exception); }
+        finally { _busy = false; }
+    }
+
+    private void EditProvider(PluginProviderProfileResponse profile)
+    {
+        _providerId = profile.Id; _providerDisplayName = profile.DisplayName;
+        _providerAuthorizationEndpoint = profile.AuthorizationEndpoint; _providerTokenEndpoint = profile.TokenEndpoint;
+        _providerRevocationEndpoint = profile.RevocationEndpoint ?? string.Empty; _providerClientId = profile.ClientId;
+        _providerClientSecret = string.Empty; _providerEnabled = profile.IsEnabled;
+        _editingManagedProfile = profile.ManagedByDeployment;
+    }
+
+    private async Task DeleteProviderAsync(PluginProviderProfileResponse profile)
+    {
+        _busy = true;
+        try { await PluginApi.DeleteProviderProfileAsync(profile.Id); ResetProviderForm(); ShowSuccess("Provider profile and encrypted secret deleted."); await LoadAsync(); }
+        catch (Exception exception) { ShowError(exception); }
+        finally { _busy = false; }
+    }
+
+    private void ResetProviderForm()
+    {
+        _providerId = "com.csweet.google.youtube"; _providerDisplayName = "Google / YouTube";
+        _providerAuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
+        _providerTokenEndpoint = "https://oauth2.googleapis.com/token";
+        _providerRevocationEndpoint = "https://oauth2.googleapis.com/revoke";
+        _providerClientId = string.Empty; _providerClientSecret = string.Empty; _providerEnabled = true;
+        _editingManagedProfile = false;
     }
 
     private async Task PreviewAsync()

@@ -2,6 +2,7 @@ using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
@@ -206,7 +207,11 @@ public sealed class OrganizationUserService : IOrganizationUserService
             managedUser.ReportsToOrganizationUserId = user.Id;
         }
         AgentCommunicationOnboardingResult? onboarding = null;
-        if (user.EmployeeType == EmployeeType.Agent)
+        var setupReady = user.EmployeeType != EmployeeType.Agent || !user.AgentInstallationId.HasValue ||
+            await _dbContext.AgentInstallations.AnyAsync(x =>
+                x.Id == user.AgentInstallationId.Value && x.SetupState == PluginSetupState.Ready,
+                cancellationToken);
+        if (user.EmployeeType == EmployeeType.Agent && setupReady)
         {
             onboarding = await _agentOnboarding.EnsureAsync(organizationId, user, hiringApplicationUserId, cancellationToken);
             if (!onboarding.Succeeded) return Failure(onboarding.ErrorCode!, onboarding.Message);

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Application.Setup;
+using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
@@ -93,7 +94,7 @@ public sealed class McpAgentSessionService(
         await db.SaveChangesAsync(cancellationToken);
         AgentRuntimeMetrics.Session("established");
 
-        var session = ToRequestSession(entity, package, grant);
+        var session = ToRequestSession(entity, installation, package, grant);
         return new McpSessionIssue(
             session,
             accessToken,
@@ -152,6 +153,7 @@ public sealed class McpAgentSessionService(
             return null;
         return ToRequestSession(
             entity,
+            entity.AgentInstallation,
             entity.AgentInstallation.PackageVersion,
             entity.AgentInstallation.Grant);
     }
@@ -193,6 +195,7 @@ public sealed class McpAgentSessionService(
         AgentRuntimeMetrics.Session("renewed");
         var session = ToRequestSession(
             entity,
+            entity.AgentInstallation,
             entity.AgentInstallation.PackageVersion,
             entity.AgentInstallation.Grant);
         return new McpSessionIssue(
@@ -226,6 +229,7 @@ public sealed class McpAgentSessionService(
 
     private static AgentSession ToRequestSession(
         McpAgentSession session,
+        AgentInstallation installation,
         AgentPackageVersion package,
         AgentInstallationGrant grant) =>
         new(
@@ -235,12 +239,26 @@ public sealed class McpAgentSessionService(
             session.OrganizationId,
             session.RuntimeInstanceId.ToString("D"),
             session.TickId.ToString("D"),
-            new AuthorizedAgentGrant(
-                Deserialize(grant.ProvidedCapabilitiesJson),
-                Deserialize(grant.EventSubscriptionsJson),
-                Deserialize(grant.RequiredCapabilitiesJson),
-                grant.GrantRevision),
+            AuthorizedGrant(installation, package, grant),
             package.Version);
+
+    private static AuthorizedAgentGrant AuthorizedGrant(AgentInstallation installation,
+        AgentPackageVersion package, AgentInstallationGrant grant)
+    {
+        if (installation.SetupState == PluginSetupState.Ready)
+            return new AuthorizedAgentGrant(Deserialize(grant.ProvidedCapabilitiesJson),
+                Deserialize(grant.EventSubscriptionsJson), Deserialize(grant.RequiredCapabilitiesJson),
+                grant.GrantRevision);
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(package.ManifestJson, JsonOptions);
+        var bootstrap = (manifest?.Provides ?? [])
+            .Where(x => string.Equals(x.RiskClass, "bootstrap", StringComparison.Ordinal))
+            .Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
+        var required = Deserialize(grant.RequiredCapabilitiesJson)
+            .Where(x => x is PluginPlatformCapabilities.WebFetch or PluginPlatformCapabilities.WebRequest)
+            .ToHashSet(StringComparer.Ordinal);
+        return new AuthorizedAgentGrant(bootstrap, new HashSet<string>(StringComparer.Ordinal), required,
+            grant.GrantRevision);
+    }
 
     private static IReadOnlySet<string> Deserialize(string value)
     {

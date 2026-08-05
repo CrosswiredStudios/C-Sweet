@@ -1030,9 +1030,10 @@ CompleteWorkflow:
                 currentGrants,
                 preview.RequestedSubscriptions.Distinct(StringComparer.Ordinal).ToList(),
                 preview.RequestedPublications.Distinct(StringComparer.Ordinal).ToList(),
-                preview.RequestedNetworkAccess.Distinct(StringComparer.Ordinal).ToList(),
-                preview.ConfigurationFields.Where(field => !field.Secret).ToList(),
-                isLocalArchive);
+                 preview.RequestedNetworkAccess.Distinct(StringComparer.Ordinal).ToList(),
+                 preview.ConfigurationFields.Where(field => !field.Secret).ToList(),
+                 preview.Setup?.Required == true,
+                 isLocalArchive);
         }
         if (candidate.WorkforcePlanId is { } planId)
         {
@@ -1296,7 +1297,10 @@ CompleteWorkflow:
                 ProposalStatus.Cancelled => "Workflow cancelled.",
                 _ => "Workflow completed."
             },
-            workflow.CreatedAt, workflow.ResultOrganizationUserId);
+            workflow.CreatedAt, workflow.ResultOrganizationUserId)
+        {
+            ResultAgentInstallationId = snapshot?.EmbeddedAgent?.InstallationId
+        };
     }
 
     private static HiringWorkflowApprovalResponse ToApprovalCard(
@@ -1364,7 +1368,7 @@ CompleteWorkflow:
                 : "Import an immutable source snapshot, install it with the reviewed grants, then create the employee.",
             workflow.Status.ToString())
         {
-            ConfigurationFields = embedded?.ConfigurationFields ?? [],
+            ConfigurationFields = embedded?.NeedsSetup == true ? [] : embedded?.ConfigurationFields ?? [],
             TeamId = snapshot.TeamId
         };
     }
@@ -1443,6 +1447,7 @@ CompleteWorkflow:
         IReadOnlyList<string> Publications,
         IReadOnlyList<string> NetworkAccess,
         IReadOnlyList<PluginConfigurationField> ConfigurationFields,
+        bool NeedsSetup = false,
         bool IsLocalArchive = false,
         Guid? InstallationId = null);
     private sealed record CandidateMetadata

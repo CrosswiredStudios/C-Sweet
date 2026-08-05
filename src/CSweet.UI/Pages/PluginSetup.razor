@@ -1,0 +1,490 @@
+@page "/organizations/{OrganizationId:guid}/plugin-setup/{InstallationId:guid}"
+@using System.Net.Http.Json
+@using System.Text.Json
+@using CSweet.Contracts.Plugins
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>Connect agent - C-Sweet</PageTitle>
+
+<div class="setup-shell">
+    <MudPaper Elevation="0" Class="page-header">
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Secure agent setup</MudText>
+            <MudText Typo="Typo.h3">@(_setup?.Flow.Title ?? "Connect your account")</MudText>
+            <MudText Color="Color.Secondary">C-Sweet handles credentials and shows only platform-owned controls.</MudText>
+        </div>
+        @if (_setup is not null)
+        {
+            <MudChip T="string" Color="@(_setup.State == "Ready" ? Color.Success : Color.Primary)" Variant="Variant.Outlined">@_setup.State</MudChip>
+        }
+    </MudPaper>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+    }
+    else if (_setup is not null)
+    {
+        <MudStepper ActiveIndex="@ActiveIndex" NonLinear="@(_setup.State == "Ready")" Class="mt-4">
+            @foreach (var step in _setup.Flow.Steps)
+            {
+                <MudStep Title="@step.Title" Completed="@_setup.CompletedStepIds.Contains(step.Id)">
+                    <MudStack Spacing="3" Class="pa-4">
+                        @if (!string.IsNullOrWhiteSpace(step.Description))
+                        {
+                            <MudText>@step.Description</MudText>
+                        }
+                        @if (step.Kind == "permission-summary")
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                Permissions are granted to C-Sweet's secure connection broker. The agent never receives your Google password, OAuth token, or client secret.
+                            </MudAlert>
+                            @if (_setup.State == "Ready")
+                            {
+                                @foreach (var connection in _setup.Connections)
+                                {
+                                    <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                                        <MudText Typo="Typo.h6">@connection.ExternalAccountName</MudText>
+                                        <MudText>Connection: @connection.Status</MudText>
+                                        <MudText>Channel: @connection.BoundResourceId</MudText>
+                                        <MudText Typo="Typo.caption">Granted permissions: @string.Join(", ", connection.GrantedScopes)</MudText>
+                                    </MudPaper>
+                                }
+                            }
+                        }
+                        else if (step.Kind is "oauth-connect" or "permission-request")
+                        {
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                                @PermissionPurpose(step)<br />
+                                <strong>New permissions:</strong> @PermissionDifference(step)
+                            </MudAlert>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Link"
+                                       Disabled="_busy" OnClick="@(() => ConnectAsync(step))">Connect with Google</MudButton>
+                        }
+                        else if (step.Kind == "form")
+                        {
+                            @foreach (var key in step.ConfigurationKeys)
+                            {
+                                var field = _setup.ConfigurationFields.FirstOrDefault(x => x.Key == key);
+                                if (field?.Type.Equals("boolean", StringComparison.OrdinalIgnoreCase) == true)
+                                {
+                                    <MudCheckBox T="bool" Label="@(field.Label)" Value="@BooleanValue(key)"
+                                                 ValueChanged="@(value => _values[key] = value)" />
+                                }
+                                else if (field?.Options?.Count > 0)
+                                {
+                                    <MudSelect T="string" Label="@field.Label" Value="@StringValue(key)"
+                                               ValueChanged="@(value => _values[key] = value)" Variant="Variant.Outlined">
+                                        @foreach (var option in field.Options)
+                                        {
+                                            <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                }
+                                else
+                                {
+                                    <MudTextField T="string" Label="@(field?.Label ?? key)" Value="@StringValue(key)"
+                                                  ValueChanged="@(value => _values[key] = value)" Variant="Variant.Outlined" />
+                                }
+                            }
+                        }
+                        else if (step.Kind == "account-selector")
+                        {
+                            @if (_loadingAccounts)
+                            {
+                                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                                <MudText Color="Color.Secondary">Finding channels available to your connected Google account…</MudText>
+                            }
+                            else if (_accountOptions.Count == 0)
+                            {
+                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">No accessible YouTube channels were found. Reconnect with the Google account that owns or manages the channel.</MudAlert>
+                            }
+                            else
+                            {
+                                <MudSelect T="string" Label="YouTube channel" Value="_selectedAccountId"
+                                           ValueChanged="SelectAccount" Variant="Variant.Outlined"
+                                           HelperText="This agent installation will be permanently bound to the channel you confirm.">
+                                    @foreach (var account in _accountOptions)
+                                    {
+                                        <MudSelectItem T="string" Value="@account.Id">@account.Name @account.Handle</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                @if (SelectedAccount is { } selected)
+                                {
+                                    <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                                        <MudText Typo="Typo.h6">@selected.Name</MudText>
+                                        <MudText Color="Color.Secondary">@selected.Handle</MudText>
+                                        <MudText Typo="Typo.caption">Channel ID: @selected.Id</MudText>
+                                    </MudPaper>
+                                }
+                            }
+                        }
+                        else if (step.Kind == "health-check")
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">C-Sweet will verify the connected permissions and account binding before activation.</MudAlert>
+                            @if (_setup.Values.TryGetValue($"health:{step.Id}", out var health))
+                            {
+                                @if (health.TryGetProperty("message", out var healthMessage))
+                                {
+                                    <MudText Class="mt-2">@healthMessage.GetString()</MudText>
+                                }
+                                @if (health.TryGetProperty("eligibility", out var eligibility) &&
+                                     eligibility.ValueKind == JsonValueKind.Object)
+                                {
+                                    <MudList T="string" Dense="true" Class="mt-2">
+                                        @foreach (var feature in eligibility.EnumerateObject())
+                                        {
+                                            <MudListItem T="string">
+                                                <MudText><strong>@FriendlyName(feature.Name):</strong> @EligibilityValue(feature.Value)</MudText>
+                                            </MudListItem>
+                                        }
+                                    </MudList>
+                                }
+                            }
+                        }
+                        else if (step.Kind == "disconnect")
+                        {
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">Disconnecting immediately disables external work, revokes authorization, and disables autonomous policies.</MudAlert>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
+                                       OnClick="@(() => DisconnectAsync(step))">Disconnect Google</MudButton>
+                        }
+
+                        @if (step.Kind is not ("oauth-connect" or "permission-request" or "disconnect"))
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy"
+                                       OnClick="@(() => CompleteStepAsync(step))">Continue</MudButton>
+                        }
+                    </MudStack>
+                </MudStep>
+            }
+        </MudStepper>
+
+        @if (_setup.CurrentStepId is null && _setup.State != "Ready")
+        {
+            <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4">
+                <MudText Typo="Typo.h6">Ready to activate</MudText>
+                <MudText Color="Color.Secondary">Activation enables the agent runtime and creates its protected conversation.</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Class="mt-3" Disabled="_busy" OnClick="ActivateAsync">Activate agent</MudButton>
+            </MudPaper>
+        }
+        else if (_setup.State == "Ready")
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Filled" Class="mt-4">This agent is connected and ready. Use the settings steps above to manage permissions and preferences.</MudAlert>
+            @if (_setup.ConnectionDeclarations.Any(x => x.ProviderProfile == "com.csweet.google.youtube"))
+            {
+                <ResumableMediaUploader OrganizationId="OrganizationId" />
+            }
+            <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4">
+                <MudText Typo="Typo.h5">Autonomous action policy</MudText>
+                <MudText Color="Color.Secondary" Class="mb-3">
+                    Organization owners can approve a narrow standing policy. Permanent deletion, bans, going live,
+                    Content ID, ownership, monetization, and advertising changes always require individual approval.
+                </MudText>
+                @if (_policy?.Status == "Approved")
+                {
+                    <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3">
+                        Owner-approved revision @_policy.Revision is active for channel @_policy.ChannelId.
+                    </MudAlert>
+                }
+                <MudText Typo="Typo.subtitle1">Allowed action categories</MudText>
+                <MudGrid Spacing="1">
+                    @foreach (var category in PolicyCategoryOptions)
+                    {
+                        <MudItem xs="12" sm="6" md="4">
+                            <MudCheckBox T="bool" Label="@category" Value="@_policyCategories.Contains(category)"
+                                         ValueChanged="@(value => SetMembership(_policyCategories, category, value))" />
+                        </MudItem>
+                    }
+                </MudGrid>
+                <MudText Typo="Typo.subtitle1" Class="mt-2">Allowed video privacy</MudText>
+                <MudStack Row="true" Spacing="2">
+                    @foreach (var privacy in PolicyPrivacyOptions)
+                    {
+                        <MudCheckBox T="bool" Label="@privacy" Value="@_policyPrivacy.Contains(privacy)"
+                                     ValueChanged="@(value => SetMembership(_policyPrivacy, privacy, value))" />
+                    }
+                </MudStack>
+                <MudGrid Class="mt-2">
+                    <MudItem xs="12" sm="4"><MudNumericField T="int" Label="UTC start hour" @bind-Value="_policyStartHour" Min="0" Max="23" Variant="Variant.Outlined" /></MudItem>
+                    <MudItem xs="12" sm="4"><MudNumericField T="int" Label="UTC end hour" @bind-Value="_policyEndHour" Min="1" Max="24" Variant="Variant.Outlined" /></MudItem>
+                    <MudItem xs="12" sm="4"><MudNumericField T="int" Label="Maximum actions/hour" @bind-Value="_policyMaximumPerHour" Min="1" Max="1000" Variant="Variant.Outlined" /></MudItem>
+                </MudGrid>
+                <MudStack Row="true" Spacing="3" Class="mt-2">
+                    <MudCheckBox T="bool" Label="Allow comment replies" @bind-Value="_policyAllowReplies" />
+                    <MudCheckBox T="bool" Label="Allow moderation" @bind-Value="_policyAllowModeration" />
+                </MudStack>
+                <MudTextField T="string" Label="Escalate when payload contains (comma separated)"
+                              @bind-Value="_policyEscalationKeywords" Variant="Variant.Outlined"
+                              HelperText="Matching actions are routed for individual approval." />
+                <MudStack Row="true" Spacing="2" Class="mt-3">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="SavePolicyAsync">Approve policy</MudButton>
+                    @if (_policy?.Status == "Approved")
+                    {
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="RevokePolicyAsync">Revoke policy</MudButton>
+                    }
+                </MudStack>
+            </MudPaper>
+            <MudButton Href="@($"/organizations/{OrganizationId:D}/employees")" Variant="Variant.Filled" Color="Color.Primary" Class="mt-3">Open your team</MudButton>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid InstallationId { get; set; }
+    private PluginSetupResponse? _setup;
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _selectedAccountId;
+    private string? _selectedAccountName;
+    private bool _loadingAccounts;
+    private readonly List<SetupAccountOption> _accountOptions = [];
+    private readonly Dictionary<string, object?> _values = new(StringComparer.Ordinal);
+    private PluginStandingPolicyResponse? _policy;
+    private static readonly string[] PolicyCategoryOptions =
+        ["Publishing", "ContentManagement", "CommentReplies", "Moderation", "LiveConfiguration", "Engagement"];
+    private static readonly string[] PolicyPrivacyOptions = ["private", "unlisted", "public"];
+    private readonly HashSet<string> _policyCategories = new(["Publishing", "CommentReplies"], StringComparer.Ordinal);
+    private readonly HashSet<string> _policyPrivacy = new(["private", "unlisted"], StringComparer.Ordinal);
+    private int _policyStartHour;
+    private int _policyEndHour = 24;
+    private int _policyMaximumPerHour = 20;
+    private bool _policyAllowReplies = true;
+    private bool _policyAllowModeration;
+    private string _policyEscalationKeywords = "legal, threat, emergency";
+    private int ActiveIndex => Math.Max(0, _setup?.Flow.Steps.ToList().FindIndex(x => x.Id == _setup.CurrentStepId) ?? 0);
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            _setup = await Http.GetFromJsonAsync<PluginSetupResponse>($"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}");
+            foreach (var pair in _setup?.Values ?? new Dictionary<string, JsonElement>())
+                _values[pair.Key] = pair.Value.ValueKind switch
+                {
+                    JsonValueKind.String => pair.Value.GetString(),
+                    JsonValueKind.Number when pair.Value.TryGetDecimal(out var number) => number,
+                    JsonValueKind.True => true,
+                    JsonValueKind.False => false,
+                    _ => null
+                };
+            foreach (var field in _setup?.ConfigurationFields ?? [])
+                if (!_values.ContainsKey(field.Key) && field.DefaultValue is { } value)
+                    _values[field.Key] = value.ValueKind switch
+                    {
+                        JsonValueKind.String => value.GetString(),
+                        JsonValueKind.Number when value.TryGetDecimal(out var number) => number,
+                        JsonValueKind.True => true,
+                        JsonValueKind.False => false,
+                        _ => null
+                    };
+            _selectedAccountId = _setup?.Values.TryGetValue("selectedAccountId", out var selectedId) == true
+                ? selectedId.GetString() : _selectedAccountId;
+            if (_setup?.Flow.Steps.FirstOrDefault(x => x.Id == _setup.CurrentStepId)?.Kind == "account-selector")
+                await LoadAccountOptionsAsync();
+            if (_setup?.State == "Ready") await LoadPolicyAsync();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task LoadAccountOptionsAsync()
+    {
+        if (_setup?.CurrentStepId is not { } stepId) return;
+        _loadingAccounts = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/steps/{stepId}/invoke",
+                new { });
+            await EnsureSuccessAsync(response);
+            var callback = await response.Content.ReadFromJsonAsync<PluginBootstrapCallbackResponse>()
+                ?? throw new InvalidOperationException("The connected provider returned no channel choices.");
+            _accountOptions.Clear();
+            if (callback.Value.TryGetProperty("channels", out var channels) && channels.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var channel in channels.EnumerateArray())
+                {
+                    var id = channel.TryGetProperty("id", out var idNode) ? idNode.GetString() : null;
+                    var name = channel.TryGetProperty("name", out var nameNode) ? nameNode.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(name))
+                        _accountOptions.Add(new SetupAccountOption(id, name,
+                            channel.TryGetProperty("handle", out var handle) ? handle.GetString() : null));
+                }
+            }
+        }
+        finally { _loadingAccounts = false; }
+    }
+
+    private SetupAccountOption? SelectedAccount =>
+        _accountOptions.FirstOrDefault(x => x.Id == _selectedAccountId);
+    private void SelectAccount(string? accountId)
+    {
+        _selectedAccountId = accountId;
+        _selectedAccountName = SelectedAccount?.Name;
+    }
+
+    private async Task ConnectAsync(PluginSetupStep step)
+    {
+        _busy = true; _error = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/connections/{step.Connection}/authorize",
+                new BeginPluginAuthorizationRequest(step.ScopeSet!));
+            await EnsureSuccessAsync(response);
+            var result = await response.Content.ReadFromJsonAsync<BeginPluginAuthorizationResponse>()
+                ?? throw new InvalidOperationException("Authorization could not be started.");
+            Navigation.NavigateTo(result.AuthorizationUrl, true);
+        }
+        catch (Exception exception) { _error = exception.Message; _busy = false; }
+    }
+
+    private async Task CompleteStepAsync(PluginSetupStep step)
+    {
+        _busy = true; _error = null;
+        try
+        {
+            var values = _values.ToDictionary(x => x.Key, x => JsonSerializer.SerializeToElement(x.Value), StringComparer.Ordinal);
+            if (step.Kind == "account-selector")
+            {
+                values["selectedAccountId"] = JsonSerializer.SerializeToElement(_selectedAccountId);
+                values["selectedAccountName"] = JsonSerializer.SerializeToElement(_selectedAccountName);
+            }
+            var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/steps/{step.Id}/complete",
+                new CompletePluginSetupStepRequest(values, $"setup:{InstallationId:N}:{step.Id}"));
+            await EnsureSuccessAsync(response);
+            _setup = await response.Content.ReadFromJsonAsync<PluginSetupResponse>();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ActivateAsync()
+    {
+        _busy = true; _error = null;
+        try
+        {
+            var response = await Http.PostAsync($"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/activate", null);
+            await EnsureSuccessAsync(response); await LoadAsync();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DisconnectAsync(PluginSetupStep step)
+    {
+        if (string.IsNullOrWhiteSpace(step.Connection)) return;
+        _busy = true; _error = null;
+        try
+        {
+            var response = await Http.DeleteAsync(
+                $"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/connections/{step.Connection}");
+            await EnsureSuccessAsync(response);
+            await LoadAsync();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task LoadPolicyAsync()
+    {
+        var response = await Http.GetAsync(
+            $"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/standing-policy");
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return;
+        await EnsureSuccessAsync(response);
+        _policy = await response.Content.ReadFromJsonAsync<PluginStandingPolicyResponse>();
+        if (_policy is null) return;
+        _policyCategories.Clear();
+        foreach (var value in _policy.Policy.AllowedActionCategories) _policyCategories.Add(value);
+        _policyPrivacy.Clear();
+        foreach (var value in _policy.Policy.AllowedPrivacyValues) _policyPrivacy.Add(value);
+        _policyStartHour = _policy.Policy.AllowedUtcStartHour;
+        _policyEndHour = _policy.Policy.AllowedUtcEndHour;
+        _policyMaximumPerHour = _policy.Policy.MaximumActionsPerHour;
+        _policyAllowReplies = _policy.Policy.AllowReplies;
+        _policyAllowModeration = _policy.Policy.AllowModeration;
+        _policyEscalationKeywords = string.Join(", ", _policy.Policy.EscalationKeywords);
+    }
+
+    private async Task SavePolicyAsync()
+    {
+        var channelId = _setup?.Connections.FirstOrDefault(x =>
+            x.Status == "Connected" && !string.IsNullOrWhiteSpace(x.BoundResourceId))?.BoundResourceId;
+        if (string.IsNullOrWhiteSpace(channelId)) { _error = "Connect and confirm a channel first."; return; }
+        _busy = true; _error = null;
+        try
+        {
+            var definition = new PluginStandingPolicyDefinition(
+                _policyCategories.Order(StringComparer.Ordinal).ToArray(),
+                _policyPrivacy.Order(StringComparer.Ordinal).ToArray(),
+                Enumerable.Range(0, 7).ToArray(), _policyStartHour, _policyEndHour,
+                _policyMaximumPerHour, _policyAllowReplies, _policyAllowModeration,
+                _policyEscalationKeywords.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+            var response = await Http.PutAsJsonAsync(
+                $"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/standing-policy",
+                new ApprovePluginStandingPolicyRequest(channelId, definition, _policy?.Revision));
+            await EnsureSuccessAsync(response);
+            _policy = await response.Content.ReadFromJsonAsync<PluginStandingPolicyResponse>();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task RevokePolicyAsync()
+    {
+        _busy = true; _error = null;
+        try
+        {
+            var response = await Http.DeleteAsync(
+                $"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/standing-policy");
+            await EnsureSuccessAsync(response);
+            if (_policy is not null) _policy = _policy with { Status = "Revoked", RevokedAt = DateTimeOffset.UtcNow };
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private static void SetMembership(HashSet<string> values, string value, bool selected)
+    {
+        if (selected) values.Add(value); else values.Remove(value);
+    }
+
+    private string PermissionPurpose(PluginSetupStep step) => _setup?.ConnectionDeclarations
+        .FirstOrDefault(x => x.Id == step.Connection)?.ScopeSets.FirstOrDefault(x => x.Id == step.ScopeSet)?.Purpose
+        ?? "Review and approve the requested provider permissions.";
+    private string PermissionDifference(PluginSetupStep step)
+    {
+        var requested = _setup?.ConnectionDeclarations.FirstOrDefault(x => x.Id == step.Connection)
+            ?.ScopeSets.FirstOrDefault(x => x.Id == step.ScopeSet)?.Scopes ?? [];
+        var granted = _setup?.Connections.FirstOrDefault(x => x.DeclarationId == step.Connection)?.GrantedScopes ?? [];
+        var difference = requested.Except(granted, StringComparer.Ordinal).ToArray();
+        return difference.Length == 0 ? "Already granted" : string.Join(", ", difference);
+    }
+    private string StringValue(string key) => _values.TryGetValue(key, out var value) ? value?.ToString() ?? "" : "";
+    private bool BooleanValue(string key) => _values.TryGetValue(key, out var value) && value is true;
+    private static string FriendlyName(string value) => string.Concat(value.Select((character, index) =>
+        index > 0 && char.IsUpper(character) ? $" {character}" : character.ToString()));
+    private static string EligibilityValue(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.True => "Eligible",
+        JsonValueKind.False => "Not eligible",
+        JsonValueKind.String => value.GetString() ?? "Unknown",
+        _ => "Unknown"
+    };
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
+    }
+
+    private sealed record SetupAccountOption(string Id, string Name, string? Handle);
+}

@@ -93,6 +93,7 @@
 
     private Guid? _providerProfileId;
     private bool _localProviderDiscoveryAttempted;
+    private bool _localGenAiProviderDiscoveryAttempted;
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
@@ -158,7 +159,9 @@
                                                                          OnContinue="@ContinueFromProviderAsync"
                                                                          OnBack="@BackToWelcome" />;
 
-    private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep OnContinue="@ContinueFromGenAiProviderAsync"
+    private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep AutoDiscoverLocalProviders="@(!_localGenAiProviderDiscoveryAttempted)"
+                                                                              LocalProviderDiscoveryAttempted="@HandleLocalGenAiProviderDiscoveryAttempted"
+                                                                              OnContinue="@ContinueFromGenAiProviderAsync"
                                                                               OnBack="@BackToProvider" />;
 
     private RenderFragment EmailDeliveryStep =>
@@ -178,6 +181,11 @@
     private void HandleLocalProviderDiscoveryAttempted()
     {
         _localProviderDiscoveryAttempted = true;
+    }
+
+    private void HandleLocalGenAiProviderDiscoveryAttempted()
+    {
+        _localGenAiProviderDiscoveryAttempted = true;
     }
 
     private async Task ContinueFromProviderAsync(Guid? providerProfileId)

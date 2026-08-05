@@ -1,0 +1,136 @@
+@using System.Net.Http.Json
+@using CSweet.Contracts.GenAi
+@using Microsoft.AspNetCore.Components.Forms
+@inject HttpClient Http
+
+<MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4">
+    <MudText Typo="Typo.h5">Organization media</MudText>
+    <MudText Color="Color.Secondary" Class="mb-3">
+        Choose a video, thumbnail, or caption file. C-Sweet validates and stores it securely, then gives the agent an opaque asset ID.
+    </MudText>
+    <InputFile OnChange="SelectFile" accept="video/mp4,video/webm,image/png,image/jpeg,image/webp,text/vtt,.srt" disabled="@_busy" />
+    @if (_file is not null)
+    {
+        <MudText Class="mt-2">@_file.Name (@FormatBytes(_file.Size))</MudText>
+        <MudProgressLinear Value="@Progress" Color="Color.Primary" Class="mt-2" />
+        <MudText Typo="Typo.caption">@Math.Round(Progress, 1)% uploaded</MudText>
+        <MudStack Row="true" Spacing="2" Class="mt-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="UploadAsync">
+                @(_session is null ? "Upload" : "Resume upload")
+            </MudButton>
+            @if (_session?.Status == "Active")
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="CancelAsync">Cancel</MudButton>
+            }
+        </MudStack>
+    }
+    @if (_session?.Asset is { } asset)
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mt-3">
+            Upload complete. Media asset ID: <code>@asset.Id</code><br />
+            SHA-256: <code>@asset.Sha256</code>
+        </MudAlert>
+    }
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">@_error</MudAlert>
+    }
+</MudPaper>
+
+@code {
+    private const long AbsoluteMaximumFileSize = 256L * 1024 * 1024 * 1024;
+    [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
+    private IBrowserFile? _file;
+    private MediaUploadSessionResponse? _session;
+    private bool _busy;
+    private string? _error;
+    private double Progress => _session is null || _session.TotalBytes == 0
+        ? 0 : 100d * _session.ReceivedBytes / _session.TotalBytes;
+
+    private void SelectFile(InputFileChangeEventArgs args)
+    {
+        _file = args.File;
+        _session = null;
+        _error = null;
+    }
+
+    private async Task UploadAsync()
+    {
+        if (_file is null) return;
+        _busy = true; _error = null;
+        try
+        {
+            if (_session is null)
+            {
+                var create = await Http.PostAsJsonAsync($"api/media-assets/uploads/organization/{OrganizationId:D}",
+                    new CreateMediaUploadSessionRequest(_file.Name, ContentType(_file), _file.Size));
+                await EnsureSuccessAsync(create);
+                _session = await create.Content.ReadFromJsonAsync<MediaUploadSessionResponse>()
+                    ?? throw new InvalidOperationException("C-Sweet did not create an upload session.");
+            }
+            await using var input = _file.OpenReadStream(AbsoluteMaximumFileSize);
+            await SkipAsync(input, _session.ReceivedBytes);
+            while (_session.ReceivedBytes < _session.TotalBytes)
+            {
+                var size = (int)Math.Min(_session.ChunkSizeBytes, _session.TotalBytes - _session.ReceivedBytes);
+                var buffer = new byte[size];
+                await input.ReadExactlyAsync(buffer);
+                using var content = new ByteArrayContent(buffer);
+                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                var response = await Http.PutAsync(
+                    $"api/media-assets/uploads/{_session.Id:D}/chunks/{_session.ReceivedBytes}?organizationId={OrganizationId:D}", content);
+                await EnsureSuccessAsync(response);
+                _session = await response.Content.ReadFromJsonAsync<MediaUploadSessionResponse>()
+                    ?? throw new InvalidOperationException("C-Sweet returned no upload progress.");
+                StateHasChanged();
+            }
+            var complete = await Http.PostAsync(
+                $"api/media-assets/uploads/{_session.Id:D}/complete?organizationId={OrganizationId:D}", null);
+            await EnsureSuccessAsync(complete);
+            _session = await complete.Content.ReadFromJsonAsync<MediaUploadSessionResponse>();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task CancelAsync()
+    {
+        if (_session is null) return;
+        _busy = true; _error = null;
+        try
+        {
+            var response = await Http.DeleteAsync(
+                $"api/media-assets/uploads/{_session.Id:D}?organizationId={OrganizationId:D}");
+            await EnsureSuccessAsync(response);
+            _session = null;
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private static async Task SkipAsync(Stream stream, long bytes)
+    {
+        var buffer = new byte[1024 * 1024];
+        while (bytes > 0)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, bytes)));
+            if (read == 0) throw new EndOfStreamException("The selected file no longer matches the upload session.");
+            bytes -= read;
+        }
+    }
+
+    private static string ContentType(IBrowserFile file) => Path.GetExtension(file.Name).ToLowerInvariant() switch
+    {
+        ".srt" => "application/x-subrip",
+        ".vtt" => "text/vtt",
+        _ => file.ContentType
+    };
+    private static string FormatBytes(long value) => value >= 1024L * 1024 * 1024
+        ? $"{value / (1024d * 1024 * 1024):0.##} GB"
+        : value >= 1024L * 1024 ? $"{value / (1024d * 1024):0.##} MB" : $"{value / 1024d:0.##} KB";
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
+    }
+}

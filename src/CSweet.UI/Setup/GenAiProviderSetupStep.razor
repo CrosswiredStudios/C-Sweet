@@ -15,6 +15,21 @@
         </div>
     </header>
 
+    @if (_isDiscoveringLocalProviders)
+    {
+        <div class="provider-feedback checking provider-discovery-feedback" role="status">
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+            <span>Looking for ComfyUI on this machine...</span>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_localDiscoveryMessage))
+    {
+        <div class="provider-feedback @_localDiscoveryFeedbackClass provider-discovery-feedback" role="status">
+            <MudIcon Icon="@(_localDiscoveryFailed ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.CheckCircle)" />
+            <span>@_localDiscoveryMessage</span>
+        </div>
+    }
+
     <div class="provider-workspace">
         <section class="provider-roster" aria-labelledby="connected-genai-providers-title">
             <div class="provider-section-heading">
@@ -78,6 +93,17 @@
                     <span class="provider-section-kicker">Add another</span>
                     <h2 id="add-genai-provider-title">@(_showHosted ? "Choose a hosted provider" : "Choose a local runtime")</h2>
                 </div>
+                @if (!_showHosted)
+                {
+                    <MudButton Variant="Variant.Text"
+                               Color="Color.Primary"
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Outlined.Refresh"
+                               Disabled="@_isDiscoveringLocalProviders"
+                               OnClick="DiscoverLocalProvidersAsync">
+                        @(_isDiscoveringLocalProviders ? "Scanning..." : "Scan again")
+                    </MudButton>
+                }
             </div>
 
             <div class="provider-mode-switch" role="group" aria-label="Provider location">
@@ -112,7 +138,7 @@
                             class="provider-choice @(IsActivePreset(preset) ? "selected" : null)"
                             aria-pressed="@IsActivePreset(preset)"
                             disabled="@_isBusy"
-                            @onclick="() => SelectPreset(preset)">
+                            @onclick="() => SelectPresetAsync(preset)">
                         <span class="provider-choice-mark">@preset.Mark</span>
                         <span>
                             <strong>@preset.DisplayName</strong>
@@ -148,7 +174,8 @@
                                   Disabled="@_isBusy" />
                     <MudSelect T="GenAiProviderType"
                                Label="Provider type"
-                               @bind-Value="_providerType"
+                               Value="_providerType"
+                               ValueChanged="OnProviderTypeChanged"
                                Variant="Variant.Outlined"
                                Disabled="@_isBusy">
                         @foreach (var type in Enum.GetValues<GenAiProviderType>())
@@ -156,15 +183,21 @@
                             <MudSelectItem Value="@type">@ProviderTypeLabel(type)</MudSelectItem>
                         }
                     </MudSelect>
-                    <MudTextField Class="provider-form-wide"
+                    <MudTextField T="string"
+                                  Class="provider-form-wide"
                                   Label="Base URL"
-                                  @bind-Value="_baseUrl"
+                                  Value="_baseUrl"
+                                  ValueChanged="OnBaseUrlChanged"
+                                  Immediate="true"
                                   Variant="Variant.Outlined"
                                   Disabled="@_isBusy"
-                                  Placeholder="@(_showHosted ? "https://api.example.com" : "http://host.docker.internal:8188")" />
-                    <MudTextField Class="provider-form-wide"
+                                  Placeholder="@(_showHosted ? "https://api.example.com" : "http://127.0.0.1:8188")" />
+                    <MudTextField T="string"
+                                  Class="provider-form-wide"
                                   Label="@ApiKeyLabel"
-                                  @bind-Value="_apiKey"
+                                  Value="_apiKey"
+                                  ValueChanged="OnApiKeyChanged"
+                                  Immediate="true"
                                   InputType="InputType.Password"
                                   Placeholder="@ApiKeyPlaceholder"
                                   Variant="Variant.Outlined"
@@ -279,9 +312,18 @@
                     {
                         <MudButton Variant="Variant.Outlined"
                                    Color="Color.Secondary"
-                                   Disabled="@(_isBusy || HasUnsavedConnectionChanges)"
+                                   Disabled="@(_isBusy || !CanTestConnection)"
                                    OnClick="TestConnectionAsync">
-                            @(_isTesting ? "Testing..." : HasUnsavedConnectionChanges ? "Save before testing" : "Test connection")
+                            @(_isTesting ? "Testing..." : "Test connection")
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Secondary"
+                                   Disabled="@(_isBusy || !CanTestConnection)"
+                                   OnClick="TestConnectionAsync">
+                            @(_isTesting ? "Testing..." : "Test connection")
                         </MudButton>
                     }
                     <span class="provider-editor-spacer"></span>
@@ -370,7 +412,7 @@
 @code {
     private static readonly IReadOnlyList<GenAiProviderPreset> LocalPresets =
     [
-        new(GenAiProviderType.ComfyUiLocal, "ComfyUI Local", "Run image and video workflows on your hardware.", "http://host.docker.internal:8188", "CU")
+        new(GenAiProviderType.ComfyUiLocal, "ComfyUI Local", "Run image and video workflows on your hardware.", "http://127.0.0.1:8188", "CU")
     ];
 
     private static readonly IReadOnlyList<GenAiProviderPreset> HostedPresets =
@@ -386,6 +428,8 @@
 
     [Parameter] public string ContextLabel { get; set; } = "Step 3 of 5";
     [Parameter] public bool ShowNavigation { get; set; } = true;
+    [Parameter] public bool AutoDiscoverLocalProviders { get; set; }
+    [Parameter] public EventCallback LocalProviderDiscoveryAttempted { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public EventCallback OnContinue { get; set; }
 
@@ -399,6 +443,10 @@
     private string? _deleteMessage;
     private bool _isBusy;
     private bool _isTesting;
+    private bool _isDiscoveringLocalProviders;
+    private bool _localDiscoveryFailed;
+    private string? _localDiscoveryMessage;
+    private string _localDiscoveryFeedbackClass = "checking";
     private bool _editorError;
     private string? _editorMessage;
     private bool? _formSucceeded;
@@ -409,6 +457,9 @@
     private string _baseUrl = string.Empty;
     private string? _apiKey;
     private bool _hasApiKey;
+    private bool _connectionDetailsChanged;
+    private bool? _connectionSucceeded;
+    private int _connectionValidationVersion;
 
     private Guid? _editingOperationId;
     private GenAiOperationType _operationType = GenAiOperationType.ImageGeneration;
@@ -424,17 +475,16 @@
         : Enum.GetValues<GenAiOperationType>();
     private bool UsesTemplate => _providerType is GenAiProviderType.ComfyUiLocal or GenAiProviderType.ComfyUiCloud or GenAiProviderType.Replicate;
     private bool RequiresApiKey => IsHosted(_providerType);
-    private bool HasUnsavedConnectionChanges =>
-        SelectedProfile is { } profile &&
-        (!string.Equals(_providerName.Trim(), profile.Name, StringComparison.Ordinal) ||
-         _providerType != profile.ProviderType ||
-         !string.Equals(_baseUrl.Trim(), profile.BaseUrl, StringComparison.OrdinalIgnoreCase) ||
-         !string.IsNullOrWhiteSpace(_apiKey));
+    private bool CanTestConnection =>
+        Uri.TryCreate(_baseUrl, UriKind.Absolute, out var testUri) &&
+        testUri.Scheme is "http" or "https" &&
+        (!RequiresApiKey || !string.IsNullOrWhiteSpace(_apiKey) || (_editingProviderId.HasValue && _hasApiKey));
     private bool CanSaveProvider =>
         !string.IsNullOrWhiteSpace(_providerName) &&
         Uri.TryCreate(_baseUrl, UriKind.Absolute, out var uri) &&
         uri.Scheme is "http" or "https" &&
-        (_editingProviderId.HasValue || !RequiresApiKey || !string.IsNullOrWhiteSpace(_apiKey));
+        (_editingProviderId.HasValue || !RequiresApiKey || !string.IsNullOrWhiteSpace(_apiKey)) &&
+        ((_editingProviderId.HasValue && !_connectionDetailsChanged) || _connectionSucceeded == true);
     private string ApiKeyLabel => _editingProviderId.HasValue && _hasApiKey
         ? "New API key (leave blank to keep saved key)"
         : RequiresApiKey ? "API key" : "API key (optional)";
@@ -444,9 +494,67 @@
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !AutoDiscoverLocalProviders)
+        {
+            return;
+        }
+
+        await LocalProviderDiscoveryAttempted.InvokeAsync();
+        await DiscoverLocalProvidersAsync();
+    }
+
     private async Task LoadAsync()
     {
         _profiles = (await Api.ListAsync()).ToList();
+    }
+
+    private async Task DiscoverLocalProvidersAsync()
+    {
+        if (_isDiscoveringLocalProviders)
+        {
+            return;
+        }
+
+        _isDiscoveringLocalProviders = true;
+        _localDiscoveryFailed = false;
+        _localDiscoveryMessage = null;
+        _localDiscoveryFeedbackClass = "checking";
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var discovery = await Api.DiscoverLocalAsync();
+            _profiles = discovery.Profiles.ToList();
+            var added = discovery.Results.Any(x => x.Status == LocalGenAiProviderDiscoveryStatuses.Added);
+            var configured = discovery.Results.Any(x => x.Status == LocalGenAiProviderDiscoveryStatuses.AlreadyConfigured);
+            if (added)
+            {
+                _localDiscoveryFeedbackClass = "success";
+                _localDiscoveryMessage = "Connected ComfyUI automatically.";
+            }
+            else if (configured)
+            {
+                _localDiscoveryFeedbackClass = "success";
+                _localDiscoveryMessage = "No new local providers found. ComfyUI is already connected.";
+            }
+            else
+            {
+                _localDiscoveryMessage = "No local ComfyUI runtime found. Start it and scan again, or add the endpoint manually.";
+            }
+        }
+        catch
+        {
+            _localDiscoveryFailed = true;
+            _localDiscoveryFeedbackClass = "error";
+            _localDiscoveryMessage = "C-Sweet could not scan for local GenAI providers. You can scan again or add one manually.";
+        }
+        finally
+        {
+            _isDiscoveringLocalProviders = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private void SetProviderMode(bool showHosted)
@@ -463,7 +571,7 @@
     private bool IsActivePreset(GenAiProviderPreset preset) =>
         _editorOpen && _activePreset?.ProviderType == preset.ProviderType;
 
-    private void SelectPreset(GenAiProviderPreset preset)
+    private async Task SelectPresetAsync(GenAiProviderPreset preset)
     {
         _activePreset = preset;
         _editingProviderId = null;
@@ -472,10 +580,16 @@
         _baseUrl = preset.BaseUrl;
         _apiKey = null;
         _hasApiKey = false;
-        _editorMessage = null;
-        _editorError = false;
+        _connectionDetailsChanged = true;
+        InvalidateConnectionValidation();
         NewOperation();
         _editorOpen = true;
+
+        if (!IsHosted(preset.ProviderType))
+        {
+            await InvokeAsync(StateHasChanged);
+            await TestConnectionAsync();
+        }
     }
 
     private void EditProvider(GenAiProviderProfileResponse profile)
@@ -488,6 +602,8 @@
         _baseUrl = profile.BaseUrl;
         _apiKey = null;
         _hasApiKey = profile.HasApiKey;
+        _connectionDetailsChanged = false;
+        _connectionSucceeded = profile.LastSuccessfulConnectionAt.HasValue ? true : null;
         _editorMessage = profile.LastSuccessfulConnectionAt.HasValue
             ? "This saved connection has been verified."
             : "Test this saved connection before assigning it to agents.";
@@ -506,7 +622,7 @@
         _editorOpen = false;
         _activePreset = null;
         _editingProviderId = null;
-        _editorMessage = null;
+        InvalidateConnectionValidation();
         NewOperation();
     }
 
@@ -519,6 +635,40 @@
         }
 
         CloseEditor();
+    }
+
+    private Task OnProviderTypeChanged(GenAiProviderType value)
+    {
+        _providerType = value;
+        _showHosted = IsHosted(value);
+        _connectionDetailsChanged = true;
+        InvalidateConnectionValidation();
+        NewOperation();
+        return Task.CompletedTask;
+    }
+
+    private Task OnBaseUrlChanged(string value)
+    {
+        _baseUrl = value;
+        _connectionDetailsChanged = true;
+        InvalidateConnectionValidation();
+        return Task.CompletedTask;
+    }
+
+    private Task OnApiKeyChanged(string value)
+    {
+        _apiKey = value;
+        _connectionDetailsChanged = true;
+        InvalidateConnectionValidation();
+        return Task.CompletedTask;
+    }
+
+    private void InvalidateConnectionValidation()
+    {
+        _connectionValidationVersion++;
+        _connectionSucceeded = null;
+        _editorMessage = null;
+        _editorError = false;
     }
 
     private async Task SaveProviderAsync()
@@ -556,6 +706,8 @@
             _editorOpen = false;
             _activePreset = null;
             _editingProviderId = null;
+            _connectionDetailsChanged = false;
+            _connectionSucceeded = null;
         }
         catch (Exception exception)
         {
@@ -570,26 +722,49 @@
 
     private async Task TestConnectionAsync()
     {
-        if (!_editingProviderId.HasValue || _isBusy)
+        if (!CanTestConnection || _isBusy)
         {
             return;
         }
 
+        var validationVersion = ++_connectionValidationVersion;
         _isBusy = true;
         _isTesting = true;
         _editorMessage = null;
 
         try
         {
-            var result = await Api.TestAsync(_editingProviderId.Value);
+            var result = _editingProviderId.HasValue && !_connectionDetailsChanged
+                ? await Api.TestAsync(_editingProviderId.Value)
+                : await Api.TestDraftAsync(new(
+                    _editingProviderId,
+                    _providerType,
+                    _baseUrl.Trim(),
+                    string.IsNullOrWhiteSpace(_apiKey) ? null : _apiKey,
+                    ReplaceApiKey: !string.IsNullOrWhiteSpace(_apiKey)));
+            if (validationVersion != _connectionValidationVersion)
+            {
+                return;
+            }
+
             _editorError = !result.Succeeded;
             _editorMessage = result.Message;
-            await LoadAsync();
+            _connectionSucceeded = result.Succeeded;
+            if (_editingProviderId.HasValue)
+            {
+                await LoadAsync();
+            }
         }
         catch (Exception exception)
         {
+            if (validationVersion != _connectionValidationVersion)
+            {
+                return;
+            }
+
             _editorError = true;
             _editorMessage = exception.Message;
+            _connectionSucceeded = false;
         }
         finally
         {

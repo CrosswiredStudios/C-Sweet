@@ -134,7 +134,10 @@ public sealed record HiringWorkflowResponse(
     string Status,
     string Message,
     DateTimeOffset CreatedAt,
-    Guid? ResultOrganizationUserId = null);
+    Guid? ResultOrganizationUserId = null)
+{
+    public Guid? ResultAgentInstallationId { get; init; }
+}
 
 public sealed record ConfirmHiringWorkflowRequest(
     [property: Required, MaxLength(160)] string IdempotencyKey)

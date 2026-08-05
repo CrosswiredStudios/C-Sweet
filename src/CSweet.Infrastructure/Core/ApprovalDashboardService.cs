@@ -43,6 +43,10 @@ public sealed class ApprovalDashboardService(
         var ownerLabel = ownerNames.Count == 0
             ? "Organization owner"
             : string.Join(", ", ownerNames);
+        var managersByInstallation = people
+            .Where(x => x.AgentInstallationId.HasValue && x.ReportsToOrganizationUserId.HasValue)
+            .GroupBy(x => x.AgentInstallationId!.Value)
+            .ToDictionary(x => x.Key, x => x.First().ReportsToOrganizationUserId!.Value);
 
         var items = new List<ApprovalDashboardItemResponse>();
         var teamRequests = await resourceChanges.ListForDashboardAsync(
@@ -68,18 +72,26 @@ public sealed class ApprovalDashboardService(
             .OrderByDescending(x => x.CreatedAt)
             .Take(250)
             .ToListAsync(cancellationToken);
-        items.AddRange(agentActions.Select(proposal => new ApprovalDashboardItemResponse(
-            proposal.Id,
-            ApprovalDashboardKinds.AgentAction,
-            Humanize(proposal.ActionType),
-            proposal.Summary,
-            proposal.Status.ToString(),
-            Name(installationNames, proposal.AgentInstallationId, "Agent employee"),
-            ownerLabel,
-            proposal.CreatedAt,
-            proposal.DecidedAt,
-            $"/organizations/{organizationId:D}/command-center",
-            false)));
+        items.AddRange(agentActions.Select(proposal =>
+        {
+            var managerId = managersByInstallation.GetValueOrDefault(proposal.AgentInstallationId);
+            return new ApprovalDashboardItemResponse(
+                proposal.Id,
+                ApprovalDashboardKinds.AgentAction,
+                Humanize(proposal.ActionType),
+                proposal.Summary,
+                proposal.Status.ToString(),
+                Name(installationNames, proposal.AgentInstallationId, "Agent employee"),
+                managerId == Guid.Empty ? ownerLabel : Name(names, managerId, ownerLabel),
+                proposal.CreatedAt,
+                proposal.DecidedAt,
+                $"/organizations/{organizationId:D}/approvals",
+                proposal.Status == ProposalStatus.Pending &&
+                (actor.PermissionLevel == OrganizationPermissionLevel.Owner || actor.Id == managerId))
+            {
+                AgentAction = ReadManagedAction(proposal)
+            };
+        }));
 
         var hiringCards = await hiring.ListApprovalCardsAsync(organizationId, cancellationToken: cancellationToken);
         var hiringWorkflowIds = hiringCards.Keys.ToList();
@@ -236,6 +248,28 @@ public sealed class ApprovalDashboardService(
             actor.Id,
             ordered.Count(x => IsPending(x.Status)),
             ordered);
+    }
+
+    private static ManagedAgentActionApprovalResponse? ReadManagedAction(ActionProposal proposal)
+    {
+        try
+        {
+            using var payload = JsonDocument.Parse(proposal.PayloadJson);
+            var root = payload.RootElement;
+            if (!root.TryGetProperty("channelId", out var channel) ||
+                !root.TryGetProperty("payloadHash", out var hash) ||
+                !root.TryGetProperty("idempotencyKey", out var idempotency)) return null;
+            return new(proposal.Id,
+                root.TryGetProperty("actionType", out var action) ? action.GetString() ?? proposal.ActionType : proposal.ActionType,
+                channel.GetString() ?? string.Empty,
+                hash.GetString() ?? string.Empty,
+                root.TryGetProperty("expectedRevision", out var revision) && revision.ValueKind == JsonValueKind.Number ? revision.GetInt64() : null,
+                idempotency.GetString() ?? string.Empty,
+                root.TryGetProperty("alwaysRequiresApproval", out var always) && always.GetBoolean(),
+                root.TryGetProperty("resourceId", out var resource) && resource.ValueKind == JsonValueKind.String
+                    ? resource.GetString() : null);
+        }
+        catch (JsonException) { return null; }
     }
 
     private static string Name(

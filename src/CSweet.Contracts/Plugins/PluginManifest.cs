@@ -18,6 +18,8 @@ public sealed record PluginManifest
     public PluginEventDeclarations Events { get; init; } = new();
     public IReadOnlyList<PluginConfigurationField> Configuration { get; init; } = [];
     public IReadOnlyList<PluginCredentialBinding> Credentials { get; init; } = [];
+    public IReadOnlyList<PluginConnectionDeclaration> Connections { get; init; } = [];
+    public PluginSetupManifest? Setup { get; init; }
     public PluginWebAccess WebAccess { get; init; } = new();
     public IReadOnlyList<PluginUiContribution> Ui { get; init; } = [];
     public PluginCatalogMetadata Catalog { get; init; } = new();
@@ -119,6 +121,51 @@ public sealed record PluginCredentialBinding
     public IReadOnlyList<string> AllowedOrigins { get; init; } = [];
 }
 
+public sealed record PluginConnectionDeclaration
+{
+    public string Id { get; init; } = string.Empty;
+    public string Type { get; init; } = "oauth2";
+    public string ProviderProfile { get; init; } = string.Empty;
+    public IReadOnlyList<string> AllowedOrigins { get; init; } = [];
+    public IReadOnlyList<PluginConnectionScopeSet> ScopeSets { get; init; } = [];
+    public IReadOnlyList<string> SecretResponseFields { get; init; } = [];
+}
+
+public sealed record PluginConnectionScopeSet
+{
+    public string Id { get; init; } = string.Empty;
+    public string Label { get; init; } = string.Empty;
+    public string Purpose { get; init; } = string.Empty;
+    public bool Required { get; init; }
+    public IReadOnlyList<string> Scopes { get; init; } = [];
+}
+
+public sealed record PluginSetupManifest
+{
+    public bool Required { get; init; } = true;
+    public string EntryFlow { get; init; } = string.Empty;
+    public IReadOnlyList<PluginSetupFlow> Flows { get; init; } = [];
+}
+
+public sealed record PluginSetupFlow
+{
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public IReadOnlyList<PluginSetupStep> Steps { get; init; } = [];
+}
+
+public sealed record PluginSetupStep
+{
+    public string Id { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string? Connection { get; init; }
+    public string? ScopeSet { get; init; }
+    public string? Capability { get; init; }
+    public IReadOnlyList<string> ConfigurationKeys { get; init; } = [];
+}
+
 public sealed record PluginWebAccess
 {
     [JsonConverter(typeof(JsonStringEnumConverter<PluginWebAccessMode>))]
@@ -144,6 +191,8 @@ public sealed record PluginWebAccessRule
     public string Protocol { get; init; } = "http";
     public string Purpose { get; init; } = string.Empty;
     public string? Credential { get; init; }
+    public string? Connection { get; init; }
+    public bool Bootstrap { get; init; }
 }
 
 public sealed record PluginUiContribution
@@ -152,6 +201,7 @@ public sealed record PluginUiContribution
     public string Id { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
     public string? Capability { get; init; }
+    public string? Flow { get; init; }
 }
 
 public sealed record PlatformWebFetchRequest(
@@ -160,7 +210,9 @@ public sealed record PlatformWebFetchRequest(
     IReadOnlyDictionary<string, string>? Headers = null,
     string? Credential = null,
     byte[]? Body = null,
-    string? ContentType = null);
+    string? ContentType = null,
+    string? Connection = null,
+    string? BoundResourceId = null);
 
 public sealed record PlatformWebFetchResponse(
     int StatusCode,
