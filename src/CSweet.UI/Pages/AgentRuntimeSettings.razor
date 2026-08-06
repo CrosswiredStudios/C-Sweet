@@ -10,8 +10,12 @@
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Agent settings</MudText>
             <MudText Typo="Typo.h3">Runtime</MudText>
-            <MudText Color="Color.Secondary">Global defaults and hard limits for imported agents, builds, schedules, and containers.</MudText>
+            <MudText Color="Color.Secondary">Global defaults and hard limits for imported agents, builds, schedules, and isolated VM workloads.</MudText>
         </div>
+    </MudPaper>
+
+    <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+        <AgentIsolationSetupStep ShowNavigation="false" />
     </MudPaper>
 
     @if (_isLoading)
@@ -62,20 +66,20 @@
                     </div>
                 </MudExpansionPanel>
 
-                <MudExpansionPanel Text="Container limits" Class="configuration-expand-panel">
+                <MudExpansionPanel Text="Isolated workload limits" Class="configuration-expand-panel">
                     <div class="setup-form-grid">
-                        <MudNumericField T="int" Label="Global active containers" @bind-Value="_globalMaxActiveContainers" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Active containers per business" @bind-Value="_perBusinessMaxActiveContainers" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Active containers per installation" @bind-Value="_perInstallationMaxActiveContainers" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Default memory (MB)" @bind-Value="_defaultContainerMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Maximum memory (MB)" @bind-Value="_maximumContainerMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Default CPU (%)" @bind-Value="_defaultContainerCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Maximum CPU (%)" @bind-Value="_maximumContainerCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Default PIDs limit" @bind-Value="_defaultContainerPidsLimit" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Default log limit (MB)" @bind-Value="_defaultContainerLogLimitMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Start timeout (seconds)" @bind-Value="_containerStartTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Global active workloads" @bind-Value="_globalMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Active workloads per business" @bind-Value="_perBusinessMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Active workloads per installation" @bind-Value="_perInstallationMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Default memory (MB)" @bind-Value="_defaultWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Maximum memory (MB)" @bind-Value="_maximumWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Default CPU (%)" @bind-Value="_defaultWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Maximum CPU (%)" @bind-Value="_maximumWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Default process limit" @bind-Value="_defaultWorkloadProcessLimit" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Default log limit (MB)" @bind-Value="_defaultWorkloadLogLimitMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Start timeout (seconds)" @bind-Value="_workloadStartTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="MCP session timeout (seconds)" @bind-Value="_mcpSessionTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Stop grace period (seconds)" @bind-Value="_containerStopGraceSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Stop grace period (seconds)" @bind-Value="_workloadStopGraceSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
                     </div>
                 </MudExpansionPanel>
 
@@ -87,15 +91,11 @@
                         <MudCheckBox T="bool" Label="Allow public internet by default" @bind-Value="_allowPublicInternetByDefault" Disabled="_isBusy" />
                         <MudTextField Label="Allowed package feed hosts" @bind-Value="_allowedPackageFeedHosts" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudTextField Label="Blocked network CIDRs" @bind-Value="_blockedNetworkCidrs" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudTextField Label="Agent source root path" @bind-Value="_agentSourceRootPath" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudTextField Label="Agent package cache path" @bind-Value="_agentPackageCachePath" Variant="Variant.Outlined" Disabled="_isBusy" />
                     </div>
                 </MudExpansionPanel>
 
                 <MudExpansionPanel Text="Build and import" Class="configuration-expand-panel">
                     <div class="setup-form-grid">
-                        <MudTextField Label=".NET builder image" @bind-Value="_dotNetBuilderImage" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudTextField Label=".NET runtime base image" @bind-Value="_dotNetRuntimeBaseImage" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Build timeout (seconds)" @bind-Value="_buildTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Build memory (MB)" @bind-Value="_buildMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Build CPU (%)" @bind-Value="_buildCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
@@ -110,7 +110,7 @@
                         <MudNumericField T="int" Label="Completed runtime retention (days)" @bind-Value="_completedRuntimeRetentionDays" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Failed runtime retention (days)" @bind-Value="_failedRuntimeRetentionDays" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Build log retention (days)" @bind-Value="_buildLogRetentionDays" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudCheckBox T="bool" Label="Remove containers after completion" @bind-Value="_removeContainersAfterCompletion" Disabled="_isBusy" />
+                        <MudCheckBox T="bool" Label="Remove workloads after completion" @bind-Value="_removeWorkloadsAfterCompletion" Disabled="_isBusy" />
                         <MudCheckBox T="bool" Label="Remove workspaces after completion" @bind-Value="_removeWorkspacesAfterCompletion" Disabled="_isBusy" />
                     </div>
                 </MudExpansionPanel>
@@ -127,18 +127,17 @@
 
 @code {
     private bool _isLoading = true, _isBusy, _enableImportedAgents, _allowAlwaysOnCommunityAgents,
-        _allowPublicInternetByDefault, _keepFailedBuildWorkspaces, _removeContainersAfterCompletion,
+        _allowPublicInternetByDefault, _keepFailedBuildWorkspaces, _removeWorkloadsAfterCompletion,
         _removeWorkspacesAfterCompletion;
     private bool? _actionSucceeded;
     private string? _pageError, _actionMessage;
     private string _defaultActivationMode = "Periodic", _defaultOverlapPolicy = "Skip", _defaultRestartPolicy = "Never",
-        _defaultNetworkPolicy = "McpOnly", _allowedPackageFeedHosts = "", _blockedNetworkCidrs = "",
-        _agentSourceRootPath = "", _agentPackageCachePath = "", _dotNetBuilderImage = "", _dotNetRuntimeBaseImage = "";
+        _defaultNetworkPolicy = "McpOnly", _allowedPackageFeedHosts = "", _blockedNetworkCidrs = "";
     private int _defaultTickFrequencySeconds, _minimumTickFrequencySeconds, _defaultMaxRuntimeSeconds,
-        _globalMaxActiveContainers, _perBusinessMaxActiveContainers, _perInstallationMaxActiveContainers,
-        _defaultContainerMemoryMb, _maximumContainerMemoryMb, _defaultContainerCpuPercent, _maximumContainerCpuPercent,
-        _defaultContainerPidsLimit, _defaultContainerLogLimitMb, _containerStartTimeoutSeconds,
-        _mcpSessionTimeoutSeconds, _containerStopGraceSeconds, _buildTimeoutSeconds, _buildMemoryMb,
+        _globalMaxActiveWorkloads, _perBusinessMaxActiveWorkloads, _perInstallationMaxActiveWorkloads,
+        _defaultWorkloadMemoryMb, _maximumWorkloadMemoryMb, _defaultWorkloadCpuPercent, _maximumWorkloadCpuPercent,
+        _defaultWorkloadProcessLimit, _defaultWorkloadLogLimitMb, _workloadStartTimeoutSeconds,
+        _mcpSessionTimeoutSeconds, _workloadStopGraceSeconds, _buildTimeoutSeconds, _buildMemoryMb,
         _buildCpuPercent, _maximumRepositorySizeMb, _maximumBuildLogMb, _completedRuntimeRetentionDays,
         _failedRuntimeRetentionDays, _buildLogRetentionDays;
 
@@ -161,21 +160,19 @@
         _defaultTickFrequencySeconds = s.DefaultTickFrequencySeconds; _minimumTickFrequencySeconds = s.MinimumTickFrequencySeconds;
         _defaultMaxRuntimeSeconds = s.DefaultMaxRuntimeSeconds; _defaultOverlapPolicy = s.DefaultOverlapPolicy;
         _allowAlwaysOnCommunityAgents = s.AllowAlwaysOnCommunityAgents; _defaultRestartPolicy = s.DefaultRestartPolicy;
-        _globalMaxActiveContainers = s.GlobalMaxActiveContainers; _perBusinessMaxActiveContainers = s.PerBusinessMaxActiveContainers;
-        _perInstallationMaxActiveContainers = s.PerInstallationMaxActiveContainers; _defaultContainerMemoryMb = s.DefaultContainerMemoryMb;
-        _maximumContainerMemoryMb = s.MaximumContainerMemoryMb; _defaultContainerCpuPercent = s.DefaultContainerCpuPercent;
-        _maximumContainerCpuPercent = s.MaximumContainerCpuPercent; _defaultContainerPidsLimit = s.DefaultContainerPidsLimit;
-        _defaultContainerLogLimitMb = s.DefaultContainerLogLimitMb; _containerStartTimeoutSeconds = s.ContainerStartTimeoutSeconds;
-        _mcpSessionTimeoutSeconds = s.McpSessionTimeoutSeconds; _containerStopGraceSeconds = s.ContainerStopGraceSeconds;
+        _globalMaxActiveWorkloads = s.GlobalMaxActiveWorkloads; _perBusinessMaxActiveWorkloads = s.PerBusinessMaxActiveWorkloads;
+        _perInstallationMaxActiveWorkloads = s.PerInstallationMaxActiveWorkloads; _defaultWorkloadMemoryMb = s.DefaultWorkloadMemoryMb;
+        _maximumWorkloadMemoryMb = s.MaximumWorkloadMemoryMb; _defaultWorkloadCpuPercent = s.DefaultWorkloadCpuPercent;
+        _maximumWorkloadCpuPercent = s.MaximumWorkloadCpuPercent; _defaultWorkloadProcessLimit = s.DefaultWorkloadProcessLimit;
+        _defaultWorkloadLogLimitMb = s.DefaultWorkloadLogLimitMb; _workloadStartTimeoutSeconds = s.WorkloadStartTimeoutSeconds;
+        _mcpSessionTimeoutSeconds = s.McpSessionTimeoutSeconds; _workloadStopGraceSeconds = s.WorkloadStopGraceSeconds;
         _defaultNetworkPolicy = s.DefaultNetworkPolicy; _allowPublicInternetByDefault = s.AllowPublicInternetByDefault;
         _allowedPackageFeedHosts = s.AllowedPackageFeedHosts; _blockedNetworkCidrs = s.BlockedNetworkCidrs;
-        _agentSourceRootPath = s.AgentSourceRootPath; _agentPackageCachePath = s.AgentPackageCachePath;
-        _dotNetBuilderImage = s.DotNetBuilderImage; _dotNetRuntimeBaseImage = s.DotNetRuntimeBaseImage;
         _buildTimeoutSeconds = s.BuildTimeoutSeconds; _buildMemoryMb = s.BuildMemoryMb; _buildCpuPercent = s.BuildCpuPercent;
         _maximumRepositorySizeMb = s.MaximumRepositorySizeMb; _maximumBuildLogMb = s.MaximumBuildLogMb;
         _keepFailedBuildWorkspaces = s.KeepFailedBuildWorkspaces; _completedRuntimeRetentionDays = s.CompletedRuntimeRetentionDays;
         _failedRuntimeRetentionDays = s.FailedRuntimeRetentionDays; _buildLogRetentionDays = s.BuildLogRetentionDays;
-        _removeContainersAfterCompletion = s.RemoveContainersAfterCompletion; _removeWorkspacesAfterCompletion = s.RemoveWorkspacesAfterCompletion;
+        _removeWorkloadsAfterCompletion = s.RemoveWorkloadsAfterCompletion; _removeWorkspacesAfterCompletion = s.RemoveWorkspacesAfterCompletion;
     }
 
     private async Task SaveAsync()
@@ -186,15 +183,14 @@
             var result = await AgentRuntimeSettingsApi.UpdateAsync(new UpdateAgentRuntimeSettingsRequest(
                 _enableImportedAgents, _defaultActivationMode, _defaultTickFrequencySeconds, _minimumTickFrequencySeconds,
                 _defaultMaxRuntimeSeconds, _defaultOverlapPolicy, _allowAlwaysOnCommunityAgents, _defaultRestartPolicy,
-                _globalMaxActiveContainers, _perBusinessMaxActiveContainers, _perInstallationMaxActiveContainers,
-                _defaultContainerMemoryMb, _maximumContainerMemoryMb, _defaultContainerCpuPercent, _maximumContainerCpuPercent,
-                _defaultContainerPidsLimit, _defaultContainerLogLimitMb, _containerStartTimeoutSeconds,
-                _mcpSessionTimeoutSeconds, _containerStopGraceSeconds, _defaultNetworkPolicy,
-                _allowPublicInternetByDefault, _allowedPackageFeedHosts, _blockedNetworkCidrs, _agentSourceRootPath,
-                _agentPackageCachePath, _dotNetBuilderImage, _dotNetRuntimeBaseImage, _buildTimeoutSeconds,
+                _globalMaxActiveWorkloads, _perBusinessMaxActiveWorkloads, _perInstallationMaxActiveWorkloads,
+                _defaultWorkloadMemoryMb, _maximumWorkloadMemoryMb, _defaultWorkloadCpuPercent, _maximumWorkloadCpuPercent,
+                _defaultWorkloadProcessLimit, _defaultWorkloadLogLimitMb, _workloadStartTimeoutSeconds,
+                _mcpSessionTimeoutSeconds, _workloadStopGraceSeconds, _defaultNetworkPolicy,
+                _allowPublicInternetByDefault, _allowedPackageFeedHosts, _blockedNetworkCidrs, _buildTimeoutSeconds,
                 _buildMemoryMb, _buildCpuPercent, _maximumRepositorySizeMb, _maximumBuildLogMb,
                 _keepFailedBuildWorkspaces, _completedRuntimeRetentionDays, _failedRuntimeRetentionDays,
-                _buildLogRetentionDays, _removeContainersAfterCompletion, _removeWorkspacesAfterCompletion));
+                _buildLogRetentionDays, _removeWorkloadsAfterCompletion, _removeWorkspacesAfterCompletion));
             _actionSucceeded = result.Succeeded;
             _actionMessage = result.Message ?? (result.Succeeded ? "Runtime settings saved." : "Runtime settings could not be saved.");
             if (result.Settings is not null) Hydrate(result.Settings);

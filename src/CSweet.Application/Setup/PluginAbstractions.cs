@@ -12,7 +12,7 @@ public interface IPluginArchiveImportService
 }
 public interface IPluginBuildExecutor : IAgentBuildExecutor;
 public interface IPluginRuntimeManager : IAgentRuntimeManager;
-public interface IPluginContainerRunner : IAgentContainerRunner;
+public interface IPluginWorkloadRunner : IAgentWorkloadRunner;
 
 public interface IPluginSourceResolver
 {

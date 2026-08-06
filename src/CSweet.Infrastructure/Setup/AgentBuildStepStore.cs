@@ -12,7 +12,7 @@ internal static class AgentBuildStepStore
     [
         (AgentBuildStepKeys.Queued, "Build queued", "Waiting for an available build worker."),
         (AgentBuildStepKeys.Source, "Prepare source", "Fetch and validate the approved source."),
-        (AgentBuildStepKeys.Isolate, "Prepare build environment", "Copy the source into the isolated build container."),
+        (AgentBuildStepKeys.Isolate, "Prepare build environment", "Start a disposable hardware-isolated builder VM."),
         (AgentBuildStepKeys.Restore, "Restore dependencies", "Resolve the project's package dependencies."),
         (AgentBuildStepKeys.Publish, "Compile and publish", "Compile the agent and create its release output."),
         (AgentBuildStepKeys.Package, "Verify package", "Validate and seal the immutable agent package.")

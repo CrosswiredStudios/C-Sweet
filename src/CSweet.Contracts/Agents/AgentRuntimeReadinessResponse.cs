@@ -16,7 +16,7 @@ public static class AgentRuntimeReadinessStages
 {
     public const string Offline = "Offline";
     public const string Queued = "Queued";
-    public const string StartingContainer = "StartingContainer";
+    public const string StartingWorkload = "StartingWorkload";
     public const string WaitingForMcpSession = "WaitingForMcpSession";
     public const string Stopping = "Stopping";
     public const string Ready = "Ready";

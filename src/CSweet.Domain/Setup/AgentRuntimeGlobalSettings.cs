@@ -11,26 +11,22 @@ public sealed class AgentRuntimeGlobalSettings
     public OverlapPolicy DefaultOverlapPolicy { get; set; }
     public bool AllowAlwaysOnCommunityAgents { get; set; }
     public RestartPolicy DefaultRestartPolicy { get; set; }
-    public int GlobalMaxActiveContainers { get; set; } = 10;
-    public int PerBusinessMaxActiveContainers { get; set; } = 5;
-    public int PerInstallationMaxActiveContainers { get; set; } = 1;
-    public int DefaultContainerMemoryMb { get; set; } = 512;
-    public int MaximumContainerMemoryMb { get; set; } = 2048;
-    public int DefaultContainerCpuPercent { get; set; } = 50;
-    public int MaximumContainerCpuPercent { get; set; } = 200;
-    public int DefaultContainerPidsLimit { get; set; } = 100;
-    public int DefaultContainerLogLimitMb { get; set; } = 10;
-    public int ContainerStartTimeoutSeconds { get; set; } = 60;
+    public int GlobalMaxActiveWorkloads { get; set; } = 10;
+    public int PerBusinessMaxActiveWorkloads { get; set; } = 5;
+    public int PerInstallationMaxActiveWorkloads { get; set; } = 1;
+    public int DefaultWorkloadMemoryMb { get; set; } = 512;
+    public int MaximumWorkloadMemoryMb { get; set; } = 2048;
+    public int DefaultWorkloadCpuPercent { get; set; } = 50;
+    public int MaximumWorkloadCpuPercent { get; set; } = 200;
+    public int DefaultWorkloadProcessLimit { get; set; } = 100;
+    public int DefaultWorkloadLogLimitMb { get; set; } = 10;
+    public int WorkloadStartTimeoutSeconds { get; set; } = 60;
     public int McpSessionTimeoutSeconds { get; set; } = 30;
-    public int ContainerStopGraceSeconds { get; set; } = 15;
+    public int WorkloadStopGraceSeconds { get; set; } = 15;
     public string DefaultNetworkPolicy { get; set; } = "McpOnly";
     public bool AllowPublicInternetByDefault { get; set; }
     public string AllowedPackageFeedHosts { get; set; } = string.Empty;
     public string BlockedNetworkCidrs { get; set; } = string.Empty;
-    public string AgentSourceRootPath { get; set; } = string.Empty;
-    public string AgentPackageCachePath { get; set; } = string.Empty;
-    public string DotNetBuilderImage { get; set; } = "mcr.microsoft.com/dotnet/sdk:10.0";
-    public string DotNetRuntimeBaseImage { get; set; } = "mcr.microsoft.com/dotnet/runtime:10.0";
     public int BuildTimeoutSeconds { get; set; } = 600;
     public int BuildMemoryMb { get; set; } = 2048;
     public int BuildCpuPercent { get; set; } = 200;
@@ -40,7 +36,7 @@ public sealed class AgentRuntimeGlobalSettings
     public int CompletedRuntimeRetentionDays { get; set; } = 14;
     public int FailedRuntimeRetentionDays { get; set; } = 30;
     public int BuildLogRetentionDays { get; set; } = 30;
-    public bool RemoveContainersAfterCompletion { get; set; } = true;
+    public bool RemoveWorkloadsAfterCompletion { get; set; } = true;
     public bool RemoveWorkspacesAfterCompletion { get; set; } = true;
     public DateTimeOffset UpdatedAt { get; set; }
 }

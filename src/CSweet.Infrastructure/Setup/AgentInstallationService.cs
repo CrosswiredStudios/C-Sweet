@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CSweet.Application.Setup;
+using CSweet.AgentRuntime.Abstractions;
 using CSweet.Contracts.Agents;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
@@ -12,7 +13,7 @@ namespace CSweet.Infrastructure.Setup;
 
 public sealed class AgentInstallationService : IAgentInstallationService, IPluginInstallationService
 {
-    private static readonly TimeSpan RuntimeContainerCleanupTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan RuntimeWorkloadCleanupTimeout = TimeSpan.FromSeconds(30);
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -21,7 +22,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     private readonly CSweetDbContext _dbContext;
     private readonly IAuditEventWriter _auditWriter;
     private readonly IAgentBuildService _buildService;
-    private readonly IAgentContainerRunner _containers;
+    private readonly IAgentWorkloadRunner _workloads;
     private readonly AgentRuntimeManagerOptions _runtimeOptions;
     private readonly ILogger<AgentInstallationService> _logger;
 
@@ -29,14 +30,14 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         CSweetDbContext dbContext,
         IAuditEventWriter auditWriter,
         IAgentBuildService buildService,
-        IAgentContainerRunner containers,
+        IAgentWorkloadRunner workloads,
         IOptions<AgentRuntimeManagerOptions> runtimeOptions,
         ILogger<AgentInstallationService> logger)
     {
         _dbContext = dbContext;
         _auditWriter = auditWriter;
         _buildService = buildService;
-        _containers = containers;
+        _workloads = workloads;
         _runtimeOptions = runtimeOptions.Value;
         _logger = logger;
     }
@@ -70,9 +71,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         InstallAgentRequest request,
         CancellationToken cancellationToken)
     {
-        var settings = await GetSettingsAsync(cancellationToken);
         ValidateBusinessId(request.BusinessId);
         var businessId = request.BusinessId.Trim();
+        var settings = await GetSettingsAsync(cancellationToken);
 
         if (!settings.EnableImportedAgents)
         {
@@ -509,7 +510,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             cancellationToken);
 
         var previous = await GetInstallationAsync(staged.SupersedesInstallationId.Value, cancellationToken);
-        await RemoveRuntimeContainersAsync(previous, cancellationToken);
+        await RemoveRuntimeWorkloadsAsync(previous, cancellationToken);
         var now = DateTimeOffset.UtcNow;
         previous.IsEnabled = false;
         previous.RevisionStatus = PluginRevisionStatus.Retired;
@@ -770,7 +771,6 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .SingleOrDefaultAsync(x => x.Id == installationId, cancellationToken)
             ?? throw new AgentInstallationException("The agent installation was not found.");
         var package = installation.PackageVersion!;
-        var settings = await GetSettingsAsync(cancellationToken);
         var assignedEmployees = await _dbContext.CoreOrganizationUsers
             .AsNoTracking()
             .Where(x => x.AgentInstallationId == installation.Id)
@@ -815,13 +815,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        await RemoveRuntimeContainersAsync(installation, cancellationToken);
+        await RemoveRuntimeWorkloadsAsync(installation, cancellationToken);
 
         var sourceId = package.PackageSourceId;
         var removeSource = removePackage && !await _dbContext.AgentPackageVersions.AnyAsync(
             x => x.PackageSourceId == sourceId && x.Id != package.Id,
             cancellationToken);
-        var cleanupPaths = removePackage ? CaptureCleanupPaths(package) : new AgentCleanupPaths([], [], []);
 
         if (removePackage)
         {
@@ -864,7 +863,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 exception);
         }
 
-        var cleanupWarnings = removePackage ? CleanupFiles(cleanupPaths, settings) : 0;
+        // Artifact and source locators are content-addressed broker references. They
+        // are never interpreted as host paths; store-level garbage collection owns
+        // physical deletion once no persisted reference remains.
+        const int cleanupWarnings = 0;
         await _auditWriter.WriteAsync(
             "agent-installation.removed",
             nameof(AgentInstallation),
@@ -894,21 +896,21 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .Take(50)
             .ToListAsync(cancellationToken);
         var settings = await GetSettingsAsync(cancellationToken);
-        var maximumLogBytes = Math.Min(settings.DefaultContainerLogLimitMb * 1024 * 1024, 64 * 1024);
-        foreach (var run in runs.Where(run => !string.IsNullOrWhiteSpace(run.ContainerId)))
+        var maximumLogBytes = Math.Min(settings.DefaultWorkloadLogLimitMb * 1024 * 1024, 64 * 1024);
+        foreach (var run in runs.Where(run => !string.IsNullOrWhiteSpace(run.ProviderInstanceId)))
         {
             try
             {
-                run.LogExcerpt = await _containers.GetLogsAsync(
-                    run.ContainerId!,
+                run.LogExcerpt = await _workloads.GetLogsAsync(
+                    RuntimeHandle(run),
                     maximumLogBytes,
                     cancellationToken);
             }
-            catch (AgentContainerException exception)
+            catch (AgentWorkloadException exception)
             {
                 _logger.LogWarning(
                     exception,
-                    "Could not read live container output for runtime {RuntimeInstanceId}.",
+                    "Could not read live isolated-workload output for runtime {RuntimeInstanceId}.",
                     run.Id);
             }
         }
@@ -954,122 +956,38 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         await _dbContext.AgentRuntimeGlobalSettings.SingleOrDefaultAsync(cancellationToken)
             ?? throw new AgentInstallationException("Agent runtime settings have not been seeded.");
 
-    private async Task RemoveRuntimeContainersAsync(
+    private async Task RemoveRuntimeWorkloadsAsync(
         AgentInstallation installation,
         CancellationToken cancellationToken)
     {
         using var cleanupCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cleanupCancellation.CancelAfter(RuntimeContainerCleanupTimeout);
+        cleanupCancellation.CancelAfter(RuntimeWorkloadCleanupTimeout);
 
         foreach (var runtime in installation.RuntimeInstances)
         {
-            // A failed start can leave only the generated container name on the runtime
-            // record even though Docker never created a container. The runtime manager
-            // already attempts name-based cleanup when the start fails, so do not recheck
-            // every historical failed attempt during installation removal or update.
-            var containerIdentifier = runtime.ContainerId ??
-                (AgentRuntimeInstance.IsActive(runtime.Status) ? runtime.ContainerName : null);
+            if (string.IsNullOrWhiteSpace(runtime.IsolationProviderId) ||
+                string.IsNullOrWhiteSpace(runtime.ProviderInstanceId))
+                continue;
+            var handle = RuntimeHandle(runtime);
             try
             {
-                if (!string.IsNullOrWhiteSpace(containerIdentifier) &&
-                    await _containers.InspectAsync(containerIdentifier, cleanupCancellation.Token) is not null)
+                if (await _workloads.InspectAsync(handle, cleanupCancellation.Token) is not null)
                 {
-                    await _containers.RemoveAsync(containerIdentifier, force: true, cleanupCancellation.Token);
+                    await _workloads.DestroyAsync(handle, cleanupCancellation.Token);
                 }
-                await _containers.RemoveNetworkAsync(
-                    $"{_runtimeOptions.DockerNetworkName}-{runtime.Id:N}",
-                    _runtimeOptions.McpGatewayContainer,
-                    cleanupCancellation.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 throw new AgentInstallationException(
-                    "Timed out while stopping an agent runtime container. Check Docker and try again.");
+                    "Timed out while destroying an isolated agent workload. Check RuntimeHost and try again.");
             }
-            catch (AgentContainerException exception)
+            catch (AgentWorkloadException exception)
             {
                 throw new AgentInstallationException(
-                    $"The runtime container could not be removed. The installation was disabled and can be removed again: {exception.Message}");
+                    $"The isolated runtime workload could not be destroyed. The installation was disabled and can be removed again: {exception.Message}");
             }
         }
     }
-
-    private static AgentCleanupPaths CaptureCleanupPaths(AgentPackageVersion package) => new(
-        package.BuildJobs.Select(x => x.SourceWorkspacePath).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().Distinct().ToList(),
-        package.BuildJobs.Select(x => x.LogPath).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().Distinct().ToList(),
-        package.BuildJobs.Select(x => x.PackagePath).Append(package.PackagePath).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().Distinct().ToList());
-
-    private int CleanupFiles(AgentCleanupPaths paths, AgentRuntimeGlobalSettings settings)
-    {
-        var sourceRoot = ResolveStorageRoot(settings.AgentSourceRootPath, "CSWEET_AGENT_SOURCE_ROOT", "sources");
-        var packageRoot = ResolveStorageRoot(settings.AgentPackageCachePath, "CSWEET_AGENT_PACKAGE_CACHE", "packages");
-        var warnings = 0;
-        foreach (var path in paths.SourceWorkspaces)
-        {
-            warnings += TryDeletePath(path, sourceRoot, isDirectory: true);
-        }
-        foreach (var path in paths.LogFiles)
-        {
-            warnings += TryDeletePath(path, packageRoot, isDirectory: false);
-        }
-        foreach (var path in paths.PackageDirectories)
-        {
-            warnings += TryDeletePath(path, packageRoot, isDirectory: true);
-        }
-        return warnings;
-    }
-
-    private int TryDeletePath(string path, string approvedRoot, bool isDirectory)
-    {
-        try
-        {
-            if (!IsInsideRoot(path, approvedRoot))
-            {
-                _logger.LogWarning("Refused to remove agent artifact outside approved root {ApprovedRoot}: {ArtifactPath}", approvedRoot, path);
-                return 1;
-            }
-
-            if (isDirectory)
-            {
-                if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
-            }
-            else if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-            return 0;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning(exception, "Could not remove agent artifact {ArtifactPath}", path);
-            return 1;
-        }
-    }
-
-    private static string ResolveStorageRoot(string configuredPath, string environmentVariable, string childName)
-    {
-        if (!string.IsNullOrWhiteSpace(configuredPath)) return Path.GetFullPath(configuredPath);
-        var environmentPath = Environment.GetEnvironmentVariable(environmentVariable);
-        if (!string.IsNullOrWhiteSpace(environmentPath)) return Path.GetFullPath(environmentPath);
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var state = string.IsNullOrWhiteSpace(localAppData)
-            ? Path.Combine(AppContext.BaseDirectory, ".csweet")
-            : Path.Combine(localAppData, "CSweet");
-        return Path.GetFullPath(Path.Combine(state, "agents", childName));
-    }
-
-    private static bool IsInsideRoot(string path, string root)
-    {
-        var relative = Path.GetRelativePath(root, Path.GetFullPath(path));
-        return relative != "." && relative != ".." &&
-            !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
-            !Path.IsPathRooted(relative);
-    }
-
-    private sealed record AgentCleanupPaths(
-        IReadOnlyList<string> SourceWorkspaces,
-        IReadOnlyList<string> LogFiles,
-        IReadOnlyList<string> PackageDirectories);
 
     private async Task WriteScheduleAuditAsync(
         AgentInstallation installation,
@@ -1095,6 +1013,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException($"The stored plugin manifest is invalid: {exception.Message}");
         }
     }
+
+    private static IsolationWorkloadHandle RuntimeHandle(AgentRuntimeInstance runtime) => new(
+        runtime.IsolationProviderId ?? throw new InvalidOperationException("The runtime isolation provider is missing."),
+        runtime.Id,
+        runtime.ProviderInstanceId ?? throw new InvalidOperationException("The runtime provider instance is missing."),
+        IsolationWorkloadKind.Runtime);
 
     private async Task<IReadOnlyDictionary<string, JsonElement>> ValidateConfigurationAsync(
         PluginManifest manifest,
@@ -1380,16 +1304,16 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         int cpuPercent,
         AgentRuntimeGlobalSettings settings)
     {
-        if (memoryMb <= 0 || memoryMb > settings.MaximumContainerMemoryMb)
+        if (memoryMb <= 0 || memoryMb > settings.MaximumWorkloadMemoryMb)
         {
             throw new AgentInstallationException(
-                $"Memory must be between 1 and {settings.MaximumContainerMemoryMb} MB.");
+                $"Memory must be between 1 and {settings.MaximumWorkloadMemoryMb} MB.");
         }
 
-        if (cpuPercent <= 0 || cpuPercent > settings.MaximumContainerCpuPercent)
+        if (cpuPercent <= 0 || cpuPercent > settings.MaximumWorkloadCpuPercent)
         {
             throw new AgentInstallationException(
-                $"CPU must be between 1 and {settings.MaximumContainerCpuPercent} percent.");
+                $"CPU must be between 1 and {settings.MaximumWorkloadCpuPercent} percent.");
         }
     }
 

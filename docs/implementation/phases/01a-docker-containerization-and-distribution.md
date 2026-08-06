@@ -1,5 +1,11 @@
 # Phase 1A - Docker Containerization and Distribution
 
+> **Historical phase plan:** The one-command Compose topology described here has not yet been
+> migrated to the hardware-isolated agent architecture. Docker remains required trusted
+> infrastructure, but it must not run untrusted agents or receive agent-runner privileges. Use the
+> [current Docker infrastructure guide](../../deployment/docker.md) for supported startup guidance
+> and migration status.
+
 ## Goal
 
 Make Docker containerization a first-class part of the platform from the beginning so new users can run C-Sweet with one command instead of manually installing and wiring every service.

@@ -24,3 +24,4 @@ docker/volumes/
 **/*.bin
 **/*.safetensors
 /.tmp
+/artifacts

@@ -5,6 +5,7 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
@@ -17,12 +18,11 @@ public sealed class PluginArchiveImportServiceTests
         try
         {
             await using var db = CreateDb();
-            db.AgentRuntimeGlobalSettings.Add(new AgentRuntimeGlobalSettings
-            {
-                Id = Guid.NewGuid(), AgentSourceRootPath = root, UpdatedAt = DateTimeOffset.UtcNow
-            });
-            await db.SaveChangesAsync();
-            var service = new PluginArchiveImportService(db, new PluginManifestReader(), new TestAuditEventWriter());
+            var service = new PluginArchiveImportService(
+                db,
+                new PluginManifestReader(),
+                new TestAuditEventWriter(),
+                Options.Create(new AgentRuntimeManagerOptions { SourceArchiveStorePath = root }));
             await using var archive = Archive(("csweet-plugin.json", Manifest()), ("src/Test/Test.csproj", "<Project />"));
 
             var result = await service.PreviewSourceArchiveAsync(archive, "test.zip");
@@ -43,7 +43,12 @@ public sealed class PluginArchiveImportServiceTests
     public async Task PreviewSourceArchiveAsync_RejectsTraversalBeforePersistence()
     {
         await using var db = CreateDb();
-        var service = new PluginArchiveImportService(db, new PluginManifestReader(), new TestAuditEventWriter());
+        var root = Path.Combine(Path.GetTempPath(), "csweet-archive-test", Guid.NewGuid().ToString("N"));
+        var service = new PluginArchiveImportService(
+            db,
+            new PluginManifestReader(),
+            new TestAuditEventWriter(),
+            Options.Create(new AgentRuntimeManagerOptions { SourceArchiveStorePath = root }));
         await using var archive = Archive(("csweet-plugin.json", Manifest()), ("../escape.txt", "no"));
 
         var exception = await Assert.ThrowsAsync<AgentImportPreviewException>(() =>

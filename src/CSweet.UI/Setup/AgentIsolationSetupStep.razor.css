@@ -1,0 +1,65 @@
+.isolation-step {
+    display: grid;
+    gap: 1.25rem;
+    padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.isolation-step-header {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1rem;
+    align-items: start;
+}
+
+.isolation-step-icon {
+    display: grid;
+    width: 3.25rem;
+    height: 3.25rem;
+    place-items: center;
+    border-radius: .9rem;
+    background: var(--cs-navy);
+    color: #fff;
+}
+
+.isolation-step-icon ::deep .mud-icon-root { font-size: 1.8rem; }
+.isolation-loading { display: flex; gap: .75rem; align-items: center; min-height: 8rem; justify-content: center; }
+
+.isolation-host-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .75rem;
+}
+
+.isolation-host-summary > div {
+    display: grid;
+    gap: .2rem;
+    padding: .8rem;
+    border: 1px solid var(--cs-border);
+    border-radius: .75rem;
+    background: #fffefa;
+}
+
+.isolation-host-summary span { color: #66717d; font-size: .72rem; font-weight: 750; text-transform: uppercase; }
+.isolation-host-summary strong { color: var(--cs-navy); font-size: .86rem; }
+.isolation-checks { display: grid; gap: .55rem; padding: 0; margin: 0; list-style: none; }
+.isolation-check { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .75rem; padding: .75rem; border-radius: .7rem; background: #f7f8fa; }
+.isolation-check-content { display: grid; gap: .2rem; min-width: 0; }
+.isolation-check-passed > ::deep .mud-icon-root { color: #16815a; }
+.isolation-check-pending > ::deep .mud-icon-root { color: #9a6500; }
+.isolation-check-action-required { background: #f4f7fb; }
+.isolation-check-action-required > ::deep .mud-icon-root { color: #3976a8; }
+.isolation-check-actions { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; margin-top: .65rem; }
+.isolation-progress { display: flex; gap: .65rem; align-items: center; color: #405064; }
+.isolation-progress-panel { display: grid; gap: .65rem; padding: .85rem; margin-top: .65rem; border: 1px solid var(--cs-border); border-radius: .7rem; background: #fff; }
+.isolation-progress-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+.isolation-progress-heading strong { color: var(--cs-navy); font-size: 1rem; white-space: nowrap; }
+.isolation-progress-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem 1rem; color: #66717d; font-size: .78rem; }
+.isolation-doc-link { color: var(--mud-palette-primary); font-size: .875rem; font-weight: 600; }
+.isolation-step-actions { display: flex; justify-content: space-between; gap: 1rem; padding-top: .5rem; border-top: 1px solid var(--cs-border); }
+
+@media (max-width: 700px) {
+    .isolation-host-summary { grid-template-columns: 1fr; }
+    .isolation-step-header { grid-template-columns: 1fr; }
+    .isolation-step-actions { align-items: stretch; flex-direction: column-reverse; }
+    .isolation-step-actions > ::deep .mud-button-root { width: 100%; }
+}

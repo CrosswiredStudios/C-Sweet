@@ -16,6 +16,33 @@ public static class SetupEndpoints
         group.MapGet("/status", async (ISetupService setupService, CancellationToken cancellationToken) =>
             Results.Ok(await setupService.GetStatusAsync(cancellationToken)));
 
+        group.MapGet("/agent-isolation", async (
+            HttpContext httpContext,
+            IAgentIsolationOnboardingService service,
+            CancellationToken cancellationToken) =>
+        {
+            httpContext.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+            httpContext.Response.Headers.Pragma = "no-cache";
+            httpContext.Response.Headers.Expires = "0";
+            return Results.Ok(await service.GetStatusAsync(cancellationToken));
+        });
+
+        group.MapPost("/agent-isolation/enable-hyperv", async (
+            IAgentIsolationOnboardingService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.EnableHostHypervisorAsync(cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        }).RequireAuthorization("HostAdministration");
+
+        group.MapPost("/agent-isolation/install-runtime-host", async (
+            IAgentIsolationOnboardingService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.InstallWindowsRuntimeHostAsync(cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        }).RequireAuthorization("HostAdministration");
+
         group.MapPost("/steps/{key}/complete", async (string key, ISetupService setupService, CancellationToken cancellationToken) =>
         {
             var result = await setupService.CompleteStepAsync(key, cancellationToken);

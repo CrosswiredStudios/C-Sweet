@@ -57,20 +57,13 @@ var migrator = builder.AddProject<Projects.CSweet_Migrator>("migrator")
     .WithReference(postgres)
     .WaitFor(postgres);
 
-// Agent runtimes execute on private Docker networks. Keeping the broker in a
-// real container lets the runtime manager attach only this gateway to each
-// network instead of exposing the runtime to the host or Aspire network.
-var agentHost = builder.AddDockerfile(
-        "agenthost",
-        repositoryRoot,
-        Path.Combine("docker", "agenthost.Dockerfile"))
-    .WithContainerName("agenthost")
-    .WithHttpEndpoint(targetPort: 8080, name: "http")
-    .WithHttpEndpoint(targetPort: 8081, name: "mcp")
-    .WithEnvironment("Mcp__PublicEndpoint", "http://agenthost:8081/mcp")
-    .WithBindMount(localStateDirectory, "/state")
-    .WithEnvironment("CSweet__Secrets__FilePath", "/state/provider-secrets.json")
-    .WithEnvironment("CSweet__GenAi__MediaRoot", "/state/media")
+// AgentHost is an unprivileged broker/control-plane process. It has no hypervisor,
+// host filesystem, or Docker authority; privileged VM lifecycle is isolated in RuntimeHost.
+var agentHost = builder.AddProject<Projects.CSweet_AgentHost>("agenthost")
+    .WithHttpEndpoint(name: "http")
+    .WithHttpEndpoint(name: "mcp")
+    .WithEnvironment("CSweet__Secrets__FilePath", Path.Combine(localStateDirectory, "provider-secrets.json"))
+    .WithEnvironment("CSweet__GenAi__MediaRoot", Path.Combine(localStateDirectory, "media"))
     .WithEnvironment("CSweet__Marketplace__Enabled", marketplaceEnabled)
     .WithEnvironment("CSweet__Marketplace__BaseUrl", marketplaceBaseUrl)
     .WithEnvironment("CSweet__Marketplace__TimeoutSeconds", marketplaceTimeoutSeconds)
@@ -78,10 +71,14 @@ var agentHost = builder.AddDockerfile(
     .WaitFor(postgres)
     .WaitForCompletion(migrator);
 var agentHostEndpoint = agentHost.GetEndpoint("mcp");
+agentHost.WithEnvironment("Mcp__PublicEndpoint", agentHostEndpoint);
 
 var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WithReference(postgres)
     .WithReference(agentHostEndpoint)
+    .WithEnvironment("CSweet__AgentRuntime__AgentHostBroker__BaseUrl", agentHostEndpoint)
+    .WithEnvironment("CSWEET_WINDOWS_ISOLATION_BOOTSTRAP",
+        Path.Combine(repositoryRoot, "scripts", "windows", "Initialize-CSweetWindowsIsolationTest.ps1"))
     .WithEnvironment("CSweet__AgentCatalog__LocalDirectoryPath", localAgentDirectory)
     .WithEnvironment("CSweet__GenAi__MediaRoot", Path.Combine(localStateDirectory, "media"))
     .WithEnvironment("CSweet__Marketplace__Enabled", marketplaceEnabled)

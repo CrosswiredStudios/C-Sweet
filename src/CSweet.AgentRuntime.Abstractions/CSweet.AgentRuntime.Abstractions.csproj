@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Provider-neutral contracts for hardware-isolated C-Sweet agent workloads.</Description>
+  </PropertyGroup>
+</Project>

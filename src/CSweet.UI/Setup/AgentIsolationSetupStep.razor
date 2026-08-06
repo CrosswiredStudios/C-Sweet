@@ -1,0 +1,378 @@
+@using CSweet.Contracts.Setup
+@inject ISetupApiClient SetupApi
+@implements IAsyncDisposable
+
+<section class="isolation-step" aria-labelledby="isolation-title">
+    <header class="isolation-step-header">
+        <div class="isolation-step-icon" aria-hidden="true">
+            <MudIcon Icon="@Icons.Material.Filled.Security" />
+        </div>
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Secondary">Untrusted agent security</MudText>
+            <MudText Typo="Typo.h4" id="isolation-title">Hardware-isolated agents</MudText>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <div class="isolation-loading" aria-live="polite">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <MudText>Checking this Windows host...</MudText>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+    }
+    else if (_status is not null)
+    {
+        <div class="isolation-host-summary">
+            <div><span>Host</span><strong>@_status.HostOperatingSystem (@_status.HostEdition)</strong></div>
+            <div><span>Provider</span><strong>@_status.ProviderDisplayName</strong></div>
+            <div><span>Agent setup</span><strong>@AgentSetupSummary</strong></div>
+        </div>
+
+        <ol class="isolation-checks" aria-label="Hyper-V readiness checks">
+            @foreach (var check in _status.Checks)
+            {
+                <li class="@CheckClass(check.Status)">
+                    <MudIcon Icon="@CheckIcon(check.Status)" />
+                    <div class="isolation-check-content">
+                        <MudText Typo="Typo.subtitle2">@check.DisplayName</MudText>
+                        <MudText Typo="Typo.body2">@check.Message</MudText>
+                        @if (!string.IsNullOrWhiteSpace(check.Remediation))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@check.Remediation</MudText>
+                        }
+                        @if (check.Key == "hyperv-feature" && _status.CanAutomateHypervisorEnablement)
+                        {
+                            <div class="isolation-check-actions">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                           StartIcon="@Icons.Material.Filled.AdminPanelSettings"
+                                           Disabled="@_busy" OnClick="EnableHyperVAsync">
+                                    Enable Hyper-V
+                                </MudButton>
+                                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                                           Disabled="@_busy" OnClick="RefreshAsync">
+                                    Recheck
+                                </MudButton>
+                                <a class="isolation-doc-link" href="@_status.DocumentationUrl" target="_blank" rel="noopener noreferrer">
+                                    Microsoft Hyper-V instructions
+                                </a>
+                            </div>
+                        }
+                        @if (check.Key == "runtime-host" && ShowRuntimeHostPreparation)
+                        {
+                            <MudText Typo="Typo.body2">@_status.RuntimeHostActionDescription</MudText>
+                            @if (_status.RuntimeHostProvisioningMode == "developer-bootstrap")
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    Source checkouts build a development runtime the first time, which can take tens of minutes. Installed releases will use a prebuilt runtime.
+                                </MudText>
+                            }
+                            @if (_status.ProvisioningProgress is { } progress)
+                            {
+                                <div class="isolation-progress-panel" aria-live="polite">
+                                    <div class="isolation-progress-heading">
+                                        <div>
+                                            <MudText Typo="Typo.subtitle2">@progress.PhaseDisplayName</MudText>
+                                            <MudText Typo="Typo.body2">@progress.Message</MudText>
+                                        </div>
+                                        <strong>@ProgressHeading(progress)</strong>
+                                    </div>
+                                    @if (progress.State != "failed")
+                                    {
+                                        <MudProgressLinear Value="@progress.PercentComplete" Color="Color.Primary" />
+                                    }
+                                    <div class="isolation-progress-meta">
+                                        <span>Elapsed: @FormatDuration(DateTimeOffset.UtcNow - progress.StartedAt)</span>
+                                        <span>@FormatEta(progress)</span>
+                                    </div>
+                                    @if (progress.State == "failed")
+                                    {
+                                        <MudAlert Severity="Severity.Warning" Dense="true">
+                                            @(progress.ErrorMessage ?? "Preparation paused before this step completed. Continue when you are ready.")
+                                        </MudAlert>
+                                    }
+                                </div>
+                            }
+                            <div class="isolation-check-actions">
+                                @if (_status.CanAutomateRuntimeHostInstallation &&
+                                     _status.ProvisioningProgress?.State != "completed")
+                                {
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                               StartIcon="@Icons.Material.Filled.InstallDesktop"
+                                               Disabled="@_busy" OnClick="InstallRuntimeHostAsync">
+                                        @(_status.ProvisioningProgress?.State == "failed"
+                                            ? "Continue secure setup"
+                                            : _status.RuntimeHostActionLabel)
+                                    </MudButton>
+                                }
+                                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                                           Disabled="@_busy" OnClick="RefreshAsync">
+                                    Recheck
+                                </MudButton>
+                            </div>
+                        }
+                        @if (_actionTargetKey == check.Key && !string.IsNullOrWhiteSpace(_actionMessage))
+                        {
+                            <MudAlert Severity="@(_actionSucceeded ? Severity.Info : Severity.Warning)" Dense="true">
+                                @_actionMessage
+                            </MudAlert>
+                        }
+                        @if (_actionTargetKey == check.Key && _automaticRecheck)
+                        {
+                            <div class="isolation-progress" aria-live="polite">
+                                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                                <MudText Typo="Typo.body2">C-Sweet is checking this step automatically. You can keep using this page.</MudText>
+                            </div>
+                        }
+                    </div>
+                </li>
+            }
+        </ol>
+    }
+
+    @if (ShowNavigation)
+    {
+        <footer class="isolation-step-actions">
+            <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _loading)" OnClick="OnContinue">
+                @(_status?.IsReady == true ? "Continue" : "Continue setup later")
+            </MudButton>
+        </footer>
+    }
+</section>
+
+@code {
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback OnContinue { get; set; }
+    [Parameter] public bool ShowNavigation { get; set; } = true;
+
+    private AgentIsolationOnboardingResponse? _status;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _actionSucceeded;
+    private string? _error;
+    private string? _actionMessage;
+    private string? _actionTargetKey;
+    private CancellationTokenSource? _recheckCancellation;
+    private bool _automaticRecheck;
+    private bool _readyAdvanceStarted;
+
+    private bool ShowRuntimeHostPreparation => _status is
+    {
+        IsReady: false,
+        IsRestartPending: false,
+        CanAutomateHypervisorEnablement: false
+    } && (_status.CanAutomateRuntimeHostInstallation || _status.ProvisioningProgress is not null);
+
+    private string AgentSetupSummary => _status switch
+    {
+        { IsReady: true } => "Complete",
+        { IsRestartPending: true } => "Waiting for restart",
+        { ProvisioningProgress.State: "running" } => "In progress",
+        { ProvisioningProgress.State: "completed" } => "Final validation",
+        _ => "Ready to continue"
+    };
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _status = await SetupApi.GetAgentIsolationStatusAsync();
+            if (await AdvanceWhenReadyAsync(_status))
+                return;
+            if (NeedsAutomaticRecheck(_status) && !_automaticRecheck)
+                StartAutomaticRecheck();
+        }
+        catch
+        {
+            _error = "C-Sweet could not inspect Windows isolation readiness. Untrusted agents remain disabled.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task EnableHyperVAsync()
+    {
+        _busy = true;
+        _actionMessage = null;
+        _actionTargetKey = "hyperv-feature";
+        try
+        {
+            var result = await SetupApi.EnableHyperVAsync();
+            _status = result.Status;
+            _actionSucceeded = result.Succeeded;
+            _actionMessage = result.Message;
+            if (result.Succeeded && result.ElevationPromptStarted)
+                StartAutomaticRecheck();
+        }
+        catch
+        {
+            _actionSucceeded = false;
+            _actionMessage = "Windows did not start Hyper-V enablement. Follow the manual instructions shown above.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task InstallRuntimeHostAsync()
+    {
+        _busy = true;
+        _actionMessage = null;
+        _actionTargetKey = "runtime-host";
+        try
+        {
+            var result = await SetupApi.InstallRuntimeHostAsync();
+            _status = result.Status;
+            _actionSucceeded = result.Succeeded;
+            _actionMessage = result.Message;
+            if (result.Succeeded && result.ElevationPromptStarted)
+                StartAutomaticRecheck();
+        }
+        catch
+        {
+            _actionSucceeded = false;
+            _actionMessage = "Windows did not start secure runtime preparation. Review the displayed requirement and try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string CheckClass(string status) => $"isolation-check isolation-check-{status}";
+    private static string CheckIcon(string status) => status switch
+    {
+        "passed" => Icons.Material.Filled.CheckCircle,
+        "pending" => Icons.Material.Filled.RestartAlt,
+        _ => Icons.Material.Filled.RadioButtonUnchecked
+    };
+
+    private void StartAutomaticRecheck()
+    {
+        _recheckCancellation?.Cancel();
+        _recheckCancellation?.Dispose();
+        _recheckCancellation = new CancellationTokenSource();
+        _automaticRecheck = true;
+        _ = RecheckUntilReadyAsync(_recheckCancellation.Token);
+    }
+
+    private async Task RecheckUntilReadyAsync(CancellationToken cancellationToken)
+    {
+        var finalValidationDeadline = DateTimeOffset.UtcNow.AddMinutes(2);
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                var status = await SetupApi.GetAgentIsolationStatusAsync(cancellationToken);
+                await InvokeAsync(() =>
+                {
+                    _status = status;
+                    if (status.IsReady || status.IsRestartPending || status.ProvisioningProgress?.State == "failed")
+                        _automaticRecheck = false;
+                    StateHasChanged();
+                });
+                if (await AdvanceWhenReadyAsync(status))
+                    return;
+                if (status.IsReady || status.IsRestartPending || status.ProvisioningProgress?.State == "failed")
+                    return;
+                if (status.ProvisioningProgress?.State == "completed" &&
+                    DateTimeOffset.UtcNow >= finalValidationDeadline)
+                {
+                    await InvokeAsync(() =>
+                    {
+                        _automaticRecheck = false;
+                        _actionTargetKey = "runtime-host";
+                        _actionSucceeded = false;
+                        _actionMessage = "Installation completed, but final validation is taking longer than expected. Choose Recheck to try validation again.";
+                        StateHasChanged();
+                    });
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+            await InvokeAsync(() =>
+            {
+                _automaticRecheck = false;
+                _actionSucceeded = false;
+                _actionMessage = "Automatic recheck paused. The preparation window can continue; choose Recheck when it finishes.";
+                StateHasChanged();
+            });
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _recheckCancellation?.Cancel();
+        _recheckCancellation?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    private static string FormatEta(AgentIsolationProvisioningProgressResponse progress)
+    {
+        if (progress.State == "completed") return "Final validation in progress";
+        if (progress.State == "failed") return "Ready to continue";
+        if (progress.RequiresRestart) return "Waiting for restart";
+        var minimum = progress.EstimatedRemainingMinimumSeconds;
+        var maximum = progress.EstimatedRemainingMaximumSeconds;
+        if (minimum is null && maximum is null) return "Estimating remaining time...";
+        var phaseElapsedSeconds = Math.Max(0, (int)(DateTimeOffset.UtcNow - progress.UpdatedAt).TotalSeconds);
+        minimum = minimum is null ? null : Math.Max(0, minimum.Value - phaseElapsedSeconds);
+        maximum = maximum is null ? null : Math.Max(0, maximum.Value - phaseElapsedSeconds);
+        if (maximum == 0 && progress.State == "running")
+            return "Taking longer than the initial estimate; still working...";
+        if (minimum is not null && maximum is not null && maximum > minimum)
+            return $"Estimated remaining: {FormatDuration(TimeSpan.FromSeconds(minimum.Value))}–{FormatDuration(TimeSpan.FromSeconds(maximum.Value))}";
+        return $"Estimated remaining: {FormatDuration(TimeSpan.FromSeconds(maximum ?? minimum ?? 0))}";
+    }
+
+    private static string ProgressHeading(AgentIsolationProvisioningProgressResponse progress) =>
+        progress.State switch
+        {
+            "failed" => "Ready to continue",
+            "completed" => "Installed",
+            _ => $"{progress.PercentComplete}%"
+        };
+
+    private static bool NeedsAutomaticRecheck(AgentIsolationOnboardingResponse status) =>
+        !status.IsReady &&
+        !status.IsRestartPending &&
+        status.ProvisioningProgress?.State is "running" or "completed";
+
+    private async Task<bool> AdvanceWhenReadyAsync(AgentIsolationOnboardingResponse status)
+    {
+        if (!ShowNavigation || !status.IsReady || _readyAdvanceStarted)
+            return false;
+
+        _readyAdvanceStarted = true;
+        _automaticRecheck = false;
+        await OnContinue.InvokeAsync();
+        return true;
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.Zero) duration = TimeSpan.Zero;
+        if (duration.TotalHours >= 1)
+            return $"{(int)duration.TotalHours}h {duration.Minutes}m";
+        if (duration.TotalMinutes >= 1)
+            return $"{Math.Max(1, (int)Math.Ceiling(duration.TotalMinutes))}m";
+        return $"{Math.Max(0, (int)Math.Ceiling(duration.TotalSeconds))}s";
+    }
+}

@@ -37,11 +37,11 @@ public class AgentRuntimeSettingsServiceTests
         var service = new AgentRuntimeSettingsService(dbContext, new TestAuditEventWriter());
 
         var result = await service.UpdateAsync(new UpdateAgentRuntimeSettingsRequest(
-            MaximumContainerMemoryMb: settings.DefaultContainerMemoryMb - 1));
+            MaximumWorkloadMemoryMb: settings.DefaultWorkloadMemoryMb - 1));
 
         Assert.False(result.Succeeded);
-        Assert.Contains("Default container memory", result.Message);
-        Assert.Equal(2048, settings.MaximumContainerMemoryMb);
+        Assert.Contains("Default workload memory", result.Message);
+        Assert.Equal(2048, settings.MaximumWorkloadMemoryMb);
     }
 
     [Theory]
@@ -75,11 +75,11 @@ public class AgentRuntimeSettingsServiceTests
         var service = new AgentRuntimeSettingsService(dbContext, new TestAuditEventWriter());
 
         var result = await service.UpdateAsync(new UpdateAgentRuntimeSettingsRequest(
-            DefaultContainerPidsLimit: 0));
+            DefaultWorkloadProcessLimit: 0));
 
         Assert.False(result.Succeeded);
-        Assert.Contains("Default container PIDs limit must be positive", result.Message);
-        Assert.Equal(100, settings.DefaultContainerPidsLimit);
+        Assert.Contains("Default workload process limit must be positive", result.Message);
+        Assert.Equal(100, settings.DefaultWorkloadProcessLimit);
     }
 
     [Fact]

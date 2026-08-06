@@ -6,9 +6,9 @@ public sealed class AgentRuntimeInstance
     public Guid TickId { get; set; }
     public Guid AgentInstallationId { get; set; }
     public AgentRuntimeStatus Status { get; private set; } = AgentRuntimeStatus.Queued;
-    public string WorkloadTokenHash { get; set; } = string.Empty;
-    public string? ContainerId { get; set; }
-    public string? ContainerName { get; set; }
+    public string BrokerTokenHash { get; set; } = string.Empty;
+    public string? IsolationProviderId { get; set; }
+    public string? ProviderInstanceId { get; set; }
     public string? Reason { get; private set; }
     public string? LogExcerpt { get; set; }
     public DateTimeOffset QueuedAt { get; set; }

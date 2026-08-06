@@ -101,7 +101,7 @@ public static class EmployeePresentationService
         {
             AgentRuntimeReadinessStages.Ready => EmployeeRuntimeStatus.Online,
             AgentRuntimeReadinessStages.Queued or
-            AgentRuntimeReadinessStages.StartingContainer or
+            AgentRuntimeReadinessStages.StartingWorkload or
             AgentRuntimeReadinessStages.WaitingForMcpSession or
             AgentRuntimeReadinessStages.Stopping => EmployeeRuntimeStatus.Transitional,
             AgentRuntimeReadinessStages.Failed => EmployeeRuntimeStatus.Failed,

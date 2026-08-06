@@ -10,63 +10,52 @@ using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
-public sealed class WorkspaceVolumeBridgeTests
+public sealed class WorkspaceVolumeBridgeTests : IDisposable
 {
+    private readonly string _storeRoot = Path.Combine(Path.GetTempPath(), $"csweet-workspace-test-{Guid.NewGuid():N}");
+
     [Fact]
-    public async Task ImportUsesOnlyDerivedInstallationVolumeAndNetworklessHelper()
+    public async Task ImportPersistsOnlyAnOpaqueValidatedBrokerSnapshot()
     {
         await using var db = CreateDb();
         var seeded = await SeedAsync(db, SourceControlWorkspaceStatus.Preparing);
-        var docker = new FakeDockerExecutor();
-        var bridge = CreateBridge(db, docker);
+        var bridge = CreateBridge(db);
         await using var archive = CreateArchive(("src/app.cs", "sealed class App { }"));
 
         var manifest = await bridge.ImportAsync(seeded.Lease, archive);
 
         Assert.Equal(1, manifest.FileCount);
-        var run = Assert.Single(docker.Commands, command => command[0] == "run");
-        Assert.Contains("--network", run);
-        Assert.Contains("none", run);
-        Assert.Contains("--read-only", run);
-        Assert.Contains("--cap-drop", run);
-        Assert.Contains(
-            $"type=volume,source=csweet-workspace-{seeded.InstallationKey:N},target=/workspace",
-            run);
-        Assert.DoesNotContain(run, value => value.Contains(seeded.Workspace.WorkspaceKey, StringComparison.Ordinal));
-        Assert.Contains(docker.Commands, command =>
-            command[0] == "exec" && command.Contains($"/workspace/{seeded.Lease.WorkItemId:N}/1"));
-        Assert.Contains(docker.Commands, command => command is ["rm", "--force", ..]);
+        Assert.Single(Directory.GetFiles(_storeRoot, "*.zip", SearchOption.AllDirectories));
+        Assert.DoesNotContain(seeded.Workspace.WorkspaceKey, Directory.GetFiles(_storeRoot, "*", SearchOption.AllDirectories).Single(path => path.EndsWith(".zip")));
     }
 
     [Fact]
-    public async Task MismatchedLeaseIsRejectedBeforeDocker()
+    public async Task MismatchedLeaseIsRejectedBeforeSnapshotWrite()
     {
         await using var db = CreateDb();
         var seeded = await SeedAsync(db, SourceControlWorkspaceStatus.Preparing);
-        var docker = new FakeDockerExecutor();
-        var bridge = CreateBridge(db, docker);
+        var bridge = CreateBridge(db);
         await using var archive = CreateArchive(("README.md", "safe"));
         var mismatched = seeded.Lease with { OrganizationId = Guid.NewGuid() };
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             bridge.ImportAsync(mismatched, archive));
 
-        Assert.Empty(docker.Commands);
+        Assert.False(Directory.Exists(_storeRoot));
     }
 
     [Fact]
-    public async Task MaliciousArchiveIsRejectedBeforeDocker()
+    public async Task MaliciousArchiveIsRejectedBeforeSnapshotWrite()
     {
         await using var db = CreateDb();
         var seeded = await SeedAsync(db, SourceControlWorkspaceStatus.Preparing);
-        var docker = new FakeDockerExecutor();
-        var bridge = CreateBridge(db, docker);
+        var bridge = CreateBridge(db);
         await using var archive = CreateArchive(("src/.git/config", "credential = secret"));
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             bridge.ImportAsync(seeded.Lease, archive));
 
-        Assert.Empty(docker.Commands);
+        Assert.Empty(Directory.Exists(_storeRoot) ? Directory.GetFiles(_storeRoot, "*.zip", SearchOption.AllDirectories) : []);
     }
 
     [Fact]
@@ -74,8 +63,9 @@ public sealed class WorkspaceVolumeBridgeTests
     {
         await using var db = CreateDb();
         var seeded = await SeedAsync(db, SourceControlWorkspaceStatus.Ready);
-        var docker = new FakeDockerExecutor(populateExport: true);
-        var bridge = CreateBridge(db, docker);
+        var bridge = CreateBridge(db);
+        await using var archive = CreateArchive(("src/result.txt", "tested"));
+        await bridge.ImportAsync(seeded.Lease, archive);
 
         var exported = await bridge.ExportAsync(seeded.Lease);
 
@@ -90,23 +80,26 @@ public sealed class WorkspaceVolumeBridgeTests
     {
         await using var db = CreateDb();
         var seeded = await SeedAsync(db, SourceControlWorkspaceStatus.Preparing);
-        var docker = new FakeDockerExecutor();
-        var bridge = CreateBridge(db, docker);
+        var bridge = CreateBridge(db);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => bridge.ExportAsync(seeded.Lease));
 
-        Assert.Empty(docker.Commands);
     }
 
-    private static WorkspaceVolumeBridge CreateBridge(CSweetDbContext db, IDockerCommandExecutor docker) =>
+    private WorkspaceVolumeBridge CreateBridge(CSweetDbContext db) =>
         new(
             db,
-            docker,
             new WorkspaceArtifactValidator(),
             Options.Create(new AgentRuntimeManagerOptions
             {
-                SoftwareDevelopmentPolyglotImage = "trusted-runtime@sha256:" + new string('a', 64)
+                WorkspaceSnapshotStorePath = _storeRoot
             }));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_storeRoot)) Directory.Delete(_storeRoot, recursive: true);
+        GC.SuppressFinalize(this);
+    }
 
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -182,24 +175,4 @@ public sealed class WorkspaceVolumeBridgeTests
         Guid InstallationKey,
         WorkspaceVolumeLease Lease);
 
-    private sealed class FakeDockerExecutor(bool populateExport = false) : IDockerCommandExecutor
-    {
-        public List<string[]> Commands { get; } = [];
-
-        public Task<DockerCommandResult> ExecuteAsync(
-            IReadOnlyList<string> arguments,
-            CancellationToken cancellationToken = default,
-            string? standardInput = null)
-        {
-            var command = arguments.ToArray();
-            Commands.Add(command);
-            if (populateExport && command is ["cp", var source, var destination] && source.Contains(':'))
-            {
-                var resultDirectory = Path.Combine(destination, "src");
-                Directory.CreateDirectory(resultDirectory);
-                File.WriteAllText(Path.Combine(resultDirectory, "result.txt"), "tested");
-            }
-            return Task.FromResult(new DockerCommandResult(0, string.Empty, string.Empty));
-        }
-    }
 }

@@ -223,10 +223,9 @@ public sealed class AgentBuildJobTests
             BuildTimeoutSeconds = 60,
             BuildMemoryMb = 1024,
             BuildCpuPercent = 100,
-            DefaultContainerPidsLimit = 100,
+            DefaultWorkloadProcessLimit = 100,
             MaximumRepositorySizeMb = 10,
             MaximumBuildLogMb = 1,
-            DotNetBuilderImage = "example/sdk:fixed",
             KeepFailedBuildWorkspaces = keepFailedWorkspace,
             RemoveWorkspacesAfterCompletion = true,
             UpdatedAt = DateTimeOffset.UtcNow

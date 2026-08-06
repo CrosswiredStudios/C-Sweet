@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><Description>Certified Hyper-V Generation 2 isolation backend.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="..\CSweet.AgentRuntime.Core\CSweet.AgentRuntime.Core.csproj" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.UnitTests" /></ItemGroup>
+</Project>

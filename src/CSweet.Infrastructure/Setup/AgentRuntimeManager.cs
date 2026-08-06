@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CSweet.AgentRuntime.Abstractions;
 using CSweet.Application.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -13,13 +14,13 @@ namespace CSweet.Infrastructure.Setup;
 
 public sealed class AgentRuntimeManager(
     CSweetDbContext dbContext,
-    IAgentContainerRunner containers,
+    IAgentWorkloadRunner workloads,
     IAuditEventWriter auditWriter,
     IOptions<AgentRuntimeManagerOptions> options,
     ILogger<AgentRuntimeManager> logger) : IPluginRuntimeManager
 {
     private const int MaximumAlwaysOnStartupAttempts = 3;
-    private static readonly AgentRuntimeStatus[] ContainerActiveStatuses =
+    private static readonly AgentRuntimeStatus[] WorkloadActiveStatuses =
     [AgentRuntimeStatus.Starting, AgentRuntimeStatus.WaitingForMcpSession, AgentRuntimeStatus.Running, AgentRuntimeStatus.CompletionReported, AgentRuntimeStatus.Stopping];
 
     public async Task<bool> EnsureRuntimeQueuedAsync(
@@ -33,7 +34,7 @@ public sealed class AgentRuntimeManager(
             .OrderByDescending(x => x.QueuedAt)
             .FirstOrDefaultAsync(
                 x => x.AgentInstallationId == installationId &&
-                    (x.Status == AgentRuntimeStatus.Queued || ContainerActiveStatuses.Contains(x.Status)),
+                    (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)),
                 cancellationToken);
         var now = DateTimeOffset.UtcNow;
         if (activeRuntime is not null)
@@ -98,7 +99,7 @@ public sealed class AgentRuntimeManager(
                     .OrderByDescending(x => x.QueuedAt)
                     .FirstAsync(
                         x => x.AgentInstallationId == installationId &&
-                            (x.Status == AgentRuntimeStatus.Queued || ContainerActiveStatuses.Contains(x.Status)),
+                            (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)),
                         cancellationToken);
                 if (winner.AgentInstallation?.Schedule?.ActivationMode != ActivationMode.AlwaysOn)
                 {
@@ -132,7 +133,7 @@ public sealed class AgentRuntimeManager(
             .OrderByDescending(x => x.QueuedAt)
             .FirstOrDefaultAsync(
                 x => x.AgentInstallationId == installationId &&
-                    (x.Status == AgentRuntimeStatus.Queued || ContainerActiveStatuses.Contains(x.Status)),
+                    (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)),
                 cancellationToken);
         if (activeRuntime is not null)
         {
@@ -162,7 +163,7 @@ public sealed class AgentRuntimeManager(
                 x.Schedule.AutomaticStartSuppressedAt == null &&
                 !x.RuntimeInstances.Any(runtime =>
                     runtime.Status == AgentRuntimeStatus.Queued ||
-                    ContainerActiveStatuses.Contains(runtime.Status)))
+                    WorkloadActiveStatuses.Contains(runtime.Status)))
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
 
@@ -206,7 +207,7 @@ public sealed class AgentRuntimeManager(
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Grant)
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.PackageVersion)!.ThenInclude(x => x!.BuildJobs)
             .Include(x => x.Events)
-            .Where(x => x.Status == AgentRuntimeStatus.Queued || ContainerActiveStatuses.Contains(x.Status))
+            .Where(x => x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status))
             .OrderBy(x => x.QueuedAt).ToListAsync(cancellationToken);
 
         foreach (var instance in instances)
@@ -218,7 +219,7 @@ public sealed class AgentRuntimeManager(
                 var stoppingAt = instance.Events
                     .Where(x => x.Status == AgentRuntimeStatus.Stopping)
                     .MaxBy(x => x.OccurredAt)?.OccurredAt ?? instance.StartedAt ?? instance.QueuedAt;
-                if (stoppingAt.AddSeconds(settings.ContainerStopGraceSeconds + 5) <= now)
+                if (stoppingAt.AddSeconds(settings.WorkloadStopGraceSeconds + 5) <= now)
                 {
                     await RecoverInterruptedStopAsync(instance, settings, now, cancellationToken);
                     changed++;
@@ -231,7 +232,7 @@ public sealed class AgentRuntimeManager(
                 var startingAt = instance.Events
                     .Where(x => x.Status == AgentRuntimeStatus.Starting)
                     .MaxBy(x => x.OccurredAt)?.OccurredAt ?? instance.StartedAt ?? instance.QueuedAt;
-                if (startingAt.AddSeconds(settings.ContainerStartTimeoutSeconds + 5) <= now)
+                if (startingAt.AddSeconds(settings.WorkloadStartTimeoutSeconds + 5) <= now)
                 {
                     await RecoverInterruptedStartAsync(instance, settings, now, cancellationToken);
                     changed++;
@@ -282,13 +283,13 @@ public sealed class AgentRuntimeManager(
                 changed++;
                 continue;
             }
-            if (instance.ContainerId is not null && instance.Status is AgentRuntimeStatus.WaitingForMcpSession or AgentRuntimeStatus.Running)
+            if (TryGetHandle(instance) is { } handle && instance.Status is AgentRuntimeStatus.WaitingForMcpSession or AgentRuntimeStatus.Running)
             {
-                var status = await containers.InspectAsync(instance.ContainerId, cancellationToken);
-                if (status is null || status.State is AgentContainerState.Exited or AgentContainerState.Dead)
+                var status = await workloads.InspectAsync(handle, cancellationToken);
+                if (status is null || status.State is IsolationWorkloadState.Stopped or IsolationWorkloadState.Destroyed or IsolationWorkloadState.Failed)
                 {
                     var terminal = status?.ExitCode is 0 ? AgentRuntimeStatus.ExitedWithoutCompletion : AgentRuntimeStatus.Failed;
-                    await StopAndFinishAsync(instance, terminal, status?.Error ?? "Container exited without a completion event.", now, cancellationToken);
+                    await StopAndFinishAsync(instance, terminal, status?.SanitizedError ?? "Isolated workload exited without a completion event.", now, cancellationToken);
                     changed++;
                 }
             }
@@ -302,19 +303,19 @@ public sealed class AgentRuntimeManager(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        if (instance.ContainerId is { } containerId)
+        if (TryGetHandle(instance) is { } handle)
         {
             try
             {
-                var status = await containers.InspectAsync(containerId, cancellationToken);
+                var status = await workloads.InspectAsync(handle, cancellationToken);
                 if (status is not null)
                 {
-                    await containers.RemoveAsync(containerId, force: true, cancellationToken: cancellationToken);
+                    await workloads.DestroyAsync(handle, cancellationToken);
                 }
-                await RemoveRuntimeNetworkAsync(instance, cancellationToken);
-                instance.ContainerId = null;
+                instance.ProviderInstanceId = null;
+                instance.IsolationProviderId = null;
             }
-            catch (AgentContainerException exception)
+            catch (AgentWorkloadException exception)
             {
                 logger.LogWarning(exception, "Interrupted stop cleanup failed for runtime {RuntimeInstanceId}.", instance.Id);
             }
@@ -333,38 +334,45 @@ public sealed class AgentRuntimeManager(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        var containerName = instance.ContainerName ?? $"csweet-agent-{instance.Id:N}";
+        var handle = TryGetHandle(instance);
+        if (handle is null)
+        {
+            const string missingHandleReason = "Isolation startup was interrupted before a durable provider handle was returned; the boot lease will reap any partial VM.";
+            Transition(instance, AgentRuntimeStatus.StartFailed, now, missingHandleReason);
+            HandleAlwaysOnTermination(instance, AgentRuntimeStatus.StartFailed, now, settings);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await AuditOutcomeAsync(instance, AgentRuntimeStatus.StartFailed, cancellationToken);
+            return;
+        }
         try
         {
-            var status = await containers.InspectAsync(containerName, cancellationToken);
-            if (status?.State == AgentContainerState.Running)
+            var status = await workloads.InspectAsync(handle, cancellationToken);
+            if (status?.State == IsolationWorkloadState.Running)
             {
-                instance.ContainerId = status.ContainerId;
                 instance.RuntimeDeadlineAt = now.AddSeconds(instance.AgentInstallation!.Schedule!.MaxRuntimeSeconds);
                 Transition(
                     instance,
                     AgentRuntimeStatus.WaitingForMcpSession,
                     now,
-                    $"Recovered running container {status.ContainerId}; awaiting MCP session establishment at {options.Value.McpEndpoint}.");
+                    $"Recovered isolated workload {handle.ProviderInstanceId}; awaiting broker session establishment.");
                 await dbContext.SaveChangesAsync(cancellationToken);
                 return;
             }
 
             if (status is not null)
             {
-                await containers.RemoveAsync(containerName, force: true, cancellationToken: cancellationToken);
+                await workloads.DestroyAsync(handle, cancellationToken);
             }
-            await RemoveRuntimeNetworkAsync(instance, cancellationToken);
-            instance.ContainerId = null;
+            instance.ProviderInstanceId = null;
+            instance.IsolationProviderId = null;
         }
-        catch (AgentContainerException exception)
+        catch (AgentWorkloadException exception)
         {
             logger.LogWarning(exception, "Interrupted start cleanup failed for runtime {RuntimeInstanceId}.", instance.Id);
-            instance.ContainerId = containerName;
-            instance.LogExcerpt = $"Could not recover interrupted container start: {exception.Message}";
+            instance.LogExcerpt = $"Could not recover interrupted isolation start: {exception.Message}";
         }
 
-        const string recoveryReason = "Container startup was interrupted before completion; retry to start a fresh runtime.";
+        const string recoveryReason = "Isolated workload startup was interrupted; retry to start a fresh disposable VM.";
         Transition(instance, AgentRuntimeStatus.StartFailed, now, recoveryReason);
         HandleAlwaysOnTermination(instance, AgentRuntimeStatus.StartFailed, now, settings);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -386,7 +394,7 @@ public sealed class AgentRuntimeManager(
             _ => null
         };
 
-        var active = await dbContext.AgentRuntimeInstances.Where(x => x.AgentInstallationId == schedule.AgentInstallationId && (x.Status == AgentRuntimeStatus.Queued || ContainerActiveStatuses.Contains(x.Status))).OrderBy(x => x.QueuedAt).ToListAsync(cancellationToken);
+        var active = await dbContext.AgentRuntimeInstances.Where(x => x.AgentInstallationId == schedule.AgentInstallationId && (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status))).OrderBy(x => x.QueuedAt).ToListAsync(cancellationToken);
         var cancelPrevious = new List<AgentRuntimeInstance>();
         var tickOutcome = "queued";
         if (active.Count > 0 && schedule.OverlapPolicy == OverlapPolicy.Skip)
@@ -479,18 +487,20 @@ public sealed class AgentRuntimeManager(
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(package.PackagePath) || string.IsNullOrWhiteSpace(package.ProjectPath))
+        if (string.IsNullOrWhiteSpace(package.PackageDigest) ||
+            string.IsNullOrWhiteSpace(package.ArtifactSignature) ||
+            string.IsNullOrWhiteSpace(package.ProjectPath))
         {
-            await FailBeforeStartAsync(instance, now, "The built agent package is incomplete.", cancellationToken);
+            await FailBeforeStartAsync(instance, now, "The built agent artifact is unsigned or incomplete.", cancellationToken);
             return true;
         }
 
-        var globalCount = await dbContext.AgentRuntimeInstances.CountAsync(x => ContainerActiveStatuses.Contains(x.Status), cancellationToken);
-        var businessCount = await dbContext.AgentRuntimeInstances.CountAsync(x => ContainerActiveStatuses.Contains(x.Status) && x.AgentInstallation!.BusinessId == installation.BusinessId, cancellationToken);
-        var installationCount = await dbContext.AgentRuntimeInstances.CountAsync(x => ContainerActiveStatuses.Contains(x.Status) && x.AgentInstallationId == installation.Id, cancellationToken);
-        if (globalCount >= settings.GlobalMaxActiveContainers || businessCount >= settings.PerBusinessMaxActiveContainers || installationCount >= settings.PerInstallationMaxActiveContainers)
+        var globalCount = await dbContext.AgentRuntimeInstances.CountAsync(x => WorkloadActiveStatuses.Contains(x.Status), cancellationToken);
+        var businessCount = await dbContext.AgentRuntimeInstances.CountAsync(x => WorkloadActiveStatuses.Contains(x.Status) && x.AgentInstallation!.BusinessId == installation.BusinessId, cancellationToken);
+        var installationCount = await dbContext.AgentRuntimeInstances.CountAsync(x => WorkloadActiveStatuses.Contains(x.Status) && x.AgentInstallationId == installation.Id, cancellationToken);
+        if (globalCount >= settings.GlobalMaxActiveWorkloads || businessCount >= settings.PerBusinessMaxActiveWorkloads || installationCount >= settings.PerInstallationMaxActiveWorkloads)
         {
-            var capacityReason = $"Waiting for container capacity: global {globalCount}/{settings.GlobalMaxActiveContainers}, business {businessCount}/{settings.PerBusinessMaxActiveContainers}, installation {installationCount}/{settings.PerInstallationMaxActiveContainers}.";
+            var capacityReason = $"Waiting for isolated workload capacity: global {globalCount}/{settings.GlobalMaxActiveWorkloads}, business {businessCount}/{settings.PerBusinessMaxActiveWorkloads}, installation {installationCount}/{settings.PerInstallationMaxActiveWorkloads}.";
             if (!string.Equals(instance.Reason, capacityReason, StringComparison.Ordinal))
             {
                 Transition(instance, AgentRuntimeStatus.Queued, now, capacityReason);
@@ -499,15 +509,16 @@ public sealed class AgentRuntimeManager(
             return false;
         }
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        instance.WorkloadTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
-        instance.ContainerName = $"csweet-agent-{instance.Id:N}";
-        Transition(instance, AgentRuntimeStatus.Starting, now, "Starting runtime container.");
+        instance.BrokerTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+        instance.IsolationProviderId = null;
+        instance.ProviderInstanceId = null;
+        Transition(instance, AgentRuntimeStatus.Starting, now, "Creating a certified hardware-isolated runtime VM.");
         await dbContext.SaveChangesAsync(cancellationToken);
         try
         {
             using var startTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            startTimeout.CancelAfter(TimeSpan.FromSeconds(settings.ContainerStartTimeoutSeconds));
-            var entryAssembly = Path.GetFileNameWithoutExtension(package.ProjectPath) + ".dll";
+            startTimeout.CancelAfter(TimeSpan.FromSeconds(settings.WorkloadStartTimeoutSeconds));
+            var entrypoint = Path.GetFileNameWithoutExtension(package.ProjectPath);
             var runtimeRequest = ReadRuntimeRequest(package.ManifestJson);
             var isDeveloperRuntime = string.Equals(
                 runtimeRequest.EnvironmentProfile,
@@ -517,55 +528,74 @@ public sealed class AgentRuntimeManager(
                 !string.Equals(runtimeRequest.WorkspaceAccess, "ReadWrite", StringComparison.Ordinal))
                 throw new InvalidOperationException(
                     "The software development runtime requires ReadWrite workspace access.");
-            var runtimeImage = isDeveloperRuntime
-                ? options.Value.SoftwareDevelopmentPolyglotImage
-                : DotNetAgentImageResolver.ResolveRuntimeImage(
-                    settings.DotNetRuntimeBaseImage,
-                    package.TargetFramework);
-            if (isDeveloperRuntime &&
-                !runtimeImage.Contains("@sha256:", StringComparison.OrdinalIgnoreCase) &&
-                !runtimeImage.EndsWith(":local", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException(
-                    "The software development runtime image must be pinned by digest.");
-            var status = await containers.StartAsync(new AgentContainerStartRequest(
-                instance.Id, instance.TickId, installation.Id, package.AgentId, installation.BusinessId,
-                instance.ContainerName,
-                runtimeImage,
-                package.PackagePath, entryAssembly,
-                options.Value.McpEndpoint, token, "/app/csweet-plugin.json", RuntimeNetworkName(instance),
-                installation.Grant.MemoryMb, installation.Grant.CpuPercent, settings.DefaultContainerPidsLimit,
-                installation.Schedule.MaxRuntimeSeconds,
-                isDeveloperRuntime ? $"csweet-workspace-{installation.InstallationKey:N}" : null,
-                isDeveloperRuntime ? "/workspace" : "/data",
-                isDeveloperRuntime ? options.Value.SoftwareDevelopmentEgressProxyUrl : null,
-                options.Value.McpGatewayContainer), startTimeout.Token);
-            instance.ContainerId = status.ContainerId;
+            var runtimeOptions = options.Value;
+            var guestDigest = NormalizeDigest(runtimeOptions.RuntimeGuestImageDigest, "runtime guest image");
+            var artifactDigest = NormalizeDigest(package.PackageDigest, "agent artifact");
+            var guestImage = new GuestImageReference(
+                runtimeOptions.RuntimeGuestImageId,
+                Required(runtimeOptions.RuntimeGuestImageVersion, "runtime guest image version"),
+                guestDigest,
+                runtimeOptions.RuntimeGuestOperatingSystem,
+                runtimeOptions.RuntimeGuestArchitecture);
+            var artifact = new AgentArtifactReference(
+                artifactDigest,
+                package.ArtifactSignature,
+                package.ArtifactFormatVersion,
+                package.ArtifactOperatingSystem,
+                package.ArtifactArchitecture);
+            var lease = new BrokerChannelLease(
+                Guid.NewGuid(),
+                "1.0",
+                token,
+                guestDigest,
+                artifactDigest,
+                now.AddSeconds(installation.Schedule.MaxRuntimeSeconds).AddMinutes(5));
+            var limits = new IsolationResourceLimits(
+                Math.Max(1, (int)Math.Ceiling(installation.Grant.CpuPercent / 100d)),
+                installation.Grant.CpuPercent,
+                installation.Grant.MemoryMb,
+                runtimeOptions.RuntimeWritableDiskMb,
+                settings.DefaultWorkloadProcessLimit,
+                checked(settings.DefaultWorkloadLogLimitMb * 1024 * 1024),
+                TimeSpan.FromSeconds(installation.Schedule.MaxRuntimeSeconds));
+            var handle = await workloads.CreateAndStartAsync(
+                new RuntimeWorkloadSpec(
+                    instance.Id,
+                    guestImage,
+                    limits,
+                    lease,
+                    artifact,
+                    new RuntimeAgentIdentity(installation.Id, installation.BusinessId, instance.TickId),
+                    [entrypoint]),
+                AgentTrustLevel.UntrustedRepository,
+                runtimeOptions.PreferredIsolationProviderId,
+                startTimeout.Token);
+            instance.IsolationProviderId = handle.ProviderId;
+            instance.ProviderInstanceId = handle.ProviderInstanceId;
             instance.RuntimeDeadlineAt = now.AddSeconds(installation.Schedule.MaxRuntimeSeconds);
             Transition(instance, AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow,
-                $"Container {status.ContainerId} started on isolated runtime network; awaiting MCP session establishment at {options.Value.McpEndpoint}.");
-            AgentRuntimeMetrics.ContainerStarted();
+                $"Hardware-isolated workload {handle.ProviderInstanceId} started with broker-only communication; awaiting authenticated broker session.");
+            AgentRuntimeMetrics.WorkloadStarted();
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             await TryRemoveFailedStartAsync(instance, cancellationToken);
-            instance.LogExcerpt =
-                $"Container launch timed out. Image: {settings.DotNetRuntimeBaseImage}; network: {options.Value.DockerNetworkName}; MCP endpoint: {options.Value.McpEndpoint}.";
-            Transition(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, "Container start timed out.");
+            instance.LogExcerpt = "Certified VM launch timed out.";
+            Transition(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, "Certified VM start timed out.");
         }
-        catch (Exception exception) when (exception is AgentContainerException or InvalidOperationException)
+        catch (Exception exception) when (exception is AgentWorkloadException or InvalidOperationException)
         {
             logger.LogError(exception, "Failed to start runtime {RuntimeInstanceId}", instance.Id);
             await TryRemoveFailedStartAsync(instance, cancellationToken);
-            instance.LogExcerpt =
-                $"Container launch failed. Image: {settings.DotNetRuntimeBaseImage}; network: {options.Value.DockerNetworkName}; MCP endpoint: {options.Value.McpEndpoint}.{Environment.NewLine}{exception.Message}";
+            instance.LogExcerpt = $"Certified VM launch failed.{Environment.NewLine}{exception.Message}";
             Transition(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, exception.Message);
         }
         if (instance.Status == AgentRuntimeStatus.StartFailed)
             HandleAlwaysOnTermination(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, settings);
         await dbContext.SaveChangesAsync(cancellationToken);
         if (instance.Status == AgentRuntimeStatus.WaitingForMcpSession)
-            await auditWriter.WriteAsync("agent-runtime.container.started", nameof(AgentRuntimeInstance), instance.Id,
-                $"Started container {instance.ContainerId} for installation {instance.AgentInstallationId}.", cancellationToken: cancellationToken);
+            await auditWriter.WriteAsync("agent-runtime.workload.started", nameof(AgentRuntimeInstance), instance.Id,
+                $"Started certified workload {instance.IsolationProviderId}/{instance.ProviderInstanceId} for installation {instance.AgentInstallationId}.", cancellationToken: cancellationToken);
         else if (instance.Status == AgentRuntimeStatus.StartFailed)
             await AuditOutcomeAsync(instance, AgentRuntimeStatus.StartFailed, cancellationToken);
         return true;
@@ -608,19 +638,17 @@ public sealed class AgentRuntimeManager(
 
     private async Task TryRemoveFailedStartAsync(AgentRuntimeInstance instance, CancellationToken cancellationToken)
     {
-        var containerName = instance.ContainerName ?? $"csweet-agent-{instance.Id:N}";
+        var handle = TryGetHandle(instance);
+        if (handle is null) return;
         try
         {
-            if (await containers.InspectAsync(containerName, cancellationToken) is not null)
-                await containers.RemoveAsync(containerName, force: true, cancellationToken: cancellationToken);
-            await RemoveRuntimeNetworkAsync(instance, cancellationToken);
-            instance.ContainerId = null;
+            if (await workloads.InspectAsync(handle, cancellationToken) is not null)
+                await workloads.DestroyAsync(handle, cancellationToken);
+            instance.ProviderInstanceId = null;
+            instance.IsolationProviderId = null;
         }
-        catch (AgentContainerException exception)
+        catch (AgentWorkloadException exception)
         {
-            // Retain a name-based cleanup marker so the background cleanup service can retry
-            // both the container and its per-runtime network after this attempt is terminal.
-            instance.ContainerId = containerName;
             logger.LogWarning(exception, "Failed-start resource cleanup will be retried for runtime {RuntimeInstanceId}.", instance.Id);
         }
     }
@@ -630,32 +658,31 @@ public sealed class AgentRuntimeManager(
         Transition(instance, AgentRuntimeStatus.Stopping, now, reason);
         await dbContext.SaveChangesAsync(cancellationToken);
         var settings = await SettingsAsync(cancellationToken);
-        if (instance.ContainerId is not null)
+        if (TryGetHandle(instance) is { } handle)
         {
-            var containerId = instance.ContainerId;
             try
             {
-                var maximumLogBytes = Math.Min(settings.DefaultContainerLogLimitMb * 1024 * 1024, 64 * 1024);
-                instance.LogExcerpt = await containers.GetLogsAsync(containerId, maximumLogBytes, cancellationToken);
+                var maximumLogBytes = Math.Min(settings.DefaultWorkloadLogLimitMb * 1024 * 1024, 64 * 1024);
+                instance.LogExcerpt = await workloads.GetLogsAsync(handle, maximumLogBytes, cancellationToken);
             }
-            catch (AgentContainerException exception)
+            catch (AgentWorkloadException exception)
             {
                 logger.LogWarning(exception, "Could not retain logs for runtime {RuntimeInstanceId}.", instance.Id);
             }
             try
             {
-                await containers.StopAsync(containerId, TimeSpan.FromSeconds(settings.ContainerStopGraceSeconds), cancellationToken);
-                if (settings.RemoveContainersAfterCompletion)
+                await workloads.StopAsync(handle, TimeSpan.FromSeconds(settings.WorkloadStopGraceSeconds), cancellationToken);
+                if (settings.RemoveWorkloadsAfterCompletion)
                 {
-                    await containers.RemoveAsync(containerId, cancellationToken: cancellationToken);
-                    await RemoveRuntimeNetworkAsync(instance, cancellationToken);
-                    instance.ContainerId = null;
+                    await workloads.DestroyAsync(handle, cancellationToken);
+                    instance.ProviderInstanceId = null;
+                    instance.IsolationProviderId = null;
                 }
-                AgentRuntimeMetrics.ContainerStopped(terminal.ToString());
-                await auditWriter.WriteAsync("agent-runtime.container.stopped", nameof(AgentRuntimeInstance), instance.Id,
-                    $"Stopped container {containerId}: {reason}", cancellationToken: cancellationToken);
+                AgentRuntimeMetrics.WorkloadStopped(terminal.ToString());
+                await auditWriter.WriteAsync("agent-runtime.workload.stopped", nameof(AgentRuntimeInstance), instance.Id,
+                    $"Stopped isolated workload {handle.ProviderId}/{handle.ProviderInstanceId}: {reason}", cancellationToken: cancellationToken);
             }
-            catch (AgentContainerException exception) { logger.LogWarning(exception, "Container cleanup failed for runtime {RuntimeInstanceId}", instance.Id); }
+            catch (AgentWorkloadException exception) { logger.LogWarning(exception, "Isolated workload cleanup failed for runtime {RuntimeInstanceId}", instance.Id); }
         }
         Transition(instance, terminal, DateTimeOffset.UtcNow, reason);
         var sessions = await dbContext.McpAgentSessions
@@ -762,12 +789,23 @@ public sealed class AgentRuntimeManager(
     private async Task<AgentRuntimeGlobalSettings> SettingsAsync(CancellationToken cancellationToken)
         => await dbContext.AgentRuntimeGlobalSettings.SingleAsync(cancellationToken);
 
-    private string RuntimeNetworkName(AgentRuntimeInstance instance)
-        => $"{options.Value.DockerNetworkName}-{instance.Id:N}";
+    private static IsolationWorkloadHandle? TryGetHandle(AgentRuntimeInstance instance) =>
+        string.IsNullOrWhiteSpace(instance.IsolationProviderId) || string.IsNullOrWhiteSpace(instance.ProviderInstanceId)
+            ? null
+            : new IsolationWorkloadHandle(
+                instance.IsolationProviderId,
+                instance.Id,
+                instance.ProviderInstanceId,
+                IsolationWorkloadKind.Runtime);
 
-    private Task RemoveRuntimeNetworkAsync(AgentRuntimeInstance instance, CancellationToken cancellationToken)
-        => containers.RemoveNetworkAsync(
-            RuntimeNetworkName(instance),
-            options.Value.McpGatewayContainer,
-            cancellationToken);
+    private static string Required(string value, string name) =>
+        !string.IsNullOrWhiteSpace(value) ? value : throw new InvalidOperationException($"The {name} is not configured.");
+
+    private static string NormalizeDigest(string value, string name)
+    {
+        var normalized = value.StartsWith("sha256:", StringComparison.Ordinal) ? value : $"sha256:{value}";
+        if (normalized.Length != 71 || normalized.AsSpan(7).IndexOfAnyExcept("0123456789abcdef") >= 0)
+            throw new InvalidOperationException($"The {name} must be an immutable lowercase SHA-256 digest.");
+        return normalized;
+    }
 }

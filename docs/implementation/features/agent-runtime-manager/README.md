@@ -1,5 +1,10 @@
 # Agent Runtime Manager
 
+> **Superseded historical design:** This feature plan describes the removed Docker container
+> runner. Use the [agent isolation implementation plan](../../../../Documentation/Architecture/CSweet_Untrusted_Agent_Isolation_Implementation_Plan.md)
+> and [security architecture overview](../../../../Documentation/Architecture/AGENT_ISOLATION_SECURITY_OVERVIEW.md)
+> for the provider-neutral, hardware-virtualized runtime.
+
 ## Goal
 
 Add an Agent Runtime Manager that can run both always-on agents and scheduled ephemeral agents.

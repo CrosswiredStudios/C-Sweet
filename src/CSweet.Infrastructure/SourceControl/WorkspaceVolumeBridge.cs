@@ -32,19 +32,16 @@ public interface IWorkspaceVolumeBridge
 }
 
 /// <summary>
-/// Copies credential-free snapshots between trusted services and exactly one agent-installation
-/// Docker volume. The helper has no network, Docker socket, provider credentials, or access to any
-/// other volume. Repository selection is always re-derived from persisted Core state.
+/// Stores credential-free workspace snapshots for broker streaming. Guests never
+/// receive a host path or volume mount; the authenticated broker transfers the
+/// validated archive over the sole host/guest channel.
 /// </summary>
 public sealed class WorkspaceVolumeBridge(
     CSweetDbContext db,
-    IDockerCommandExecutor docker,
     WorkspaceArtifactValidator artifacts,
     IOptions<AgentRuntimeManagerOptions> runtimeOptions) : IWorkspaceVolumeBridge
 {
-    private const string ContainerWorkspaceRoot = "/workspace";
-    private const string RuntimeUser = "1654:1654";
-    private readonly AgentRuntimeManagerOptions _runtimeOptions = runtimeOptions.Value;
+    private readonly string _storeRoot = ResolveStoreRoot(runtimeOptions.Value.WorkspaceSnapshotStorePath);
 
     public async Task<WorkspaceArtifactManifest> ImportAsync(
         WorkspaceVolumeLease lease,
@@ -53,30 +50,32 @@ public sealed class WorkspaceVolumeBridge(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(archive);
-        var target = await ResolveTargetAsync(lease, allowPreparing: true, cancellationToken);
+        await AuthorizeAsync(lease, allowPreparing: true, cancellationToken);
         var temporaryRoot = CreateTemporaryRoot();
         var extracted = Path.Combine(temporaryRoot, "snapshot");
+        var quarantine = Path.Combine(temporaryRoot, "snapshot.zip");
         try
         {
-            var manifest = await artifacts.ExtractZipAsync(archive, extracted, cancellationToken);
-            if (expectedManifest is not null && manifest != expectedManifest)
-                throw new InvalidDataException("The workspace artifact does not match its trusted manifest.");
-            await WithHelperAsync(target, async helperName =>
+            WorkspaceArtifactManifest manifest;
+            await using (var file = new FileStream(
+                quarantine,
+                FileMode.CreateNew,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                64 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
-                await ExecuteRequiredAsync(
-                    ["exec", helperName, "/bin/sh", "-c",
-                        "rm -rf -- \"$1\" && mkdir -p -- \"$1\"", "csweet-bridge", target.ContainerPath],
-                    "prepare the isolated workspace target",
-                    cancellationToken);
-                await ExecuteRequiredAsync(
-                    ["cp", extracted + Path.DirectorySeparatorChar + ".", $"{helperName}:{target.ContainerPath}"],
-                    "copy the validated workspace snapshot",
-                    cancellationToken);
-                await ExecuteRequiredAsync(
-                    ["exec", helperName, "chown", "-R", RuntimeUser, target.ContainerPath],
-                    "set workspace ownership",
-                    cancellationToken);
-            }, cancellationToken);
+                await archive.CopyToAsync(file, cancellationToken);
+                file.Position = 0;
+                manifest = await artifacts.ExtractZipAsync(file, extracted, cancellationToken);
+                if (expectedManifest is not null && manifest != expectedManifest)
+                    throw new InvalidDataException("The workspace artifact does not match its trusted manifest.");
+                await file.FlushAsync(cancellationToken);
+            }
+            var destination = SnapshotPath(lease);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Move(quarantine, destination, overwrite: true);
+            await WriteManifestAsync(destination, manifest, cancellationToken);
             return manifest;
         }
         finally
@@ -89,148 +88,93 @@ public sealed class WorkspaceVolumeBridge(
         WorkspaceVolumeLease lease,
         CancellationToken cancellationToken = default)
     {
-        var target = await ResolveTargetAsync(lease, allowPreparing: false, cancellationToken);
-        var temporaryRoot = CreateTemporaryRoot();
-        var snapshot = Path.Combine(temporaryRoot, "snapshot");
-        Directory.CreateDirectory(snapshot);
-        try
-        {
-            await WithHelperAsync(target, async helperName =>
-            {
-                await ExecuteRequiredAsync(
-                    ["exec", helperName, "test", "-d", target.ContainerPath],
-                    "locate the isolated workspace target",
-                    cancellationToken);
-                await ExecuteRequiredAsync(
-                    ["cp", $"{helperName}:{target.ContainerPath}/.", snapshot],
-                    "copy the workspace snapshot",
-                    cancellationToken);
-            }, cancellationToken);
-
-            await using var archive = new MemoryStream();
-            var manifest = await artifacts.CreateZipAsync(snapshot, archive, cancellationToken);
-            return new WorkspaceVolumeExport(archive.ToArray(), manifest);
-        }
-        finally
-        {
-            DeleteTemporaryRoot(temporaryRoot);
-        }
+        await AuthorizeAsync(lease, allowPreparing: false, cancellationToken);
+        var path = SnapshotPath(lease);
+        if (!File.Exists(path)) throw new InvalidOperationException("The brokered workspace snapshot is unavailable.");
+        var manifest = await ReadManifestAsync(path, cancellationToken);
+        var archive = await File.ReadAllBytesAsync(path, cancellationToken);
+        return new WorkspaceVolumeExport(archive, manifest);
     }
 
-    private async Task<ResolvedTarget> ResolveTargetAsync(
+    private async Task AuthorizeAsync(
         WorkspaceVolumeLease lease,
         bool allowPreparing,
         CancellationToken cancellationToken)
     {
         if (lease.AssignmentRevision < 1)
             throw new ArgumentOutOfRangeException(nameof(lease), "An active assignment revision is required.");
-
         var workspace = await db.SourceControlWorkspaces.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Id == lease.WorkspaceId &&
             x.OrganizationId == lease.OrganizationId &&
             x.AgentInstallationId == lease.AgentInstallationId &&
             x.WorkItemId == lease.WorkItemId &&
             x.AssignmentRevision == lease.AssignmentRevision,
-            cancellationToken);
-        if (workspace is null)
-            throw new UnauthorizedAccessException("The workspace lease does not match persisted source-control state.");
-
-        var allowed = workspace.Status == SourceControlWorkspaceStatus.Ready ||
-            (allowPreparing && workspace.Status == SourceControlWorkspaceStatus.Preparing);
-        if (!allowed)
+            cancellationToken) ?? throw new UnauthorizedAccessException(
+                "The workspace lease does not match persisted source-control state.");
+        if (workspace.Status != SourceControlWorkspaceStatus.Ready &&
+            !(allowPreparing && workspace.Status == SourceControlWorkspaceStatus.Preparing))
             throw new InvalidOperationException("The source-control workspace is not available for this operation.");
-
-        var workItemMatches = await db.CoreWorkTasks.AsNoTracking().AnyAsync(x =>
-            x.Id == lease.WorkItemId &&
-            x.OrganizationId == lease.OrganizationId &&
-            x.AssignedAgentInstallationId == lease.AgentInstallationId &&
-            x.AssignmentRevision == lease.AssignmentRevision,
-            cancellationToken);
-        if (!workItemMatches)
+        if (!await db.CoreWorkTasks.AsNoTracking().AnyAsync(x =>
+                x.Id == lease.WorkItemId && x.OrganizationId == lease.OrganizationId &&
+                x.AssignedAgentInstallationId == lease.AgentInstallationId &&
+                x.AssignmentRevision == lease.AssignmentRevision,
+                cancellationToken))
             throw new UnauthorizedAccessException("The workspace lease is stale or assigned to another agent.");
-
-        var installation = await db.AgentInstallations.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.Id == lease.AgentInstallationId &&
-            x.IsEnabled &&
-            x.BusinessId == lease.OrganizationId.ToString("D"),
-            cancellationToken);
-        if (installation is null)
+        if (!await db.AgentInstallations.AsNoTracking().AnyAsync(x =>
+                x.Id == lease.AgentInstallationId && x.IsEnabled &&
+                x.BusinessId == lease.OrganizationId.ToString("D"),
+                cancellationToken))
             throw new UnauthorizedAccessException("The assigned agent installation is unavailable.");
-
-        var volumeName = $"csweet-workspace-{installation.InstallationKey:N}";
-        var containerPath = $"{ContainerWorkspaceRoot}/{lease.WorkItemId:N}/{lease.AssignmentRevision}";
-        return new ResolvedTarget(volumeName, containerPath);
     }
 
-    private async Task WithHelperAsync(
-        ResolvedTarget target,
-        Func<string, Task> action,
-        CancellationToken cancellationToken)
+    private string SnapshotPath(WorkspaceVolumeLease lease)
     {
-        if (string.IsNullOrWhiteSpace(_runtimeOptions.SoftwareDevelopmentPolyglotImage))
-            throw new InvalidOperationException("The trusted workspace helper image is not configured.");
-
-        var helperName = $"csweet-workspace-bridge-{Guid.NewGuid():N}";
-        await ExecuteRequiredAsync(
-            [
-                "run", "--detach", "--name", helperName,
-                "--network", "none",
-                "--read-only",
-                "--cap-drop", "ALL",
-                "--cap-add", "CHOWN",
-                "--cap-add", "DAC_OVERRIDE",
-                "--pids-limit", "64",
-                "--memory", "256m",
-                "--mount", $"type=volume,source={target.VolumeName},target={ContainerWorkspaceRoot}",
-                "--entrypoint", "/bin/sh",
-                _runtimeOptions.SoftwareDevelopmentPolyglotImage,
-                "-c", "sleep 600"
-            ],
-            "start the isolated workspace bridge",
-            cancellationToken);
-        try
-        {
-            await action(helperName);
-        }
-        finally
-        {
-            await docker.ExecuteAsync(["rm", "--force", helperName], CancellationToken.None);
-        }
+        var directory = Path.Combine(
+            _storeRoot,
+            lease.OrganizationId.ToString("N"),
+            lease.AgentInstallationId.ToString("N"),
+            lease.WorkspaceId.ToString("N"));
+        return Path.Combine(directory, $"{lease.WorkItemId:N}-{lease.AssignmentRevision}.zip");
     }
 
-    private async Task ExecuteRequiredAsync(
-        IReadOnlyList<string> arguments,
-        string operation,
-        CancellationToken cancellationToken)
+    private static async Task WriteManifestAsync(string snapshotPath, WorkspaceArtifactManifest manifest, CancellationToken cancellationToken)
     {
-        var result = await docker.ExecuteAsync(arguments, cancellationToken);
-        if (result.ExitCode != 0)
-            throw new InvalidOperationException($"The trusted workspace bridge could not {operation}.");
+        var value = System.Text.Json.JsonSerializer.Serialize(manifest);
+        await File.WriteAllTextAsync(snapshotPath + ".manifest.json", value, cancellationToken);
+    }
+
+    private static async Task<WorkspaceArtifactManifest> ReadManifestAsync(string snapshotPath, CancellationToken cancellationToken)
+    {
+        var value = await File.ReadAllTextAsync(snapshotPath + ".manifest.json", cancellationToken);
+        return System.Text.Json.JsonSerializer.Deserialize<WorkspaceArtifactManifest>(value)
+            ?? throw new InvalidDataException("The workspace snapshot manifest is invalid.");
+    }
+
+    private static string ResolveStoreRoot(string configured)
+    {
+        var path = string.IsNullOrWhiteSpace(configured)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CSweet", "workspace-snapshots")
+            : configured;
+        if (!Path.IsPathFullyQualified(path)) throw new InvalidOperationException("The workspace snapshot store path must be absolute.");
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
     }
 
     private static string CreateTemporaryRoot()
     {
-        var bridgeRoot = Path.Combine(Path.GetTempPath(), "csweet-workspace-bridge");
-        Directory.CreateDirectory(bridgeRoot);
-        var temporaryRoot = Path.Combine(bridgeRoot, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(temporaryRoot);
-        return temporaryRoot;
+        var parent = Path.Combine(Path.GetTempPath(), "csweet-workspace-broker");
+        Directory.CreateDirectory(parent);
+        var path = Path.Combine(parent, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
     }
 
     private static void DeleteTemporaryRoot(string temporaryRoot)
     {
-        var bridgeRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "csweet-workspace-bridge"));
+        var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "csweet-workspace-broker"));
         var resolved = Path.GetFullPath(temporaryRoot);
-        var prefix = bridgeRoot.EndsWith(Path.DirectorySeparatorChar)
-            ? bridgeRoot
-            : bridgeRoot + Path.DirectorySeparatorChar;
-        if (!resolved.StartsWith(prefix, OperatingSystem.IsWindows()
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal))
-            throw new InvalidOperationException("Refusing to remove a temporary path outside the workspace bridge root.");
-        if (Directory.Exists(resolved))
-            Directory.Delete(resolved, recursive: true);
+        var prefix = root + Path.DirectorySeparatorChar;
+        if (!resolved.StartsWith(prefix, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            throw new InvalidOperationException("Refusing to remove a temporary path outside the workspace broker root.");
+        if (Directory.Exists(resolved)) Directory.Delete(resolved, recursive: true);
     }
-
-    private sealed record ResolvedTarget(string VolumeName, string ContainerPath);
 }

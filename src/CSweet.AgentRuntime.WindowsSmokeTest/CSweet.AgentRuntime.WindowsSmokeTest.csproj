@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Runs a real Hyper-V guest and emits development certification evidence only after isolation checks pass.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.AgentBroker\CSweet.AgentBroker.csproj" />
+    <ProjectReference Include="..\CSweet.AgentRuntime.Abstractions\CSweet.AgentRuntime.Abstractions.csproj" />
+    <ProjectReference Include="..\CSweet.AgentRuntime.Core\CSweet.AgentRuntime.Core.csproj" />
+    <ProjectReference Include="..\CSweet.AgentRuntime.HyperV\CSweet.AgentRuntime.HyperV.csproj" />
+    <ProjectReference Include="..\CSweet.AgentRuntime.Protocol\CSweet.AgentRuntime.Protocol.csproj" />
+  </ItemGroup>
+</Project>

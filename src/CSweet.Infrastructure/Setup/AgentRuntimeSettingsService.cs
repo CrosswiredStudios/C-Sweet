@@ -83,10 +83,10 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         var errors = new List<string>();
         var minimumTickFrequencySeconds = request.MinimumTickFrequencySeconds ?? settings.MinimumTickFrequencySeconds;
         var defaultTickFrequencySeconds = request.DefaultTickFrequencySeconds ?? settings.DefaultTickFrequencySeconds;
-        var defaultContainerMemoryMb = request.DefaultContainerMemoryMb ?? settings.DefaultContainerMemoryMb;
-        var maximumContainerMemoryMb = request.MaximumContainerMemoryMb ?? settings.MaximumContainerMemoryMb;
-        var defaultContainerCpuPercent = request.DefaultContainerCpuPercent ?? settings.DefaultContainerCpuPercent;
-        var maximumContainerCpuPercent = request.MaximumContainerCpuPercent ?? settings.MaximumContainerCpuPercent;
+        var defaultWorkloadMemoryMb = request.DefaultWorkloadMemoryMb ?? settings.DefaultWorkloadMemoryMb;
+        var maximumWorkloadMemoryMb = request.MaximumWorkloadMemoryMb ?? settings.MaximumWorkloadMemoryMb;
+        var defaultWorkloadCpuPercent = request.DefaultWorkloadCpuPercent ?? settings.DefaultWorkloadCpuPercent;
+        var maximumWorkloadCpuPercent = request.MaximumWorkloadCpuPercent ?? settings.MaximumWorkloadCpuPercent;
 
         if (minimumTickFrequencySeconds < 60)
         {
@@ -98,14 +98,14 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
             errors.Add("Default tick frequency must be greater than or equal to minimum tick frequency.");
         }
 
-        if (defaultContainerMemoryMb > maximumContainerMemoryMb)
+        if (defaultWorkloadMemoryMb > maximumWorkloadMemoryMb)
         {
-            errors.Add("Default container memory must be less than or equal to maximum container memory.");
+            errors.Add("Default workload memory must be less than or equal to maximum workload memory.");
         }
 
-        if (defaultContainerCpuPercent > maximumContainerCpuPercent)
+        if (defaultWorkloadCpuPercent > maximumWorkloadCpuPercent)
         {
-            errors.Add("Default container CPU must be less than or equal to maximum container CPU.");
+            errors.Add("Default workload CPU must be less than or equal to maximum workload CPU.");
         }
 
         if (request.DefaultActivationMode is string activationMode &&
@@ -129,32 +129,32 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
             errors.Add("Default restart policy is invalid.");
         }
 
-        if (request.GlobalMaxActiveContainers is int g && g <= 0)
+        if (request.GlobalMaxActiveWorkloads is int g && g <= 0)
         {
-            errors.Add("Global max active containers must be positive.");
+            errors.Add("Global max active workloads must be positive.");
         }
 
-        if (request.PerBusinessMaxActiveContainers is int p && p <= 0)
+        if (request.PerBusinessMaxActiveWorkloads is int p && p <= 0)
         {
-            errors.Add("Per-business max active containers must be positive.");
+            errors.Add("Per-business max active workloads must be positive.");
         }
 
-        if (request.PerInstallationMaxActiveContainers is int pi && pi <= 0)
+        if (request.PerInstallationMaxActiveWorkloads is int pi && pi <= 0)
         {
-            errors.Add("Per-installation max active containers must be positive.");
+            errors.Add("Per-installation max active workloads must be positive.");
         }
 
         AddPositiveError(request.DefaultTickFrequencySeconds, "Default tick frequency", errors);
         AddPositiveError(request.DefaultMaxRuntimeSeconds, "Default max runtime", errors);
-        AddPositiveError(request.DefaultContainerMemoryMb, "Default container memory", errors);
-        AddPositiveError(request.MaximumContainerMemoryMb, "Maximum container memory", errors);
-        AddPositiveError(request.DefaultContainerCpuPercent, "Default container CPU", errors);
-        AddPositiveError(request.MaximumContainerCpuPercent, "Maximum container CPU", errors);
-        AddPositiveError(request.DefaultContainerPidsLimit, "Default container PIDs limit", errors);
-        AddPositiveError(request.DefaultContainerLogLimitMb, "Default container log limit", errors);
-        AddPositiveError(request.ContainerStartTimeoutSeconds, "Container start timeout", errors);
+        AddPositiveError(request.DefaultWorkloadMemoryMb, "Default workload memory", errors);
+        AddPositiveError(request.MaximumWorkloadMemoryMb, "Maximum workload memory", errors);
+        AddPositiveError(request.DefaultWorkloadCpuPercent, "Default workload CPU", errors);
+        AddPositiveError(request.MaximumWorkloadCpuPercent, "Maximum workload CPU", errors);
+        AddPositiveError(request.DefaultWorkloadProcessLimit, "Default workload process limit", errors);
+        AddPositiveError(request.DefaultWorkloadLogLimitMb, "Default workload log limit", errors);
+        AddPositiveError(request.WorkloadStartTimeoutSeconds, "Workload start timeout", errors);
         AddPositiveError(request.McpSessionTimeoutSeconds, "MCP session timeout", errors);
-        AddPositiveError(request.ContainerStopGraceSeconds, "Container stop grace", errors);
+        AddPositiveError(request.WorkloadStopGraceSeconds, "Workload stop grace", errors);
         AddPositiveError(request.BuildTimeoutSeconds, "Build timeout", errors);
         AddPositiveError(request.BuildMemoryMb, "Build memory", errors);
         AddPositiveError(request.BuildCpuPercent, "Build CPU", errors);
@@ -163,16 +163,6 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         AddPositiveError(request.CompletedRuntimeRetentionDays, "Completed runtime retention", errors);
         AddPositiveError(request.FailedRuntimeRetentionDays, "Failed runtime retention", errors);
         AddPositiveError(request.BuildLogRetentionDays, "Build log retention", errors);
-
-        if (request.DotNetBuilderImage is string builderImg && string.IsNullOrWhiteSpace(builderImg))
-        {
-            errors.Add("Builder image name cannot be empty.");
-        }
-
-        if (request.DotNetRuntimeBaseImage is string runtimeImg && string.IsNullOrWhiteSpace(runtimeImg))
-        {
-            errors.Add("Runtime base image name cannot be empty.");
-        }
 
         return errors;
     }
@@ -195,26 +185,22 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         ApplyString(request.DefaultOverlapPolicy, v => settings.DefaultOverlapPolicy = ParseOverlapPolicy(v));
         ApplyBool(request.AllowAlwaysOnCommunityAgents, v => settings.AllowAlwaysOnCommunityAgents = v);
         ApplyString(request.DefaultRestartPolicy, v => settings.DefaultRestartPolicy = ParseRestartPolicy(v));
-        ApplyInt(request.GlobalMaxActiveContainers, v => settings.GlobalMaxActiveContainers = v);
-        ApplyInt(request.PerBusinessMaxActiveContainers, v => settings.PerBusinessMaxActiveContainers = v);
-        ApplyInt(request.PerInstallationMaxActiveContainers, v => settings.PerInstallationMaxActiveContainers = v);
-        ApplyInt(request.DefaultContainerMemoryMb, v => settings.DefaultContainerMemoryMb = v);
-        ApplyInt(request.MaximumContainerMemoryMb, v => settings.MaximumContainerMemoryMb = v);
-        ApplyInt(request.DefaultContainerCpuPercent, v => settings.DefaultContainerCpuPercent = v);
-        ApplyInt(request.MaximumContainerCpuPercent, v => settings.MaximumContainerCpuPercent = v);
-        ApplyInt(request.DefaultContainerPidsLimit, v => settings.DefaultContainerPidsLimit = v);
-        ApplyInt(request.DefaultContainerLogLimitMb, v => settings.DefaultContainerLogLimitMb = v);
-        ApplyInt(request.ContainerStartTimeoutSeconds, v => settings.ContainerStartTimeoutSeconds = v);
+        ApplyInt(request.GlobalMaxActiveWorkloads, v => settings.GlobalMaxActiveWorkloads = v);
+        ApplyInt(request.PerBusinessMaxActiveWorkloads, v => settings.PerBusinessMaxActiveWorkloads = v);
+        ApplyInt(request.PerInstallationMaxActiveWorkloads, v => settings.PerInstallationMaxActiveWorkloads = v);
+        ApplyInt(request.DefaultWorkloadMemoryMb, v => settings.DefaultWorkloadMemoryMb = v);
+        ApplyInt(request.MaximumWorkloadMemoryMb, v => settings.MaximumWorkloadMemoryMb = v);
+        ApplyInt(request.DefaultWorkloadCpuPercent, v => settings.DefaultWorkloadCpuPercent = v);
+        ApplyInt(request.MaximumWorkloadCpuPercent, v => settings.MaximumWorkloadCpuPercent = v);
+        ApplyInt(request.DefaultWorkloadProcessLimit, v => settings.DefaultWorkloadProcessLimit = v);
+        ApplyInt(request.DefaultWorkloadLogLimitMb, v => settings.DefaultWorkloadLogLimitMb = v);
+        ApplyInt(request.WorkloadStartTimeoutSeconds, v => settings.WorkloadStartTimeoutSeconds = v);
         ApplyInt(request.McpSessionTimeoutSeconds, v => settings.McpSessionTimeoutSeconds = v);
-        ApplyInt(request.ContainerStopGraceSeconds, v => settings.ContainerStopGraceSeconds = v);
+        ApplyInt(request.WorkloadStopGraceSeconds, v => settings.WorkloadStopGraceSeconds = v);
         ApplyString(request.DefaultNetworkPolicy, v => settings.DefaultNetworkPolicy = v);
         ApplyBool(request.AllowPublicInternetByDefault, v => settings.AllowPublicInternetByDefault = v);
         ApplyOptionalString(request.AllowedPackageFeedHosts, v => settings.AllowedPackageFeedHosts = v);
         ApplyOptionalString(request.BlockedNetworkCidrs, v => settings.BlockedNetworkCidrs = v);
-        ApplyOptionalString(request.AgentSourceRootPath, v => settings.AgentSourceRootPath = v);
-        ApplyOptionalString(request.AgentPackageCachePath, v => settings.AgentPackageCachePath = v);
-        ApplyString(request.DotNetBuilderImage, v => settings.DotNetBuilderImage = v);
-        ApplyString(request.DotNetRuntimeBaseImage, v => settings.DotNetRuntimeBaseImage = v);
         ApplyInt(request.BuildTimeoutSeconds, v => settings.BuildTimeoutSeconds = v);
         ApplyInt(request.BuildMemoryMb, v => settings.BuildMemoryMb = v);
         ApplyInt(request.BuildCpuPercent, v => settings.BuildCpuPercent = v);
@@ -224,7 +210,7 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         ApplyInt(request.CompletedRuntimeRetentionDays, v => settings.CompletedRuntimeRetentionDays = v);
         ApplyInt(request.FailedRuntimeRetentionDays, v => settings.FailedRuntimeRetentionDays = v);
         ApplyInt(request.BuildLogRetentionDays, v => settings.BuildLogRetentionDays = v);
-        ApplyBool(request.RemoveContainersAfterCompletion, v => settings.RemoveContainersAfterCompletion = v);
+        ApplyBool(request.RemoveWorkloadsAfterCompletion, v => settings.RemoveWorkloadsAfterCompletion = v);
         ApplyBool(request.RemoveWorkspacesAfterCompletion, v => settings.RemoveWorkspacesAfterCompletion = v);
 
         settings.UpdatedAt = DateTimeOffset.UtcNow;
@@ -262,26 +248,22 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
             settings.DefaultOverlapPolicy.ToString()!,
             settings.AllowAlwaysOnCommunityAgents,
             settings.DefaultRestartPolicy.ToString()!,
-            settings.GlobalMaxActiveContainers,
-            settings.PerBusinessMaxActiveContainers,
-            settings.PerInstallationMaxActiveContainers,
-            settings.DefaultContainerMemoryMb,
-            settings.MaximumContainerMemoryMb,
-            settings.DefaultContainerCpuPercent,
-            settings.MaximumContainerCpuPercent,
-            settings.DefaultContainerPidsLimit,
-            settings.DefaultContainerLogLimitMb,
-            settings.ContainerStartTimeoutSeconds,
+            settings.GlobalMaxActiveWorkloads,
+            settings.PerBusinessMaxActiveWorkloads,
+            settings.PerInstallationMaxActiveWorkloads,
+            settings.DefaultWorkloadMemoryMb,
+            settings.MaximumWorkloadMemoryMb,
+            settings.DefaultWorkloadCpuPercent,
+            settings.MaximumWorkloadCpuPercent,
+            settings.DefaultWorkloadProcessLimit,
+            settings.DefaultWorkloadLogLimitMb,
+            settings.WorkloadStartTimeoutSeconds,
             settings.McpSessionTimeoutSeconds,
-            settings.ContainerStopGraceSeconds,
+            settings.WorkloadStopGraceSeconds,
             settings.DefaultNetworkPolicy,
             settings.AllowPublicInternetByDefault,
             settings.AllowedPackageFeedHosts,
             settings.BlockedNetworkCidrs,
-            settings.AgentSourceRootPath,
-            settings.AgentPackageCachePath,
-            settings.DotNetBuilderImage,
-            settings.DotNetRuntimeBaseImage,
             settings.BuildTimeoutSeconds,
             settings.BuildMemoryMb,
             settings.BuildCpuPercent,
@@ -291,7 +273,7 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
             settings.CompletedRuntimeRetentionDays,
             settings.FailedRuntimeRetentionDays,
             settings.BuildLogRetentionDays,
-            settings.RemoveContainersAfterCompletion,
+            settings.RemoveWorkloadsAfterCompletion,
             settings.RemoveWorkspacesAfterCompletion,
             settings.UpdatedAt);
     }

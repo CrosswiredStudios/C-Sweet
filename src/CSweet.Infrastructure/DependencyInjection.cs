@@ -41,6 +41,13 @@ using CSweet.Infrastructure.WorkManagement;
 using CSweet.Infrastructure.SourceControl;
 using CSweet.Infrastructure.Analytics;
 using CSweet.TrustedServices;
+using CSweet.AgentRuntime.Abstractions;
+using CSweet.AgentRuntime.Core;
+using CSweet.AgentRuntime.LocalRpc;
+using CSweet.AgentRuntime.Protocol;
+using CSweet.AgentRuntime.HyperV;
+using CSweet.AgentBroker;
+using CSweet.AgentRuntime.Artifacts;
 
 namespace CSweet.Infrastructure;
 
@@ -98,6 +105,45 @@ public static class DependencyInjection
         builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
         builder.Services.AddScoped<IScopedActionAuthorizationService, ScopedActionAuthorizationService>();
         builder.Services.AddScoped<IAgentRuntimeSettingsService, AgentRuntimeSettingsService>();
+        var artifactRoot = ResolveAgentRuntimePath(
+            builder.Configuration,
+            "CSweet:AgentRuntime:Artifacts:RootPath",
+            "artifacts");
+        var artifactMediaRoot = ResolveAgentRuntimePath(
+            builder.Configuration,
+            "CSweet:AgentRuntime:ArtifactMedia:RootPath",
+            "artifact-media");
+        var artifactStore = builder.Configuration.GetSection(ArtifactStoreOptions.SectionName)
+            .Get<ArtifactStoreOptions>() ?? new ArtifactStoreOptions();
+        artifactStore.RootPath = artifactRoot;
+        var artifactMedia = builder.Configuration.GetSection(ArtifactMediaOptions.SectionName)
+            .Get<ArtifactMediaOptions>() ?? new ArtifactMediaOptions();
+        artifactMedia.RootPath = artifactMediaRoot;
+        builder.Services.AddSingleton(artifactStore);
+        builder.Services.AddSingleton(artifactMedia);
+        builder.Services.AddSingleton<IAgentArtifactSigner, DataProtectionAgentArtifactSigner>();
+        builder.Services.AddSingleton<IAgentArtifactStore, FileSystemAgentArtifactStore>();
+        builder.Services.AddSingleton<IAgentArtifactMediaStore, FileSystemAgentArtifactMediaStore>();
+        builder.Services.AddSingleton<IWindowsHyperVHostProbe, WindowsHyperVHostProbe>();
+        builder.Services.AddSingleton<IWindowsHyperVFeatureProvisioner, WindowsHyperVFeatureProvisioner>();
+        builder.Services.AddSingleton<IWindowsRuntimeHostProvisioner, WindowsRuntimeHostProvisioner>();
+        builder.Services.AddScoped<IAgentIsolationOnboardingService, AgentIsolationOnboardingService>();
+        var hyperVSocket = builder.Configuration.GetSection("CSweet:AgentRuntime:HyperVSocket")
+            .Get<HyperVSocketTransportOptions>() ?? new HyperVSocketTransportOptions();
+        hyperVSocket.Validate();
+        builder.Services.AddSingleton(hyperVSocket);
+        builder.Services.AddSingleton<IHyperVGuestTransport, WindowsHyperVSocketTransport>();
+        var agentHostBroker = builder.Configuration.GetSection(AgentHostBrokerOptions.SectionName)
+            .Get<AgentHostBrokerOptions>() ?? new AgentHostBrokerOptions();
+        var agentHostBaseUri = agentHostBroker.ValidatedBaseUri();
+        builder.Services.AddSingleton(agentHostBroker);
+        builder.Services.AddHttpClient(nameof(AgentHostBrokerOperationHandler), client =>
+        {
+            client.BaseAddress = agentHostBaseUri;
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        });
+        builder.Services.AddSingleton<IAgentBrokerOperationHandler, AgentHostBrokerOperationHandler>();
+        builder.Services.AddSingleton<IAgentGuestSessionCoordinator, HyperVGuestSessionCoordinator>();
         builder.Services.AddScoped<AgentImportPreviewService>();
         builder.Services.AddScoped<IAgentImportPreviewService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
         builder.Services.AddScoped<IPluginImportService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
@@ -120,13 +166,16 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginBootstrapCapabilityService, PluginBootstrapCapabilityService>();
         builder.Services.AddScoped<IAgentInstallationConfigurationService, AgentInstallationConfigurationService>();
         builder.Services.AddScoped<IAgentBuildService, AgentBuildService>();
-        builder.Services.AddSingleton<DockerAgentBuildExecutor>();
-        builder.Services.AddSingleton<IAgentBuildExecutor>(sp => sp.GetRequiredService<DockerAgentBuildExecutor>());
-        builder.Services.AddSingleton<IPluginBuildExecutor>(sp => sp.GetRequiredService<DockerAgentBuildExecutor>());
-        builder.Services.AddSingleton<IDockerCommandExecutor, DockerCommandExecutor>();
-        builder.Services.AddSingleton<DockerAgentContainerRunner>();
-        builder.Services.AddSingleton<IAgentContainerRunner>(sp => sp.GetRequiredService<DockerAgentContainerRunner>());
-        builder.Services.AddSingleton<IPluginContainerRunner>(sp => sp.GetRequiredService<DockerAgentContainerRunner>());
+        AddAgentIsolationControlPlane(builder);
+        builder.Services.AddSingleton<InMemoryBuilderArtifactResultStore>();
+        builder.Services.AddSingleton<IBuilderArtifactResultStore>(sp => sp.GetRequiredService<InMemoryBuilderArtifactResultStore>());
+        builder.Services.AddSingleton<IBuilderArtifactResultPublisher>(sp => sp.GetRequiredService<InMemoryBuilderArtifactResultStore>());
+        builder.Services.AddSingleton<VmAgentBuildExecutor>();
+        builder.Services.AddSingleton<IAgentBuildExecutor>(sp => sp.GetRequiredService<VmAgentBuildExecutor>());
+        builder.Services.AddSingleton<IPluginBuildExecutor>(sp => sp.GetRequiredService<VmAgentBuildExecutor>());
+        builder.Services.AddSingleton<IsolationAgentWorkloadRunner>();
+        builder.Services.AddSingleton<IAgentWorkloadRunner>(sp => sp.GetRequiredService<IsolationAgentWorkloadRunner>());
+        builder.Services.AddSingleton<IPluginWorkloadRunner>(sp => sp.GetRequiredService<IsolationAgentWorkloadRunner>());
         builder.Services.AddScoped<AgentRuntimeManager>();
         builder.Services.AddScoped<IAgentRuntimeManager>(sp => sp.GetRequiredService<AgentRuntimeManager>());
         builder.Services.AddScoped<IPluginRuntimeManager>(sp => sp.GetRequiredService<AgentRuntimeManager>());
@@ -349,6 +398,38 @@ public static class DependencyInjection
         return builder;
     }
 
+    private static void AddAgentIsolationControlPlane(IHostApplicationBuilder builder)
+    {
+        var endpoint = builder.Configuration.GetSection(RuntimeHostEndpointOptions.SectionName)
+            .Get<RuntimeHostEndpointOptions>() ?? new RuntimeHostEndpointOptions();
+        endpoint.Validate();
+        builder.Services.AddSingleton(endpoint);
+
+        var authentication = builder.Configuration.GetSection(RuntimeHostAuthenticationOptions.SectionName)
+            .Get<RuntimeHostAuthenticationOptions>() ?? new RuntimeHostAuthenticationOptions();
+        authentication.LoadSharedKeyFileIfNeeded(DefaultRuntimeHostKeyPath());
+        builder.Services.AddSingleton(authentication);
+        builder.Services.AddSingleton<RuntimeHostRequestAuthenticator>();
+        builder.Services.AddSingleton<IAgentIsolationProvider>(services => new RuntimeHostProviderClient(
+            IsolationProviderCatalog.HyperV(), endpoint,
+            services.GetRequiredService<RuntimeHostRequestAuthenticator>()));
+        builder.Services.AddSingleton<IAgentIsolationProvider>(services => new RuntimeHostProviderClient(
+            IsolationProviderCatalog.Firecracker(), endpoint,
+            services.GetRequiredService<RuntimeHostRequestAuthenticator>()));
+        builder.Services.AddSingleton<IAgentIsolationProvider>(services => new RuntimeHostProviderClient(
+            IsolationProviderCatalog.AppleVirtualization(), endpoint,
+            services.GetRequiredService<RuntimeHostRequestAuthenticator>()));
+        builder.Services.AddSingleton<IAgentIsolationProviderSelector, FailClosedIsolationProviderSelector>();
+    }
+
+    private static string DefaultRuntimeHostKeyPath()
+    {
+        var commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        return string.IsNullOrWhiteSpace(commonData)
+            ? Path.Combine(GetLocalStateDirectory(), "AgentRuntime", "runtime-host.key")
+            : Path.Combine(commonData, "CSweet", "AgentRuntime", "runtime-host.key");
+    }
+
     private static string GetLocalStateFilePath(
         IConfiguration configuration,
         string configurationKey,
@@ -367,6 +448,20 @@ public static class DependencyInjection
         return string.IsNullOrWhiteSpace(localAppData)
             ? Path.Combine(AppContext.BaseDirectory, ".csweet")
             : Path.Combine(localAppData, "CSweet");
+    }
+
+    private static string ResolveAgentRuntimePath(
+        IConfiguration configuration,
+        string configurationKey,
+        string childDirectory)
+    {
+        var configured = configuration[configurationKey];
+        if (!string.IsNullOrWhiteSpace(configured)) return Path.GetFullPath(configured);
+        var commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        var root = OperatingSystem.IsWindows() && !string.IsNullOrWhiteSpace(commonData)
+            ? Path.Combine(commonData, "CSweet", "AgentRuntime")
+            : Path.Combine(GetLocalStateDirectory(), "AgentRuntime");
+        return Path.Combine(root, childDirectory);
     }
 
     private static bool TryDecodeTrustedServiceKey(string? value)

@@ -11,7 +11,7 @@ public sealed class ChatTurnRuntimeReadinessTests
     {
         var installationId = Guid.NewGuid();
         var runtime = new TransitioningRuntime(
-            Readiness(installationId, AgentRuntimeReadinessStages.StartingContainer, isReady: false, isTerminal: false),
+            Readiness(installationId, AgentRuntimeReadinessStages.StartingWorkload, isReady: false, isTerminal: false),
             Readiness(installationId, AgentRuntimeReadinessStages.WaitingForMcpSession, isReady: false, isTerminal: false),
             Readiness(installationId, AgentRuntimeReadinessStages.Ready, isReady: true, isTerminal: false));
 
@@ -31,7 +31,7 @@ public sealed class ChatTurnRuntimeReadinessTests
     {
         var installationId = Guid.NewGuid();
         var runtime = new TransitioningRuntime(
-            Readiness(installationId, AgentRuntimeReadinessStages.StartingContainer, isReady: false, isTerminal: false),
+            Readiness(installationId, AgentRuntimeReadinessStages.StartingWorkload, isReady: false, isTerminal: false),
             Readiness(installationId, AgentRuntimeReadinessStages.Failed, isReady: false, isTerminal: true));
 
         var result = await ChatTurnWorker.WaitForRuntimeReadyAsync(

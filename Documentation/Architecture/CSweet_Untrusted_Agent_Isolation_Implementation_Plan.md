@@ -10,6 +10,8 @@ The central security goal is:
 
 The runtime must assume that every third-party agent is malicious and may successfully obtain root access inside its guest environment. That outcome is acceptable as long as the agent cannot access the host or any external resource except through the authenticated C-Sweet broker.
 
+> **Infrastructure distinction:** Docker remains a required trusted-infrastructure dependency for the current development stack, including Aspire-managed PostgreSQL. Removing Docker as an *agent isolation mechanism* does not remove that application-infrastructure requirement. Docker availability must never be interpreted as permission to execute untrusted code, and a container must never be used as a fallback for the certified hardware-virtualized guest.
+
 ---
 
 ## 2. Threat Model
@@ -1328,3 +1330,45 @@ The untrusted agent runtime is complete when:
 10. Add the first malicious fixture tests before implementing repository build support.
 
 Do not begin with Docker integration. First prove the VM boundary, broker-only communication, provider contract, and lifecycle guarantees. Docker or containerd can be added inside the guest later as a packaging implementation detail.
+
+---
+
+## 27. Mandatory Legacy Removal and Cutover
+
+The VM architecture is a replacement, not an additional optional execution path for untrusted agents. The implementation must remove obsolete agent-container code wherever the VM boundary supersedes it.
+
+Required cutover work:
+
+- Delete the Docker agent runner, Docker build executor, Docker command abstraction, and agent-host Dockerfile.
+- Remove Docker volume, bind-mount, private-network, secret-file, image-name, and container-identifier settings from active agent runtime code and UI.
+- Replace container-specific persistence with provider-neutral isolation provider and provider-instance identifiers.
+- Replace host workspace/package paths with opaque broker or content-addressed locators; never reinterpret those locators as filesystem paths.
+- Remove shared-kernel fallback registration and fail closed when RuntimeHost authentication, a certified provider, a signed guest image, or current certification evidence is unavailable.
+- Disable existing executable installations during migration, discard legacy runtime/build state, invalidate Docker-produced artifacts, and queue clean Builder VM rebuilds.
+- Retain references to containers only where they describe an optional inner guest packaging layer, deliberate negative tests, unrelated trusted infrastructure, or historical migrations.
+
+### 27.1 Repository implementation status
+
+Implemented in the current cutover:
+
+- Provider-neutral isolation contracts, workload specifications, selection policy, state, trust, assurance, certification, artifact, image, and remote-runner contracts.
+- Authenticated, replay-resistant, bounded RuntimeHost local RPC and an independently deployable privileged `CSweet.RuntimeHost` service.
+- Fail-closed Hyper-V, Firecracker/KVM, and Apple Virtualization provider adapters using a narrow typed native-helper protocol.
+- Guest boot identity proof, lease enforcement, channel-loss shutdown, confined process launch, bounded logs, and a guest-local Unix-socket MCP proxy over the authenticated broker channel.
+- Semantic broker grants with tenant/workload/channel/image/artifact binding, bounded proxy traffic, and ordered bounded builder-artifact streaming.
+- Artifact quarantine, digest and archive validation, content-addressed storage, and installation-key signing.
+- Builder VM and Runtime VM orchestration through the provider-neutral abstraction, with unconditional VM destruction on failed or completed builds.
+- Destructive database cutover migrations and removal of the production Docker agent execution/build path and host path/image settings.
+- Windows first-run isolation onboarding with read-only edition, firmware, SLAT, DEP, memory, Hyper-V feature, hypervisor, restart, RuntimeHost, image, helper, and certification readiness checks.
+- Explicit, audited UAC-assisted Hyper-V feature enablement using the fixed Microsoft DISM feature operation with automatic restart disabled.
+- A narrow Windows Hyper-V lifecycle helper that creates Generation 2 VMs with no virtual network adapter, Secure Boot, static memory and CPU controls, differencing OS disks, bounded scratch VHDX disks, and rooted instance cleanup.
+- RuntimeHost verification of actual guest-image and certification-evidence bytes plus a detached guest-image signature pinned to a configured X.509 signer certificate.
+- Windows AF_HYPERV/Linux AF_VSOCK broker transport bound to the exact Hyper-V VM identifier, with boot configuration, challenge-response guest authentication, lease enforcement, and AgentHost-only semantic request forwarding.
+- Content-addressed single-file ISO-9660 artifact media attached as a Hyper-V virtual DVD; the guest mounts it read-only with `nosuid,nodev,noexec`, re-verifies SHA-256, rejects links/special files/path traversal, and extracts only into disposable guest storage.
+- UAC-assisted RuntimeHost onboarding backed by a manifest-verifying, versioned Windows service installer with explicit key/artifact ACLs, HVSock registration, service-scoped environment, and shared-key file loading.
+- A Windows payload builder that publishes self-contained RuntimeHost/helper binaries and packages the signed guest image and provider certification evidence for onboarding.
+- Semantic certification-evidence validation bound to the exact provider version, host OS/architecture, guest digest, broker protocol, suite version, and certification window.
+- A reproducible Windows developer-image pipeline pinned to Packer's Hyper-V plugin and an official checksum-verified Ubuntu Server ISO, with Secure Boot, first-runtime-boot SSH hardening, the guest broker service, and disposable scratch-disk preparation.
+- A one-command UAC-assisted Windows test bootstrap that enables Hyper-V when needed, builds or reuses the VHDX, publishes native test tools, boots a real no-network VM, exercises artifact delivery and the authenticated Hyper-V socket broker, emits evidence only after in-guest isolation checks pass, signs the exact tested image, and installs a development RuntimeHost payload.
+
+Windows developers can now produce, certify, sign, package, install, and test the complete local Hyper-V path without a prebuilt artifact. Production deployment prerequisites remain intentionally fail-closed rather than simulated: release-produced signed guest images, the protected private signing/release pipeline, current evidence from the complete malicious-fixture certification suite, macOS/Linux certification, and (where local certified virtualization is unavailable) a configured remote certified runner. Until the appropriate release artifacts are packaged, installed, and certified, C-Sweet continues to operate its trusted control plane but refuses to execute untrusted agents.

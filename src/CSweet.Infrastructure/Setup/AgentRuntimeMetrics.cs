@@ -8,8 +8,8 @@ public static class AgentRuntimeMetrics
     public const string MeterName = "CSweet.AgentRuntime";
     private static readonly Meter Meter = new(MeterName, "1.0.0");
     private static readonly Counter<long> ScheduleTicks = Meter.CreateCounter<long>("csweet.agent.schedule.ticks");
-    private static readonly Counter<long> ContainerStarts = Meter.CreateCounter<long>("csweet.agent.container.starts");
-    private static readonly Counter<long> ContainerStops = Meter.CreateCounter<long>("csweet.agent.container.stops");
+    private static readonly Counter<long> WorkloadStarts = Meter.CreateCounter<long>("csweet.agent.workload.starts");
+    private static readonly Counter<long> WorkloadStops = Meter.CreateCounter<long>("csweet.agent.workload.stops");
     private static readonly Counter<long> Outcomes = Meter.CreateCounter<long>("csweet.agent.runtime.outcomes");
     private static readonly Counter<long> CleanupItems = Meter.CreateCounter<long>("csweet.agent.cleanup.items");
     private static readonly Counter<long> Sessions = Meter.CreateCounter<long>("csweet.agent.mcp.sessions");
@@ -24,8 +24,8 @@ public static class AgentRuntimeMetrics
             new KeyValuePair<string, object?>("activation_mode", activationMode),
             new KeyValuePair<string, object?>("outcome", outcome));
 
-    public static void ContainerStarted() => ContainerStarts.Add(1);
-    public static void ContainerStopped(string outcome) => ContainerStops.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
+    public static void WorkloadStarted() => WorkloadStarts.Add(1);
+    public static void WorkloadStopped(string outcome) => WorkloadStops.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
 
     public static void RuntimeOutcome(AgentRuntimeStatus status, TimeSpan? duration)
     {

@@ -593,10 +593,6 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.DefaultNetworkPolicy).HasMaxLength(64).IsRequired();
             entity.Property(x => x.AllowedPackageFeedHosts).HasMaxLength(2048);
             entity.Property(x => x.BlockedNetworkCidrs).HasMaxLength(2048);
-            entity.Property(x => x.AgentSourceRootPath).HasMaxLength(1024);
-            entity.Property(x => x.AgentPackageCachePath).HasMaxLength(1024);
-            entity.Property(x => x.DotNetBuilderImage).HasMaxLength(256).IsRequired();
-            entity.Property(x => x.DotNetRuntimeBaseImage).HasMaxLength(256).IsRequired();
         });
 
         modelBuilder.Entity<AgentPackageSource>(entity =>
@@ -634,6 +630,10 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.PackageDigest).HasMaxLength(64);
             entity.Property(x => x.PackagePath).HasMaxLength(2048);
+            entity.Property(x => x.ArtifactSignature).HasMaxLength(4096);
+            entity.Property(x => x.ArtifactFormatVersion).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ArtifactOperatingSystem).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ArtifactArchitecture).HasMaxLength(32).IsRequired();
             entity.HasIndex(x => new { x.PackageSourceId, x.CommitSha, x.ManifestDigest }).IsUnique();
             entity.HasOne(x => x.PackageSource)
                 .WithMany()
@@ -798,9 +798,9 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(48).IsRequired();
-            entity.Property(x => x.WorkloadTokenHash).HasMaxLength(64).IsRequired();
-            entity.Property(x => x.ContainerId).HasMaxLength(128);
-            entity.Property(x => x.ContainerName).HasMaxLength(128);
+            entity.Property(x => x.BrokerTokenHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.IsolationProviderId).HasMaxLength(100);
+            entity.Property(x => x.ProviderInstanceId).HasMaxLength(256);
             entity.Property(x => x.Reason).HasMaxLength(2048);
             entity.Property(x => x.LogExcerpt).HasColumnType("text");
             entity.HasIndex(x => x.TickId).IsUnique();

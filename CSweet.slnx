@@ -1,5 +1,18 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/CSweet.AgentBroker/CSweet.AgentBroker.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.Abstractions/CSweet.AgentRuntime.Abstractions.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.AppleVirtualization/CSweet.AgentRuntime.AppleVirtualization.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.Artifacts/CSweet.AgentRuntime.Artifacts.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.Core/CSweet.AgentRuntime.Core.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.Guest/CSweet.AgentRuntime.Guest.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.GuestProbe/CSweet.AgentRuntime.GuestProbe.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.Firecracker/CSweet.AgentRuntime.Firecracker.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.HyperV/CSweet.AgentRuntime.HyperV.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.HyperV.Helper/CSweet.AgentRuntime.HyperV.Helper.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.LocalRpc/CSweet.AgentRuntime.LocalRpc.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.Protocol/CSweet.AgentRuntime.Protocol.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.WindowsSmokeTest/CSweet.AgentRuntime.WindowsSmokeTest.csproj" />
     <Project Path="src/CSweet.AgentHost/CSweet.AgentHost.csproj" />
     <Project Path="src/CSweet.AI/CSweet.AI.csproj" />
     <Project Path="src/CSweet.Api/CSweet.Api.csproj" />
@@ -17,6 +30,7 @@
     <Project Path="src/CSweet.SourceControlProvisionerHost/CSweet.SourceControlProvisionerHost.csproj" />
     <Project Path="src/CSweet.TrustedServices/CSweet.TrustedServices.csproj" />
     <Project Path="src/CSweet.WorkerHost/CSweet.WorkerHost.csproj" />
+    <Project Path="src/CSweet.RuntimeHost/CSweet.RuntimeHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj" />

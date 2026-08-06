@@ -111,7 +111,7 @@ public partial class Employees
     private string ConfigurationLoadingMessage => _configurationRuntime?.Stage switch
     {
         AgentRuntimeReadinessStages.Queued => "Agent runtime queued...",
-        AgentRuntimeReadinessStages.StartingContainer => "Starting agent container...",
+        AgentRuntimeReadinessStages.StartingWorkload => "Starting isolated agent workload...",
         AgentRuntimeReadinessStages.WaitingForMcpSession => "Establishing secure agent session...",
         AgentRuntimeReadinessStages.Stopping => "Cleaning up the previous runtime...",
         AgentRuntimeReadinessStages.Ready => "Loading agent configuration...",
@@ -464,7 +464,7 @@ public partial class Employees
         {
             AgentRuntimeReadinessStages.Ready => "Online",
             AgentRuntimeReadinessStages.Queued => "Queued",
-            AgentRuntimeReadinessStages.StartingContainer => "Starting",
+            AgentRuntimeReadinessStages.StartingWorkload => "Starting",
             AgentRuntimeReadinessStages.WaitingForMcpSession => "Connecting",
             AgentRuntimeReadinessStages.Stopping => "Stopping",
             AgentRuntimeReadinessStages.Failed => "Failed",
@@ -477,7 +477,7 @@ public partial class Employees
         {
             AgentRuntimeReadinessStages.Ready => Color.Success,
             AgentRuntimeReadinessStages.Queued or
-            AgentRuntimeReadinessStages.StartingContainer or
+            AgentRuntimeReadinessStages.StartingWorkload or
             AgentRuntimeReadinessStages.WaitingForMcpSession or
             AgentRuntimeReadinessStages.Stopping => Color.Info,
             AgentRuntimeReadinessStages.Failed => Color.Error,
@@ -501,7 +501,7 @@ public partial class Employees
     private bool CanStopRuntime(OrganizationUserResponse employee) =>
         Installation(employee)?.IsEnabled == true &&
         RuntimeStatus(employee)?.Stage is AgentRuntimeReadinessStages.Queued or
-            AgentRuntimeReadinessStages.StartingContainer or
+            AgentRuntimeReadinessStages.StartingWorkload or
             AgentRuntimeReadinessStages.WaitingForMcpSession or
             AgentRuntimeReadinessStages.Stopping or
             AgentRuntimeReadinessStages.Ready;
@@ -518,7 +518,7 @@ public partial class Employees
             : RuntimeStatus(employee)?.Stage == AgentRuntimeReadinessStages.Ready
                 ? Installation(employee)?.IsEnabled == false ? "Stopping" : "Running"
                 : RuntimeStatus(employee)?.Stage is AgentRuntimeReadinessStages.Queued or
-                    AgentRuntimeReadinessStages.StartingContainer or
+                    AgentRuntimeReadinessStages.StartingWorkload or
                     AgentRuntimeReadinessStages.WaitingForMcpSession or
                     AgentRuntimeReadinessStages.Stopping
                     ? Installation(employee)?.IsEnabled == false ? "Stopping" : "Starting"

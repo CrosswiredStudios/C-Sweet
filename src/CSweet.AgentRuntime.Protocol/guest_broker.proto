@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+option csharp_namespace = "CSweet.AgentRuntime.Protocol";
+package csweet.guest.v1;
+
+message GuestEnvelope {
+  string protocol_version = 1;
+  string message_id = 2;
+  oneof body {
+    GuestBootConfiguration boot_configuration = 9;
+    GuestHello hello = 10;
+    HostChallenge challenge = 11;
+    GuestProof proof = 12;
+    GuestLease lease = 13;
+    GuestHealth health = 14;
+    ProxyRequest proxy_request = 15;
+    ProxyResponse proxy_response = 16;
+    StreamChunk stream_chunk = 17;
+    StartCommand start_command = 18;
+    ShutdownCommand shutdown_command = 19;
+    GuestExit exit = 20;
+    GuestBootFailure boot_failure = 21;
+  }
+}
+
+message GuestBootFailure {
+  string reason_code = 1;
+  string detail = 2;
+}
+
+message GuestBootConfiguration {
+  string workload_id = 1;
+  string channel_id = 2;
+  string protocol_version = 3;
+  string guest_image_digest = 4;
+  string artifact_digest = 5;
+  string boot_token = 6;
+  int64 lease_expires_at_unix_seconds = 7;
+  string artifact_root = 8;
+  int32 workload_kind = 9;
+  string installation_id = 10;
+  string business_id = 11;
+  string tick_id = 12;
+  string local_broker_socket_path = 13;
+  string workload_token_path = 14;
+  int32 maximum_frame_bytes = 15;
+}
+
+message GuestHello {
+  string workload_id = 1;
+  string channel_id = 2;
+  string guest_image_digest = 3;
+  string artifact_digest = 4;
+  bytes ephemeral_public_key = 5;
+  bytes boot_token_proof = 6;
+}
+
+message HostChallenge {
+  bytes nonce = 1;
+  int64 expires_at_unix_seconds = 2;
+}
+
+message GuestProof {
+  bytes signature = 1;
+}
+
+message GuestLease {
+  bool accepted = 1;
+  string reason_code = 2;
+  int64 expires_at_unix_seconds = 3;
+  int32 maximum_frame_bytes = 4;
+}
+
+message GuestHealth {
+  string state = 1;
+  int64 uptime_seconds = 2;
+}
+
+message ProxyRequest {
+  string request_id = 1;
+  string purpose = 2;
+  string method = 3;
+  string path = 4;
+  map<string, string> headers = 5;
+  bytes body = 6;
+}
+
+message ProxyResponse {
+  string request_id = 1;
+  int32 status_code = 2;
+  map<string, string> headers = 3;
+  bytes body = 4;
+  string error_code = 5;
+}
+
+message StreamChunk {
+  string stream_id = 1;
+  int64 sequence = 2;
+  bytes content = 3;
+  bool completed = 4;
+  string digest = 5;
+}
+
+message StartCommand {
+  int32 workload_kind = 1;
+  repeated string entrypoint = 2;
+  string build_profile_id = 3;
+  int64 maximum_log_bytes = 4;
+}
+
+message ShutdownCommand {
+  string reason_code = 1;
+  int32 grace_period_seconds = 2;
+}
+
+message GuestExit {
+  int32 exit_code = 1;
+  string reason_code = 2;
+  string detail = 3;
+}

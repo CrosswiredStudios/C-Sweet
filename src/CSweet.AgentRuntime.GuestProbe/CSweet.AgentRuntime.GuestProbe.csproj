@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>In-guest executable used only by the Hyper-V isolation certification smoke test.</Description>
+  </PropertyGroup>
+</Project>

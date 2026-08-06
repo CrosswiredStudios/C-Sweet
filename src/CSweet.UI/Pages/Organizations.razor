@@ -623,8 +623,8 @@
                     _agentPreview.RequestedPermissions,
                     _agentPreview.RequestedNetworkAccess,
                     _runtimeSettings?.DefaultMaxRuntimeSeconds ?? 600,
-                    _runtimeSettings?.DefaultContainerMemoryMb ?? 512,
-                    _runtimeSettings?.DefaultContainerCpuPercent ?? 50)
+                    _runtimeSettings?.DefaultWorkloadMemoryMb ?? 512,
+                    _runtimeSettings?.DefaultWorkloadCpuPercent ?? 50)
                 {
                     GrantedRequestedCapabilities = _agentPreview.RequestedCapabilities,
                     AllPublicWebAccessAcknowledged = _allPublicWebApproved,

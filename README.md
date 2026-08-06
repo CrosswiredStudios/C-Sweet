@@ -10,7 +10,7 @@
     <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&amp;logoColor=white" alt=".NET 10" /></a>
     <a href="https://dotnet.microsoft.com/apps/aspnet/web-apps/blazor"><img src="https://img.shields.io/badge/UI-Blazor-512BD4?logo=blazor&amp;logoColor=white" alt="Blazor" /></a>
     <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&amp;logoColor=white" alt="PostgreSQL 17" /></a>
-    <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Deploy-Docker-2496ED?logo=docker&amp;logoColor=white" alt="Docker" /></a>
+    <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Infrastructure-Docker-2496ED?logo=docker&amp;logoColor=white" alt="Docker infrastructure" /></a>
     <a href="#bring-your-own-models-and-infrastructure"><img src="https://img.shields.io/badge/Cloud-Optional-1E6B52" alt="Cloud optional" /></a>
     <a href="#project-status"><img src="https://img.shields.io/badge/Status-Developer_Preview-E6A84A" alt="Developer preview" /></a>
     <a href="https://github.com/CrosswiredStudios/csweet/stargazers"><img src="https://img.shields.io/github/stars/CrosswiredStudios/csweet?style=flat&amp;logo=github&amp;label=Stars" alt="GitHub stars" /></a>
@@ -86,7 +86,7 @@ The ambition is simple: make entrepreneurship feel less like juggling every job 
 - Multi-business enterprise view and business onboarding
 - CEO command center with objectives, roles, tasks, workers, artifacts, approvals, and next actions
 - Unified Communications workspace with durable human and agent conversations, streaming, retry, cancellation, and execution traces
-- Agent import, validation, configuration, containerized runtime management, and memory
+- Agent import, validation, configuration, hardware-isolated runtime management, and memory
 - Human and agent employee directory with reporting relationships
 - Scheduled and on-demand executive briefings
 - Team-scoped work boards with Kanban workflows, sprint planning, estimates, capacity, collaboration, and delivery reports
@@ -119,7 +119,7 @@ C-Sweet is provider-neutral by design. The setup flow supports OpenAI-compatible
 
 - Use a local model server such as LM Studio, Ollama, or vLLM.
 - Connect a compatible hosted endpoint when stronger or specialized models are useful.
-- Self-host the application and PostgreSQL company state with Docker.
+- Use Docker for trusted application infrastructure such as PostgreSQL while keeping untrusted agent execution behind a separate hardware-virtualization boundary.
 - Keep framework-specific agent code behind C-Sweet-owned abstractions.
 
 Local-first does not mean isolated. It means your company can decide when the network adds value.
@@ -128,49 +128,88 @@ Local-first does not mean isolated. It means your company can decide when the ne
 
 ### Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine with Compose
-- Git
-- An OpenAI-compatible model endpoint; [LM Studio](https://lmstudio.ai/) is the default local preset
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with the Linux container engine running. The Aspire AppHost uses it for PostgreSQL, so C-Sweet cannot start from source while the Docker engine is stopped.
+- The [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) pinned by [`global.json`](global.json).
+- Git.
+- An OpenAI-compatible model endpoint; [LM Studio](https://lmstudio.ai/) is the default local preset.
+- For local untrusted agents on Windows: Windows Professional, Enterprise, or Education with hardware virtualization. Guided setup handles Hyper-V and RuntimeHost preparation.
 
-### Start the stack
+> [!IMPORTANT]
+> Docker is required infrastructure, but it is **not** the security boundary for untrusted agents. Docker runs trusted dependencies such as the development PostgreSQL database. Untrusted agent code runs only through a certified hardware-isolation provider; on Windows that boundary is a dedicated Hyper-V virtual machine.
 
-```bash
-cd csweet
-cp .env.example .env
-docker compose up -d --build
+### Start from a Windows source checkout
+
+1. Clone the repository.
+2. Ensure Docker Desktop is running and reports that its Linux container engine is ready.
+3. Double-click [`Start-CSweet.cmd`](Start-CSweet.cmd). The launcher checks .NET and Docker, attempts to start Docker Desktop when necessary, starts Aspire, and opens C-Sweet in the browser.
+4. Create the root administrator, save the ten offline recovery codes, and follow guided setup.
+
+Developers can instead run the AppHost from Visual Studio or use:
+
+```powershell
+dotnet run --project src/CSweet.AppHost/CSweet.AppHost.csproj --launch-profile https
 ```
 
-Open [http://localhost:8080](http://localhost:8080), create the root administrator, save the ten offline recovery codes, and follow the guided setup.
+If startup fails before the dashboard is usable, verify Docker first:
 
-When LM Studio runs on the Docker host, the default endpoint is already configured as:
-
-```text
-http://host.docker.internal:1234/v1
+```powershell
+docker info
 ```
+
+That command must succeed. Starting the Docker Desktop window is not sufficient; wait for its engine status to show **Running**.
+
+### Docker Compose deployment status
+
+Docker Compose remains the intended packaging path for the trusted C-Sweet core. The checked-in Compose topology is being migrated away from the former Docker-based agent runner and must not be treated as the supported untrusted-agent execution path. For current Windows development and hardware-isolation testing, use the Aspire AppHost flow above.
 
 > [!IMPORTANT]
 > A fresh instance trusts its first visitor to claim the root administrator account. Complete registration and onboarding on a trusted network before exposing C-Sweet publicly. SMTP is optional; offline recovery codes are available during registration.
 
-Useful commands:
-
-```bash
-docker compose ps          # Check service health
-docker compose logs -f     # Follow the stack
-docker compose down        # Stop and keep company data
-```
-
-For environment variables, Linux host notes, data persistence, and service details, read the [Docker deployment guide](docs/deployment/docker.md).
+For the current container topology, migration limitations, environment variables, and data persistence, read the [Docker infrastructure guide](docs/deployment/docker.md).
 
 ## Architecture at a glance
 
-C-Sweet is a modular .NET application with durable state and isolated agent execution.
+C-Sweet is a modular .NET application with durable state and isolated agent execution. Docker and Hyper-V have deliberately different jobs:
+
+```mermaid
+flowchart TB
+    User["User browser"]
+
+    subgraph Host["Trusted Windows host"]
+        App["C-Sweet UI"]
+        API["API and WorkerHost"]
+        AgentHost["AgentHost<br/>policy and MCP broker"]
+        RuntimeHost["RuntimeHost Windows service<br/>privileged VM lifecycle only"]
+    end
+
+    subgraph Docker["Docker Desktop — trusted infrastructure"]
+        Postgres[("PostgreSQL")]
+    end
+
+    subgraph HyperV["Hyper-V Generation 2 VM — untrusted-code boundary"]
+        Guest["Signed guest runtime"]
+        Agent["Untrusted agent"]
+        Guest --> Agent
+    end
+
+    User --> App --> API
+    API --> Postgres
+    API --> AgentHost
+    API -->|"authenticated local RPC"| RuntimeHost
+    RuntimeHost -->|"create, start, stop, destroy"| Guest
+    Guest -->|"authenticated broker channel"| RuntimeHost
+    RuntimeHost -->|"authorized operations only"| AgentHost
+```
+
+Docker stopping prevents the development stack from starting because PostgreSQL is unavailable. It does not cause C-Sweet to downgrade agent execution into a container or host process. If the certified VM boundary is unavailable, untrusted agent execution remains disabled.
 
 | Component | Responsibility |
 |---|---|
 | `CSweet.App` + `CSweet.UI` | Blazor web experience and shared UI |
 | `CSweet.Api` | Authentication, setup, company operations, chat, planning, and provider APIs |
 | `CSweet.WorkerHost` | Durable background work and local agent orchestration |
-| `CSweet.AgentHost` | Brokered, container-isolated agent runtime access |
+| `CSweet.AgentHost` | Unprivileged policy enforcement and brokered MCP access; it does not own the VM lifecycle |
+| `CSweet.RuntimeHost` | Narrow privileged host service that owns certified VM lifecycle operations |
 | `CSweet.Migrator` | One-shot database migrations and initial seed data |
 | PostgreSQL | Company state, history, memory, and operational records |
 
@@ -182,7 +221,8 @@ The repository also contains MAUI host foundations, plugin SDK contracts, unit a
 - .NET 10, ASP.NET Core, Blazor WebAssembly, and MudBlazor
 - Microsoft Agent Framework and Microsoft.Extensions.AI
 - PostgreSQL 17 and Entity Framework Core
-- Docker Compose and isolated Docker agent runtimes
+- Docker/Aspire for trusted development infrastructure and PostgreSQL
+- Certified hardware virtual machines for untrusted agent execution
 - OpenTelemetry for observability
 - Server-sent events for browser streaming and private Streamable HTTP MCP for SDK-managed agent work
 
@@ -192,6 +232,7 @@ The repository also contains MAUI host foundations, plugin SDK contracts, unit a
 
 Protocol-v2 executable agents use the transport-neutral SDK over C-Sweet's private, outbound-only MCP runtime and durable work inbox:
 
+- [Security architecture overview](Documentation/Architecture/AGENT_ISOLATION_SECURITY_OVERVIEW.md)
 - [Architecture](Documentation/Architecture/MCP_AGENT_RUNTIME.md)
 - [Software Developer runtime](Documentation/Architecture/SOFTWARE_DEVELOPER_RUNTIME.md)
 - [Threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md)

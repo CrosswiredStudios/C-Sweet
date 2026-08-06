@@ -7,16 +7,13 @@ public sealed record AgentBuildExecutionRequest(
     string CommitSha,
     string ProjectPath,
     string? TargetFramework,
-    string BuilderImage,
-    string SourceRootPath,
-    string PackageCachePath,
+    string BuildProfileId,
     int TimeoutSeconds,
     int MemoryMb,
     int CpuPercent,
     int PidsLimit,
     int MaximumRepositorySizeMb,
-    int MaximumBuildLogMb,
-    string? SourceArchivePath = null);
+    int MaximumBuildLogMb);
 
 public sealed record AgentBuildWorkspace(
     string SourcePath,
@@ -26,7 +23,11 @@ public sealed record AgentBuildWorkspace(
 public sealed record AgentBuildExecutionResult(
     string PackagePath,
     string PackageDigest,
-    string LogPath);
+    string LogPath,
+    string? ArtifactSignature = null,
+    string ArtifactFormatVersion = "1.0",
+    string ArtifactOperatingSystem = "linux",
+    string ArtifactArchitecture = "x64");
 
 public static class AgentBuildStepKeys
 {

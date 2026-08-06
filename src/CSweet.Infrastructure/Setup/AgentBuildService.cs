@@ -144,18 +144,13 @@ public sealed class AgentBuildService : IAgentBuildService
             package.CommitSha,
             package.ProjectPath,
             package.TargetFramework,
-            DotNetAgentImageResolver.ResolveBuilderImage(
-                settings.DotNetBuilderImage,
-                package.TargetFramework),
-            settings.AgentSourceRootPath,
-            settings.AgentPackageCachePath,
+            "dotnet-publish-v1",
             settings.BuildTimeoutSeconds,
             settings.BuildMemoryMb,
             settings.BuildCpuPercent,
-            settings.DefaultContainerPidsLimit,
+            settings.DefaultWorkloadProcessLimit,
             settings.MaximumRepositorySizeMb,
-            settings.MaximumBuildLogMb,
-            source.SourceArchivePath);
+            settings.MaximumBuildLogMb);
 
         AgentBuildWorkspace? workspace = null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -197,6 +192,10 @@ public sealed class AgentBuildService : IAgentBuildService
             job.TransitionTo(AgentBuildStatus.Succeeded, DateTimeOffset.UtcNow);
             package.PackagePath = result.PackagePath;
             package.PackageDigest = result.PackageDigest;
+            package.ArtifactSignature = result.ArtifactSignature;
+            package.ArtifactFormatVersion = result.ArtifactFormatVersion;
+            package.ArtifactOperatingSystem = result.ArtifactOperatingSystem;
+            package.ArtifactArchitecture = result.ArtifactArchitecture;
             package.BuiltAt = job.CompletedAt;
             package.Status = AgentPackageVersionStatus.Built;
             await _dbContext.SaveChangesAsync(cancellationToken);

@@ -4,11 +4,11 @@ Status: production operations for protocol v2.
 
 ## Dashboards and alerts
 
-Track active/failed session establishment, renewal age, revocation and replay; queue depth/age by organization and installation; claim latency; active/stale leases; attempt/retry/dead-letter counts; progress rate/size; completion latency/conflicts; runtime/container health; capability denial/schema/output errors; per-capability quota/cost; HTTP/WebSocket destinations and denials; LLM budget; and credential use.
+Track active/failed guest handshakes, session establishment, renewal age, revocation and replay; queue depth/age by organization and installation; claim latency; active/stale leases; attempt/retry/dead-letter counts; progress rate/size; completion latency/conflicts; VM/provider health and certification expiry; capability denial/schema/output errors; per-capability quota/cost; brokered HTTP/WebSocket destinations and denials; LLM budget; and credential use.
 
 Initial alert thresholds:
 
-- page on token replay, any cross-tenant attempt, container escape/forbidden network reachability, credential-origin mismatch, or sustained session-init failure above 10% for five minutes;
+- page on token replay, any cross-tenant attempt, guest escape/forbidden network reachability, provider certification failure, credential-origin mismatch, or sustained session-init failure above 10% for five minutes;
 - page when oldest available work exceeds five minutes for an always-on installation, dead letters exceed three in fifteen minutes, or active leases remain stale for two lease periods;
 - warn at 70% and page at 90% of organization/install/capability cost, concurrency, queue, or connection quota;
 - warn on ten schema/authorization denials per installation in five minutes, progress above 60/minute per work item, or long-poll concurrency above 80% capacity.
@@ -23,16 +23,16 @@ raising them requires a capacity and abuse review.
 
 ## Common operations
 
-- Token exposure: revoke all sessions for runtime/installation, terminate the container, rotate workload and affected service credentials, preserve audit, then restart only an approved digest.
+- Token exposure: revoke all sessions for runtime/installation, destroy the VM and writable disk, rotate workload and affected service credentials, preserve audit, then restart only approved guest-image and artifact digests.
 - Disable installation: set installation/schedule disabled, revoke sessions and bindings, cancel pending work, terminate every runtime.
 - Cancel work: mark pending/leased work cancelled; the SDK observes cancellation and the platform terminates after grace.
 - Retry work: only requeue a retry-safe/dead-letter item after reviewing its effect/idempotency key; create a new attempt, never rewrite history.
 - Dead-letter recovery: inspect sanitized error, package/grant revision, attempts, and owning service; correct the cause; requeue or close with an owner-visible explanation.
-- Container termination: revoke first, request advisory shutdown if safe, then force terminate at the deadline and remove its private network/secret file.
+- VM workload termination: revoke first, request advisory shutdown if safe, then force terminate at the deadline and destroy the ephemeral writable disk. Preserve only bounded logs and audit evidence.
 
 ## Incidents
 
-Suspected malicious agent: disable installation, revoke sessions/bindings, cancel work, terminate containers, freeze package/grant/audit evidence, search for related destination/credential/tool activity, rotate exposed credentials, assess tenant effects, and require a new approved revision.
+Suspected malicious agent: disable installation, revoke sessions/bindings, cancel work, destroy its VMs and writable disks, freeze package/grant/audit evidence, search for related destination/credential/tool activity, rotate exposed credentials, assess tenant effects, and require a new approved revision.
 
 Credential exposure: revoke sessions and the credential at its owning provider, enumerate authorized origin calls, invalidate pending approvals that depended on it, rotate, and reauthorize destinations.
 
@@ -44,7 +44,7 @@ Queue flooding: throttle the installation/organization, stop new enqueue sources
 
 ## Deployment and recovery
 
-Before deploy: backup/restore-test the database, verify v2 package digests and grants/bindings, run migration and security gates, confirm private listener/network policy and secret files, and quiesce legacy runtimes.
+Before deploy: backup/restore-test the database, verify package and guest-image digests and grants/bindings, run migration and provider certification gates, confirm RuntimeHost local-RPC authentication and broker-only transports, and quiesce legacy runtimes.
 
 Deploy database, gateway, API workers, runtime manager, and compatible packages together. Revoke pre-deploy sessions, restart exact installations, verify initialize/renew/claim/progress/complete, test denied hidden tools and cross-tenant IDs, and watch dashboards for one full lease/retry window.
 

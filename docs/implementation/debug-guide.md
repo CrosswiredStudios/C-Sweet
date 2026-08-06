@@ -1,8 +1,19 @@
 # Debug & Local Development Guide
 
+## Prerequisites
+
+- Windows with the .NET 10 SDK specified by `global.json`.
+- Docker Desktop with its Linux container engine running. AppHost provisions PostgreSQL through Docker, so the complete application cannot start when the Docker engine is unavailable.
+- An OpenAI-compatible model endpoint for AI features.
+- Windows Professional, Enterprise, or Education with hardware virtualization for local untrusted-agent execution. The browser onboarding flow guides Hyper-V and RuntimeHost preparation.
+
+Docker runs trusted development infrastructure. It is not the isolation boundary for imported or marketplace agents; those agents remain disabled until the certified hardware-isolation provider is ready.
+
 ## Quick Start
 
 ### Option 1: Aspire AppHost (Recommended)
+
+For the most guided Windows experience, double-click `Start-CSweet.cmd` in the repository root. It checks the .NET SDK and Docker engine, attempts to start Docker Desktop when it is installed but stopped, waits for the engine, and then starts AppHost.
 
 Run `CSweet.AppHost` to start all services together with the Aspire dashboard.
 
@@ -19,12 +30,12 @@ This will:
 - Build and start `CSweet.Api` on a random port
 - Build and start `CSweet.App` (Blazor frontend) on a random port
 - Build and start `CSweet.WorkerHost` as a background service
-- Build and start `CSweet.AgentHost` as the Docker container `agenthost`, which is the only gateway attached to isolated agent runtime networks
+- Build and start `CSweet.AgentHost` as an unprivileged project process that applies policy and brokers approved agent operations
+- Provision PostgreSQL as trusted infrastructure through Docker Desktop
 - Open the Aspire dashboard automatically (shows all services, health status, logs)
 
 The Aspire dashboard URL appears in the console output (typically `https://localhost:15887`).
-Docker Desktop must be running. The local AgentHost image is built from the sibling
-`CSweetAgentSdk` and `CSweet.Memory` repositories used by the normal project references.
+Docker Desktop must be running because PostgreSQL is a required AppHost resource. AgentHost no longer launches untrusted agents as Docker containers. On Windows, untrusted execution uses the separately installed RuntimeHost service and a certified Hyper-V guest.
 
 ### Option 2: Individual Projects
 
@@ -41,13 +52,13 @@ dotnet run --project src/CSweet.App
 dotnet run --project src/CSweet.WorkerHost
 ```
 
-## External Services Required by Phase
+## External Services and Host Features
 
-| Phase | External Services Needed | Notes |
-|-------|--------------------------|-------|
-| **Phase 1** (current) | **None** | All projects are self-contained scaffolding with health checks only |
-| **Phase 2** (config persistence + setup wizard) | PostgreSQL | EF Core context wired up, migration job needs database |
-| **Phase 3+** (LLM providers, agent workflows) | PostgreSQL + LLM endpoint | LM Studio or OpenAI-compatible API for AI features |
+| Capability | Requirement | Notes |
+|---|---|---|
+| Complete application startup | Docker Desktop and its Linux container engine | AppHost provisions the required PostgreSQL database as a container |
+| AI features | OpenAI-compatible model endpoint | LM Studio, Ollama, vLLM, or a compatible hosted provider |
+| Local untrusted agents on Windows | Hyper-V, RuntimeHost, signed guest image, and current certification | Prepared through the guided Agent Isolation onboarding flow; never replaced by Docker |
 
 ## Verifying Your Setup
 
@@ -112,6 +123,23 @@ For a complete debug experience, create `.vscode/launch.json`:
 ```
 
 ## Troubleshooting
+
+### Docker Engine Is Unavailable
+
+Run:
+
+```powershell
+docker info
+```
+
+The command must succeed before AppHost starts. If it does not:
+
+1. Open Docker Desktop.
+2. Ensure Docker Desktop is using Linux containers.
+3. Wait until Docker Desktop reports that the engine is running.
+4. Run `Start-CSweet.cmd` or start AppHost again.
+
+If `docker` is not recognized, install Docker Desktop using the link in the root README, then reopen the terminal so its PATH is refreshed.
 
 ### Aspire Postgres Authentication
 

@@ -22,6 +22,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\CSweet.AgentBroker\CSweet.AgentBroker.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.AppleVirtualization\CSweet.AgentRuntime.AppleVirtualization.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Firecracker\CSweet.AgentRuntime.Firecracker.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Guest\CSweet.AgentRuntime.Guest.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.HyperV\CSweet.AgentRuntime.HyperV.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.HyperV.Helper\CSweet.AgentRuntime.HyperV.Helper.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Abstractions\CSweet.AgentRuntime.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Artifacts\CSweet.AgentRuntime.Artifacts.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Core\CSweet.AgentRuntime.Core.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.LocalRpc\CSweet.AgentRuntime.LocalRpc.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Protocol\CSweet.AgentRuntime.Protocol.csproj" />
     <Using Include="Xunit" />
     <Compile Remove="PersonalAssistantAgentTests.cs" />
   </ItemGroup>

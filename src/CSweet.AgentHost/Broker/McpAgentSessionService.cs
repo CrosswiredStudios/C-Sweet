@@ -63,7 +63,7 @@ public sealed class McpAgentSessionService(
             package.Status is not (AgentPackageVersionStatus.Approved or AgentPackageVersionStatus.Built) ||
             runtime.RuntimeDeadlineAt <= now ||
             runtime.Status is not (AgentRuntimeStatus.WaitingForMcpSession or AgentRuntimeStatus.Running) ||
-            !FixedHashEquals(runtime.WorkloadTokenHash, Hash(workloadToken)))
+            !FixedHashEquals(runtime.BrokerTokenHash, Hash(workloadToken)))
             throw new UnauthorizedAccessException("The MCP initialization identity is invalid or no longer active.");
 
         await RevokeRuntimeSessionsAsync(runtime.Id, "A new MCP session was established.", now, cancellationToken);

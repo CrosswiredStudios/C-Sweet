@@ -606,8 +606,8 @@
                             <MudText Typo="Typo.subtitle2" Class="mt-3">Resource limits</MudText>
                             <div class="agent-import-form-grid agent-import-form-grid-three">
                                 <MudNumericField T="int" Label="Max runtime (seconds)" @bind-Value="_installMaxRuntimeSeconds" Min="1" Max="@(_runtimeSettings?.DefaultMaxRuntimeSeconds ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                <MudNumericField T="int" Label="Memory (MB)" @bind-Value="_installMemoryMb" Min="1" Max="@(_runtimeSettings?.MaximumContainerMemoryMb ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                <MudNumericField T="int" Label="CPU (%)" @bind-Value="_installCpuPercent" Min="1" Max="@(_runtimeSettings?.MaximumContainerCpuPercent ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudNumericField T="int" Label="Memory (MB)" @bind-Value="_installMemoryMb" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadMemoryMb ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudNumericField T="int" Label="CPU (%)" @bind-Value="_installCpuPercent" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadCpuPercent ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
                             </div>
                             @if (_importPreview.ConfigurationFields.Any(field => !field.Secret))
                             {
@@ -828,7 +828,7 @@
                 <strong>@_removeInstallation?.BusinessId</strong>.
             </MudText>
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                Grants, schedule, run history, containers, and cached build artifacts that are not shared by another installation will be deleted. You will need to import and approve the agent again.
+                Grants, schedule, run history, isolated workloads, and cached build artifacts that are not shared by another installation will be deleted. You will need to import and approve the agent again.
             </MudAlert>
             @if (!string.IsNullOrWhiteSpace(_removeError))
             {
@@ -1169,8 +1169,8 @@
         _installTickFrequencySeconds = _runtimeSettings?.DefaultTickFrequencySeconds ?? 3600;
         _installOverlapPolicy = _runtimeSettings?.DefaultOverlapPolicy ?? "Skip";
         _installMaxRuntimeSeconds = _runtimeSettings?.DefaultMaxRuntimeSeconds ?? 600;
-        _installMemoryMb = _runtimeSettings?.DefaultContainerMemoryMb ?? 512;
-        _installCpuPercent = _runtimeSettings?.DefaultContainerCpuPercent ?? 50;
+        _installMemoryMb = _runtimeSettings?.DefaultWorkloadMemoryMb ?? 512;
+        _installCpuPercent = _runtimeSettings?.DefaultWorkloadCpuPercent ?? 50;
         ReplaceApproval(_approvedCapabilities, preview.Capabilities);
         ReplaceApproval(_approvedRequestedCapabilities, preview.RequestedCapabilities);
         ReplaceApproval(_approvedSubscriptions, preview.RequestedSubscriptions);

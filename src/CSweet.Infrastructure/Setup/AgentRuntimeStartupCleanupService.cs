@@ -1,82 +1,50 @@
+using CSweet.AgentRuntime.Abstractions;
 using CSweet.Application.Setup;
+using CSweet.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.Setup;
 
 public sealed class AgentRuntimeStartupCleanupService(
-    IAgentContainerRunner containers,
+    CSweetDbContext dbContext,
+    IAgentWorkloadRunner workloads,
     IOptions<AgentRuntimeManagerOptions> options,
     ILogger<AgentRuntimeStartupCleanupService> logger)
 {
     public async Task<int> CleanupAsync(CancellationToken cancellationToken = default)
     {
-        if (!options.Value.CleanupContainersOnStartup)
+        if (!options.Value.CleanupWorkloadsOnStartup)
         {
-            logger.LogInformation("Agent runtime container cleanup on startup is disabled.");
+            logger.LogInformation("Agent isolated-workload cleanup on startup is disabled.");
             return 0;
         }
 
-        var managed = await containers.ListManagedAsync(cancellationToken);
-        var networks = await containers.ListManagedNetworksAsync(
-            options.Value.DockerNetworkName,
-            cancellationToken);
-        var containerRuntimeIds = managed.Select(x => x.RuntimeInstanceId).ToHashSet();
+        var stale = await dbContext.AgentRuntimeInstances.AsNoTracking()
+            .Where(instance => instance.IsolationProviderId != null && instance.ProviderInstanceId != null)
+            .Select(instance => new { instance.Id, instance.IsolationProviderId, instance.ProviderInstanceId })
+            .ToListAsync(cancellationToken);
         var removed = 0;
-        foreach (var container in managed)
+        foreach (var instance in stale)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            var handle = new IsolationWorkloadHandle(
+                instance.IsolationProviderId!, instance.Id, instance.ProviderInstanceId!, IsolationWorkloadKind.Runtime);
             try
             {
-                await containers.RemoveAsync(container.ContainerId, force: true, cancellationToken: cancellationToken);
-                await containers.RemoveNetworkAsync(
-                    $"{options.Value.DockerNetworkName}-{container.RuntimeInstanceId:N}",
-                    options.Value.McpGatewayContainer,
-                    cancellationToken);
+                if (await workloads.InspectAsync(handle, cancellationToken) is not null)
+                    await workloads.DestroyAsync(handle, cancellationToken);
                 removed++;
             }
-            catch (AgentContainerException exception)
+            catch (AgentWorkloadException exception)
             {
-                logger.LogWarning(
-                    exception,
-                    "Could not clean up agent runtime container {ContainerName} from a previous worker lifetime.",
-                    container.Name);
+                logger.LogWarning(exception,
+                    "Could not clean up isolated workload {ProviderId}/{ProviderInstanceId} from a previous control-plane lifetime.",
+                    handle.ProviderId, handle.ProviderInstanceId);
             }
         }
-
-        var orphanNetworksRemoved = 0;
-        foreach (var network in networks.Where(x => !containerRuntimeIds.Contains(x.RuntimeInstanceId)))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                await containers.RemoveNetworkAsync(
-                    network.Name,
-                    options.Value.McpGatewayContainer,
-                    cancellationToken);
-                orphanNetworksRemoved++;
-            }
-            catch (AgentContainerException exception)
-            {
-                logger.LogWarning(
-                    exception,
-                    "Could not clean up orphan agent runtime network {NetworkName} from a previous worker lifetime.",
-                    network.Name);
-            }
-        }
-
         if (removed > 0)
-        {
-            logger.LogInformation(
-                "Removed {ContainerCount} agent runtime containers left by a previous worker lifetime.",
-                removed);
-        }
-        if (orphanNetworksRemoved > 0)
-        {
-            logger.LogInformation(
-                "Removed {NetworkCount} orphan agent runtime networks left by previous worker lifetimes.",
-                orphanNetworksRemoved);
-        }
+            logger.LogInformation("Destroyed {WorkloadCount} stale isolated workloads from a previous control-plane lifetime.", removed);
         return removed;
     }
 }

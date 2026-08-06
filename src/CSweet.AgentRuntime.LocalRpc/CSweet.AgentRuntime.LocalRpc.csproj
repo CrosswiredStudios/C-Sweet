@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.AgentRuntime.Abstractions\CSweet.AgentRuntime.Abstractions.csproj" />
+    <ProjectReference Include="..\CSweet.AgentRuntime.Protocol\CSweet.AgentRuntime.Protocol.csproj" />
+  </ItemGroup>
+</Project>

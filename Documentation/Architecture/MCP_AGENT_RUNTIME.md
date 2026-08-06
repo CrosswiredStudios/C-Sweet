@@ -11,18 +11,18 @@ The runtime does not provide arbitrary platform APIs, direct database access, cr
 ```mermaid
 flowchart LR
   P["Trusted platform"] -->|"persist exact-installation work"| Q[("Durable inbox")]
-  A["Untrusted agent container"] -->|"outbound-only /mcp"| G["Private MCP gateway"]
+  A["Untrusted agent VM"] -->|"authenticated broker socket"| G["Private MCP gateway"]
   G -->|"lease / complete"| Q
   G -->|"live authorization"| R["Capability registry + grants"]
   G -->|"approved platform call"| S["Owning domain service"]
   G -->|"bound provider work"| Q
 ```
 
-The container and package are one trust boundary; the MCP gateway, authorization pipeline, persistence, domain services, and credential broker are trusted boundaries. Every organization, installation, runtime, work item, session, provider binding, and result is server-resolved.
+The disposable hardware-virtualized guest is the untrusted boundary; an optional inner container is only a packaging mechanism. The MCP gateway, authorization pipeline, persistence, domain services, credential broker, and privileged RuntimeHost are trusted boundaries. Every organization, installation, runtime, work item, session, provider binding, and result is server-resolved.
 
 ## Session bootstrap and rotation
 
-The runtime manager creates a random workload token and writes it to a per-runtime secret file mounted read-only at `/run/secrets/csweet-workload-token`. It never places the token in an environment variable, command argument, image, or log. The container makes an outbound `initialize` call to the private `/mcp` listener.
+The runtime manager creates a one-use boot token and an instance-bound broker lease. RuntimeHost injects these only through the platform broker transport while creating the VM; there is no host file mount or network listener. During boot the guest proves possession of its ephemeral private key and binds the handshake to the workload ID, channel ID, guest-image digest, artifact digest, protocol version, and lease expiry. Only after this proof may the broker issue an operational grant.
 
 Initialization validates the workload-token hash, runtime instance, tick, installation, organization, package digest/version, active deadline, enabled state, and grant revision. The gateway returns an opaque 256-bit session token in `_meta.csweet`, stores only its hash, and binds it to those values. A session expires after ten minutes. The SDK renews after five minutes with at most thirty seconds of overlap. Disabling or revising any bound object revokes the session immediately. Replayed, expired, wrong-runtime, or wrong-revision tokens fail closed.
 
@@ -109,14 +109,13 @@ sequenceDiagram
 - Chat enqueues the user-message event for the exact selected installation. Progress records carry accepted, streaming, final, and error chunks; the final durable work state closes the turn.
 - Configuration describe/update, onboarding, management reviews, scheduling, and communication delivery are exact-installation work.
 - Service plugins use the same SDK runtime. Discord calls granted HTTP/WebSocket tools; the gateway injects credentials only for the authorized origin.
-- Shutdown is advisory work followed by container termination at the platform deadline.
+- Shutdown is advisory work followed by VM workload termination and writable-disk destruction at the platform deadline.
 - Domain changes use explicit capabilities and domain outboxes. Generic agent event publication is not supported.
 
 ## Ownership and data model
 
-The runtime manager owns containers and workload secrets. The MCP gateway owns sessions and protocol validation. The capability registry owns descriptors. Installation management owns grants and bindings. The durable inbox owns work, attempts, leases, progress, retry, and terminal state. Domain services own business authorization and effects. The API consumes durable progress/results; notifications only wake consumers.
+The runtime manager owns provider-neutral workload intent and short-lived broker grants. The separately privileged RuntimeHost owns VM lifecycle, approved images, devices, and writable disks. The MCP gateway owns sessions and protocol validation. The capability registry owns descriptors. Installation management owns grants and bindings. The durable inbox owns work, attempts, leases, progress, retry, and terminal state. Domain services own business authorization and effects. The API consumes durable progress/results; notifications only wake consumers.
 
 ## Failure and consistency
 
-Work is at-least-once until a terminal state; idempotency makes externally visible effects effectively once per approved key. A gateway, database, or agent restart cannot lose accepted work. Network loss may repeat a claim after lease expiry. Conflicting results fail closed. Cancellation is durable and prevents new claims; an executing container is terminated after its grace period. Discovery is advisory: execution always checks live authority.
-
+Work is at-least-once until a terminal state; idempotency makes externally visible effects effectively once per approved key. A gateway, database, or agent restart cannot lose accepted work. Broker-channel loss may repeat a claim after lease expiry. Conflicting results fail closed. Cancellation is durable and prevents new claims; an executing VM workload is terminated after its grace period and its writable state is destroyed. Discovery is advisory: execution always checks live authority.

@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CSweet.AgentRuntime.Abstractions\CSweet.AgentRuntime.Abstractions.csproj" />
     <PackageReference Include="CSweet.Agent.SDK" Condition="'$(UseLocalCSweetAgentSdk)' != 'true'" />
     <ProjectReference Include="..\CSweet.Communications.Abstractions\CSweet.Communications.Abstractions.csproj" />
     <ProjectReference Include="..\CSweet.Domain\CSweet.Domain.csproj" />

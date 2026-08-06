@@ -34,12 +34,33 @@ public class SetupEndpointTests
 
         Assert.NotNull(status);
         Assert.False(status.IsFirstRunComplete);
-        Assert.Equal(5, status.Steps.Count);
+        Assert.Equal(6, status.Steps.Count);
         Assert.DoesNotContain(status.Steps, x => x.Key == "finish");
         Assert.Contains(status.Steps, x => x.Key == "email-delivery" && !x.IsRequired);
         Assert.Contains(status.Steps, x => x.Key == "genai-provider" && !x.IsRequired);
+        Assert.Contains(status.Steps, x => x.Key == "agent-isolation" && !x.IsRequired);
         Assert.DoesNotContain(status.Steps, x => x.Key == "model-capability-test");
         Assert.DoesNotContain(status.Steps, x => x.Key == "admin-user");
+    }
+
+    [Fact]
+    public async Task AgentIsolationStatus_IsActionableAndFailClosed()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/setup/agent-isolation");
+        var status = await response.Content.ReadFromJsonAsync<AgentIsolationOnboardingResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.True(response.Headers.CacheControl?.NoCache);
+        Assert.NotNull(status);
+        Assert.Equal("hyperv-gen2", status.ProviderId);
+        Assert.False(status.IsReady);
+        Assert.NotEmpty(status.Checks);
+        Assert.Contains(status.Checks, check => check.Key == "runtime-host");
+        Assert.Contains(status.Checks, check => check.Key == "provider-certification");
     }
 
     [Fact]

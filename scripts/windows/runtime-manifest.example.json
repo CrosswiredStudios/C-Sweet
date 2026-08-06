@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "1.0.0",
+  "runtimeHostExecutable": "CSweet.RuntimeHost.exe",
+  "helperExecutable": "CSweet.AgentRuntime.HyperV.Helper.exe",
+  "guestImage": "images/csweet-agent-guest.vhdx",
+  "guestImageDigest": "sha256:REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS",
+  "guestImageSignature": "images/csweet-agent-guest.vhdx.sig",
+  "guestImageSigningCertificate": "certificates/guest-image-signing.cer",
+  "guestImageSigningCertificateThumbprint": "REPLACE_WITH_CERTIFICATE_THUMBPRINT",
+  "certificationSuiteVersion": "windows-hyperv-v1",
+  "certificationEvidence": "certification/windows-hyperv.json",
+  "certificationEvidenceDigest": "sha256:REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS",
+  "certifiedAt": "2026-08-05T00:00:00Z",
+  "certificationExpiresAt": null,
+  "files": [
+    {
+      "path": "CSweet.RuntimeHost.exe",
+      "sha256": "REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS"
+    }
+  ]
+}

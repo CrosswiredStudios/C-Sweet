@@ -76,10 +76,11 @@
     private static readonly IReadOnlyList<WizardStep> SetupSteps =
     [
         new(1, "welcome", "Welcome", "Start here"),
-        new(2, "llm-provider", "LLM Providers", "Connect endpoints"),
-        new(3, "genai-provider", "GenAI Providers", "Optional"),
-        new(4, "email-delivery", "Email Delivery", "Optional"),
-        new(5, "communications", "Communications", "Optional")
+        new(2, "agent-isolation", "Agent Isolation", "Windows security"),
+        new(3, "llm-provider", "LLM Providers", "Connect endpoints"),
+        new(4, "genai-provider", "GenAI Providers", "Optional"),
+        new(5, "email-delivery", "Email Delivery", "Optional"),
+        new(6, "communications", "Communications", "Optional")
     ];
 
     private SetupStatusResponse? _status;
@@ -131,10 +132,11 @@
 
     private Task ContinueFromWelcomeAsync()
     {
-        return CompleteStepAsync("welcome", "llm-provider");
+        return CompleteStepAsync("welcome", "agent-isolation");
     }
 
     private void BackToWelcome() => SelectStep("welcome");
+    private void BackToIsolation() => SelectStep("agent-isolation");
     private void BackToProvider() => SelectStep("llm-provider");
     private void BackToGenAiProvider() => SelectStep("genai-provider");
     private void BackToEmailDelivery() => SelectStep("email-delivery");
@@ -142,6 +144,7 @@
     private RenderFragment RenderActiveStep() => _activeStepKey switch
     {
         "welcome" => WelcomeStep,
+        "agent-isolation" => AgentIsolationStep,
         "llm-provider" => LlmProviderStep,
         "genai-provider" => GenAiProviderStep,
         "email-delivery" => EmailDeliveryStep,
@@ -151,13 +154,16 @@
 
     private RenderFragment WelcomeStep => @<WelcomeSetupStep IsBusy="@_isBusy" OnContinue="@ContinueFromWelcomeAsync" />;
 
+    private RenderFragment AgentIsolationStep =>
+        @<AgentIsolationSetupStep OnBack="@BackToWelcome" OnContinue="@ContinueFromIsolationAsync" />;
+
     private RenderFragment LlmProviderStep => @<LlmProviderSetupStep Profiles="@_profiles"
                                                                          SelectedProviderId="@_providerProfileId"
                                                                          ProfilesChanged="@HandleProfilesChangedAsync"
                                                                          AutoDiscoverLocalProviders="@(!_localProviderDiscoveryAttempted)"
                                                                          LocalProviderDiscoveryAttempted="@HandleLocalProviderDiscoveryAttempted"
                                                                          OnContinue="@ContinueFromProviderAsync"
-                                                                         OnBack="@BackToWelcome" />;
+                                                                         OnBack="@BackToIsolation" />;
 
     private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep AutoDiscoverLocalProviders="@(!_localGenAiProviderDiscoveryAttempted)"
                                                                               LocalProviderDiscoveryAttempted="@HandleLocalGenAiProviderDiscoveryAttempted"
@@ -198,6 +204,9 @@
         _providerProfileId = providerProfileId ?? _profiles.Last().Id;
         await CompleteStepAsync("llm-provider", "genai-provider");
     }
+
+    private Task ContinueFromIsolationAsync() =>
+        CompleteStepAsync("agent-isolation", "llm-provider");
 
     private Task ContinueFromGenAiProviderAsync() =>
         CompleteStepAsync("genai-provider", "email-delivery");

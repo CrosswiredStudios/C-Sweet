@@ -1,5 +1,13 @@
 # C-Sweet Implementation Plans
 
+> **Historical planning set:** Several phase documents in this folder describe the original
+> Docker-first distribution and Docker agent-runner design. They remain useful as implementation
+> history, but they are not current setup or security instructions. Use the repository
+> [README](../../README.md), the [Docker infrastructure guide](../deployment/docker.md), and the
+> [agent isolation security overview](../../Documentation/Architecture/AGENT_ISOLATION_SECURITY_OVERVIEW.md)
+> for the current architecture. Docker is still required for trusted development infrastructure;
+> it is no longer an untrusted-agent isolation mechanism.
+
 Last updated: 2026-07-13
 
 ## Purpose

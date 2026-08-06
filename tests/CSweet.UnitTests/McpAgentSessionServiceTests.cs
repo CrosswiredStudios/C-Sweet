@@ -216,7 +216,7 @@ public sealed class McpAgentSessionServiceTests
                 TickId = Guid.NewGuid(),
                 AgentInstallationId = installation.Id,
                 AgentInstallation = installation,
-                WorkloadTokenHash = Convert.ToHexString(
+                BrokerTokenHash = Convert.ToHexString(
                     SHA256.HashData(Encoding.UTF8.GetBytes(workloadToken))),
                 QueuedAt = clock.GetUtcNow(),
                 RuntimeDeadlineAt = clock.GetUtcNow().AddMinutes(10)

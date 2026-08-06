@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Length-delimited protobuf contracts for C-Sweet runtime host and guest communication.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="runtime_host.proto" GrpcServices="None" />
+    <Protobuf Include="guest_broker.proto" GrpcServices="None" />
+  </ItemGroup>
+</Project>

@@ -1,5 +1,10 @@
 # 00 - Architecture Baseline
 
+> **Historical baseline:** This document predates the hardware-isolated agent architecture and the
+> current AppHost startup guidance. Its Docker Compose commands are retained as planning history,
+> not supported setup instructions. See the [root README](../../README.md) and
+> [security architecture overview](../../Documentation/Architecture/AGENT_ISOLATION_SECURITY_OVERVIEW.md).
+
 ## Product summary
 
 C-Sweet is a self-hostable executive operating system for small businesses and solo founders. It lets a user define a company, create executive roles, assign goals and tasks, run AI or human workers, and review the artifacts produced by those workers.

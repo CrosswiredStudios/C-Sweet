@@ -1,233 +1,127 @@
-# Docker Deployment
+# Docker infrastructure and deployment
 
-## Purpose
+## Current support status
 
-Docker Compose should be the default self-hosted distribution path for C-Sweet.
+Docker Desktop is required for the current source-development experience. The Aspire AppHost provisions the PostgreSQL database through Docker, and the application cannot complete startup while the Docker engine is unavailable.
 
-The goal is that a user can clone the repository, copy the example environment file, start the Compose stack, and complete first-run setup in the browser.
+Docker is **trusted application infrastructure**. It is not the isolation boundary for imported or marketplace agents. On Windows, untrusted agent code runs only in a certified Hyper-V Generation 2 virtual machine managed by RuntimeHost. If that provider is unavailable, agent execution stays disabled; C-Sweet does not fall back to Docker or a host process.
 
-## Administrator email configuration
+See the [security architecture overview](../../Documentation/Architecture/AGENT_ISOLATION_SECURITY_OVERVIEW.md) for the trust boundaries and startup sequence.
+
+## Windows source prerequisites
+
+- Docker Desktop installed and configured to use Linux containers.
+- Docker Desktop's engine running; `docker info` must succeed.
+- The .NET 10 SDK specified by `global.json`.
+- Git and an OpenAI-compatible model endpoint.
+- For local untrusted agents: a supported Windows edition and hardware virtualization. Browser onboarding guides the separate Hyper-V and RuntimeHost setup.
+
+## Recommended startup
+
+After cloning the repository, double-click `Start-CSweet.cmd` in the repository root. The launcher:
+
+1. Verifies the .NET 10 SDK.
+2. Verifies the Docker CLI and engine.
+3. Attempts to start Docker Desktop when it is installed but stopped.
+4. Waits up to two minutes for the engine while reporting elapsed time.
+5. Starts the Aspire AppHost, which provisions PostgreSQL, runs migrations, and starts the C-Sweet projects.
+
+Developers can start the same topology from an IDE or with:
+
+```powershell
+dotnet run --project src/CSweet.AppHost/CSweet.AppHost.csproj --launch-profile https
+```
+
+When starting AppHost directly, the IDE or terminal does not currently start Docker Desktop for you. Check it first:
+
+```powershell
+docker info
+```
+
+## Administrator and email setup
 
 Do not expose a fresh installation to an untrusted network. The first visitor can claim the root administrator account, so complete registration and onboarding on a trusted network first.
 
-The first browser visit opens `/register`, where the root administrator provides their name, email, and password. Registration does not require SMTP or email confirmation: it signs the administrator in immediately and displays ten one-time offline recovery codes. Save those codes before continuing. Direct registration closes permanently after the first administrator is created.
+The first browser visit opens `/register`, where the root administrator provides their name, email, and password. Registration signs the administrator in immediately and displays ten one-time offline recovery codes. Save those codes before continuing. Direct registration closes permanently after the first administrator is created.
 
-Email delivery is an optional, skippable technical-setup step. You can create and independently test multiple SMTP profiles, select one as the account-email default, and manage the same profiles later from Account Security. After the default profile passes its test, C-Sweet can send root email verification and password recovery messages. Until then, offline root recovery codes remain available.
+Email delivery is optional. SMTP profiles can be created and tested during setup or later from Account Security. Until a default profile passes its test, offline root recovery codes remain available.
 
-The `CSWEET_SMTP__*` values in `.env.example` are optional initial defaults. `CSWEET_SMTP__PUBLICAPPURL` must be the browser-visible root URL (for example, `http://localhost:8080`) so confirmation and reset links return to the app. When settings are saved through setup, the SMTP password is encrypted with the instance's persisted ASP.NET data-protection keys and is never returned to the browser.
+## Model endpoint configuration
 
-```bash
-cp .env.example .env
-docker compose up -d
-```
-
-Then open:
-
-```text
-http://localhost:8080
-```
-
-## Services
-
-The Docker distribution includes:
-
-| Service | Internal Port | Exposed | Description |
-|---------|--------------|---------|-------------|
-| `csweet-app` | 8080 | 8080 (configurable via `APP_PORT`) | Blazor WASM frontend served by nginx |
-| `csweet-migrator` | - | Internal only | One-shot database migration and setup seed runner |
-| `csweet-api` | 8080 | Internal only | API and application services |
-| `csweet-agenthost` | 8080, 8081 | Internal only | Brokered agent API and private MCP runtime gateway |
-| `csweet-worker` | - | Internal only | Local worker runtime |
-| `postgres` | 5432 | Internal only | PostgreSQL database |
-
-Only the web app (`csweet-app`) is exposed publicly by default. The API, worker, and database are internal-only services.
-
-Optional services can be added when needed:
-
-```text
-minio           S3-compatible object storage for artifacts
-qdrant          Semantic retrieval/vector storage
-redis           Cache, backplane, or queue support
-```
-
-## LM Studio configuration
-
-When running C-Sweet directly on your machine, LM Studio is usually reachable at:
+When C-Sweet runs through AppHost and the model server runs directly on Windows, use the endpoint reported by that model server. Common local defaults include:
 
 ```text
 http://localhost:1234/v1
-```
-
-When running C-Sweet inside Docker and LM Studio on the host machine, use:
-
-```text
 http://host.docker.internal:1234/v1
 ```
 
-The included Compose file maps this hostname to the Docker host on Linux:
-
-```yaml
-extra_hosts:
-  - "host.docker.internal:host-gateway"
-```
-
-The setup wizard probes both addresses and prefers the Docker-safe value when it detects container mode.
-
-## Required files (implemented)
-
-```text
-docker-compose.yml
-.env.example
-.dockerignore
-docker/api.Dockerfile
-docker/app.Dockerfile
-docker/agenthost.Dockerfile
-docker/migrator.Dockerfile
-docker/worker.Dockerfile
-```
-
-## Environment file
-
-The `.env.example` file should include safe placeholders:
-
-```env
-CSWEET_PUBLIC_URL=http://localhost:8080
-
-POSTGRES_DB=csweet
-POSTGRES_USER=csweet
-POSTGRES_PASSWORD=change-me
-
-CSWEET_LLM__DEFAULT_PROVIDER_TYPE=LMStudio
-CSWEET_LLM__DEFAULT_BASE_URL=http://host.docker.internal:1234/v1
-CSWEET_LLM__DEFAULT_API_KEY=lm-studio
-CSWEET_LLM__DEFAULT_CHAT_MODEL=
-
-# Override when intentionally running multiple C-Sweet Compose stacks.
-CSWEET_AGENTHOST_CONTAINER_NAME=csweet-agenthost
-```
-
-Do not commit a real `.env` file.
-
-## Basic commands
-
-```bash
-# Start stack
-cp .env.example .env
-docker compose up -d
-
-# Show running services
-docker compose ps
-
-# View logs
-docker compose logs -f
-
-# Rebuild images
-docker compose build
-
-# Stop services but keep data
-docker compose down
-
-# Stop services and remove local volumes/data
-docker compose down -v
-```
+The browser setup flow probes compatible addresses. `host.docker.internal` is primarily needed when the caller itself runs inside a container.
 
 ## Data persistence
 
-Postgres must use a named volume so setup state, organizations, tasks, artifacts, and audit history survive container restarts.
+Aspire stores PostgreSQL data in a named Docker volume so company state, setup data, tasks, artifacts, and audit history survive restarts. Treat that volume as application data and include it in the development backup/reset policy.
 
-Example:
+Changing the configured PostgreSQL credentials does not change credentials already stored in an initialized volume. See the [debug guide](../implementation/debug-guide.md#aspire-postgres-authentication) for the deliberate development reset procedure.
 
-```yaml
-volumes:
-  csweet-postgres:
-```
+## Docker Compose migration status
 
-Do not store user data only inside disposable containers.
+Docker Compose remains the intended packaging mechanism for trusted core services, but the checked-in `docker-compose.yml` still contains legacy Docker-agent-runner wiring. It is not currently the supported path for testing the new untrusted-agent architecture.
 
-## Health checks
+Known migration blockers include:
 
-Minimum health checks:
+- A reference to the removed `docker/agenthost.Dockerfile`.
+- A Docker daemon socket mount and container-runtime settings in WorkerHost that belonged to the removed Docker agent runner.
+- Legacy agent-container names, networks, images, and cleanup settings.
+- No packaged Windows RuntimeHost and certified guest-image onboarding path in the Compose distribution.
 
-```text
-csweet-api      GET /api/health
-csweet-worker   process health
-csweet-app      HTTP response on public port
-postgres        pg_isready
-```
+Until these are removed, use AppHost for Windows development and end-to-end isolation testing. Documentation and release automation must not advertise `docker compose up` as a complete supported installation command.
 
-Health checks should be used by Compose dependencies where practical so the app does not start before the database is ready.
+## Target containerized core topology
 
-## Agent container lifecycle safety
+A future supported Compose distribution may package trusted application components such as:
 
-The worker owns transient agent containers named `csweet-agent-<runtime-id>`. When the worker starts, it removes containers with that exact reserved naming pattern from an earlier worker lifetime and removes their isolated runtime networks. Database reconciliation then records interrupted runtimes and restarts eligible always-on agents.
+| Component | Purpose | Exposure |
+|---|---|---|
+| Web app | Browser UI | Public application port |
+| API | Authentication and application APIs | Internal, reached through the web entry point |
+| Migrator | One-shot database migration and seed job | Internal only |
+| WorkerHost | Durable trusted background work | Internal only |
+| AgentHost | Unprivileged policy and MCP broker | Internal only |
+| PostgreSQL | Durable company state | Internal only |
 
-Each newly launched agent also runs under a broker watchdog. After the startup grace period, the watchdog probes the configured agent broker from inside the runtime network. If the broker remains unreachable for the disconnect timeout, it terminates the agent process. This prevents a debugger kill, worker crash, or broker outage from leaving a resource-consuming agent running indefinitely.
+That topology must connect to a separately installed, authenticated RuntimeHost for local untrusted execution. Containerizing AgentHost does not make it an isolation provider.
 
-The Compose defaults are:
+## Security requirements for future Compose packaging
 
-```env
-CSWEET_AGENT_RUNTIME_CLEANUP_ON_STARTUP=true
-CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_ENABLED=true
-CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_STARTUP_GRACE_SECONDS=30
-CSWEET_AGENT_RUNTIME_SESSION_WATCHDOG_INTERVAL_SECONDS=10
-CSWEET_AGENT_RUNTIME_SESSION_DISCONNECT_SHUTDOWN_SECONDS=120
-```
+- Never mount `/var/run/docker.sock` or another container-engine control socket into API, WorkerHost, AgentHost, or an agent workload.
+- Never execute untrusted repository-controlled build or runtime operations in an ordinary application container.
+- Do not expose PostgreSQL, AgentHost, WorkerHost, or RuntimeHost publicly.
+- Do not bake secrets into images or commit real `.env` files.
+- Persist data-protection keys and PostgreSQL data in protected volumes.
+- Authenticate every RuntimeHost request and keep RuntimeHost's API local and narrowly scoped.
+- Fail closed when the certified hardware-isolation provider, signed guest image, or certification evidence is unavailable.
 
-Disable startup cleanup when multiple independent scheduler processes intentionally share the same Docker daemon. The watchdog requires the supported Linux .NET runtime image to provide `/bin/bash`.
+## Troubleshooting
 
-## First-run Docker flow
+### Docker is installed but AppHost fails immediately
 
-```text
-docker compose up -d
-  → postgres starts and becomes healthy (pg_isready health check)
-  → migrator applies database migrations and seed data
-  → agenthost starts the private MCP runtime gateway
-  → API starts after migrations complete and exposes /api/health
-  → worker and app start after API is healthy
-  → user opens http://localhost:8080
-  → setup wizard opens
-  → user configures LM Studio using host.docker.internal
-```
+Run `docker info`. If it fails, open Docker Desktop, select Linux containers, and wait for the engine status to report **Running**. Then restart C-Sweet.
 
-Database migrations run through the dedicated `csweet-migrator` one-shot service, not inside the API or worker containers.
+### Docker is not installed
 
-## Security defaults
+Install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/), start it once, and then run `Start-CSweet.cmd` again.
 
-- Do not expose Postgres outside the Compose network by default.
-- Do not bake secrets into images.
-- Do not commit `.env`.
-- Do not log API keys.
-- Prefer named volumes for persistent data.
-- Prefer internal networking between app, API, worker, and database.
+### Agent isolation is unavailable while Docker is healthy
 
-## Release image publishing
+This is expected when the separate RuntimeHost/Hyper-V readiness checks have not passed. Continue to the Agent Isolation setup step and use **Prepare secure agent runtime**. Docker health alone never enables untrusted agents.
 
-When the project is ready to publish images, use GitHub Actions to build on PRs and publish on tags.
+## Acceptance criteria for a packaged release
 
-Suggested image names:
+Before Docker Compose is documented as a supported distribution again, a clean-machine test must verify that:
 
-```text
-ghcr.io/crosswiredstudios/csweet-app
-ghcr.io/crosswiredstudios/csweet-api
-ghcr.io/crosswiredstudios/csweet-migrator
-ghcr.io/crosswiredstudios/csweet-worker
-```
-
-## Acceptance test
-
-A clean-machine Docker acceptance test should verify:
-
-```bash
-git clone <repo>
-cd csweet
-cp .env.example .env
-docker compose up -d
-```
-
-Then confirm:
-
-- `docker compose ps` reports healthy services.
-- `http://localhost:8080` opens the setup wizard.
-- LM Studio can be configured using `http://host.docker.internal:1234/v1`.
-- Restarting containers preserves setup state.
-- `docker compose down -v` resets the local install.
+- The trusted core starts with documented prerequisites and without legacy agent-container resources.
+- Database migrations and first-run administrator setup complete successfully.
+- Restarting trusted containers preserves application state.
+- No trusted service receives the Docker daemon socket.
+- Untrusted execution remains disabled until a separately certified provider is ready.
+- A certified Windows RuntimeHost can execute the malicious-fixture test suite without Docker or host-process fallback.

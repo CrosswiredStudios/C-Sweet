@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>CSweet.AgentRuntime.HyperV.Helper</AssemblyName>
+    <Description>Privileged, narrow Hyper-V lifecycle helper for C-Sweet RuntimeHost.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.AgentRuntime.Core\CSweet.AgentRuntime.Core.csproj" />
+    <ProjectReference Include="..\CSweet.AgentRuntime.HyperV\CSweet.AgentRuntime.HyperV.csproj" />
+  </ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.UnitTests" /></ItemGroup>
+</Project>

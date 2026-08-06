@@ -8,13 +8,15 @@ using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.Setup;
 
 public sealed class PluginArchiveImportService(
     CSweetDbContext db,
     IPluginManifestReader manifestReader,
-    IAuditEventWriter audit) : IPluginArchiveImportService
+    IAuditEventWriter audit,
+    IOptions<AgentRuntimeManagerOptions> runtimeOptions) : IPluginArchiveImportService
 {
     private const int MaximumArchiveBytes = 100 * 1024 * 1024;
     private const int MaximumEntries = 10_000;
@@ -84,11 +86,7 @@ public sealed class PluginArchiveImportService(
 
         var digest = Convert.ToHexString(SHA256.HashData(bytes.ToArray())).ToLowerInvariant();
         var manifestDigest = Convert.ToHexString(SHA256.HashData(manifestBytes)).ToLowerInvariant();
-        var settings = await db.AgentRuntimeGlobalSettings.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
-        var sourceRoot = !string.IsNullOrWhiteSpace(settings?.AgentSourceRootPath)
-            ? settings.AgentSourceRootPath
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CSweet", "agents", "sources");
-        var archiveRoot = Path.Combine(Path.GetFullPath(sourceRoot), "archives");
+        var archiveRoot = ValidatedArchiveRoot(runtimeOptions.Value.SourceArchiveStorePath);
         Directory.CreateDirectory(archiveRoot);
         var archivePath = Path.Combine(archiveRoot, $"{digest}.zip");
         if (!File.Exists(archivePath)) await File.WriteAllBytesAsync(archivePath, bytes.ToArray(), cancellationToken);
@@ -139,5 +137,15 @@ public sealed class PluginArchiveImportService(
             RequestedCapabilities = AgentImportPreviewService.GrantRequiredCapabilities(manifest), WebAccess = manifest.WebAccess,
             ConfigurationFields = manifest.Configuration, CredentialBindings = manifest.Credentials
         };
+    }
+
+    private static string ValidatedArchiveRoot(string configured)
+    {
+        if (string.IsNullOrWhiteSpace(configured) || !Path.IsPathFullyQualified(configured))
+            throw new InvalidOperationException("The source archive store must be configured as an absolute path.");
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(configured));
+        if (Path.GetPathRoot(root) == root)
+            throw new InvalidOperationException("The source archive store cannot be a filesystem root.");
+        return root;
     }
 }

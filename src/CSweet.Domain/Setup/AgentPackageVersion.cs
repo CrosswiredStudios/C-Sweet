@@ -23,6 +23,10 @@ public sealed class AgentPackageVersion
     public AgentPackageVersionStatus Status { get; set; } = AgentPackageVersionStatus.Previewed;
     public string? PackageDigest { get; set; }
     public string? PackagePath { get; set; }
+    public string? ArtifactSignature { get; set; }
+    public string ArtifactFormatVersion { get; set; } = "1.0";
+    public string ArtifactOperatingSystem { get; set; } = "linux";
+    public string ArtifactArchitecture { get; set; } = "x64";
     public DateTimeOffset? BuiltAt { get; set; }
     public DateTimeOffset ImportedAt { get; set; }
 

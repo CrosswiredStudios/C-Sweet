@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><Description>Certified Apple Virtualization.framework isolation backend.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="..\CSweet.AgentRuntime.Core\CSweet.AgentRuntime.Core.csproj" /></ItemGroup>
+</Project>

@@ -85,6 +85,11 @@ authorization.AddPolicy("SourceControlAdministration", policy =>
     if (builder.Environment.IsEnvironment("Testing")) policy.RequireAssertion(_ => true);
     else policy.RequireRole(CSweet.Infrastructure.Auth.AuthenticationService.AdministratorRole);
 });
+authorization.AddPolicy("HostAdministration", policy =>
+{
+    if (builder.Environment.IsEnvironment("Testing")) policy.RequireAssertion(_ => true);
+    else policy.RequireRole(CSweet.Infrastructure.Auth.AuthenticationService.AdministratorRole);
+});
 authorization.SetFallbackPolicy(builder.Environment.IsEnvironment("Testing")
     ? new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
         .RequireAssertion(_ => true)

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CSweet.Application.Setup;
+using CSweet.AgentRuntime.Abstractions;
 using CSweet.Contracts.Agents;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -350,7 +351,8 @@ public sealed class AgentInstallationServiceTests
             Id = Guid.NewGuid(),
             TickId = Guid.NewGuid(),
             AgentInstallationId = installed.Id,
-            ContainerId = "old-version-container",
+            IsolationProviderId = "test-vm",
+            ProviderInstanceId = "old-version-container",
             QueuedAt = DateTimeOffset.UtcNow
         });
         var update = new AgentPackageVersion
@@ -577,7 +579,8 @@ public sealed class AgentInstallationServiceTests
             Id = runtimeId,
             TickId = Guid.NewGuid(),
             AgentInstallationId = installation.Id,
-            ContainerId = "retained-container",
+            IsolationProviderId = "test-vm",
+            ProviderInstanceId = "retained-container",
             QueuedAt = DateTimeOffset.UtcNow
         });
         await dbContext.SaveChangesAsync();
@@ -585,11 +588,10 @@ public sealed class AgentInstallationServiceTests
         await service.RemoveAsync(installation.Id);
 
         Assert.Contains("retained-container", containers.Removed);
-        Assert.Contains(("csweet-runtime-" + runtimeId.ToString("N"), "agenthost"), containers.NetworksRemoved);
     }
 
     [Fact]
-    public async Task RemoveAsync_SkipsHistoricalFailedStartWithoutContainerId()
+    public async Task RemoveAsync_SkipsHistoricalFailedStartWithoutProviderInstanceId()
     {
         await using var dbContext = CreateDbContext();
         var package = await SeedAsync(dbContext);
@@ -601,7 +603,7 @@ public sealed class AgentInstallationServiceTests
             Id = Guid.NewGuid(),
             TickId = Guid.NewGuid(),
             AgentInstallationId = installation.Id,
-            ContainerName = "failed-start-container",
+            IsolationProviderId = "failed-start-container",
             QueuedAt = DateTimeOffset.UtcNow
         };
         runtime.TransitionTo(AgentRuntimeStatus.Starting, DateTimeOffset.UtcNow);
@@ -646,7 +648,8 @@ public sealed class AgentInstallationServiceTests
             Id = Guid.NewGuid(),
             TickId = Guid.NewGuid(),
             AgentInstallationId = installation.Id,
-            ContainerId = "running-container",
+            IsolationProviderId = "test-vm",
+            ProviderInstanceId = "running-container",
             QueuedAt = DateTimeOffset.UtcNow
         });
         await dbContext.SaveChangesAsync();
@@ -684,8 +687,8 @@ public sealed class AgentInstallationServiceTests
             DefaultRestartPolicy = RestartPolicy.Never,
             MinimumTickFrequencySeconds = 300,
             DefaultMaxRuntimeSeconds = 600,
-            MaximumContainerMemoryMb = 2048,
-            MaximumContainerCpuPercent = 200,
+            MaximumWorkloadMemoryMb = 2048,
+            MaximumWorkloadCpuPercent = 200,
             UpdatedAt = DateTimeOffset.UtcNow
         });
         var source = new AgentPackageSource
@@ -907,42 +910,32 @@ public sealed class AgentInstallationServiceTests
             Entries.Add((logLevel, formatter(state, exception)));
     }
 
-    private sealed class TestAgentContainerRunner(bool containerExists = false, string logs = "") : IAgentContainerRunner
+    private sealed class TestAgentContainerRunner(bool containerExists = false, string logs = "") : IAgentWorkloadRunner
     {
         public List<string> Inspected { get; } = [];
         public List<string> Removed { get; } = [];
-        public List<(string NetworkName, string BrokerGatewayContainer)> NetworksRemoved { get; } = [];
 
-        public Task<AgentContainerStatus> StartAsync(AgentContainerStartRequest request, CancellationToken cancellationToken = default) =>
+        public Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpec workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task StopAsync(string containerId, TimeSpan gracePeriod, CancellationToken cancellationToken = default) =>
+        public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
-        public Task<IReadOnlyList<AgentManagedContainer>> ListManagedAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<AgentManagedContainer>>([]);
-
-        public Task<AgentContainerStatus?> InspectAsync(string containerId, CancellationToken cancellationToken = default)
+        public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
         {
-            Inspected.Add(containerId);
-            return Task.FromResult<AgentContainerStatus?>(containerExists
-                ? new AgentContainerStatus(containerId, containerId, AgentContainerState.Exited, 0, null, null, null)
+            Inspected.Add(handle.ProviderInstanceId);
+            return Task.FromResult<IsolationWorkloadStatus?>(containerExists
+                ? new IsolationWorkloadStatus(handle, IsolationWorkloadState.Stopped, IsolationTerminationReason.Completed, 0, null, null, null, null)
                 : null);
         }
 
-        public Task RemoveAsync(string containerId, bool force = false, CancellationToken cancellationToken = default)
+        public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
         {
-            Removed.Add(containerId);
+            Removed.Add(handle.ProviderInstanceId);
             return Task.CompletedTask;
         }
 
-        public Task RemoveNetworkAsync(string networkName, string brokerGatewayContainer, CancellationToken cancellationToken = default)
-        {
-            NetworksRemoved.Add((networkName, brokerGatewayContainer));
-            return Task.CompletedTask;
-        }
-
-        public Task<string> GetLogsAsync(string containerId, int maximumBytes, CancellationToken cancellationToken = default) =>
+        public Task<string> GetLogsAsync(IsolationWorkloadHandle handle, int maximumBytes, CancellationToken cancellationToken = default) =>
             Task.FromResult(logs);
     }
 }

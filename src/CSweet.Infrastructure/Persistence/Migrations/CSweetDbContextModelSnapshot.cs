@@ -4292,6 +4292,25 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("ArtifactArchitecture")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ArtifactFormatVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ArtifactOperatingSystem")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ArtifactSignature")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
                     b.Property<DateTimeOffset?>("BuiltAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -4498,16 +4517,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("AgentPackageCachePath")
-                        .IsRequired()
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<string>("AgentSourceRootPath")
-                        .IsRequired()
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
                     b.Property<bool>("AllowAlwaysOnCommunityAgents")
                         .HasColumnType("boolean");
 
@@ -4539,28 +4548,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<int>("CompletedRuntimeRetentionDays")
                         .HasColumnType("integer");
 
-                    b.Property<int>("ContainerStartTimeoutSeconds")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("ContainerStopGraceSeconds")
-                        .HasColumnType("integer");
-
                     b.Property<string>("DefaultActivationMode")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
-
-                    b.Property<int>("DefaultContainerCpuPercent")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DefaultContainerLogLimitMb")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DefaultContainerMemoryMb")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DefaultContainerPidsLimit")
-                        .HasColumnType("integer");
 
                     b.Property<int>("DefaultMaxRuntimeSeconds")
                         .HasColumnType("integer");
@@ -4583,15 +4574,17 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<int>("DefaultTickFrequencySeconds")
                         .HasColumnType("integer");
 
-                    b.Property<string>("DotNetBuilderImage")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                    b.Property<int>("DefaultWorkloadCpuPercent")
+                        .HasColumnType("integer");
 
-                    b.Property<string>("DotNetRuntimeBaseImage")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                    b.Property<int>("DefaultWorkloadLogLimitMb")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DefaultWorkloadMemoryMb")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DefaultWorkloadProcessLimit")
+                        .HasColumnType("integer");
 
                     b.Property<bool>("EnableImportedAgents")
                         .HasColumnType("boolean");
@@ -4599,7 +4592,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<int>("FailedRuntimeRetentionDays")
                         .HasColumnType("integer");
 
-                    b.Property<int>("GlobalMaxActiveContainers")
+                    b.Property<int>("GlobalMaxActiveWorkloads")
                         .HasColumnType("integer");
 
                     b.Property<bool>("KeepFailedBuildWorkspaces")
@@ -4608,13 +4601,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<int>("MaximumBuildLogMb")
                         .HasColumnType("integer");
 
-                    b.Property<int>("MaximumContainerCpuPercent")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("MaximumContainerMemoryMb")
-                        .HasColumnType("integer");
-
                     b.Property<int>("MaximumRepositorySizeMb")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaximumWorkloadCpuPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaximumWorkloadMemoryMb")
                         .HasColumnType("integer");
 
                     b.Property<int>("McpSessionTimeoutSeconds")
@@ -4623,13 +4616,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<int>("MinimumTickFrequencySeconds")
                         .HasColumnType("integer");
 
-                    b.Property<int>("PerBusinessMaxActiveContainers")
+                    b.Property<int>("PerBusinessMaxActiveWorkloads")
                         .HasColumnType("integer");
 
-                    b.Property<int>("PerInstallationMaxActiveContainers")
+                    b.Property<int>("PerInstallationMaxActiveWorkloads")
                         .HasColumnType("integer");
 
-                    b.Property<bool>("RemoveContainersAfterCompletion")
+                    b.Property<bool>("RemoveWorkloadsAfterCompletion")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("RemoveWorkspacesAfterCompletion")
@@ -4637,6 +4630,12 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("WorkloadStartTimeoutSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WorkloadStopGraceSeconds")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -4652,25 +4651,26 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("AgentInstallationId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("BrokerTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("CompletionReportedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("ContainerId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("ContainerName")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
                     b.Property<DateTimeOffset?>("IdleDeadlineAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("IsInteractive")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("IsolationProviderId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTimeOffset?>("LastInteractiveActivityAt")
                         .HasColumnType("timestamp with time zone");
@@ -4680,6 +4680,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("McpSessionEstablishedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProviderInstanceId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<DateTimeOffset>("QueuedAt")
                         .HasColumnType("timestamp with time zone");
@@ -4701,11 +4705,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("TickId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("WorkloadTokenHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
 
                     b.HasKey("Id");
 

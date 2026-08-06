@@ -17,7 +17,7 @@ public class SetupServiceTests
 
         Assert.False(status.IsFirstRunComplete);
         Assert.Null(status.DefaultChatProviderId);
-        Assert.Equal(5, status.Steps.Count);
+        Assert.Equal(6, status.Steps.Count);
         Assert.DoesNotContain(status.Steps, x => x.Key == "finish");
         Assert.Contains(status.Steps, x => x.Key == "llm-provider" && !x.IsComplete);
         Assert.Contains(status.Steps, x => x.Key == "communications" && !x.IsRequired && !x.IsComplete);

@@ -17,7 +17,7 @@ public sealed class AgentRuntimeSignalService(CSweetDbContext dbContext) : IAgen
             ?? throw new InvalidOperationException("The runtime instance was not found.");
         ValidateIdentity(instance, tickId, installationId);
         var presentedHash = SHA256.HashData(Encoding.UTF8.GetBytes(workloadToken));
-        var storedHash = Convert.FromHexString(instance.WorkloadTokenHash);
+        var storedHash = Convert.FromHexString(instance.BrokerTokenHash);
         if (!CryptographicOperations.FixedTimeEquals(presentedHash, storedHash))
             throw new InvalidOperationException("The runtime workload token is invalid.");
         // An SDK MCP session can reconnect while the same runtime is still running.

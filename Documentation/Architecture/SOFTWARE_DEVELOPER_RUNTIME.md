@@ -33,10 +33,11 @@ The approved product decisions are:
 
 ## Security boundary
 
-Plugins and agent containers remain untrusted. They have no direct access to GitHub, generic Git
-servers, source-control secrets, the Docker daemon, or the host filesystem. An agent receives only
-a ticket-scoped, credential-free working tree mounted at a deterministic workspace path. It may
-read and change that tree and run the build and test commands allowed by its isolated runtime.
+Plugins and agent workloads remain untrusted. They have no direct access to GitHub, generic Git
+servers, source-control secrets, the Docker daemon, or the host filesystem. A trusted service
+delivers a ticket-scoped, credential-free source artifact through the authenticated broker; the
+agent expands it only inside its disposable hardware-virtualized guest. It may read and change
+that guest-local working tree and run the approved build and test commands inside the same guest.
 
 Authenticated source-control operations cross a narrow platform capability boundary:
 

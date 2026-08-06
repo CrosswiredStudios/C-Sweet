@@ -1,10 +1,10 @@
 using CSweet.Application.Setup;
+using CSweet.AgentRuntime.Abstractions;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
@@ -15,21 +15,14 @@ public sealed class AgentRuntimeCleanupServiceTests
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
-        var root = Path.Combine(Path.GetTempPath(), $"csweet-cleanup-{Guid.NewGuid():N}");
-        var workspace = Path.Combine(root, "workspace");
-        var logPath = Path.Combine(root, "build.log");
-        Directory.CreateDirectory(workspace);
-        await File.WriteAllTextAsync(Path.Combine(workspace, "source.txt"), "source");
-        await File.WriteAllTextAsync(logPath, "build output");
-        try
-        {
+        var workspace = $"broker-source:{Guid.NewGuid():N}";
+        var logPath = $"broker-log:{Guid.NewGuid():N}";
             var now = DateTimeOffset.UtcNow;
             db.AgentRuntimeGlobalSettings.Add(new AgentRuntimeGlobalSettings
             {
-                Id = Guid.NewGuid(), RemoveContainersAfterCompletion = true,
+                Id = Guid.NewGuid(), RemoveWorkloadsAfterCompletion = true,
                 RemoveWorkspacesAfterCompletion = true, KeepFailedBuildWorkspaces = true,
-                CompletedRuntimeRetentionDays = 1, FailedRuntimeRetentionDays = 30, BuildLogRetentionDays = 1,
-                AgentSourceRootPath = root, AgentPackageCachePath = root
+                CompletedRuntimeRetentionDays = 1, FailedRuntimeRetentionDays = 30, BuildLogRetentionDays = 1
             });
             var package = new AgentPackageVersion
             {
@@ -44,89 +37,64 @@ public sealed class AgentRuntimeCleanupServiceTests
             job.TransitionTo(AgentBuildStatus.Cloning, now.AddDays(-3));
             job.TransitionTo(AgentBuildStatus.Failed, now.AddDays(-2));
             db.AgentBuildJobs.Add(job);
-            var expired = CompletedRuntime(installation.Id, now.AddDays(-2), "expired-container");
-            var retainedFailure = FailedRuntime(installation.Id, now.AddDays(-2), "failed-container");
+            var expired = CompletedRuntime(installation.Id, now.AddDays(-2), "expired-provider-instance");
+            var retainedFailure = FailedRuntime(installation.Id, now.AddDays(-2), "failed-provider-instance");
             db.AgentRuntimeInstances.AddRange(expired, retainedFailure);
             await db.SaveChangesAsync();
-            var orphanRuntimeId = Guid.NewGuid();
-            var runner = new CleanupRunner(orphanRuntimeId);
+            var runner = new CleanupRunner();
             var audit = new CapturingAuditWriter();
             var service = new AgentRuntimeCleanupService(
                 db,
                 runner,
                 audit,
-                Options.Create(new AgentRuntimeManagerOptions
-                {
-                    DockerNetworkName = "cleanup-network",
-                    McpGatewayContainer = "cleanup-gateway"
-                }),
                 NullLogger<AgentRuntimeCleanupService>.Instance);
 
             var result = await service.CleanupAsync();
 
-            Assert.Equal(2, result.ContainersRemoved);
-            Assert.Equal(1, result.NetworksRemoved);
+            Assert.Equal(2, result.WorkloadsRemoved);
             Assert.Equal(1, result.WorkspacesRemoved);
             Assert.Equal(1, result.BuildLogsRemoved);
             Assert.Equal(1, result.RuntimeHistoriesRemoved);
-            Assert.Equal(3, runner.NetworkRemoves.Count);
-            Assert.All(runner.NetworkRemoves, removal => Assert.Equal("cleanup-gateway", removal.McpGatewayContainer));
-            Assert.False(Directory.Exists(workspace));
-            Assert.False(File.Exists(logPath));
+            Assert.Equal(2, runner.Destroyed.Count);
             Assert.Null(job.SourceWorkspacePath);
             Assert.Null(job.LogPath);
             Assert.Single(await db.AgentRuntimeInstances.ToListAsync());
             Assert.Equal(AgentRuntimeStatus.Failed, (await db.AgentRuntimeInstances.SingleAsync()).Status);
             Assert.Contains("agent-runtime.cleanup.completed", audit.EventTypes);
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
-        }
     }
 
-    private static AgentRuntimeInstance CompletedRuntime(Guid installationId, DateTimeOffset at, string containerId)
+    private static AgentRuntimeInstance CompletedRuntime(Guid installationId, DateTimeOffset at, string providerInstanceId)
     {
-        var runtime = RunningRuntime(installationId, at, containerId);
+        var runtime = RunningRuntime(installationId, at, providerInstanceId);
         runtime.TransitionTo(AgentRuntimeStatus.CompletionReported, at);
         runtime.TransitionTo(AgentRuntimeStatus.Completed, at);
         return runtime;
     }
 
-    private static AgentRuntimeInstance FailedRuntime(Guid installationId, DateTimeOffset at, string containerId)
+    private static AgentRuntimeInstance FailedRuntime(Guid installationId, DateTimeOffset at, string providerInstanceId)
     {
-        var runtime = RunningRuntime(installationId, at, containerId);
+        var runtime = RunningRuntime(installationId, at, providerInstanceId);
         runtime.TransitionTo(AgentRuntimeStatus.Failed, at);
         return runtime;
     }
 
-    private static AgentRuntimeInstance RunningRuntime(Guid installationId, DateTimeOffset at, string containerId)
+    private static AgentRuntimeInstance RunningRuntime(Guid installationId, DateTimeOffset at, string providerInstanceId)
     {
-        var runtime = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = installationId, QueuedAt = at, ContainerId = containerId, WorkloadTokenHash = new string('0', 64) };
+        var runtime = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = installationId, QueuedAt = at, IsolationProviderId = "test-vm", ProviderInstanceId = providerInstanceId, BrokerTokenHash = new string('0', 64) };
         runtime.TransitionTo(AgentRuntimeStatus.Starting, at);
         runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, at);
         runtime.TransitionTo(AgentRuntimeStatus.Running, at);
         return runtime;
     }
 
-    private sealed class CleanupRunner(Guid orphanRuntimeId) : IAgentContainerRunner
+    private sealed class CleanupRunner : IAgentWorkloadRunner
     {
-        public List<(string NetworkName, string McpGatewayContainer)> NetworkRemoves { get; } = [];
-        public Task<AgentContainerStatus> StartAsync(AgentContainerStartRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task StopAsync(string containerId, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<AgentContainerStatus?> InspectAsync(string containerId, CancellationToken cancellationToken = default) => Task.FromResult<AgentContainerStatus?>(new(containerId, containerId, AgentContainerState.Exited, 0, null, DateTimeOffset.UtcNow, null));
-        public Task<IReadOnlyList<AgentManagedContainer>> ListManagedAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<AgentManagedContainer>>([]);
-        public Task<IReadOnlyList<AgentManagedNetwork>> ListManagedNetworksAsync(string networkNamePrefix, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<AgentManagedNetwork>>(
-            [
-                new(
-                    $"network-{orphanRuntimeId:N}",
-                    $"{networkNamePrefix}-{orphanRuntimeId:N}",
-                    orphanRuntimeId)
-            ]);
-        public Task RemoveAsync(string containerId, bool force = false, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task RemoveNetworkAsync(string networkName, string brokerGatewayContainer, CancellationToken cancellationToken = default) { NetworkRemoves.Add((networkName, brokerGatewayContainer)); return Task.CompletedTask; }
-        public Task<string> GetLogsAsync(string containerId, int maximumBytes, CancellationToken cancellationToken = default) => Task.FromResult(string.Empty);
+        public List<IsolationWorkloadHandle> Destroyed { get; } = [];
+        public Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpec workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) => Task.FromResult<IsolationWorkloadStatus?>(new(handle, IsolationWorkloadState.Stopped, IsolationTerminationReason.Completed, 0, null, DateTimeOffset.UtcNow, null, null));
+        public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) { Destroyed.Add(handle); return Task.CompletedTask; }
+        public Task<string> GetLogsAsync(IsolationWorkloadHandle handle, int maximumBytes, CancellationToken cancellationToken = default) => Task.FromResult(string.Empty);
     }
 
     private sealed class CapturingAuditWriter : IAuditEventWriter

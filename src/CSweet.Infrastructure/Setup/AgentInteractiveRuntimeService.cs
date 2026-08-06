@@ -99,7 +99,7 @@ public sealed class AgentInteractiveRuntimeService(
         var stage = runtime.Status switch
         {
             AgentRuntimeStatus.Queued => AgentRuntimeReadinessStages.Queued,
-            AgentRuntimeStatus.Starting => AgentRuntimeReadinessStages.StartingContainer,
+            AgentRuntimeStatus.Starting => AgentRuntimeReadinessStages.StartingWorkload,
             AgentRuntimeStatus.WaitingForMcpSession => AgentRuntimeReadinessStages.WaitingForMcpSession,
             AgentRuntimeStatus.Running => AgentRuntimeReadinessStages.Ready,
             AgentRuntimeStatus.CompletionReported => AgentRuntimeReadinessStages.Stopping,
@@ -107,7 +107,7 @@ public sealed class AgentInteractiveRuntimeService(
             AgentRuntimeStatus.Completed or AgentRuntimeStatus.Cancelled or AgentRuntimeStatus.Skipped =>
                 AgentRuntimeReadinessStages.Offline,
             _ when AgentRuntimeInstance.IsTerminal(runtime.Status) => AgentRuntimeReadinessStages.Failed,
-            _ => AgentRuntimeReadinessStages.StartingContainer
+            _ => AgentRuntimeReadinessStages.StartingWorkload
         };
         return new AgentRuntimeReadinessResponse(
             installationId,

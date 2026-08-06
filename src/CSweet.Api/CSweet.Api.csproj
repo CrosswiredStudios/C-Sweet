@@ -29,4 +29,20 @@
              CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\scripts\windows\Install-CSweetRuntimeHost.ps1"
+             Link="windows-runtime\Install-CSweetRuntimeHost.ps1"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\scripts\windows\CSweet.WindowsSetupProgress.ps1"
+             Link="windows-runtime\CSweet.WindowsSetupProgress.ps1"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\artifacts\windows-runtime\payload\**\*"
+             Link="windows-runtime\payload\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             Condition="Exists('..\..\artifacts\windows-runtime\payload\runtime-manifest.json')" />
+  </ItemGroup>
+
 </Project>
