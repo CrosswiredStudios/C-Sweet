@@ -708,6 +708,11 @@ public sealed class CommunicationHubService(
             return CommunicationPresence.Unhealthy(
                 $"Automatic startup is suppressed after {schedule.ConsecutiveStartupFailures} consecutive failure(s).");
 
+        // Presence answers whether the agent can communicate now. A running runtime is
+        // available even while a background configuration refresh is converging.
+        if (latestRuntime?.Status == AgentRuntimeStatus.Running)
+            return CommunicationPresence.Available;
+
         if (installation.ConfigurationSyncStatus == AgentConfigurationSyncStatus.Failed)
             return CommunicationPresence.Unhealthy(
                 installation.ConfigurationSyncLastError ?? "The agent configuration could not be applied.");

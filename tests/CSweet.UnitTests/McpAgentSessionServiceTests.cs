@@ -71,6 +71,48 @@ public sealed class McpAgentSessionServiceTests
     }
 
     [Fact]
+    public async Task Establish_RetriesConfigurationRevisionAfterPriorRefreshDeadLetters()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Installation.SetupState = PluginSetupState.Ready;
+        fixture.Installation.DesiredConfigurationRevision = 1;
+        fixture.Installation.AppliedConfigurationRevision = 0;
+        fixture.Installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.Refreshing;
+        fixture.Db.AgentWorkItems.Add(new AgentWorkItem
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = fixture.Installation.BusinessId,
+            AgentInstallationId = fixture.Installation.Id,
+            Kind = AgentWorkKind.ConfigurationUpdate,
+            Name = "configuration.update",
+            ProtectedPayload = [1],
+            PayloadHash = "prior",
+            CorrelationId = Guid.NewGuid().ToString("N"),
+            SourceType = "configuration-control-plane",
+            SourceId = "1",
+            IdempotencyKey = $"configuration:{fixture.Installation.Id:N}:1",
+            Status = AgentWorkStatus.DeadLetter,
+            AvailableAt = fixture.Clock.GetUtcNow().AddMinutes(-10),
+            DeadlineAt = fixture.Clock.GetUtcNow().AddMinutes(-5),
+            CreatedAt = fixture.Clock.GetUtcNow().AddMinutes(-10),
+            CompletedAt = fixture.Clock.GetUtcNow().AddMinutes(-5),
+            LastError = "The work deadline elapsed."
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        await fixture.EstablishAsync();
+
+        var work = await fixture.Db.AgentWorkItems
+            .Where(x => x.Kind == AgentWorkKind.ConfigurationUpdate)
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync();
+        Assert.Equal(2, work.Count);
+        Assert.Equal(AgentWorkStatus.DeadLetter, work[0].Status);
+        Assert.Equal(AgentWorkStatus.Pending, work[1].Status);
+        Assert.Contains($"runtime:{fixture.Runtime.Id:N}", work[1].IdempotencyKey, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Establish_RejectsAReplayedOrIncorrectWorkloadIdentity()
     {
         await using var fixture = await Fixture.CreateAsync();

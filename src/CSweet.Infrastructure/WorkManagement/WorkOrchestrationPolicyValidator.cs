@@ -11,6 +11,7 @@ public static partial class WorkOrchestrationPolicyValidator
         WorkOrchestrationStageTypes.Queue,
         WorkOrchestrationStageTypes.AgentExecution,
         WorkOrchestrationStageTypes.ManualWork,
+        "MemberExecution",
         WorkOrchestrationStageTypes.ManagerApproval,
         WorkOrchestrationStageTypes.TrustedPlatformAction,
         WorkOrchestrationStageTypes.Terminal

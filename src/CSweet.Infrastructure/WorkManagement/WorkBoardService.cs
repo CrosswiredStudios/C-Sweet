@@ -672,6 +672,10 @@ public sealed class WorkBoardService(
             if (stage.Type == WorkOrchestrationStageType.ManualWork &&
                 (kind != WorkOrchestrationPrincipalKind.Human || !assignment.OrganizationUserId.HasValue))
                 throw new ArgumentException($"Manual stage '{stage.Key}' requires a human organization user.");
+            if (stage.Type == WorkOrchestrationStageType.MemberExecution &&
+                !((kind == WorkOrchestrationPrincipalKind.Human && assignment.OrganizationUserId.HasValue) ||
+                  (kind == WorkOrchestrationPrincipalKind.AgentInstallation && assignment.AgentInstallationId.HasValue)))
+                throw new ArgumentException($"Member stage '{stage.Key}' requires an exact human or agent assignee.");
             if (stage.Type == WorkOrchestrationStageType.ManagerApproval &&
                 kind != WorkOrchestrationPrincipalKind.BoardManager)
                 throw new ArgumentException($"Approval stage '{stage.Key}' must be assigned to the board manager.");
@@ -683,6 +687,7 @@ public sealed class WorkBoardService(
         var required = stages.Where(x => x.Type is
                 WorkOrchestrationStageType.AgentExecution or
                 WorkOrchestrationStageType.ManualWork or
+                WorkOrchestrationStageType.MemberExecution or
                 WorkOrchestrationStageType.ManagerApproval or
                 WorkOrchestrationStageType.TrustedPlatformAction)
             .Select(x => x.Key).ToHashSet(StringComparer.Ordinal);

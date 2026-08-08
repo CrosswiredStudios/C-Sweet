@@ -40,6 +40,7 @@ Stage types are:
 - `Queue`: non-executable waiting state;
 - `AgentExecution`: exact-installation capability work;
 - `ManualWork`: work completed by an assigned human;
+- `MemberExecution`: work resolved per ticket to either an exact human or exact agent assignee;
 - `ManagerApproval`: explicit decision by the board manager;
 - `TrustedPlatformAction`: a registered platform-owned operation;
 - `Terminal`: completed or cancelled end state.
@@ -54,6 +55,7 @@ Stage assignments identify exactly one of:
 
 - a human organization user for ManualWork;
 - an exact active agent installation for AgentExecution;
+- an exact human organization user or active agent installation for MemberExecution;
 - the board manager for ManagerApproval;
 - a registered platform action for TrustedPlatformAction.
 
@@ -102,6 +104,8 @@ Dispatch order MUST be deterministic:
 The scheduler MUST enforce configured global, organization, board, stage, and assignee limits plus the installation manifest's runtime concurrency. There MUST be at most one live attempt for a stage execution.
 
 AgentExecution MUST be enqueued as exact-installation capability work named `work.execution.run.v1`. Assignment events MUST NOT be used as an execution transport.
+MemberExecution MUST use the same exact-installation transport when its ticket assignee is an agent,
+and MUST enter the authorized manual-work state when its assignee is human.
 
 ## 7. Execution contract
 

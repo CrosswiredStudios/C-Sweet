@@ -96,7 +96,9 @@ public sealed partial class WorkOrchestrator(
             .Where(item => item.Status == WorkItemExecutionStatus.Pending && DependenciesComplete(item, execution.Items))
             .Select(item => item.Stages.OrderByDescending(x => x.CreatedAt).First())
             .Where(stage => stage.Status == WorkStageExecutionStatus.Pending &&
-                            stage.StageType == WorkOrchestrationStageType.AgentExecution)
+                            (stage.StageType == WorkOrchestrationStageType.AgentExecution ||
+                             (stage.StageType == WorkOrchestrationStageType.MemberExecution &&
+                              stage.PrincipalKind == WorkOrchestrationPrincipalKind.AgentInstallation)))
             .OrderByDescending(stage => stage.ItemExecution!.WorkItem!.Priority)
             .ThenBy(stage => stage.ItemExecution!.WorkItem!.BoardRank)
             .ThenBy(stage => stage.ItemExecution!.WorkItem!.CreatedAt)

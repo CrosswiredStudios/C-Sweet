@@ -380,6 +380,67 @@ public sealed class CommunicationHubServiceTests
     }
 
     [Fact]
+    public async Task GetAsync_ReportsRunningAgentAsAvailableWhileConfigurationRefreshes()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var owner = User(organization.Id, "Owner", OrganizationPermissionLevel.Owner);
+        var agent = User(organization.Id, "Product Manager", OrganizationPermissionLevel.Contributor);
+        agent.EmployeeType = EmployeeType.Agent;
+        var installation = new AgentInstallation
+        {
+            Id = Guid.NewGuid(),
+            InstallationKey = Guid.NewGuid(),
+            PackageVersionId = Guid.NewGuid(),
+            BusinessId = organization.Id.ToString("D"),
+            IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active,
+            SetupState = PluginSetupState.Ready,
+            ConfigurationSyncStatus = AgentConfigurationSyncStatus.Refreshing,
+            DesiredConfigurationRevision = 2,
+            AppliedConfigurationRevision = 1,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        installation.Schedule = new AgentSchedule
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            ActivationMode = ActivationMode.AlwaysOn,
+            IsEnabled = true
+        };
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(),
+            TickId = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            RuntimeDeadlineAt = DateTimeOffset.UtcNow.AddMinutes(5)
+        };
+        runtime.TransitionTo(AgentRuntimeStatus.Starting, DateTimeOffset.UtcNow.AddMinutes(-1));
+        runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow.AddMinutes(-1));
+        runtime.TransitionTo(AgentRuntimeStatus.Running, DateTimeOffset.UtcNow.AddMinutes(-1));
+        agent.AgentInstallationId = installation.Id;
+        agent.AgentInstallation = installation;
+        db.AddRange(organization, owner, agent, installation, runtime);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        await service.CreateAsync(
+            organization.Id,
+            owner.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [agent.Id]));
+
+        var hub = Assert.IsType<CommunicationHubResponse>(
+            await service.GetAsync(organization.Id, owner.Id));
+
+        var person = Assert.Single(hub.People, x => x.Id == agent.Id);
+        Assert.Equal(CommunicationPresenceStatuses.Available, person.PresenceStatus);
+        var chat = Assert.Single(hub.Chats, x => x.IsDirect);
+        var participant = Assert.Single(chat.Participants, x => x.OrganizationUserId == agent.Id);
+        Assert.Equal(CommunicationPresenceStatuses.Available, participant.PresenceStatus);
+    }
+
+    [Fact]
     public async Task GetAsync_ReconcilesMissingDirectConversationForExistingAgent()
     {
         await using var db = CreateDb();

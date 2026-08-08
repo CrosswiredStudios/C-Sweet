@@ -309,7 +309,10 @@ public sealed class WorkOrchestrationService(
         ValidateIdempotencyKey(request.IdempotencyKey);
         var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
         var stage = await LoadStageAsync(organizationId, boardId, stageExecutionId, cancellationToken);
-        if (stage.StageType != WorkOrchestrationStageType.ManualWork || stage.OrganizationUserId != member.Id)
+        if ((stage.StageType != WorkOrchestrationStageType.ManualWork &&
+             stage.StageType != WorkOrchestrationStageType.MemberExecution) ||
+            stage.PrincipalKind != WorkOrchestrationPrincipalKind.Human ||
+            stage.OrganizationUserId != member.Id)
             throw new UnauthorizedAccessException("Only the assigned human may complete this manual stage.");
         await CompleteStageAsync(stage, "Completed", request.OutcomeCode, request.Summary,
             request.Output.GetRawText(), member.Id, request.IdempotencyKey, cancellationToken);
@@ -374,7 +377,8 @@ public sealed class WorkOrchestrationService(
                      (!statuses.TryGetValue(x.DependsOnWorkItemId, out var status) || status != WorkTaskStatus.Completed)))
             errors.Add(new("item.dependency", "A dependency must be completed or included in the sprint.", dependency.WorkItemId));
         var required = policy.Stages.Where(x => x.Type is WorkOrchestrationStageType.AgentExecution or
-                WorkOrchestrationStageType.ManualWork or WorkOrchestrationStageType.ManagerApproval or
+                WorkOrchestrationStageType.ManualWork or WorkOrchestrationStageType.MemberExecution or
+                WorkOrchestrationStageType.ManagerApproval or
                 WorkOrchestrationStageType.TrustedPlatformAction).Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
         foreach (var item in items)
         {
@@ -408,6 +412,31 @@ public sealed class WorkOrchestrationService(
                          x.Id == assignment.OrganizationUserId && x.OrganizationId == organizationId &&
                          x.IsActive && x.EmployeeType == EmployeeType.Human, cancellationToken)))
                     errors.Add(new("assignment.human", "Manual stage lacks an active human assignment.", item.Id, stage.Key, assignment.Id));
+                if (stage.Type == WorkOrchestrationStageType.MemberExecution)
+                {
+                    if (assignment.PrincipalKind == WorkOrchestrationPrincipalKind.AgentInstallation)
+                    {
+                        var installation = assignment.AgentInstallationId.HasValue
+                            ? await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleOrDefaultAsync(x =>
+                                x.Id == assignment.AgentInstallationId && x.IsEnabled &&
+                                x.RevisionStatus == PluginRevisionStatus.Active && x.BusinessId == organizationId.ToString(), cancellationToken)
+                            : null;
+                        if (installation is null || !ProvidesExecutionCapability(installation.PackageVersion?.ManifestJson))
+                            errors.Add(new("assignment.agent", "Assigned installation is inactive or does not provide work.execution.run.v1.", item.Id, stage.Key, assignment.Id));
+                    }
+                    else if (assignment.PrincipalKind == WorkOrchestrationPrincipalKind.Human)
+                    {
+                        if (!assignment.OrganizationUserId.HasValue ||
+                            !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                                x.Id == assignment.OrganizationUserId && x.OrganizationId == organizationId &&
+                                x.IsActive && x.EmployeeType == EmployeeType.Human, cancellationToken))
+                            errors.Add(new("assignment.human", "Member stage lacks an active human assignment.", item.Id, stage.Key, assignment.Id));
+                    }
+                    else
+                    {
+                        errors.Add(new("assignment.member", "Member stage requires a human or agent assignment.", item.Id, stage.Key, assignment.Id));
+                    }
+                }
             }
         }
         return new(errors.Count == 0, boardId, sprintId, policy.Id, errors);
@@ -461,9 +490,12 @@ public sealed class WorkOrchestrationService(
         IEnumerable<WorkItemStageAssignment> assignments, Guid managerId, DateTimeOffset now)
     {
         var assignment = assignments.SingleOrDefault(x => x.StageKey == stage.Key);
+        var isHumanMemberStage = stage.Type == WorkOrchestrationStageType.MemberExecution &&
+                                 assignment?.PrincipalKind == WorkOrchestrationPrincipalKind.Human;
         var status = stage.Type switch
         {
             WorkOrchestrationStageType.ManualWork => WorkStageExecutionStatus.WaitingForHuman,
+            WorkOrchestrationStageType.MemberExecution when isHumanMemberStage => WorkStageExecutionStatus.WaitingForHuman,
             WorkOrchestrationStageType.ManagerApproval => WorkStageExecutionStatus.WaitingForApproval,
             _ => WorkStageExecutionStatus.Pending
         };
@@ -488,6 +520,7 @@ public sealed class WorkOrchestrationService(
         item.Status = stage.Type switch
         {
             WorkOrchestrationStageType.ManualWork => WorkItemExecutionStatus.WaitingForHuman,
+            WorkOrchestrationStageType.MemberExecution when isHumanMemberStage => WorkItemExecutionStatus.WaitingForHuman,
             WorkOrchestrationStageType.ManagerApproval => WorkItemExecutionStatus.WaitingForApproval,
             _ => WorkItemExecutionStatus.Pending
         };

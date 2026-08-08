@@ -162,8 +162,8 @@ SDK and agent packages are released together because their current public contra
 - `CSweet.Agent.SDK` 3.2.0
 - Software Developer 0.3.0
 - Software QA 0.2.0
-- Software Architect 0.4.0
-- Software Product Manager 2.0.0
+- Software Architect 0.5.0
+- Software Product Manager 2.1.0
 
 ## Delivery state machine
 

@@ -212,6 +212,26 @@ public sealed class AgentRuntimeManager(
     {
         var changed = 0;
         var now = DateTimeOffset.UtcNow;
+        var strandedRefreshes = await dbContext.AgentInstallations
+            .Where(x =>
+                x.ConfigurationSyncStatus == AgentConfigurationSyncStatus.Refreshing &&
+                x.AppliedConfigurationRevision < x.DesiredConfigurationRevision &&
+                x.ConfigurationSyncLastAttemptAt != null &&
+                x.ConfigurationSyncLastAttemptAt <= now.AddMinutes(-5) &&
+                !dbContext.AgentWorkItems.Any(work =>
+                    work.AgentInstallationId == x.Id &&
+                    work.Kind == AgentWorkKind.ConfigurationUpdate &&
+                    (work.Status == AgentWorkStatus.Pending || work.Status == AgentWorkStatus.Leased)))
+            .ToListAsync(cancellationToken);
+        foreach (var installation in strandedRefreshes)
+        {
+            installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.Restarting;
+            installation.ConfigurationSyncLastError ??=
+                "The configuration refresh ended without an acknowledgment and will be retried on restart.";
+        }
+        if (strandedRefreshes.Count > 0)
+            await dbContext.SaveChangesAsync(cancellationToken);
+
         var restartIds = await dbContext.AgentInstallations.AsNoTracking()
             .Where(x => x.ConfigurationSyncStatus == AgentConfigurationSyncStatus.Restarting &&
                 x.RuntimeInstances.Any(runtime => runtime.Status == AgentRuntimeStatus.Queued ||

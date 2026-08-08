@@ -102,25 +102,39 @@ public sealed class McpAgentSessionService(
         await db.SaveChangesAsync(cancellationToken);
         if (installation.DesiredConfigurationRevision > installation.AppliedConfigurationRevision)
         {
-            await inbox.EnqueueAsync(
-                installation.BusinessId,
-                installation.Id,
-                CSweet.Domain.Setup.AgentWorkKind.ConfigurationUpdate,
-                "configuration.update",
-                JsonSerializer.SerializeToElement(new
-                {
-                    effectiveConfiguration.InstallationId,
-                    effectiveConfiguration.SchemaVersion,
-                    EffectiveSettings = effectiveConfiguration.Settings,
-                    ChangedKeys = effectiveConfiguration.Settings.Keys.Order(StringComparer.Ordinal).ToArray(),
-                    DesiredRevision = effectiveConfiguration.Revision,
-                    EffectiveDigest = effectiveConfiguration.Digest
-                }, JsonOptions),
-                $"configuration:{installation.Id:N}:{effectiveConfiguration.Revision}",
-                now.AddMinutes(5),
-                sourceType: "configuration-control-plane",
-                sourceId: effectiveConfiguration.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                cancellationToken: cancellationToken);
+            var revision = effectiveConfiguration.Revision.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+            var refreshAlreadyQueued = await db.AgentWorkItems.AsNoTracking().AnyAsync(x =>
+                x.AgentInstallationId == installation.Id &&
+                x.Kind == CSweet.Domain.Setup.AgentWorkKind.ConfigurationUpdate &&
+                x.SourceId == revision &&
+                (x.Status == AgentWorkStatus.Pending || x.Status == AgentWorkStatus.Leased),
+                cancellationToken);
+            if (!refreshAlreadyQueued)
+            {
+                // A prior refresh for this revision may have reached a terminal state. Give
+                // each replacement runtime its own recovery key so configuration convergence
+                // is retried instead of reusing a dead-lettered idempotency record forever.
+                await inbox.EnqueueAsync(
+                    installation.BusinessId,
+                    installation.Id,
+                    CSweet.Domain.Setup.AgentWorkKind.ConfigurationUpdate,
+                    "configuration.update",
+                    JsonSerializer.SerializeToElement(new
+                    {
+                        effectiveConfiguration.InstallationId,
+                        effectiveConfiguration.SchemaVersion,
+                        EffectiveSettings = effectiveConfiguration.Settings,
+                        ChangedKeys = effectiveConfiguration.Settings.Keys.Order(StringComparer.Ordinal).ToArray(),
+                        DesiredRevision = effectiveConfiguration.Revision,
+                        EffectiveDigest = effectiveConfiguration.Digest
+                    }, JsonOptions),
+                    $"configuration:{installation.Id:N}:{effectiveConfiguration.Revision}:runtime:{runtime.Id:N}",
+                    now.AddMinutes(5),
+                    sourceType: "configuration-control-plane",
+                    sourceId: revision,
+                    cancellationToken: cancellationToken);
+            }
         }
         AgentRuntimeMetrics.Session("established");
 

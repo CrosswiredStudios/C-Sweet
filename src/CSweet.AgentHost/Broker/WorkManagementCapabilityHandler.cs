@@ -269,7 +269,7 @@ public sealed class WorkManagementCapabilityHandler(
         {
             new("ready", "Ready For Development", Wire.WorkOrchestrationStageTypes.Queue,
                 input.ReadyColumnId, "Wait until dependencies are complete.", "{}", "{}", 30, null, retry),
-            new("development", "In Development", Wire.WorkOrchestrationStageTypes.AgentExecution,
+            new("development", "In Development", "MemberExecution",
                 input.DevelopmentColumnId,
                 "Implement the approved ticket, validate it, and publish a reviewable pull request.", "{}",
                 "{\"type\":\"object\",\"required\":[\"repositoryConnectionId\",\"sourceBranch\",\"commitSha\",\"pullRequestUrl\",\"summary\"]}",
@@ -277,7 +277,7 @@ public sealed class WorkManagementCapabilityHandler(
             new("dev-complete", "Dev Complete", Wire.WorkOrchestrationStageTypes.Queue,
                 input.DevCompleteColumnId,
                 "Development is complete and ready for independent testing.", "{}", "{}", 30, null, retry),
-            new("quality", "In Testing", Wire.WorkOrchestrationStageTypes.AgentExecution,
+            new("quality", "In Testing", "MemberExecution",
                 input.QualityColumnId,
                 "Validate the exact development commit without modifying tracked source.", "{}",
                 "{\"type\":\"object\",\"required\":[\"verdict\",\"summary\",\"criteria\",\"validations\",\"findings\",\"remainingRisks\"]}",
@@ -2127,7 +2127,8 @@ public sealed class WorkManagementCapabilityHandler(
         if (stages.Count == 0)
             throw new ArgumentException("The board must have a published orchestration policy before executable work is created.");
         var required = stages.Where(x => x.Type is WorkOrchestrationStageType.AgentExecution or
-                WorkOrchestrationStageType.ManualWork or WorkOrchestrationStageType.ManagerApproval or
+                WorkOrchestrationStageType.ManualWork or WorkOrchestrationStageType.MemberExecution or
+                WorkOrchestrationStageType.ManagerApproval or
                 WorkOrchestrationStageType.TrustedPlatformAction)
             .ToDictionary(x => x.Key, StringComparer.Ordinal);
         if (assignments.Select(x => x.StageKey).Distinct(StringComparer.Ordinal).Count() != assignments.Count ||
@@ -2144,6 +2145,10 @@ public sealed class WorkManagementCapabilityHandler(
             if (stage.Type == WorkOrchestrationStageType.ManualWork &&
                 (principal != WorkOrchestrationPrincipalKind.Human || !assignment.OrganizationUserId.HasValue))
                 throw new ArgumentException($"Manual stage '{stage.Key}' requires a human assignee.");
+            if (stage.Type == WorkOrchestrationStageType.MemberExecution &&
+                !((principal == WorkOrchestrationPrincipalKind.Human && assignment.OrganizationUserId.HasValue) ||
+                  (principal == WorkOrchestrationPrincipalKind.AgentInstallation && assignment.AgentInstallationId.HasValue)))
+                throw new ArgumentException($"Member stage '{stage.Key}' requires an exact human or agent assignee.");
             if (stage.Type == WorkOrchestrationStageType.ManagerApproval && principal != WorkOrchestrationPrincipalKind.BoardManager)
                 throw new ArgumentException($"Approval stage '{stage.Key}' must use the board manager.");
             if (stage.Type == WorkOrchestrationStageType.TrustedPlatformAction &&

@@ -8,6 +8,7 @@ public enum WorkOrchestrationStageType
     Queue,
     AgentExecution,
     ManualWork,
+    MemberExecution,
     ManagerApproval,
     TrustedPlatformAction,
     Terminal

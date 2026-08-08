@@ -1,5 +1,6 @@
 using CSweet.Infrastructure.WorkManagement;
 using CSweet.WorkManagement.Contracts;
+using CSweet.Domain.WorkManagement;
 
 namespace CSweet.UnitTests;
 
@@ -49,9 +50,9 @@ public sealed class WorkOrchestrationPolicyValidatorTests
             new(100, 25, 10, 5, 1),
             [
                 Stage("ready", WorkOrchestrationStageTypes.Queue, ready),
-                Stage("development", WorkOrchestrationStageTypes.AgentExecution, development),
+                Stage("development", "MemberExecution", development),
                 Stage("dev-complete", WorkOrchestrationStageTypes.Queue, devComplete),
-                Stage("quality", WorkOrchestrationStageTypes.AgentExecution, quality),
+                Stage("quality", "MemberExecution", quality),
                 Stage("merge-decision", WorkOrchestrationStageTypes.ManagerApproval, readyToMerge),
                 new("governed-merge", "Governed merge", WorkOrchestrationStageTypes.TrustedPlatformAction,
                     readyToMerge, "", "{}", "{}", 300, 1, Retry, "git.governed-merge.v1"),
@@ -107,6 +108,44 @@ public sealed class WorkOrchestrationPolicyValidatorTests
 
         Assert.Contains(errors, x => x.Code == "stage.schema");
         Assert.Contains(errors, x => x.Code == "stage.column");
+    }
+
+    [Fact]
+    public void MemberExecution_UsesTheExactAssigneeTypeForRuntimeState()
+    {
+        var humanItem = new WorkItemExecution { Id = Guid.NewGuid() };
+        var agentItem = new WorkItemExecution { Id = Guid.NewGuid() };
+        var humanId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var stage = new WorkOrchestrationStage
+        {
+            Id = Guid.NewGuid(),
+            Key = "delivery",
+            Name = "Delivery",
+            Type = WorkOrchestrationStageType.MemberExecution
+        };
+
+        WorkOrchestrationService.CreateStageExecution(
+            humanItem, stage,
+            [new CSweet.Domain.WorkManagement.WorkItemStageAssignment
+            {
+                StageKey = "delivery",
+                PrincipalKind = WorkOrchestrationPrincipalKind.Human,
+                OrganizationUserId = humanId
+            }], Guid.NewGuid(), DateTimeOffset.UtcNow);
+        WorkOrchestrationService.CreateStageExecution(
+            agentItem, stage,
+            [new CSweet.Domain.WorkManagement.WorkItemStageAssignment
+            {
+                StageKey = "delivery",
+                PrincipalKind = WorkOrchestrationPrincipalKind.AgentInstallation,
+                AgentInstallationId = installationId
+            }], Guid.NewGuid(), DateTimeOffset.UtcNow);
+
+        Assert.Equal(WorkStageExecutionStatus.WaitingForHuman, Assert.Single(humanItem.Stages).Status);
+        Assert.Equal(humanId, Assert.Single(humanItem.Stages).OrganizationUserId);
+        Assert.Equal(WorkStageExecutionStatus.Pending, Assert.Single(agentItem.Stages).Status);
+        Assert.Equal(installationId, Assert.Single(agentItem.Stages).AgentInstallationId);
     }
 
     private static WorkOrchestrationStageDefinition Stage(

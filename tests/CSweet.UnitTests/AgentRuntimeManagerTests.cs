@@ -708,6 +708,50 @@ public sealed class AgentRuntimeManagerTests
     }
 
     [Fact]
+    public async Task Reconcile_RestartsStrandedConfigurationRefreshWithoutActiveWork()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        installation.SetupState = PluginSetupState.Ready;
+        installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.Refreshing;
+        installation.DesiredConfigurationRevision = 2;
+        installation.AppliedConfigurationRevision = 1;
+        installation.ConfigurationSyncLastAttemptAt = DateTimeOffset.UtcNow.AddMinutes(-10);
+        var runtime = RunningInstance(installation.Id);
+        db.AgentRuntimeInstances.Add(runtime);
+        db.AgentWorkItems.Add(new AgentWorkItem
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = installation.BusinessId,
+            AgentInstallationId = installation.Id,
+            Kind = AgentWorkKind.ConfigurationUpdate,
+            Name = "configuration.update",
+            ProtectedPayload = [1],
+            PayloadHash = "expired",
+            CorrelationId = Guid.NewGuid().ToString("N"),
+            SourceType = "configuration-control-plane",
+            SourceId = "2",
+            IdempotencyKey = $"configuration:{installation.Id:N}:2",
+            Status = AgentWorkStatus.DeadLetter,
+            AvailableAt = DateTimeOffset.UtcNow.AddMinutes(-10),
+            DeadlineAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-10),
+            CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-5)
+        });
+        await db.SaveChangesAsync();
+        var runner = new FakeRunner();
+
+        await CreateManager(db, runner).ReconcileAsync();
+
+        await db.Entry(installation).ReloadAsync();
+        Assert.NotEqual(AgentConfigurationSyncStatus.Refreshing, installation.ConfigurationSyncStatus);
+        Assert.Contains("without an acknowledgment", installation.ConfigurationSyncLastError,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(AgentRuntimeStatus.Cancelled, runtime.Status);
+        Assert.NotEmpty(runner.Starts);
+    }
+
+    [Fact]
     public void RuntimeModel_HasUniqueActiveInstallationIndex()
     {
         using var db = CreateDb();
