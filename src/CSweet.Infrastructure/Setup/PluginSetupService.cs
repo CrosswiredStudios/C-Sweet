@@ -309,7 +309,11 @@ public sealed class PluginSetupService(
         var agent = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive,
             cancellationToken) ?? throw new InvalidOperationException("The installed agent employee was not found.");
-        var onboardingResult = await onboarding.EnsureAsync(organizationId, agent, applicationUserId, cancellationToken);
+        var onboardingResult = await onboarding.EnsureAsync(
+            organizationId,
+            agent,
+            applicationUserId,
+            cancellationToken: cancellationToken);
         if (!onboardingResult.Succeeded) throw new InvalidOperationException(onboardingResult.Message);
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("plugin-setup.activated", nameof(AgentInstallation), installation.Id,

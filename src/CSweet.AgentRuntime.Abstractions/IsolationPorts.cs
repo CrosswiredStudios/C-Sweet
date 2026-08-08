@@ -45,6 +45,15 @@ public interface IRuntimeHostClient : IAgentIsolationProvider;
 public interface IPlatformIsolationBackend : IAgentIsolationProvider;
 
 /// <summary>
+/// Provider-owned fail-safe cleanup. This deliberately does not depend on the
+/// control-plane database, which may be unavailable or have been recreated.
+/// </summary>
+public interface IPlatformWorkloadReaper
+{
+    Task<int> ReapAbandonedWorkloadsAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Contract boundary for a future remote runner. Remote execution is deliberately
 /// not an implicit fallback: callers must select it as a separately certified provider.
 /// </summary>

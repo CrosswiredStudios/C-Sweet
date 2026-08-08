@@ -6,7 +6,8 @@ namespace CSweet.AgentRuntime.HyperV;
 public sealed class HyperVIsolationBackendOptions : PlatformIsolationBackendOptions;
 
 public sealed class HyperVIsolationBackend(HyperVIsolationBackendOptions options, TimeProvider timeProvider)
-    : ExternalPlatformIsolationBackend(IsolationProviderCatalog.HyperV(), options, timeProvider)
+    : ExternalPlatformIsolationBackend(IsolationProviderCatalog.HyperV(), options, timeProvider),
+      IPlatformWorkloadReaper
 {
     protected override bool IsHostPlatform(out string unavailableReason)
     {
@@ -15,4 +16,7 @@ public sealed class HyperVIsolationBackend(HyperVIsolationBackendOptions options
             : "Hyper-V requires a Windows host.";
         return OperatingSystem.IsWindows();
     }
+
+    Task<int> IPlatformWorkloadReaper.ReapAbandonedWorkloadsAsync(CancellationToken cancellationToken) =>
+        ReapAbandonedWorkloadsAsync(cancellationToken);
 }

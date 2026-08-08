@@ -19,7 +19,8 @@ public sealed class CommunicationHubService(
     IChatTurnService turns,
     IExecutiveDecisionService? decisions = null,
     IResourceChangeService? resourceChanges = null,
-    IHiringService? hiring = null) : ICommunicationHubService
+    IHiringService? hiring = null,
+    IAgentCommunicationOnboardingService? onboarding = null) : ICommunicationHubService
 {
     public async Task<Guid?> ResolveOrganizationUserIdAsync(
         Guid organizationId,
@@ -38,6 +39,11 @@ public sealed class CommunicationHubService(
     {
         var actor = await ActiveUserAsync(organizationId, actorOrganizationUserId, cancellationToken);
         if (actor is null) return null;
+
+        if (onboarding is not null &&
+            actor.EmployeeType == EmployeeType.Human &&
+            (!perspectiveOrganizationUserId.HasValue || perspectiveOrganizationUserId == actor.Id))
+            await ReconcileAgentDirectChatsAsync(organizationId, actor, onboarding, cancellationToken);
 
         var people = await db.CoreOrganizationUsers.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.IsActive)
@@ -565,6 +571,48 @@ public sealed class CommunicationHubService(
         db.CoreConversations.AnyAsync(x => x.Id == chatId && x.OrganizationId == organizationId && x.ArchivedAt == null &&
             x.Participants.Any(p => p.OrganizationUserId == userId && p.LeftAt == null), token);
 
+    private async Task ReconcileAgentDirectChatsAsync(
+        Guid organizationId,
+        OrganizationUser actor,
+        IAgentCommunicationOnboardingService onboardingService,
+        CancellationToken cancellationToken)
+    {
+        if (!actor.ApplicationUserId.HasValue && actor.PermissionLevel != OrganizationPermissionLevel.Owner)
+            return;
+
+        var missingAgents = await db.CoreOrganizationUsers
+            .Where(agent =>
+                agent.OrganizationId == organizationId &&
+                agent.IsActive &&
+                agent.EmployeeType == EmployeeType.Agent &&
+                agent.AgentInstallationId.HasValue &&
+                (agent.ReportsToOrganizationUserId == actor.Id ||
+                 actor.PermissionLevel == OrganizationPermissionLevel.Owner) &&
+                !db.CoreConversations.Any(chat =>
+                    chat.OrganizationId == organizationId &&
+                    chat.Kind == ConversationKind.DirectHumanAgent &&
+                    chat.InitiatedByOrganizationUserId == actor.Id &&
+                    chat.AgentOrganizationUserId == agent.Id))
+            .Include(agent => agent.AgentInstallation)
+            .ToListAsync(cancellationToken);
+
+        foreach (var agent in missingAgents)
+        {
+            var lifecycleReady = agent.AgentInstallation?.SetupState == PluginSetupState.Ready;
+            var result = await onboardingService.EnsureAsync(
+                organizationId,
+                agent,
+                actor.ApplicationUserId,
+                queueLifecycleEvent: lifecycleReady,
+                cancellationToken: cancellationToken);
+            if (!result.Succeeded)
+                throw new InvalidOperationException(result.Message);
+        }
+
+        if (missingAgents.Count > 0)
+            await db.SaveChangesAsync(cancellationToken);
+    }
+
     private async Task<HashSet<Guid>> ExpandMembersAsync(Guid organizationId, Guid actorId, IReadOnlyList<Guid>? directIds,
         IReadOnlyList<Guid>? roleIds, IReadOnlyList<Guid>? workstreamIds, CancellationToken token)
     {
@@ -646,10 +694,36 @@ public sealed class CommunicationHubService(
             return CommunicationPresence.Unhealthy(
                 "The agent installation is disabled or unavailable.");
 
+        if (installation.SetupState == PluginSetupState.SetupFailed)
+            return CommunicationPresence.Unhealthy(
+                "The agent setup failed and requires attention.");
+
+        if (installation.SetupState != PluginSetupState.Ready)
+            return new(
+                CommunicationPresenceStatuses.Starting,
+                $"Agent setup is {installation.SetupState}.");
+
         var schedule = installation.Schedule;
         if (schedule?.AutomaticStartSuppressedAt is not null)
             return CommunicationPresence.Unhealthy(
                 $"Automatic startup is suppressed after {schedule.ConsecutiveStartupFailures} consecutive failure(s).");
+
+        if (installation.ConfigurationSyncStatus == AgentConfigurationSyncStatus.Failed)
+            return CommunicationPresence.Unhealthy(
+                installation.ConfigurationSyncLastError ?? "The agent configuration could not be applied.");
+
+        if (installation.ConfigurationSyncStatus is
+            AgentConfigurationSyncStatus.Refreshing or AgentConfigurationSyncStatus.Restarting)
+            return new(
+                CommunicationPresenceStatuses.Starting,
+                $"Agent configuration is {installation.ConfigurationSyncStatus}.");
+
+        if (latestRuntime is null &&
+            (installation.ConfigurationSyncStatus == AgentConfigurationSyncStatus.PendingNextStart ||
+             schedule?.ActivationMode == ActivationMode.AlwaysOn))
+            return new(
+                CommunicationPresenceStatuses.Starting,
+                "The agent is waiting for its first runtime activation.");
 
         if (latestRuntime is null)
             return CommunicationPresence.Offline("The agent runtime is not running.");

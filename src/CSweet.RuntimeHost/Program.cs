@@ -28,6 +28,7 @@ builder.Services.AddSingleton<RuntimeHostRequestAuthenticator>();
 builder.Services.AddSingleton<RuntimeHostRequestDispatcher>();
 builder.Services.AddSingleton<RuntimeHostRpcServer>();
 builder.Services.AddHostedService<RuntimeHostWorker>();
+builder.Services.AddHostedService<RuntimeHostWorkloadReaper>();
 
 var hyperV = builder.Configuration.GetSection("CSweet:AgentRuntime:Providers:HyperV")
     .Get<HyperVIsolationBackendOptions>() ?? new HyperVIsolationBackendOptions();

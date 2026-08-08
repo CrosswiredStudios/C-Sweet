@@ -15,5 +15,6 @@ public interface IAgentCommunicationOnboardingService
         Guid organizationId,
         OrganizationUser agent,
         Guid? hiringApplicationUserId = null,
+        bool queueLifecycleEvent = true,
         CancellationToken cancellationToken = default);
 }

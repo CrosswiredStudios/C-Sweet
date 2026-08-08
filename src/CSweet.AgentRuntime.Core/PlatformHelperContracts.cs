@@ -21,4 +21,5 @@ public sealed class PlatformHelperResponse
     public string? ProviderInstanceId { get; set; }
     public IsolationWorkloadStatus? Status { get; set; }
     public IReadOnlyList<IsolationLogChunk>? Logs { get; set; }
+    public int WorkloadsRemoved { get; set; }
 }

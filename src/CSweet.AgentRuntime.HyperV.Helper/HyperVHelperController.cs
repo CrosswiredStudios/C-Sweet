@@ -8,6 +8,7 @@ namespace CSweet.AgentRuntime.HyperV.Helper;
 internal sealed class HyperVHelperController(HyperVHelperPaths paths)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan CreationGracePeriod = TimeSpan.FromMinutes(5);
 
     public async Task<PlatformHelperResponse> ExecuteAsync(string operation, PlatformHelperRequest request) =>
         operation switch
@@ -18,6 +19,7 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
             "inspect" => await InspectAsync(request),
             "stop" => await StopAsync(request),
             "destroy" => await DestroyAsync(request),
+            "reap" => await ReapAsync(),
             "logs" => Logs(request),
             _ => Failure("unsupported-operation", "The requested helper operation is not supported.")
         };
@@ -99,7 +101,7 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
                 artifactImage);
             var metadata = new HyperVInstanceMetadata(
                 instanceId, workload.WorkloadId, workload.Kind, vmName,
-                DateTimeOffset.UtcNow, null, null);
+                DateTimeOffset.UtcNow, null, null, workload.BrokerLease.ExpiresAt);
             await SaveMetadataAsync(instanceDirectory, metadata);
             return new PlatformHelperResponse
             {
@@ -182,6 +184,66 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
             return Failure("invalid-request", "The bounded log request is invalid.");
         return new PlatformHelperResponse { Success = true, Logs = [] };
     }
+
+    private async Task<PlatformHelperResponse> ReapAsync()
+    {
+        if (!Directory.Exists(paths.InstancesRoot)) return Success();
+
+        var removed = 0;
+        foreach (var directory in Directory.EnumerateDirectories(paths.InstancesRoot))
+        {
+            if (!Guid.TryParseExact(Path.GetFileName(directory), "N", out var instanceId)) continue;
+            var metadataPath = Path.Combine(directory, "instance.json");
+            HyperVInstanceMetadata? metadata;
+            try
+            {
+                if (!File.Exists(metadataPath) || new FileInfo(metadataPath).Length > 64 * 1024) continue;
+                metadata = JsonSerializer.Deserialize<HyperVInstanceMetadata>(
+                    await File.ReadAllTextAsync(metadataPath), JsonOptions);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                continue;
+            }
+
+            if (metadata is null || metadata.InstanceId != instanceId ||
+                metadata.Kind != IsolationWorkloadKind.Runtime ||
+                !metadata.VmName.StartsWith("CSweet-Runtime-", StringComparison.Ordinal))
+                continue;
+
+            string? state = null;
+            try { state = await PowerShellHyperV.GetStateAsync(metadata.VmName); }
+            catch (HyperVCommandException exception) when (exception.ErrorCode == "not-found") { }
+            catch (HyperVCommandException) { continue; }
+
+            if (!ShouldReap(metadata, state, DateTimeOffset.UtcNow)) continue;
+            try
+            {
+                if (state is not null) await PowerShellHyperV.DestroyAsync(metadata.VmName);
+                DeleteInstanceDirectory(directory);
+                removed++;
+            }
+            catch (Exception exception) when (exception is HyperVCommandException or IOException or UnauthorizedAccessException)
+            {
+                // A later pass retries the instance. Cleanup is intentionally
+                // best-effort so one unhealthy VM cannot block the full sweep.
+            }
+        }
+
+        return new PlatformHelperResponse { Success = true, WorkloadsRemoved = removed };
+    }
+
+    internal static bool ShouldReap(
+        HyperVInstanceMetadata metadata,
+        string? hyperVState,
+        DateTimeOffset now) =>
+        metadata.Kind == IsolationWorkloadKind.Runtime &&
+        (metadata.LeaseExpiresAt is null ||
+         metadata.LeaseExpiresAt <= now ||
+         metadata.FinishedAt is not null ||
+         hyperVState is null ||
+         string.Equals(hyperVState, "Off", StringComparison.Ordinal) &&
+            (metadata.StartedAt is not null || metadata.CreatedAt <= now - CreationGracePeriod));
 
     private async Task<(HyperVInstanceMetadata? Metadata, string? Directory, PlatformHelperResponse? Error)> LoadAsync(
         IsolationWorkloadHandle? handle)
@@ -284,4 +346,5 @@ internal sealed record HyperVInstanceMetadata(
     string VmName,
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
-    DateTimeOffset? FinishedAt);
+    DateTimeOffset? FinishedAt,
+    DateTimeOffset? LeaseExpiresAt);

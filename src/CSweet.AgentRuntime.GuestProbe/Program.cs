@@ -21,7 +21,7 @@ var checks = new Dictionary<string, bool>(StringComparer.Ordinal)
     ["dotnet-sdk-present"] = await DotNetSdkPresentAsync()
 };
 var report = new GuestProbeReport(
-    "csweet-windows-hyperv-smoke-v12",
+    "csweet-windows-hyperv-smoke-v13",
     checks.All(check => check.Value),
     checks,
     Environment.OSVersion.VersionString,

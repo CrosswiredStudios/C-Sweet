@@ -418,7 +418,7 @@ public sealed class HiringServiceTests
 
         var preview = new RecordingImportPreview(repositoryUrl);
         var installations = new RecordingInstallationService(organizationId);
-        var definitions = new RecordingDefinitionService();
+        var definitions = new RecordingDefinitionService { IsAvailableForHire = false };
         var organizationUsers = new RecordingOrganizationUserService();
         var service = new HiringService(
             db,
@@ -467,11 +467,20 @@ public sealed class HiringServiceTests
                 ChatTurnId = origin.ChatTurnId
             });
 
+        var pending = await Assert.ThrowsAsync<AgentDefinitionBuildPendingException>(() => service.ConfirmWorkflowAsync(
+            organizationId,
+            workflow.Id,
+            applicationUserId,
+            new("approve-product-manager")));
+        Assert.Equal(definitions.DefinitionId, pending.DefinitionId);
+        Assert.Equal(0, organizationUsers.CreateCount);
+
+        definitions.CompleteBuild();
         var approved = await service.ConfirmWorkflowAsync(
             organizationId,
             workflow.Id,
             applicationUserId,
-            new("approve-product-manager"));
+            new("approve-product-manager-after-build"));
         var duplicate = await service.ConfirmWorkflowAsync(
             organizationId,
             workflow.Id,
@@ -480,9 +489,9 @@ public sealed class HiringServiceTests
 
         Assert.Equal("Approved", approved?.Status);
         Assert.Equal(approved, duplicate);
-        Assert.Equal(2, preview.Requests.Count);
+        Assert.Equal(3, preview.Requests.Count);
         Assert.Equal(repositoryUrl, preview.Requests[0].RepositoryUrl);
-        Assert.Equal(preview.CommitSha, preview.Requests[1].Ref);
+        Assert.All(preview.Requests.Skip(1), request => Assert.Equal(preview.CommitSha, request.Ref));
         Assert.NotNull(definitions.Request);
         Assert.Equal(1, definitions.ImportCount);
         Assert.Equal(preview.RequestedCapabilities, definitions.Request!.GrantedRequestedCapabilities);
@@ -1118,25 +1127,42 @@ public sealed class HiringServiceTests
         public Guid DefinitionId { get; } = Guid.NewGuid();
         public InstallAgentRequest? Request { get; private set; }
         public int ImportCount { get; private set; }
+        public bool IsAvailableForHire { get; set; } = true;
+        private Guid PackageVersionId { get; set; }
 
         public Task<AgentDefinitionResponse> ImportAsync(
             Guid importId, InstallAgentRequest request, CancellationToken cancellationToken = default)
         {
             Request = request;
             ImportCount++;
-            var now = DateTimeOffset.UtcNow;
-            return Task.FromResult(new AgentDefinitionResponse(
-                DefinitionId, importId, "com.csweet.product-manager", "C-Sweet Product Manager", "1.0.0",
-                "C-Sweet", new string('a', 40), AgentDefinitionStatus.Available.ToString(), true,
-                request.ActivationMode, request.TickFrequencySeconds, request.OverlapPolicy,
-                request.MaxRuntimeSeconds, request.MemoryMb, request.CpuPercent, 1, now, now));
+            PackageVersionId = importId;
+            return Task.FromResult(Response());
         }
 
         public Task<IReadOnlyList<AgentDefinitionResponse>> ListAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<AgentDefinitionResponse>>([]);
 
         public Task<AgentDefinitionResponse?> GetAsync(Guid definitionId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<AgentDefinitionResponse?>(null);
+            Task.FromResult<AgentDefinitionResponse?>(definitionId == DefinitionId && Request is not null
+                ? Response()
+                : null);
+
+        public void CompleteBuild() => IsAvailableForHire = true;
+
+        private AgentDefinitionResponse Response()
+        {
+            var now = DateTimeOffset.UtcNow;
+            var status = IsAvailableForHire ? AgentDefinitionStatus.Available : AgentDefinitionStatus.Building;
+            var buildStatus = IsAvailableForHire ? AgentBuildStatus.Succeeded : AgentBuildStatus.Queued;
+            return new AgentDefinitionResponse(
+                DefinitionId, PackageVersionId, "com.csweet.product-manager", "C-Sweet Product Manager", "1.0.0",
+                "C-Sweet", new string('a', 40), status.ToString(), IsAvailableForHire,
+                Request?.ActivationMode ?? "Manual", Request?.TickFrequencySeconds ?? 300,
+                Request?.OverlapPolicy ?? "Skip", Request?.MaxRuntimeSeconds ?? 86_400,
+                Request?.MemoryMb ?? 1024, Request?.CpuPercent ?? 100, 1, now, now,
+                new AgentBuildSummaryResponse(Guid.NewGuid(), buildStatus.ToString(), 1, now, now,
+                    IsAvailableForHire ? now : null, false, null, []));
+        }
     }
 
     private sealed class RecordingOrganizationUserService : IOrganizationUserService

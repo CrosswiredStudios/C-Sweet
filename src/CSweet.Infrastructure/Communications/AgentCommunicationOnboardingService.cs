@@ -24,6 +24,7 @@ public sealed class AgentCommunicationOnboardingService : IAgentCommunicationOnb
         Guid organizationId,
         OrganizationUser agent,
         Guid? hiringApplicationUserId = null,
+        bool queueLifecycleEvent = true,
         CancellationToken cancellationToken = default)
     {
         if (agent.OrganizationId != organizationId || agent.EmployeeType != EmployeeType.Agent || !agent.AgentInstallationId.HasValue)
@@ -65,53 +66,59 @@ public sealed class AgentCommunicationOnboardingService : IAgentCommunicationOnb
         EnsureParticipant(conversation, hiringUser, ConversationParticipantRole.Coordinator, now);
         EnsureParticipant(conversation, agent, ConversationParticipantRole.Member, now);
 
-        var onboardingEvent = _db.AgentOnboardingEventOutbox.Local.FirstOrDefault(
-                x => x.AgentOrganizationUserId == agent.Id)
-            ?? await _db.AgentOnboardingEventOutbox
-                .OrderByDescending(x => x.OccurredAt)
-                .FirstOrDefaultAsync(x => x.AgentOrganizationUserId == agent.Id, cancellationToken);
-        if (onboardingEvent is null)
+        AgentOnboardingEventOutboxItem? onboardingEvent = null;
+        if (queueLifecycleEvent)
         {
-            onboardingEvent = new AgentOnboardingEventOutboxItem
+            onboardingEvent = _db.AgentOnboardingEventOutbox.Local.FirstOrDefault(
+                    x => x.AgentOrganizationUserId == agent.Id)
+                ?? await _db.AgentOnboardingEventOutbox
+                    .OrderByDescending(x => x.OccurredAt)
+                    .FirstOrDefaultAsync(x => x.AgentOrganizationUserId == agent.Id, cancellationToken);
+            if (onboardingEvent is null)
             {
-                Id = Guid.NewGuid(),
-                OrganizationId = organizationId,
-                AgentOrganizationUserId = agent.Id,
-                HiringOrganizationUserId = hiringUser.Id,
-                ConversationId = conversation.Id,
-                Status = AgentOnboardingEventOutboxStatus.Pending,
-                NextAttemptAt = now,
-                OccurredAt = now
-            };
-            _db.AgentOnboardingEventOutbox.Add(onboardingEvent);
-            _logger?.LogInformation(
-                "Created agent onboarding event {OnboardingEventId} for organization {OrganizationId}, employee {AgentOrganizationUserId}, installation {InstallationId}, hiring employee {HiringOrganizationUserId}, and conversation {ConversationId}.",
-                onboardingEvent.Id,
-                organizationId,
-                agent.Id,
-                agent.AgentInstallationId,
-                hiringUser.Id,
-                conversation.Id);
-        }
-        else
-        {
-            _logger?.LogInformation(
-                "Reused agent onboarding event {OnboardingEventId} with status {OnboardingStatus} for organization {OrganizationId}, employee {AgentOrganizationUserId}, installation {InstallationId}, and conversation {ConversationId}.",
-                onboardingEvent.Id,
-                onboardingEvent.Status,
-                organizationId,
-                agent.Id,
-                agent.AgentInstallationId,
-                conversation.Id);
+                onboardingEvent = new AgentOnboardingEventOutboxItem
+                {
+                    Id = Guid.NewGuid(),
+                    OrganizationId = organizationId,
+                    AgentOrganizationUserId = agent.Id,
+                    HiringOrganizationUserId = hiringUser.Id,
+                    ConversationId = conversation.Id,
+                    Status = AgentOnboardingEventOutboxStatus.Pending,
+                    NextAttemptAt = now,
+                    OccurredAt = now
+                };
+                _db.AgentOnboardingEventOutbox.Add(onboardingEvent);
+                _logger?.LogInformation(
+                    "Created agent onboarding event {OnboardingEventId} for organization {OrganizationId}, employee {AgentOrganizationUserId}, installation {InstallationId}, hiring employee {HiringOrganizationUserId}, and conversation {ConversationId}.",
+                    onboardingEvent.Id,
+                    organizationId,
+                    agent.Id,
+                    agent.AgentInstallationId,
+                    hiringUser.Id,
+                    conversation.Id);
+            }
+            else
+            {
+                _logger?.LogInformation(
+                    "Reused agent onboarding event {OnboardingEventId} with status {OnboardingStatus} for organization {OrganizationId}, employee {AgentOrganizationUserId}, installation {InstallationId}, and conversation {ConversationId}.",
+                    onboardingEvent.Id,
+                    onboardingEvent.Status,
+                    organizationId,
+                    agent.Id,
+                    agent.AgentInstallationId,
+                    conversation.Id);
+            }
         }
 
         if (existing is null) _db.CoreConversations.Add(conversation);
         return new AgentCommunicationOnboardingResult(
             true,
             null,
-            "Agent conversation initialized.",
+            queueLifecycleEvent
+                ? "Agent conversation and lifecycle activation initialized."
+                : "Agent conversation initialized while lifecycle activation waits for setup.",
             conversation.Id,
-            onboardingEvent.Id);
+            onboardingEvent?.Id);
     }
 
     private async Task<OrganizationUser?> ResolveHiringUserAsync(

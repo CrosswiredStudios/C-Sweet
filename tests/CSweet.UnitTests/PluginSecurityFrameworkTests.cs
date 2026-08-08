@@ -249,7 +249,8 @@ public sealed class PluginOAuthFlowTests
     private sealed class SuccessfulOnboarding : IAgentCommunicationOnboardingService
     {
         public Task<AgentCommunicationOnboardingResult> EnsureAsync(Guid organizationId, OrganizationUser agent,
-            Guid? hiringApplicationUserId = null, CancellationToken cancellationToken = default) =>
+            Guid? hiringApplicationUserId = null, bool queueLifecycleEvent = true,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult(new AgentCommunicationOnboardingResult(true, null, "Ready"));
     }
     private sealed class SingleClientFactory(HttpMessageHandler handler) : IHttpClientFactory

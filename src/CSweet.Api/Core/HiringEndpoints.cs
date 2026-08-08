@@ -115,6 +115,15 @@ public static class HiringEndpoints
                 return Results.Json(new { error = "owner_required", message = exception.Message },
                     statusCode: StatusCodes.Status403Forbidden);
             }
+            catch (AgentDefinitionBuildPendingException exception)
+            {
+                return Results.Conflict(new
+                {
+                    error = "agent_build_pending",
+                    message = exception.Message,
+                    definitionId = exception.DefinitionId
+                });
+            }
             catch (InvalidOperationException exception)
             {
                 return Results.Conflict(new { error = "approval_invalidated", message = exception.Message });
@@ -144,6 +153,15 @@ public static class HiringEndpoints
             catch (ArgumentException exception)
             {
                 return Results.BadRequest(new { error = "invalid_decision", message = exception.Message });
+            }
+            catch (AgentDefinitionBuildPendingException exception)
+            {
+                return Results.Conflict(new
+                {
+                    error = "agent_build_pending",
+                    message = exception.Message,
+                    definitionId = exception.DefinitionId
+                });
             }
             catch (InvalidOperationException exception)
             {

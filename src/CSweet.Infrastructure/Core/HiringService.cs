@@ -6,6 +6,7 @@ using CSweet.Contracts.Agents;
 using CSweet.Contracts.Core;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using AgentAvailabilityState = CSweet.Agent.SDK.AgentAvailabilityState;
@@ -782,7 +783,28 @@ public sealed class HiringService(
                 await db.SaveChangesAsync(cancellationToken);
             }
             if (!definition.IsAvailableForHire)
-                throw new InvalidOperationException("The imported agent must finish building and have valid required defaults before it can be hired.");
+            {
+                if (string.Equals(definition.Status, AgentDefinitionStatus.Building.ToString(), StringComparison.Ordinal))
+                {
+                    throw new AgentDefinitionBuildPendingException(
+                        definition.Id,
+                        $"{definition.AgentName} is building. The hire will continue automatically when the build finishes.");
+                }
+
+                if (string.Equals(definition.Status, AgentDefinitionStatus.BuildFailed.ToString(), StringComparison.Ordinal) ||
+                    definition.Build?.Status is nameof(AgentBuildStatus.Failed) or nameof(AgentBuildStatus.Cancelled))
+                {
+                    var failedStep = definition.Build?.Steps?.FirstOrDefault(step =>
+                        step.Status is nameof(AgentBuildStatus.Failed) or nameof(AgentBuildStatus.Cancelled) ||
+                        !string.IsNullOrWhiteSpace(step.Error));
+                    throw new InvalidOperationException(
+                        failedStep?.Error ?? definition.Build?.FailureMessage ??
+                        $"The {definition.AgentName} build did not complete.");
+                }
+
+                throw new InvalidOperationException(
+                    $"The {definition.AgentName} build completed, but its required defaults are incomplete.");
+            }
             var result = await organizationUsers.CreateAsync(organizationId, new CreateOrganizationUserRequest(
                     ResolveEmployeeDisplayName(snapshot, definition.AgentName),
                     null,

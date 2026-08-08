@@ -164,6 +164,15 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
     public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>
         InvokeHandleAsync("destroy", handle, null, cancellationToken);
 
+    protected async Task<int> ReapAbandonedWorkloadsAsync(CancellationToken cancellationToken)
+    {
+        var response = await InvokeAsync("reap", null, cancellationToken);
+        EnsureSuccess(response);
+        if (response.WorkloadsRemoved < 0)
+            throw new InvalidDataException("The platform helper returned an invalid cleanup count.");
+        return response.WorkloadsRemoved;
+    }
+
     public async IAsyncEnumerable<IsolationLogChunk> StreamLogsAsync(
         IsolationWorkloadHandle handle,
         int maximumBytes,

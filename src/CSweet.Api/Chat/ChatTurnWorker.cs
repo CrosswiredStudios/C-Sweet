@@ -8,6 +8,7 @@ using CSweet.AI.Providers;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
+using CSweet.Contracts.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Setup;
@@ -174,7 +175,11 @@ public sealed class ChatTurnWorker(
                     [AgentChatContextKeys.SenderEmployeeType] = senderContext.EmployeeType,
                     [AgentChatContextKeys.SenderRole] = senderContext.Role ?? string.Empty
                 };
-            var conversationPrompt = ChatPromptPolicy.BuildConversationPrompt(recalledMemory, userMessage.Content);
+            var recentConversation = await LoadRecentConversationAsync(db, userMessage, hardTimeout.Token);
+            var conversationPrompt = ChatPromptPolicy.BuildConversationPrompt(
+                recalledMemory,
+                userMessage.Content,
+                recentConversation);
             var agentPrompt = ChatPromptPolicy.BuildPrimaryAgentPrompt(
                 conversation.Id, turnId, conversationPrompt, senderContext);
             try
@@ -384,6 +389,26 @@ public sealed class ChatTurnWorker(
             outputRouter.UnbindAlias(conversation.Id, turnId);
             eventRouter.Complete(turnId);
         }
+    }
+
+    internal static async Task<IReadOnlyList<RecentConversationMessage>> LoadRecentConversationAsync(
+        CSweetDbContext db,
+        ConversationMessage currentMessage,
+        CancellationToken cancellationToken = default)
+    {
+        var recent = await db.CoreConversationMessages.AsNoTracking()
+            .Where(x => x.ConversationId == currentMessage.ConversationId &&
+                        x.Sequence < currentMessage.Sequence &&
+                        x.SourceProvider != CommunicationMessageTypes.SystemAction)
+            .OrderByDescending(x => x.Sequence)
+            .Take(ChatPromptPolicy.RecentConversationMessageLimit)
+            .Select(x => new RecentConversationMessage(
+                x.Sequence,
+                x.Role == ConversationRole.User ? "user" : "assistant",
+                x.Content))
+            .ToListAsync(cancellationToken);
+        recent.Reverse();
+        return recent;
     }
 
     internal static bool TryGetTerminalResourceChangeRequestId(

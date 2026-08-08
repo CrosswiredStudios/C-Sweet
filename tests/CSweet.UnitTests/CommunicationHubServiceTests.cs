@@ -330,6 +330,107 @@ public sealed class CommunicationHubServiceTests
     }
 
     [Fact]
+    public async Task GetAsync_ReportsFreshAlwaysOnAgentAsStartingBeforeRuntimeExists()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var owner = User(organization.Id, "Owner", OrganizationPermissionLevel.Owner);
+        var agent = User(organization.Id, "Product Manager", OrganizationPermissionLevel.Contributor);
+        agent.EmployeeType = EmployeeType.Agent;
+        var installation = new AgentInstallation
+        {
+            Id = Guid.NewGuid(),
+            InstallationKey = Guid.NewGuid(),
+            PackageVersionId = Guid.NewGuid(),
+            BusinessId = organization.Id.ToString("D"),
+            IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active,
+            SetupState = PluginSetupState.Ready,
+            ConfigurationSyncStatus = AgentConfigurationSyncStatus.PendingNextStart,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        installation.Schedule = new AgentSchedule
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            ActivationMode = ActivationMode.AlwaysOn,
+            IsEnabled = true
+        };
+        agent.AgentInstallationId = installation.Id;
+        agent.AgentInstallation = installation;
+        db.AddRange(organization, owner, agent, installation);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var direct = await service.CreateAsync(
+            organization.Id,
+            owner.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [agent.Id]));
+
+        var directChat = Assert.IsType<CommunicationChatResponse>(direct.Chat);
+        var hub = Assert.IsType<CommunicationHubResponse>(
+            await service.GetAsync(organization.Id, owner.Id));
+
+        var person = Assert.Single(hub.People, x => x.Id == agent.Id);
+        Assert.Equal(CommunicationPresenceStatuses.Starting, person.PresenceStatus);
+        Assert.Contains("activation", person.PresenceDetail, StringComparison.OrdinalIgnoreCase);
+        var refreshedChat = Assert.Single(hub.Chats, x => x.Id == directChat.Id);
+        var participant = Assert.Single(refreshedChat.Participants, x => x.OrganizationUserId == agent.Id);
+        Assert.Equal(CommunicationPresenceStatuses.Starting, participant.PresenceStatus);
+    }
+
+    [Fact]
+    public async Task GetAsync_ReconcilesMissingDirectConversationForExistingAgent()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var owner = User(organization.Id, "Owner", OrganizationPermissionLevel.Owner);
+        owner.ApplicationUserId = Guid.NewGuid();
+        var agent = User(organization.Id, "Product Manager", OrganizationPermissionLevel.Contributor);
+        agent.EmployeeType = EmployeeType.Agent;
+        agent.ReportsToOrganizationUserId = owner.Id;
+        var installation = new AgentInstallation
+        {
+            Id = Guid.NewGuid(),
+            InstallationKey = Guid.NewGuid(),
+            PackageVersionId = Guid.NewGuid(),
+            BusinessId = organization.Id.ToString("D"),
+            IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active,
+            SetupState = PluginSetupState.Ready,
+            ConfigurationSyncStatus = AgentConfigurationSyncStatus.PendingNextStart,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        installation.Schedule = new AgentSchedule
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            ActivationMode = ActivationMode.AlwaysOn,
+            IsEnabled = true
+        };
+        agent.AgentInstallationId = installation.Id;
+        agent.AgentInstallation = installation;
+        db.AddRange(organization, owner, agent, installation);
+        await db.SaveChangesAsync();
+        var service = new CommunicationHubService(
+            db,
+            new TestAuditEventWriter(),
+            new CSweet.Infrastructure.Core.ChatTurnService(db),
+            onboarding: new AgentCommunicationOnboardingService(db));
+
+        var hub = Assert.IsType<CommunicationHubResponse>(
+            await service.GetAsync(organization.Id, owner.Id));
+
+        var chat = Assert.Single(hub.Chats, item => item.IsDirect);
+        Assert.Equal("Product Manager", chat.Title);
+        Assert.Equal(CommunicationPresenceStatuses.Starting,
+            Assert.Single(chat.Participants, participant => participant.OrganizationUserId == agent.Id).PresenceStatus);
+        Assert.Single(await db.CoreConversations.ToListAsync());
+        Assert.Single(await db.AgentOnboardingEventOutbox.ToListAsync());
+    }
+
+    [Fact]
     public async Task HumanCanInspectAgentPerspective_WithoutGainingAgentMutationAuthority()
     {
         await using var db = CreateDb();

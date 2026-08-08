@@ -11,6 +11,47 @@ namespace CSweet.UnitTests;
 public sealed class AgentCommunicationOnboardingTests
 {
     [Fact]
+    public async Task EnsureAsync_CreatesConversationBeforeSetupAndQueuesLifecycleEventWhenReady()
+    {
+        await using var db = CreateDb();
+        var organization = new Organization { Id = Guid.NewGuid(), Name = "Example", Status = OrganizationStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var applicationUserId = Guid.NewGuid();
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            ApplicationUserId = applicationUserId, DisplayName = "Owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, CreatedAt = DateTimeOffset.UtcNow };
+        var installationId = Guid.NewGuid();
+        var agent = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            AgentInstallationId = installationId, DisplayName = "Product Manager", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Contributor, CreatedAt = DateTimeOffset.UtcNow };
+        db.AddRange(organization, owner, agent);
+        await db.SaveChangesAsync();
+        var service = new AgentCommunicationOnboardingService(db);
+
+        var pendingSetup = await service.EnsureAsync(
+            organization.Id,
+            agent,
+            applicationUserId,
+            queueLifecycleEvent: false);
+        await db.SaveChangesAsync();
+
+        Assert.True(pendingSetup.Succeeded);
+        Assert.NotNull(pendingSetup.ConversationId);
+        Assert.Null(pendingSetup.EventId);
+        Assert.Single(await db.CoreConversations.ToListAsync());
+        Assert.Empty(await db.AgentOnboardingEventOutbox.ToListAsync());
+
+        var ready = await service.EnsureAsync(organization.Id, agent, applicationUserId);
+        await db.SaveChangesAsync();
+
+        Assert.True(ready.Succeeded);
+        Assert.Equal(pendingSetup.ConversationId, ready.ConversationId);
+        Assert.NotNull(ready.EventId);
+        var onboardingEvent = await db.AgentOnboardingEventOutbox.SingleAsync();
+        Assert.Equal(pendingSetup.ConversationId, onboardingEvent.ConversationId);
+    }
+
+    [Fact]
     public async Task EnsureAsync_CreatesOneProtectedInstanceConversationAndPendingLifecycleEvent()
     {
         await using var db = CreateDb();

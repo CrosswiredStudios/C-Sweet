@@ -6,7 +6,9 @@
 @using CSweet.Contracts.Plugins
 @using ContractAgentConfigurationFieldTypes = CSweet.Contracts.Agents.AgentConfigurationFieldTypes
 @inject HttpClient Http
+@inject IAgentApiClient AgentApi
 @inject ILlmProviderApiClient LlmProviderApi
+@implements IAsyncDisposable
 
 <section class="executive-decision-card hiring-workflow-card" aria-label="Hiring workflow approval">
     <header>
@@ -107,6 +109,15 @@
         {
             <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
         }
+        @if (!string.IsNullOrWhiteSpace(_status))
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                    <span>@_status</span>
+                </MudStack>
+            </MudAlert>
+        }
         <MudStack Row="true" Spacing="1">
             <MudButton Color="Color.Success" Variant="Variant.Filled"
                        Disabled="@(_busy || HasMissingRequiredConfiguration)"
@@ -128,7 +139,9 @@
     [Parameter] public EventCallback DecisionCompleted { get; set; }
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan AgentBuildTimeout = TimeSpan.FromMinutes(30);
     private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
+    private readonly CancellationTokenSource _disposeCts = new();
     private IReadOnlyList<LlmProviderProfileResponse> _providers = [];
     private IReadOnlyList<string> _models = [];
     private Guid _initializedWorkflowId;
@@ -136,6 +149,7 @@
     private bool _busy;
     private string? _feedback;
     private string? _error;
+    private string? _status;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -146,6 +160,7 @@
         _models = [];
         _feedback = null;
         _error = null;
+        _status = null;
         if (Workflow.ConfigurationFields.Any(IsProviderField))
             _providers = await LlmProviderApi.ListAsync();
         var provider = _providers.FirstOrDefault(candidate => candidate.IsEnabled);
@@ -173,6 +188,7 @@
     {
         _busy = true;
         _error = null;
+        _status = null;
         try
         {
             var request = new DecideHiringWorkflowRequest(decision, _feedback, $"hiring-decision:{Workflow.Id:D}:{decision}")
@@ -184,19 +200,35 @@
                         StringComparer.Ordinal)
                     : new Dictionary<string, JsonElement>(StringComparer.Ordinal)
             };
-            var response = await Http.PostAsJsonAsync(
-                $"api/core/organizations/{OrganizationId:D}/hiring/workflows/{Workflow.Id:D}/decide",
-                request);
-            if (!response.IsSuccessStatusCode)
+            while (true)
             {
-                var failure = await response.Content.ReadFromJsonAsync<HiringApiError>();
-                throw new InvalidOperationException(failure?.Message ?? "The hiring decision could not be completed.");
+                var response = await Http.PostAsJsonAsync(
+                    $"api/core/organizations/{OrganizationId:D}/hiring/workflows/{Workflow.Id:D}/decide",
+                    request,
+                    _disposeCts.Token);
+                if (response.IsSuccessStatusCode)
+                    break;
+
+                var failure = await response.Content.ReadFromJsonAsync<HiringApiError>(_disposeCts.Token);
+                if (!string.Equals(failure?.Error, "agent_build_pending", StringComparison.Ordinal) ||
+                    failure?.DefinitionId is not Guid definitionId)
+                {
+                    throw new InvalidOperationException(failure?.Message ?? "The hiring decision could not be completed.");
+                }
+
+                var definition = await AgentApi.GetDefinitionAsync(definitionId, _disposeCts.Token)
+                    ?? throw new InvalidOperationException("The imported agent definition could not be found.");
+                await WaitForAgentDefinitionAsync(definition, _disposeCts.Token);
             }
             await DecisionCompleted.InvokeAsync();
+        }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
+        {
         }
         catch (Exception exception)
         {
             _error = exception.Message;
+            _status = null;
         }
         finally
         {
@@ -211,6 +243,55 @@
         if (provider is null) return;
         await LoadModelsAsync(provider);
         SetDefaultModel(provider, overwrite: true);
+    }
+
+    private async Task WaitForAgentDefinitionAsync(
+        AgentInstallationResponse definition,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(AgentBuildTimeout);
+        while (!definition.IsEnabled)
+        {
+            if (definition.Build?.Status is "Failed" or "Cancelled")
+            {
+                var failedStep = definition.Build.Steps?.FirstOrDefault(step =>
+                    step.Status is "Failed" or "Cancelled" || !string.IsNullOrWhiteSpace(step.Error));
+                throw new InvalidOperationException(failedStep?.Error ?? definition.Build.FailureMessage ??
+                    $"The {definition.AgentName} build did not complete.");
+            }
+
+            if (definition.Build?.Status == "Succeeded")
+                throw new InvalidOperationException(
+                    $"The {definition.AgentName} build completed, but its required defaults are incomplete.");
+
+            if (DateTimeOffset.UtcNow >= deadline)
+                throw new TimeoutException(
+                    $"The {definition.AgentName} build is still running. It will continue in the background; retry this approval to resume automatically.");
+
+            _status = AgentBuildStatusDetail(definition);
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            definition = await AgentApi.GetDefinitionAsync(definition.Id, cancellationToken)
+                ?? throw new InvalidOperationException("The imported agent definition could not be found.");
+        }
+
+        _status = $"{definition.AgentName} is ready. Completing the hire…";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string AgentBuildStatusDetail(AgentInstallationResponse definition)
+    {
+        var active = definition.Build?.Steps?.FirstOrDefault(step => step.Status == "InProgress");
+        if (active is not null)
+            return $"{active.Label}: {active.Detail}";
+
+        return definition.Build?.Status switch
+        {
+            "Queued" => $"{definition.AgentName} build queued…",
+            "Cloning" => $"Preparing {definition.AgentName} source…",
+            "Building" => $"Building {definition.AgentName}…",
+            _ => $"Preparing {definition.AgentName}…"
+        };
     }
 
     private async Task LoadModelsAsync(LlmProviderProfileResponse provider)
@@ -275,5 +356,12 @@
         (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase) ||
          field.Type.Equals(ContractAgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase) ||
          !string.IsNullOrWhiteSpace(value.ToString()));
-    private sealed record HiringApiError(string? Error, string? Message);
+    private sealed record HiringApiError(string? Error, string? Message, Guid? DefinitionId = null);
+
+    public ValueTask DisposeAsync()
+    {
+        _disposeCts.Cancel();
+        _disposeCts.Dispose();
+        return ValueTask.CompletedTask;
+    }
 }

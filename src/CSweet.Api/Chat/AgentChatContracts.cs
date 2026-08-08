@@ -23,6 +23,11 @@ internal sealed record ChatMessageSender(
     string EmployeeType,
     string? Role);
 
+internal sealed record RecentConversationMessage(
+    long Sequence,
+    string Role,
+    string Content);
+
 internal sealed record UserMessageReceived(
     Guid ProviderProfileId,
     string ConversationId,

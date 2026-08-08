@@ -3,7 +3,7 @@ namespace CSweet.Infrastructure.Setup;
 public sealed class AgentRuntimeManagerOptions
 {
     public const string SectionName = "CSweet:AgentRuntime";
-    public const string CurrentDevelopmentCertificationSuiteVersion = "csweet-windows-hyperv-smoke-v12";
+    public const string CurrentDevelopmentCertificationSuiteVersion = "csweet-windows-hyperv-smoke-v13";
     public string RequiredCertificationSuiteVersion { get; set; } = CurrentDevelopmentCertificationSuiteVersion;
     public bool CleanupWorkloadsOnStartup { get; set; } = true;
     public string WorkspaceSnapshotStorePath { get; set; } = Path.Combine(

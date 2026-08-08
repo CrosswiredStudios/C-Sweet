@@ -394,6 +394,12 @@ public class CoreServiceTests
         var configuration = await dbContext.AgentInstallationConfigurations.SingleAsync();
         Assert.Equal("{}", configuration.SettingsJson);
         Assert.NotEqual(definition.Id, result.OrganizationUser!.AgentInstallationId);
+        Assert.NotNull(result.OrganizationUser.InitialConversationId);
+        var conversation = await dbContext.CoreConversations.SingleAsync();
+        Assert.Equal(result.OrganizationUser.InitialConversationId, conversation.Id);
+        Assert.Equal(result.OrganizationUser.Id, conversation.AgentOrganizationUserId);
+        var onboardingEvent = await dbContext.AgentOnboardingEventOutbox.SingleAsync();
+        Assert.Equal(conversation.Id, onboardingEvent.ConversationId);
     }
 
     [Fact]

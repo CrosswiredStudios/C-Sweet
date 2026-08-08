@@ -228,13 +228,18 @@ public sealed class OrganizationUserService : IOrganizationUserService
             managedUser.ReportsToOrganizationUserId = user.Id;
         }
         AgentCommunicationOnboardingResult? onboarding = null;
-        var setupReady = user.EmployeeType != EmployeeType.Agent || !user.AgentInstallationId.HasValue ||
-            await _dbContext.AgentInstallations.AnyAsync(x =>
-                x.Id == user.AgentInstallationId.Value && x.SetupState == PluginSetupState.Ready,
-                cancellationToken);
-        if (user.EmployeeType == EmployeeType.Agent && setupReady)
+        if (user.EmployeeType == EmployeeType.Agent)
         {
-            onboarding = await _agentOnboarding.EnsureAsync(organizationId, user, hiringApplicationUserId, cancellationToken);
+            var lifecycleReady = hiredInstallation?.SetupState == PluginSetupState.Ready ||
+                await _dbContext.AgentInstallations.AnyAsync(x =>
+                    x.Id == user.AgentInstallationId!.Value && x.SetupState == PluginSetupState.Ready,
+                    cancellationToken);
+            onboarding = await _agentOnboarding.EnsureAsync(
+                organizationId,
+                user,
+                hiringApplicationUserId,
+                queueLifecycleEvent: lifecycleReady,
+                cancellationToken: cancellationToken);
             if (!onboarding.Succeeded) return Failure(onboarding.ErrorCode!, onboarding.Message);
         }
         var hiringOrganizationUserId = hiringApplicationUserId.HasValue
