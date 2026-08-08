@@ -765,7 +765,7 @@ public sealed class HiringService(
                         [],
                         embedded.NetworkAccess,
                         86_400,
-                        512,
+                        1024,
                         100)
                     {
                         GrantedRequestedCapabilities = embedded.RequestedCapabilities,
@@ -1299,7 +1299,8 @@ CompleteWorkflow:
             },
             workflow.CreatedAt, workflow.ResultOrganizationUserId)
         {
-            ResultAgentInstallationId = snapshot?.EmbeddedAgent?.InstallationId
+            ResultAgentInstallationId = snapshot?.EmbeddedAgent?.InstallationId,
+            ResultAgentRequiresSetup = snapshot?.EmbeddedAgent?.NeedsSetup == true
         };
     }
 

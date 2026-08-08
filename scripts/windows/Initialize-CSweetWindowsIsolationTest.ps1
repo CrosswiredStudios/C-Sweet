@@ -26,6 +26,7 @@ function Quote-ProcessArgument([string] $Value) {
 function Get-GuestBuildFingerprint([string] $RepositoryRoot) {
     $roots = @(
         (Join-Path $RepositoryRoot 'src\CSweet.AgentRuntime.Guest'),
+        (Join-Path $RepositoryRoot 'src\CSweet.AgentRuntime.Builder'),
         (Join-Path $RepositoryRoot 'src\CSweet.AgentRuntime.Protocol'),
         (Join-Path $RepositoryRoot 'build\windows-hyperv')
     )
@@ -75,6 +76,29 @@ if (-not (Test-Administrator)) {
 $ProgressPath = Initialize-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId `
     -ControlPlaneUserSid $ControlPlaneUserSid
 $progressWorkflow = 'developer-bootstrap'
+
+function Start-CertificationHeartbeat {
+    $progressHelper = Join-Path $PSScriptRoot 'CSweet.WindowsSetupProgress.ps1'
+    $ownerProcessId = $PID
+    return Start-Job -ScriptBlock {
+        param([string] $Helper, [string] $Path, [guid] $JobId, [int] $OwnerProcessId)
+        . $Helper
+        $started = [DateTimeOffset]::UtcNow
+        while ($true) {
+            Start-Sleep -Seconds 15
+            $elapsedSeconds = [Math]::Max(0, [int]([DateTimeOffset]::UtcNow - $started).TotalSeconds)
+            $elapsedMinutes = [Math]::Floor($elapsedSeconds / 60)
+            $percent = [Math]::Min(81, 70 + [Math]::Floor($elapsedSeconds / 45))
+            $minimum = [Math]::Max(0, 180 - $elapsedSeconds)
+            $maximum = [Math]::Max(60, 900 - $elapsedSeconds)
+            Write-CSweetSetupProgress -Path $Path -JobId $JobId -Workflow 'developer-bootstrap' `
+                -State running -PhaseKey certify-runtime -PhaseDisplayName 'Certifying agent isolation and builds' `
+                -Message "Disposable no-network VMs are testing runtime isolation and a real agent build ($elapsedMinutes minutes elapsed)." `
+                -PercentComplete $percent -EstimatedRemainingMinimumSeconds $minimum `
+                -EstimatedRemainingMaximumSeconds $maximum -OwnerProcessId $OwnerProcessId
+        }
+    } -ArgumentList $progressHelper, $ProgressPath, $ProgressJobId, $ownerProcessId
+}
 
 try {
 Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
@@ -178,13 +202,14 @@ foreach ($required in @($helper, $probe, $smoke)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "A certification executable is missing: $required" }
 }
 
-Write-Host 'Starting a real no-network Hyper-V guest and running the isolation certification probe...'
+Write-Host 'Starting real no-network Hyper-V guests and running the runtime and builder certification probes...'
 Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
-    -State running -PhaseKey certify-runtime -PhaseDisplayName 'Certifying hardware isolation' `
-    -Message 'A disposable no-network VM is running the complete isolation readiness probe.' -PercentComplete 70 `
-    -EstimatedRemainingMinimumSeconds 120 -EstimatedRemainingMaximumSeconds 480
+    -State running -PhaseKey certify-runtime -PhaseDisplayName 'Certifying agent isolation and builds' `
+    -Message 'Disposable no-network VMs are testing runtime isolation and a real agent build.' -PercentComplete 70 `
+    -EstimatedRemainingMinimumSeconds 180 -EstimatedRemainingMaximumSeconds 900
 $certificationLog = Join-Path $runRoot 'certification.log'
 $previousErrorActionPreference = $ErrorActionPreference
+$certificationHeartbeat = Start-CertificationHeartbeat
 try {
     # Windows PowerShell 5.1 represents native stderr as ErrorRecord objects.
     # Do not let the script-wide Stop preference abort before we can persist it.
@@ -194,6 +219,8 @@ try {
     $certificationExitCode = $LASTEXITCODE
 } finally {
     $ErrorActionPreference = $previousErrorActionPreference
+    Stop-Job -Job $certificationHeartbeat -ErrorAction SilentlyContinue
+    Remove-Job -Job $certificationHeartbeat -Force -ErrorAction SilentlyContinue
 }
 $certificationLines = @($certificationOutput | ForEach-Object { $_.ToString() })
 $certificationLines | Set-Content -LiteralPath $certificationLog -Encoding UTF8

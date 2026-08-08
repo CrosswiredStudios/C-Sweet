@@ -7,11 +7,12 @@ public sealed class InMemoryBuilderArtifactResultStore : IBuilderArtifactResultS
 {
     private readonly ConcurrentDictionary<Guid, TaskCompletionSource<BuilderArtifactResult>> _results = [];
 
-    public Task<BuilderArtifactResult> WaitAsync(Guid workloadId, CancellationToken cancellationToken = default)
+    public async Task<BuilderArtifactResult> WaitAsync(Guid workloadId, CancellationToken cancellationToken = default)
     {
         if (workloadId == Guid.Empty) throw new ArgumentException("A workload identifier is required.", nameof(workloadId));
-        return _results.GetOrAdd(workloadId, static _ => new(TaskCreationOptions.RunContinuationsAsynchronously))
-            .Task.WaitAsync(cancellationToken);
+        var completion = _results.GetOrAdd(workloadId, static _ => new(TaskCreationOptions.RunContinuationsAsynchronously));
+        try { return await completion.Task.WaitAsync(cancellationToken); }
+        finally { _results.TryRemove(new KeyValuePair<Guid, TaskCompletionSource<BuilderArtifactResult>>(workloadId, completion)); }
     }
 
     public Task PublishAsync(BuilderArtifactResult result, CancellationToken cancellationToken = default)

@@ -18,6 +18,8 @@ public sealed class AgentIsolationOnboardingService(
         "https://learn.microsoft.com/windows-server/virtualization/hyper-v/get-started/install-hyper-v";
     public const string ManualEnableCommand =
         "DISM /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V /NoRestart";
+    internal const string DevelopmentCertificationSuiteVersion =
+        AgentRuntimeManagerOptions.CurrentDevelopmentCertificationSuiteVersion;
 
     private readonly IAgentIsolationProvider? _hyperVProvider = isolationProviders.FirstOrDefault(provider =>
         string.Equals(provider.Descriptor.ProviderId, IsolationProviderCatalog.HyperV().ProviderId,
@@ -27,12 +29,13 @@ public sealed class AgentIsolationOnboardingService(
         CancellationToken cancellationToken = default)
     {
         var host = await hostProbe.ProbeAsync(cancellationToken);
-        var provisioning = runtimeHostProvisioner.GetProvisioningInfo();
         var progress = runtimeHostProvisioner.GetProgress();
+        var installationCompleted = progress is { State: WindowsRuntimeHostProvisioningState.Completed };
+        var installationInProgress = progress is { State: WindowsRuntimeHostProvisioningState.Running };
         if (progress is { State: WindowsRuntimeHostProvisioningState.RestartRequired } && !host.IsRestartPending)
             progress = null;
         IsolationProviderProbeResult? providerProbe = null;
-        string? providerError = null;
+        var providerAccessDenied = false;
         if (_hyperVProvider is not null)
         {
             try
@@ -45,18 +48,25 @@ public sealed class AgentIsolationOnboardingService(
             {
                 // A first-run RuntimeHost probe normally reaches its short timeout before the
                 // service is installed. Treat that as an incomplete setup step, not a failure.
-                providerError = null;
                 logger.LogInformation("RuntimeHost readiness probe timed out before setup completed.");
             }
-            catch (Exception exception) when (exception is IOException or InvalidDataException or
-                                               TimeoutException or UnauthorizedAccessException)
+            catch (UnauthorizedAccessException exception)
             {
-                providerError = Sanitize(exception.Message);
+                providerAccessDenied = true;
+                logger.LogWarning(exception,
+                    "RuntimeHost readiness probe did not complete. Error type: {ErrorType}.",
+                    exception.GetType().Name);
+            }
+            catch (Exception exception) when (exception is IOException or InvalidDataException or TimeoutException)
+            {
                 logger.LogWarning(exception,
                     "RuntimeHost readiness probe did not complete. Error type: {ErrorType}.",
                     exception.GetType().Name);
             }
         }
+
+        var provisioning = runtimeHostProvisioner.GetProvisioningInfo(
+            preferAccessRepair: installationCompleted && providerAccessDenied);
 
         var featureEnabled = host.FeatureState is WindowsOptionalFeatureState.Enabled or
             WindowsOptionalFeatureState.EnablePending || host.IsHypervisorPresent;
@@ -68,10 +78,21 @@ public sealed class AgentIsolationOnboardingService(
         {
             IsAvailable: true,
             Certification: not null
-        } && providerProbe.Certification.IsActiveAt(DateTimeOffset.UtcNow);
-        var installationCompleted = progress is { State: WindowsRuntimeHostProvisioningState.Completed };
-        var ready = host.IsWindows && host.IsSupportedEdition && host.HardwareRequirementsSatisfied &&
-                    featureEnabled && host.IsHypervisorPresent && !host.IsRestartPending && certificationActive;
+        } && providerProbe.Certification.IsActiveAt(DateTimeOffset.UtcNow) &&
+            (provisioning.Mode != WindowsRuntimeHostProvisioningMode.DeveloperBootstrap ||
+             string.Equals(providerProbe.Certification.CertificationSuiteVersion,
+                 DevelopmentCertificationSuiteVersion, StringComparison.Ordinal));
+        var runtimeRepairNeeded = installationCompleted && !runtimeHostReachable &&
+                                  provisioning.Mode == WindowsRuntimeHostProvisioningMode.AccessRepair;
+        var runtimeUpdateNeeded = installationCompleted && runtimeHostReachable &&
+                                  capabilitiesReady && !certificationActive;
+        var canAutomateRuntimeHostInstallation = host.IsWindows && host.IsSupportedEdition &&
+            host.CanLaunchElevation && provisioning.CanLaunch && !host.IsRestartPending &&
+            !certificationActive &&
+            (featureEnabled || provisioning.Mode == WindowsRuntimeHostProvisioningMode.DeveloperBootstrap);
+        var ready = !installationInProgress &&
+                     host.IsWindows && host.IsSupportedEdition && host.HardwareRequirementsSatisfied &&
+                     featureEnabled && host.IsHypervisorPresent && !host.IsRestartPending && certificationActive;
 
         var checks = new List<AgentIsolationOnboardingCheckResponse>
         {
@@ -80,8 +101,11 @@ public sealed class AgentIsolationOnboardingService(
             HardwareCheck(host),
             FeatureCheck(host, featureEnabled),
             RestartCheck(host),
-            RuntimeHostCheck(runtimeHostReachable, installationCompleted),
-            ProviderCheck(providerProbe, capabilitiesReady, installationCompleted)
+            RuntimeHostCheck(runtimeHostReachable, installationCompleted, installationInProgress, runtimeRepairNeeded,
+                canAutomateRuntimeHostInstallation),
+            ProviderCheck(providerProbe, capabilitiesReady, certificationActive, installationCompleted,
+                installationInProgress, runtimeRepairNeeded,
+                canAutomateRuntimeHostInstallation)
         };
 
         var summary = ready
@@ -108,13 +132,18 @@ public sealed class AgentIsolationOnboardingService(
             host.IsWindows && host.IsSupportedEdition && host.HardwareRequirementsSatisfied &&
                 !featureEnabled && host.CanLaunchElevation &&
                 provisioning.Mode != WindowsRuntimeHostProvisioningMode.DeveloperBootstrap,
-            host.IsWindows && host.IsSupportedEdition && host.CanLaunchElevation &&
-                provisioning.CanLaunch && !host.IsRestartPending && !certificationActive &&
-                !installationCompleted &&
-                (featureEnabled || provisioning.Mode == WindowsRuntimeHostProvisioningMode.DeveloperBootstrap),
+            canAutomateRuntimeHostInstallation,
             ProvisioningMode(provisioning.Mode),
-            provisioning.ActionLabel,
-            provisioning.Description,
+            runtimeRepairNeeded
+                ? "Repair secure agent runtime"
+                : runtimeUpdateNeeded
+                    ? "Update secure agent runtime"
+                    : provisioning.ActionLabel,
+            runtimeRepairNeeded
+                ? "C-Sweet will request administrator approval, refresh the RuntimeHost installation for this Windows account, and validate it automatically."
+                : runtimeUpdateNeeded
+                    ? "C-Sweet will request administrator approval once, update the secure guest runtime, and validate it automatically."
+                : provisioning.Description,
             summary,
             DocumentationUrl,
             ProgressResponse(progress),
@@ -145,7 +174,13 @@ public sealed class AgentIsolationOnboardingService(
     public async Task<AgentIsolationOnboardingActionResponse> InstallWindowsRuntimeHostAsync(
         CancellationToken cancellationToken = default)
     {
-        var result = await runtimeHostProvisioner.LaunchInstallerAsync(cancellationToken);
+        var current = await GetStatusAsync(cancellationToken);
+        var action = current.ProvisioningProgress?.State == "completed" &&
+                     !current.IsRuntimeHostReachable &&
+                     current.RuntimeHostProvisioningMode == "access-repair"
+            ? WindowsRuntimeHostProvisioningAction.RepairAccess
+            : WindowsRuntimeHostProvisioningAction.Prepare;
+        var result = await runtimeHostProvisioner.LaunchInstallerAsync(action, cancellationToken);
         await auditWriter.WriteAsync(
             result.Succeeded
                 ? "agent-isolation.runtime-host.installation.requested"
@@ -210,13 +245,28 @@ public sealed class AgentIsolationOnboardingService(
 
     private static AgentIsolationOnboardingCheckResponse RuntimeHostCheck(
         bool reachable,
-        bool installationCompleted) =>
-        reachable
+        bool installationCompleted,
+        bool installationInProgress,
+        bool accessRepairNeeded,
+        bool canAutomate) =>
+        installationInProgress
+            ? Required("runtime-host", "Privileged RuntimeHost service",
+                "C-Sweet is finishing the secure RuntimeHost installation.",
+                "Keep C-Sweet open. This step completes automatically after the Windows service has been safely replaced and validated.")
+            : reachable
             ? Passed("runtime-host", "Privileged RuntimeHost service", "The authenticated local RuntimeHost service is reachable.")
             : installationCompleted
                 ? Required("runtime-host", "Privileged RuntimeHost service",
-                    "Installation is complete. C-Sweet is validating the RuntimeHost connection.",
-                    "This normally completes automatically after the Windows service finishes starting.")
+                    accessRepairNeeded
+                        ? "The secure runtime is installed, but C-Sweet cannot connect to it from this Windows account."
+                        : canAutomate
+                            ? "The installed secure runtime could not complete validation with this version of C-Sweet."
+                        : "Installation is complete. C-Sweet is validating the RuntimeHost connection.",
+                    accessRepairNeeded
+                        ? "Choose Repair secure agent runtime below. C-Sweet will preserve the installed guest image when it is still valid."
+                        : canAutomate
+                            ? "Choose Prepare secure agent runtime below to refresh RuntimeHost and complete validation."
+                        : "This normally completes automatically after the Windows service finishes starting.")
             : Required("runtime-host", "Privileged RuntimeHost service",
                 "Next step: prepare the secure agent runtime.",
                 "C-Sweet will install and start RuntimeHost, prepare the signed guest image, and verify the local security boundary.");
@@ -224,15 +274,31 @@ public sealed class AgentIsolationOnboardingService(
     private static AgentIsolationOnboardingCheckResponse ProviderCheck(
         IsolationProviderProbeResult? probe,
         bool capabilitiesReady,
-        bool installationCompleted)
+        bool certificationActive,
+        bool installationCompleted,
+        bool installationInProgress,
+        bool accessRepairNeeded,
+        bool canAutomate)
     {
-        if (capabilitiesReady && probe is { IsAvailable: true, Certification: not null })
+        if (installationInProgress)
+            return Required("provider-certification", "Signed guest and provider certification",
+                "C-Sweet is installing and validating the certified provider.",
+                "No separate action is needed; this check completes when secure runtime preparation finishes.");
+        if (certificationActive && probe is { IsAvailable: true, Certification: not null })
             return Passed("provider-certification", "Signed guest and provider certification",
                 $"Provider certification {probe.Certification.CertificationSuiteVersion} is active.");
         if (installationCompleted)
             return Required("provider-certification", "Signed guest and provider certification",
-                "C-Sweet is completing the final security validation.",
-                "No separate action is needed; this check follows RuntimeHost validation automatically.");
+                accessRepairNeeded
+                    ? "This check will complete after C-Sweet repairs the RuntimeHost connection."
+                    : canAutomate
+                        ? "This check will complete after C-Sweet refreshes the installed secure runtime."
+                    : "C-Sweet is completing the final security validation.",
+                accessRepairNeeded
+                    ? "No separate action is needed; it is included in the RuntimeHost repair step."
+                    : canAutomate
+                        ? "No separate action is needed; it is included in secure runtime preparation."
+                    : "No separate action is needed; this check follows RuntimeHost validation automatically.");
         if (probe is not null && !capabilitiesReady)
             return Required("provider-certification", "Signed guest and provider certification",
                 "This security check will complete during secure runtime preparation.",
@@ -249,13 +315,11 @@ public sealed class AgentIsolationOnboardingService(
         string key, string name, string message, string remediation) =>
         new(key, name, "action-required", message, remediation);
 
-    private static string Sanitize(string value) =>
-        new(value.Where(character => !char.IsControl(character)).Take(256).ToArray());
-
     private static string ProvisioningMode(WindowsRuntimeHostProvisioningMode mode) => mode switch
     {
         WindowsRuntimeHostProvisioningMode.PackagedInstaller => "packaged-installer",
         WindowsRuntimeHostProvisioningMode.DeveloperBootstrap => "developer-bootstrap",
+        WindowsRuntimeHostProvisioningMode.AccessRepair => "access-repair",
         _ => "unavailable"
     };
 

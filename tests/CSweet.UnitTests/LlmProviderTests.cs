@@ -210,8 +210,16 @@ public class LlmProviderTests
         var secondProvider = await AddProfileAsync(dbContext);
         var now = DateTimeOffset.UtcNow;
 
+        var chatTurnId = Guid.NewGuid();
+        var chatLog = CreateAgentRunLog(firstProvider.Id, "agent-a", now.AddHours(-12), 100, 50);
+        chatLog.ChatTurnId = chatTurnId;
+        chatLog.ConversationId = Guid.NewGuid();
+        chatLog.InvocationKind = "primary";
+        chatLog.InvocationSequence = 1;
+        chatLog.TokenCachedInputCount = 25;
+        chatLog.PromptMemoryCharacters = 400;
         dbContext.AgentRunLogs.AddRange(
-            CreateAgentRunLog(firstProvider.Id, "agent-a", now.AddHours(-12), 100, 50),
+            chatLog,
             CreateAgentRunLog(firstProvider.Id, "agent-a", now.AddDays(-3), 30, 20),
             CreateAgentRunLog(secondProvider.Id, "agent-b", now.AddDays(-10), 10, 5),
             CreateAgentRunLog(firstProvider.Id, "agent-c", now.AddDays(-31), 999, 999));
@@ -226,6 +234,12 @@ public class LlmProviderTests
         Assert.Equal(200, summary.Last7Days.TotalTokens);
         Assert.Equal(3, summary.Last30Days.RequestCount);
         Assert.Equal(215, summary.Last30Days.TotalTokens);
+        Assert.Equal(25, summary.Last30Days.CachedInputTokens);
+        var turn = Assert.Single(summary.RecentChatTurns);
+        Assert.Equal(chatTurnId, turn.ChatTurnId);
+        Assert.Equal(1, turn.ModelCallCount);
+        Assert.Equal(400, turn.MemoryCharacters);
+        Assert.Equal(1, turn.CallsByPurpose["primary"]);
 
         Assert.Equal(200, summary.Providers.Single(provider => provider.ProviderProfileId == firstProvider.Id).Usage.TotalTokens);
         Assert.Equal(15, summary.Providers.Single(provider => provider.ProviderProfileId == secondProvider.Id).Usage.TotalTokens);

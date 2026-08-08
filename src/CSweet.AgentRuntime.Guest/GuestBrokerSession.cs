@@ -96,6 +96,8 @@ public sealed class GuestBrokerSession(
                         }
                         await SendHealthAsync(output, "running", token);
                         _ = ObserveExitAsync(output, token);
+                        if (options.WorkloadKind == 1)
+                            _ = ObserveDiagnosticsAsync(output, token);
                         break;
                     case GuestEnvelope.BodyOneofCase.ProxyResponse:
                         if (!_pending.TryRemove(command.ProxyResponse.RequestId, out var completion))
@@ -135,10 +137,11 @@ public sealed class GuestBrokerSession(
         if (!_pending.TryAdd(requestId, completion)) throw new InvalidOperationException("A broker request identifier collided.");
         try
         {
+            var purpose = PurposeFor(options.WorkloadKind, request.Path);
             var proxy = new ProxyRequest
             {
                 RequestId = requestId,
-                Purpose = "mcp.runtime",
+                Purpose = purpose,
                 Method = request.Method,
                 Path = request.Path,
                 Body = Google.Protobuf.ByteString.CopyFrom(request.Body.Span)
@@ -162,12 +165,28 @@ public sealed class GuestBrokerSession(
         }
     }
 
+    internal static string PurposeFor(int workloadKind, string path) => (workloadKind, path) switch
+    {
+        (1, "/mcp") => "mcp.runtime",
+        (0, "/build/fetch") => "build.fetch",
+        (0, "/build/artifact") => "build.artifact",
+        (0, "/build/progress") => "build.progress",
+        _ => throw new UnauthorizedAccessException("The local broker endpoint is not available to this workload.")
+    };
+
     private async Task ObserveExitAsync(Stream output, CancellationToken cancellationToken)
     {
         try
         {
             var code = await workload.WaitForExitAsync(cancellationToken);
-            await SendExitAsync(output, code, "process-exited", null, cancellationToken);
+            await SendExitAsync(
+                output,
+                code,
+                "process-exited",
+                string.IsNullOrWhiteSpace(workload.DiagnosticDetail)
+                    ? null
+                    : SanitizeDetail(workload.DiagnosticDetail),
+                cancellationToken);
         }
         catch (OperationCanceledException) { }
         catch (InvalidDataException)
@@ -175,6 +194,36 @@ public sealed class GuestBrokerSession(
             try { await SendExitAsync(output, 137, "resource-limit-exceeded", null, CancellationToken.None); }
             catch (IOException) { }
         }
+    }
+
+    private async Task ObserveDiagnosticsAsync(Stream output, CancellationToken cancellationToken)
+    {
+        string? previous = null;
+        long sequence = 0;
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+                var detail = workload.DiagnosticDetail;
+                if (string.IsNullOrWhiteSpace(detail) || string.Equals(detail, previous, StringComparison.Ordinal))
+                    continue;
+                previous = detail;
+                await WriteAsync(output, new GuestEnvelope
+                {
+                    ProtocolVersion = options.ProtocolVersion,
+                    MessageId = Guid.NewGuid().ToString("N"),
+                    StreamChunk = new StreamChunk
+                    {
+                        StreamId = "runtime.logs",
+                        Sequence = sequence++,
+                        Content = Google.Protobuf.ByteString.CopyFromUtf8(SanitizeDetail(detail))
+                    }
+                }, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (IOException) { }
     }
 
     private Task SendHealthAsync(Stream output, string state, CancellationToken cancellationToken) =>
@@ -205,7 +254,7 @@ public sealed class GuestBrokerSession(
 
     private static string SanitizeDetail(string value) => new(value
         .Where(character => !char.IsControl(character) || character == ' ')
-        .Take(512)
+        .TakeLast(8 * 1024)
         .ToArray());
 
     private async Task<GuestEnvelope> ReadRequiredAsync(Stream input, CancellationToken cancellationToken)

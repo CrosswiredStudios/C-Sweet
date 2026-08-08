@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Net.Sockets;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Runtime.Versioning;
+using Microsoft.Extensions.Logging;
 using P = CSweet.AgentRuntime.Protocol;
 
 namespace CSweet.AgentRuntime.LocalRpc;
@@ -11,7 +13,8 @@ namespace CSweet.AgentRuntime.LocalRpc;
 public sealed class RuntimeHostRpcServer(
     RuntimeHostEndpointOptions endpointOptions,
     P.RuntimeHostRequestAuthenticator authenticator,
-    RuntimeHostRequestDispatcher dispatcher)
+    RuntimeHostRequestDispatcher dispatcher,
+    ILogger<RuntimeHostRpcServer>? logger = null)
 {
     private readonly ConcurrentDictionary<int, Task> _connections = [];
     private int _connectionId;
@@ -28,29 +31,40 @@ public sealed class RuntimeHostRpcServer(
     private async Task RunNamedPipeAsync(CancellationToken cancellationToken)
     {
         var pipeSecurity = CreateWindowsPipeSecurity(endpointOptions.AllowedClientSid);
-        while (!cancellationToken.IsCancellationRequested)
+        logger?.LogInformation(
+            "RuntimeHost RPC server is listening on Windows named pipe {NamedPipeName}.",
+            endpointOptions.NamedPipeName);
+        try
         {
-            var pipe = NamedPipeServerStreamAcl.Create(
-                endpointOptions.NamedPipeName,
-                PipeDirection.InOut,
-                NamedPipeServerStream.MaxAllowedServerInstances,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous | PipeOptions.WriteThrough,
-                0,
-                0,
-                pipeSecurity,
-                HandleInheritability.None,
-                (PipeAccessRights)0);
-            try
+            while (!cancellationToken.IsCancellationRequested)
             {
-                await pipe.WaitForConnectionAsync(cancellationToken);
-                Track(HandleOwnedStreamAsync(pipe, cancellationToken));
-                pipe = null!;
+                var pipe = NamedPipeServerStreamAcl.Create(
+                    endpointOptions.NamedPipeName,
+                    PipeDirection.InOut,
+                    NamedPipeServerStream.MaxAllowedServerInstances,
+                    PipeTransmissionMode.Byte,
+                    PipeOptions.Asynchronous | PipeOptions.WriteThrough,
+                    0,
+                    0,
+                    pipeSecurity,
+                    HandleInheritability.None,
+                    (PipeAccessRights)0);
+                try
+                {
+                    await pipe.WaitForConnectionAsync(cancellationToken);
+                    Track(HandleOwnedStreamAsync(pipe, cancellationToken));
+                    pipe = null!;
+                }
+                finally
+                {
+                    pipe?.Dispose();
+                }
             }
-            finally
-            {
-                pipe?.Dispose();
-            }
+        }
+        finally
+        {
+            await AwaitConnectionsAsync();
+            logger?.LogInformation("RuntimeHost RPC server stopped accepting Windows named-pipe requests.");
         }
     }
 
@@ -133,23 +147,68 @@ public sealed class RuntimeHostRpcServer(
     {
         await using (stream)
         {
-            var request = await P.LengthDelimitedProtobuf.ReadAsync(
-                stream,
-                P.RuntimeHostEnvelope.Parser,
-                endpointOptions.MaximumFrameBytes,
-                cancellationToken);
-            if (request is null || !string.Equals(request.ProtocolVersion, "1.0", StringComparison.Ordinal)) return;
-            var authentication = authenticator.Validate(request);
-            if (!authentication.Accepted) return;
-
-            await foreach (var response in dispatcher.DispatchAsync(request, cancellationToken))
+            P.RuntimeHostEnvelope? request = null;
+            var started = Stopwatch.GetTimestamp();
+            try
             {
-                authenticator.Sign(response);
-                await P.LengthDelimitedProtobuf.WriteAsync(
+                request = await P.LengthDelimitedProtobuf.ReadAsync(
                     stream,
-                    response,
+                    P.RuntimeHostEnvelope.Parser,
                     endpointOptions.MaximumFrameBytes,
                     cancellationToken);
+                if (request is null)
+                {
+                    logger?.LogWarning("RuntimeHost client closed a connection before sending a request.");
+                    return;
+                }
+                if (!string.Equals(request.ProtocolVersion, "1.0", StringComparison.Ordinal))
+                {
+                    logger?.LogWarning(
+                        "RuntimeHost rejected request {RuntimeHostRequestId} with protocol version {ProtocolVersion}.",
+                        request.RequestId, request.ProtocolVersion);
+                    return;
+                }
+                var authentication = authenticator.Validate(request);
+                if (!authentication.Accepted)
+                {
+                    logger?.LogWarning(
+                        "RuntimeHost rejected unauthenticated {Operation} request {RuntimeHostRequestId}: {AuthenticationError}.",
+                        request.BodyCase, request.RequestId, authentication.ErrorCode);
+                    return;
+                }
+
+                logger?.LogInformation(
+                    "RuntimeHost accepted {Operation} request {RuntimeHostRequestId}.",
+                    request.BodyCase, request.RequestId);
+                await foreach (var response in dispatcher.DispatchAsync(request, cancellationToken))
+                {
+                    authenticator.Sign(response);
+                    await P.LengthDelimitedProtobuf.WriteAsync(
+                        stream,
+                        response,
+                        endpointOptions.MaximumFrameBytes,
+                        cancellationToken);
+                }
+                logger?.LogInformation(
+                    "RuntimeHost completed {Operation} request {RuntimeHostRequestId} in {ElapsedMilliseconds} ms.",
+                    request.BodyCase,
+                    request.RequestId,
+                    Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                logger?.LogInformation(
+                    "RuntimeHost canceled {Operation} request {RuntimeHostRequestId} because the service is stopping.",
+                    request?.BodyCase, request?.RequestId);
+            }
+            catch (Exception exception)
+            {
+                logger?.LogError(
+                    exception,
+                    "RuntimeHost failed {Operation} request {RuntimeHostRequestId} after {ElapsedMilliseconds} ms and closed the connection.",
+                    request?.BodyCase,
+                    request?.RequestId,
+                    Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             }
         }
     }
@@ -159,12 +218,12 @@ public sealed class RuntimeHostRpcServer(
         var id = Interlocked.Increment(ref _connectionId);
         _connections[id] = connection;
         _ = connection.ContinueWith(
-            (completed, state) =>
+            completed =>
             {
-                _ = completed.Exception;
-                ((ConcurrentDictionary<int, Task>)state!).TryRemove(id, out var _);
+                if (completed.Exception is not null)
+                    logger?.LogError(completed.Exception, "RuntimeHost connection {ConnectionId} failed.", id);
+                _connections.TryRemove(id, out var _);
             },
-            _connections,
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);

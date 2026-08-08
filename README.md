@@ -179,26 +179,33 @@ flowchart TB
         App["C-Sweet UI"]
         API["API and WorkerHost"]
         AgentHost["AgentHost<br/>policy and MCP broker"]
+        BuildBroker["Build broker<br/>source, packages, artifact validation"]
         RuntimeHost["RuntimeHost Windows service<br/>privileged VM lifecycle only"]
+        ArtifactStore["Validated content-addressed<br/>agent artifacts"]
     end
 
     subgraph Docker["Docker Desktop — trusted infrastructure"]
         Postgres[("PostgreSQL")]
     end
 
-    subgraph HyperV["Hyper-V Generation 2 VM — untrusted-code boundary"]
-        Guest["Signed guest runtime"]
-        Agent["Untrusted agent"]
-        Guest --> Agent
+    subgraph HyperV["Disposable Hyper-V Generation 2 VMs — untrusted-code boundary"]
+        BuilderGuest["Signed builder guest<br/>exact commit + brokered packages"]
+        RuntimeGuest["Clean signed runtime guest"]
+        Agent["Validated immutable agent artifact"]
+        RuntimeGuest --> Agent
     end
 
     User --> App --> API
     API --> Postgres
     API --> AgentHost
+    API --> BuildBroker
     API -->|"authenticated local RPC"| RuntimeHost
-    RuntimeHost -->|"create, start, stop, destroy"| Guest
-    Guest -->|"authenticated broker channel"| RuntimeHost
-    RuntimeHost -->|"authorized operations only"| AgentHost
+    RuntimeHost -->|"create, start, stop, destroy"| BuilderGuest
+    RuntimeHost -->|"create, start, stop, destroy"| RuntimeGuest
+    BuilderGuest -->|"authenticated Hyper-V socket"| BuildBroker
+    BuildBroker -->|"validate and store"| ArtifactStore
+    ArtifactStore -->|"read-only artifact media"| RuntimeHost
+    RuntimeGuest -->|"authenticated Hyper-V socket"| AgentHost
 ```
 
 Docker stopping prevents the development stack from starting because PostgreSQL is unavailable. It does not cause C-Sweet to downgrade agent execution into a container or host process. If the certified VM boundary is unavailable, untrusted agent execution remains disabled.

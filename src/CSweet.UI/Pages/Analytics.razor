@@ -57,7 +57,7 @@
                     @SummaryCard("Input tokens", _analytics.Totals.InputTokens, Icons.Material.Outlined.Input)
                     @SummaryCard("Output tokens", _analytics.Totals.OutputTokens, Icons.Material.Outlined.Output)
                     @SummaryCard("Total tokens", _analytics.Totals.TotalTokens, Icons.Material.Outlined.DataUsage)
-                    @SummaryCard("Requests", _analytics.Totals.RequestCount, Icons.Material.Outlined.Send)
+                    @SummaryCard("Model calls", _analytics.Totals.RequestCount, Icons.Material.Outlined.Send)
                 </section>
 
                 <MudTable T="EmployeeModelInferenceUsageResponse" Items="_analytics.Employees" Dense="true" Hover="true"
@@ -69,7 +69,7 @@
                         <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.InputTokens))">Input</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.OutputTokens))">Output</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.TotalTokens))">Total</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.RequestCount))">Requests</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.RequestCount))">Model calls</MudTableSortLabel></MudTh>
                         <MudTh>Last used</MudTh>
                     </HeaderContent>
                     <RowTemplate>
@@ -92,7 +92,7 @@
                         <MudTd DataLabel="Input">@FormatTokens(context.InputTokens)</MudTd>
                         <MudTd DataLabel="Output">@FormatTokens(context.OutputTokens)</MudTd>
                         <MudTd DataLabel="Total"><strong>@FormatTokens(context.TotalTokens)</strong></MudTd>
-                        <MudTd DataLabel="Requests">@context.RequestCount.ToString("N0")</MudTd>
+                        <MudTd DataLabel="Model calls">@context.RequestCount.ToString("N0")</MudTd>
                         <MudTd DataLabel="Last used">@FormatTimestamp(context.LastUsedAt)</MudTd>
                     </RowTemplate>
                     <NoRecordsContent>

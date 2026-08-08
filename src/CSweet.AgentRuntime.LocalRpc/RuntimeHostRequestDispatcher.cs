@@ -1,10 +1,13 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using A = CSweet.AgentRuntime.Abstractions;
 using P = CSweet.AgentRuntime.Protocol;
 
 namespace CSweet.AgentRuntime.LocalRpc;
 
-public sealed class RuntimeHostRequestDispatcher(IEnumerable<A.IPlatformIsolationBackend> backends)
+public sealed class RuntimeHostRequestDispatcher(
+    IEnumerable<A.IPlatformIsolationBackend> backends,
+    ILogger<RuntimeHostRequestDispatcher>? logger = null)
 {
     private readonly IReadOnlyDictionary<string, A.IPlatformIsolationBackend> _backends = backends
         .ToDictionary(item => item.Descriptor.ProviderId, StringComparer.Ordinal);
@@ -51,7 +54,24 @@ public sealed class RuntimeHostRequestDispatcher(IEnumerable<A.IPlatformIsolatio
     {
         if (!_backends.TryGetValue(request.ProbeRequest.ProviderId, out var backend))
             return Response(request, new P.ProbeResponse { ProviderId = request.ProbeRequest.ProviderId, UnavailableReason = "Provider is not registered." });
-        var probe = await backend.ProbeAsync(cancellationToken);
+        A.IsolationProviderProbeResult probe;
+        try
+        {
+            probe = await backend.ProbeAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception exception)
+        {
+            logger?.LogError(
+                exception,
+                "RuntimeHost probe request {RuntimeHostRequestId} failed for provider {ProviderId}.",
+                request.RequestId, request.ProbeRequest.ProviderId);
+            return Response(request, new P.ProbeResponse
+            {
+                ProviderId = request.ProbeRequest.ProviderId,
+                UnavailableReason = DiagnosticMessage("The provider readiness probe failed", request.RequestId)
+            });
+        }
         return Response(request, new P.ProbeResponse
         {
             ProviderId = probe.Descriptor.ProviderId,
@@ -75,9 +95,28 @@ public sealed class RuntimeHostRequestDispatcher(IEnumerable<A.IPlatformIsolatio
             EnsureProvider(handle, backend);
             return Response(request, new P.WorkloadHandleResponse { Success = true, Workload = RuntimeHostProtocolMapper.ToProtocol(handle) });
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException)
         {
-            return ErrorHandle(request, "invalid-workload", "The isolated workload specification was rejected.");
+            logger?.LogWarning(
+                exception,
+                "RuntimeHost create request {RuntimeHostRequestId} rejected workload {WorkloadId} for provider {ProviderId}.",
+                request.RequestId, request.CreateRequest.WorkloadId, request.CreateRequest.ProviderId);
+            return ErrorHandle(
+                request,
+                "invalid-workload",
+                DiagnosticMessage("The isolated workload specification was rejected", request.RequestId));
+        }
+        catch (Exception exception)
+        {
+            logger?.LogError(
+                exception,
+                "RuntimeHost create request {RuntimeHostRequestId} failed for workload {WorkloadId} and provider {ProviderId}.",
+                request.RequestId, request.CreateRequest.WorkloadId, request.CreateRequest.ProviderId);
+            return ErrorHandle(
+                request,
+                "provider-create-failed",
+                DiagnosticMessage("The isolation provider could not create the workload", request.RequestId));
         }
     }
 
@@ -85,7 +124,25 @@ public sealed class RuntimeHostRequestDispatcher(IEnumerable<A.IPlatformIsolatio
     {
         var (backend, handle) = Resolve(request.InspectRequest);
         if (backend is null || handle is null) return Response(request, new P.WorkloadStatusResponse { Found = false });
-        var status = await backend.InspectAsync(handle, cancellationToken);
+        A.IsolationWorkloadStatus? status;
+        try
+        {
+            status = await backend.InspectAsync(handle, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception exception)
+        {
+            logger?.LogError(
+                exception,
+                "RuntimeHost inspect request {RuntimeHostRequestId} failed for workload {WorkloadId} and provider {ProviderId}.",
+                request.RequestId, handle.WorkloadId, handle.ProviderId);
+            return Response(request, new P.WorkloadStatusResponse
+            {
+                Found = false,
+                ErrorCode = "provider-inspect-failed",
+                SanitizedError = DiagnosticMessage("The isolation provider could not inspect the workload", request.RequestId)
+            });
+        }
         if (status is null) return Response(request, new P.WorkloadStatusResponse { Found = false });
         EnsureProvider(status.Handle, backend);
         var response = new P.WorkloadStatusResponse
@@ -127,8 +184,26 @@ public sealed class RuntimeHostRequestDispatcher(IEnumerable<A.IPlatformIsolatio
             await operation(backend, handle, cancellationToken);
             return Response(request, new P.OperationResponse { Success = true });
         }
-        catch (KeyNotFoundException) { return Error(request, "workload-not-found"); }
-        catch (Exception) { return Error(request, "provider-operation-failed"); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (KeyNotFoundException exception)
+        {
+            logger?.LogWarning(
+                exception,
+                "RuntimeHost {Operation} request {RuntimeHostRequestId} did not find workload {WorkloadId} for provider {ProviderId}.",
+                request.BodyCase, request.RequestId, handle.WorkloadId, handle.ProviderId);
+            return Error(request, "workload-not-found");
+        }
+        catch (Exception exception)
+        {
+            logger?.LogError(
+                exception,
+                "RuntimeHost {Operation} request {RuntimeHostRequestId} failed for workload {WorkloadId} and provider {ProviderId}.",
+                request.BodyCase, request.RequestId, handle.WorkloadId, handle.ProviderId);
+            return Error(
+                request,
+                "provider-operation-failed",
+                DiagnosticMessage("The isolation provider operation failed", request.RequestId));
+        }
     }
 
     private async IAsyncEnumerable<P.RuntimeHostEnvelope> LogsAsync(P.RuntimeHostEnvelope request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
@@ -174,11 +249,14 @@ public sealed class RuntimeHostRequestDispatcher(IEnumerable<A.IPlatformIsolatio
             throw new InvalidDataException("The provider returned a workload handle for another provider.");
     }
 
-    private static P.RuntimeHostEnvelope Error(P.RuntimeHostEnvelope request, string code) => Response(request, new P.OperationResponse
+    private static P.RuntimeHostEnvelope Error(
+        P.RuntimeHostEnvelope request,
+        string code,
+        string message = "The runtime-host operation was rejected.") => Response(request, new P.OperationResponse
     {
         Success = false,
         ErrorCode = code,
-        SanitizedError = "The runtime-host operation was rejected."
+        SanitizedError = message
     });
 
     private static P.RuntimeHostEnvelope ErrorHandle(P.RuntimeHostEnvelope request, string code, string message) => Response(request, new P.WorkloadHandleResponse
@@ -228,4 +306,7 @@ public sealed class RuntimeHostRequestDispatcher(IEnumerable<A.IPlatformIsolatio
         ProtocolVersion = request.ProtocolVersion,
         RequestId = request.RequestId
     };
+
+    private static string DiagnosticMessage(string message, string requestId) =>
+        $"{message}. Diagnostic request: {requestId}.";
 }

@@ -17,6 +17,7 @@ autoinstall:
     layout:
       name: direct
   packages:
+    - dotnet-sdk-10.0
     - linux-tools-virtual
     - linux-cloud-tools-common
     - linux-cloud-tools-virtual

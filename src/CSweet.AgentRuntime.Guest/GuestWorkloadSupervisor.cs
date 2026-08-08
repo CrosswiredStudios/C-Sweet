@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace CSweet.AgentRuntime.Guest;
 
 public interface IGuestWorkloadSupervisor : IAsyncDisposable
 {
     bool IsRunning { get; }
+    string? DiagnosticDetail { get; }
     Task StartAsync(IReadOnlyList<string> entrypoint, long maximumLogBytes, CancellationToken cancellationToken);
     Task<int> WaitForExitAsync(CancellationToken cancellationToken);
     Task StopAsync(TimeSpan gracePeriod, CancellationToken cancellationToken);
@@ -16,8 +18,18 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
     private Process? _process;
     private Task[] _logDrains = [];
     private long _logBytes;
+    private readonly object _diagnosticLock = new();
+    private readonly StringBuilder _diagnosticTail = new();
 
     public bool IsRunning => _process is { HasExited: false };
+    public string? DiagnosticDetail
+    {
+        get
+        {
+            lock (_diagnosticLock)
+                return _diagnosticTail.Length == 0 ? null : _diagnosticTail.ToString();
+        }
+    }
 
     public Task StartAsync(IReadOnlyList<string> entrypoint, long maximumLogBytes, CancellationToken cancellationToken)
     {
@@ -28,9 +40,10 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
             throw new ArgumentOutOfRangeException(nameof(maximumLogBytes));
 
         var executable = ResolveExecutable(entrypoint[0]);
+        var runAsUnprivilegedUser = !OperatingSystem.IsWindows();
         var start = new ProcessStartInfo
         {
-            FileName = executable,
+            FileName = runAsUnprivilegedUser ? "/usr/bin/setpriv" : executable,
             WorkingDirectory = _artifactRoot,
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -38,6 +51,15 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
             RedirectStandardInput = false,
             CreateNoWindow = true
         };
+        if (runAsUnprivilegedUser)
+        {
+            start.ArgumentList.Add("--reuid=" + GuestUnixFilePermissions.WorkloadUser);
+            start.ArgumentList.Add("--regid=" + GuestUnixFilePermissions.WorkloadUser);
+            start.ArgumentList.Add("--init-groups");
+            start.ArgumentList.Add("--no-new-privs");
+            start.ArgumentList.Add("--");
+            start.ArgumentList.Add(executable);
+        }
         foreach (var argument in entrypoint.Skip(1))
         {
             if (argument.IndexOf('\0') >= 0 || argument.Length > 4096)
@@ -50,6 +72,10 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
         start.Environment["CSWEET_BROKER_ONLY"] = "1";
         start.Environment["CSweet__Agent__McpEndpoint"] = "http://localhost/mcp";
         start.Environment["CSweet__Agent__McpUnixSocketPath"] = options.LocalBrokerSocketPath;
+        // The builder validates and packages exactly one canonical manifest under this name.
+        // Override stale agent appsettings so previously published packages cannot point the SDK
+        // at the retired csweet-agent.json convention.
+        start.Environment["CSweet__Agent__ManifestPath"] = "csweet-plugin.json";
         if (options.WorkloadKind == 1)
         {
             WriteWorkloadToken();
@@ -124,10 +150,23 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
         {
             var read = await input.ReadAsync(buffer, cancellationToken);
             if (read == 0) return;
+            AppendDiagnostic(buffer.AsSpan(0, read));
             if (Interlocked.Add(ref _logBytes, read) <= maximumLogBytes) continue;
             var process = _process;
             if (process is { HasExited: false }) process.Kill(entireProcessTree: true);
             throw new InvalidDataException("The workload exceeded its bounded log volume.");
+        }
+    }
+
+    private void AppendDiagnostic(ReadOnlySpan<byte> content)
+    {
+        var text = Encoding.UTF8.GetString(content);
+        lock (_diagnosticLock)
+        {
+            _diagnosticTail.Append(text);
+            const int maximumCharacters = 8 * 1024;
+            if (_diagnosticTail.Length > maximumCharacters)
+                _diagnosticTail.Remove(0, _diagnosticTail.Length - maximumCharacters);
         }
     }
 
@@ -137,6 +176,9 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
         Directory.CreateDirectory(directory);
         File.WriteAllText(options.WorkloadTokenPath, options.BootToken);
         if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(options.WorkloadTokenPath, UnixFileMode.UserRead);
+            GuestUnixFilePermissions.GrantWorkloadGroupAsync(
+                options.WorkloadTokenPath,
+                UnixFileMode.UserRead | UnixFileMode.GroupRead,
+                CancellationToken.None).GetAwaiter().GetResult();
     }
 }

@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -13,10 +15,13 @@ var checks = new Dictionary<string, bool>(StringComparer.Ordinal)
     ["ephemeral-scratch-mounted"] = IsScratchMounted(),
     ["outbound-network-denied"] = await OutboundNetworkDeniedAsync(),
     ["broker-socket-present"] = File.Exists(
-        Environment.GetEnvironmentVariable("CSweet__Agent__McpUnixSocketPath") ?? string.Empty)
+        Environment.GetEnvironmentVariable("CSweet__Agent__McpUnixSocketPath") ?? string.Empty),
+    ["workload-unprivileged"] = !OperatingSystem.IsLinux() || NativeMethods.GetEffectiveUserId() != 0,
+    ["builder-executable-present"] = File.Exists("/usr/lib/csweet/builder/CSweet.AgentRuntime.Builder"),
+    ["dotnet-sdk-present"] = await DotNetSdkPresentAsync()
 };
 var report = new GuestProbeReport(
-    "csweet-windows-hyperv-smoke-v1",
+    "csweet-windows-hyperv-smoke-v12",
     checks.All(check => check.Value),
     checks,
     Environment.OSVersion.VersionString,
@@ -94,6 +99,36 @@ static async Task<bool> OutboundNetworkDeniedAsync()
     }
 }
 
+static async Task<bool> DotNetSdkPresentAsync()
+{
+    if (!File.Exists("/usr/bin/dotnet")) return false;
+    try
+    {
+        var start = new ProcessStartInfo("/usr/bin/dotnet")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        start.ArgumentList.Add("--list-sdks");
+        using var process = Process.Start(start);
+        if (process is null) return false;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var outputTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
+        var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
+        await process.WaitForExitAsync(timeout.Token);
+        var output = await outputTask;
+        await errorTask;
+        return process.ExitCode == 0 && output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Any(line => line.TrimStart().StartsWith("10.", StringComparison.Ordinal));
+    }
+    catch (Exception exception) when (exception is IOException or InvalidOperationException or OperationCanceledException)
+    {
+        return false;
+    }
+}
+
 static async Task PostReportAsync(byte[] body)
 {
     var path = Environment.GetEnvironmentVariable("CSweet__Agent__McpUnixSocketPath") ??
@@ -119,3 +154,9 @@ internal sealed record GuestProbeReport(
     IReadOnlyDictionary<string, bool> Checks,
     string GuestOperatingSystem,
     DateTimeOffset CompletedAt);
+
+internal static class NativeMethods
+{
+    [DllImport("libc", EntryPoint = "geteuid")]
+    internal static extern uint GetEffectiveUserId();
+}

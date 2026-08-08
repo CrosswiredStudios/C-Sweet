@@ -13,19 +13,30 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
     private readonly object _progressLock = new();
     private string? _activeProgressPath;
 
-    public WindowsRuntimeHostProvisioningInfo GetProvisioningInfo()
+    public WindowsRuntimeHostProvisioningInfo GetProvisioningInfo(bool preferAccessRepair = false)
     {
         if (!OperatingSystem.IsWindows())
             return Unavailable("Secure local agent setup is currently available only on Windows.");
         if (!Environment.UserInteractive)
             return Unavailable("Open C-Sweet in an interactive Windows session to continue secure agent setup.");
-        if (GetProgress() is { } progress && IsActiveProgress(progress))
+        var progress = GetProgress();
+        if (progress is not null && IsActiveProgress(progress))
         {
             return new WindowsRuntimeHostProvisioningInfo(
                 WindowsRuntimeHostProvisioningMode.Unavailable,
                 false,
                 "Secure agent runtime preparation is running",
                 progress.Message);
+        }
+        if (preferAccessRepair &&
+            progress is { State: WindowsRuntimeHostProvisioningState.Completed } &&
+            TryResolveAccessRepair(out _))
+        {
+            return new WindowsRuntimeHostProvisioningInfo(
+                WindowsRuntimeHostProvisioningMode.AccessRepair,
+                true,
+                "Repair secure agent runtime",
+                "C-Sweet will request administrator approval and refresh RuntimeHost access for this Windows account without rebuilding the guest image.");
         }
         if (TryResolveInstaller(out _))
         {
@@ -91,6 +102,7 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
     }
 
     public Task<WindowsRuntimeHostInstallResult> LaunchInstallerAsync(
+        WindowsRuntimeHostProvisioningAction action,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -98,8 +110,13 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
             return Task.FromResult(Failure("unsupported_host", "RuntimeHost installation is currently available only on Windows."));
         if (!Environment.UserInteractive)
             return Task.FromResult(Failure("interactive_session_required", "Open C-Sweet in an interactive Windows session to install RuntimeHost."));
-        if (GetProgress() is { } progress && IsActiveProgress(progress))
+        var progress = GetProgress();
+        if (progress is not null && IsActiveProgress(progress))
             return Task.FromResult(Failure("preparation_already_running", "Secure runtime preparation is already running."));
+        if (action == WindowsRuntimeHostProvisioningAction.RepairAccess &&
+            progress is { State: WindowsRuntimeHostProvisioningState.Completed } &&
+            TryResolveAccessRepair(out var repair))
+            return Task.FromResult(LaunchElevated(repair, WindowsRuntimeHostProvisioningMode.AccessRepair));
         if (TryResolveInstaller(out var installer))
             return Task.FromResult(LaunchElevated(installer, WindowsRuntimeHostProvisioningMode.PackagedInstaller));
         if (TryResolveDeveloperBootstrap(out var bootstrap))
@@ -143,7 +160,7 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
             start.ArgumentList.Add("-PayloadRoot");
             start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(script)!, "payload"));
         }
-        else
+        else if (mode == WindowsRuntimeHostProvisioningMode.DeveloperBootstrap)
         {
             start.ArgumentList.Add("-NoElevation");
         }
@@ -159,6 +176,8 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
                 : new WindowsRuntimeHostInstallResult(true, null,
                     mode == WindowsRuntimeHostProvisioningMode.DeveloperBootstrap
                         ? "Windows opened the guided development preparation. Approve the administrator prompt and leave the preparation window open; C-Sweet will recheck automatically."
+                        : mode == WindowsRuntimeHostProvisioningMode.AccessRepair
+                            ? "Windows opened the secure runtime repair. Approve the administrator prompt; C-Sweet will recheck automatically."
                         : "Windows opened the secure runtime installer. Approve the administrator prompt and leave the installer open; C-Sweet will recheck automatically.",
                     true);
         }
@@ -204,6 +223,32 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
             return false;
         path = candidate;
         return true;
+    }
+
+    internal static bool TryResolveAccessRepair(out string path)
+    {
+        var candidates = new List<string>();
+        var bootstrap = Environment.GetEnvironmentVariable(DeveloperBootstrapEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(bootstrap) && Path.IsPathFullyQualified(bootstrap))
+            candidates.Add(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(bootstrap))!,
+                "Repair-CSweetRuntimeHostAccess.ps1"));
+        candidates.Add(Path.Combine(AppContext.BaseDirectory, "windows-runtime",
+            "Repair-CSweetRuntimeHostAccess.ps1"));
+
+        path = string.Empty;
+        foreach (var candidate in candidates)
+        {
+            if (!Path.IsPathFullyQualified(candidate)) continue;
+            var fullPath = Path.GetFullPath(candidate);
+            if (!File.Exists(fullPath) ||
+                !Path.GetFileName(fullPath).Equals("Repair-CSweetRuntimeHostAccess.ps1", StringComparison.OrdinalIgnoreCase) ||
+                !File.Exists(Path.Combine(Path.GetDirectoryName(fullPath)!, "CSweet.WindowsSetupProgress.ps1")) ||
+                (File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0)
+                continue;
+            path = fullPath;
+            return true;
+        }
+        return false;
     }
 
     private static WindowsRuntimeHostProvisioningInfo Unavailable(string reason) => new(

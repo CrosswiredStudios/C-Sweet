@@ -218,6 +218,51 @@ public sealed class WindowsHyperVOnboardingTests
     }
 
     [Fact]
+    public void AccessRepair_ResolvesOnlyBundledSiblingScript()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"csweet-windows-repair-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var bootstrap = Path.Combine(directory, "Initialize-CSweetWindowsIsolationTest.ps1");
+        var repair = Path.Combine(directory, "Repair-CSweetRuntimeHostAccess.ps1");
+        File.WriteAllText(bootstrap, "# test bootstrap");
+        File.WriteAllText(repair, "# test repair");
+        File.WriteAllText(Path.Combine(directory, "CSweet.WindowsSetupProgress.ps1"), "# test progress helper");
+        var original = Environment.GetEnvironmentVariable(
+            WindowsRuntimeHostProvisioner.DeveloperBootstrapEnvironmentVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                WindowsRuntimeHostProvisioner.DeveloperBootstrapEnvironmentVariable,
+                bootstrap);
+
+            Assert.True(WindowsRuntimeHostProvisioner.TryResolveAccessRepair(out var resolved));
+            Assert.Equal(Path.GetFullPath(repair), resolved);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                WindowsRuntimeHostProvisioner.DeveloperBootstrapEnvironmentVariable,
+                original);
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AccessRepair_ValidatesInstalledServicePathAndUpdatesOnlyAccessConfiguration()
+    {
+        var repair = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "windows", "Repair-CSweetRuntimeHostAccess.ps1"));
+
+        Assert.Contains("Resolve-ProtectedInstalledPath", repair, StringComparison.Ordinal);
+        Assert.Contains("AllowedClientSid = $ControlPlaneUserSid", repair, StringComparison.Ordinal);
+        Assert.Contains("runtime-host.key", repair, StringComparison.Ordinal);
+        Assert.Contains("Stop-Service -Name $serviceName", repair, StringComparison.Ordinal);
+        Assert.Contains("Start-Service -Name $serviceName", repair, StringComparison.Ordinal);
+        Assert.DoesNotContain("Remove-VM", repair, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("GuestImage", repair, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProgressStore_ReadsLatestValidatedProvisioningProgress()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"csweet-windows-progress-{Guid.NewGuid():N}");
@@ -248,7 +293,8 @@ public sealed class WindowsHyperVOnboardingTests
                 estimatedRemainingMaximumSeconds = 2100,
                 requiresRestart = false,
                 errorCode = (string?)null,
-                errorMessage = (string?)null
+                errorMessage = (string?)null,
+                ownerProcessId = Environment.ProcessId
             }));
 
             var progress = WindowsRuntimeHostProgressStore.ReadLatest(null);
@@ -259,6 +305,85 @@ public sealed class WindowsHyperVOnboardingTests
             Assert.Equal(24, progress.PercentComplete);
             Assert.Equal(900, progress.EstimatedRemainingMinimumSeconds);
             Assert.Equal(2100, progress.EstimatedRemainingMaximumSeconds);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                WindowsRuntimeHostProgressStore.ProgressRootEnvironmentVariable,
+                original);
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(WindowsRuntimeHostProvisioningState.Running, true)]
+    [InlineData(WindowsRuntimeHostProvisioningState.RestartRequired, false)]
+    [InlineData(WindowsRuntimeHostProvisioningState.Completed, false)]
+    [InlineData(WindowsRuntimeHostProvisioningState.Failed, false)]
+    public void ProgressStore_OnlyResumesRunningWorkAcrossApplicationRestart(
+        WindowsRuntimeHostProvisioningState state,
+        bool expected)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var progress = new WindowsRuntimeHostProvisioningProgress(
+            Guid.NewGuid(),
+            "developer-bootstrap",
+            state,
+            "certify-runtime",
+            "Certifying hardware isolation",
+            "A disposable VM is running the certification probe.",
+            70,
+            now.AddMinutes(-5),
+            now,
+            120,
+            480,
+            false,
+            state == WindowsRuntimeHostProvisioningState.Failed ? "certification-failed" : null,
+            state == WindowsRuntimeHostProvisioningState.Failed ? "An earlier probe failed." : null,
+            Environment.ProcessId);
+
+        Assert.Equal(expected, WindowsRuntimeHostProgressStore.CanResumeAcrossApplicationRestart(progress));
+    }
+
+    [Fact]
+    public void ProgressStore_DoesNotReplayTerminalHistoryInNewApplicationProcess()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"csweet-windows-terminal-history-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var original = Environment.GetEnvironmentVariable(
+            WindowsRuntimeHostProgressStore.ProgressRootEnvironmentVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                WindowsRuntimeHostProgressStore.ProgressRootEnvironmentVariable,
+                directory);
+            var jobId = Guid.NewGuid();
+            var startedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
+            var path = WindowsRuntimeHostProgressStore.CreatePath(jobId);
+            File.WriteAllText(path, JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1,
+                jobId,
+                workflow = "developer-bootstrap",
+                state = "failed",
+                phaseKey = "certify-runtime",
+                phaseDisplayName = "Certifying hardware isolation",
+                message = "An earlier certification probe failed.",
+                percentComplete = 71,
+                startedAt,
+                updatedAt = DateTimeOffset.UtcNow,
+                estimatedRemainingMinimumSeconds = (int?)null,
+                estimatedRemainingMaximumSeconds = (int?)null,
+                requiresRestart = false,
+                errorCode = "certification-failed",
+                errorMessage = "An earlier probe failed.",
+                ownerProcessId = Environment.ProcessId
+            }));
+
+            Assert.Null(WindowsRuntimeHostProgressStore.ReadLatest(null));
+            Assert.Equal(
+                WindowsRuntimeHostProvisioningState.Failed,
+                WindowsRuntimeHostProgressStore.ReadLatest(path)?.State);
         }
         finally
         {

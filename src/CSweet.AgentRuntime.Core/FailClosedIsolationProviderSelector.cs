@@ -101,6 +101,7 @@ public sealed class FailClosedIsolationProviderSelector(
         string.Equals(certification.ProviderVersion, descriptor.ProviderVersion, StringComparison.Ordinal) &&
         string.Equals(certification.HostOperatingSystem, descriptor.HostOperatingSystem, StringComparison.OrdinalIgnoreCase) &&
         string.Equals(certification.HostArchitecture, descriptor.HostArchitecture, StringComparison.OrdinalIgnoreCase) &&
-        string.Equals(certification.GuestImageDigest, request.GuestImageDigest, StringComparison.Ordinal) &&
+        (request.GuestImageDigest is null ||
+         string.Equals(certification.GuestImageDigest, request.GuestImageDigest, StringComparison.Ordinal)) &&
         string.Equals(certification.BrokerProtocolVersion, request.BrokerProtocolVersion, StringComparison.Ordinal);
 }

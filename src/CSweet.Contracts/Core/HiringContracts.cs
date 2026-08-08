@@ -137,6 +137,7 @@ public sealed record HiringWorkflowResponse(
     Guid? ResultOrganizationUserId = null)
 {
     public Guid? ResultAgentInstallationId { get; init; }
+    public bool ResultAgentRequiresSetup { get; init; }
 }
 
 public sealed record ConfirmHiringWorkflowRequest(

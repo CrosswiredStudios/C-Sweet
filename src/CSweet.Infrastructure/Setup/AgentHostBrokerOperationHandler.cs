@@ -1,11 +1,12 @@
 using CSweet.AgentBroker;
+using Microsoft.Extensions.Logging;
 
 namespace CSweet.Infrastructure.Setup;
 
 public sealed class AgentHostBrokerOptions
 {
     public const string SectionName = "CSweet:AgentRuntime:AgentHostBroker";
-    public string BaseUrl { get; set; } = "https+http://agenthost";
+    public string BaseUrl { get; set; } = "https+http://_mcp.agenthost";
     public int TimeoutSeconds { get; set; } = 30;
     public int MaximumResponseBytes { get; set; } = 16 * 1024 * 1024;
 
@@ -22,8 +23,21 @@ public sealed class AgentHostBrokerOptions
 
 public sealed class AgentHostBrokerOperationHandler(
     IHttpClientFactory httpClientFactory,
-    AgentHostBrokerOptions options) : IAgentBrokerOperationHandler
+    AgentHostBrokerOptions options,
+    ILogger<AgentHostBrokerOperationHandler> logger) : IAgentBrokerOperationHandler
 {
+    private static readonly HashSet<string> HopByHopHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Connection",
+        "Keep-Alive",
+        "Proxy-Authenticate",
+        "Proxy-Authorization",
+        "TE",
+        "Trailer",
+        "Transfer-Encoding",
+        "Upgrade"
+    };
+
     public async Task<BrokerOperationResult> HandleAsync(
         BrokerOperationContext request,
         CancellationToken cancellationToken)
@@ -37,7 +51,8 @@ public sealed class AgentHostBrokerOperationHandler(
         foreach (var header in request.Headers)
         {
             if (header.Key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
-                header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+                header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
+                HopByHopHeaders.Contains(header.Key))
                 continue;
             if (!message.Headers.TryAddWithoutValidation(header.Key, header.Value))
                 message.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
@@ -51,7 +66,26 @@ public sealed class AgentHostBrokerOperationHandler(
             timeout.Token);
         var headers = response.Headers
             .Concat(response.Content.Headers)
+            .Where(header =>
+                !header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) &&
+                !HopByHopHeaders.Contains(header.Key))
             .ToDictionary(header => header.Key, header => string.Join(",", header.Value), StringComparer.OrdinalIgnoreCase);
+        if (response.IsSuccessStatusCode)
+        {
+            logger.LogDebug(
+                "AgentHost broker request {RequestId} for workload {WorkloadId} completed with HTTP {StatusCode}.",
+                request.RequestId,
+                request.WorkloadId,
+                (int)response.StatusCode);
+        }
+        else
+        {
+            logger.LogWarning(
+                "AgentHost broker request {RequestId} for workload {WorkloadId} returned HTTP {StatusCode}.",
+                request.RequestId,
+                request.WorkloadId,
+                (int)response.StatusCode);
+        }
         return new BrokerOperationResult((int)response.StatusCode, headers, body);
     }
 

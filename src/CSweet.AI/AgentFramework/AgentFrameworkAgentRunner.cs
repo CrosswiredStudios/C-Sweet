@@ -36,7 +36,12 @@ public sealed class AgentFrameworkAgentRunner : IAgentRunner
             ProviderProfileId = request.ProviderProfileId,
             StartedAt = startedAt,
             Status = "Running",
-            PromptHash = ComputePromptHash(request.SystemPrompt + request.UserPrompt)
+            PromptHash = ComputePromptHash(request.SystemPrompt + request.UserPrompt),
+            InvocationKind = "agent-runner",
+            InvocationSequence = 1,
+            PromptInstructionCharacters = request.SystemPrompt?.Length ?? 0,
+            PromptMessageCharacters = request.UserPrompt.Length +
+                request.Context.Sum(item => item.Key.Length + item.Value.Length)
         };
 
         try
@@ -64,6 +69,10 @@ public sealed class AgentFrameworkAgentRunner : IAgentRunner
             domainLog.OutputPreview = Truncate(content, 500);
             domainLog.TokenInputCount = ToNullableInt(response.Usage?.InputTokenCount);
             domainLog.TokenOutputCount = ToNullableInt(response.Usage?.OutputTokenCount);
+            if (response.Usage?.AdditionalCounts is { Count: > 0 } additionalCounts)
+            {
+                domainLog.UsageAdditionalCountsJson = System.Text.Json.JsonSerializer.Serialize(additionalCounts);
+            }
             domainLog.DurationMs = stopwatch.ElapsedMilliseconds;
 
             logs.Add(new AgentRunLogEntry("Info", $"Agent run completed successfully in {stopwatch.ElapsedMilliseconds}ms", DateTimeOffset.UtcNow));

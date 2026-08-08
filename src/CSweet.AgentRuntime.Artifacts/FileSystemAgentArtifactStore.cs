@@ -88,6 +88,7 @@ public sealed class FileSystemAgentArtifactStore(
             FileOptions.Asynchronous | FileOptions.SequentialScan);
         using var reader = new TarReader(input, leaveOpen: true);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var modes = new Dictionary<string, UnixFileMode>(StringComparer.OrdinalIgnoreCase);
         var count = 0;
         long total = 0;
         ArtifactBundleManifest? manifest = null;
@@ -104,6 +105,7 @@ public sealed class FileSystemAgentArtifactStore(
             if (entry.EntryType is TarEntryType.Directory) continue;
             if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile))
                 throw new InvalidDataException("The artifact contains a link or special file.");
+            modes[name] = entry.Mode;
             if (!name.Equals("artifact.json", StringComparison.Ordinal) && !name.StartsWith("payload/", StringComparison.Ordinal))
                 throw new InvalidDataException("Artifact files must be contained beneath payload/.");
 
@@ -127,6 +129,13 @@ public sealed class FileSystemAgentArtifactStore(
         if (manifest.Entrypoint is null || manifest.Entrypoint.Count is < 1 or > 32 ||
             manifest.Entrypoint.Any(item => string.IsNullOrWhiteSpace(item) || item.Length > options.MaximumPathLength))
             throw new InvalidDataException("The artifact entrypoint is invalid.");
+        var executable = manifest.Entrypoint[0].Replace('\\', '/');
+        if (executable.StartsWith('/') || Path.IsPathRooted(executable) ||
+            executable.Split('/', StringSplitOptions.None).Any(segment => segment is "" or "." or "..") ||
+            executable.Any(char.IsControl) ||
+            !modes.TryGetValue("payload/" + executable, out var executableMode) ||
+            (executableMode & UnixFileMode.UserExecute) == 0)
+            throw new InvalidDataException("The artifact entrypoint is missing or is not executable.");
     }
 
     private string ValidateEntryName(string name)

@@ -37,7 +37,10 @@ public sealed class LlmTokenUsageService : ILlmTokenUsageService
             BuildWindow("Last 7 days", logs.Where(log => log.StartedAt >= now.AddDays(-7))),
             BuildWindow(Last30DaysLabel, logs),
             BuildProviderBreakdown(logs, providerNames),
-            BuildAgentBreakdown(logs));
+            BuildAgentBreakdown(logs))
+        {
+            RecentChatTurns = BuildRecentChatTurns(logs)
+        };
     }
 
     private static IReadOnlyList<LlmProviderTokenUsageResponse> BuildProviderBreakdown(
@@ -78,6 +81,37 @@ public sealed class LlmTokenUsageService : ILlmTokenUsageService
             items.Count,
             inputTokens,
             outputTokens,
-            inputTokens + outputTokens);
+            inputTokens + outputTokens)
+        {
+            UsageReportedCallCount = items.Count(log =>
+                log.TokenInputCount.HasValue || log.TokenOutputCount.HasValue),
+            CachedInputTokens = items.Sum(log => (long)(log.TokenCachedInputCount ?? 0)),
+            ReasoningTokens = items.Sum(log => (long)(log.TokenReasoningCount ?? 0))
+        };
     }
+
+    private static IReadOnlyList<LlmChatTurnUsageResponse> BuildRecentChatTurns(
+        IEnumerable<AgentRunLog> logs) => logs
+        .Where(log => log.ChatTurnId.HasValue)
+        .GroupBy(log => log.ChatTurnId!.Value)
+        .Select(group => new LlmChatTurnUsageResponse(
+            group.Key,
+            group.Select(log => log.ConversationId).FirstOrDefault(id => id.HasValue),
+            group.Min(log => log.StartedAt),
+            group.Max(log => log.CompletedAt ?? log.StartedAt),
+            group.Count(),
+            group.Count(log => log.TokenInputCount.HasValue || log.TokenOutputCount.HasValue),
+            group.Sum(log => (long)(log.TokenInputCount ?? 0)),
+            group.Sum(log => (long)(log.TokenCachedInputCount ?? 0)),
+            group.Sum(log => (long)(log.TokenOutputCount ?? 0)),
+            group.Sum(log => (long)(log.TokenReasoningCount ?? 0)),
+            group.Sum(log => (long)(log.PromptMessageCharacters ?? 0)),
+            group.Sum(log => (long)(log.PromptInstructionCharacters ?? 0)),
+            group.Sum(log => (long)(log.PromptToolCharacters ?? 0)),
+            group.Sum(log => (long)(log.PromptMemoryCharacters ?? 0)),
+            group.GroupBy(log => log.InvocationKind, StringComparer.Ordinal)
+                .ToDictionary(purpose => purpose.Key, purpose => purpose.Count(), StringComparer.Ordinal)))
+        .OrderByDescending(turn => turn.LastUsedAt)
+        .Take(25)
+        .ToList();
 }

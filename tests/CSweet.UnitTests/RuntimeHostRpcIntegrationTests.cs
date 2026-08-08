@@ -75,6 +75,45 @@ public sealed class RuntimeHostRpcIntegrationTests
         catch (OperationCanceledException) { }
     }
 
+    [Fact]
+    public async Task BackendFailureReturnsCorrelatedTypedErrorInsteadOfClosingPipe()
+    {
+        var descriptor = Descriptor();
+        var endpoint = new RuntimeHostEndpointOptions
+        {
+            NamedPipeName = $"csweet-runtime-test-{Guid.NewGuid():N}",
+            UnixSocketPath = Path.Combine(Path.GetTempPath(), $"csweet-runtime-test-{Guid.NewGuid():N}.sock"),
+            ConnectTimeoutSeconds = 5
+        };
+        if (OperatingSystem.IsWindows())
+            endpoint.AllowedClientSid = WindowsIdentity.GetCurrent().User?.Value;
+        var authentication = new RuntimeHostAuthenticationOptions
+        {
+            KeyId = "test",
+            SharedKeyBase64 = Convert.ToBase64String(new byte[32])
+        };
+        var server = new RuntimeHostRpcServer(
+            endpoint,
+            new RuntimeHostRequestAuthenticator(authentication, TimeProvider.System),
+            new RuntimeHostRequestDispatcher([new FailingBackend(descriptor)]));
+        using var stop = new CancellationTokenSource();
+        var serverTask = server.RunAsync(stop.Token);
+        await Task.Delay(100);
+        var client = new RuntimeHostProviderClient(
+            descriptor,
+            endpoint,
+            new RuntimeHostRequestAuthenticator(authentication, TimeProvider.System));
+
+        var exception = await Assert.ThrowsAsync<IsolationUnavailableException>(() =>
+            client.CreateAsync(Runtime()));
+
+        Assert.Contains("provider-create-failed", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Diagnostic request:", exception.Message, StringComparison.Ordinal);
+        stop.Cancel();
+        try { await serverTask; }
+        catch (OperationCanceledException) { }
+    }
+
     private static IsolationProviderDescriptor Descriptor() => new(
         "memory-test",
         "Memory test provider",
@@ -121,5 +160,32 @@ public sealed class RuntimeHostRpcIntegrationTests
         public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => inner.StopAsync(handle, gracePeriod, cancellationToken);
         public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) => inner.DestroyAsync(handle, cancellationToken);
         public IAsyncEnumerable<IsolationLogChunk> StreamLogsAsync(IsolationWorkloadHandle handle, int maximumBytes, CancellationToken cancellationToken = default) => inner.StreamLogsAsync(handle, maximumBytes, cancellationToken);
+    }
+
+    private sealed class FailingBackend(IsolationProviderDescriptor descriptor) : IPlatformIsolationBackend
+    {
+        public IsolationProviderDescriptor Descriptor { get; } = descriptor;
+        public Task<IsolationProviderProbeResult> ProbeAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new IsolationProviderProbeResult(Descriptor, true, null, null));
+        public Task<IsolationWorkloadHandle> CreateAsync(
+            IsolationWorkloadSpec workload,
+            CancellationToken cancellationToken = default) =>
+            throw new IOException("The test backend could not create a VM.");
+        public Task StartAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public async IAsyncEnumerable<IsolationLogChunk> StreamLogsAsync(
+            IsolationWorkloadHandle handle,
+            int maximumBytes,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
     }
 }

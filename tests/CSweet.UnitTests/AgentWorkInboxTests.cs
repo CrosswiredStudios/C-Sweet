@@ -283,6 +283,48 @@ public sealed class AgentWorkInboxTests
         Assert.Contains("deadline elapsed", expired.LastError, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task CancelBySourceAsync_CancelsEveryActiveAttemptForTheTurn()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        await using var db = CreateDb();
+        var installation = Installation(clock.GetUtcNow());
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(), TickId = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            QueuedAt = clock.GetUtcNow()
+        };
+        db.AddRange(installation, runtime);
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        var session = new McpAgentSession
+        {
+            Id = Guid.NewGuid(), RuntimeInstanceId = runtime.Id, TickId = runtime.TickId,
+            AgentInstallationId = installation.Id, OrganizationId = installation.BusinessId
+        };
+        var turnId = Guid.NewGuid();
+        var item = await inbox.EnqueueAsync(
+            installation.BusinessId, installation.Id, AgentWorkKind.Event, "example.event.v1",
+            Json("{}"), "cancel-by-source", clock.GetUtcNow().AddMinutes(5),
+            sourceType: "chat-turn", sourceId: turnId.ToString("D"));
+        Assert.NotNull(await inbox.ClaimAsync(session, CancellationToken.None));
+
+        var cancelled = await inbox.CancelBySourceAsync(
+            "chat-turn", turnId.ToString("D"), "Stopped by user.");
+
+        Assert.Equal(1, cancelled);
+        db.ChangeTracker.Clear();
+        var stored = await db.AgentWorkItems.Include(x => x.Attempts).SingleAsync(x => x.Id == item.Id);
+        Assert.Equal(AgentWorkStatus.Cancelled, stored.Status);
+        Assert.Equal("Stopped by user.", stored.LastError);
+        Assert.All(stored.Attempts, x =>
+        {
+            Assert.NotNull(x.FinishedAt);
+            Assert.Equal("cancelled", x.Error);
+        });
+    }
+
     private static CSweetDbContext CreateDb() => new(
         new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))

@@ -7,6 +7,8 @@ public sealed class AgentRunLog
     public Guid? OrganizationId { get; set; }
     public Guid? EmployeeId { get; set; }
     public Guid? AgentInstallationId { get; set; }
+    public Guid? ConversationId { get; set; }
+    public Guid? ChatTurnId { get; set; }
     public string AgentKey { get; set; } = string.Empty;
     public Guid ProviderProfileId { get; set; }
     public string? Model { get; set; }
@@ -19,5 +21,14 @@ public sealed class AgentRunLog
     public string? FailureMessage { get; set; }
     public int? TokenInputCount { get; set; }
     public int? TokenOutputCount { get; set; }
+    public int? TokenCachedInputCount { get; set; }
+    public int? TokenReasoningCount { get; set; }
+    public string InvocationKind { get; set; } = "agent-inference";
+    public int? InvocationSequence { get; set; }
+    public int? PromptMessageCharacters { get; set; }
+    public int? PromptInstructionCharacters { get; set; }
+    public int? PromptToolCharacters { get; set; }
+    public int? PromptMemoryCharacters { get; set; }
+    public string? UsageAdditionalCountsJson { get; set; }
     public long DurationMs { get; set; }
 }

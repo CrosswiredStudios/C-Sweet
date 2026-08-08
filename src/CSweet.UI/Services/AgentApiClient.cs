@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using CSweet.Contracts.Agents;
 
@@ -100,6 +101,15 @@ public sealed class AgentApiClient : IAgentApiClient
             null,
             cancellationToken);
 
+    public Task<AgentInstallationResponse> RetryStartupAsync(
+        Guid installationId,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<AgentInstallationResponse>(
+            HttpMethod.Post,
+            $"api/agents/installations/{installationId}/retry-startup",
+            null,
+            cancellationToken);
+
     public Task<AgentInstallationResponse> DisableAsync(
         Guid installationId,
         CancellationToken cancellationToken = default) =>
@@ -166,6 +176,11 @@ public sealed class AgentApiClient : IAgentApiClient
             $"api/agents/installations/{Uri.EscapeDataString(installationId)}/configuration",
             cancellationToken);
 
+        if (response.StatusCode == HttpStatusCode.Accepted)
+        {
+            throw await RuntimeNotReadyExceptionAsync(response, cancellationToken);
+        }
+
         if (response.IsSuccessStatusCode)
         {
             return await response.Content.ReadFromJsonAsync<AgentConfigurationSchemaResponse>(cancellationToken)
@@ -186,6 +201,11 @@ public sealed class AgentApiClient : IAgentApiClient
             request,
             cancellationToken);
 
+        if (response.StatusCode == HttpStatusCode.Accepted)
+        {
+            throw await RuntimeNotReadyExceptionAsync(response, cancellationToken);
+        }
+
         if (response.IsSuccessStatusCode)
         {
             return await response.Content.ReadFromJsonAsync<AgentConfigurationUpdateResponse>(cancellationToken)
@@ -194,6 +214,25 @@ public sealed class AgentApiClient : IAgentApiClient
 
         var error = await response.Content.ReadFromJsonAsync<AgentApiErrorResponse>(cancellationToken);
         throw new ApiClientException(response.StatusCode, error?.Error ?? "Agent configuration could not be saved.");
+    }
+
+    private static async Task<ApiClientException> RuntimeNotReadyExceptionAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        var readiness = await response.Content.ReadFromJsonAsync<AgentRuntimeReadinessResponse>(cancellationToken);
+        var detail = !string.IsNullOrWhiteSpace(readiness?.Reason)
+            ? readiness.Reason
+            : readiness?.Stage is { Length: > 0 } stage
+                ? $"Current stage: {stage}."
+                : null;
+        var message = "The agent runtime is still starting. Wait a moment and try again.";
+        if (detail is not null)
+        {
+            message = $"{message} {detail}";
+        }
+
+        return new ApiClientException(response.StatusCode, message);
     }
 
     private async Task<T> SendAsync<T>(

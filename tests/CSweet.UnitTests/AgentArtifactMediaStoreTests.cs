@@ -69,19 +69,20 @@ public sealed class AgentArtifactMediaStoreTests : IDisposable
         {
             Add(writer, "artifact.json",
                 "{\"formatVersion\":\"1.0\",\"operatingSystem\":\"linux\",\"architecture\":\"x64\",\"entrypoint\":[\"agent\"]}");
-            Add(writer, "payload/agent", "agent");
+            Add(writer, "payload/agent", "agent", executable: true);
         }
         return output.ToArray();
     }
 
-    private static void Add(TarWriter writer, string path, string content)
+    private static void Add(TarWriter writer, string path, string content, bool executable = false)
     {
         var entry = new PaxTarEntry(TarEntryType.RegularFile, path)
         {
             DataStream = new MemoryStream(Encoding.UTF8.GetBytes(content)),
             Uid = 0,
             Gid = 0,
-            Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite
+            Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                (executable ? UnixFileMode.UserExecute : 0)
         };
         writer.WriteEntry(entry);
     }

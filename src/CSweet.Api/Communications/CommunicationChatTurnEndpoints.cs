@@ -4,6 +4,7 @@ using CSweet.Api.Chat;
 using CSweet.Application.Communications;
 using CSweet.Application.Core;
 using CSweet.Contracts.Core;
+using CSweet.Infrastructure.Setup;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
 
@@ -75,6 +76,7 @@ internal static class CommunicationChatTurnEndpoints
     private static async Task<IResult> CancelAsync(
         Guid organizationId, Guid chatId, Guid turnId, HttpContext http,
         ICommunicationHubService hub, IChatTurnService turns, IChatTurnEventRouter router,
+        IChatStreamRouter streamRouter, AgentWorkInbox inbox,
         CancellationToken cancellationToken)
     {
         if (!await CanAccessAsync(organizationId, chatId, http, hub, cancellationToken)) return Results.Forbid();
@@ -84,6 +86,13 @@ internal static class CommunicationChatTurnEndpoints
             "The user cancelled this turn.", cancellationToken: cancellationToken);
         router.Publish(traceEvent);
         if (!await turns.CancelAsync(organizationId, turnId, cancellationToken)) return Results.NotFound();
+        await inbox.CancelBySourceAsync(
+            "chat-turn",
+            turnId.ToString("D"),
+            "The user stopped this response.",
+            cancellationToken);
+        streamRouter.Complete(turnId);
+        streamRouter.UnbindAlias(chatId, turnId);
         return Results.Ok(await turns.GetAsync(organizationId, turnId, cancellationToken));
     }
 

@@ -126,7 +126,7 @@
                     <dd>@FormatTokens(SelectedProviderUsage?.Usage.OutputTokens ?? 0)</dd>
                 </div>
                 <div>
-                    <dt>30d requests</dt>
+                    <dt>30d model calls</dt>
                     <dd>@((SelectedProviderUsage?.Usage.RequestCount ?? 0).ToString("N0"))</dd>
                 </div>
             </dl>
@@ -701,7 +701,7 @@
 
     private static RenderFragment UsageCard(string label, LlmTokenUsageWindowResponse usage) => @<MudPaper Elevation="1" Class="usage-summary-card">
         <MudText Typo="Typo.overline" Color="Color.Secondary">@label</MudText>
-        <MudText Typo="Typo.caption" Color="Color.Secondary">@usage.RequestCount.ToString("N0") requests</MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@usage.RequestCount.ToString("N0") model calls · @usage.UsageReportedCallCount.ToString("N0") with usage</MudText>
         <div class="usage-token-breakdown">
             <div>
                 <span>Input</span>

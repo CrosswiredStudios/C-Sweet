@@ -91,8 +91,11 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
 var workerHost = builder.AddProject<Projects.CSweet_WorkerHost>("workerhost")
     .WithReference(api)
     .WithReference(postgres)
+    .WithReference(agentHostEndpoint)
+    .WithEnvironment("CSweet__AgentRuntime__AgentHostBroker__BaseUrl", agentHostEndpoint)
     .WaitFor(postgres)
     .WaitForCompletion(migrator)
+    .WaitFor(agentHost)
     .WaitFor(api);
 
 var gitHost = builder.AddProject<Projects.CSweet_GitHost>("githost")

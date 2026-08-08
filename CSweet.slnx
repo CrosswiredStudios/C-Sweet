@@ -4,6 +4,7 @@
     <Project Path="src/CSweet.AgentRuntime.Abstractions/CSweet.AgentRuntime.Abstractions.csproj" />
     <Project Path="src/CSweet.AgentRuntime.AppleVirtualization/CSweet.AgentRuntime.AppleVirtualization.csproj" />
     <Project Path="src/CSweet.AgentRuntime.Artifacts/CSweet.AgentRuntime.Artifacts.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.Builder/CSweet.AgentRuntime.Builder.csproj" />
     <Project Path="src/CSweet.AgentRuntime.Core/CSweet.AgentRuntime.Core.csproj" />
     <Project Path="src/CSweet.AgentRuntime.Guest/CSweet.AgentRuntime.Guest.csproj" />
     <Project Path="src/CSweet.AgentRuntime.GuestProbe/CSweet.AgentRuntime.GuestProbe.csproj" />
@@ -35,5 +36,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj" />
     <Project Path="tests/CSweet.UnitTests/CSweet.UnitTests.csproj" />
+    <Project Path="tests/CSweet.WindowsSystemTest/CSweet.WindowsSystemTest.csproj" />
   </Folder>
 </Solution>

@@ -28,6 +28,8 @@ public sealed class AgentMemoryServiceTests
             var employeeId = Guid.NewGuid();
             var installationId = Guid.NewGuid();
             var packageId = Guid.NewGuid();
+            var turnId = Guid.NewGuid();
+            var providerId = Guid.NewGuid();
             db.CoreOrganizations.Add(new Organization { Id = organizationId, Name = "Test", CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
             db.CoreOrganizationUsers.Add(new OrganizationUser { Id = humanId, OrganizationId = organizationId, ApplicationUserId = applicationUserId, DisplayName = "Owner", EmployeeType = EmployeeType.Human, CreatedAt = DateTimeOffset.UtcNow });
             db.CoreOrganizationUsers.Add(new OrganizationUser { Id = otherHumanId, OrganizationId = organizationId, DisplayName = "Other", EmployeeType = EmployeeType.Human, CreatedAt = DateTimeOffset.UtcNow });
@@ -40,13 +42,24 @@ public sealed class AgentMemoryServiceTests
             var first = new Conversation { Id = Guid.NewGuid(), OrganizationId = organizationId, AgentOrganizationUserId = employeeId, InitiatedByOrganizationUserId = humanId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
             var second = new Conversation { Id = Guid.NewGuid(), OrganizationId = organizationId, AgentOrganizationUserId = employeeId, InitiatedByOrganizationUserId = humanId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
             var otherRelationship = new Conversation { Id = Guid.NewGuid(), OrganizationId = organizationId, AgentOrganizationUserId = employeeId, InitiatedByOrganizationUserId = otherHumanId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
-            var message = new ConversationMessage { Id = Guid.NewGuid(), ConversationId = first.Id, Conversation = first, Role = ConversationRole.User, Content = "My name is Alice.", CreatedAt = DateTimeOffset.UtcNow };
+            var message = new ConversationMessage { Id = Guid.NewGuid(), ConversationId = first.Id, Conversation = first, ChatTurnId = turnId, Role = ConversationRole.User, Content = "My name is Alice.", CreatedAt = DateTimeOffset.UtcNow };
             db.CoreConversations.AddRange(first, second, otherRelationship);
             db.CoreConversationMessages.Add(message);
+            db.LlmProviderProfiles.Add(new LlmProviderProfile
+            {
+                Id = providerId,
+                Name = "Test provider",
+                ProviderType = LlmProviderType.LmStudio,
+                BaseUrl = "http://test-provider/v1",
+                DefaultChatModel = "test-model",
+                IsEnabled = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
             db.MemoryCaptureOutbox.Add(new MemoryCaptureOutboxItem { Id = Guid.NewGuid(), ConversationMessageId = message.Id, Status = MemoryCaptureStatus.Pending, CreatedAt = DateTimeOffset.UtcNow, NextAttemptAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
 
-            var service = new AgentMemoryService(db, store, new ThrowingProviderFactory(), NullLogger<AgentMemoryService>.Instance);
+            var service = new AgentMemoryService(db, store, new UsageProviderFactory(), NullLogger<AgentMemoryService>.Instance);
             await service.CaptureMessageAsync(message.Id);
 
             var recalled = await service.RecallForConversationAsync(second.Id, "What is my name?");
@@ -65,6 +78,16 @@ public sealed class AgentMemoryServiceTests
             var registered = Assert.Single(await db.AgentMemoryNamespaces.ToListAsync());
             Assert.Equal(employeeId, registered.EmployeeId);
             Assert.Equal(humanId, registered.UserId);
+
+            Assert.Equal(1, await service.ProcessPendingAsync());
+            var enrichmentRun = Assert.Single(await db.AgentRunLogs.ToListAsync());
+            Assert.Equal("memory-enrichment", enrichmentRun.InvocationKind);
+            Assert.Equal(first.Id, enrichmentRun.ConversationId);
+            Assert.Equal(turnId, enrichmentRun.ChatTurnId);
+            Assert.Equal(providerId, enrichmentRun.ProviderProfileId);
+            Assert.Equal(23, enrichmentRun.TokenInputCount);
+            Assert.Equal(7, enrichmentRun.TokenOutputCount);
+            Assert.True(enrichmentRun.PromptMessageCharacters > message.Content.Length);
         }
         finally
         {
@@ -73,9 +96,35 @@ public sealed class AgentMemoryServiceTests
         }
     }
 
-    private sealed class ThrowingProviderFactory : ILlmProviderFactory
+    private sealed class UsageProviderFactory : ILlmProviderFactory
     {
         public Task<IChatClient> CreateChatClientAsync(Guid providerProfileId, CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Enrichment is not used by this test.");
+            Task.FromResult<IChatClient>(new UsageChatClient());
+    }
+
+    private sealed class UsageChatClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                "{\"entities\":[],\"claims\":[],\"edges\":[],\"procedures\":[]}"))
+            {
+                Usage = new UsageDetails { InputTokenCount = 23, OutputTokenCount = 7 }
+            });
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            AsyncEnumerable.Empty<ChatResponseUpdate>();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) =>
+            serviceType.IsInstanceOfType(this) ? this : null;
+
+        public void Dispose()
+        {
+        }
     }
 }

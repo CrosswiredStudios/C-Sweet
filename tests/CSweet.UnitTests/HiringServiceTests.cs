@@ -771,6 +771,7 @@ public sealed class HiringServiceTests
         Assert.Equal("Approved", confirmed?.Status);
         Assert.Equal(confirmed, duplicate);
         Assert.Equal(Guid.Empty, confirmed?.RecommendationId);
+        Assert.False(confirmed?.ResultAgentRequiresSetup);
         Assert.Equal(2, import.Requests.Count);
         Assert.Equal(3, preview.ConfigurationFields.Count);
         var tone = preview.ConfigurationFields.Single(field => field.Key == "responseTone");
@@ -778,6 +779,7 @@ public sealed class HiringServiceTests
         Assert.Equal(["concise", "balanced", "detailed"], tone.Options!.Select(option => option.Value).ToArray());
         Assert.Equal("Avery", preview.EmployeeDisplayName);
         Assert.Equal(1, installations.InstallCount);
+        Assert.Equal(1024, installations.Request!.MemoryMb);
         Assert.Equal("test-model", installations.Request!.ConfigurationSettings["llmModel"].GetString());
         Assert.Equal("Avery", organizationUsers.CreatedRequest?.DisplayName);
         Assert.Equal(installations.InstallationId, organizationUsers.CreatedRequest?.AgentInstallationId);
@@ -1086,6 +1088,8 @@ public sealed class HiringServiceTests
         public Task<AgentInstallationResponse> RunNowAsync(Guid installationId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<AgentInstallationResponse> RetryBuildAsync(Guid installationId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<AgentInstallationResponse> RetryStartupAsync(Guid installationId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<AgentInstallationResponse> DisableAsync(Guid installationId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

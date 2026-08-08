@@ -29,6 +29,8 @@ public sealed class PlatformLlmCapabilityHandlerTests
         var organizationId = Guid.NewGuid();
         var installationId = Guid.NewGuid();
         var employeeId = Guid.NewGuid();
+        var conversationId = Guid.NewGuid();
+        var chatTurnId = Guid.NewGuid();
         db.LlmProviderProfiles.Add(new LlmProviderProfile
         {
             Id = providerId,
@@ -65,7 +67,25 @@ public sealed class PlatformLlmCapabilityHandlerTests
             {
                 providerProfileId = providerId,
                 model = "test-model",
-                messages = new[] { new { role = "user", text = "Hello" } }
+                messages = new[] { new { role = "user", text = "<memory_context>remembered</memory_context>Hello" } },
+                instructions = "Be concise.",
+                tools = new[]
+                {
+                    new
+                    {
+                        name = "lookup",
+                        description = "Look up a value.",
+                        jsonSchema = JsonSerializer.SerializeToElement(new { type = "object" })
+                    }
+                },
+                telemetry = new
+                {
+                    conversationId,
+                    chatTurnId,
+                    invocationKind = "tool-followup",
+                    invocationSequence = 2,
+                    memoryCharacterCount = 10
+                }
             }, JsonOptions))
         };
         var session = new AgentSession(
@@ -107,6 +127,15 @@ public sealed class PlatformLlmCapabilityHandlerTests
         Assert.Equal("Completed", runLog.Status);
         Assert.Equal(12, runLog.TokenInputCount);
         Assert.Equal(34, runLog.TokenOutputCount);
+        Assert.Equal(conversationId, runLog.ConversationId);
+        Assert.Equal(chatTurnId, runLog.ChatTurnId);
+        Assert.Equal("tool-followup", runLog.InvocationKind);
+        Assert.Equal(2, runLog.InvocationSequence);
+        Assert.Equal(10, runLog.PromptMemoryCharacters);
+        Assert.True(runLog.PromptMessageCharacters > 0);
+        Assert.True(runLog.PromptInstructionCharacters > 0);
+        Assert.True(runLog.PromptToolCharacters > 0);
+        Assert.Equal(5, runLog.TokenCachedInputCount);
 
         var globalUsage = await new LlmTokenUsageService(db).GetSummaryAsync();
         var agentUsage = Assert.Single(globalUsage.Agents, x => x.AgentKey == "test-agent");
@@ -243,7 +272,15 @@ public sealed class PlatformLlmCapabilityHandlerTests
             yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("Hello ")]);
             yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("world")]);
             yield return new ChatResponseUpdate(ChatRole.Assistant,
-                [new UsageContent(new UsageDetails { InputTokenCount = 12, OutputTokenCount = 34 })]);
+                [new UsageContent(new UsageDetails
+                {
+                    InputTokenCount = 12,
+                    OutputTokenCount = 34,
+                    AdditionalCounts = new AdditionalPropertiesDictionary<long>
+                    {
+                        ["input_cached_tokens"] = 5
+                    }
+                })]);
         }
 
         public object? GetService(Type serviceType, object? serviceKey = null) =>

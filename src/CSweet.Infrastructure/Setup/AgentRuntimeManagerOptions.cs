@@ -3,6 +3,8 @@ namespace CSweet.Infrastructure.Setup;
 public sealed class AgentRuntimeManagerOptions
 {
     public const string SectionName = "CSweet:AgentRuntime";
+    public const string CurrentDevelopmentCertificationSuiteVersion = "csweet-windows-hyperv-smoke-v12";
+    public string RequiredCertificationSuiteVersion { get; set; } = CurrentDevelopmentCertificationSuiteVersion;
     public bool CleanupWorkloadsOnStartup { get; set; } = true;
     public string WorkspaceSnapshotStorePath { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -12,6 +14,10 @@ public sealed class AgentRuntimeManagerOptions
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "CSweet",
         "agent-source-archives");
+    public string BuildLogStorePath { get; set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "CSweet",
+        "agent-build-logs");
     public int MaximumScheduleClaimsPerIteration { get; set; } = 10;
     public int InteractiveIdleTimeoutSeconds { get; set; } = 300;
     public string? PreferredIsolationProviderId { get; set; }

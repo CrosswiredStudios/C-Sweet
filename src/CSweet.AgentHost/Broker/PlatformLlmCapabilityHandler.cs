@@ -138,6 +138,7 @@ public sealed class PlatformLlmCapabilityHandler
             identity?.EmployeeId,
             input.ProviderProfileId,
             selectedModel,
+            input,
             request.Payload.Span);
         var runStopwatch = Stopwatch.StartNew();
         var messages = input.Messages.Select(ToChatMessage).ToList();
@@ -153,6 +154,7 @@ public sealed class PlatformLlmCapabilityHandler
                     tool.JsonSchema))
                 .ToList()
         };
+        runLog.PromptInstructionCharacters = options.Instructions?.Length ?? 0;
         var responseText = new StringBuilder();
         var responseContents = new List<PlatformChatContent>();
         long? inputTokenCount = null;
@@ -296,6 +298,7 @@ public sealed class PlatformLlmCapabilityHandler
                 {
                     inputTokenCount = usage.InputTokenCount ?? inputTokenCount;
                     outputTokenCount = usage.OutputTokenCount ?? outputTokenCount;
+                    CaptureAdditionalUsage(runLog, usage.AdditionalCounts);
                 }
                 if (!string.IsNullOrEmpty(update.Text))
                     responseText.Append(update.Text);
@@ -327,7 +330,8 @@ public sealed class PlatformLlmCapabilityHandler
                 inputTokenCount,
                 outputTokenCount,
                 responseRole,
-                responseContents),
+                responseContents,
+                ReadAdditionalUsage(runLog.UsageAdditionalCountsJson)),
             sequence: 0,
             hasMore: false);
     }
@@ -337,6 +341,7 @@ public sealed class PlatformLlmCapabilityHandler
         string? employeeId,
         Guid providerProfileId,
         string model,
+        PlatformChatRequest input,
         ReadOnlySpan<byte> requestPayload)
     {
         _ = Guid.TryParse(session.BusinessId, out var organizationId);
@@ -352,6 +357,16 @@ public sealed class PlatformLlmCapabilityHandler
             AgentKey = session.AgentId,
             ProviderProfileId = providerProfileId,
             Model = model,
+            ConversationId = input.Telemetry?.ConversationId,
+            ChatTurnId = input.Telemetry?.ChatTurnId,
+            InvocationKind = NormalizeInvocationKind(input.Telemetry?.InvocationKind),
+            InvocationSequence = input.Telemetry?.InvocationSequence is > 0
+                ? input.Telemetry.InvocationSequence
+                : null,
+            PromptMessageCharacters = input.Messages.Sum(MessageSize),
+            PromptInstructionCharacters = input.Instructions?.Length ?? 0,
+            PromptToolCharacters = input.Tools?.Sum(ToolSize) ?? 0,
+            PromptMemoryCharacters = Math.Max(0, input.Telemetry?.MemoryCharacterCount ?? 0),
             StartedAt = DateTimeOffset.UtcNow,
             Status = "Running",
             PromptHash = Convert.ToBase64String(SHA256.HashData(requestPayload))
@@ -408,6 +423,58 @@ public sealed class PlatformLlmCapabilityHandler
         < 0 => 0,
         _ => (int)value.Value
     };
+
+    private static void CaptureAdditionalUsage(
+        AgentRunLog runLog,
+        IReadOnlyDictionary<string, long>? additionalCounts)
+    {
+        if (additionalCounts is not { Count: > 0 }) return;
+        var bounded = additionalCounts
+            .Where(item => !string.IsNullOrWhiteSpace(item.Key))
+            .Take(32)
+            .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+        runLog.UsageAdditionalCountsJson = JsonSerializer.Serialize(bounded, JsonOptions);
+        runLog.TokenCachedInputCount = ToNullableInt(FindAdditionalCount(
+            bounded, "cached", "input"));
+        runLog.TokenReasoningCount = ToNullableInt(FindAdditionalCount(
+            bounded, "reasoning"));
+    }
+
+    private static long? FindAdditionalCount(
+        IReadOnlyDictionary<string, long> counts,
+        params string[] terms)
+    {
+        foreach (var (key, value) in counts)
+        {
+            var normalized = new string(key.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+            if (terms.All(term => normalized.Contains(term, StringComparison.Ordinal)))
+                return value;
+        }
+        return null;
+    }
+
+    private static IReadOnlyDictionary<string, long>? ReadAdditionalUsage(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, long>>(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string NormalizeInvocationKind(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "agent-inference";
+        var normalized = new string(value.Trim()
+            .Where(character => char.IsLetterOrDigit(character) || character is '-' or '_')
+            .Take(80)
+            .ToArray());
+        return normalized.Length == 0 ? "agent-inference" : normalized;
+    }
 
     private static string? Truncate(string? value, int maximumLength) =>
         string.IsNullOrEmpty(value) || value.Length <= maximumLength
@@ -543,6 +610,9 @@ public sealed class PlatformLlmCapabilityHandler
         message.Contents is { Count: > 0 }
             ? message.Contents.Sum(ContentSize)
             : message.Text?.Length ?? 0;
+
+    private static int ToolSize(PlatformChatTool tool) =>
+        tool.Name.Length + tool.Description.Length + tool.JsonSchema.GetRawText().Length;
 
     private static CapabilityResult Success(
         string requestId,

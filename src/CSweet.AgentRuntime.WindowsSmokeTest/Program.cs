@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Formats.Tar;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Principal;
@@ -154,6 +155,18 @@ finally
 if (cleanupFailure is not null)
     throw new InvalidOperationException("The certification VM could not be destroyed cleanly.", cleanupFailure);
 var validatedReport = certifiedReport ?? throw new InvalidOperationException("The guest did not produce certification evidence.");
+var builderChecks = await RunBuilderSmokeAsync(
+    helper,
+    guestImage,
+    guestDigest,
+    root,
+    socketOptions);
+if (builderChecks.Any(check => !check.Value))
+    throw new InvalidOperationException("The builder certification probe failed: " +
+        string.Join(", ", builderChecks.Where(check => !check.Value).Select(check => check.Key)));
+var combinedChecks = validatedReport.Checks
+    .Concat(builderChecks)
+    .ToDictionary(check => check.Key, check => check.Value, StringComparer.Ordinal);
 var descriptor = IsolationProviderCatalog.HyperV(RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant());
 var evidence = new
 {
@@ -166,7 +179,7 @@ var evidence = new
     certificationSuiteVersion = validatedReport.Suite,
     certifiedAt = now,
     certificationExpiresAt = now.AddDays(7),
-    checks = validatedReport.Checks,
+    checks = combinedChecks,
     guestOperatingSystem = validatedReport.GuestOperatingSystem,
     completedAt = validatedReport.CompletedAt
 };
@@ -180,6 +193,161 @@ Console.WriteLine(JsonSerializer.Serialize(new
     evidencePath,
     certificationSuiteVersion = validatedReport.Suite
 }, SmokeJson.Options));
+
+static async Task<IReadOnlyDictionary<string, bool>> RunBuilderSmokeAsync(
+    string helper,
+    string guestImage,
+    string guestDigest,
+    string root,
+    HyperVSocketTransportOptions socketOptions)
+{
+    var workloadId = Guid.NewGuid();
+    var channelId = Guid.NewGuid();
+    var installationId = Guid.NewGuid();
+    var bootToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    var expiresAt = DateTimeOffset.UtcNow.AddMinutes(6);
+    var image = new GuestImageReference("csweet-hyperv-test", "1.0", guestDigest, "linux", "x64");
+    var workload = new BuilderWorkloadSpec(
+        workloadId,
+        image,
+        new IsolationResourceLimits(1, 100, 4096, 1024, 128, 4 * 1024 * 1024, TimeSpan.FromMinutes(5)),
+        new BrokerChannelLease(channelId, "1.0", bootToken, guestDigest, null, expiresAt),
+        new RepositoryDescriptor(
+            "https://github.com/csweet/certification-fixture.git",
+            new string('a', 40),
+            false,
+            "dotnet-publish-v1",
+            "1.0"),
+        100 * 1024 * 1024);
+    IsolationWorkloadHandle? handle = null;
+    try
+    {
+        var created = await InvokeHelperAsync(helper, "create", new PlatformHelperRequest
+        {
+            BuilderWorkload = workload,
+            GuestImagePath = guestImage
+        });
+        EnsureSuccess(created);
+        if (!Guid.TryParseExact(created.ProviderInstanceId, "N", out var virtualMachineId))
+            throw new InvalidDataException("The helper returned an invalid builder VM identifier.");
+        handle = new IsolationWorkloadHandle(
+            IsolationProviderCatalog.HyperV().ProviderId,
+            workloadId,
+            virtualMachineId.ToString("N"),
+            IsolationWorkloadKind.Builder);
+        EnsureSuccess(await InvokeHelperAsync(helper, "start", new PlatformHelperRequest { Handle = handle }));
+
+        var handler = new BuilderCertificationHandler(CreateBuilderFixtureArchive());
+        var grant = new AgentBrokerGrant(
+            workloadId, channelId, installationId, guestDigest, null, "1.0", bootToken, expiresAt,
+            new HashSet<string>(StringComparer.Ordinal) { "build.fetch", "build.artifact", "build.progress" },
+            10_000, 1024 * 1024, 1024 * 1024, 16 * 1024 * 1024);
+        var boot = new GuestBootConfiguration
+        {
+            WorkloadId = workloadId.ToString("D"),
+            ChannelId = channelId.ToString("D"),
+            ProtocolVersion = "1.0",
+            GuestImageDigest = guestDigest,
+            BootToken = bootToken,
+            LeaseExpiresAtUnixSeconds = expiresAt.ToUnixTimeSeconds(),
+            ArtifactRoot = "/usr/lib/csweet/builder",
+            WorkloadKind = (int)IsolationWorkloadKind.Builder,
+            LocalBrokerSocketPath = "/run/csweet/broker.sock",
+            WorkloadTokenPath = "/run/csweet/workload-token",
+            MaximumFrameBytes = 16 * 1024 * 1024
+        };
+        var start = new StartCommand
+        {
+            WorkloadKind = (int)IsolationWorkloadKind.Builder,
+            MaximumLogBytes = 4 * 1024 * 1024
+        };
+        start.Entrypoint.AddRange([
+            "/usr/lib/csweet/builder/CSweet.AgentRuntime.Builder",
+            "--repository", workload.Repository.RepositoryUrl,
+            "--commit", workload.Repository.CommitSha,
+            "--project", "src/SmokeAgent/SmokeAgent.csproj",
+            "--maximum-repository-bytes", (10 * 1024 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--maximum-artifact-bytes", workload.MaximumArtifactBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--broker-socket", "/run/csweet/broker.sock",
+            "--target-framework", "net10.0"
+        ]);
+        var hostSession = new GuestBrokerHostSession(
+            grant,
+            handler,
+            TimeProvider.System,
+            bootConfiguration: boot,
+            startCommand: start);
+        await using var transport = await new WindowsHyperVSocketTransport(socketOptions)
+            .ConnectAsync(virtualMachineId);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var sessionTask = hostSession.RunAsync(transport, transport, timeout.Token);
+        var startupCompleted = await Task.WhenAny(hostSession.Started, sessionTask).WaitAsync(timeout.Token);
+        if (startupCompleted == sessionTask) await sessionTask;
+        await hostSession.Started.WaitAsync(timeout.Token);
+        await sessionTask.WaitAsync(timeout.Token);
+        var artifact = await handler.Artifact.WaitAsync(timeout.Token);
+        var artifactChecks = ValidateBuilderArtifact(artifact);
+        return new Dictionary<string, bool>(StringComparer.Ordinal)
+        {
+            ["builder-source-brokered"] = handler.SourceFetched,
+            ["builder-package-trust-metadata-brokered"] = handler.SignatureMetadataFetched,
+            ["builder-progress-reported"] = handler.ProgressSucceeded,
+            ["builder-artifact-streamed"] = artifact.Length > 0,
+            ["builder-artifact-digest-verified"] = handler.ArtifactDigestVerified,
+            ["builder-artifact-entrypoint-executable"] = artifactChecks
+        };
+    }
+    finally
+    {
+        if (handle is not null)
+        {
+            try { EnsureSuccess(await InvokeHelperAsync(helper, "stop", new PlatformHelperRequest { Handle = handle, GracePeriodSeconds = 5 })); }
+            catch { }
+            EnsureSuccess(await InvokeHelperAsync(helper, "destroy", new PlatformHelperRequest { Handle = handle }));
+        }
+    }
+}
+
+static byte[] CreateBuilderFixtureArchive()
+{
+    using var output = new MemoryStream();
+    using (var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
+    {
+        Write("certification-fixture/csweet-plugin.json", "{}");
+        Write("certification-fixture/src/SmokeAgent/SmokeAgent.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>net10.0</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+              </PropertyGroup>
+            </Project>
+            """);
+        Write("certification-fixture/src/SmokeAgent/Program.cs", "Console.WriteLine(\"C-Sweet builder certification\");");
+        void Write(string name, string content)
+        {
+            var entry = archive.CreateEntry(name, CompressionLevel.NoCompression);
+            using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
+            writer.Write(content);
+        }
+    }
+    return output.ToArray();
+}
+
+static bool ValidateBuilderArtifact(byte[] artifact)
+{
+    using var input = new MemoryStream(artifact, writable: false);
+    using var reader = new TarReader(input);
+    var foundManifest = false;
+    var foundExecutable = false;
+    while (reader.GetNextEntry(copyData: false) is { } entry)
+    {
+        if (entry.Name == "artifact.json") foundManifest = true;
+        if (entry.Name == "payload/SmokeAgent" && (entry.Mode & UnixFileMode.UserExecute) != 0)
+            foundExecutable = true;
+    }
+    return foundManifest && foundExecutable;
+}
 
 static void RegisterHyperVSocket(Guid serviceId)
 {
@@ -277,6 +445,126 @@ internal sealed class CertificationReportHandler : IAgentBrokerOperationHandler
             200, new Dictionary<string, string> { ["Content-Type"] = "application/json" },
             Encoding.UTF8.GetBytes("{}")));
     }
+}
+
+internal sealed class BuilderCertificationHandler(byte[] sourceArchive) : IAgentBrokerOperationHandler
+{
+    private readonly MemoryStream _artifact = new();
+    private readonly IncrementalHash _artifactHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+    private readonly TaskCompletionSource<byte[]> _artifactCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private long _nextSequence;
+
+    public Task<byte[]> Artifact => _artifactCompletion.Task;
+    public bool SourceFetched { get; private set; }
+    public bool SignatureMetadataFetched { get; private set; }
+    public bool ProgressSucceeded { get; private set; }
+    public bool ArtifactDigestVerified { get; private set; }
+
+    public Task<BrokerOperationResult> HandleAsync(
+        BrokerOperationContext request,
+        CancellationToken cancellationToken) => request.Purpose switch
+        {
+            "build.fetch" => Task.FromResult(Fetch(request)),
+            "build.artifact" => ReceiveArtifactAsync(request, cancellationToken),
+            "build.progress" => Task.FromResult(Progress(request)),
+            _ => throw new UnauthorizedAccessException()
+        };
+
+    private BrokerOperationResult Fetch(BrokerOperationContext request)
+    {
+        var fetch = JsonSerializer.Deserialize<BuilderFetch>(request.Body.Span, SmokeJson.Options)
+            ?? throw new InvalidDataException("The builder certification fetch was empty.");
+        byte[] content;
+        string contentType;
+        if (fetch.Url.StartsWith("https://codeload.github.com/", StringComparison.Ordinal))
+        {
+            content = sourceArchive;
+            contentType = "application/zip";
+            SourceFetched = true;
+        }
+        else if (fetch.Url == "https://api.nuget.org/v3/index.json")
+        {
+            content = Encoding.UTF8.GetBytes("{\"version\":\"3.0.0\",\"resources\":[]}");
+            contentType = "application/json";
+        }
+        else if (fetch.Url == "https://api.nuget.org/v3-index/repository-signatures/5.0.0/index.json")
+        {
+            content = Encoding.UTF8.GetBytes("""
+                {
+                  "allRepositorySigned": true,
+                  "signingCertificates": [
+                    {
+                      "fingerprints": {
+                        "2.16.840.1.101.3.4.2.1": "1f4b311d9acc115c8dc8018b5a49e00fce6da8e2855f9f014ca6f34570bc482d"
+                      }
+                    }
+                  ]
+                }
+                """);
+            contentType = "application/json";
+            SignatureMetadataFetched = true;
+        }
+        else throw new UnauthorizedAccessException("The builder certification requested an unexpected source.");
+        if (fetch.Offset < 0 || fetch.MaximumBytes is < 1 or > 1024 * 1024)
+            throw new InvalidDataException("The builder certification fetch range was invalid.");
+        var remaining = Math.Max(0, content.Length - checked((int)Math.Min(fetch.Offset, int.MaxValue)));
+        var count = Math.Min(remaining, fetch.MaximumBytes);
+        var body = count == 0
+            ? ReadOnlyMemory<byte>.Empty
+            : content.AsMemory(checked((int)fetch.Offset), count);
+        var complete = fetch.Offset + count >= content.Length;
+        return new BrokerOperationResult(
+            200,
+            new Dictionary<string, string>
+            {
+                ["X-CSweet-Complete"] = complete ? "true" : "false",
+                ["X-CSweet-Content-Type"] = contentType
+            },
+            body);
+    }
+
+    private async Task<BrokerOperationResult> ReceiveArtifactAsync(
+        BrokerOperationContext request,
+        CancellationToken cancellationToken)
+    {
+        if (!request.Headers.TryGetValue("X-CSweet-Sequence", out var sequenceValue) ||
+            !long.TryParse(sequenceValue, out var sequence) || sequence != _nextSequence ||
+            !request.Headers.TryGetValue("X-CSweet-Completed", out var completedValue) ||
+            !bool.TryParse(completedValue, out var completed))
+            throw new InvalidDataException("The builder certification artifact sequence was invalid.");
+        if (!request.Body.IsEmpty)
+        {
+            _artifactHash.AppendData(request.Body.Span);
+            await _artifact.WriteAsync(request.Body, cancellationToken);
+        }
+        _nextSequence++;
+        if (completed)
+        {
+            if (!request.Headers.TryGetValue("X-CSweet-Digest", out var expected))
+                throw new InvalidDataException("The builder certification artifact digest was missing.");
+            var actual = "sha256:" + Convert.ToHexStringLower(_artifactHash.GetHashAndReset());
+            ArtifactDigestVerified = string.Equals(expected, actual, StringComparison.Ordinal);
+            if (!ArtifactDigestVerified)
+                throw new InvalidDataException("The builder certification artifact digest did not match.");
+            _artifactCompletion.TrySetResult(_artifact.ToArray());
+        }
+        return new BrokerOperationResult(200, new Dictionary<string, string>(), ReadOnlyMemory<byte>.Empty);
+    }
+
+    private BrokerOperationResult Progress(BrokerOperationContext request)
+    {
+        var progress = JsonSerializer.Deserialize<BuilderProgress>(request.Body.Span, SmokeJson.Options)
+            ?? throw new InvalidDataException("The builder certification progress was empty.");
+        if (progress.Status == "failed")
+            throw new InvalidOperationException("The builder certification reported failure: " + progress.Detail);
+        if (progress.Step == "package" && progress.Status == "succeeded")
+            ProgressSucceeded = true;
+        return new BrokerOperationResult(200, new Dictionary<string, string>(), ReadOnlyMemory<byte>.Empty);
+    }
+
+    private sealed record BuilderFetch(string Url, long Offset, int MaximumBytes);
+    private sealed record BuilderProgress(string Step, string Status, string Detail);
 }
 
 internal sealed record SmokeGuestReport(

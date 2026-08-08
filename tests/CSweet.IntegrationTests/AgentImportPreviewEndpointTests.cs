@@ -160,6 +160,8 @@ public class AgentImportPreviewEndpointTests
         var buildLog = await buildLogResponse.Content.ReadFromJsonAsync<AgentBuildLogResponse>();
         Assert.Equal(HttpStatusCode.OK, buildLogResponse.StatusCode);
         Assert.Equal("Queued", buildLog!.Status);
+        Assert.Contains("Build job:", buildLog.Content, StringComparison.Ordinal);
+        Assert.Contains("Build steps:", buildLog.Content, StringComparison.Ordinal);
 
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
@@ -181,6 +183,22 @@ public class AgentImportPreviewEndpointTests
         Assert.Equal(2, retried.Build?.Attempt);
         Assert.Equal(0, retried.Schedule.ConsecutiveStartupFailures);
         Assert.Null(retried.Schedule.AutomaticStartSuppressedAt);
+
+        (await dbContext.AgentPackageVersions.SingleAsync()).Status = AgentPackageVersionStatus.Built;
+        suppressedSchedule.ActivationMode = ActivationMode.AlwaysOn;
+        suppressedSchedule.ConsecutiveStartupFailures = 3;
+        suppressedSchedule.AutomaticStartSuppressedAt = DateTimeOffset.UtcNow;
+        suppressedSchedule.NextTickAt = null;
+        await dbContext.SaveChangesAsync();
+
+        var startupRetryResponse = await client.PostAsync(
+            $"/api/agents/installations/{installation.Id}/retry-startup",
+            null);
+        var startupRetried = await startupRetryResponse.Content.ReadFromJsonAsync<AgentInstallationResponse>();
+        Assert.Equal(HttpStatusCode.OK, startupRetryResponse.StatusCode);
+        Assert.Equal(0, startupRetried!.Schedule.ConsecutiveStartupFailures);
+        Assert.Null(startupRetried.Schedule.AutomaticStartSuppressedAt);
+        Assert.NotNull(startupRetried.Schedule.NextTickAt);
 
         var runtime = new AgentRuntimeInstance
         {

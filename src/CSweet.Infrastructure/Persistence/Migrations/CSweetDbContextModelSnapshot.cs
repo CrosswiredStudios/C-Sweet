@@ -4420,8 +4420,14 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
+                    b.Property<Guid?>("ChatTurnId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("uuid");
 
                     b.Property<long>("DurationMs")
                         .HasColumnType("bigint");
@@ -4432,6 +4438,14 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<string>("FailureMessage")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("InvocationKind")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int?>("InvocationSequence")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Model")
                         .HasMaxLength(512)
@@ -4448,8 +4462,20 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
+                    b.Property<int?>("PromptInstructionCharacters")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PromptMemoryCharacters")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PromptMessageCharacters")
+                        .HasColumnType("integer");
+
                     b.Property<string>("PromptPreview")
                         .HasColumnType("text");
+
+                    b.Property<int?>("PromptToolCharacters")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("ProviderProfileId")
                         .HasColumnType("uuid");
@@ -4465,13 +4491,24 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("TaskRunId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("TokenCachedInputCount")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("TokenInputCount")
                         .HasColumnType("integer");
 
                     b.Property<int?>("TokenOutputCount")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("TokenReasoningCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UsageAdditionalCountsJson")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("ChatTurnId", "InvocationSequence");
 
                     b.HasIndex("OrganizationId", "StartedAt");
 
@@ -4679,6 +4716,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTimeOffset?>("McpSessionEstablishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("McpSessionWaitingAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ProviderInstanceId")

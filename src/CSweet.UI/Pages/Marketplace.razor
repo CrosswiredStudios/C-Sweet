@@ -551,12 +551,14 @@
                 throw new InvalidOperationException(failure?.Message ?? "The hire could not be completed.");
             }
             var completed = await response.Content.ReadFromJsonAsync<CSweet.Contracts.Core.HiringWorkflowResponse>();
+            var destination = completed?.ResultAgentInstallationId is Guid installationId &&
+                              completed.ResultAgentRequiresSetup
+                ? $"/organizations/{OrganizationId:D}/plugin-setup/{installationId:D}"
+                : $"/organizations/{OrganizationId:D}/employees";
             _reviewOpen = false;
             _preview = null;
             _selectedAgent = null;
-            Navigation.NavigateTo(completed?.ResultAgentInstallationId is Guid installationId
-                ? $"/organizations/{OrganizationId:D}/plugin-setup/{installationId:D}"
-                : $"/organizations/{OrganizationId:D}/employees");
+            Navigation.NavigateTo(destination);
         }
         catch (Exception exception)
         {

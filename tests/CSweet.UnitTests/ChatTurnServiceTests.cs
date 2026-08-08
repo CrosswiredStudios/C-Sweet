@@ -80,6 +80,36 @@ public sealed class ChatTurnServiceTests
         Assert.Equal(original.Turn.Id, (await db.ChatTurns.SingleAsync(x => x.Id == retry.Turn.Id)).RetryOfTurnId);
     }
 
+    [Fact]
+    public async Task CancelledTurn_CannotBeReactivatedByLateWorkerUpdates()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var agentId = Guid.NewGuid();
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentOrganizationUserId = agentId, InitiatedByOrganizationUserId = Guid.NewGuid(),
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CoreOrganizationUsers.Add(CreateAgent(organizationId, agentId));
+        db.CoreConversations.Add(conversation);
+        await db.SaveChangesAsync();
+        var service = new ChatTurnService(db);
+        var started = (await service.StartAsync(organizationId, conversation.Id, "Stop this"))!;
+        Assert.Equal(started.Turn.Id, await service.ClaimNextAsync("test-worker"));
+        Assert.True(await service.CancelAsync(organizationId, started.Turn.Id));
+
+        await service.SetStatusAsync(started.Turn.Id, ChatTurnStatus.Running.ToString());
+        await service.AppendOutputAsync(started.Turn.Id, "late output");
+        await service.CompleteAsync(started.Turn.Id, Guid.NewGuid(), memoryWarning: false);
+
+        var cancelled = await service.GetAsync(organizationId, started.Turn.Id);
+        Assert.Equal("Cancelled", cancelled!.Status);
+        Assert.Empty(cancelled.PartialResponse);
+        Assert.Null(cancelled.AssistantMessageId);
+    }
+
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 

@@ -578,10 +578,12 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.AgentKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Model).HasMaxLength(512);
             entity.Property(x => x.Status).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.InvocationKind).HasMaxLength(80).IsRequired();
             entity.Property(x => x.PromptHash).HasMaxLength(512).IsRequired();
             entity.Property(x => x.FailureMessage).HasMaxLength(2048);
             entity.HasIndex(x => new { x.OrganizationId, x.StartedAt });
             entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.StartedAt });
+            entity.HasIndex(x => new { x.ChatTurnId, x.InvocationSequence });
         });
 
         modelBuilder.Entity<AgentRuntimeGlobalSettings>(entity =>

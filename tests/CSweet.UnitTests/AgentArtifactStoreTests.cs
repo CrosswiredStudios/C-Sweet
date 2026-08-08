@@ -74,14 +74,14 @@ public sealed class AgentArtifactStoreTests : IDisposable
         using var output = new MemoryStream();
         using (var writer = new TarWriter(output, leaveOpen: true))
         {
-            Add(writer, "artifact.json", "{\"formatVersion\":\"1.0\",\"operatingSystem\":\"linux\",\"architecture\":\"x64\",\"entrypoint\":[\"/app/agent\"]}");
-            Add(writer, "payload/agent", "payload");
+            Add(writer, "artifact.json", "{\"formatVersion\":\"1.0\",\"operatingSystem\":\"linux\",\"architecture\":\"x64\",\"entrypoint\":[\"agent\"]}");
+            Add(writer, "payload/agent", "payload", executable: true);
             foreach (var entry in extraEntries) Add(writer, entry.Name, entry.Content);
         }
         return output.ToArray();
     }
 
-    private static void Add(TarWriter writer, string name, string content)
+    private static void Add(TarWriter writer, string name, string content, bool executable = false)
     {
         var bytes = Encoding.UTF8.GetBytes(content);
         var entry = new PaxTarEntry(TarEntryType.RegularFile, name)
@@ -89,7 +89,8 @@ public sealed class AgentArtifactStoreTests : IDisposable
             DataStream = new MemoryStream(bytes),
             Uid = 0,
             Gid = 0,
-            Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead
+            Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead |
+                (executable ? UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute : 0)
         };
         writer.WriteEntry(entry);
     }

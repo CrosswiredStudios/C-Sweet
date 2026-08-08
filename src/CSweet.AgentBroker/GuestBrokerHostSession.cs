@@ -37,6 +37,21 @@ public interface IGuestBrokerStreamHandler
     Task HandleAsync(GuestBrokerStreamContext chunk, CancellationToken cancellationToken);
 }
 
+public sealed class GuestWorkloadExitedException(
+    int exitCode,
+    string reasonCode,
+    string? detail) : InvalidOperationException(
+        $"The guest workload failed ({reasonCode}, exit {exitCode})" +
+        (string.IsNullOrWhiteSpace(detail) ? string.Empty : $": {Summarize(detail)}"))
+{
+    public int ExitCode { get; } = exitCode;
+    public string ReasonCode { get; } = reasonCode;
+    public string? SanitizedDetail { get; } = detail;
+
+    private static string Summarize(string value) =>
+        value.Length <= 1500 ? value : "..." + value[^1500..];
+}
+
 public sealed class GuestBrokerHostSession(
     AgentBrokerGrant grant,
     IAgentBrokerOperationHandler handler,
@@ -45,13 +60,17 @@ public sealed class GuestBrokerHostSession(
     GuestBootConfiguration? bootConfiguration = null,
     StartCommand? startCommand = null)
 {
+    private const int MaximumConcurrentProxyRequests = 32;
     private int _requestCount;
     private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly SemaphoreSlim _outputLock = new(1, 1);
 
     public Task Started => _started.Task;
+    public GuestExit? WorkloadExit { get; private set; }
 
     public async Task RunAsync(Stream input, Stream output, CancellationToken cancellationToken = default)
     {
+        var proxyOperations = new List<Task>();
         try
         {
             grant.Validate(timeProvider);
@@ -104,17 +123,18 @@ public sealed class GuestBrokerHostSession(
                     GuestEnvelope.Parser,
                     grant.MaximumFrameBytes,
                     token);
-                if (envelope is null) return;
+                if (envelope is null)
+                    throw new EndOfStreamException("The guest closed the authenticated broker channel without reporting workload completion.");
                 ValidateEnvelope(envelope);
                 if (envelope.BodyCase is GuestEnvelope.BodyOneofCase.Exit)
                 {
+                    WorkloadExit = envelope.Exit.Clone();
                     if (envelope.Exit.ExitCode != 0)
                     {
-                        var detail = string.IsNullOrWhiteSpace(envelope.Exit.Detail)
-                            ? string.Empty
-                            : $": {envelope.Exit.Detail}";
-                        throw new InvalidOperationException(
-                            $"The guest workload failed ({envelope.Exit.ReasonCode}, exit {envelope.Exit.ExitCode}){detail}");
+                        throw new GuestWorkloadExitedException(
+                            envelope.Exit.ExitCode,
+                            envelope.Exit.ReasonCode,
+                            string.IsNullOrWhiteSpace(envelope.Exit.Detail) ? null : envelope.Exit.Detail);
                     }
                     return;
                 }
@@ -145,14 +165,47 @@ public sealed class GuestBrokerHostSession(
                 }
                 if (envelope.BodyCase is not GuestEnvelope.BodyOneofCase.ProxyRequest)
                     throw new InvalidDataException("The guest sent an unsupported broker message.");
-                await ProcessProxyAsync(envelope.ProxyRequest, output, token);
+                proxyOperations.RemoveAll(operation => operation.IsCompleted);
+                if (proxyOperations.Count >= MaximumConcurrentProxyRequests)
+                {
+                    await Task.WhenAny(proxyOperations);
+                    proxyOperations.RemoveAll(operation => operation.IsCompleted);
+                }
+                proxyOperations.Add(ProcessProxySafeAsync(envelope.ProxyRequest, output, token));
             }
         }
         finally
         {
+            if (proxyOperations.Count > 0)
+            {
+                try { await Task.WhenAll(proxyOperations); }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            }
             if (!_started.Task.IsCompleted)
                 _started.TrySetException(new IOException(
                     "The guest broker session ended before the authenticated workload start was acknowledged."));
+        }
+    }
+
+    private async Task ProcessProxySafeAsync(
+        ProxyRequest request,
+        Stream output,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ProcessProxyAsync(request, output, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            await WriteAsync(
+                output,
+                Response(request.RequestId, 502, "broker-operation-failed", ReadOnlyMemory<byte>.Empty),
+                cancellationToken);
         }
     }
 
@@ -240,8 +293,18 @@ public sealed class GuestBrokerHostSession(
             ProxyResponse = response
         };
     }
-    private Task WriteAsync(Stream output, GuestEnvelope envelope, CancellationToken cancellationToken) =>
-        LengthDelimitedProtobuf.WriteAsync(output, envelope, grant.MaximumFrameBytes, cancellationToken);
+    private async Task WriteAsync(Stream output, GuestEnvelope envelope, CancellationToken cancellationToken)
+    {
+        await _outputLock.WaitAsync(cancellationToken);
+        try
+        {
+            await LengthDelimitedProtobuf.WriteAsync(output, envelope, grant.MaximumFrameBytes, cancellationToken);
+        }
+        finally
+        {
+            _outputLock.Release();
+        }
+    }
     private static bool IsMethod(string value) => value is "GET" or "POST" or "PUT" or "PATCH" or "DELETE";
     private static bool IsPath(string value) => value.Length is >= 1 and <= 2048 && value[0] == '/' && !value.Contains("..", StringComparison.Ordinal) && !value.Contains('\\');
     private static bool IsHeader(string key, string value) => key.Length is >= 1 and <= 80 && value.Length <= 4096 &&

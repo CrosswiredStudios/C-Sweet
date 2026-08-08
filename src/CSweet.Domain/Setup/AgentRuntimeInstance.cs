@@ -13,6 +13,7 @@ public sealed class AgentRuntimeInstance
     public string? LogExcerpt { get; set; }
     public DateTimeOffset QueuedAt { get; set; }
     public DateTimeOffset? StartedAt { get; private set; }
+    public DateTimeOffset? McpSessionWaitingAt { get; private set; }
     public DateTimeOffset? McpSessionEstablishedAt { get; private set; }
     public DateTimeOffset? CompletionReportedAt { get; private set; }
     public DateTimeOffset? CompletedAt { get; private set; }
@@ -32,9 +33,18 @@ public sealed class AgentRuntimeInstance
         Status = next;
         Reason = reason;
         if (next == AgentRuntimeStatus.Starting) StartedAt = occurredAt;
-        if (next == AgentRuntimeStatus.Running) McpSessionEstablishedAt = occurredAt;
+        if (next == AgentRuntimeStatus.WaitingForMcpSession) McpSessionWaitingAt = occurredAt;
+        if (next == AgentRuntimeStatus.Running)
+        {
+            McpSessionEstablishedAt = occurredAt;
+            McpSessionWaitingAt = null;
+        }
         if (next == AgentRuntimeStatus.CompletionReported) CompletionReportedAt = occurredAt;
-        if (IsTerminal(next)) CompletedAt = occurredAt;
+        if (IsTerminal(next))
+        {
+            CompletedAt = occurredAt;
+            McpSessionWaitingAt = null;
+        }
     }
 
     public static bool IsActive(AgentRuntimeStatus status) => status is

@@ -11,7 +11,7 @@ The preparation performs these operations:
 1. Enables the full Microsoft Hyper-V feature when necessary, without restarting Windows automatically.
 2. Installs the Microsoft OpenSSH Client capability when the temporary image-build key requires it.
 3. Downloads HashiCorp Packer and Ubuntu Server from their official HTTPS release endpoints and verifies their published SHA-256 checksums.
-4. Builds a Secure Boot-enabled Ubuntu Generation 2 VHDX containing the self-contained C-Sweet guest broker.
+4. Builds a Secure Boot-enabled Ubuntu Generation 2 VHDX containing the self-contained C-Sweet guest broker, the reviewed .NET builder, and the .NET 10 SDK.
 5. Boots the image through the real C-Sweet Hyper-V helper with no virtual network adapter and a disposable scratch VHDX.
 6. Runs the in-guest isolation probe over Hyper-V sockets and creates certification evidence only when every check passes.
 7. Creates a developer-only image-signing certificate, signs the exact tested VHDX, packages RuntimeHost, and installs the versioned Windows service.
@@ -26,7 +26,9 @@ The underlying script remains available for CI, recovery, and advanced diagnosti
 
 The guest image is cached at `artifacts/windows-runtime/source/csweet-agent-guest.vhdx`. Later runs reuse it. Use `-RebuildGuest` to rebuild it, `-SkipInstall` to produce but not install the development payload, or `-SwitchName 'Your Hyper-V Switch'` when the host does not use `Default Switch`.
 
-After a successful install, the onboarding page loads the protected key and detects RuntimeHost without an application restart. All Hyper-V, RuntimeHost, signed-image, and certification checks should pass. This workflow creates development certification and a current-user development signing key for local testing only; production packages must use the controlled release signer and the complete release certification suite.
+After a successful install, the onboarding page loads the protected key and detects RuntimeHost without an application restart. Agent builds and runtime launches discover the active immutable guest-image identity from RuntimeHost's certification, so users do not need to copy an image version or SHA-256 digest into application configuration. Deployments may still configure an expected digest as an explicit pin. All Hyper-V, RuntimeHost, signed-image, and certification checks should pass. This workflow creates development certification and a current-user development signing key for local testing only; production packages must use the controlled release signer and the complete release certification suite.
+
+When the required guest certification suite changes, an older otherwise healthy RuntimeHost is shown as needing preparation again. Choosing **Prepare secure agent runtime** rebuilds, tests, signs, and installs the current image; users should not delete VMs, edit hashes, or clear the application database. The current builder downloads the exact approved GitHub commit and NuGet packages only through the authenticated host/guest broker. Builder and runtime VMs have no virtual network adapter, and every disposable VM is removed after completion or failure.
 
 ## Progress and time estimates
 
@@ -55,6 +57,8 @@ DISM /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V /NoRestart
 C-Sweet never restarts Windows automatically. The screen tells the user when to save work and restart. If the application is hosted as a non-interactive service, it displays the equivalent administrator command instead.
 
 When a release contains a validated Windows runtime payload, **Install secure agent runtime** opens a UAC prompt and runs the bundled installer. The installer verifies every payload file against `runtime-manifest.json`, installs a versioned RuntimeHost and helper, creates protected artifact and VM-data directories, generates the local 32-byte authentication key, registers the Hyper-V socket service, installs and starts the Windows service, and applies explicit ACLs. C-Sweet monitors readiness and loads the newly created key without requiring an application restart.
+
+If a completed RuntimeHost installation cannot be reached from the current Windows account, onboarding presents **Repair secure agent runtime**. The short UAC-assisted repair updates only the protected pipe, key, and artifact permissions, restarts RuntimeHost, and rechecks readiness automatically. It does not rebuild the certified guest image. If the installed service or protected state is missing, repair fails closed and onboarding offers the full preparation flow.
 
 Users may continue initial setup while isolation is unavailable. The trusted control plane remains usable, but imported and marketplace agent execution stays fail-closed.
 

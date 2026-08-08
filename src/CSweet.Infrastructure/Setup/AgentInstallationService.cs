@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text;
 using CSweet.Application.Setup;
 using CSweet.AgentRuntime.Abstractions;
 using CSweet.Contracts.Agents;
@@ -13,6 +14,7 @@ namespace CSweet.Infrastructure.Setup;
 
 public sealed class AgentInstallationService : IAgentInstallationService, IPluginInstallationService
 {
+    private const int FirstPartyMinimumRuntimeMemoryMb = 1024;
     private static readonly TimeSpan RuntimeWorkloadCleanupTimeout = TimeSpan.FromSeconds(30);
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -109,7 +111,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             packageVersion.AgentId,
             businessId);
         ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activationMode, settings);
-        ValidateResources(request.MemoryMb, request.CpuPercent, settings);
+        ValidateResources(request.MemoryMb, request.CpuPercent, settings, packageVersion);
         ValidateGrant("provided capabilities", request.GrantedCapabilities, manifest.Provides.Select(x => x.Name).ToArray());
         ValidateGrant("required capabilities", request.GrantedRequestedCapabilities,
             AgentImportPreviewService.GrantRequiredCapabilities(manifest));
@@ -484,7 +486,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             staged.PackageVersion.AgentId,
             staged.BusinessId);
         ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activation, settings);
-        ValidateResources(request.MemoryMb, request.CpuPercent, settings);
+        ValidateResources(request.MemoryMb, request.CpuPercent, settings, staged.PackageVersion);
         ValidateGrant("provided capabilities", request.GrantedCapabilities, manifest.Provides.Select(x => x.Name).ToArray());
         ValidateGrant("required capabilities", request.GrantedRequestedCapabilities,
             AgentImportPreviewService.GrantRequiredCapabilities(manifest));
@@ -716,6 +718,33 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         return ToResponse(installation);
     }
 
+    public async Task<AgentInstallationResponse> RetryStartupAsync(
+        Guid installationId,
+        CancellationToken cancellationToken = default)
+    {
+        var installation = await GetInstallationAsync(installationId, cancellationToken);
+        var schedule = installation.Schedule!;
+        if (!installation.IsEnabled || !schedule.IsEnabled)
+            throw new AgentInstallationException("The agent installation and schedule must be enabled to try startup again.");
+        if (installation.PackageVersion!.Status != AgentPackageVersionStatus.Built)
+            throw new AgentInstallationException("The agent package must be built before startup can be retried.");
+        if (schedule.ActivationMode != ActivationMode.AlwaysOn)
+            throw new AgentInstallationException("Startup retry is only available for always-on agents.");
+
+        var now = DateTimeOffset.UtcNow;
+        ResetAutomaticStartupFailures(schedule);
+        schedule.NextTickAt = now;
+        installation.UpdatedAt = now;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await _auditWriter.WriteAsync(
+            "agent-runtime.startup-retry-requested",
+            nameof(AgentInstallation),
+            installation.Id,
+            $"Cleared automatic startup suppression and queued another startup attempt for {installation.PackageVersion.AgentId}.",
+            cancellationToken: cancellationToken);
+        return ToResponse(installation);
+    }
+
     public async Task<AgentInstallationResponse> DisableAsync(
         Guid installationId,
         CancellationToken cancellationToken = default)
@@ -816,6 +845,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         await RemoveRuntimeWorkloadsAsync(installation, cancellationToken);
+        await RemoveAgentWorkHistoryAsync(installation.Id, cancellationToken);
 
         var sourceId = package.PackageSourceId;
         var removeSource = removePackage && !await _dbContext.AgentPackageVersions.AnyAsync(
@@ -859,7 +889,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 "Could not remove agent installation {AgentInstallationId} because it is still referenced.",
                 installation.Id);
             throw new AgentInstallationException(
-                "The agent could not be removed because another record still references it. Refresh Employees and remove any assignments before trying again.",
+                "The agent could not be removed because related records still reference it. Refresh Agents and try again. If the problem continues, check the server log for the blocking record.",
                 exception);
         }
 
@@ -928,7 +958,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .FirstOrDefaultAsync(cancellationToken);
         if (job is null) return null;
         if (string.IsNullOrWhiteSpace(job.LogPath) || !File.Exists(job.LogPath))
-            return new AgentBuildLogResponse(job.Id, job.Status.ToString(), string.Empty, false);
+            return new AgentBuildLogResponse(
+                job.Id,
+                job.Status.ToString(),
+                FormatPersistedBuildDiagnostics(job),
+                false);
         var settings = await GetSettingsAsync(cancellationToken);
         var maximumBytes = checked(settings.MaximumBuildLogMb * 1024 * 1024);
         await using var stream = new FileStream(job.LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 81920, true);
@@ -936,6 +970,39 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var bytes = new byte[length];
         var read = await stream.ReadAtLeastAsync(bytes, length, throwOnEndOfStream: false, cancellationToken: cancellationToken);
         return new AgentBuildLogResponse(job.Id, job.Status.ToString(), System.Text.Encoding.UTF8.GetString(bytes, 0, read), stream.Length > maximumBytes);
+    }
+
+    private static string FormatPersistedBuildDiagnostics(AgentBuildJob job)
+    {
+        var output = new StringBuilder();
+        output.AppendLine($"Build job: {job.Id:D}");
+        output.AppendLine($"Status: {job.Status}");
+        output.AppendLine($"Attempt: {job.Attempt}");
+        output.AppendLine($"Queued: {job.QueuedAt:O}");
+        output.AppendLine($"Started: {job.StartedAt?.ToString("O") ?? "not started"}");
+        output.AppendLine($"Completed: {job.CompletedAt?.ToString("O") ?? "not completed"}");
+        if (!string.IsNullOrWhiteSpace(job.LogPath))
+            output.AppendLine($"Guest log locator: {job.LogPath}");
+        if (!string.IsNullOrWhiteSpace(job.FailureMessage))
+            output.AppendLine($"Failure: {job.FailureMessage}");
+        output.AppendLine();
+        output.AppendLine("Build steps:");
+        foreach (var step in AgentBuildStepStore.Read(job))
+        {
+            output.Append("- ").Append(step.Label).Append(": ").AppendLine(step.Status);
+            if (!string.IsNullOrWhiteSpace(step.Detail))
+                output.Append("  Detail: ").AppendLine(step.Detail);
+            if (!string.IsNullOrWhiteSpace(step.Error))
+                output.Append("  Error: ").AppendLine(step.Error);
+            if (step.StartedAt is not null)
+                output.Append("  Started: ").AppendLine(step.StartedAt.Value.ToString("O"));
+            if (step.CompletedAt is not null)
+                output.Append("  Completed: ").AppendLine(step.CompletedAt.Value.ToString("O"));
+        }
+        output.AppendLine();
+        output.AppendLine(
+            "RuntimeHost request IDs in failures correlate with the Windows Application event log source CSweet.RuntimeHost.");
+        return output.ToString();
     }
 
     private IQueryable<AgentInstallation> InstallationQuery() =>
@@ -987,6 +1054,39 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                     $"The isolated runtime workload could not be destroyed. The installation was disabled and can be removed again: {exception.Message}");
             }
         }
+    }
+
+    private async Task RemoveAgentWorkHistoryAsync(
+        Guid installationId,
+        CancellationToken cancellationToken)
+    {
+        var workItemIds = _dbContext.AgentWorkItems
+            .Where(x => x.AgentInstallationId == installationId)
+            .Select(x => x.Id);
+
+        if (_dbContext.Database.IsRelational())
+        {
+            await _dbContext.AgentWorkProgress
+                .Where(x => workItemIds.Contains(x.AgentWorkItemId))
+                .ExecuteDeleteAsync(cancellationToken);
+            await _dbContext.AgentWorkAttempts
+                .Where(x => workItemIds.Contains(x.AgentWorkItemId))
+                .ExecuteDeleteAsync(cancellationToken);
+            await _dbContext.AgentWorkItems
+                .Where(x => x.AgentInstallationId == installationId)
+                .ExecuteDeleteAsync(cancellationToken);
+            return;
+        }
+
+        _dbContext.AgentWorkProgress.RemoveRange(await _dbContext.AgentWorkProgress
+            .Where(x => workItemIds.Contains(x.AgentWorkItemId))
+            .ToListAsync(cancellationToken));
+        _dbContext.AgentWorkAttempts.RemoveRange(await _dbContext.AgentWorkAttempts
+            .Where(x => workItemIds.Contains(x.AgentWorkItemId))
+            .ToListAsync(cancellationToken));
+        _dbContext.AgentWorkItems.RemoveRange(await _dbContext.AgentWorkItems
+            .Where(x => x.AgentInstallationId == installationId)
+            .ToListAsync(cancellationToken));
     }
 
     private async Task WriteScheduleAuditAsync(
@@ -1302,8 +1402,16 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     private static void ValidateResources(
         int memoryMb,
         int cpuPercent,
-        AgentRuntimeGlobalSettings settings)
+        AgentRuntimeGlobalSettings settings,
+        AgentPackageVersion packageVersion)
     {
+        if (string.Equals(packageVersion.PublisherId, "com.csweet", StringComparison.Ordinal) &&
+            memoryMb < FirstPartyMinimumRuntimeMemoryMb)
+        {
+            throw new AgentInstallationException(
+                $"C-Sweet agents require at least {FirstPartyMinimumRuntimeMemoryMb} MB of runtime memory.");
+        }
+
         if (memoryMb <= 0 || memoryMb > settings.MaximumWorkloadMemoryMb)
         {
             throw new AgentInstallationException(

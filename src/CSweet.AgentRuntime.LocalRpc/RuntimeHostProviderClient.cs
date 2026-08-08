@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using A = CSweet.AgentRuntime.Abstractions;
 using P = CSweet.AgentRuntime.Protocol;
 
@@ -7,8 +9,11 @@ namespace CSweet.AgentRuntime.LocalRpc;
 public sealed class RuntimeHostProviderClient(
     A.IsolationProviderDescriptor descriptor,
     RuntimeHostEndpointOptions endpointOptions,
-    P.RuntimeHostRequestAuthenticator authenticator) : A.IRuntimeHostClient
+    P.RuntimeHostRequestAuthenticator authenticator,
+    ILogger<RuntimeHostProviderClient>? logger = null) : A.IRuntimeHostClient
 {
+    private const int ProbeAttempts = 4;
+
     public A.IsolationProviderDescriptor Descriptor { get; } = descriptor;
 
     public async Task<A.IsolationProviderProbeResult> ProbeAsync(CancellationToken cancellationToken = default)
@@ -61,7 +66,14 @@ public sealed class RuntimeHostProviderClient(
             P.RuntimeHostEnvelope.BodyOneofCase.InspectResponse,
             cancellationToken);
         var status = response.InspectResponse;
-        if (!status.Found) return null;
+        if (!status.Found)
+        {
+            if (!string.IsNullOrWhiteSpace(status.ErrorCode))
+                throw new A.IsolationUnavailableException(
+                    $"Runtime-host inspect failed ({status.ErrorCode}): " +
+                    $"{EmptyAsNull(status.SanitizedError) ?? "no details available"}");
+            return null;
+        }
         return new A.IsolationWorkloadStatus(
             RuntimeHostProtocolMapper.FromProtocol(status.Workload),
             (A.IsolationWorkloadState)status.State,
@@ -134,14 +146,66 @@ public sealed class RuntimeHostProviderClient(
         P.RuntimeHostEnvelope.BodyOneofCase expectedBody,
         CancellationToken cancellationToken)
     {
-        await using var stream = await LocalRuntimeHostTransport.ConnectAsync(endpointOptions, cancellationToken);
-        request = Prepare(request);
-        await P.LengthDelimitedProtobuf.WriteAsync(stream, request, endpointOptions.MaximumFrameBytes, cancellationToken);
-        var response = await P.LengthDelimitedProtobuf.ReadAsync(stream, P.RuntimeHostEnvelope.Parser, endpointOptions.MaximumFrameBytes, cancellationToken)
-            ?? throw new EndOfStreamException("The runtime host returned no response.");
-        ValidateResponse(request, response, expectedBody);
-        return response;
+        var maximumAttempts = request.BodyCase == P.RuntimeHostEnvelope.BodyOneofCase.ProbeRequest
+            ? ProbeAttempts
+            : 1;
+        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+        {
+            var prepared = Prepare(request.Clone());
+            try
+            {
+                logger?.LogDebug(
+                    "Sending RuntimeHost {Operation} request {RuntimeHostRequestId} to provider {ProviderId} (attempt {Attempt}/{MaximumAttempts}).",
+                    request.BodyCase, prepared.RequestId, Descriptor.ProviderId, attempt, maximumAttempts);
+                await using var stream = await LocalRuntimeHostTransport.ConnectAsync(endpointOptions, cancellationToken);
+                await P.LengthDelimitedProtobuf.WriteAsync(
+                    stream, prepared, endpointOptions.MaximumFrameBytes, cancellationToken);
+                var response = await P.LengthDelimitedProtobuf.ReadAsync(
+                    stream, P.RuntimeHostEnvelope.Parser, endpointOptions.MaximumFrameBytes, cancellationToken);
+                if (response is null)
+                    throw new EndOfStreamException(
+                        $"RuntimeHost closed {request.BodyCase} request {prepared.RequestId} without a response.");
+                ValidateResponse(prepared, response, expectedBody);
+                logger?.LogDebug(
+                    "RuntimeHost {Operation} request {RuntimeHostRequestId} completed for provider {ProviderId}.",
+                    request.BodyCase, prepared.RequestId, Descriptor.ProviderId);
+                return response;
+            }
+            catch (Exception exception) when (
+                attempt < maximumAttempts && IsTransientProbeFailure(exception, cancellationToken))
+            {
+                logger?.LogWarning(
+                    exception,
+                    "RuntimeHost {Operation} request {RuntimeHostRequestId} was interrupted for provider {ProviderId}; retrying attempt {NextAttempt}/{MaximumAttempts}.",
+                    request.BodyCase, prepared.RequestId, Descriptor.ProviderId, attempt + 1, maximumAttempts);
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken);
+            }
+            catch (EndOfStreamException exception)
+            {
+                logger?.LogError(
+                    exception,
+                    "RuntimeHost {Operation} request {RuntimeHostRequestId} returned no response for provider {ProviderId}.",
+                    request.BodyCase, prepared.RequestId, Descriptor.ProviderId);
+                throw new EndOfStreamException(
+                    $"RuntimeHost {request.BodyCase} request {prepared.RequestId} returned no response. " +
+                    "Use this request ID to correlate the C-Sweet and Windows RuntimeHost logs.",
+                    exception);
+            }
+            catch (Exception exception)
+            {
+                logger?.LogError(
+                    exception,
+                    "RuntimeHost {Operation} request {RuntimeHostRequestId} failed for provider {ProviderId}.",
+                    request.BodyCase, prepared.RequestId, Descriptor.ProviderId);
+                throw;
+            }
+        }
+        throw new UnreachableException();
     }
+
+    private static bool IsTransientProbeFailure(Exception exception, CancellationToken cancellationToken) =>
+        exception is IOException or TimeoutException ||
+        exception is OperationCanceledException && !cancellationToken.IsCancellationRequested;
 
     private P.RuntimeHostEnvelope Prepare(P.RuntimeHostEnvelope request)
     {

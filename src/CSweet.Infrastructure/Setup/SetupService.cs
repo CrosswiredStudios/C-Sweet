@@ -88,7 +88,7 @@ public sealed class SetupService : ISetupService
                 GlobalMaxActiveWorkloads = 10,
                 PerBusinessMaxActiveWorkloads = 5,
                 PerInstallationMaxActiveWorkloads = 1,
-                DefaultWorkloadMemoryMb = 512,
+                DefaultWorkloadMemoryMb = 1024,
                 MaximumWorkloadMemoryMb = 2048,
                 DefaultWorkloadCpuPercent = 50,
                 MaximumWorkloadCpuPercent = 200,

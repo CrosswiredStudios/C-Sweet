@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using CSweet.AgentRuntime.Abstractions;
 using CSweet.Contracts.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
@@ -113,6 +114,10 @@ public class SetupEndpointTests
                 {
                     services.RemoveAll<DbContextOptions<CSweetDbContext>>();
                     services.RemoveAll<IDbContextOptionsConfiguration<CSweetDbContext>>();
+                    // Endpoint tests must not inherit a developer workstation's installed
+                    // RuntimeHost. With no certified provider registered, onboarding must
+                    // remain actionable and fail closed on every platform.
+                    services.RemoveAll<IAgentIsolationProvider>();
                     services.AddDbContext<CSweetDbContext>(options =>
                         options.UseInMemoryDatabase(Guid.NewGuid().ToString()));
                 });

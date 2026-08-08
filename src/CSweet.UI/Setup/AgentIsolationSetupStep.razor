@@ -97,8 +97,7 @@
                                 </div>
                             }
                             <div class="isolation-check-actions">
-                                @if (_status.CanAutomateRuntimeHostInstallation &&
-                                     _status.ProvisioningProgress?.State != "completed")
+                                @if (_status.CanAutomateRuntimeHostInstallation)
                                 {
                                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                                StartIcon="@Icons.Material.Filled.InstallDesktop"
@@ -131,6 +130,12 @@
                 </li>
             }
         </ol>
+        @if (_status.IsReady)
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mt-4">
+                Secure agent setup is complete. Hyper-V may look empty while C-Sweet is idle because each private VM is created only for a build or agent run and removed afterward.
+            </MudAlert>
+        }
     }
 
     @if (ShowNavigation)
@@ -147,6 +152,7 @@
 @code {
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public EventCallback OnContinue { get; set; }
+    [Parameter] public EventCallback<AgentIsolationOnboardingResponse> OnStatusChanged { get; set; }
     [Parameter] public bool ShowNavigation { get; set; } = true;
 
     private AgentIsolationOnboardingResponse? _status;
@@ -158,7 +164,6 @@
     private string? _actionTargetKey;
     private CancellationTokenSource? _recheckCancellation;
     private bool _automaticRecheck;
-    private bool _readyAdvanceStarted;
 
     private bool ShowRuntimeHostPreparation => _status is
     {
@@ -172,6 +177,7 @@
         { IsReady: true } => "Complete",
         { IsRestartPending: true } => "Waiting for restart",
         { ProvisioningProgress.State: "running" } => "In progress",
+        { CanAutomateRuntimeHostInstallation: true, ProvisioningProgress.State: "completed" } => "One step remaining",
         { ProvisioningProgress.State: "completed" } => "Final validation",
         _ => "Ready to continue"
     };
@@ -185,8 +191,7 @@
         try
         {
             _status = await SetupApi.GetAgentIsolationStatusAsync();
-            if (await AdvanceWhenReadyAsync(_status))
-                return;
+            await OnStatusChanged.InvokeAsync(_status);
             if (NeedsAutomaticRecheck(_status) && !_automaticRecheck)
                 StartAutomaticRecheck();
         }
@@ -209,6 +214,7 @@
         {
             var result = await SetupApi.EnableHyperVAsync();
             _status = result.Status;
+            await OnStatusChanged.InvokeAsync(_status);
             _actionSucceeded = result.Succeeded;
             _actionMessage = result.Message;
             if (result.Succeeded && result.ElevationPromptStarted)
@@ -228,12 +234,17 @@
     private async Task InstallRuntimeHostAsync()
     {
         _busy = true;
-        _actionMessage = null;
         _actionTargetKey = "runtime-host";
+        _actionSucceeded = true;
+        _actionMessage = _status?.RuntimeHostProvisioningMode == "access-repair"
+            ? "Starting secure runtime repair. Windows may ask for administrator approval."
+            : "Starting secure runtime preparation. Windows may ask for administrator approval.";
+        await InvokeAsync(StateHasChanged);
         try
         {
             var result = await SetupApi.InstallRuntimeHostAsync();
             _status = result.Status;
+            await OnStatusChanged.InvokeAsync(_status);
             _actionSucceeded = result.Succeeded;
             _actionMessage = result.Message;
             if (result.Succeeded && result.ElevationPromptStarted)
@@ -269,37 +280,22 @@
 
     private async Task RecheckUntilReadyAsync(CancellationToken cancellationToken)
     {
-        var finalValidationDeadline = DateTimeOffset.UtcNow.AddMinutes(2);
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 var status = await SetupApi.GetAgentIsolationStatusAsync(cancellationToken);
-                await InvokeAsync(() =>
+                await InvokeAsync(async () =>
                 {
                     _status = status;
+                    await OnStatusChanged.InvokeAsync(status);
                     if (status.IsReady || status.IsRestartPending || status.ProvisioningProgress?.State == "failed")
                         _automaticRecheck = false;
                     StateHasChanged();
                 });
-                if (await AdvanceWhenReadyAsync(status))
-                    return;
                 if (status.IsReady || status.IsRestartPending || status.ProvisioningProgress?.State == "failed")
                     return;
-                if (status.ProvisioningProgress?.State == "completed" &&
-                    DateTimeOffset.UtcNow >= finalValidationDeadline)
-                {
-                    await InvokeAsync(() =>
-                    {
-                        _automaticRecheck = false;
-                        _actionTargetKey = "runtime-host";
-                        _actionSucceeded = false;
-                        _actionMessage = "Installation completed, but final validation is taking longer than expected. Choose Recheck to try validation again.";
-                        StateHasChanged();
-                    });
-                    return;
-                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -354,17 +350,6 @@
         !status.IsReady &&
         !status.IsRestartPending &&
         status.ProvisioningProgress?.State is "running" or "completed";
-
-    private async Task<bool> AdvanceWhenReadyAsync(AgentIsolationOnboardingResponse status)
-    {
-        if (!ShowNavigation || !status.IsReady || _readyAdvanceStarted)
-            return false;
-
-        _readyAdvanceStarted = true;
-        _automaticRecheck = false;
-        await OnContinue.InvokeAsync();
-        return true;
-    }
 
     private static string FormatDuration(TimeSpan duration)
     {

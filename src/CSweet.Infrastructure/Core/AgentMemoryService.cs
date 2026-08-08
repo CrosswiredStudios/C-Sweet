@@ -1,9 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Diagnostics.Metrics;
+using System.Diagnostics;
+using System.Text.Json;
 using CSweet.Application.Core;
 using CSweet.Contracts.Memory;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Memory;
 using CSweet.AI.Providers;
@@ -19,6 +22,7 @@ public sealed class AgentMemoryService(
     ILogger<AgentMemoryService> logger) : IAgentMemoryService
 {
     private const string ApplicationId = "csweet";
+    public const int RecallContextCharacterBudget = 6_000;
     private static readonly Meter Meter = new("CSweet.Application.Memory");
     private static readonly Counter<long> RecallRequests = Meter.CreateCounter<long>("csweet.memory.application.recall.requests");
     private static readonly Counter<long> RecallItems = Meter.CreateCounter<long>("csweet.memory.application.recall.items");
@@ -93,10 +97,16 @@ public sealed class AgentMemoryService(
             foreach (var item in selected)
             {
                 var content = item.Content.Length > 1_200 ? item.Content[..1_200] : item.Content;
-                builder.Append("- [memory:").Append(item.Id.ToString("N")).Append("] ").AppendLine(content);
-                if (builder.Length >= 6_000) break;
+                var prefix = $"- [memory:{item.Id:N}] ";
+                var remaining = RecallContextCharacterBudget - builder.Length - prefix.Length - Environment.NewLine.Length;
+                if (remaining <= 0) break;
+                builder.Append(prefix).AppendLine(content.Length <= remaining ? content : content[..remaining]);
+                if (builder.Length >= RecallContextCharacterBudget) break;
             }
-            return builder.ToString().Trim();
+            var result = builder.ToString().Trim();
+            return result.Length <= RecallContextCharacterBudget
+                ? result
+                : result[..RecallContextCharacterBudget];
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -352,15 +362,14 @@ public sealed class AgentMemoryService(
 
     private async Task EnrichEpisodeAsync(MemoryEpisode episode, CancellationToken cancellationToken)
     {
-        var providerId = await db.LlmProviderProfiles
+        var provider = await db.LlmProviderProfiles
             .Where(x => x.IsEnabled)
             .OrderBy(x => x.CreatedAt)
-            .Select(x => (Guid?)x.Id)
+            .Select(x => new { x.Id, x.DefaultChatModel })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException("No enabled LLM provider is available for memory enrichment.");
-        using var chatClient = await providerFactory.CreateChatClientAsync(providerId, cancellationToken);
-        var enricher = new MicrosoftExtensionsAIMemoryEnricher(chatClient);
-        var enrichment = await enricher.EnrichAsync(episode, cancellationToken);
+        var (enrichment, extractorVersion) = await EnrichWithTelemetryAsync(
+            episode, provider.Id, provider.DefaultChatModel, cancellationToken);
         var entities = new Dictionary<string, MemoryEntity>(StringComparer.OrdinalIgnoreCase);
         foreach (var extracted in enrichment.Entities)
         {
@@ -387,7 +396,7 @@ public sealed class AgentMemoryService(
                 objectEntity?.Id, extracted.Value, MemoryTrustTier.AgentInference,
                 extracted.Sensitivity >= MemorySensitivity.Confidential ? MemoryConfirmationState.Pending : MemoryConfirmationState.NotRequired,
                 extracted.Sensitivity, Math.Clamp(extracted.Confidence, 0, 1), Math.Clamp(extracted.Importance, 0, 1),
-                episode.OccurredAt, null, DateTimeOffset.UtcNow, ExtractorVersion: enricher.Version, Kind: extracted.Kind), cancellationToken);
+                episode.OccurredAt, null, DateTimeOffset.UtcNow, ExtractorVersion: extractorVersion, Kind: extracted.Kind), cancellationToken);
         }
 
         foreach (var extracted in enrichment.Edges)
@@ -409,6 +418,116 @@ public sealed class AgentMemoryService(
                 extracted.Applicability, 1, MemoryTrustTier.AgentInference, MemoryConfirmationState.Pending,
                 episode.OccurredAt, null, DateTimeOffset.UtcNow), cancellationToken);
         }
+    }
+
+    private async Task<(MemoryEnrichment Enrichment, string ExtractorVersion)> EnrichWithTelemetryAsync(
+        MemoryEpisode episode,
+        Guid providerId,
+        string? model,
+        CancellationToken cancellationToken)
+    {
+        var correlation = await db.CoreConversationMessages.AsNoTracking()
+            .Where(x => x.Id == episode.Id)
+            .Select(x => new
+            {
+                x.ConversationId,
+                x.ChatTurnId,
+                x.Conversation!.OrganizationId,
+                EmployeeId = x.Conversation.AgentOrganizationUserId,
+                InstallationId = x.Conversation.AgentOrganizationUser!.AgentInstallationId,
+                AgentKey = x.Conversation.AgentOrganizationUser.AgentInstallation!.PackageVersion!.AgentId
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        var startedAt = DateTimeOffset.UtcNow;
+        var stopwatch = Stopwatch.StartNew();
+        using var chatClient = await providerFactory.CreateChatClientAsync(providerId, cancellationToken);
+        var capturingClient = new UsageCapturingChatClient(chatClient);
+        var enricher = new MicrosoftExtensionsAIMemoryEnricher(capturingClient);
+        try
+        {
+            var enrichment = await enricher.EnrichAsync(episode, cancellationToken);
+            await PersistMemoryInferenceAsync("Completed", null);
+            return (enrichment, enricher.Version);
+        }
+        catch (OperationCanceledException)
+        {
+            await PersistMemoryInferenceAsync("Cancelled", "Memory enrichment was cancelled.");
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await PersistMemoryInferenceAsync("Failed", exception.Message);
+            throw;
+        }
+
+        async Task PersistMemoryInferenceAsync(string status, string? failure)
+        {
+            stopwatch.Stop();
+            var additional = capturingClient.Usage.AdditionalCounts;
+            var runLog = new AgentRunLog
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = correlation?.OrganizationId,
+                EmployeeId = correlation?.EmployeeId,
+                AgentInstallationId = correlation?.InstallationId,
+                ConversationId = correlation?.ConversationId,
+                ChatTurnId = correlation?.ChatTurnId,
+                AgentKey = correlation?.AgentKey ?? "csweet.memory.enrichment",
+                ProviderProfileId = providerId,
+                Model = model,
+                StartedAt = startedAt,
+                CompletedAt = DateTimeOffset.UtcNow,
+                Status = status,
+                InvocationKind = "memory-enrichment",
+                InvocationSequence = 1,
+                PromptHash = Convert.ToBase64String(SHA256.HashData(
+                    Encoding.UTF8.GetBytes($"memory-enrichment:{episode.Id:D}"))),
+                FailureMessage = failure is { Length: > 2_048 } ? failure[..2_048] : failure,
+                TokenInputCount = ToTokenCount(capturingClient.Usage.InputTokenCount),
+                TokenOutputCount = ToTokenCount(capturingClient.Usage.OutputTokenCount),
+                TokenCachedInputCount = ToTokenCount(FindAdditionalCount(additional, "cached", "input")),
+                TokenReasoningCount = ToTokenCount(FindAdditionalCount(additional, "reasoning")),
+                PromptMessageCharacters = capturingClient.MessageCharacters,
+                PromptInstructionCharacters = capturingClient.InstructionCharacters,
+                PromptToolCharacters = capturingClient.ToolCharacters,
+                PromptMemoryCharacters = 0,
+                UsageAdditionalCountsJson = additional is { Count: > 0 }
+                    ? JsonSerializer.Serialize(additional)
+                    : null,
+                DurationMs = stopwatch.ElapsedMilliseconds
+            };
+            try
+            {
+                db.AgentRunLogs.Add(runLog);
+                await db.SaveChangesAsync(CancellationToken.None);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                db.Entry(runLog).State = EntityState.Detached;
+                logger.LogWarning(exception, "Could not persist memory enrichment inference usage for episode {EpisodeId}.", episode.Id);
+            }
+        }
+    }
+
+    private static int? ToTokenCount(long? value) => value switch
+    {
+        null => null,
+        > int.MaxValue => int.MaxValue,
+        < 0 => 0,
+        _ => (int)value.Value
+    };
+
+    private static long? FindAdditionalCount(
+        IReadOnlyDictionary<string, long>? counts,
+        params string[] terms)
+    {
+        if (counts is null) return null;
+        foreach (var (key, value) in counts)
+        {
+            var normalized = new string(key.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+            if (terms.All(term => normalized.Contains(term, StringComparison.Ordinal))) return value;
+        }
+        return null;
     }
 
     private async Task AppendTurnMemoryTraceAsync(

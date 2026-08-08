@@ -12,6 +12,8 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
     private static readonly TimeSpan InitialLeaseDuration = TimeSpan.FromMinutes(3);
     private static readonly HashSet<ChatTurnStatus> ActiveStatuses =
     [ChatTurnStatus.Queued, ChatTurnStatus.RecallingMemory, ChatTurnStatus.Dispatching, ChatTurnStatus.Running, ChatTurnStatus.FinalizingMemory];
+    private static readonly HashSet<ChatTurnStatus> TerminalStatuses =
+    [ChatTurnStatus.Completed, ChatTurnStatus.CompletedWithWarnings, ChatTurnStatus.Failed, ChatTurnStatus.Cancelled];
 
     public async Task<ChatTurnStartResponse?> StartAsync(Guid organizationId, Guid conversationId, string message, Guid? retryOfTurnId = null, CancellationToken cancellationToken = default)
     {
@@ -164,7 +166,10 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
     public async Task SetStatusAsync(Guid turnId, string status, string? errorCode = null, string? errorMessage = null, CancellationToken cancellationToken = default)
     {
         var turn = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
-        turn.Status = Enum.Parse<ChatTurnStatus>(status, true);
+        var nextStatus = Enum.Parse<ChatTurnStatus>(status, true);
+        if (TerminalStatuses.Contains(turn.Status) && turn.Status != nextStatus)
+            return;
+        turn.Status = nextStatus;
         turn.ErrorCode = errorCode; turn.ErrorMessage = errorMessage;
         var now = DateTimeOffset.UtcNow;
         turn.UpdatedAt = now;
@@ -190,6 +195,8 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
     public async Task AppendOutputAsync(Guid turnId, string delta, CancellationToken cancellationToken = default)
     {
         var turn = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
+        if (TerminalStatuses.Contains(turn.Status))
+            return;
         turn.PartialResponse += delta;
         var now = DateTimeOffset.UtcNow;
         turn.FirstOutputAt ??= now;
@@ -202,6 +209,8 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
     public async Task CompleteAsync(Guid turnId, Guid assistantMessageId, bool memoryWarning, CancellationToken cancellationToken = default)
     {
         var turn = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
+        if (TerminalStatuses.Contains(turn.Status))
+            return;
         var now = DateTimeOffset.UtcNow;
         turn.AssistantMessageId = assistantMessageId;
         turn.Status = memoryWarning ? ChatTurnStatus.CompletedWithWarnings : ChatTurnStatus.Completed;

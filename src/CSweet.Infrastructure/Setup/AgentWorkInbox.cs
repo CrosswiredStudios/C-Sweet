@@ -423,6 +423,41 @@ public sealed class AgentWorkInbox(
         return true;
     }
 
+    public async Task<int> CancelBySourceAsync(
+        string sourceType,
+        string sourceId,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var items = await db.AgentWorkItems
+            .Include(x => x.Attempts)
+            .Where(x => x.SourceType == sourceType && x.SourceId == sourceId &&
+                x.Status != AgentWorkStatus.Completed &&
+                x.Status != AgentWorkStatus.Cancelled &&
+                x.Status != AgentWorkStatus.DeadLetter)
+            .ToListAsync(cancellationToken);
+        if (items.Count == 0)
+            return 0;
+
+        var now = timeProvider.GetUtcNow();
+        foreach (var item in items)
+        {
+            item.Status = AgentWorkStatus.Cancelled;
+            item.CompletedAt = now;
+            item.LastError = Truncate(reason, 2048);
+            foreach (var attempt in item.Attempts.Where(x => x.FinishedAt == null))
+            {
+                attempt.FinishedAt = now;
+                attempt.Error = "cancelled";
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        foreach (var item in items)
+            AgentRuntimeMetrics.Work("cancelled", item.Kind);
+        return items.Count;
+    }
+
     private async Task FailCoordinationForWorkAsync(
         AgentWorkItem item,
         string? error,

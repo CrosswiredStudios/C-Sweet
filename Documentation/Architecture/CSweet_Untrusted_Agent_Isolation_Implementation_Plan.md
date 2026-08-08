@@ -1358,6 +1358,8 @@ Implemented in the current cutover:
 - Semantic broker grants with tenant/workload/channel/image/artifact binding, bounded proxy traffic, and ordered bounded builder-artifact streaming.
 - Artifact quarantine, digest and archive validation, content-addressed storage, and installation-key signing.
 - Builder VM and Runtime VM orchestration through the provider-neutral abstraction, with unconditional VM destruction on failed or completed builds.
+- An authenticated in-guest `dotnet-publish-v1` build profile that fetches the immutable GitHub commit and NuGet dependencies through destination-restricted broker routes, compiles as an unprivileged guest user, exports an ordered digest-bound artifact stream, and never gives the VM a network adapter.
+- Host-side artifact validation now requires the declared runtime entrypoint to exist and be executable; runtime reconciliation also observes guest-process termination independently of the Hyper-V VM power state.
 - Destructive database cutover migrations and removal of the production Docker agent execution/build path and host path/image settings.
 - Windows first-run isolation onboarding with read-only edition, firmware, SLAT, DEP, memory, Hyper-V feature, hypervisor, restart, RuntimeHost, image, helper, and certification readiness checks.
 - Explicit, audited UAC-assisted Hyper-V feature enablement using the fixed Microsoft DISM feature operation with automatic restart disabled.

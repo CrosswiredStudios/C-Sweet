@@ -54,11 +54,18 @@ public sealed record WindowsRuntimeHostInstallResult(
     string Message,
     bool ElevationPromptStarted);
 
+public enum WindowsRuntimeHostProvisioningAction
+{
+    Prepare,
+    RepairAccess
+}
+
 public enum WindowsRuntimeHostProvisioningMode
 {
     Unavailable,
     PackagedInstaller,
-    DeveloperBootstrap
+    DeveloperBootstrap,
+    AccessRepair
 }
 
 public sealed record WindowsRuntimeHostProvisioningInfo(
@@ -95,7 +102,9 @@ public sealed record WindowsRuntimeHostProvisioningProgress(
 
 public interface IWindowsRuntimeHostProvisioner
 {
-    WindowsRuntimeHostProvisioningInfo GetProvisioningInfo();
+    WindowsRuntimeHostProvisioningInfo GetProvisioningInfo(bool preferAccessRepair = false);
     WindowsRuntimeHostProvisioningProgress? GetProgress();
-    Task<WindowsRuntimeHostInstallResult> LaunchInstallerAsync(CancellationToken cancellationToken = default);
+    Task<WindowsRuntimeHostInstallResult> LaunchInstallerAsync(
+        WindowsRuntimeHostProvisioningAction action,
+        CancellationToken cancellationToken = default);
 }

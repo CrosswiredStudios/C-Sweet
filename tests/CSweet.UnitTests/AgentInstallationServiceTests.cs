@@ -125,6 +125,22 @@ public sealed class AgentInstallationServiceTests
     }
 
     [Fact]
+    public async Task InstallAsync_RejectsUndersizedFirstPartyRuntimeMemory()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext);
+        package.PublisherId = "com.csweet";
+        await dbContext.SaveChangesAsync();
+        var service = CreateService(dbContext);
+
+        var exception = await Assert.ThrowsAsync<AgentInstallationException>(() =>
+            service.InstallAsync(package.Id, ValidRequest() with { MemoryMb = 512 }));
+
+        Assert.Contains("at least 1024 MB", exception.Message);
+        Assert.Empty(await dbContext.AgentInstallations.ToListAsync());
+    }
+
+    [Fact]
     public async Task InstallAsync_ClampsMaxRuntimeToGlobalLimitAndLogsWarning()
     {
         await using var dbContext = CreateDbContext();
@@ -267,6 +283,33 @@ public sealed class AgentInstallationServiceTests
         Assert.Null(result.Schedule.AutomaticStartSuppressedAt);
         Assert.NotNull(result.Schedule.NextTickAt);
         Assert.Equal(AgentPackageVersionStatus.Approved, package.Status);
+    }
+
+    [Fact]
+    public async Task RetryStartupAsync_ClearsSuppressionAndMakesAlwaysOnAgentDueImmediately()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext);
+        (await dbContext.AgentRuntimeGlobalSettings.SingleAsync()).AllowAlwaysOnCommunityAgents = true;
+        await dbContext.SaveChangesAsync();
+        var service = CreateService(dbContext);
+        var installed = await service.InstallAsync(
+            package.Id,
+            ValidRequest() with { ActivationMode = "AlwaysOn" });
+        package.Status = AgentPackageVersionStatus.Built;
+        var schedule = await dbContext.AgentSchedules.SingleAsync();
+        schedule.ConsecutiveStartupFailures = 3;
+        schedule.AutomaticStartSuppressedAt = DateTimeOffset.UtcNow;
+        schedule.NextTickAt = null;
+        await dbContext.SaveChangesAsync();
+        var before = DateTimeOffset.UtcNow;
+
+        var result = await service.RetryStartupAsync(installed.Id);
+
+        Assert.Equal(0, result.Schedule.ConsecutiveStartupFailures);
+        Assert.Null(result.Schedule.AutomaticStartSuppressedAt);
+        Assert.NotNull(result.Schedule.NextTickAt);
+        Assert.True(result.Schedule.NextTickAt >= before);
     }
 
     [Fact]
@@ -588,6 +631,68 @@ public sealed class AgentInstallationServiceTests
         await service.RemoveAsync(installation.Id);
 
         Assert.Contains("retained-container", containers.Removed);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_RemovesWorkHistoryBeforeRuntimeHistory()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext);
+        var service = CreateService(dbContext);
+        var installation = await service.InstallAsync(package.Id, ValidRequest());
+        var now = DateTimeOffset.UtcNow;
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(),
+            TickId = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            QueuedAt = now
+        };
+        var workItem = new AgentWorkItem
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = installation.BusinessId,
+            AgentInstallationId = installation.Id,
+            Kind = AgentWorkKind.Capability,
+            Name = "research.execute.v1",
+            PayloadHash = new string('a', 64),
+            CorrelationId = Guid.NewGuid().ToString("D"),
+            IdempotencyKey = "remove-history-test",
+            AvailableAt = now,
+            DeadlineAt = now.AddMinutes(5),
+            CreatedAt = now
+        };
+        var attempt = new AgentWorkAttempt
+        {
+            Id = Guid.NewGuid(),
+            AgentWorkItemId = workItem.Id,
+            RuntimeInstanceId = runtime.Id,
+            Attempt = 1,
+            LeaseTokenHash = new string('b', 64),
+            ClaimedAt = now,
+            LeaseExpiresAt = now.AddMinutes(1)
+        };
+        dbContext.AddRange(
+            runtime,
+            workItem,
+            attempt,
+            new AgentWorkProgress
+            {
+                Id = Guid.NewGuid(),
+                AgentWorkItemId = workItem.Id,
+                AgentWorkAttemptId = attempt.Id,
+                Sequence = 1,
+                SizeBytes = 2,
+                OccurredAt = now
+            });
+        await dbContext.SaveChangesAsync();
+
+        await service.RemoveAsync(installation.Id);
+
+        Assert.Empty(await dbContext.AgentWorkProgress.ToListAsync());
+        Assert.Empty(await dbContext.AgentWorkAttempts.ToListAsync());
+        Assert.Empty(await dbContext.AgentWorkItems.ToListAsync());
+        Assert.Empty(await dbContext.AgentRuntimeInstances.ToListAsync());
     }
 
     [Fact]

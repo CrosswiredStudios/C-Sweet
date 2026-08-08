@@ -26,19 +26,29 @@ internal static class WindowsRuntimeHostProgressStore
         try
         {
             if (!Directory.Exists(root)) return null;
-            return Directory.EnumerateFiles(root, "windows-isolation-*.json", SearchOption.TopDirectoryOnly)
+            var latest = Directory.EnumerateFiles(root, "windows-isolation-*.json", SearchOption.TopDirectoryOnly)
                 .Select(path => new FileInfo(path))
                 .Where(info => info.Exists && (info.Attributes & FileAttributes.ReparsePoint) == 0)
                 .OrderByDescending(info => info.LastWriteTimeUtc)
                 .Take(20)
                 .Select(info => TryRead(info.FullName))
                 .FirstOrDefault(progress => progress is not null);
+
+            // A preferred path belongs to the setup job launched by this app process, so its
+            // terminal result remains useful to the UI. Without a preferred path, however, this
+            // is a new app process. Only adopt an in-flight job that may still be running in the
+            // elevated setup process. Replaying an old failure (or completion) makes a fresh
+            // onboarding session look as though it attempted work that it never started.
+            return CanResumeAcrossApplicationRestart(latest) ? latest : null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             return null;
         }
     }
+
+    internal static bool CanResumeAcrossApplicationRestart(WindowsRuntimeHostProvisioningProgress? progress) =>
+        progress is { State: WindowsRuntimeHostProvisioningState.Running };
 
     internal static string ResolveRoot()
     {

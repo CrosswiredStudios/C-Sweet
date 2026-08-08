@@ -14,7 +14,7 @@ public sealed class AgentRuntimeGlobalSettings
     public int GlobalMaxActiveWorkloads { get; set; } = 10;
     public int PerBusinessMaxActiveWorkloads { get; set; } = 5;
     public int PerInstallationMaxActiveWorkloads { get; set; } = 1;
-    public int DefaultWorkloadMemoryMb { get; set; } = 512;
+    public int DefaultWorkloadMemoryMb { get; set; } = 1024;
     public int MaximumWorkloadMemoryMb { get; set; } = 2048;
     public int DefaultWorkloadCpuPercent { get; set; } = 50;
     public int MaximumWorkloadCpuPercent { get; set; } = 200;

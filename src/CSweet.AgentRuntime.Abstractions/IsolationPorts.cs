@@ -98,11 +98,21 @@ public sealed record BuildProfileDescriptor(
 
 public interface IGuestImageRegistry
 {
-    GuestImageReference Resolve(
-        string logicalImageId,
-        string hostOperatingSystem,
-        string hostArchitecture);
+    Task<GuestImageReference> ResolveAsync(
+        GuestImageResolutionRequest request,
+        CancellationToken cancellationToken = default);
 }
+
+public sealed record GuestImageResolutionRequest(
+    string LogicalImageId,
+    string? Version,
+    string OperatingSystem,
+    string Architecture,
+    AgentTrustLevel TrustLevel,
+    string BrokerProtocolVersion,
+    string? PreferredProviderId = null,
+    string? ExpectedDigest = null,
+    string? RequiredCertificationSuiteVersion = null);
 
 public sealed record BuilderArtifactResult(
     Guid WorkloadId,

@@ -11,6 +11,7 @@
 @inject ILlmProviderApiClient LlmProviderApi
 @inject IAgentRuntimeSettingsApiClient AgentRuntimeSettingsApi
 @inject IBusinessOnboardingApiClient BusinessOnboardingApi
+@inject ISetupApiClient SetupApi
 @inject NavigationManager Navigation
 
 <PageTitle>Agents - C-Sweet</PageTitle>
@@ -27,7 +28,7 @@
                 Import Agent
             </MudButton>
             <MudTooltip Text="Refresh agents">
-                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Secondary" Disabled="@_isBusy" OnClick="LoadAsync" />
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Secondary" Disabled="@(_isBusy || _isLoading)" OnClick="LoadAsync" />
             </MudTooltip>
         </MudStack>
     </MudPaper>
@@ -46,6 +47,41 @@
             @UsageCard("Last 7 Days", _usageSummary.Last7Days)
             @UsageCard("Last 30 Days", _usageSummary.Last30Days)
         </section>
+        @if (_usageSummary.RecentChatTurns.Count > 0)
+        {
+            <MudPaper Elevation="1" Class="surface-panel mt-4">
+                <MudText Typo="Typo.h6">Recent chat-turn inference</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                    Each row groups every billable model call caused by one user message, including tool follow-ups and memory enrichment.
+                </MudText>
+                <MudTable T="LlmChatTurnUsageResponse" Items="@_usageSummary.RecentChatTurns.Take(10)" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
+                    <HeaderContent>
+                        <MudTh>Started</MudTh>
+                        <MudTh>Model calls</MudTh>
+                        <MudTh>Purposes</MudTh>
+                        <MudTh>Input</MudTh>
+                        <MudTh>Output</MudTh>
+                        <MudTh>Prompt characters processed</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Started">@context.StartedAt.ToLocalTime().ToString("g")</MudTd>
+                        <MudTd DataLabel="Model calls">@context.ModelCallCount (@context.UsageReportedCallCount with usage)</MudTd>
+                        <MudTd DataLabel="Purposes">@FormatPurposes(context.CallsByPurpose)</MudTd>
+                        <MudTd DataLabel="Input">
+                            @FormatTokens(context.InputTokens)
+                            @if (context.CachedInputTokens > 0)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@FormatTokens(context.CachedInputTokens) cached</MudText>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Output">@FormatTokens(context.OutputTokens)</MudTd>
+                        <MudTd DataLabel="Prompt characters processed">
+                            Messages @FormatCharacters(context.MessageCharacters) · instructions @FormatCharacters(context.InstructionCharacters) · tools @FormatCharacters(context.ToolCharacters) · memory @FormatCharacters(context.MemoryCharacters)
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudPaper>
+        }
     }
 
     @if (_isLoading)
@@ -79,6 +115,13 @@
             {
                 <MudAlert Severity="@(_installationActionSucceeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">
                     @_installationActionMessage
+                </MudAlert>
+            }
+
+            @if (_isCheckingUpdates)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Sync">
+                    Checking for agent updates in the background. You can continue using this page.
                 </MudAlert>
             }
 
@@ -120,21 +163,24 @@
                                     {
                                         <MudChip T="string" Size="Size.Small" Color="@BuildStatusColor(installation.Build.Status)" Variant="Variant.Filled">@BuildStatusLabel(installation.Build.Status)</MudChip>
                                     }
-                                    @if (installation.Schedule.AutomaticStartSuppressedAt is not null)
+                                    @if (IsBuildSuccessful(installation.Build?.Status))
                                     {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">Startup failed</MudChip>
-                                    }
-                                    else if (IsRuntimeActive(installation.LatestRuntime?.Status))
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">Running</MudChip>
-                                    }
-                                    else if (installation.IsEnabled && installation.Schedule.IsEnabled)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">Scheduled</MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Filled">Disabled</MudChip>
+                                        @if (installation.Schedule.AutomaticStartSuppressedAt is not null)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">Startup failed</MudChip>
+                                        }
+                                        else if (IsRuntimeActive(installation.LatestRuntime?.Status))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">Running</MudChip>
+                                        }
+                                        else if (installation.IsEnabled && installation.Schedule.IsEnabled)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">Scheduled</MudChip>
+                                        }
+                                        else
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Filled">Disabled</MudChip>
+                                        }
                                     }
                                 </MudStack>
                             </div>
@@ -154,15 +200,23 @@
                                     <MudText Typo="Typo.body2">
                                         @(installation.LatestRuntime?.Reason ?? "The agent did not register successfully with the runtime broker.")
                                     </MudText>
-                                    @if (!string.IsNullOrWhiteSpace(installation.LatestRuntime?.LogExcerpt))
-                                    {
+                                     @if (!string.IsNullOrWhiteSpace(installation.LatestRuntime?.LogExcerpt))
+                                     {
                                         <details class="mt-2">
                                             <summary>Startup log details</summary>
-                                            <pre class="agent-build-log">@installation.LatestRuntime.LogExcerpt</pre>
-                                        </details>
-                                    }
-                                </MudAlert>
-                            }
+                                             <pre class="agent-build-log">@installation.LatestRuntime.LogExcerpt</pre>
+                                         </details>
+                                     }
+                                     <MudButton Variant="Variant.Filled"
+                                                Color="Color.Warning"
+                                                StartIcon="@Icons.Material.Filled.Refresh"
+                                                Class="mt-3"
+                                                Disabled="@_isManagingInstallation"
+                                                OnClick="@(() => RetryStartupAsync(installation))">
+                                         Try startup again
+                                     </MudButton>
+                                 </MudAlert>
+                             }
                             @if (buildProgress is not null)
                             {
                                 <MudAlert Severity="@buildProgress.Severity" Variant="Variant.Outlined" Class="mb-3">
@@ -238,16 +292,26 @@
                                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.EditCalendar" Disabled="@_isManagingInstallation" OnClick="@(() => OpenScheduleDialog(installation))">
                                     Edit Schedule
                                 </MudButton>
-                                <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.PlayArrow" Disabled="@(_isManagingInstallation || !installation.IsEnabled || !installation.Schedule.IsEnabled || IsAlwaysOn(installation))" OnClick="@(() => RunNowAsync(installation))">
-                                    Run Now
-                                </MudButton>
+                                @if (IsBuildSuccessful(installation.Build?.Status) && !IsAlwaysOn(installation))
+                                {
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.PlayArrow" Disabled="@(_isManagingInstallation || !installation.IsEnabled || !installation.Schedule.IsEnabled)" OnClick="@(() => RunNowAsync(installation))">
+                                        Run Now
+                                    </MudButton>
+                                }
                                 <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.History" Disabled="@(_isManagingInstallation || installation.LatestRuntime is null)" OnClick="@(() => OpenRunsDialogAsync(installation))">View Runs</MudButton>
                                 <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Description" Disabled="@(_isManagingInstallation || installation.Build?.HasLog != true)" OnClick="@(() => OpenBuildLogDialogAsync(installation))">View Build Log</MudButton>
-                                @if (installation.Build?.Status is "Failed" or "Cancelled")
+                                @if (!IsBuildSuccessful(installation.Build?.Status) && !_isSecureRuntimeReady)
+                                {
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Security"
+                                               Disabled="@_isManagingInstallation" OnClick="OpenSecureRuntimeSetup">
+                                        Complete secure runtime setup
+                                    </MudButton>
+                                }
+                                else if (!IsBuildSuccessful(installation.Build?.Status))
                                 {
                                     <MudButton Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Filled.Refresh"
                                                Disabled="@_isManagingInstallation" OnClick="@(() => RetryBuildAsync(installation))">
-                                        Retry build
+                                        @(installation.Build is null ? "Build agent" : "Retry build")
                                     </MudButton>
                                 }
                                 @if (installation.IsEnabled)
@@ -324,7 +388,11 @@
                     {
                         <div class="agents-loading-panel mt-4">
                             <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                            <MudText Color="Color.Secondary">Asking agent for supported settings...</MudText>
+                            <MudText Color="Color.Secondary">@ConfigurationLoadingMessage</MudText>
+                            @if (!string.IsNullOrWhiteSpace(_configurationRuntime?.Reason))
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@_configurationRuntime.Reason</MudText>
+                            }
                         </div>
                     }
                     else if (!string.IsNullOrWhiteSpace(_configurationError))
@@ -526,6 +594,12 @@
                     <div class="agent-import-status-chips">
                         <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">@_importPreview.RuntimeType</MudChip>
                         <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@DisplayImportValue(_importPreview.DefaultActivationMode)</MudChip>
+                        @if (_importPreview.ConfigurationFields.Any(field => !field.Secret))
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">
+                                @ImportConfigurationFieldCount agent setting@(ImportConfigurationFieldCount == 1 ? string.Empty : "s")
+                            </MudChip>
+                        }
                     </div>
                 </div>
 
@@ -547,7 +621,7 @@
                     </div>
                 }
 
-                <MudTabs Rounded="true" ApplyEffectsToContainer="true" Class="agent-import-tabs">
+                <MudTabs @bind-ActivePanelIndex="_importTabIndex" Rounded="true" ApplyEffectsToContainer="true" Class="agent-import-tabs">
                     <MudTabPanel Text="Overview" Icon="@Icons.Material.Filled.Badge">
                         <div class="agent-import-tab-content">
                             <div class="agent-import-facts">
@@ -586,35 +660,16 @@
                             @ApprovalSection("Network access", _importPreview.RequestedNetworkAccess, _approvedNetworkAccess)
                         </div>
                     </MudTabPanel>
-                    <MudTabPanel Text="Deployment" Icon="@Icons.Material.Filled.Tune">
-                        <div class="agent-import-tab-content">
-                            <MudText Typo="Typo.subtitle2">Schedule</MudText>
-                            <div class="agent-import-form-grid">
-                                <MudTextField Label="Business ID" @bind-Value="_installBusinessId" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                <MudSelect T="string" Label="Activation mode" @bind-Value="_installActivationMode" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
-                                    <MudSelectItem T="string" Value="@("AlwaysOn")">Always On</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("Periodic")">Periodic</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("Manual")">Manual</MudSelectItem>
-                                </MudSelect>
-                                <MudNumericField T="int" Label="Tick frequency (seconds)" @bind-Value="_installTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                <MudSelect T="string" Label="Overlap policy" @bind-Value="_installOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
-                                    <MudSelectItem T="string" Value="@("Skip")">Skip</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("Queue")">Queue</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("CancelPrevious")">Cancel previous</MudSelectItem>
-                                </MudSelect>
-                            </div>
-                            <MudText Typo="Typo.subtitle2" Class="mt-3">Resource limits</MudText>
-                            <div class="agent-import-form-grid agent-import-form-grid-three">
-                                <MudNumericField T="int" Label="Max runtime (seconds)" @bind-Value="_installMaxRuntimeSeconds" Min="1" Max="@(_runtimeSettings?.DefaultMaxRuntimeSeconds ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                <MudNumericField T="int" Label="Memory (MB)" @bind-Value="_installMemoryMb" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadMemoryMb ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                <MudNumericField T="int" Label="CPU (%)" @bind-Value="_installCpuPercent" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadCpuPercent ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                            </div>
-                            @if (_importPreview.ConfigurationFields.Any(field => !field.Secret))
-                            {
-                                <MudText Typo="Typo.subtitle2" Class="mt-3">Agent settings</MudText>
-                                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
-                                    These settings are declared by the agent and must be complete before it can run.
-                                </MudText>
+                    @if (_importPreview.ConfigurationFields.Any(field => !field.Secret))
+                    {
+                        <MudTabPanel Text="Agent settings" Icon="@Icons.Material.Filled.Settings">
+                            <div class="agent-import-tab-content">
+                                <div>
+                                    <MudText Typo="Typo.subtitle2">Configure @_importPreview.AgentName</MudText>
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                        Choose the model provider and other settings declared by this agent before installation.
+                                    </MudText>
+                                </div>
                                 <div class="agent-import-form-grid">
                                     @foreach (var field in _importPreview.ConfigurationFields.Where(field => !field.Secret))
                                     {
@@ -680,11 +735,36 @@
                                 </div>
                                 @if (HasMissingRequiredImportConfiguration)
                                 {
-                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-2">
+                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
                                         Complete all required agent settings before installation.
                                     </MudAlert>
                                 }
-                            }
+                            </div>
+                        </MudTabPanel>
+                    }
+                    <MudTabPanel Text="Deployment" Icon="@Icons.Material.Filled.Tune">
+                        <div class="agent-import-tab-content">
+                            <MudText Typo="Typo.subtitle2">Schedule</MudText>
+                            <div class="agent-import-form-grid">
+                                <MudTextField Label="Business ID" @bind-Value="_installBusinessId" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudSelect T="string" Label="Activation mode" @bind-Value="_installActivationMode" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
+                                    <MudSelectItem T="string" Value="@("AlwaysOn")">Always On</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("Periodic")">Periodic</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("Manual")">Manual</MudSelectItem>
+                                </MudSelect>
+                                <MudNumericField T="int" Label="Tick frequency (seconds)" @bind-Value="_installTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudSelect T="string" Label="Overlap policy" @bind-Value="_installOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
+                                    <MudSelectItem T="string" Value="@("Skip")">Skip</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("Queue")">Queue</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("CancelPrevious")">Cancel previous</MudSelectItem>
+                                </MudSelect>
+                            </div>
+                            <MudText Typo="Typo.subtitle2" Class="mt-3">Resource limits</MudText>
+                            <div class="agent-import-form-grid agent-import-form-grid-three">
+                                <MudNumericField T="int" Label="Max runtime (seconds)" @bind-Value="_installMaxRuntimeSeconds" Min="1" Max="@(_runtimeSettings?.DefaultMaxRuntimeSeconds ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudNumericField T="int" Label="Memory (MB)" @bind-Value="_installMemoryMb" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadMemoryMb ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudNumericField T="int" Label="CPU (%)" @bind-Value="_installCpuPercent" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadCpuPercent ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                            </div>
                         </div>
                     </MudTabPanel>
                 </MudTabs>
@@ -916,11 +996,14 @@
     private LlmTokenUsageSummaryResponse? _usageSummary;
     private AgentInstallationResponse? _selectedAgent;
     private AgentConfigurationSchemaResponse? _schema;
+    private AgentRuntimeReadinessResponse? _configurationRuntime;
     private readonly Dictionary<string, object?> _formValues = new(StringComparer.Ordinal);
     private bool _isLoading = true;
     private bool _isLoadingConfiguration;
     private bool _isBusy;
     private bool _isManagingInstallation;
+    private bool _isSecureRuntimeReady;
+    private bool _isCheckingUpdates;
     private string? _pageError;
     private string? _installationActionMessage;
     private bool _installationActionSucceeded;
@@ -939,12 +1022,13 @@
     private string _importRef = string.Empty;
     private string? _importError;
     private AgentImportPreviewResponse? _importPreview;
+    private int _importTabIndex;
     private string _installBusinessId = "default";
     private string _installActivationMode = "Periodic";
     private int _installTickFrequencySeconds = 3600;
     private string _installOverlapPolicy = "Skip";
     private int _installMaxRuntimeSeconds = 600;
-    private int _installMemoryMb = 512;
+    private int _installMemoryMb = 1024;
     private int _installCpuPercent = 50;
     private readonly HashSet<string> _approvedCapabilities = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvedRequestedCapabilities = new(StringComparer.Ordinal);
@@ -981,10 +1065,21 @@
     private AgentUpdateAvailabilityResponse? _selectedUpdate;
     private string? _updateError;
     private readonly CancellationTokenSource _disposeCts = new();
+    private Task? _updateCheckTask;
+    private CancellationTokenSource? _configurationCts;
     private readonly Dictionary<Guid, AgentBuildProgress> _buildProgress = [];
 
     private string SchemaChipLabel => _schema is null ? "Offline" : "Configurable";
     private Color SchemaChipColor => _schema is null ? Color.Warning : Color.Success;
+    private string ConfigurationLoadingMessage => _configurationRuntime?.Stage switch
+    {
+        AgentRuntimeReadinessStages.Queued => "Agent runtime queued...",
+        AgentRuntimeReadinessStages.StartingWorkload => "Starting isolated agent workload...",
+        AgentRuntimeReadinessStages.WaitingForMcpSession => "Establishing secure agent session...",
+        AgentRuntimeReadinessStages.Stopping => "Cleaning up the previous runtime...",
+        AgentRuntimeReadinessStages.Ready => "Asking agent for supported settings...",
+        _ => "Preparing agent runtime..."
+    };
     private Severity ActionMessageSeverity => _actionSucceeded == false ? Severity.Error : Severity.Success;
     private bool RequiresAlwaysOnCommunityApproval =>
         string.Equals(_installActivationMode, "AlwaysOn", StringComparison.Ordinal) &&
@@ -998,8 +1093,10 @@
         _importPreview?.ConfigurationFields
             .Where(configField => configField.Required && !configField.Secret)
             .Any(configField => !HasImportConfigurationValue(configField)) == true;
+    private int ImportConfigurationFieldCount =>
+        _importPreview?.ConfigurationFields.Count(configField => !configField.Secret) ?? 0;
     private string ImportBlockerMessage => HasMissingRequiredImportConfiguration
-        ? "Complete the required agent settings on the Deployment tab before installing."
+        ? "Complete the required values on the Agent settings tab before installing."
         : _runtimeSettings is null
             ? "Runtime settings are unavailable. Refresh the page before installing."
             : _runtimeSettings.EnableImportedAgents
@@ -1064,6 +1161,7 @@
     {
         _isLoading = true;
         _pageError = null;
+        var loaded = false;
 
         try
         {
@@ -1071,8 +1169,9 @@
             var providersTask = LlmProviderApi.ListAsync();
             var usageTask = LlmProviderApi.GetUsageSummaryAsync();
             var runtimeSettingsTask = AgentRuntimeSettingsApi.GetAsync();
+            var isolationReadyTask = GetIsolationReadinessAsync();
 
-            await Task.WhenAll(installationsTask, providersTask, usageTask, runtimeSettingsTask);
+            await Task.WhenAll(installationsTask, providersTask, usageTask, runtimeSettingsTask, isolationReadyTask);
 
             _installations = (await installationsTask)
                 .OrderByDescending(installation => installation.CreatedAt)
@@ -1080,20 +1179,12 @@
             _providerProfiles = await providersTask;
             _usageSummary = await usageTask;
             _runtimeSettings = await runtimeSettingsTask;
-            try
-            {
-                _updates = await AgentApi.CheckUpdatesAsync();
-                _updateCheckError = _updates.FirstOrDefault(update => !string.IsNullOrWhiteSpace(update.Error))?.Error;
-            }
-            catch
-            {
-                _updates = [];
-                _updateCheckError = "Agent update checks are temporarily unavailable.";
-            }
+            _isSecureRuntimeReady = await isolationReadyTask;
             if (_selectedAgent is not null)
             {
                 _selectedAgent = _installations.FirstOrDefault(agent => agent.Id == _selectedAgent.Id);
             }
+            loaded = true;
         }
         catch
         {
@@ -1103,6 +1194,56 @@
         {
             _isLoading = false;
         }
+
+        if (loaded)
+        {
+            StartUpdateCheck();
+        }
+    }
+
+    private void StartUpdateCheck()
+    {
+        if (_updateCheckTask is { IsCompleted: false })
+        {
+            return;
+        }
+
+        _updateCheckTask = CheckForUpdatesAsync(_disposeCts.Token);
+    }
+
+    private async Task CheckForUpdatesAsync(CancellationToken cancellationToken)
+    {
+        _isCheckingUpdates = true;
+        _updateCheckError = null;
+
+        try
+        {
+            _updates = await AgentApi.CheckUpdatesAsync(cancellationToken);
+            _updateCheckError = _updates.FirstOrDefault(update => !string.IsNullOrWhiteSpace(update.Error))?.Error;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch
+        {
+            _updates = [];
+            _updateCheckError = "Agent update checks are temporarily unavailable.";
+        }
+        finally
+        {
+            _isCheckingUpdates = false;
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private async Task<bool> GetIsolationReadinessAsync()
+    {
+        try { return (await SetupApi.GetAgentIsolationStatusAsync()).IsReady; }
+        catch { return false; }
     }
 
     private async Task SelectAgentAsync(AgentInstallationResponse agent)
@@ -1115,6 +1256,7 @@
     private void CloseConfigurationDialog()
     {
         _configurationDialogOpen = false;
+        _configurationCts?.Cancel();
     }
 
     private void OpenImportDialog()
@@ -1123,6 +1265,7 @@
         _importRef = string.Empty;
         _importError = null;
         _importPreview = null;
+        _importTabIndex = 0;
         ClearImportApproval();
         _importDialogOpen = true;
     }
@@ -1159,17 +1302,19 @@
     {
         _importPreview = null;
         _importError = null;
+        _importTabIndex = 0;
         ClearImportApproval();
     }
 
     private async Task InitializeImportApprovalAsync(AgentImportPreviewResponse preview)
     {
+        _importTabIndex = preview.ConfigurationFields.Any(field => !field.Secret) ? 2 : 0;
         _installBusinessId = "default";
         _installActivationMode = preview.DefaultActivationMode ?? _runtimeSettings?.DefaultActivationMode ?? "Periodic";
         _installTickFrequencySeconds = _runtimeSettings?.DefaultTickFrequencySeconds ?? 3600;
         _installOverlapPolicy = _runtimeSettings?.DefaultOverlapPolicy ?? "Skip";
         _installMaxRuntimeSeconds = _runtimeSettings?.DefaultMaxRuntimeSeconds ?? 600;
-        _installMemoryMb = _runtimeSettings?.DefaultWorkloadMemoryMb ?? 512;
+        _installMemoryMb = _runtimeSettings?.DefaultWorkloadMemoryMb ?? 1024;
         _installCpuPercent = _runtimeSettings?.DefaultWorkloadCpuPercent ?? 50;
         ReplaceApproval(_approvedCapabilities, preview.Capabilities);
         ReplaceApproval(_approvedRequestedCapabilities, preview.RequestedCapabilities);
@@ -1635,6 +1780,13 @@
         }
     }
 
+    private async Task RetryStartupAsync(AgentInstallationResponse installation)
+    {
+        await ExecuteInstallationActionAsync(
+            () => AgentApi.RetryStartupAsync(installation.Id),
+            "Startup retry queued. C-Sweet will start the agent again now.");
+    }
+
     private async Task DisableInstallationAsync(AgentInstallationResponse installation)
     {
         await ExecuteInstallationActionAsync(
@@ -1758,17 +1910,46 @@
 
     private async Task LoadConfigurationAsync(AgentInstallationResponse agent)
     {
+        _configurationCts?.Cancel();
+        _configurationCts?.Dispose();
+        var configurationCts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token);
+        configurationCts.CancelAfter(TimeSpan.FromSeconds(90));
+        _configurationCts = configurationCts;
+
         _isLoadingConfiguration = true;
         _configurationError = null;
         _actionMessage = null;
         _schema = null;
+        _configurationRuntime = null;
         _formValues.Clear();
 
         try
         {
-            _schema = await AgentApi.GetConfigurationAsync(agent.Id.ToString());
+            _configurationRuntime = await AgentApi.EnsureRuntimeAsync(agent.Id, configurationCts.Token);
+            while (!_configurationRuntime.IsReady)
+            {
+                if (_configurationRuntime.IsTerminal)
+                {
+                    throw new InvalidOperationException(
+                        _configurationRuntime.Reason ?? "The agent runtime could not be started.");
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(1), configurationCts.Token);
+                _configurationRuntime = await AgentApi.GetRuntimeStatusAsync(agent.Id, configurationCts.Token);
+                await InvokeAsync(StateHasChanged);
+            }
+
+            _schema = await AgentApi.GetConfigurationAsync(agent.Id.ToString(), configurationCts.Token);
             HydrateFormValues(_schema);
             await LoadConfiguredProviderModelsAsync(_schema);
+        }
+        catch (OperationCanceledException) when (configurationCts.IsCancellationRequested)
+        {
+            if (_configurationDialogOpen && !_disposeCts.IsCancellationRequested)
+            {
+                _configurationError = "The agent runtime did not become ready in time. Try again or review its run history.";
+            }
+            _schema = null;
         }
         catch (Exception ex)
         {
@@ -1776,7 +1957,10 @@
         }
         finally
         {
-            _isLoadingConfiguration = false;
+            if (ReferenceEquals(_configurationCts, configurationCts))
+            {
+                _isLoadingConfiguration = false;
+            }
         }
     }
 
@@ -1865,7 +2049,9 @@
 
     private static RenderFragment UsageCard(string label, LlmTokenUsageWindowResponse usage) => @<MudPaper Elevation="1" Class="usage-summary-card">
         <MudText Typo="Typo.overline" Color="Color.Secondary">@label</MudText>
-        <MudText Typo="Typo.caption" Color="Color.Secondary">@usage.RequestCount.ToString("N0") requests</MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary">
+            @usage.RequestCount.ToString("N0") model calls · @usage.UsageReportedCallCount.ToString("N0") with usage
+        </MudText>
         <div class="usage-token-breakdown">
             <div>
                 <span>Input</span>
@@ -1875,6 +2061,13 @@
                 <span>Output</span>
                 <strong>@FormatTokens(usage.OutputTokens)</strong>
             </div>
+            @if (usage.CachedInputTokens > 0)
+            {
+                <div>
+                    <span>Cached input</span>
+                    <strong>@FormatTokens(usage.CachedInputTokens)</strong>
+                </div>
+            }
         </div>
     </MudPaper>;
 
@@ -2052,6 +2245,16 @@
             ? $"{tokens / 1_000d:0.#}K"
             : tokens.ToString("N0");
 
+    private static string FormatCharacters(long characters) => characters >= 1_000_000
+        ? $"{characters / 1_000_000d:0.##}M"
+        : characters >= 1_000
+            ? $"{characters / 1_000d:0.#}K"
+            : characters.ToString("N0");
+
+    private static string FormatPurposes(IReadOnlyDictionary<string, int> purposes) =>
+        string.Join(", ", purposes.OrderBy(item => item.Key, StringComparer.Ordinal)
+            .Select(item => $"{item.Key} ×{item.Value}"));
+
     private static string FormatUsageCaption(LlmTokenUsageWindowResponse? usage) =>
         usage is null
             ? "In 0 / Out 0 / 30d"
@@ -2097,6 +2300,11 @@
     private static bool IsRuntimeActive(string? status) => status is
         "Queued" or "Starting" or "WaitingForMcpSession" or "Running" or "CompletionReported" or "Stopping";
 
+    private static bool IsBuildSuccessful(string? status) => status is null or "Succeeded";
+
+    private void OpenSecureRuntimeSetup() =>
+        Navigation.NavigateTo("/settings/agents/runtime");
+
     private static bool IsAlwaysOn(AgentInstallationResponse installation) =>
         string.Equals(installation.Schedule.ActivationMode, "AlwaysOn", StringComparison.Ordinal);
 
@@ -2118,6 +2326,8 @@
 
     public void Dispose()
     {
+        _configurationCts?.Cancel();
+        _configurationCts?.Dispose();
         _disposeCts.Cancel();
         _disposeCts.Dispose();
     }

@@ -57,8 +57,22 @@ public sealed class IsolationAgentWorkloadRunner(
         }
     }
 
-    public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>
-        Provider(handle).InspectAsync(handle, cancellationToken);
+    public async Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
+    {
+        if (guestSessions.GetOutcome(handle) is { } outcome)
+        {
+            return new IsolationWorkloadStatus(
+                handle,
+                outcome.ExitCode == 0 ? IsolationWorkloadState.Stopped : IsolationWorkloadState.Failed,
+                outcome.ExitCode == 0 ? IsolationTerminationReason.Completed : IsolationTerminationReason.ProviderFailure,
+                outcome.ExitCode,
+                null,
+                DateTimeOffset.UtcNow,
+                outcome.ReasonCode,
+                outcome.SanitizedDetail);
+        }
+        return await Provider(handle).InspectAsync(handle, cancellationToken);
+    }
 
     public async Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default)
     {
@@ -76,6 +90,18 @@ public sealed class IsolationAgentWorkloadRunner(
     {
         if (maximumBytes is < 1 or > 1024 * 1024 * 1024) throw new ArgumentOutOfRangeException(nameof(maximumBytes));
         using var content = new MemoryStream();
+        if (guestSessions.GetLogs(handle, maximumBytes) is { Length: > 0 } liveLogs)
+        {
+            var liveBytes = Encoding.UTF8.GetBytes(liveLogs);
+            await content.WriteAsync(liveBytes.AsMemory(0, Math.Min(maximumBytes, liveBytes.Length)), cancellationToken);
+        }
+        if (guestSessions.GetOutcome(handle)?.SanitizedDetail is { Length: > 0 } diagnostic)
+        {
+            var diagnosticBytes = Encoding.UTF8.GetBytes(diagnostic);
+            await content.WriteAsync(
+                diagnosticBytes.AsMemory(0, Math.Min(maximumBytes, diagnosticBytes.Length)),
+                cancellationToken);
+        }
         await foreach (var chunk in Provider(handle).StreamLogsAsync(handle, maximumBytes, cancellationToken))
         {
             var remaining = maximumBytes - (int)content.Length;

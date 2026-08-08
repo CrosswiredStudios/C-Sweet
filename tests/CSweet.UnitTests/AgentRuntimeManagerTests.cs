@@ -507,6 +507,67 @@ public sealed class AgentRuntimeManagerTests
     }
 
     [Fact]
+    public async Task SlowVmBoot_DoesNotConsumeMcpSessionEstablishmentWindow()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(),
+            TickId = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+            BrokerTokenHash = new string('0', 64),
+            RuntimeDeadlineAt = DateTimeOffset.UtcNow.AddMinutes(5),
+            IsolationProviderId = "test-vm",
+            ProviderInstanceId = "slow-boot-vm"
+        };
+        runtime.TransitionTo(AgentRuntimeStatus.Starting, DateTimeOffset.UtcNow.AddMinutes(-2));
+        runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow);
+        db.AgentRuntimeInstances.Add(runtime);
+        await db.SaveChangesAsync();
+        var containers = new FakeRunner();
+
+        Assert.Equal(0, await CreateManager(db, containers).ReconcileAsync());
+
+        Assert.Equal(AgentRuntimeStatus.WaitingForMcpSession, runtime.Status);
+        Assert.NotNull(runtime.McpSessionWaitingAt);
+        Assert.Empty(containers.Stops);
+        Assert.Empty(containers.Removes);
+    }
+
+    [Fact]
+    public async Task ExpiredMcpSessionWindow_RetainsGuestLogsBeforeDestroyingVm()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(),
+            TickId = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+            BrokerTokenHash = new string('0', 64),
+            RuntimeDeadlineAt = DateTimeOffset.UtcNow.AddMinutes(5),
+            IsolationProviderId = "test-vm",
+            ProviderInstanceId = "unresponsive-vm"
+        };
+        runtime.TransitionTo(AgentRuntimeStatus.Starting, DateTimeOffset.UtcNow.AddMinutes(-2));
+        runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow.AddSeconds(-31));
+        db.AgentRuntimeInstances.Add(runtime);
+        await db.SaveChangesAsync();
+        var containers = new FakeRunner { Logs = "Chief of Staff startup diagnostics" };
+
+        Assert.Equal(1, await CreateManager(db, containers).ReconcileAsync());
+
+        Assert.Equal(AgentRuntimeStatus.McpSessionTimedOut, runtime.Status);
+        Assert.Null(runtime.McpSessionWaitingAt);
+        Assert.Equal("Chief of Staff startup diagnostics", runtime.LogExcerpt);
+        Assert.Equal("unresponsive-vm", Assert.Single(containers.Stops));
+        Assert.Equal("unresponsive-vm", Assert.Single(containers.Removes));
+    }
+
+    [Fact]
     public async Task InterruptedStoppingRuntime_IsRecoveredAndReleasesInstallationSlot()
     {
         await using var db = CreateDb();
@@ -663,11 +724,24 @@ public sealed class AgentRuntimeManagerTests
     private static AgentRuntimeManager CreateManager(CSweetDbContext db, FakeRunner runner)
     {
         runner.Db = db;
-        return new(db, runner, new TestAuditEventWriter(), Options.Create(new AgentRuntimeManagerOptions
+        return new(db, runner, new StaticGuestImageRegistry(), new TestAuditEventWriter(), Options.Create(new AgentRuntimeManagerOptions
         {
             RuntimeGuestImageVersion = "1.0",
             RuntimeGuestImageDigest = "sha256:" + new string('d', 64)
         }), NullLogger<AgentRuntimeManager>.Instance);
+    }
+
+    private sealed class StaticGuestImageRegistry : IGuestImageRegistry
+    {
+        public Task<GuestImageReference> ResolveAsync(
+            GuestImageResolutionRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new GuestImageReference(
+                request.LogicalImageId,
+                string.IsNullOrWhiteSpace(request.Version) ? "1.0" : request.Version,
+                "sha256:" + new string('d', 64),
+                request.OperatingSystem,
+                request.Architecture));
     }
 
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()

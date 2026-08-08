@@ -159,6 +159,10 @@ foreach ($artifactRoot in @($artifactStoreRoot, $artifactMediaRoot)) {
 }
 
 $config = @{
+    Logging = @{
+        LogLevel = @{ Default = 'Information'; 'Microsoft.Hosting.Lifetime' = 'Information' }
+        EventLog = @{ LogLevel = @{ Default = 'Information' } }
+    }
     CSweet = @{
         AgentRuntime = @{
             RuntimeHost = @{ NamedPipeName = 'csweet-runtime-host-v1'; AllowedClientSid = $ControlPlaneUserSid; UnixSocketPath = '/var/run/csweet/runtime-host-v1.sock'; ConnectTimeoutSeconds = 10; MaximumFrameBytes = 1048576 }

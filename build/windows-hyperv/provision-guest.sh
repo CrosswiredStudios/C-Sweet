@@ -2,14 +2,23 @@
 set -euo pipefail
 
 guest_source=/tmp/CSweet.AgentRuntime.Guest
+builder_source=/tmp/CSweet.AgentRuntime.Builder
 guest_root=/usr/lib/csweet/guest
-if [[ ! -f "$guest_source" ]]; then
-  echo 'Published C-Sweet guest executable is missing.' >&2
+builder_root=/usr/lib/csweet/builder
+if [[ ! -f "$guest_source" || ! -f "$builder_source" ]]; then
+  echo 'A published C-Sweet guest executable is missing.' >&2
   exit 2
 fi
 
-install -d -m 0755 "$guest_root"
+install -d -m 0755 "$guest_root" "$builder_root"
 install -o root -g root -m 0755 "$guest_source" "$guest_root/CSweet.AgentRuntime.Guest"
+install -o root -g root -m 0755 "$builder_source" "$builder_root/CSweet.AgentRuntime.Builder"
+if ! getent group csweet-workload >/dev/null; then
+  groupadd --system csweet-workload
+fi
+if ! id -u csweet-workload >/dev/null 2>&1; then
+  useradd --system --gid csweet-workload --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin csweet-workload
+fi
 
 cat >/usr/lib/csweet/prepare-runtime.sh <<'SCRIPT'
 #!/usr/bin/env bash
@@ -45,7 +54,8 @@ fi
 wipefs --all --force "$scratch"
 mkfs.ext4 -F -L CSWEET_SCRATCH "$scratch"
 mount -t ext4 -o rw,nosuid,nodev "$scratch" /run/csweet
-chmod 0700 /run/csweet
+chmod 0711 /run/csweet
+install -d -o csweet-workload -g csweet-workload -m 0700 /run/csweet/workload
 exec /usr/lib/csweet/guest/CSweet.AgentRuntime.Guest
 SCRIPT
 chmod 0755 /usr/lib/csweet/prepare-runtime.sh
@@ -127,5 +137,5 @@ systemctl enable csweet-first-runtime-boot.service csweet-hv-sock.service csweet
 touch /etc/cloud/cloud-init.disabled
 rm -rf /var/lib/cloud/instances/*
 apt-get clean
-rm -rf /var/lib/apt/lists/* /tmp/CSweet.AgentRuntime.Guest
+rm -rf /var/lib/apt/lists/* /tmp/CSweet.AgentRuntime.Guest /tmp/CSweet.AgentRuntime.Builder
 sync

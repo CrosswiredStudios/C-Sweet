@@ -98,13 +98,14 @@ $cacheRoot = Join-Path $artifactRoot 'cache'
 $runName = '{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), ([Guid]::NewGuid().ToString('N').Substring(0, 8))
 $runRoot = Join-Path $artifactRoot $runName
 $guestPublish = Join-Path $runRoot 'guest-publish'
+$builderPublish = Join-Path $runRoot 'builder-publish'
 $packerOutput = Join-Path $runRoot 'packer-output'
 $packerBuildLog = Join-Path $runRoot 'packer-build.log'
 $keyRoot = Join-Path $runRoot 'ssh'
 $seedRoot = Join-Path $runRoot 'seed'
 $seedIso = Join-Path $runRoot 'cidata.iso'
 # Let Packer own output_directory so each build starts without stale export state.
-New-Item -ItemType Directory -Path $toolRoot, $cacheRoot, $guestPublish, $keyRoot, $seedRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $toolRoot, $cacheRoot, $guestPublish, $builderPublish, $keyRoot, $seedRoot -Force | Out-Null
 
 $sshKeygen = Join-Path $env:SystemRoot 'System32\OpenSSH\ssh-keygen.exe'
 if (-not (Test-Path -LiteralPath $sshKeygen -PathType Leaf)) {
@@ -147,6 +148,13 @@ dotnet publish (Join-Path $repositoryRoot 'src\CSweet.AgentRuntime.Guest\CSweet.
 if ($LASTEXITCODE -ne 0) { throw 'The Linux guest broker publish failed.' }
 if (-not (Test-Path -LiteralPath (Join-Path $guestPublish 'CSweet.AgentRuntime.Guest') -PathType Leaf)) {
     throw 'The published Linux guest executable was not produced.'
+}
+Write-Host 'Publishing the self-contained Linux agent builder...'
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.AgentRuntime.Builder\CSweet.AgentRuntime.Builder.csproj') `
+    -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true -o $builderPublish
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $builderPublish 'CSweet.AgentRuntime.Builder') -PathType Leaf)) {
+    throw 'The Linux agent builder publish failed.'
 }
 
 $privateKey = Join-Path $keyRoot 'packer_ed25519'
@@ -200,6 +208,7 @@ try {
         "-var=ssh_private_key_file=$privateKey" `
         "-var=seed_iso_path=$seedIso" `
         "-var=guest_publish_directory=$guestPublish" `
+        "-var=builder_publish_directory=$builderPublish" `
         "-var=output_directory=$packerOutput" `
         "-var=vm_name=CSweet-Agent-Guest-Image-Build-$([IO.Path]::GetFileName($runRoot))" `
         $template 2>&1 | Tee-Object -FilePath $packerBuildLog

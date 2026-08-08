@@ -109,6 +109,13 @@ public sealed partial class GuestArtifactMaterializer
         if (!File.Exists(Path.Combine(destinationRoot, "artifact.json")) ||
             !Directory.Exists(Path.Combine(destinationRoot, "payload")))
             throw new InvalidDataException("The guest artifact is missing its manifest or payload directory.");
+        if (!OperatingSystem.IsWindows())
+        {
+            foreach (var directory in Directory.EnumerateDirectories(
+                         destinationRoot, "*", SearchOption.AllDirectories))
+                File.SetUnixFileMode(directory, SanitizeModeForWorkload(default, isDirectory: true));
+            await GuestUnixFilePermissions.GrantWorkloadTreeAsync(destinationRoot, cancellationToken);
+        }
     }
 
     private static string ValidateDestinationRoot(string value)
@@ -148,19 +155,26 @@ public sealed partial class GuestArtifactMaterializer
         if (Directory.Exists(destinationRoot)) Directory.Delete(destinationRoot, recursive: true);
         Directory.CreateDirectory(destinationRoot);
         if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(destinationRoot,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            File.SetUnixFileMode(destinationRoot, SanitizeModeForWorkload(default, isDirectory: true));
     }
 
     private static void ApplyMode(string path, UnixFileMode requested, bool isDirectory)
     {
         if (OperatingSystem.IsWindows()) return;
-        const UnixFileMode allowed = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-            UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
-        var mode = requested & allowed;
-        if (isDirectory) mode |= UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
-        else mode |= UnixFileMode.UserRead;
-        File.SetUnixFileMode(path, mode);
+        File.SetUnixFileMode(path, SanitizeModeForWorkload(requested, isDirectory));
+    }
+
+    internal static UnixFileMode SanitizeModeForWorkload(UnixFileMode requested, bool isDirectory)
+    {
+        if (isDirectory)
+            return UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                   UnixFileMode.GroupRead | UnixFileMode.GroupExecute;
+        var executable = (requested &
+            (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
+        return UnixFileMode.UserRead | UnixFileMode.GroupRead |
+               (executable
+                   ? UnixFileMode.UserExecute | UnixFileMode.GroupExecute
+                   : 0);
     }
 
     private static void ValidateDigest(string value)

@@ -58,6 +58,22 @@ public sealed class IsolationProviderSelectorTests
     }
 
     [Fact]
+    public async Task SelectAsync_DiscoversActiveCertifiedImageWhenDigestIsNotPinned()
+    {
+        var provider = new FakeProvider(
+            "hyperv",
+            IsolationAssurance.CertifiedHardwareVirtualMachine,
+            certified: true,
+            certifiedImageDigest: "sha256:certified");
+        var selector = CreateSelector(provider);
+        var request = CreateRequest(AgentTrustLevel.UntrustedRepository) with { GuestImageDigest = null };
+
+        var selection = await selector.SelectAsync(request);
+
+        Assert.Equal("sha256:certified", selection.Probe.Certification!.GuestImageDigest);
+    }
+
+    [Fact]
     public async Task SelectAsync_DoesNotFallbackWhenPreferredProviderIsUnavailable()
     {
         var unavailable = new FakeProvider("hyperv", IsolationAssurance.CertifiedHardwareVirtualMachine, certified: true, available: false);

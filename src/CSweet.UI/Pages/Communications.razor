@@ -406,8 +406,19 @@
                     <footer class="hub-composer">
                         <MudTextField @bind-Value="_draft" Placeholder="@ComposerPlaceholder"
                                       Variant="Variant.Outlined" Lines="2" Immediate="true" OnKeyDown="OnComposerKeyDown" Disabled="@(_sending || ComposerBlocked)" />
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
-                                   Disabled="@(_sending || ComposerBlocked || string.IsNullOrWhiteSpace(_draft))" EndIcon="@Icons.Material.Filled.Send">Send</MudButton>
+                        @if (BlockingTurn is { } activeTurn)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Error"
+                                       OnClick="@(() => StopTurnAsync(activeTurn))"
+                                       Disabled="@_stoppingTurn" EndIcon="@Icons.Material.Filled.StopCircle">
+                                @(_stoppingTurn ? "Stopping" : "Stop")
+                            </MudButton>
+                        }
+                        else
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
+                                       Disabled="@(_sending || string.IsNullOrWhiteSpace(_draft))" EndIcon="@Icons.Material.Filled.Send">Send</MudButton>
+                        }
                     </footer>
                 }
             }
@@ -568,7 +579,7 @@
     private string? _resourceFeedback;
     private readonly Dictionary<Guid, string> _decisionErrors = [];
     private const string SomethingElseKey = "__something_else__";
-    private bool _loading = true, _sending, _showMembers, _showEditor, _editorBusy, _editorPrivate, _confirmArchive;
+    private bool _loading = true, _sending, _stoppingTurn, _showMembers, _showEditor, _editorBusy, _editorPrivate, _confirmArchive;
     private string _search = string.Empty, _draft = string.Empty, _editorTitle = string.Empty, _editorDescription = string.Empty;
     private string? _error, _notice, _editorError;
     private readonly DialogOptions _thinkingDialogOptions = new() { MaxWidth = MaxWidth.Large, FullWidth = true };
@@ -602,6 +613,12 @@
         $"Message {(_selected.IsDirect ? _selected.Title : $"#{_selected.Title}")}";
     private bool HasActiveTurn => _turns.Values.Any(x => !IsTerminal(x.Turn.Status));
     private bool ComposerBlocked => _selected?.IsDirect == true && HasActiveTurn;
+    private TurnView? BlockingTurn => _selected?.IsDirect == true
+        ? _turns.Values
+            .Where(x => !IsTerminal(x.Turn.Status))
+            .OrderBy(x => x.Turn.CreatedAt)
+            .FirstOrDefault()
+        : null;
     private IEnumerable<TurnView> ActiveTurns => _turns.Values
         .Where(x => !IsTerminal(x.Turn.Status) && x.Turn.AssistantMessageId is null)
         .OrderBy(x => x.Turn.CreatedAt);
@@ -1116,6 +1133,23 @@
             view.Turn = await ChatTurns.CancelTurnAsync(OrganizationId, _selected.Id, view.Turn.Id, _disposeCts.Token);
         }
         catch (Exception ex) { _notice = ex.Message; }
+    }
+
+    private async Task StopTurnAsync(TurnView view)
+    {
+        if (_stoppingTurn) return;
+        _stoppingTurn = true;
+        _notice = null;
+        try
+        {
+            await CancelTurnAsync(view);
+            if (_selected is not null)
+                await LoadTurnsAsync(_selected.Id, _chatCts?.Token ?? _disposeCts.Token);
+        }
+        finally
+        {
+            _stoppingTurn = false;
+        }
     }
 
     private static bool IsTerminal(string status) => status is "Completed" or "CompletedWithWarnings" or "Failed" or "Cancelled";

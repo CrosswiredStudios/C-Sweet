@@ -29,6 +29,7 @@ using CSweet.Application.WorkManagement;
 using CSweet.Application.SourceControl;
 using CSweet.Application.Analytics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
@@ -135,6 +136,12 @@ public static class DependencyInjection
         builder.Services.AddSingleton<IHyperVGuestTransport, WindowsHyperVSocketTransport>();
         var agentHostBroker = builder.Configuration.GetSection(AgentHostBrokerOptions.SectionName)
             .Get<AgentHostBrokerOptions>() ?? new AgentHostBrokerOptions();
+        // Aspire gives each named endpoint a concrete, host-reachable address. Prefer that
+        // address when available so runtime broker traffic never falls through to DNS for
+        // the logical resource name (which is not resolvable by a Windows host process).
+        var aspireAgentHostEndpoint = builder.Configuration["AGENTHOST_MCP"];
+        if (!string.IsNullOrWhiteSpace(aspireAgentHostEndpoint))
+            agentHostBroker.BaseUrl = aspireAgentHostEndpoint;
         var agentHostBaseUri = agentHostBroker.ValidatedBaseUri();
         builder.Services.AddSingleton(agentHostBroker);
         builder.Services.AddHttpClient(nameof(AgentHostBrokerOperationHandler), client =>
@@ -144,6 +151,7 @@ public static class DependencyInjection
         });
         builder.Services.AddSingleton<IAgentBrokerOperationHandler, AgentHostBrokerOperationHandler>();
         builder.Services.AddSingleton<IAgentGuestSessionCoordinator, HyperVGuestSessionCoordinator>();
+        builder.Services.AddSingleton<IBuilderGuestSessionCoordinator, BuilderGuestSessionCoordinator>();
         builder.Services.AddScoped<AgentImportPreviewService>();
         builder.Services.AddScoped<IAgentImportPreviewService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
         builder.Services.AddScoped<IPluginImportService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
@@ -412,14 +420,18 @@ public static class DependencyInjection
         builder.Services.AddSingleton<RuntimeHostRequestAuthenticator>();
         builder.Services.AddSingleton<IAgentIsolationProvider>(services => new RuntimeHostProviderClient(
             IsolationProviderCatalog.HyperV(), endpoint,
-            services.GetRequiredService<RuntimeHostRequestAuthenticator>()));
+            services.GetRequiredService<RuntimeHostRequestAuthenticator>(),
+            services.GetRequiredService<ILogger<RuntimeHostProviderClient>>()));
         builder.Services.AddSingleton<IAgentIsolationProvider>(services => new RuntimeHostProviderClient(
             IsolationProviderCatalog.Firecracker(), endpoint,
-            services.GetRequiredService<RuntimeHostRequestAuthenticator>()));
+            services.GetRequiredService<RuntimeHostRequestAuthenticator>(),
+            services.GetRequiredService<ILogger<RuntimeHostProviderClient>>()));
         builder.Services.AddSingleton<IAgentIsolationProvider>(services => new RuntimeHostProviderClient(
             IsolationProviderCatalog.AppleVirtualization(), endpoint,
-            services.GetRequiredService<RuntimeHostRequestAuthenticator>()));
+            services.GetRequiredService<RuntimeHostRequestAuthenticator>(),
+            services.GetRequiredService<ILogger<RuntimeHostProviderClient>>()));
         builder.Services.AddSingleton<IAgentIsolationProviderSelector, FailClosedIsolationProviderSelector>();
+        builder.Services.AddSingleton<IGuestImageRegistry, CertifiedGuestImageRegistry>();
     }
 
     private static string DefaultRuntimeHostKeyPath()

@@ -31,6 +31,10 @@ variable "guest_publish_directory" {
   type = string
 }
 
+variable "builder_publish_directory" {
+  type = string
+}
+
 variable "output_directory" {
   type = string
 }
@@ -80,6 +84,11 @@ build {
   provisioner "file" {
     source      = "${var.guest_publish_directory}/CSweet.AgentRuntime.Guest"
     destination = "/tmp/CSweet.AgentRuntime.Guest"
+  }
+
+  provisioner "file" {
+    source      = "${var.builder_publish_directory}/CSweet.AgentRuntime.Builder"
+    destination = "/tmp/CSweet.AgentRuntime.Builder"
   }
 
   provisioner "shell" {

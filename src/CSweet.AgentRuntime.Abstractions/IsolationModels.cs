@@ -248,7 +248,7 @@ public sealed record IsolationLogChunk(
 public sealed record IsolationSelectionRequest(
     AgentTrustLevel TrustLevel,
     IsolationCapabilityRequirements Requirements,
-    string GuestImageDigest,
+    string? GuestImageDigest,
     string BrokerProtocolVersion,
     string? PreferredProviderId = null);
 

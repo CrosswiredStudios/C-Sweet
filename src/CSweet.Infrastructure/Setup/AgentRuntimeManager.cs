@@ -15,6 +15,7 @@ namespace CSweet.Infrastructure.Setup;
 public sealed class AgentRuntimeManager(
     CSweetDbContext dbContext,
     IAgentWorkloadRunner workloads,
+    IGuestImageRegistry guestImages,
     IAuditEventWriter auditWriter,
     IOptions<AgentRuntimeManagerOptions> options,
     ILogger<AgentRuntimeManager> logger) : IPluginRuntimeManager
@@ -257,11 +258,18 @@ public sealed class AgentRuntimeManager(
                 changed++;
                 continue;
             }
-            if (instance.Status == AgentRuntimeStatus.WaitingForMcpSession && instance.StartedAt?.AddSeconds((await SettingsAsync(cancellationToken)).McpSessionTimeoutSeconds) <= now)
+            if (instance.Status == AgentRuntimeStatus.WaitingForMcpSession)
             {
-                await StopAndFinishAsync(instance, AgentRuntimeStatus.McpSessionTimedOut, "MCP session establishment timed out.", now, cancellationToken);
-                changed++;
-                continue;
+                var settings = await SettingsAsync(cancellationToken);
+                var waitingAt = instance.McpSessionWaitingAt ?? instance.Events
+                    .Where(x => x.Status == AgentRuntimeStatus.WaitingForMcpSession)
+                    .MaxBy(x => x.OccurredAt)?.OccurredAt;
+                if (waitingAt?.AddSeconds(settings.McpSessionTimeoutSeconds) <= now)
+                {
+                    await StopAndFinishAsync(instance, AgentRuntimeStatus.McpSessionTimedOut, "MCP session establishment timed out.", now, cancellationToken);
+                    changed++;
+                    continue;
+                }
             }
             if (instance.Status == AgentRuntimeStatus.Running && instance.RuntimeDeadlineAt <= now)
             {
@@ -529,14 +537,18 @@ public sealed class AgentRuntimeManager(
                 throw new InvalidOperationException(
                     "The software development runtime requires ReadWrite workspace access.");
             var runtimeOptions = options.Value;
-            var guestDigest = NormalizeDigest(runtimeOptions.RuntimeGuestImageDigest, "runtime guest image");
-            var artifactDigest = NormalizeDigest(package.PackageDigest, "agent artifact");
-            var guestImage = new GuestImageReference(
+            var guestImage = await guestImages.ResolveAsync(new GuestImageResolutionRequest(
                 runtimeOptions.RuntimeGuestImageId,
-                Required(runtimeOptions.RuntimeGuestImageVersion, "runtime guest image version"),
-                guestDigest,
+                runtimeOptions.RuntimeGuestImageVersion,
                 runtimeOptions.RuntimeGuestOperatingSystem,
-                runtimeOptions.RuntimeGuestArchitecture);
+                runtimeOptions.RuntimeGuestArchitecture,
+                AgentTrustLevel.UntrustedRepository,
+                "1.0",
+                runtimeOptions.PreferredIsolationProviderId,
+                runtimeOptions.RuntimeGuestImageDigest,
+                runtimeOptions.RequiredCertificationSuiteVersion), startTimeout.Token);
+            var guestDigest = guestImage.Digest;
+            var artifactDigest = NormalizeDigest(package.PackageDigest, "agent artifact");
             var artifact = new AgentArtifactReference(
                 artifactDigest,
                 package.ArtifactSignature,
@@ -583,7 +595,7 @@ public sealed class AgentRuntimeManager(
             instance.LogExcerpt = "Certified VM launch timed out.";
             Transition(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, "Certified VM start timed out.");
         }
-        catch (Exception exception) when (exception is AgentWorkloadException or InvalidOperationException)
+        catch (Exception exception) when (exception is AgentWorkloadException or IsolationUnavailableException or InvalidOperationException)
         {
             logger.LogError(exception, "Failed to start runtime {RuntimeInstanceId}", instance.Id);
             await TryRemoveFailedStartAsync(instance, cancellationToken);

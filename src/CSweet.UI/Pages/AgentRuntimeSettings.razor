@@ -2,6 +2,7 @@
 @layout SettingsLayout
 @using CSweet.Contracts.Setup
 @inject IAgentRuntimeSettingsApiClient AgentRuntimeSettingsApi
+@inject NavigationManager Navigation
 
 <PageTitle>Agent Runtime - C-Sweet</PageTitle>
 
@@ -15,7 +16,22 @@
     </MudPaper>
 
     <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-        <AgentIsolationSetupStep ShowNavigation="false" />
+        <AgentIsolationSetupStep ShowNavigation="false" OnStatusChanged="HandleIsolationStatusChanged" />
+        @if (_isIsolationReady)
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mt-4">
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.subtitle2">The secure runtime is ready.</MudText>
+                    <MudText Typo="Typo.body2">
+                        C-Sweet creates a private VM only while an agent is building or running, then removes it automatically.
+                    </MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.ArrowForward" OnClick="ContinueToAgentBuilds">
+                        Continue to build or run agents
+                    </MudButton>
+                </MudStack>
+            </MudAlert>
+        }
     </MudPaper>
 
     @if (_isLoading)
@@ -129,6 +145,7 @@
     private bool _isLoading = true, _isBusy, _enableImportedAgents, _allowAlwaysOnCommunityAgents,
         _allowPublicInternetByDefault, _keepFailedBuildWorkspaces, _removeWorkloadsAfterCompletion,
         _removeWorkspacesAfterCompletion;
+    private bool _isIsolationReady;
     private bool? _actionSucceeded;
     private string? _pageError, _actionMessage;
     private string _defaultActivationMode = "Periodic", _defaultOverlapPolicy = "Skip", _defaultRestartPolicy = "Never",
@@ -144,6 +161,11 @@
     private Severity ActionMessageSeverity => _actionSucceeded == true ? Severity.Success : Severity.Error;
 
     protected override Task OnInitializedAsync() => LoadAsync();
+
+    private void HandleIsolationStatusChanged(AgentIsolationOnboardingResponse status) =>
+        _isIsolationReady = status.IsReady;
+
+    private void ContinueToAgentBuilds() => Navigation.NavigateTo("/settings/agents");
 
     private async Task LoadAsync()
     {
