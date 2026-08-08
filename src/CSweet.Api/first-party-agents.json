@@ -47,8 +47,8 @@
           "Keywords": [ "product strategy", "customer discovery", "roadmap", "prioritization" ],
           "IsFeatured": true,
           "Availability": "Available",
-          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.ProductManager",
-          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.ProductManager#readme"
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareProductManager",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareProductManager#readme"
         },
         {
           "Id": "39949c34-fe1e-4c7c-bd01-9a05c0a2ebcc",

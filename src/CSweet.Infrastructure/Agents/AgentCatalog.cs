@@ -183,8 +183,8 @@ public sealed class AgentCatalogService(
     internal static int SourcePriority(AgentCatalogSource source) => source switch
     {
         AgentCatalogSource.Installed => 0,
-        AgentCatalogSource.LocalDirectory => 1,
-        AgentCatalogSource.FirstPartyCatalog => 2,
+        AgentCatalogSource.FirstPartyCatalog => 1,
+        AgentCatalogSource.LocalDirectory => 2,
         AgentCatalogSource.Marketplace => 3,
         _ => 9
     };

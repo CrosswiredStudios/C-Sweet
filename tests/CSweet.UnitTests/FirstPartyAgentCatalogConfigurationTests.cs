@@ -5,6 +5,29 @@ namespace CSweet.UnitTests;
 public sealed class FirstPartyAgentCatalogConfigurationTests
 {
     [Fact]
+    public void SoftwareProductManager_IsAvailableFromItsStandaloneRepository()
+    {
+        var path = Path.Combine(
+            RepositoryRoot(),
+            "src",
+            "CSweet.Api",
+            "first-party-agents.json");
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var productManager = document.RootElement
+            .GetProperty("CSweet")
+            .GetProperty("Marketplace")
+            .GetProperty("FirstPartyAgents")
+            .EnumerateArray()
+            .Single(x => x.GetProperty("AgentId").GetString() ==
+                         "com.csweet.product-manager");
+
+        Assert.Equal("Available", productManager.GetProperty("Availability").GetString());
+        Assert.Equal(
+            "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareProductManager",
+            productManager.GetProperty("RepositoryUrl").GetString());
+    }
+
+    [Fact]
     public void SoftwareDeveloper_IsConnectionIndependentAndInstallable()
     {
         var path = Path.Combine(

@@ -17,7 +17,7 @@ namespace CSweet.UnitTests;
 public sealed class AgentCatalogServiceTests
 {
     [Fact]
-    public async Task Aggregate_DeduplicatesByAgentIdAndPrefersLocalSource()
+    public async Task Aggregate_DeduplicatesByAgentIdAndPrefersFirstPartyRepositorySource()
     {
         var firstParty = Agent("first-party:1", AgentCatalogSource.FirstPartyCatalog);
         var local = Agent("local:1", AgentCatalogSource.LocalDirectory) with
@@ -39,8 +39,9 @@ public sealed class AgentCatalogServiceTests
             new("Product Manager", RequiredCapabilities: ["product.strategy"]));
 
         var agent = Assert.Single(result.Agents);
-        Assert.Equal(AgentCatalogSource.LocalDirectory, agent.Source);
-        Assert.Contains(AgentCatalogSource.FirstPartyCatalog, agent.AlternateSources);
+        Assert.Equal(AgentCatalogSource.FirstPartyCatalog, agent.Source);
+        Assert.Contains(AgentCatalogSource.LocalDirectory, agent.AlternateSources);
+        Assert.Equal("https://github.com/example/product-manager", agent.RepositoryUrl);
         Assert.Equal("com.csweet.product-manager", agent.AgentId);
         Assert.Equal("product-manager", agent.RoleKey);
         Assert.Equal("Product Manager", agent.RoleName);
