@@ -184,15 +184,12 @@ public sealed class ResourceChangeService(
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive,
             cancellationToken) ?? throw new UnauthorizedAccessException("The installation is not an active employee.");
-        var isChief = await db.LeadershipAssignments.AsNoTracking().AnyAsync(x =>
-            x.OrganizationId == organizationId && x.OrganizationUserId == actor.Id &&
-            x.PositionKey == "chief-of-staff" && x.EndsAt == null, cancellationToken);
 
         var query = db.ResourceChangeRequests.AsNoTracking().Include(x => x.Roles)
             .Where(x => x.OrganizationId == organizationId &&
                 (x.RequesterOrganizationUserId == actor.Id ||
                  x.ManagerOrganizationUserId == actor.Id ||
-                 (isChief && x.Status == ResourceChangeRequestStatus.Approved)));
+                 x.Status == ResourceChangeRequestStatus.Approved));
         if (request.RequestId.HasValue) query = query.Where(x => x.Id == request.RequestId.Value);
         if (request.Statuses is { Count: > 0 })
         {

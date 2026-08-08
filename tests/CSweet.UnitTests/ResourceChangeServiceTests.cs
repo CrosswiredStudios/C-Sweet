@@ -185,6 +185,45 @@ public sealed class ResourceChangeServiceTests
     }
 
     [Fact]
+    public async Task OrganizationScopedReader_SeesApprovedRequestButNotPendingRequestOutsideReportingLine()
+    {
+        await using var db = CreateDb();
+        var setup = SeedManagerConversation(db);
+        var observerInstallationId = Guid.NewGuid();
+        var observer = User(setup.OrganizationId, "Operations observer", EmployeeType.Agent);
+        observer.AgentInstallationId = observerInstallationId;
+        db.CoreOrganizationUsers.Add(observer);
+        await db.SaveChangesAsync();
+        var service = new ResourceChangeService(db, new TestAuditEventWriter());
+        var pending = await service.ProposeAsync(
+            setup.OrganizationId,
+            setup.RequesterInstallationId,
+            Proposal(setup, "organization-reader"));
+
+        var beforeApproval = await service.ReadForInstallationAsync(
+            setup.OrganizationId,
+            observerInstallationId,
+            new ResourceChangeReadRequest(pending.Id));
+        Assert.Empty(beforeApproval.Requests);
+
+        await service.DecideForInstallationAsync(
+            setup.OrganizationId,
+            setup.ManagerInstallationId,
+            new ResourceChangeDecisionRequest(
+                pending.Id,
+                ResourceChangeDecisionKinds.Approve,
+                "Approved.",
+                "organization-reader-decision"));
+
+        var afterApproval = await service.ReadForInstallationAsync(
+            setup.OrganizationId,
+            observerInstallationId,
+            new ResourceChangeReadRequest(pending.Id));
+        var approved = Assert.Single(afterApproval.Requests);
+        Assert.Equal("Approved", approved.Status);
+    }
+
+    [Fact]
     public async Task ApprovedDecision_GrantsRequesterBoardCreationOnce_WhenPackageRequiresCapability()
     {
         await using var db = CreateDb();
