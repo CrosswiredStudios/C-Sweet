@@ -40,6 +40,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
             .Where(x => x.OrganizationId == organizationId && x.IsActive)
             .Include(x => x.AgentInstallation!)
                 .ThenInclude(x => x.Grant)
+            .Include(x => x.AgentInstallation!)
+                .ThenInclude(x => x.PackageVersion)
             .OrderBy(x => x.DisplayName)
             .ToListAsync(cancellationToken);
         return users.Select(x => x.ToResponse()).ToList();
@@ -50,6 +52,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
         var user = await _dbContext.CoreOrganizationUsers
             .Include(x => x.AgentInstallation!)
                 .ThenInclude(x => x.Grant)
+            .Include(x => x.AgentInstallation!)
+                .ThenInclude(x => x.PackageVersion)
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
 
         return user?.ToResponse();
@@ -74,19 +78,40 @@ public sealed class OrganizationUserService : IOrganizationUserService
             return Failure("validation_error", "Employee type is invalid.");
         }
 
-        if (request.EmployeeType == (int)EmployeeType.Agent && !request.AgentInstallationId.HasValue)
+        if (request.EmployeeType == (int)EmployeeType.Agent &&
+            !request.AgentInstallationId.HasValue && !request.AgentDefinitionId.HasValue)
         {
-            return Failure("agent_instance_required", "An imported agent installation must be selected for an agent employee.");
+            return Failure("agent_definition_required", "An available installed agent definition must be selected for an agent employee.");
         }
         if (request.EmployeeType == (int)EmployeeType.Agent && !request.ReportsToOrganizationUserId.HasValue)
         {
             return Failure("manager_required", "A managing employee must be selected for an agent employee.");
         }
 
-        var agentInstallationReassigned = false;
+        AgentInstallation? hiredInstallation = null;
+        if (request.AgentDefinitionId.HasValue)
+        {
+            var definition = await _dbContext.AgentDefinitions
+                .Include(x => x.Configuration)
+                .Include(x => x.PackageVersion)
+                .SingleOrDefaultAsync(x => x.Id == request.AgentDefinitionId && x.IsAvailableForHire,
+                    cancellationToken);
+            if (definition is null || definition.PackageVersion?.Status != AgentPackageVersionStatus.Built ||
+                string.IsNullOrWhiteSpace(definition.PackageVersion.PackageDigest) ||
+                string.IsNullOrWhiteSpace(definition.PackageVersion.ArtifactSignature))
+            {
+                return Failure("agent_definition_unavailable",
+                    "The selected agent definition is not built, signed, configured, and available for hire.");
+            }
+
+            hiredInstallation = CreateHiredInstallation(definition, organizationId, DateTimeOffset.UtcNow);
+            _dbContext.AgentInstallations.Add(hiredInstallation);
+            request = request with { AgentInstallationId = hiredInstallation.Id };
+        }
+
         if (request.AgentInstallationId.HasValue)
         {
-            var installation = await _dbContext.AgentInstallations
+            var installation = hiredInstallation ?? await _dbContext.AgentInstallations
                 .Include(x => x.PackageVersion)
                 .Include(x => x.Grant)
                 .SingleOrDefaultAsync(
@@ -105,15 +130,11 @@ public sealed class OrganizationUserService : IOrganizationUserService
             }
 
             var organizationKey = organizationId.ToString("D");
-            agentInstallationReassigned = !string.Equals(
-                installation.BusinessId,
-                organizationKey,
-                StringComparison.OrdinalIgnoreCase);
-            installation.BusinessId = organizationKey;
-            await AgentInstallationConfigurationDefaults.EnsureAsync(
-                _dbContext,
-                installation,
-                cancellationToken);
+            if (!string.Equals(installation.BusinessId, organizationKey, StringComparison.OrdinalIgnoreCase))
+            {
+                return Failure("invalid_agent_instance",
+                    "Agent installations are business-scoped and cannot be reassigned between organizations.");
+            }
         }
 
         if (request.ReportsToOrganizationUserId.HasValue)
@@ -267,34 +288,24 @@ public sealed class OrganizationUserService : IOrganizationUserService
                 onboarding.ConversationId);
         }
 
-        if (user.AgentInstallationId.HasValue && _agentRuntimeManager is not null)
+        if (user.AgentInstallationId.HasValue && _agentRuntimeManager is not null &&
+            await _dbContext.AgentSchedules.AsNoTracking().AnyAsync(x =>
+                x.AgentInstallationId == user.AgentInstallationId.Value && x.IsEnabled &&
+                x.ActivationMode == ActivationMode.AlwaysOn, cancellationToken))
         {
             try
             {
-                bool queued;
-                if (agentInstallationReassigned)
-                {
-                    queued = await _agentRuntimeManager.RestartRuntimeAsync(
-                        user.AgentInstallationId.Value,
-                        "Restarted under the assigned organization for the agent employee's initial onboarding conversation.",
-                        interactive: true,
-                        cancellationToken);
-                }
-                else
-                {
-                    queued = await _agentRuntimeManager.EnsureRuntimeQueuedAsync(
-                        user.AgentInstallationId.Value,
-                        "Prioritized for the agent employee's initial onboarding conversation.",
-                        interactive: true,
-                        cancellationToken);
-                }
+                var queued = await _agentRuntimeManager.EnsureRuntimeQueuedAsync(
+                    user.AgentInstallationId.Value,
+                    "Started after the always-on agent was hired and committed.",
+                    interactive: false,
+                    cancellationToken);
                 _logger?.LogInformation(
-                    "Requested onboarding runtime for event {OnboardingEventId}, organization {OrganizationId}, employee {AgentOrganizationUserId}, and installation {InstallationId}. Reassigned: {InstallationReassigned}; new runtime queued: {RuntimeQueued}.",
+                    "Requested the permitted always-on runtime after hire for event {OnboardingEventId}, organization {OrganizationId}, employee {AgentOrganizationUserId}, installation {InstallationId}. New runtime queued: {RuntimeQueued}.",
                     onboarding?.EventId,
                     organizationId,
                     user.Id,
                     user.AgentInstallationId,
-                    agentInstallationReassigned,
                     queued);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -453,6 +464,83 @@ public sealed class OrganizationUserService : IOrganizationUserService
             cancellationToken: cancellationToken);
 
         return new CoreActionResponse(true, null, "Role updated successfully.", OrganizationUser: user.ToResponse());
+    }
+
+    internal static AgentInstallation CreateHiredInstallation(
+        AgentDefinition definition,
+        Guid organizationId,
+        DateTimeOffset now)
+    {
+        var manifest = AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson);
+        var needsSetup = manifest.Setup?.Required == true;
+        var installation = new AgentInstallation
+        {
+            Id = Guid.NewGuid(),
+            AgentDefinitionId = definition.Id,
+            PackageVersionId = definition.PackageVersionId,
+            BusinessId = organizationId.ToString("D"),
+            Scope = PluginInstallationScope.Organization,
+            IsEnabled = true,
+            SetupState = needsSetup ? PluginSetupState.NeedsSetup : PluginSetupState.Ready,
+            SetupFlowId = needsSetup ? manifest.Setup!.EntryFlow : null,
+            SetupStepId = needsSetup
+                ? manifest.Setup!.Flows.First(x => x.Id == manifest.Setup.EntryFlow).Steps.First().Id
+                : null,
+            DesiredConfigurationRevision = 1,
+            AppliedConfigurationRevision = 0,
+            ConfigurationSyncStatus = AgentConfigurationSyncStatus.PendingNextStart,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        installation.InstallationKey = installation.Id;
+        installation.Grant = new AgentInstallationGrant
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            NetworkAccessJson = definition.DefaultNetworkAccessJson,
+            ProvidedCapabilitiesJson = definition.DefaultProvidedCapabilitiesJson,
+            RequiredCapabilitiesJson = definition.DefaultRequiredCapabilitiesJson,
+            EventSubscriptionsJson = definition.DefaultEventSubscriptionsJson,
+            ResourceLimitsJson = JsonSerializer.Serialize(new
+            {
+                MaxRuntimeSeconds = definition.DefaultMaxRuntimeSeconds,
+                MemoryMb = definition.DefaultMemoryMb,
+                CpuPercent = definition.DefaultCpuPercent
+            }),
+            GrantRevision = 1,
+            MaxRuntimeSeconds = definition.DefaultMaxRuntimeSeconds,
+            MemoryMb = definition.DefaultMemoryMb,
+            CpuPercent = definition.DefaultCpuPercent,
+            ApprovedAt = now
+        };
+        installation.Schedule = new AgentSchedule
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            ActivationMode = definition.DefaultActivationMode,
+            TickFrequencySeconds = definition.DefaultTickFrequencySeconds,
+            NextTickAt = definition.DefaultActivationMode switch
+            {
+                ActivationMode.AlwaysOn => now,
+                ActivationMode.Periodic => now.AddSeconds(definition.DefaultTickFrequencySeconds),
+                _ => null
+            },
+            MaxRuntimeSeconds = definition.DefaultMaxRuntimeSeconds,
+            MaxRetriesPerTick = 0,
+            OverlapPolicy = definition.DefaultOverlapPolicy,
+            IsEnabled = true
+        };
+        installation.Configuration = new AgentInstallationConfiguration
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            SchemaVersion = definition.Configuration?.SchemaVersion ?? "1",
+            SettingsJson = "{}",
+            Revision = 0,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        return installation;
     }
 
     static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

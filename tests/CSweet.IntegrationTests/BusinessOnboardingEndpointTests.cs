@@ -34,11 +34,11 @@ public class BusinessOnboardingEndpointTests
         await using var factory = CreateFactory();
         await MarkSetupCompleteAsync(factory);
         var client = factory.CreateClient();
-        var installationId = await SeedChiefInstallationAsync(factory);
+        var definitionId = await SeedChiefDefinitionAsync(factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/business-onboarding/complete",
-            CreateRequest(installationId));
+            CreateRequest(definitionId));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var result = await response.Content.ReadFromJsonAsync<CompleteBusinessOnboardingResponse>();
@@ -85,7 +85,7 @@ public class BusinessOnboardingEndpointTests
     }
 
     [Fact]
-    public async Task CompleteOnboarding_RequiresChiefAgentInstallation()
+    public async Task CompleteOnboarding_RequiresChiefAgentDefinition()
     {
         await using var factory = CreateFactory();
         await MarkSetupCompleteAsync(factory);
@@ -101,12 +101,12 @@ public class BusinessOnboardingEndpointTests
         Assert.Equal("chief_agent_required", result.ErrorCode);
     }
 
-    private static CompleteBusinessOnboardingRequest CreateRequest(Guid chiefInstallationId) =>
+    private static CompleteBusinessOnboardingRequest CreateRequest(Guid chiefDefinitionId) =>
         new(
             "Example Co",
             "Software",
             "Launch a paid MVP that helps small teams plan their work.",
-            chiefInstallationId);
+            chiefDefinitionId);
 
     private static async Task MarkSetupCompleteAsync(WebApplicationFactory<Program> factory)
     {
@@ -123,7 +123,7 @@ public class BusinessOnboardingEndpointTests
         await dbContext.SaveChangesAsync();
     }
 
-    private static async Task<Guid> SeedChiefInstallationAsync(WebApplicationFactory<Program> factory)
+    private static async Task<Guid> SeedChiefDefinitionAsync(WebApplicationFactory<Program> factory)
     {
         using var scope = factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
@@ -132,18 +132,26 @@ public class BusinessOnboardingEndpointTests
             Id = Guid.NewGuid(), PackageSourceId = Guid.NewGuid(), AgentId = "example.chief", AgentName = "Example Chief",
             Version = "1.0.0", PluginKind = PluginKind.Agent,
             ManifestJson = """{"kind":"agent","provides":[{"name":"assistant.converse.v1"}]}""",
+            Status = AgentPackageVersionStatus.Built,
+            PackageDigest = new string('f', 64),
+            ArtifactSignature = "test-signature",
             ImportedAt = DateTimeOffset.UtcNow
         };
-        var installation = new AgentInstallation
+        var definition = new AgentDefinition
         {
-            Id = Guid.NewGuid(), InstallationKey = Guid.NewGuid(), PackageVersionId = package.Id, PackageVersion = package,
-            BusinessId = "default", IsEnabled = true, RevisionStatus = PluginRevisionStatus.Active,
+            Id = Guid.NewGuid(), PackageSourceId = package.PackageSourceId, AgentId = package.AgentId,
+            PackageVersionId = package.Id, PackageVersion = package, Status = AgentDefinitionStatus.Available,
+            IsAvailableForHire = true, DefaultActivationMode = ActivationMode.Manual,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
         };
-        dbContext.AgentPackageVersions.Add(package);
-        dbContext.AgentInstallations.Add(installation);
+        definition.Configuration = new AgentDefinitionConfiguration
+        {
+            Id = Guid.NewGuid(), AgentDefinitionId = definition.Id, SchemaVersion = "1", SettingsJson = "{}",
+            Revision = 1, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.AgentDefinitions.Add(definition);
         await dbContext.SaveChangesAsync();
-        return installation.Id;
+        return definition.Id;
     }
 
     private static WebApplicationFactory<Program> CreateFactory()

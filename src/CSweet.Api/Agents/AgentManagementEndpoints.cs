@@ -1,10 +1,12 @@
 using System.Text.Json;
+using System.Security.Claims;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
+using CSweet.Domain.Core;
 
 namespace CSweet.Api.Agents;
 
@@ -38,16 +40,47 @@ public static class AgentManagementEndpoints
             {
                 return Results.BadRequest(new { error = exception.Message });
             }
-        }).RequireRateLimiting(AgentRateLimiting.ImportPolicy);
+        }).RequireAuthorization("PluginAdministration")
+          .RequireRateLimiting(AgentRateLimiting.ImportPolicy);
 
         group.MapPost("/imports/{importId:guid}/install", async (
             Guid importId,
             InstallAgentRequest request,
-            IAgentInstallationService installationService,
+            IAgentDefinitionService definitionService,
             CancellationToken cancellationToken) =>
-            await ExecuteInstallationActionAsync(
-                () => installationService.InstallAsync(importId, request, cancellationToken)))
+        {
+            try { return Results.Ok(await definitionService.ImportAsync(importId, request, cancellationToken)); }
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        })
+            .RequireAuthorization("PluginAdministration")
             .RequireRateLimiting(AgentRateLimiting.BuildPolicy);
+
+        group.MapGet("/definitions", async (IAgentDefinitionService definitions, CancellationToken cancellationToken) =>
+            Results.Ok(await definitions.ListAsync(cancellationToken)));
+
+        group.MapGet("/definitions/{definitionId:guid}", async (
+            Guid definitionId, IAgentDefinitionService definitions, CancellationToken cancellationToken) =>
+            await definitions.GetAsync(definitionId, cancellationToken) is { } definition
+                ? Results.Ok(definition) : Results.NotFound());
+
+        group.MapGet("/definitions/{definitionId:guid}/configuration", async (
+            Guid definitionId, IAgentConfigurationService configurations, CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await configurations.GetDefinitionAsync(definitionId, cancellationToken)); }
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        }).RequireAuthorization("PluginAdministration");
+
+        group.MapPut("/definitions/{definitionId:guid}/configuration", async (
+            Guid definitionId, PutAgentDefinitionConfigurationRequest request,
+            IAgentConfigurationService configurations, CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await configurations.SaveDefinitionAsync(definitionId, request, cancellationToken)); }
+            catch (AgentConfigurationConflictException exception)
+            {
+                return Results.Conflict(new { error = exception.Message, currentRevision = exception.CurrentRevision });
+            }
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        }).RequireAuthorization("PluginAdministration");
 
         group.MapGet("/installations", async (
             IAgentInstallationService installationService,
@@ -190,106 +223,96 @@ public static class AgentManagementEndpoints
             }
         });
 
+        // Temporary compatibility facade: reads/writes the control-plane store only. It never starts a VM.
         group.MapGet("/installations/{installationId:guid}/configuration", async (
-            Guid installationId,
-            AgentWorkInbox inbox,
-            CSweetDbContext db,
-            IAgentInteractiveRuntimeService interactiveRuntime,
-            IAgentInstallationConfigurationService configurations,
-            CancellationToken cancellationToken) =>
+            Guid installationId, IAgentInstallationConfigurationService configurations, CancellationToken cancellationToken) =>
         {
-            var readiness = await interactiveRuntime.EnsureReadyAsync(installationId, cancellationToken);
-            if (!readiness.IsReady)
+            try
             {
-                return Results.Accepted($"/api/agents/installations/{installationId}/runtime/status", readiness);
+                var snapshot = await configurations.GetAsync(installationId, cancellationToken);
+                return snapshot is null ? Results.NotFound() : Results.Ok(new AgentConfigurationSchemaResponse(
+                    installationId.ToString("D"), string.Empty, snapshot.SchemaVersion, [], snapshot.Settings));
             }
-
-            var result = await InvokeAgentConfigurationCapabilityAsync(
-                db,
-                inbox,
-                installationId,
-                AgentConfigurationCapabilities.Describe,
-                payload: [],
-                cancellationToken);
-
-            if (TryGetFailure(result, out var failure))
-            {
-                return failure;
-            }
-
-            var response = Deserialize<AgentConfigurationSchemaResponse>(result);
-            if (response is null)
-            {
-                return Results.Conflict(new { error = "The agent returned an empty configuration response." });
-            }
-
-            var persisted = await configurations.GetAsync(installationId, cancellationToken);
-            if (persisted is null)
-            {
-                return Results.Ok(response);
-            }
-
-            var supportedKeys = response.Fields.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
-            var settings = response.Settings.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
-            foreach (var setting in persisted.Settings.Where(x => supportedKeys.Contains(x.Key)))
-            {
-                settings[setting.Key] = setting.Value;
-            }
-
-            return Results.Ok(response with { Settings = settings });
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
         });
 
         group.MapPost("/installations/{installationId:guid}/configuration", async (
-            Guid installationId,
-            UpdateAgentConfigurationRequest request,
-            AgentWorkInbox inbox,
-            CSweetDbContext db,
-            IAgentInteractiveRuntimeService interactiveRuntime,
-            IAgentInstallationConfigurationService configurations,
+            Guid installationId, UpdateAgentConfigurationRequest request,
+            IAgentInstallationConfigurationService configurations, CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var saved = await configurations.SaveAsync(installationId, request.SchemaVersion ?? "1", request.Settings, cancellationToken);
+                return Results.Ok(new AgentConfigurationUpdateResponse(true, null, saved.Settings));
+            }
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        });
+
+        var employeeConfiguration = endpoints.MapGroup(
+            "/api/core/organizations/{organizationId:guid}/users/{employeeId:guid}/agent-configuration");
+        employeeConfiguration.MapGet("/overrides", async (Guid organizationId, Guid employeeId, ClaimsPrincipal principal,
+            CSweetDbContext db, IAgentConfigurationService configurations, CancellationToken cancellationToken) =>
+        {
+            if (!await CanManageEmployeeConfigurationAsync(principal, organizationId, employeeId, db, cancellationToken))
+                return Results.Forbid();
+            try { return Results.Ok(await configurations.GetEmployeeAsync(organizationId, employeeId, cancellationToken)); }
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        });
+        employeeConfiguration.MapPut("/overrides", async (Guid organizationId, Guid employeeId,
+            PutAgentConfigurationOverridesRequest request, ClaimsPrincipal principal, CSweetDbContext db,
+            IAgentConfigurationService configurations, CancellationToken cancellationToken) =>
+        {
+            if (!await CanManageEmployeeConfigurationAsync(principal, organizationId, employeeId, db, cancellationToken))
+                return Results.Forbid();
+            try { return Results.Ok(await configurations.SaveEmployeeOverridesAsync(organizationId, employeeId, request, cancellationToken)); }
+            catch (AgentConfigurationConflictException exception)
+            { return Results.Conflict(new { error = exception.Message, currentRevision = exception.CurrentRevision }); }
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        });
+        employeeConfiguration.MapDelete("/overrides/{key}", async (Guid organizationId, Guid employeeId, string key,
+            long expectedRevision,
+            ClaimsPrincipal principal, CSweetDbContext db, IAgentConfigurationService configurations,
             CancellationToken cancellationToken) =>
         {
-            var readiness = await interactiveRuntime.EnsureReadyAsync(installationId, cancellationToken);
-            if (!readiness.IsReady)
-            {
-                return Results.Accepted($"/api/agents/installations/{installationId}/runtime/status", readiness);
-            }
-
-            var payload = JsonSerializer.SerializeToUtf8Bytes(request, SerializerOptions);
-            var result = await InvokeAgentConfigurationCapabilityAsync(
-                db,
-                inbox,
-                installationId,
-                AgentConfigurationCapabilities.Update,
-                payload,
-                cancellationToken);
-
-            if (TryGetFailure(result, out var failure))
-            {
-                return failure;
-            }
-
-            var response = Deserialize<AgentConfigurationUpdateResponse>(result);
-            if (response is null)
-            {
-                return Results.Conflict(new { error = "The agent returned an empty configuration response." });
-            }
-
-            if (!response.Succeeded)
-            {
-                return Results.Ok(response);
-            }
-
-            var existing = await configurations.GetAsync(installationId, cancellationToken);
-            var persisted = await configurations.SaveAsync(
-                installationId,
-                request.SchemaVersion ?? existing?.SchemaVersion ?? "1",
-                response.Settings,
-                cancellationToken);
-
-            return Results.Ok(response with { Settings = persisted.Settings });
+            if (!await CanManageEmployeeConfigurationAsync(principal, organizationId, employeeId, db, cancellationToken))
+                return Results.Forbid();
+            try { return Results.Ok(await configurations.RestoreEmployeeOverrideAsync(organizationId, employeeId, key, expectedRevision, cancellationToken)); }
+            catch (AgentConfigurationConflictException exception)
+            { return Results.Conflict(new { error = exception.Message, currentRevision = exception.CurrentRevision }); }
+        });
+        employeeConfiguration.MapDelete("/overrides", async (Guid organizationId, Guid employeeId,
+            long expectedRevision,
+            ClaimsPrincipal principal, CSweetDbContext db, IAgentConfigurationService configurations,
+            CancellationToken cancellationToken) =>
+        {
+            if (!await CanManageEmployeeConfigurationAsync(principal, organizationId, employeeId, db, cancellationToken))
+                return Results.Forbid();
+            try { return Results.Ok(await configurations.RestoreAllEmployeeOverridesAsync(organizationId, employeeId, expectedRevision, cancellationToken)); }
+            catch (AgentConfigurationConflictException exception)
+            { return Results.Conflict(new { error = exception.Message, currentRevision = exception.CurrentRevision }); }
         });
 
         return endpoints;
+    }
+
+    private static async Task<bool> CanManageEmployeeConfigurationAsync(
+        ClaimsPrincipal principal, Guid organizationId, Guid employeeId, CSweetDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (principal.IsInRole(CSweet.Infrastructure.Auth.AuthenticationService.AdministratorRole))
+            return true;
+        var userIdValue = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdValue, out var applicationUserId))
+            return false;
+        var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.ApplicationUserId == applicationUserId && x.IsActive,
+            cancellationToken);
+        if (actor is null) return false;
+        if (actor.PermissionLevel == OrganizationPermissionLevel.Owner) return true;
+        return actor.PermissionLevel >= OrganizationPermissionLevel.Manager &&
+               await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.Id == employeeId &&
+                   x.OrganizationId == organizationId && x.ReportsToOrganizationUserId == actor.Id && x.IsActive,
+                   cancellationToken);
     }
 
     private static async Task<IResult> ExecuteInstallationActionAsync(

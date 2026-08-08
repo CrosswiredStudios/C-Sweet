@@ -32,21 +32,84 @@ public sealed class AgentApiClient : IAgentApiClient
         throw new ApiClientException(response.StatusCode, error?.Error ?? "Agent import could not be previewed.");
     }
 
-    public Task<AgentInstallationResponse> InstallAsync(
+    public async Task<AgentInstallationResponse> InstallAsync(
         Guid importId,
         InstallAgentRequest request,
         CancellationToken cancellationToken = default) =>
-        SendAsync<AgentInstallationResponse>(
+        ToLegacyDefinition(await SendAsync<AgentDefinitionResponse>(
             HttpMethod.Post,
             $"api/agents/imports/{importId}/install",
             request,
-            cancellationToken);
+            cancellationToken));
 
     public async Task<IReadOnlyList<AgentInstallationResponse>> ListInstallationsAsync(
         CancellationToken cancellationToken = default) =>
         await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentInstallationResponse>>(
             "api/agents/installations",
             cancellationToken) ?? [];
+
+    public async Task<IReadOnlyList<AgentInstallationResponse>> ListDefinitionsAsync(
+        CancellationToken cancellationToken = default) =>
+        (await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentDefinitionResponse>>(
+            "api/agents/definitions", cancellationToken) ?? []).Select(ToLegacyDefinition).ToArray();
+
+    public async Task<AgentInstallationResponse?> GetDefinitionAsync(
+        Guid definitionId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"api/agents/definitions/{definitionId}", cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AgentApiErrorResponse>(cancellationToken);
+            throw new ApiClientException(response.StatusCode, error?.Error ?? "Agent definition could not be loaded.");
+        }
+
+        var definition = await response.Content.ReadFromJsonAsync<AgentDefinitionResponse>(cancellationToken)
+            ?? throw new ApiClientException(response.StatusCode, "Agent definition response was empty.");
+        return ToLegacyDefinition(definition);
+    }
+
+    public async Task<AgentConfigurationView> GetDefinitionConfigurationAsync(
+        Guid definitionId, CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<AgentConfigurationView>(
+            $"api/agents/definitions/{definitionId}/configuration", cancellationToken)
+        ?? throw new ApiClientException(HttpStatusCode.NotFound, "Agent definition configuration was not found.");
+
+    public Task<AgentConfigurationView> UpdateDefinitionConfigurationAsync(
+        Guid definitionId, PutAgentDefinitionConfigurationRequest request,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<AgentConfigurationView>(HttpMethod.Put,
+            $"api/agents/definitions/{definitionId}/configuration", request, cancellationToken);
+
+    public async Task<AgentConfigurationView> GetEmployeeConfigurationAsync(
+        Guid organizationId, Guid employeeId, CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<AgentConfigurationView>(
+            $"api/core/organizations/{organizationId}/users/{employeeId}/agent-configuration/overrides",
+            cancellationToken)
+        ?? throw new ApiClientException(HttpStatusCode.NotFound, "Employee agent configuration was not found.");
+
+    public Task<AgentConfigurationView> UpdateEmployeeConfigurationAsync(
+        Guid organizationId, Guid employeeId, PutAgentConfigurationOverridesRequest request,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<AgentConfigurationView>(HttpMethod.Put,
+            $"api/core/organizations/{organizationId}/users/{employeeId}/agent-configuration/overrides",
+            request, cancellationToken);
+
+    public Task<AgentConfigurationView> RestoreEmployeeConfigurationKeyAsync(
+        Guid organizationId, Guid employeeId, string key, long expectedRevision,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<AgentConfigurationView>(HttpMethod.Delete,
+            $"api/core/organizations/{organizationId}/users/{employeeId}/agent-configuration/overrides/{Uri.EscapeDataString(key)}?expectedRevision={expectedRevision}",
+            null, cancellationToken);
+
+    public Task<AgentConfigurationView> RestoreAllEmployeeConfigurationAsync(
+        Guid organizationId, Guid employeeId, long expectedRevision,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<AgentConfigurationView>(HttpMethod.Delete,
+            $"api/core/organizations/{organizationId}/users/{employeeId}/agent-configuration/overrides?expectedRevision={expectedRevision}",
+            null, cancellationToken);
 
     public Task<AgentInstallationResponse?> GetInstallationAsync(
         Guid installationId,
@@ -259,4 +322,28 @@ public sealed class AgentApiClient : IAgentApiClient
     }
 
     private sealed record AgentApiErrorResponse(string? Error);
+
+    private static AgentInstallationResponse ToLegacyDefinition(AgentDefinitionResponse definition) => new(
+        definition.Id,
+        definition.PackageVersionId,
+        "global",
+        definition.AgentId,
+        definition.AgentName,
+        definition.AgentVersion,
+        definition.PublisherName,
+        definition.CommitSha,
+        definition.IsAvailableForHire,
+        [], [], [], [], [],
+        definition.DefaultMemoryMb,
+        definition.DefaultCpuPercent,
+        new AgentScheduleResponse(
+            Guid.Empty, definition.DefaultActivationMode, definition.DefaultTickFrequencySeconds,
+            null, null, null, null, definition.DefaultMaxRuntimeSeconds, 0, 0, null,
+            definition.DefaultOverlapPolicy, true),
+        definition.CreatedAt,
+        definition.UpdatedAt,
+        definition.Build)
+    {
+        SetupState = definition.Status
+    };
 }

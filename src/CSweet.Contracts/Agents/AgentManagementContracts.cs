@@ -9,6 +9,51 @@ public sealed record AgentConfigurationSchemaResponse(
     IReadOnlyList<AgentConfigurationField> Fields,
     IReadOnlyDictionary<string, JsonElement> Settings);
 
+public sealed record AgentDefinitionResponse(
+    Guid Id,
+    Guid PackageVersionId,
+    string AgentId,
+    string AgentName,
+    string AgentVersion,
+    string PublisherName,
+    string CommitSha,
+    string Status,
+    bool IsAvailableForHire,
+    string DefaultActivationMode,
+    int DefaultTickFrequencySeconds,
+    string DefaultOverlapPolicy,
+    int DefaultMaxRuntimeSeconds,
+    int DefaultMemoryMb,
+    int DefaultCpuPercent,
+    long ConfigurationRevision,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    AgentBuildSummaryResponse? Build = null);
+
+public sealed record AgentConfigurationView(
+    string AgentId,
+    string AgentVersion,
+    string SchemaVersion,
+    IReadOnlyList<AgentConfigurationField> Fields,
+    IReadOnlyDictionary<string, JsonElement> DefaultValues,
+    IReadOnlyDictionary<string, JsonElement> Overrides,
+    IReadOnlyDictionary<string, JsonElement> EffectiveValues,
+    IReadOnlyList<string> OverriddenKeys,
+    long ExpectedRevision,
+    long DesiredRevision,
+    long AppliedRevision,
+    string SynchronizationStatus,
+    string? SynchronizationError = null);
+
+public sealed record PutAgentDefinitionConfigurationRequest(
+    string SchemaVersion,
+    IReadOnlyDictionary<string, JsonElement> Settings,
+    long ExpectedRevision);
+
+public sealed record PutAgentConfigurationOverridesRequest(
+    IReadOnlyDictionary<string, JsonElement> Overrides,
+    long ExpectedRevision);
+
 public sealed record AgentConfigurationField(
     string Key,
     string Label,

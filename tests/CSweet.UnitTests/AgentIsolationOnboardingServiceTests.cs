@@ -162,6 +162,22 @@ public sealed class AgentIsolationOnboardingServiceTests
         Assert.Contains("_isSecureRuntimeReady", agents, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void BusinessOnboardingWaitsForInitialBuildAndAgentPageResumesTracking()
+    {
+        var organizations = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.UI", "Pages", "Organizations.razor"));
+        var agents = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.UI", "Pages", "Agents.razor"));
+
+        Assert.Contains("WaitForChiefDefinitionAsync", organizations, StringComparison.Ordinal);
+        Assert.Contains("AgentApi.GetDefinitionAsync(definition.Id", organizations, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (!_installedChief.IsEnabled)", organizations, StringComparison.Ordinal);
+        Assert.Contains("ResumeDefinitionBuildTracking();", agents, StringComparison.Ordinal);
+        Assert.Contains("RefreshBuildOwnerAsync", agents, StringComparison.Ordinal);
+        Assert.Contains("AgentApi.GetDefinitionAsync(installation.Id", agents, StringComparison.Ordinal);
+    }
+
     private static AgentIsolationOnboardingService CreateService(
         IAgentIsolationProvider provider,
         IWindowsRuntimeHostProvisioner? provisioner = null) => new(

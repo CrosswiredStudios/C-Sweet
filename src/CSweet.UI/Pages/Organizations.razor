@@ -9,12 +9,12 @@
 @inject IOrganizationApiClient OrganizationApi
 @inject IBusinessOnboardingApiClient BusinessOnboardingApi
 @inject IAgentApiClient AgentApi
-@inject IPluginApiClient PluginApi
 @inject ILlmProviderApiClient LlmProviderApi
 @inject IAgentRuntimeSettingsApiClient AgentRuntimeSettingsApi
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject IBusinessContext BusinessContext
+@implements IAsyncDisposable
 
 <div class="setup-shell">
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="page-header">
@@ -230,7 +230,7 @@
                                             <div class="agent-configuration-field">
                                                 @if (IsProviderField(field))
                                                 {
-                                                    <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
+                                                    <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationString(field.Key)"
                                                                ValueChanged="@(value => OnProviderConfigurationChanged(field.Key, value))" Variant="Variant.Outlined" Disabled="@_saving">
                                                         @foreach (var provider in _llmProviders)
                                                         {
@@ -240,7 +240,7 @@
                                                 }
                                                 else if (IsModelField(field))
                                                 {
-                                                    <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
+                                                    <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationString(field.Key)"
                                                                ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined"
                                                                Disabled="@(_saving || _loadingModels || _availableModels.Count == 0)" HelperText="@ModelSelectHelperText">
                                                         @foreach (var model in _availableModels)
@@ -249,9 +249,24 @@
                                                         }
                                                     </MudSelect>
                                                 }
+                                                else if (field.Type.Equals(AgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <MudSwitch T="bool" Value="@ConfigurationBoolean(field.Key)"
+                                                               ValueChanged="@(value => SetConfigurationValue(field.Key, value))"
+                                                               Color="Color.Primary" Disabled="@_saving">
+                                                        @RequiredLabel(field.Label, field.Required)
+                                                    </MudSwitch>
+                                                }
+                                                else if (field.Type.Equals(AgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <MudNumericField T="decimal?" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationNumber(field.Key)"
+                                                                     ValueChanged="@(value => SetConfigurationValue(field.Key, value))"
+                                                                     Min="@field.Minimum" Max="@field.Maximum" Step="@(field.Step ?? 1)"
+                                                                     Variant="Variant.Outlined" Disabled="@_saving" />
+                                                }
                                                 else if (field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
                                                 {
-                                                    <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
+                                                    <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationString(field.Key)"
                                                                ValueChanged="@(value => SetConfigurationValue(field.Key, value))"
                                                                Variant="Variant.Outlined" Disabled="@_saving">
                                                         @foreach (var option in field.Options ?? [])
@@ -262,7 +277,7 @@
                                                 }
                                                 else
                                                 {
-                                                    <MudTextField T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
+                                                    <MudTextField T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationString(field.Key)"
                                                                   ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined" Disabled="@_saving" />
                                                 }
                                                 @if (!string.IsNullOrWhiteSpace(field.Description))
@@ -306,6 +321,19 @@
                 }
             </div>
 
+            @if (_saving && _installedChief?.Build is { } chiefBuild)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                        <div>
+                            <strong>@ChiefBuildStatusLabel(chiefBuild)</strong>
+                            <div>@ChiefBuildStatusDetail(chiefBuild)</div>
+                        </div>
+                    </MudStack>
+                </MudAlert>
+            }
+
             @if (!string.IsNullOrWhiteSpace(_formError))
             {
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_formError</MudAlert>
@@ -329,10 +357,10 @@
                 {
                     <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.ArrowBack" Disabled="@_saving" OnClick="BackToProfile">Back</MudButton>
                     <div class="business-create-action">
-                        <span>@(_agentPreview is null ? "Review an agent to continue" : CanCreateBusiness ? "Ready to create and activate" : "Complete the approval and required fields")</span>
+                        <span>@BusinessCreationStatus</span>
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AddBusiness"
                                    Disabled="@(_saving || !CanCreateBusiness)" OnClick="CreateBusinessAsync">
-                            @(_saving ? "Creating your business…" : "Create business")
+                            @(_saving ? "Preparing your Chief of Staff…" : "Create business")
                         </MudButton>
                     </div>
                 }
@@ -344,9 +372,12 @@
 @code {
     private const string RecommendedChiefRepository = "https://github.com/CrosswiredStudios/CSweet.Agent.ChiefOfStaff";
     private static readonly string[] ChiefCapabilities = ["assistant.converse.v1", "assistant.plan-work.v1", "management.check-in.v1"];
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan ChiefBuildTimeout = TimeSpan.FromMinutes(30);
     private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
-    private readonly Dictionary<string, string> _configurationValues = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _secretValues = new(StringComparer.Ordinal);
+    private readonly CancellationTokenSource _disposeCts = new();
 
     [Parameter] public bool CreateRequested { get; set; }
 
@@ -388,7 +419,7 @@
     private bool CanCreateBusiness => _agentPreview is not null && _agentApproved && !string.IsNullOrWhiteSpace(_chiefDisplayName) &&
         (_agentPreview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _allPublicWebApproved) &&
         (!RuntimeApprovalRequired || _runtimeApproved) &&
-        _agentPreview.ConfigurationFields.Where(x => x.Required && !x.Secret).All(x => HasValue(_configurationValues, x.Key)) &&
+        _agentPreview.ConfigurationFields.Where(x => x.Required && !x.Secret).All(HasConfigurationValue) &&
         _agentPreview.ConfigurationFields.Where(x => x.Required && x.Secret).All(x => HasValue(_secretValues, x.Key)) &&
         _agentPreview.CredentialBindings.All(x => HasValue(_secretValues, x.Name));
     private IReadOnlyList<string> ChiefReadinessNotes => _agentPreview is null
@@ -398,6 +429,15 @@
     private string ModelSelectHelperText => _loadingModels
         ? "Loading available models…"
         : _modelCatalogMessage ?? "Choose a model available from the selected provider.";
+    private string BusinessCreationStatus => _saving && _installedChief is not null
+        ? _installedChief.IsEnabled
+            ? "Chief of Staff is ready. Activating your business…"
+            : ChiefBuildStatusLabel(_installedChief.Build)
+        : _agentPreview is null
+            ? "Review an agent to continue"
+            : CanCreateBusiness
+                ? "Ready to create and activate"
+                : "Complete the approval and required fields";
 
     protected override async Task OnInitializedAsync()
     {
@@ -518,20 +558,34 @@
 
     private async Task InitializeConfigurationAsync(AgentImportPreviewResponse preview)
     {
-        var provider = _llmProviders.FirstOrDefault();
+        var fallbackProvider = _llmProviders.FirstOrDefault();
         foreach (var field in preview.ConfigurationFields)
         {
-            if (IsProviderField(field) && provider is not null)
-                _configurationValues[field.Key] = provider.Id.ToString();
-            else if (IsModelField(field) && provider is not null)
-                _configurationValues[field.Key] = provider.DefaultChatModel;
+            if (ConfigurationDefaultValue(field) is { } defaultValue)
+                _configurationValues[field.Key] = defaultValue;
+            else if (IsProviderField(field) && fallbackProvider is not null)
+                _configurationValues[field.Key] = fallbackProvider.Id.ToString();
+            else if (field.Type.Equals(AgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                _configurationValues[field.Key] = false;
             else if (field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase) &&
-                     field.Options?.FirstOrDefault() is { } option)
+                      field.Options?.FirstOrDefault() is { } option)
                 _configurationValues[field.Key] = option.Value;
         }
 
-        if (provider is not null && preview.ConfigurationFields.Any(IsModelField))
-            await LoadModelsAsync(provider);
+        var providerField = preview.ConfigurationFields.FirstOrDefault(IsProviderField);
+        var selectedProvider = providerField is null
+            ? fallbackProvider
+            : _llmProviders.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id.ToString(), ConfigurationString(providerField.Key), StringComparison.Ordinal));
+        if (selectedProvider is not null && preview.ConfigurationFields.Any(IsModelField))
+        {
+            foreach (var modelField in preview.ConfigurationFields.Where(IsModelField))
+            {
+                if (!HasConfigurationValue(modelField))
+                    _configurationValues[modelField.Key] = selectedProvider.DefaultChatModel;
+            }
+            await LoadModelsAsync(selectedProvider);
+        }
     }
 
     private async Task OnProviderConfigurationChanged(string key, string value)
@@ -601,14 +655,10 @@
                 _runtimeSettings = settingsResult.Settings ?? _runtimeSettings;
             }
 
-            if (_installedChief is null)
-            {
-                var installations = await AgentApi.ListInstallationsAsync();
-                _installedChief = BusinessOnboardingAgentInstallationSelector.FindReusable(
-                    installations,
-                    _agentPreview.ImportId,
-                    _agentPreview.AgentId);
-            }
+            var definitions = await AgentApi.ListDefinitionsAsync();
+            _installedChief = definitions.FirstOrDefault(x =>
+                x.PackageVersionId == _agentPreview.ImportId ||
+                string.Equals(x.AgentId, _agentPreview.AgentId, StringComparison.Ordinal));
 
             _installedChief ??= await AgentApi.InstallAsync(
                 _agentPreview.ImportId,
@@ -629,35 +679,69 @@
                     GrantedRequestedCapabilities = _agentPreview.RequestedCapabilities,
                     AllPublicWebAccessAcknowledged = _allPublicWebApproved,
                     ConfigurationSettings = _configurationValues
-                        .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+                        .Where(pair => HasConfigurationValue(pair.Value))
                         .ToDictionary(
                             pair => pair.Key,
-                            pair => JsonSerializer.SerializeToElement(pair.Value.Trim()),
+                            pair => JsonSerializer.SerializeToElement(pair.Value, SerializerOptions),
                             StringComparer.Ordinal)
                 });
 
-            var settings = _configurationValues.Where(x => !string.IsNullOrWhiteSpace(x.Value))
-                .ToDictionary(x => x.Key, x => x.Value.Trim(), StringComparer.Ordinal);
-            if (_agentPreview.ConfigurationFields.Any(x => !x.Secret))
-                await PluginApi.SaveConfigurationAsync(_installedChief.Id, settings);
-            foreach (var secret in _secretValues.Where(x => !string.IsNullOrWhiteSpace(x.Value)))
-                await PluginApi.SetSecretAsync(_installedChief.Id, secret.Key, secret.Value.Trim());
+            _installedChief = await WaitForChiefDefinitionAsync(_installedChief, _disposeCts.Token);
 
             var onboarding = await BusinessOnboardingApi.CompleteAsync(new CompleteBusinessOnboardingRequest(
-                _formName.Trim(), TrimOrNull(_formIndustry), TrimOrNull(_formMission), _installedChief.Id, _chiefDisplayName.Trim()));
+                _formName.Trim(), TrimOrNull(_formIndustry), TrimOrNull(_formMission), _installedChief.Id, _chiefDisplayName.Trim()),
+                _disposeCts.Token);
 
             _showForm = false;
             await LoadAsync();
             await BusinessContext.RefreshAsync();
             Navigation.NavigateTo(onboarding.NextRoute);
         }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
+        {
+        }
         catch (Exception exception)
         {
             _formError = _installedChief is null
                 ? exception.Message
-                : $"The Chief agent was installed, but business creation did not finish. You can safely retry: {exception.Message}";
+                : $"The Chief agent definition was imported, but business creation did not finish. You can safely retry: {exception.Message}";
         }
         finally { _saving = false; }
+    }
+
+    private async Task<AgentInstallationResponse> WaitForChiefDefinitionAsync(
+        AgentInstallationResponse definition,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(ChiefBuildTimeout);
+        while (!definition.IsEnabled)
+        {
+            if (definition.Build?.Status is "Failed" or "Cancelled")
+            {
+                var failedStep = definition.Build.Steps?.FirstOrDefault(step =>
+                    step.Status is "Failed" or "Cancelled" || !string.IsNullOrWhiteSpace(step.Error));
+                throw new InvalidOperationException(failedStep?.Error ?? definition.Build.FailureMessage ??
+                    "The Chief of Staff build did not complete.");
+            }
+
+            if (definition.Build?.Status == "Succeeded")
+                throw new InvalidOperationException(
+                    $"The Chief of Staff build completed, but the definition is {definition.SetupState}. Complete its required defaults and try again.");
+
+            if (DateTimeOffset.UtcNow >= deadline)
+                throw new TimeoutException(
+                    "The Chief of Staff build is still running. It will continue in the background; reopen business setup to resume automatically.");
+
+            _installedChief = definition;
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            definition = await AgentApi.GetDefinitionAsync(definition.Id, cancellationToken)
+                ?? throw new InvalidOperationException("The imported Chief of Staff definition could not be found.");
+        }
+
+        _installedChief = definition;
+        await InvokeAsync(StateHasChanged);
+        return definition;
     }
 
     private async Task SaveEditAsync()
@@ -700,14 +784,51 @@
     private void NavigateToCommandCenter(Guid organizationId) => Navigation.NavigateTo($"/organizations/{organizationId}/command-center");
     private string StepClass(int step) => _wizardStep == step ? "active" : _wizardStep > step ? "complete" : string.Empty;
     private string StepGlyph(int step) => _wizardStep > step ? "✓" : (step + 1).ToString();
-    private string ConfigurationValue(string key) => _configurationValues.GetValueOrDefault(key, string.Empty);
+    private string ConfigurationString(string key) => _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
+    private bool ConfigurationBoolean(string key) => _configurationValues.GetValueOrDefault(key) is true;
+    private decimal? ConfigurationNumber(string key) => _configurationValues.GetValueOrDefault(key) as decimal?;
     private string SecretValue(string key) => _secretValues.GetValueOrDefault(key, string.Empty);
-    private void SetConfigurationValue(string key, string value) => _configurationValues[key] = value;
+    private void SetConfigurationValue(string key, object? value) => _configurationValues[key] = value;
     private void SetSecretValue(string key, string value) => _secretValues[key] = value;
     private static bool HasValue(IReadOnlyDictionary<string, string> values, string key) => values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value);
+    private bool HasConfigurationValue(PluginConfigurationField field) =>
+        _configurationValues.TryGetValue(field.Key, out var value) && HasConfigurationValue(value);
+    private static bool HasConfigurationValue(object? value) => value is not null &&
+        (value is not string text || !string.IsNullOrWhiteSpace(text));
+    private static object? ConfigurationDefaultValue(PluginConfigurationField field)
+    {
+        if (field.DefaultValue is not { } value)
+            return null;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number when value.TryGetDecimal(out var number) => number,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
     private static bool IsProviderField(PluginConfigurationField field) => field.Type.Equals("provider", StringComparison.OrdinalIgnoreCase) || field.Type.Equals("llmProvider", StringComparison.OrdinalIgnoreCase);
     private static bool IsModelField(PluginConfigurationField field) => field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) || field.Type.Equals("llmModel", StringComparison.OrdinalIgnoreCase);
     private static string RequiredLabel(string label, bool required) => required ? $"{label} (required)" : label;
+    private static string ChiefBuildStatusLabel(AgentBuildSummaryResponse? build) => build?.Status switch
+    {
+        "Queued" => "Chief of Staff build queued",
+        "Cloning" => "Preparing Chief of Staff source",
+        "Building" => "Building Chief of Staff",
+        "Succeeded" => "Chief of Staff build complete",
+        "Failed" => "Chief of Staff build failed",
+        "Cancelled" => "Chief of Staff build cancelled",
+        _ => "Preparing Chief of Staff"
+    };
+    private static string ChiefBuildStatusDetail(AgentBuildSummaryResponse build)
+    {
+        var active = build.Steps?.FirstOrDefault(step => step.Status == "InProgress");
+        return active is null
+            ? build.FailureMessage ?? "C-Sweet is preparing the selected agent and will continue automatically."
+            : $"{active.Label}: {active.Detail}";
+    }
     private static string ShortHash(string value) => value.Length <= 9 ? value : value[..9];
     private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);
     private static RenderFragment AccessGroup(string label, IReadOnlyList<string> values) => @<div class="agent-access-group">
@@ -715,4 +836,11 @@
     </div>;
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string Truncate(string value, int maxLength) => value.Length <= maxLength ? value : value[..maxLength] + "...";
+
+    public ValueTask DisposeAsync()
+    {
+        _disposeCts.Cancel();
+        _disposeCts.Dispose();
+        return ValueTask.CompletedTask;
+    }
 }

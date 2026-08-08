@@ -33,13 +33,6 @@
         </MudStack>
     </MudPaper>
 
-    @if (IsChiefSetup)
-    {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            Select any enabled installed agent below to assign it as Chief of Staff. Chief-oriented capabilities are advisory; readiness warnings will be shown after assignment.
-        </MudAlert>
-    }
-
     @if (_usageSummary is not null)
     {
         <section class="usage-summary-grid" aria-label="Agent token usage">
@@ -105,8 +98,8 @@
         <section class="agent-installations-section" aria-label="Installed agent plugins">
             <div class="configuration-section-header">
                 <div>
-                    <MudText Typo="Typo.h6">Imported Agents</MudText>
-                    <MudText Color="Color.Secondary">Agent plugin installations available for businesses to hire.</MudText>
+                    <MudText Typo="Typo.h6">Installed Agent Definitions</MudText>
+                    <MudText Color="Color.Secondary">Globally installed agent families and the defaults inherited by every new hire.</MudText>
                 </div>
                 <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@_installations.Count</MudChip>
             </div>
@@ -138,7 +131,7 @@
 
             @if (_installations.Count == 0)
             {
-                <MudText Color="Color.Secondary">No agents have been installed.</MudText>
+                <MudText Color="Color.Secondary">No agent definitions have been installed.</MudText>
             }
             else
             {
@@ -151,7 +144,7 @@
                             <div class="configuration-section-header">
                                 <div>
                                     <MudText Typo="Typo.subtitle1">@installation.AgentName</MudText>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@installation.AgentId · @installation.BusinessId</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@installation.AgentId · global definition</MudText>
                                 </div>
                                 <MudStack Row="true" Spacing="1" Class="agent-status-chips">
                                     <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Installed</MudChip>
@@ -273,56 +266,9 @@
                                 </div>
                             }
                             <MudStack Row="true" Class="setup-actions">
-                                @if (IsChiefSetup && CanAssignToChiefSetup(installation))
-                                {
-                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Badge"
-                                               Disabled="@(_isManagingInstallation || !installation.IsEnabled)" OnClick="@(() => AssignAsChiefAsync(installation))">
-                                        Assign as Chief of Staff
-                                    </MudButton>
-                                }
-                                @if (availableUpdate is not null)
-                                {
-                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt" Disabled="@_isManagingInstallation" OnClick="@(() => OpenUpdateDialog(installation, availableUpdate))">
-                                        Update
-                                    </MudButton>
-                                }
                                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Settings" Disabled="@_isBusy" OnClick="@(() => SelectAgentAsync(installation))">
-                                    Configure
+                                    Configure global defaults
                                 </MudButton>
-                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.EditCalendar" Disabled="@_isManagingInstallation" OnClick="@(() => OpenScheduleDialog(installation))">
-                                    Edit Schedule
-                                </MudButton>
-                                @if (IsBuildSuccessful(installation.Build?.Status) && !IsAlwaysOn(installation))
-                                {
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.PlayArrow" Disabled="@(_isManagingInstallation || !installation.IsEnabled || !installation.Schedule.IsEnabled)" OnClick="@(() => RunNowAsync(installation))">
-                                        Run Now
-                                    </MudButton>
-                                }
-                                <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.History" Disabled="@(_isManagingInstallation || installation.LatestRuntime is null)" OnClick="@(() => OpenRunsDialogAsync(installation))">View Runs</MudButton>
-                                <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Description" Disabled="@(_isManagingInstallation || installation.Build?.HasLog != true)" OnClick="@(() => OpenBuildLogDialogAsync(installation))">View Build Log</MudButton>
-                                @if (!IsBuildSuccessful(installation.Build?.Status) && !_isSecureRuntimeReady)
-                                {
-                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Security"
-                                               Disabled="@_isManagingInstallation" OnClick="OpenSecureRuntimeSetup">
-                                        Complete secure runtime setup
-                                    </MudButton>
-                                }
-                                else if (!IsBuildSuccessful(installation.Build?.Status))
-                                {
-                                    <MudButton Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Filled.Refresh"
-                                               Disabled="@_isManagingInstallation" OnClick="@(() => RetryBuildAsync(installation))">
-                                        @(installation.Build is null ? "Build agent" : "Retry build")
-                                    </MudButton>
-                                }
-                                @if (installation.IsEnabled)
-                                {
-                                    <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Block" Disabled="@_isManagingInstallation" OnClick="@(() => DisableInstallationAsync(installation))">Disable</MudButton>
-                                }
-                                else
-                                {
-                                    <MudButton Variant="Variant.Text" Color="Color.Success" StartIcon="@Icons.Material.Filled.CheckCircle" Disabled="@_isManagingInstallation" OnClick="@(() => EnableInstallationAsync(installation))">Enable</MudButton>
-                                }
-                                <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteForever" Disabled="@_isManagingInstallation" OnClick="@(() => OpenRemoveDialog(installation))">Remove</MudButton>
                             </MudStack>
                         </MudPaper>
                     }
@@ -340,7 +286,7 @@
                     <div class="agents-empty-editor">
                         <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Large" Color="Color.Primary" />
                         <MudText Typo="Typo.h6">Select an agent</MudText>
-                        <MudText Color="Color.Secondary">Configuration fields are requested from the running agent binary when you open it.</MudText>
+                        <MudText Color="Color.Secondary">Configuration fields come from the signed package manifest and can be edited while all agent runtimes are stopped.</MudText>
                     </div>
                 }
                 else
@@ -348,7 +294,7 @@
                     <div class="configuration-section-header">
                         <div>
                             <MudText Typo="Typo.h6">@_selectedAgent.AgentName</MudText>
-                            <MudText Color="Color.Secondary">@_selectedAgent.AgentId · @_selectedAgent.BusinessId</MudText>
+                            <MudText Color="Color.Secondary">@_selectedAgent.AgentId · global defaults</MudText>
                         </div>
                         <MudChip T="string" Color="@SchemaChipColor" Variant="Variant.Filled">@SchemaChipLabel</MudChip>
                     </div>
@@ -388,11 +334,7 @@
                     {
                         <div class="agents-loading-panel mt-4">
                             <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                            <MudText Color="Color.Secondary">@ConfigurationLoadingMessage</MudText>
-                            @if (!string.IsNullOrWhiteSpace(_configurationRuntime?.Reason))
-                            {
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">@_configurationRuntime.Reason</MudText>
-                            }
+                            <MudText Color="Color.Secondary">Loading the signed configuration schema...</MudText>
                         </div>
                     }
                     else if (!string.IsNullOrWhiteSpace(_configurationError))
@@ -406,7 +348,7 @@
                     }
                     else if (_schema is not null)
                     {
-                        <MudText Color="Color.Secondary" Class="mt-4">Schema @_schema.SchemaVersion exposed by @_schema.AgentVersion.</MudText>
+                        <MudText Color="Color.Secondary" Class="mt-4">Schema @_schema.SchemaVersion from the signed package manifest.</MudText>
 
                         <div class="agent-config-form">
                             @foreach (var field in _schema.Fields)
@@ -744,9 +686,9 @@
                     }
                     <MudTabPanel Text="Deployment" Icon="@Icons.Material.Filled.Tune">
                         <div class="agent-import-tab-content">
-                            <MudText Typo="Typo.subtitle2">Schedule</MudText>
+                            <MudText Typo="Typo.subtitle2">Defaults for new hires</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">These values do not create or start a runtime. Each business receives them when the agent is hired.</MudText>
                             <div class="agent-import-form-grid">
-                                <MudTextField Label="Business ID" @bind-Value="_installBusinessId" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
                                 <MudSelect T="string" Label="Activation mode" @bind-Value="_installActivationMode" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
                                     <MudSelectItem T="string" Value="@("AlwaysOn")">Always On</MudSelectItem>
                                     <MudSelectItem T="string" Value="@("Periodic")">Periodic</MudSelectItem>
@@ -996,7 +938,7 @@
     private LlmTokenUsageSummaryResponse? _usageSummary;
     private AgentInstallationResponse? _selectedAgent;
     private AgentConfigurationSchemaResponse? _schema;
-    private AgentRuntimeReadinessResponse? _configurationRuntime;
+    private AgentConfigurationView? _configurationView;
     private readonly Dictionary<string, object?> _formValues = new(StringComparer.Ordinal);
     private bool _isLoading = true;
     private bool _isLoadingConfiguration;
@@ -1068,26 +1010,14 @@
     private Task? _updateCheckTask;
     private CancellationTokenSource? _configurationCts;
     private readonly Dictionary<Guid, AgentBuildProgress> _buildProgress = [];
+    private readonly HashSet<Guid> _trackedDefinitionBuilds = [];
 
-    private string SchemaChipLabel => _schema is null ? "Offline" : "Configurable";
+    private string SchemaChipLabel => _schema is null ? "Unavailable" : "Control plane";
     private Color SchemaChipColor => _schema is null ? Color.Warning : Color.Success;
-    private string ConfigurationLoadingMessage => _configurationRuntime?.Stage switch
-    {
-        AgentRuntimeReadinessStages.Queued => "Agent runtime queued...",
-        AgentRuntimeReadinessStages.StartingWorkload => "Starting isolated agent workload...",
-        AgentRuntimeReadinessStages.WaitingForMcpSession => "Establishing secure agent session...",
-        AgentRuntimeReadinessStages.Stopping => "Cleaning up the previous runtime...",
-        AgentRuntimeReadinessStages.Ready => "Asking agent for supported settings...",
-        _ => "Preparing agent runtime..."
-    };
     private Severity ActionMessageSeverity => _actionSucceeded == false ? Severity.Error : Severity.Success;
-    private bool RequiresAlwaysOnCommunityApproval =>
-        string.Equals(_installActivationMode, "AlwaysOn", StringComparison.Ordinal) &&
-        _runtimeSettings?.AllowAlwaysOnCommunityAgents != true;
     private bool IsImportInstallBlocked =>
         _importPreview is not null &&
         (_runtimeSettings?.EnableImportedAgents != true ||
-         RequiresAlwaysOnCommunityApproval ||
          HasMissingRequiredImportConfiguration);
     private bool HasMissingRequiredImportConfiguration =>
         _importPreview?.ConfigurationFields
@@ -1099,11 +1029,7 @@
         ? "Complete the required values on the Agent settings tab before installing."
         : _runtimeSettings is null
             ? "Runtime settings are unavailable. Refresh the page before installing."
-            : _runtimeSettings.EnableImportedAgents
-                ? "Always-on community agents are disabled. Enable the policy or choose Periodic or Manual deployment."
-                : RequiresAlwaysOnCommunityApproval
-                    ? "Imported agents and always-on community agents are disabled in global runtime settings."
-                    : "Imported agents are disabled in global runtime settings.";
+            : "Imported agents are disabled in global runtime settings.";
     private int ImportAccessRequestCount => _importPreview is null
         ? 0
         : _importPreview.RequestedCapabilities.Count +
@@ -1165,7 +1091,7 @@
 
         try
         {
-            var installationsTask = AgentApi.ListInstallationsAsync();
+            var installationsTask = AgentApi.ListDefinitionsAsync();
             var providersTask = LlmProviderApi.ListAsync();
             var usageTask = LlmProviderApi.GetUsageSummaryAsync();
             var runtimeSettingsTask = AgentRuntimeSettingsApi.GetAsync();
@@ -1197,7 +1123,8 @@
 
         if (loaded)
         {
-            StartUpdateCheck();
+            _updates = [];
+            ResumeDefinitionBuildTracking();
         }
     }
 
@@ -1382,7 +1309,7 @@
             _importDialogOpen = false;
             _isInstallingImport = false;
             await InvokeAsync(StateHasChanged);
-            await TrackAgentBuildAsync(installation, isUpdate: false, cancellationToken: _disposeCts.Token);
+            await LoadAsync();
             if (!string.IsNullOrWhiteSpace(ReturnUrl) && ReturnUrl.StartsWith('/') && !ReturnUrl.StartsWith("//", StringComparison.Ordinal))
                 Navigation.NavigateTo(ReturnUrl);
         }
@@ -1407,7 +1334,7 @@
             var result = await AgentRuntimeSettingsApi.UpdateAsync(
                 new UpdateAgentRuntimeSettingsRequest(
                     EnableImportedAgents: true,
-                    AllowAlwaysOnCommunityAgents: RequiresAlwaysOnCommunityApproval ? true : null));
+                    AllowAlwaysOnCommunityAgents: null));
             if (!result.Succeeded)
             {
                 throw new InvalidOperationException(result.Message ?? "Unable to enable imported agents.");
@@ -1659,7 +1586,7 @@
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
             try
             {
-                installation = await AgentApi.GetInstallationAsync(installation.Id, cancellationToken)
+                installation = await RefreshBuildOwnerAsync(installation, cancellationToken)
                     ?? throw new InvalidOperationException("The updated installation could not be found.");
                 consecutiveRefreshFailures = 0;
             }
@@ -1679,6 +1606,50 @@
             }
         }
     }
+
+    private void ResumeDefinitionBuildTracking()
+    {
+        foreach (var definition in _installations.Where(definition =>
+                     IsDefinition(definition) && definition.Build?.Status is "Queued" or "Cloning" or "Building"))
+        {
+            var key = InstallationProgressKey(definition);
+            if (_trackedDefinitionBuilds.Add(key))
+                _ = TrackLoadedDefinitionBuildAsync(definition, key, _disposeCts.Token);
+        }
+    }
+
+    private async Task TrackLoadedDefinitionBuildAsync(
+        AgentInstallationResponse definition,
+        Guid progressKey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await TrackAgentBuildAsync(definition, isUpdate: false, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            SetBuildProgress(progressKey, "Could not refresh build progress", exception.Message, true, Severity.Warning);
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            _trackedDefinitionBuilds.Remove(progressKey);
+        }
+    }
+
+    private Task<AgentInstallationResponse?> RefreshBuildOwnerAsync(
+        AgentInstallationResponse installation,
+        CancellationToken cancellationToken) =>
+        IsDefinition(installation)
+            ? AgentApi.GetDefinitionAsync(installation.Id, cancellationToken)
+            : AgentApi.GetInstallationAsync(installation.Id, cancellationToken);
+
+    private static bool IsDefinition(AgentInstallationResponse installation) =>
+        string.Equals(installation.InstallationScope, "Global", StringComparison.Ordinal);
 
     private AgentBuildProgress? BuildProgressFor(AgentInstallationResponse installation) =>
         _buildProgress.GetValueOrDefault(InstallationProgressKey(installation));
@@ -1920,26 +1891,13 @@
         _configurationError = null;
         _actionMessage = null;
         _schema = null;
-        _configurationRuntime = null;
+        _configurationView = null;
         _formValues.Clear();
 
         try
         {
-            _configurationRuntime = await AgentApi.EnsureRuntimeAsync(agent.Id, configurationCts.Token);
-            while (!_configurationRuntime.IsReady)
-            {
-                if (_configurationRuntime.IsTerminal)
-                {
-                    throw new InvalidOperationException(
-                        _configurationRuntime.Reason ?? "The agent runtime could not be started.");
-                }
-
-                await Task.Delay(TimeSpan.FromSeconds(1), configurationCts.Token);
-                _configurationRuntime = await AgentApi.GetRuntimeStatusAsync(agent.Id, configurationCts.Token);
-                await InvokeAsync(StateHasChanged);
-            }
-
-            _schema = await AgentApi.GetConfigurationAsync(agent.Id.ToString(), configurationCts.Token);
+            _configurationView = await AgentApi.GetDefinitionConfigurationAsync(agent.Id, configurationCts.Token);
+            _schema = ToSchema(_configurationView);
             HydrateFormValues(_schema);
             await LoadConfiguredProviderModelsAsync(_schema);
         }
@@ -1947,7 +1905,7 @@
         {
             if (_configurationDialogOpen && !_disposeCts.IsCancellationRequested)
             {
-                _configurationError = "The agent runtime did not become ready in time. Try again or review its run history.";
+                _configurationError = "The configuration request timed out. Try again.";
             }
             _schema = null;
         }
@@ -1966,7 +1924,7 @@
 
     private async Task SaveConfigurationAsync()
     {
-        if (_selectedAgent is null || _schema is null)
+        if (_selectedAgent is null || _schema is null || _configurationView is null)
         {
             return;
         }
@@ -1993,21 +1951,16 @@
                 field => JsonSerializer.SerializeToElement(_formValues.GetValueOrDefault(field.Key), SerializerOptions),
                 StringComparer.Ordinal);
 
-            var result = await AgentApi.UpdateConfigurationAsync(
-                _selectedAgent.Id.ToString(),
-                new UpdateAgentConfigurationRequest(settings)
-                {
-                    SchemaVersion = _schema.SchemaVersion
-                });
+            _configurationView = await AgentApi.UpdateDefinitionConfigurationAsync(
+                _selectedAgent.Id,
+                new PutAgentDefinitionConfigurationRequest(
+                    _schema.SchemaVersion,
+                    settings,
+                    _configurationView.ExpectedRevision));
 
-            _actionSucceeded = result.Succeeded;
-            _actionMessage = result.Message ?? "Agent settings saved.";
-            _schema = new AgentConfigurationSchemaResponse(
-                _schema.AgentId,
-                _schema.AgentVersion,
-                _schema.SchemaVersion,
-                _schema.Fields,
-                result.Settings);
+            _actionSucceeded = true;
+            _actionMessage = "Global agent defaults saved. Stopped agents remain stopped.";
+            _schema = ToSchema(_configurationView);
             HydrateFormValues(_schema);
         }
         catch (Exception ex)
@@ -2020,6 +1973,13 @@
             _isBusy = false;
         }
     }
+
+    private static AgentConfigurationSchemaResponse ToSchema(AgentConfigurationView view) => new(
+        view.AgentId,
+        view.AgentVersion,
+        view.SchemaVersion,
+        view.Fields,
+        view.EffectiveValues);
 
     private void HydrateFormValues(AgentConfigurationSchemaResponse schema)
     {

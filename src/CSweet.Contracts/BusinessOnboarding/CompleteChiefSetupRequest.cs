@@ -1,6 +1,6 @@
 namespace CSweet.Contracts.BusinessOnboarding;
 
-public sealed record CompleteChiefSetupRequest(Guid AgentInstallationId);
+public sealed record CompleteChiefSetupRequest(Guid AgentDefinitionId);
 
 public sealed record CompleteChiefSetupResponse(
     Guid OrganizationId,

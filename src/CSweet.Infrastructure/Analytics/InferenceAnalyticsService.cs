@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CSweet.Application.Analytics;
+using CSweet.Application.Setup;
 using CSweet.Contracts.Analytics;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -10,6 +11,7 @@ namespace CSweet.Infrastructure.Analytics;
 
 public sealed class InferenceAnalyticsService(
     CSweetDbContext dbContext,
+    IAgentConfigurationService configurations,
     TimeProvider timeProvider) : IInferenceAnalyticsService
 {
     public async Task<InferenceAnalyticsResponse> GetAsync(
@@ -42,9 +44,14 @@ public sealed class InferenceAnalyticsService(
             .Include(x => x.Configuration)
             .Where(x => activeInstallationIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
+        var effectiveConfigurations = new Dictionary<Guid, EffectiveAgentConfiguration>();
+        foreach (var installationId in activeInstallationIds)
+            effectiveConfigurations[installationId] = await configurations.ResolveInstallationAsync(
+                installationId, cancellationToken);
 
         var providerIds = logs.Select(x => x.ProviderProfileId)
-            .Concat(installations.Values.Select(CurrentProviderId).Where(x => x.HasValue).Select(x => x!.Value))
+            .Concat(effectiveConfigurations.Values.Select(x => ReadConfiguration(x.Settings).ProviderProfileId)
+                .Where(x => x.HasValue).Select(x => x!.Value))
             .Distinct()
             .ToArray();
         var providerNames = await dbContext.LlmProviderProfiles
@@ -54,12 +61,12 @@ public sealed class InferenceAnalyticsService(
 
         var rows = logs
             .GroupBy(x => new UsageKey(x.EmployeeId, x.ProviderProfileId, x.Model))
-            .Select(group => BuildUsageRow(group, employeesById, providerNames, installations))
+            .Select(group => BuildUsageRow(group, employeesById, providerNames, installations, effectiveConfigurations))
             .ToList();
 
         foreach (var employee in employees.Where(x => x.IsActive))
         {
-            var current = CurrentConfiguration(employee, installations);
+            var current = CurrentConfiguration(employee, installations, effectiveConfigurations);
             var hasCurrentRow = rows.Any(x =>
                 x.EmployeeId == employee.Id &&
                 x.ProviderProfileId == current.ProviderProfileId &&
@@ -110,7 +117,8 @@ public sealed class InferenceAnalyticsService(
         IGrouping<UsageKey, AgentRunLog> group,
         IReadOnlyDictionary<Guid, OrganizationUser> employees,
         IReadOnlyDictionary<Guid, string> providerNames,
-        IReadOnlyDictionary<Guid, AgentInstallation> installations)
+        IReadOnlyDictionary<Guid, AgentInstallation> installations,
+        IReadOnlyDictionary<Guid, EffectiveAgentConfiguration> effectiveConfigurations)
     {
         var first = group.First();
         var employee = first.EmployeeId.HasValue
@@ -118,7 +126,7 @@ public sealed class InferenceAnalyticsService(
             : null;
         var current = employee is null
             ? CurrentAgentConfiguration.Empty
-            : CurrentConfiguration(employee, installations);
+            : CurrentConfiguration(employee, installations, effectiveConfigurations);
         var inputTokens = group.Sum(x => (long)(x.TokenInputCount ?? 0));
         var outputTokens = group.Sum(x => (long)(x.TokenOutputCount ?? 0));
 
@@ -142,51 +150,37 @@ public sealed class InferenceAnalyticsService(
 
     private static CurrentAgentConfiguration CurrentConfiguration(
         OrganizationUser employee,
-        IReadOnlyDictionary<Guid, AgentInstallation> installations)
+        IReadOnlyDictionary<Guid, AgentInstallation> installations,
+        IReadOnlyDictionary<Guid, EffectiveAgentConfiguration> effectiveConfigurations)
     {
         if (!employee.AgentInstallationId.HasValue ||
-            !installations.TryGetValue(employee.AgentInstallationId.Value, out var installation))
+            !installations.TryGetValue(employee.AgentInstallationId.Value, out var installation) ||
+            !effectiveConfigurations.TryGetValue(employee.AgentInstallationId.Value, out var effective))
         {
             return CurrentAgentConfiguration.Empty;
         }
 
-        var (providerId, model) = ReadConfiguration(installation.Configuration?.SettingsJson);
+        var (providerId, model) = ReadConfiguration(effective.Settings);
         return new CurrentAgentConfiguration(
             installation.PackageVersion?.AgentId ?? string.Empty,
             providerId,
             model);
     }
 
-    private static Guid? CurrentProviderId(AgentInstallation installation) =>
-        ReadConfiguration(installation.Configuration?.SettingsJson).ProviderProfileId;
-
-    private static (Guid? ProviderProfileId, string? Model) ReadConfiguration(string? settingsJson)
+    private static (Guid? ProviderProfileId, string? Model) ReadConfiguration(
+        IReadOnlyDictionary<string, JsonElement> settings)
     {
-        if (string.IsNullOrWhiteSpace(settingsJson))
-        {
-            return (null, null);
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(settingsJson);
-            var root = document.RootElement;
-            var providerId = root.TryGetProperty("llmProviderId", out var provider) &&
+            var providerId = settings.TryGetValue("llmProviderId", out var provider) &&
                 provider.ValueKind == JsonValueKind.String &&
                 Guid.TryParse(provider.GetString(), out var parsedProviderId)
                     ? parsedProviderId
                     : (Guid?)null;
-            var model = root.TryGetProperty("llmModel", out var configuredModel) &&
+            var model = settings.TryGetValue("llmModel", out var configuredModel) &&
                 configuredModel.ValueKind == JsonValueKind.String &&
                 !string.IsNullOrWhiteSpace(configuredModel.GetString())
                     ? configuredModel.GetString()!.Trim()
                     : null;
             return (providerId, model);
-        }
-        catch (JsonException)
-        {
-            return (null, null);
-        }
     }
 
     private static string? ProviderName(

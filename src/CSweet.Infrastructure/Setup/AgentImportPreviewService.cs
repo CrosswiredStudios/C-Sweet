@@ -420,7 +420,6 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         var provided = manifest.Provides
             .Select(capability => capability.Name)
             .ToHashSet(StringComparer.Ordinal);
-
         if (string.Equals(manifest.Kind, "agent", StringComparison.OrdinalIgnoreCase) &&
             manifest.Configuration.Count > 0)
         {
@@ -430,8 +429,39 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                 errors.Add($"Configurable agents must provide '{AgentConfigurationCapabilities.Update}'.");
         }
 
+        var fieldsByKey = manifest.Configuration
+            .Where(x => !string.IsNullOrWhiteSpace(x.Key))
+            .GroupBy(x => x.Key, StringComparer.Ordinal)
+            .ToDictionary(x => x.Key, x => x.ToArray(), StringComparer.Ordinal);
+
+        foreach (var duplicate in fieldsByKey.Where(x => x.Value.Length > 1))
+            errors.Add($"Configuration field key '{duplicate.Key}' must be unique.");
+
         foreach (var field in manifest.Configuration)
         {
+            if (string.IsNullOrWhiteSpace(field.Key))
+            {
+                errors.Add("Configuration fields require a non-empty key.");
+                continue;
+            }
+
+            var normalizedType = field.Type.Trim().ToLowerInvariant();
+            if (normalizedType is not ("string" or "text" or "textarea" or "number" or "integer" or
+                "boolean" or "bool" or "select" or "provider" or "llmprovider" or "model" or
+                "llmmodel" or "secret"))
+                errors.Add($"Configuration field '{field.Key}' has unsupported type '{field.Type}'.");
+
+            if (field.Minimum.HasValue && field.Maximum.HasValue && field.Minimum > field.Maximum)
+                errors.Add($"Configuration field '{field.Key}' minimum cannot exceed its maximum.");
+
+            if (!string.IsNullOrWhiteSpace(field.DependsOnFieldKey))
+            {
+                if (string.Equals(field.Key, field.DependsOnFieldKey, StringComparison.Ordinal))
+                    errors.Add($"Configuration field '{field.Key}' cannot depend on itself.");
+                else if (!fieldsByKey.ContainsKey(field.DependsOnFieldKey))
+                    errors.Add($"Configuration field '{field.Key}' depends on unknown field '{field.DependsOnFieldKey}'.");
+            }
+
             if (!field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -453,6 +483,23 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                 .Any(group => group.Count() > 1))
             {
                 errors.Add($"Select configuration field '{field.Key}' option values must be unique.");
+            }
+        }
+
+        foreach (var field in manifest.Configuration.Where(x => !string.IsNullOrWhiteSpace(x.Key)))
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal) { field.Key };
+            var current = field;
+            while (!string.IsNullOrWhiteSpace(current.DependsOnFieldKey) &&
+                   fieldsByKey.TryGetValue(current.DependsOnFieldKey, out var dependencyGroup) &&
+                   dependencyGroup.Length == 1)
+            {
+                if (!visited.Add(current.DependsOnFieldKey))
+                {
+                    errors.Add($"Configuration dependency cycle includes field '{field.Key}'.");
+                    break;
+                }
+                current = dependencyGroup[0];
             }
         }
 

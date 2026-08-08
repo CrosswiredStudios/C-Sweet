@@ -128,6 +128,26 @@ public class AgentImportPreviewServiceTests
     }
 
     [Fact]
+    public async Task PreviewAsync_RejectsConfigurationDependencyOnUnknownField()
+    {
+        await using var dbContext = CreateDbContext();
+        var manifest = ValidManifest().Replace(
+            "\"secret\":false}",
+            "\"secret\":false,\"dependsOnFieldKey\":\"missingProvider\"}",
+            StringComparison.Ordinal);
+        var service = new AgentImportPreviewService(
+            dbContext,
+            new FakeGitHubAgentRepositoryClient(manifest),
+            new TestAuditEventWriter());
+
+        var exception = await Assert.ThrowsAsync<AgentImportPreviewException>(() =>
+            service.PreviewAsync(new PreviewAgentImportRequest(
+                "https://github.com/example/research-agent")));
+
+        Assert.Contains("depends on unknown field 'missingProvider'", exception.Message);
+    }
+
+    [Fact]
     public async Task PreviewAsync_RequiresExplicitBaselineGrantApproval()
     {
         await using var dbContext = CreateDbContext();
@@ -188,6 +208,7 @@ public class AgentImportPreviewServiceTests
 
         Assert.Contains("agent.configuration.describe.v1", exception.Message, StringComparison.Ordinal);
         Assert.Contains("agent.configuration.update.v1", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(await dbContext.AgentPackageSources.ToListAsync());
         Assert.Empty(await dbContext.AgentPackageVersions.ToListAsync());
     }
 

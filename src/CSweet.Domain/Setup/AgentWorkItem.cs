@@ -4,6 +4,7 @@ public enum AgentWorkKind
 {
     Capability,
     Event,
+    ConfigurationUpdate,
     Shutdown
 }
 

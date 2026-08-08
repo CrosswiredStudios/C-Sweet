@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Agent.SDK;
+using CSweet.Application.Setup;
 using CSweet.AI.Providers;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -19,16 +20,19 @@ public sealed class PlatformLlmCapabilityHandler
     private readonly ILlmProviderFactory _providerFactory;
     private readonly ILogger<PlatformLlmCapabilityHandler> _logger;
     private readonly AgentEmployeeIdentityResolver _employeeIdentityResolver;
+    private readonly IAgentConfigurationService _configurations;
 
     public PlatformLlmCapabilityHandler(
         CSweetDbContext dbContext,
         ILlmProviderFactory providerFactory,
         AgentEmployeeIdentityResolver employeeIdentityResolver,
+        IAgentConfigurationService configurations,
         ILogger<PlatformLlmCapabilityHandler> logger)
     {
         _dbContext = dbContext;
         _providerFactory = providerFactory;
         _employeeIdentityResolver = employeeIdentityResolver;
+        _configurations = configurations;
         _logger = logger;
     }
 
@@ -499,32 +503,14 @@ public sealed class PlatformLlmCapabilityHandler
             return false;
         }
 
-        var settingsJson = await _dbContext.AgentInstallationConfigurations
-            .AsNoTracking()
-            .Where(x => x.AgentInstallationId == installationId)
-            .Select(x => x.SettingsJson)
-            .SingleOrDefaultAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(settingsJson))
-        {
-            return false;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(settingsJson);
-            var root = document.RootElement;
-            return root.TryGetProperty("llmProviderId", out var providerElement) &&
-                providerElement.ValueKind == JsonValueKind.String &&
-                Guid.TryParse(providerElement.GetString(), out var configuredProviderId) &&
-                configuredProviderId == providerProfileId &&
-                root.TryGetProperty("llmModel", out var modelElement) &&
-                modelElement.ValueKind == JsonValueKind.String &&
-                string.Equals(modelElement.GetString(), selectedModel, StringComparison.Ordinal);
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
+        var effective = await _configurations.ResolveInstallationAsync(installationId, cancellationToken);
+        return effective.Settings.TryGetValue("llmProviderId", out var providerElement) &&
+            providerElement.ValueKind == JsonValueKind.String &&
+            Guid.TryParse(providerElement.GetString(), out var configuredProviderId) &&
+            configuredProviderId == providerProfileId &&
+            effective.Settings.TryGetValue("llmModel", out var modelElement) &&
+            modelElement.ValueKind == JsonValueKind.String &&
+            string.Equals(modelElement.GetString(), selectedModel, StringComparison.Ordinal);
     }
 
     private void LogDenied(

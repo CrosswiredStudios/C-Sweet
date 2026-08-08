@@ -284,12 +284,8 @@
         @if (_loadingConfiguration)
         {
             <MudStack Spacing="2" role="status" aria-live="polite">
-                <MudText Typo="Typo.subtitle2">@ConfigurationLoadingMessage</MudText>
+                <MudText Typo="Typo.subtitle2">Loading configuration from the control plane...</MudText>
                 <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                @if (!string.IsNullOrWhiteSpace(_configurationRuntime?.Reason))
-                {
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">@_configurationRuntime.Reason</MudText>
-                }
             </MudStack>
         }
         else if (!string.IsNullOrWhiteSpace(_configurationError))
@@ -299,8 +295,26 @@
         else if (_configurationSchema is not null)
         {
             <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">
+                        @(_configurationView?.SynchronizationStatus ?? "Unknown")
+                    </MudChip>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary"
+                               Disabled="@(_savingConfiguration || _configurationView?.OverriddenKeys.Count == 0)"
+                               OnClick="RestoreAllConfigurationAsync">
+                        Restore all defaults
+                    </MudButton>
+                </MudStack>
                 @foreach (var field in _configurationSchema.Fields)
                 {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        @if (IsConfigurationOverridden(field.Key))
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">Overridden</MudChip>
+                            <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@_savingConfiguration"
+                                       OnClick="@(() => RestoreConfigurationKeyAsync(field.Key))">Use default</MudButton>
+                        }
+                    </MudStack>
                     @if (field.Type == AgentConfigurationFieldTypes.Boolean)
                     {
                         <MudCheckBox T="bool" Label="@field.Label" Value="@ConfigurationBoolean(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" />

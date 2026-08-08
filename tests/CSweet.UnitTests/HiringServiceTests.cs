@@ -418,13 +418,15 @@ public sealed class HiringServiceTests
 
         var preview = new RecordingImportPreview(repositoryUrl);
         var installations = new RecordingInstallationService(organizationId);
+        var definitions = new RecordingDefinitionService();
         var organizationUsers = new RecordingOrganizationUserService();
         var service = new HiringService(
             db,
             organizationUsers,
             new TestAuditEventWriter(),
             preview,
-            installations);
+            installations,
+            agentDefinitions: definitions);
         var recommendation = await service.UpsertRecommendationAsync(
             organizationId,
             chiefInstallationId,
@@ -481,12 +483,12 @@ public sealed class HiringServiceTests
         Assert.Equal(2, preview.Requests.Count);
         Assert.Equal(repositoryUrl, preview.Requests[0].RepositoryUrl);
         Assert.Equal(preview.CommitSha, preview.Requests[1].Ref);
-        Assert.NotNull(installations.Request);
-        Assert.Equal(1, installations.InstallCount);
-        Assert.Equal(organizationId.ToString("D"), installations.Request!.BusinessId);
-        Assert.Equal(preview.RequestedCapabilities, installations.Request.GrantedRequestedCapabilities);
-        Assert.Equal(preview.ProvidedCapabilities, installations.Request.GrantedCapabilities);
-        Assert.Equal(installations.InstallationId, organizationUsers.CreatedRequest?.AgentInstallationId);
+        Assert.NotNull(definitions.Request);
+        Assert.Equal(1, definitions.ImportCount);
+        Assert.Equal(preview.RequestedCapabilities, definitions.Request!.GrantedRequestedCapabilities);
+        Assert.Equal(preview.ProvidedCapabilities, definitions.Request.GrantedCapabilities);
+        Assert.Equal(definitions.DefinitionId, organizationUsers.CreatedRequest?.AgentDefinitionId);
+        Assert.Equal(0, installations.InstallCount);
         Assert.Equal("C-Sweet Product Manager", organizationUsers.CreatedRequest?.DisplayName);
     }
 
@@ -573,7 +575,8 @@ public sealed class HiringServiceTests
             new TestAuditEventWriter(),
             new RecordingImportPreview(repositoryUrl),
             new RecordingInstallationService(organizationId),
-            new RecordingAgentCatalog(available));
+            new RecordingAgentCatalog(available),
+            new RecordingDefinitionService());
         var recommendation = await service.UpsertRecommendationAsync(
             organizationId,
             Guid.NewGuid(),
@@ -722,6 +725,7 @@ public sealed class HiringServiceTests
             "First-party verified");
         var import = new RecordingImportPreview(repositoryUrl);
         var installations = new RecordingInstallationService(organizationId);
+        var definitions = new RecordingDefinitionService();
         var organizationUsers = new RecordingOrganizationUserService();
         var service = new HiringService(
             db,
@@ -729,7 +733,8 @@ public sealed class HiringServiceTests
             new TestAuditEventWriter(),
             import,
             installations,
-            new RecordingAgentCatalog(agent));
+            new RecordingAgentCatalog(agent),
+            definitions);
         IAgentHireOrchestrator orchestrator = service;
 
         await Assert.ThrowsAsync<ArgumentException>(() => orchestrator.PreviewAsync(
@@ -778,11 +783,12 @@ public sealed class HiringServiceTests
         Assert.Equal("Controls response detail.", tone.Description);
         Assert.Equal(["concise", "balanced", "detailed"], tone.Options!.Select(option => option.Value).ToArray());
         Assert.Equal("Avery", preview.EmployeeDisplayName);
-        Assert.Equal(1, installations.InstallCount);
-        Assert.Equal(1024, installations.Request!.MemoryMb);
-        Assert.Equal("test-model", installations.Request!.ConfigurationSettings["llmModel"].GetString());
+        Assert.Equal(0, installations.InstallCount);
+        Assert.Equal(1, definitions.ImportCount);
+        Assert.Equal(1024, definitions.Request!.MemoryMb);
+        Assert.Equal("test-model", definitions.Request.ConfigurationSettings["llmModel"].GetString());
         Assert.Equal("Avery", organizationUsers.CreatedRequest?.DisplayName);
-        Assert.Equal(installations.InstallationId, organizationUsers.CreatedRequest?.AgentInstallationId);
+        Assert.Equal(definitions.DefinitionId, organizationUsers.CreatedRequest?.AgentDefinitionId);
         Assert.Equal(1, organizationUsers.CreateCount);
     }
 
@@ -1107,6 +1113,32 @@ public sealed class HiringServiceTests
             throw new NotSupportedException();
     }
 
+    private sealed class RecordingDefinitionService : IAgentDefinitionService
+    {
+        public Guid DefinitionId { get; } = Guid.NewGuid();
+        public InstallAgentRequest? Request { get; private set; }
+        public int ImportCount { get; private set; }
+
+        public Task<AgentDefinitionResponse> ImportAsync(
+            Guid importId, InstallAgentRequest request, CancellationToken cancellationToken = default)
+        {
+            Request = request;
+            ImportCount++;
+            var now = DateTimeOffset.UtcNow;
+            return Task.FromResult(new AgentDefinitionResponse(
+                DefinitionId, importId, "com.csweet.product-manager", "C-Sweet Product Manager", "1.0.0",
+                "C-Sweet", new string('a', 40), AgentDefinitionStatus.Available.ToString(), true,
+                request.ActivationMode, request.TickFrequencySeconds, request.OverlapPolicy,
+                request.MaxRuntimeSeconds, request.MemoryMb, request.CpuPercent, 1, now, now));
+        }
+
+        public Task<IReadOnlyList<AgentDefinitionResponse>> ListAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<AgentDefinitionResponse>>([]);
+
+        public Task<AgentDefinitionResponse?> GetAsync(Guid definitionId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<AgentDefinitionResponse?>(null);
+    }
+
     private sealed class RecordingOrganizationUserService : IOrganizationUserService
     {
         public CreateOrganizationUserRequest? CreatedRequest { get; private set; }
@@ -1137,7 +1169,7 @@ public sealed class HiringServiceTests
                     request.PermissionLevel,
                     DateTimeOffset.UtcNow)
                 {
-                    AgentInstallationId = request.AgentInstallationId
+                    AgentInstallationId = request.AgentInstallationId ?? Guid.NewGuid()
                 }));
         }
 

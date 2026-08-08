@@ -54,6 +54,12 @@ public sealed class VmAgentBuildExecutor(
             $"Resolving certified builder guest and provider for build {request.BuildJobId:D}.",
             maximumLogBytes,
             cancellationToken);
+        await progress.ReportAsync(
+            new AgentBuildProgressUpdate(
+                AgentBuildStepKeys.Isolate,
+                AgentBuildStepStatuses.InProgress,
+                "Resolving the certified builder image and hardware-isolation provider."),
+            cancellationToken);
         var configured = options.Value;
         GuestImageReference guest;
         try
@@ -116,6 +122,12 @@ public sealed class VmAgentBuildExecutor(
         IsolationWorkloadHandle? handle = null;
         try
         {
+            await progress.ReportAsync(
+                new AgentBuildProgressUpdate(
+                    AgentBuildStepKeys.Isolate,
+                    AgentBuildStepStatuses.InProgress,
+                    "Creating the disposable hardware-isolated builder VM."),
+                cancellationToken);
             await TryAppendLogAsync(
                 workspace.LogPath,
                 $"Creating disposable builder workload {workload.WorkloadId:D} with provider {selection.Provider.Descriptor.ProviderId}.",
@@ -126,6 +138,12 @@ public sealed class VmAgentBuildExecutor(
                 workspace.LogPath,
                 $"Created provider instance {handle.ProviderInstanceId}; starting the builder guest.",
                 maximumLogBytes,
+                cancellationToken);
+            await progress.ReportAsync(
+                new AgentBuildProgressUpdate(
+                    AgentBuildStepKeys.Isolate,
+                    AgentBuildStepStatuses.InProgress,
+                    "Starting the disposable builder guest and establishing its authenticated session."),
                 cancellationToken);
             await selection.Provider.StartAsync(handle, cancellationToken);
             await using var session = await guestSessions.StartAsync(

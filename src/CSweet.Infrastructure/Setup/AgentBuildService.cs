@@ -198,6 +198,7 @@ public sealed class AgentBuildService : IAgentBuildService
             package.ArtifactArchitecture = result.ArtifactArchitecture;
             package.BuiltAt = job.CompletedAt;
             package.Status = AgentPackageVersionStatus.Built;
+            await UpdateDefinitionBuildStateAsync(package, buildSucceeded: true, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
             await WriteAuditAsync(
                 job,
@@ -271,8 +272,39 @@ public sealed class AgentBuildService : IAgentBuildService
             job.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
         }
         package.Status = AgentPackageVersionStatus.Failed;
+        await UpdateDefinitionBuildStateAsync(package, buildSucceeded: false, CancellationToken.None);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
         await WriteAuditAsync(job, "agent-build.failed", job.FailureMessage, CancellationToken.None);
+    }
+
+    private async Task UpdateDefinitionBuildStateAsync(
+        AgentPackageVersion package,
+        bool buildSucceeded,
+        CancellationToken cancellationToken)
+    {
+        var definition = await _dbContext.AgentDefinitions.Include(x => x.Configuration)
+            .SingleOrDefaultAsync(x => x.PackageVersionId == package.Id, cancellationToken);
+        if (definition is null)
+            return;
+
+        if (!buildSucceeded)
+        {
+            definition.Status = AgentDefinitionStatus.BuildFailed;
+            definition.IsAvailableForHire = false;
+        }
+        else
+        {
+            var manifest = AgentConfigurationRules.DeserializeManifest(package.ManifestJson);
+            var settings = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(
+                               definition.Configuration?.SettingsJson ?? "{}")
+                           ?? new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.Ordinal);
+            var complete = AgentConfigurationRules.HasAllRequired(manifest, settings) &&
+                           !string.IsNullOrWhiteSpace(package.PackageDigest) &&
+                           !string.IsNullOrWhiteSpace(package.ArtifactSignature);
+            definition.Status = complete ? AgentDefinitionStatus.Available : AgentDefinitionStatus.NeedsConfiguration;
+            definition.IsAvailableForHire = complete;
+        }
+        definition.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     private async Task QueueAutomaticSourceRetryAsync(

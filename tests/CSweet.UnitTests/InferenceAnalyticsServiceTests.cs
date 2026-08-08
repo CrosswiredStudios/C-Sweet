@@ -4,6 +4,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Analytics;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
@@ -50,7 +51,10 @@ public sealed class InferenceAnalyticsServiceTests
             Log(otherOrganizationId, Guid.NewGuid(), null, providerId, "other-agent", "other-model", now.AddMinutes(-5), 999, 999));
         await db.SaveChangesAsync();
 
-        var service = new InferenceAnalyticsService(db, new FixedTimeProvider(now));
+        var service = new InferenceAnalyticsService(
+            db,
+            new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+            new FixedTimeProvider(now));
         var result = await service.GetAsync(organizationId, InferenceAnalyticsWindow.Last24Hours);
 
         Assert.Equal("24h", result.Window);

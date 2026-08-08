@@ -5,6 +5,7 @@ using System.Text.Json;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Application.Setup;
 using CSweet.Contracts.Plugins;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.AspNetCore.DataProtection;
@@ -31,7 +32,8 @@ public sealed record AgentWorkState(AgentWorkStatus Status, AgentWorkCompletion?
 public sealed class AgentWorkInbox(
     CSweetDbContext db,
     IDataProtectionProvider protectionProvider,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    IAuditEventWriter? audit = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(60);
@@ -183,7 +185,8 @@ public sealed class AgentWorkInbox(
                         x.Status == AgentWorkStatus.Pending &&
                         x.AvailableAt <= now &&
                         x.DeadlineAt > now)
-            .OrderBy(x => x.AvailableAt)
+            .OrderBy(x => x.Kind == AgentWorkKind.ConfigurationUpdate ? 0 : 1)
+            .ThenBy(x => x.AvailableAt)
             .ThenBy(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
         if (item is null)
@@ -308,7 +311,16 @@ public sealed class AgentWorkInbox(
         item.Status = AgentWorkStatus.Completed;
         item.CompletedAt = now;
         item.LastError = completion.Succeeded ? null : completion.Error;
+        if (item.Kind == AgentWorkKind.ConfigurationUpdate)
+            ApplyConfigurationAcknowledgement(item, completion, now);
         await db.SaveChangesAsync(cancellationToken);
+        if (item.Kind == AgentWorkKind.ConfigurationUpdate && audit is not null)
+            await audit.WriteAsync(
+                "agent-installation.configuration.refresh-acknowledged",
+                nameof(AgentInstallation),
+                item.AgentInstallationId,
+                $"Configuration refresh work {item.Id:D} completed with status {item.Status}.",
+                cancellationToken: cancellationToken);
         AgentRuntimeMetrics.Work("completed", item.Kind);
     }
 
@@ -331,12 +343,55 @@ public sealed class AgentWorkInbox(
             ? AgentWorkStatus.DeadLetter
             : AgentWorkStatus.Pending;
         item.AvailableAt = now.AddSeconds(Math.Min(60, Math.Pow(2, attemptNumber)));
+        if (item.Kind == AgentWorkKind.ConfigurationUpdate)
+        {
+            var installation = await db.AgentInstallations.SingleAsync(x => x.Id == item.AgentInstallationId,
+                cancellationToken);
+            installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.Restarting;
+            installation.ConfigurationSyncLastError = Truncate(error, 2048);
+            AgentRuntimeMetrics.ConfigurationRefreshFailed();
+        }
         if (item.Status == AgentWorkStatus.DeadLetter)
             await FailCoordinationForWorkAsync(item, item.LastError, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         AgentRuntimeMetrics.Work(
             item.Status == AgentWorkStatus.DeadLetter ? "dead_lettered" : "failed",
             item.Kind);
+    }
+
+    private void ApplyConfigurationAcknowledgement(
+        AgentWorkItem item,
+        AgentWorkCompletion completion,
+        DateTimeOffset now)
+    {
+        var installation = db.AgentInstallations.Local.FirstOrDefault(x => x.Id == item.AgentInstallationId)
+            ?? db.AgentInstallations.Single(x => x.Id == item.AgentInstallationId);
+        if (!completion.Succeeded || completion.Value is not { } value ||
+            !value.TryGetProperty("appliedRevision", out var revisionElement) ||
+            !revisionElement.TryGetInt64(out var revision))
+        {
+            installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.Restarting;
+            installation.ConfigurationSyncLastError = completion.Error ?? "The configuration refresh acknowledgment was invalid.";
+            AgentRuntimeMetrics.ConfigurationRefreshFailed();
+            return;
+        }
+        var restartRequired = value.TryGetProperty("result", out var resultElement) &&
+            string.Equals(resultElement.GetString(), "RestartRequired", StringComparison.Ordinal);
+        installation.AppliedConfigurationRevision = Math.Max(installation.AppliedConfigurationRevision, revision);
+        if (revision < installation.DesiredConfigurationRevision)
+        {
+            installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.Refreshing;
+            installation.ConfigurationSyncLastError = null;
+            AgentRuntimeMetrics.ConfigurationDriftDetected();
+            return;
+        }
+        installation.ConfigurationSyncStatus = restartRequired
+            ? AgentConfigurationSyncStatus.Restarting : AgentConfigurationSyncStatus.Current;
+        installation.ConfigurationSyncLastError = null;
+        if (restartRequired)
+            AgentRuntimeMetrics.ConfigurationRestartFallback();
+        else if (installation.ConfigurationSyncLastAttemptAt is { } attempted)
+            AgentRuntimeMetrics.ConfigurationRefreshSucceeded(now - attempted);
     }
 
     public async Task<T> WaitForResultAsync<T>(

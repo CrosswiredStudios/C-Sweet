@@ -3,6 +3,7 @@ using System;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CSweet.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CSweetDbContext))]
-    partial class CSweetDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260808163528_AgentDefinitionRuntimeLifecycle")]
+    partial class AgentDefinitionRuntimeLifecycle
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -4152,7 +4155,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("AgentDefinitions");
                 });
 
-            modelBuilder.Entity("CSweet.Domain.Setup.AgentDefinitionConfiguration", b =>
+        modelBuilder.Entity("CSweet.Domain.Setup.AgentDefinitionConfiguration", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -4164,9 +4167,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
+                b.Property<long>("Revision")
+                    .IsConcurrencyToken()
+                    .HasColumnType("bigint");
 
                     b.Property<string>("SchemaVersion")
                         .IsRequired()
@@ -4280,7 +4283,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("AgentInstallations");
                 });
 
-            modelBuilder.Entity("CSweet.Domain.Setup.AgentInstallationConfiguration", b =>
+        modelBuilder.Entity("CSweet.Domain.Setup.AgentInstallationConfiguration", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -4292,9 +4295,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
+                b.Property<long>("Revision")
+                    .IsConcurrencyToken()
+                    .HasColumnType("bigint");
 
                     b.Property<string>("SchemaVersion")
                         .IsRequired()

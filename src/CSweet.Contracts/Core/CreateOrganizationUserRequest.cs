@@ -11,4 +11,5 @@ public sealed record CreateOrganizationUserRequest(
     Guid? WorkerId = null,
     Guid? ReportsToOrganizationUserId = null,
     IReadOnlyList<Guid>? ManagedOrganizationUserIds = null,
-    Guid? AgentInstallationId = null);
+    Guid? AgentInstallationId = null,
+    Guid? AgentDefinitionId = null);

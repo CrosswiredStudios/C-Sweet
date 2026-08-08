@@ -162,7 +162,7 @@ public class CoreServiceTests
             EmployeeType: (int)EmployeeType.Agent));
 
         Assert.False(result.Succeeded);
-        Assert.Equal("agent_instance_required", result.ErrorCode);
+        Assert.Equal("agent_definition_required", result.ErrorCode);
     }
 
     [Fact]
@@ -192,6 +192,16 @@ public class CoreServiceTests
             RevisionStatus = PluginRevisionStatus.Active,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
+        };
+        installation.Schedule = new AgentSchedule
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            ActivationMode = ActivationMode.AlwaysOn,
+            TickFrequencySeconds = 60,
+            MaxRuntimeSeconds = 600,
+            OverlapPolicy = OverlapPolicy.Skip,
+            IsEnabled = true
         };
         dbContext.AddRange(organization, package, installation);
         await dbContext.SaveChangesAsync();
@@ -245,11 +255,21 @@ public class CoreServiceTests
             InstallationKey = Guid.NewGuid(),
             PackageVersionId = package.Id,
             PackageVersion = package,
-            BusinessId = "default",
+            BusinessId = organization.Id.ToString("D"),
             IsEnabled = true,
             RevisionStatus = PluginRevisionStatus.Active,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
+        };
+        installation.Schedule = new AgentSchedule
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            ActivationMode = ActivationMode.AlwaysOn,
+            TickFrequencySeconds = 60,
+            MaxRuntimeSeconds = 600,
+            OverlapPolicy = OverlapPolicy.Skip,
+            IsEnabled = true
         };
         dbContext.AddRange(organization, owner, package, installation);
         await dbContext.SaveChangesAsync();
@@ -278,12 +298,12 @@ public class CoreServiceTests
         Assert.Equal(organization.Id, hiredEvent.OrganizationId);
         Assert.Contains(result.OrganizationUser.Id.ToString("D"), hiredEvent.DataJson);
         Assert.Equal(installation.Id, runtimeManager.QueuedInstallationId);
-        Assert.True(runtimeManager.Interactive);
-        Assert.True(runtimeManager.Restarted);
+        Assert.False(runtimeManager.Interactive);
+        Assert.False(runtimeManager.Restarted);
     }
 
     [Fact]
-    public async Task OrganizationUserCreation_SeedsGrantedAgentFromDefaultChatProvider()
+    public async Task OrganizationUserCreation_InheritsDefinitionDefaultsWithoutCopyingThemToOverrides()
     {
         await using var dbContext = CreateDbContext();
         var service = new OrganizationUserService(dbContext, new TestAuditEventWriter());
@@ -306,6 +326,8 @@ public class CoreServiceTests
             AgentName = "Chief",
             Version = "1.0.0",
             Status = AgentPackageVersionStatus.Built,
+            PackageDigest = $"sha256:{new string('a', 64)}",
+            ArtifactSignature = "test-signature",
             ManifestJson = """
                 {"configuration":[
                   {"key":"llmProviderId","type":"provider","label":"LLM provider","required":true},
@@ -314,37 +336,39 @@ public class CoreServiceTests
                 """,
             ImportedAt = DateTimeOffset.UtcNow
         };
-        var installation = new AgentInstallation
+        var definition = new AgentDefinition
         {
             Id = Guid.NewGuid(),
-            InstallationKey = Guid.NewGuid(),
+            PackageSourceId = package.PackageSourceId,
+            AgentId = package.AgentId,
             PackageVersionId = package.Id,
             PackageVersion = package,
-            BusinessId = "default",
-            IsEnabled = true,
-            RevisionStatus = PluginRevisionStatus.Active,
+            Status = AgentDefinitionStatus.Available,
+            IsAvailableForHire = true,
+            DefaultActivationMode = ActivationMode.Manual,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         };
-        installation.Grant = new AgentInstallationGrant
+        definition.Configuration = new AgentDefinitionConfiguration
         {
             Id = Guid.NewGuid(),
-            AgentInstallationId = installation.Id,
-            RequiredCapabilitiesJson = $"[\"{PlatformCapabilities.LlmChatStream}\"]",
-            ApprovedAt = DateTimeOffset.UtcNow
+            AgentDefinitionId = definition.Id,
+            SchemaVersion = "1",
+            SettingsJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                llmProviderId = providerId.ToString("D"),
+                llmModel = "local-model"
+            }),
+            Revision = 1,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
         };
+        definition.DefaultRequiredCapabilitiesJson = $"[\"{PlatformCapabilities.LlmChatStream}\"]";
         dbContext.AddRange(
             organization,
             owner,
             package,
-            installation,
-            new SystemConfiguration
-            {
-                Id = Guid.NewGuid(),
-                DefaultChatProviderId = providerId,
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow
-            },
+            definition,
             new LlmProviderProfile
             {
                 Id = providerId,
@@ -364,13 +388,12 @@ public class CoreServiceTests
             (int)OrganizationPermissionLevel.Manager,
             (int)EmployeeType.Agent,
             ReportsToOrganizationUserId: owner.Id,
-            AgentInstallationId: installation.Id));
+            AgentDefinitionId: definition.Id));
 
         Assert.True(result.Succeeded, result.Message);
         var configuration = await dbContext.AgentInstallationConfigurations.SingleAsync();
-        using var settings = System.Text.Json.JsonDocument.Parse(configuration.SettingsJson);
-        Assert.Equal(providerId.ToString("D"), settings.RootElement.GetProperty("llmProviderId").GetString());
-        Assert.Equal("local-model", settings.RootElement.GetProperty("llmModel").GetString());
+        Assert.Equal("{}", configuration.SettingsJson);
+        Assert.NotEqual(definition.Id, result.OrganizationUser!.AgentInstallationId);
     }
 
     [Fact]

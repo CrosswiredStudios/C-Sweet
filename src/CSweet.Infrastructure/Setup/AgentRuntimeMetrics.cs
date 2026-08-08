@@ -15,6 +15,13 @@ public static class AgentRuntimeMetrics
     private static readonly Counter<long> Sessions = Meter.CreateCounter<long>("csweet.agent.mcp.sessions");
     private static readonly Counter<long> SessionDenials = Meter.CreateCounter<long>("csweet.agent.mcp.session.denials");
     private static readonly Counter<long> WorkEvents = Meter.CreateCounter<long>("csweet.agent.work.events");
+    private static readonly Counter<long> RuntimeRequestDenials = Meter.CreateCounter<long>("csweet.agent.runtime.request_denials");
+    private static readonly Counter<long> UnassignedRuntimesPrevented = Meter.CreateCounter<long>("csweet.agent.runtime.unassigned_prevented");
+    private static readonly Histogram<double> ConfigurationRefreshLatency =
+        Meter.CreateHistogram<double>("csweet.agent.configuration.refresh_latency", "s");
+    private static readonly Counter<long> ConfigurationRefreshFailures = Meter.CreateCounter<long>("csweet.agent.configuration.refresh_failures");
+    private static readonly Counter<long> ConfigurationRestartFallbacks = Meter.CreateCounter<long>("csweet.agent.configuration.restart_fallbacks");
+    private static readonly Counter<long> ConfigurationRevisionDrift = Meter.CreateCounter<long>("csweet.agent.configuration.revision_drift");
     private static readonly Histogram<double> QueueLatency =
         Meter.CreateHistogram<double>("csweet.agent.work.queue_latency", "s");
     private static readonly Histogram<double> RuntimeDuration = Meter.CreateHistogram<double>("csweet.agent.runtime.duration", "s");
@@ -55,4 +62,12 @@ public static class AgentRuntimeMetrics
         QueueLatency.Record(queueLatency.TotalSeconds,
             new KeyValuePair<string, object?>("kind", kind.ToString()));
     }
+
+    public static void RuntimeRequestDenied(string reason) => RuntimeRequestDenials.Add(1,
+        new KeyValuePair<string, object?>("reason", reason));
+    public static void UnassignedRuntimePrevented() => UnassignedRuntimesPrevented.Add(1);
+    public static void ConfigurationRefreshSucceeded(TimeSpan latency) => ConfigurationRefreshLatency.Record(latency.TotalSeconds);
+    public static void ConfigurationRefreshFailed() => ConfigurationRefreshFailures.Add(1);
+    public static void ConfigurationRestartFallback() => ConfigurationRestartFallbacks.Add(1);
+    public static void ConfigurationDriftDetected() => ConfigurationRevisionDrift.Add(1);
 }

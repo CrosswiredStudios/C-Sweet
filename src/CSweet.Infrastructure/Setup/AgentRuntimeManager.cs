@@ -18,7 +18,8 @@ public sealed class AgentRuntimeManager(
     IGuestImageRegistry guestImages,
     IAuditEventWriter auditWriter,
     IOptions<AgentRuntimeManagerOptions> options,
-    ILogger<AgentRuntimeManager> logger) : IPluginRuntimeManager
+    ILogger<AgentRuntimeManager> logger,
+    IAgentRuntimeEligibilityService eligibility) : IPluginRuntimeManager
 {
     private const int MaximumAlwaysOnStartupAttempts = 3;
     private static readonly AgentRuntimeStatus[] WorkloadActiveStatuses =
@@ -30,6 +31,10 @@ public sealed class AgentRuntimeManager(
         bool interactive = false,
         CancellationToken cancellationToken = default)
     {
+        var runtimeEligibility = await EvaluateEligibilityAsync(installationId, cancellationToken);
+        if (!runtimeEligibility.IsEligible)
+            throw new AgentInstallationException(runtimeEligibility.Reason ?? "The installation is not eligible to run.");
+
         var activeRuntime = await dbContext.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .OrderByDescending(x => x.QueuedAt)
@@ -129,6 +134,10 @@ public sealed class AgentRuntimeManager(
         bool interactive = false,
         CancellationToken cancellationToken = default)
     {
+        var runtimeEligibility = await EvaluateEligibilityAsync(installationId, cancellationToken);
+        if (!runtimeEligibility.IsEligible)
+            throw new AgentInstallationException(runtimeEligibility.Reason ?? "The installation is not eligible to restart.");
+
         var activeRuntime = await dbContext.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .OrderByDescending(x => x.QueuedAt)
@@ -203,6 +212,29 @@ public sealed class AgentRuntimeManager(
     {
         var changed = 0;
         var now = DateTimeOffset.UtcNow;
+        var restartIds = await dbContext.AgentInstallations.AsNoTracking()
+            .Where(x => x.ConfigurationSyncStatus == AgentConfigurationSyncStatus.Restarting &&
+                x.RuntimeInstances.Any(runtime => runtime.Status == AgentRuntimeStatus.Queued ||
+                    WorkloadActiveStatuses.Contains(runtime.Status)))
+            .Select(x => x.Id).ToListAsync(cancellationToken);
+        foreach (var installationId in restartIds)
+        {
+            var installation = await dbContext.AgentInstallations.SingleAsync(x => x.Id == installationId, cancellationToken);
+            installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.PendingNextStart;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            if (await RestartRuntimeAsync(installationId,
+                    "Restarted because the agent requested a configuration restart fallback.",
+                    cancellationToken: cancellationToken))
+                changed++;
+        }
+        var stoppedRestartIds = await dbContext.AgentInstallations
+            .Where(x => x.ConfigurationSyncStatus == AgentConfigurationSyncStatus.Restarting &&
+                !x.RuntimeInstances.Any(runtime => runtime.Status == AgentRuntimeStatus.Queued ||
+                    WorkloadActiveStatuses.Contains(runtime.Status)))
+            .ToListAsync(cancellationToken);
+        foreach (var installation in stoppedRestartIds)
+            installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.PendingNextStart;
+        if (stoppedRestartIds.Count > 0) await dbContext.SaveChangesAsync(cancellationToken);
         var instances = await dbContext.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Grant)
@@ -214,6 +246,14 @@ public sealed class AgentRuntimeManager(
         foreach (var instance in instances)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var runtimeEligibility = await EvaluateEligibilityAsync(instance.AgentInstallationId, cancellationToken);
+            if (!runtimeEligibility.IsEligible)
+            {
+                await StopAndFinishAsync(instance, AgentRuntimeStatus.PolicyDenied,
+                    runtimeEligibility.Reason ?? "Runtime eligibility was revoked.", now, cancellationToken);
+                changed++;
+                continue;
+            }
             if (instance.Status == AgentRuntimeStatus.Stopping)
             {
                 var settings = await SettingsAsync(cancellationToken);
@@ -392,6 +432,13 @@ public sealed class AgentRuntimeManager(
         var schedule = await dbContext.AgentSchedules.Include(x => x.AgentInstallation)!.ThenInclude(x => x!.PackageVersion)
             .SingleOrDefaultAsync(x => x.Id == scheduleId, cancellationToken);
         if (schedule?.NextTickAt is null || schedule.NextTickAt > now || schedule.AgentInstallation?.IsEnabled != true) return false;
+        var runtimeEligibility = await EvaluateEligibilityAsync(schedule.AgentInstallationId, cancellationToken);
+        if (!runtimeEligibility.IsEligible)
+        {
+            logger.LogWarning("Prevented schedule runtime for installation {InstallationId}: {Reason}",
+                schedule.AgentInstallationId, runtimeEligibility.Reason);
+            return false;
+        }
         var claimedTickAt = schedule.NextTickAt.Value;
         schedule.LastTickAt = now;
         schedule.RunRequestedAt = null;
@@ -447,6 +494,15 @@ public sealed class AgentRuntimeManager(
         var installation = instance.AgentInstallation!;
         var settings = await SettingsAsync(cancellationToken);
         var package = installation.PackageVersion!;
+        var runtimeEligibility = await EvaluateEligibilityAsync(installation.Id, cancellationToken);
+        if (!runtimeEligibility.IsEligible)
+        {
+            Transition(instance, AgentRuntimeStatus.PolicyDenied, now,
+                runtimeEligibility.Reason ?? "Runtime eligibility was denied.");
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await AuditOutcomeAsync(instance, AgentRuntimeStatus.PolicyDenied, cancellationToken);
+            return true;
+        }
         if (!installation.IsEnabled || installation.Schedule?.IsEnabled != true || installation.Grant is null)
         {
             Transition(instance, AgentRuntimeStatus.PolicyDenied, now, "The installation, schedule, or approved grant is disabled or unavailable.");
@@ -800,6 +856,10 @@ public sealed class AgentRuntimeManager(
 
     private async Task<AgentRuntimeGlobalSettings> SettingsAsync(CancellationToken cancellationToken)
         => await dbContext.AgentRuntimeGlobalSettings.SingleAsync(cancellationToken);
+
+    private Task<AgentRuntimeEligibility> EvaluateEligibilityAsync(
+        Guid installationId, CancellationToken cancellationToken) =>
+        eligibility.EvaluateAsync(installationId, cancellationToken);
 
     private static IsolationWorkloadHandle? TryGetHandle(AgentRuntimeInstance instance) =>
         string.IsNullOrWhiteSpace(instance.IsolationProviderId) || string.IsNullOrWhiteSpace(instance.ProviderInstanceId)

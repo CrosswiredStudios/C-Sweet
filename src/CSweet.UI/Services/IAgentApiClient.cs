@@ -16,6 +16,35 @@ public interface IAgentApiClient
     Task<IReadOnlyList<AgentInstallationResponse>> ListInstallationsAsync(
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<AgentInstallationResponse>> ListDefinitionsAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<AgentInstallationResponse?> GetDefinitionAsync(
+        Guid definitionId,
+        CancellationToken cancellationToken = default);
+
+    Task<AgentConfigurationView> GetDefinitionConfigurationAsync(
+        Guid definitionId, CancellationToken cancellationToken = default);
+
+    Task<AgentConfigurationView> UpdateDefinitionConfigurationAsync(
+        Guid definitionId, PutAgentDefinitionConfigurationRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<AgentConfigurationView> GetEmployeeConfigurationAsync(
+        Guid organizationId, Guid employeeId, CancellationToken cancellationToken = default);
+
+    Task<AgentConfigurationView> UpdateEmployeeConfigurationAsync(
+        Guid organizationId, Guid employeeId, PutAgentConfigurationOverridesRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<AgentConfigurationView> RestoreEmployeeConfigurationKeyAsync(
+        Guid organizationId, Guid employeeId, string key, long expectedRevision,
+        CancellationToken cancellationToken = default);
+
+    Task<AgentConfigurationView> RestoreAllEmployeeConfigurationAsync(
+        Guid organizationId, Guid employeeId, long expectedRevision,
+        CancellationToken cancellationToken = default);
+
     Task<AgentInstallationResponse?> GetInstallationAsync(
         Guid installationId,
         CancellationToken cancellationToken = default);

@@ -20,12 +20,15 @@ public sealed class HiringService(
     IAgentImportPreviewService? importPreview = null,
     IAgentInstallationService? agentInstallations = null,
     IAgentCatalogService? agentCatalog = null,
+    IAgentDefinitionService? agentDefinitions = null,
     ILocalAgentSourceArchiveService? localAgentArchives = null,
     IPluginArchiveImportService? archiveImport = null,
     IResourceChangeService? resourceChanges = null,
     ITeamService? teams = null) : IHiringService, IAgentHireOrchestrator
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    // Retained only for binary/source compatibility with older composition roots; imports now use definitions.
+    private IAgentInstallationService? LegacyAgentInstallationService => agentInstallations;
     public const string ApprovalMessageSource = "HiringWorkflowApproval";
 
     public async Task<HiringRecommendationResponse> UpsertRecommendationAsync(
@@ -741,18 +744,18 @@ public sealed class HiringService(
         else if (IsInstallableAgentCatalogSource(candidate.Source))
         {
             var embedded = snapshot.EmbeddedAgent
-                ?? throw new InvalidOperationException("The catalog agent installation snapshot is missing.");
-            var installationService = agentInstallations
-                ?? throw new InvalidOperationException("The agent installation service is unavailable.");
-            AgentInstallationResponse installation;
-            if (embedded.InstallationId.HasValue)
+                ?? throw new InvalidOperationException("The catalog agent definition snapshot is missing.");
+            var definitionService = agentDefinitions
+                ?? throw new InvalidOperationException("The agent definition service is unavailable.");
+            AgentDefinitionResponse definition;
+            if (embedded.DefinitionId.HasValue)
             {
-                installation = await installationService.GetAsync(embedded.InstallationId.Value, cancellationToken)
-                    ?? throw new InvalidOperationException("The approved catalog agent installation no longer exists.");
+                definition = await definitionService.GetAsync(embedded.DefinitionId.Value, cancellationToken)
+                    ?? throw new InvalidOperationException("The approved catalog agent definition no longer exists.");
             }
             else
             {
-                installation = await installationService.InstallAsync(
+                definition = await definitionService.ImportAsync(
                     embedded.ImportId,
                     new InstallAgentRequest(
                         organizationId.ToString("D"),
@@ -773,34 +776,35 @@ public sealed class HiringService(
                         ConfigurationSettings = request.ConfigurationSettings
                     },
                     cancellationToken);
-                embedded = embedded with { InstallationId = installation.Id };
+                embedded = embedded with { DefinitionId = definition.Id };
                 snapshot = snapshot with { EmbeddedAgent = embedded };
                 workflow.PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions);
                 await db.SaveChangesAsync(cancellationToken);
             }
-            var existingEmployee = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
-                x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive,
-                cancellationToken);
-            if (existingEmployee is not null)
-            {
-                resultUserId = existingEmployee.Id;
-                goto CompleteWorkflow;
-            }
+            if (!definition.IsAvailableForHire)
+                throw new InvalidOperationException("The imported agent must finish building and have valid required defaults before it can be hired.");
             var result = await organizationUsers.CreateAsync(organizationId, new CreateOrganizationUserRequest(
-                    ResolveEmployeeDisplayName(snapshot, installation.AgentName),
+                    ResolveEmployeeDisplayName(snapshot, definition.AgentName),
                     null,
                     (int)OrganizationPermissionLevel.Contributor,
                     (int)EmployeeType.Agent,
                     role.Id,
                     null,
                     snapshot.ReportsToOrganizationUserId,
-                    AgentInstallationId: installation.Id),
+                    AgentDefinitionId: definition.Id),
                 cancellationToken,
                 applicationUserId,
                 workflow.ActionType == "marketplace-install-and-hire" ? "Marketplace" : "HiringWorkflow");
             if (!result.Succeeded || result.OrganizationUser is null)
                 throw new InvalidOperationException(result.Message);
             resultUserId = result.OrganizationUser.Id;
+            embedded = embedded with
+            {
+                DefinitionId = definition.Id,
+                InstallationId = result.OrganizationUser.AgentInstallationId
+            };
+            snapshot = snapshot with { EmbeddedAgent = embedded };
+            workflow.PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions);
         }
         else
         {
@@ -1450,7 +1454,8 @@ CompleteWorkflow:
         IReadOnlyList<PluginConfigurationField> ConfigurationFields,
         bool NeedsSetup = false,
         bool IsLocalArchive = false,
-        Guid? InstallationId = null);
+        Guid? InstallationId = null,
+        Guid? DefinitionId = null);
     private sealed record CandidateMetadata
     {
         public string? ResourceType { get; init; }

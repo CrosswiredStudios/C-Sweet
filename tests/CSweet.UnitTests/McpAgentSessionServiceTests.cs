@@ -5,6 +5,7 @@ using CSweet.AgentHost.Broker;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
@@ -106,6 +107,8 @@ public sealed class McpAgentSessionServiceTests
                 db,
                 new AgentEmployeeIdentityResolver(db),
                 new AgentRuntimeSignalService(db),
+                new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+                new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock),
                 clock);
         }
 

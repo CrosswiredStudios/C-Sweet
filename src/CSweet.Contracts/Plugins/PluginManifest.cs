@@ -110,6 +110,10 @@ public sealed record PluginConfigurationField
     public string? Description { get; init; }
     public JsonElement? DefaultValue { get; init; }
     public IReadOnlyList<PluginConfigurationOption>? Options { get; init; }
+    public decimal? Minimum { get; init; }
+    public decimal? Maximum { get; init; }
+    public decimal? Step { get; init; }
+    public string? DependsOnFieldKey { get; init; }
 }
 
 public sealed record PluginConfigurationOption(string Value, string Label);

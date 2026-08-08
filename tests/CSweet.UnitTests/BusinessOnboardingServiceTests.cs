@@ -50,27 +50,18 @@ public class BusinessOnboardingServiceTests
             Version = "1.0.0",
             PluginKind = PluginKind.Agent,
             ManifestJson = """{"kind":"agent","provides":[{"name":"assistant.converse.v1"}]}""",
+            Status = AgentPackageVersionStatus.Built,
+            PackageDigest = new string('d', 64),
+            ArtifactSignature = "test-signature",
             ImportedAt = DateTimeOffset.UtcNow
         };
-        var installation = new AgentInstallation
-        {
-            Id = Guid.NewGuid(),
-            InstallationKey = Guid.NewGuid(),
-            PackageVersionId = package.Id,
-            PackageVersion = package,
-            BusinessId = "default",
-            IsEnabled = true,
-            RevisionStatus = PluginRevisionStatus.Active,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow
-        };
+        var definition = CreateDefinition(package, ActivationMode.AlwaysOn);
         dbContext.Users.Add(applicationUser);
-        dbContext.AgentPackageVersions.Add(package);
-        dbContext.AgentInstallations.Add(installation);
+        dbContext.AgentDefinitions.Add(definition);
         await dbContext.SaveChangesAsync();
 
         var result = await service.CompleteAsync(new CompleteBusinessOnboardingRequest(
-            "Example Co", "Software", "Help teams make better operating decisions.", installation.Id, "Avery"),
+            "Example Co", "Software", "Help teams make better operating decisions.", definition.Id, "Avery"),
             applicationUserId: applicationUser.Id);
 
         Assert.True(result.Succeeded);
@@ -78,10 +69,11 @@ public class BusinessOnboardingServiceTests
         Assert.True(result.Onboarding.OrganizationActivated);
         Assert.NotNull(result.Onboarding.ChiefOrganizationUserId);
         Assert.Equal(6, result.Onboarding.CreatedRoleCount);
-        Assert.Equal(3, result.Onboarding.ChiefReadinessWarnings.Count);
+        Assert.Equal(2, result.Onboarding.ChiefReadinessWarnings.Count);
 
         var organization = await dbContext.CoreOrganizations.SingleAsync(x => x.Id == result.Onboarding.OrganizationId);
         var chief = await dbContext.CoreOrganizationUsers.SingleAsync(x => x.Id == result.Onboarding.ChiefOrganizationUserId);
+        var installation = await dbContext.AgentInstallations.SingleAsync(x => x.Id == chief.AgentInstallationId);
         var ceo = await dbContext.CoreOrganizationUsers.SingleAsync(x => x.Id == chief.ReportsToOrganizationUserId);
         var leadership = await dbContext.LeadershipAssignments.SingleAsync(x => x.OrganizationUserId == chief.Id);
         Assert.Equal(OrganizationStatus.Active, organization.Status);
@@ -91,7 +83,7 @@ public class BusinessOnboardingServiceTests
         Assert.Equal("chief-of-staff", leadership.PositionKey);
         Assert.Equal(organization.Id.ToString("D"), installation.BusinessId);
         Assert.Equal(installation.Id, runtimeManager.QueuedInstallationId);
-        Assert.True(runtimeManager.Interactive);
+        Assert.False(runtimeManager.Interactive);
         Assert.Equal(1, runtimeManager.ReconcileCount);
     }
 
@@ -122,7 +114,7 @@ public class BusinessOnboardingServiceTests
             NormalizedEmail = "ADMIN@EXAMPLE.COM",
             EmailConfirmed = true,
             IsInitialAdministrator = true,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
         };
         dbContext.Users.Add(applicationUser);
         var package = new AgentPackageVersion
@@ -130,23 +122,20 @@ public class BusinessOnboardingServiceTests
             Id = Guid.NewGuid(), PackageSourceId = Guid.NewGuid(), AgentId = "example.chief", AgentName = "Example Chief",
             Version = "1.0.0", PluginKind = PluginKind.Agent,
             ManifestJson = """{"kind":"agent","provides":[{"name":"assistant.converse.v1"},{"name":"assistant.plan-work.v1"},{"name":"management.check-in.v1"},{"name":"agent.configuration.describe.v1"}]}""",
+            Status = AgentPackageVersionStatus.Built,
+            PackageDigest = new string('e', 64),
+            ArtifactSignature = "test-signature",
             ImportedAt = DateTimeOffset.UtcNow
         };
-        var installation = new AgentInstallation
-        {
-            Id = Guid.NewGuid(), InstallationKey = Guid.NewGuid(), PackageVersionId = package.Id, PackageVersion = package,
-            BusinessId = "default", IsEnabled = true, RevisionStatus = PluginRevisionStatus.Active,
-            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
-        };
-        dbContext.AgentPackageVersions.Add(package);
-        dbContext.AgentInstallations.Add(installation);
+        var definition = CreateDefinition(package, ActivationMode.Manual);
+        dbContext.AgentDefinitions.Add(definition);
         await dbContext.SaveChangesAsync();
 
         var result = await service.CompleteAsync(new CompleteBusinessOnboardingRequest(
             "Example Co",
             "Software",
             "Launch a paid MVP that makes planning easier for small teams.",
-            installation.Id), applicationUserId: applicationUser.Id);
+            definition.Id), applicationUserId: applicationUser.Id);
 
         Assert.True(result.Succeeded);
         Assert.NotNull(result.Onboarding);
@@ -181,6 +170,7 @@ public class BusinessOnboardingServiceTests
         Assert.Contains(roles, x => x.Name == "CEO" && x.AuthorityLevel == AuthorityLevel.ExecutionWithApproval);
         var self = Assert.Single(employees, x => x.EmployeeType == EmployeeType.Human);
         var chief = Assert.Single(employees, x => x.EmployeeType == EmployeeType.Agent);
+        var installation = await dbContext.AgentInstallations.SingleAsync(x => x.Id == chief.AgentInstallationId);
         Assert.Equal("Alex Admin", self.DisplayName);
         Assert.Equal(applicationUser.Id, self.ApplicationUserId);
         Assert.Equal("admin@example.com", self.Email);
@@ -246,6 +236,35 @@ public class BusinessOnboardingServiceTests
         Assert.Equal("validation_error", missingName.ErrorCode);
         Assert.False(missingChief.Succeeded);
         Assert.Equal("chief_agent_required", missingChief.ErrorCode);
+    }
+
+    private static AgentDefinition CreateDefinition(AgentPackageVersion package, ActivationMode activationMode)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var definition = new AgentDefinition
+        {
+            Id = Guid.NewGuid(),
+            PackageSourceId = package.PackageSourceId,
+            AgentId = package.AgentId,
+            PackageVersionId = package.Id,
+            PackageVersion = package,
+            Status = AgentDefinitionStatus.Available,
+            IsAvailableForHire = true,
+            DefaultActivationMode = activationMode,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        definition.Configuration = new AgentDefinitionConfiguration
+        {
+            Id = Guid.NewGuid(),
+            AgentDefinitionId = definition.Id,
+            SchemaVersion = "1",
+            SettingsJson = "{}",
+            Revision = 1,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        return definition;
     }
 
     private static CSweetDbContext CreateDbContext()

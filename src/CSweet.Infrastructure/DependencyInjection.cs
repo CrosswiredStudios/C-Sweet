@@ -158,6 +158,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginArchiveImportService, PluginArchiveImportService>();
         builder.Services.AddSingleton<IPluginManifestReader, PluginManifestReader>();
         builder.Services.AddScoped<IAgentUpdateService, AgentUpdateService>();
+        builder.Services.AddScoped<IAgentDefinitionService, AgentDefinitionService>();
         builder.Services.AddScoped<AgentInstallationService>();
         builder.Services.AddScoped<IAgentInstallationService>(sp => sp.GetRequiredService<AgentInstallationService>());
         builder.Services.AddScoped<IPluginInstallationService>(sp => sp.GetRequiredService<AgentInstallationService>());
@@ -172,7 +173,11 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginStandingPolicyService, PluginStandingPolicyService>();
         builder.Services.AddScoped<IPluginSetupService, PluginSetupService>();
         builder.Services.AddScoped<IPluginBootstrapCapabilityService, PluginBootstrapCapabilityService>();
-        builder.Services.AddScoped<IAgentInstallationConfigurationService, AgentInstallationConfigurationService>();
+        builder.Services.AddScoped<AgentInstallationConfigurationService>();
+        builder.Services.AddScoped<IAgentInstallationConfigurationService>(sp =>
+            sp.GetRequiredService<AgentInstallationConfigurationService>());
+        builder.Services.AddScoped<IAgentConfigurationService>(sp =>
+            sp.GetRequiredService<AgentInstallationConfigurationService>());
         builder.Services.AddScoped<IAgentBuildService, AgentBuildService>();
         AddAgentIsolationControlPlane(builder);
         builder.Services.AddSingleton<InMemoryBuilderArtifactResultStore>();
@@ -186,6 +191,7 @@ public static class DependencyInjection
         builder.Services.AddSingleton<IPluginWorkloadRunner>(sp => sp.GetRequiredService<IsolationAgentWorkloadRunner>());
         builder.Services.AddScoped<AgentRuntimeManager>();
         builder.Services.AddScoped<IAgentRuntimeManager>(sp => sp.GetRequiredService<AgentRuntimeManager>());
+        builder.Services.AddScoped<IAgentRuntimeEligibilityService, AgentRuntimeEligibilityService>();
         builder.Services.AddScoped<IPluginRuntimeManager>(sp => sp.GetRequiredService<AgentRuntimeManager>());
         builder.Services.AddScoped<IAgentInteractiveRuntimeService, AgentInteractiveRuntimeService>();
         builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService>();

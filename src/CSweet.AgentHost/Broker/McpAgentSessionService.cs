@@ -22,6 +22,8 @@ public sealed class McpAgentSessionService(
     CSweetDbContext db,
     AgentEmployeeIdentityResolver identityResolver,
     IAgentRuntimeSignalService runtimeSignals,
+    IAgentConfigurationService configurations,
+    AgentWorkInbox inbox,
     TimeProvider timeProvider)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -90,8 +92,36 @@ public sealed class McpAgentSessionService(
             LastRenewedAt = now,
             ExpiresAt = now.Add(SessionLifetime)
         };
+        var effectiveConfiguration = await configurations.ResolveInstallationAsync(installation.Id, cancellationToken);
         db.McpAgentSessions.Add(entity);
+        if (installation.DesiredConfigurationRevision > installation.AppliedConfigurationRevision)
+        {
+            installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.Refreshing;
+            installation.ConfigurationSyncLastAttemptAt = now;
+        }
         await db.SaveChangesAsync(cancellationToken);
+        if (installation.DesiredConfigurationRevision > installation.AppliedConfigurationRevision)
+        {
+            await inbox.EnqueueAsync(
+                installation.BusinessId,
+                installation.Id,
+                CSweet.Domain.Setup.AgentWorkKind.ConfigurationUpdate,
+                "configuration.update",
+                JsonSerializer.SerializeToElement(new
+                {
+                    effectiveConfiguration.InstallationId,
+                    effectiveConfiguration.SchemaVersion,
+                    EffectiveSettings = effectiveConfiguration.Settings,
+                    ChangedKeys = effectiveConfiguration.Settings.Keys.Order(StringComparer.Ordinal).ToArray(),
+                    DesiredRevision = effectiveConfiguration.Revision,
+                    EffectiveDigest = effectiveConfiguration.Digest
+                }, JsonOptions),
+                $"configuration:{installation.Id:N}:{effectiveConfiguration.Revision}",
+                now.AddMinutes(5),
+                sourceType: "configuration-control-plane",
+                sourceId: effectiveConfiguration.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                cancellationToken: cancellationToken);
+        }
         AgentRuntimeMetrics.Session("established");
 
         var session = ToRequestSession(entity, installation, package, grant);
@@ -100,20 +130,12 @@ public sealed class McpAgentSessionService(
             accessToken,
             entity.ExpiresAt,
             await identityResolver.ResolveAsync(session, cancellationToken),
-            ToRuntimeConfiguration(installation.Configuration));
-    }
-
-    private static AgentRuntimeConfiguration? ToRuntimeConfiguration(
-        AgentInstallationConfiguration? configuration)
-    {
-        if (configuration is null)
-            return null;
-
-        var settings = JsonSerializer.Deserialize<IReadOnlyDictionary<string, JsonElement>>(
-            configuration.SettingsJson,
-            JsonOptions) ?? throw new InvalidOperationException(
-                "The persisted agent installation configuration is empty.");
-        return new AgentRuntimeConfiguration(configuration.SchemaVersion, settings);
+            new AgentRuntimeConfiguration(
+                effectiveConfiguration.SchemaVersion,
+                effectiveConfiguration.Settings,
+                installation.Id,
+                effectiveConfiguration.Revision,
+                effectiveConfiguration.Digest));
     }
 
     public async Task<AgentSession?> AuthenticateAsync(

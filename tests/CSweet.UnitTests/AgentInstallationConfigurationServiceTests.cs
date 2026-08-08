@@ -1,4 +1,7 @@
 using System.Text.Json;
+using CSweet.Application.Setup;
+using CSweet.Contracts.Agents;
+using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
@@ -31,7 +34,7 @@ public sealed class AgentInstallationConfigurationServiceTests
             });
 
         Assert.Equal(created.CreatedAt, updated.CreatedAt);
-        Assert.Equal("1.1", updated.SchemaVersion);
+        Assert.Equal("1.0", updated.SchemaVersion);
         Assert.Equal("concise", updated.Settings["responseTone"].GetString());
         Assert.Single(await dbContext.AgentInstallationConfigurations.ToListAsync());
     }
@@ -51,6 +54,74 @@ public sealed class AgentInstallationConfigurationServiceTests
         Assert.Equal("provider-b", (await service.GetAsync(second.Id))!.Settings["llmProviderId"].GetString());
     }
 
+    [Fact]
+    public async Task DefinitionDefaults_PropagateOnlyToNonOverriddenFields_WithoutStartingStoppedAgent()
+    {
+        await using var dbContext = CreateDbContext();
+        var installation = await SeedInstallationAsync(dbContext, "business-defaults");
+        var definition = await dbContext.AgentDefinitions.Include(x => x.Configuration).SingleAsync();
+        var employee = await dbContext.CoreOrganizationUsers.SingleAsync();
+        definition.Configuration!.SettingsJson = JsonSerializer.Serialize(new
+        {
+            responseTone = "balanced",
+            llmProviderId = "provider-a"
+        });
+        installation.Configuration!.SettingsJson = JsonSerializer.Serialize(new { responseTone = "custom" });
+        await dbContext.SaveChangesAsync();
+        var service = new AgentInstallationConfigurationService(dbContext, new TestAuditEventWriter());
+
+        await service.SaveDefinitionAsync(definition.Id, new PutAgentDefinitionConfigurationRequest(
+            "1.0",
+            new Dictionary<string, JsonElement>
+            {
+                ["responseTone"] = JsonSerializer.SerializeToElement("detailed"),
+                ["llmProviderId"] = JsonSerializer.SerializeToElement("provider-b")
+            },
+            ExpectedRevision: 1));
+        var view = await service.GetEmployeeAsync(employee.OrganizationId, employee.Id);
+
+        Assert.Equal("custom", view.EffectiveValues["responseTone"].GetString());
+        Assert.Equal("provider-b", view.EffectiveValues["llmProviderId"].GetString());
+        Assert.Equal(["responseTone"], view.OverriddenKeys);
+        Assert.Equal(AgentConfigurationSyncStatus.PendingNextStart.ToString(), view.SynchronizationStatus);
+        Assert.Empty(await dbContext.AgentRuntimeInstances.ToListAsync());
+        await Assert.ThrowsAsync<AgentConfigurationConflictException>(() =>
+            service.SaveDefinitionAsync(definition.Id, new PutAgentDefinitionConfigurationRequest(
+                "1.0", view.DefaultValues, ExpectedRevision: 1)));
+
+        var restored = await service.RestoreEmployeeOverrideAsync(
+            employee.OrganizationId, employee.Id, "responseTone", view.ExpectedRevision);
+        Assert.Equal("detailed", restored.EffectiveValues["responseTone"].GetString());
+        Assert.Empty(restored.OverriddenKeys);
+        Assert.Empty(await dbContext.AgentRuntimeInstances.ToListAsync());
+    }
+
+    [Fact]
+    public async Task SaveDefinitionAsync_ReviewingUnchangedValidDefaults_MakesBuiltSignedDefinitionHireable()
+    {
+        await using var dbContext = CreateDbContext();
+        await SeedInstallationAsync(dbContext, "business-review");
+        var definition = await dbContext.AgentDefinitions
+            .Include(x => x.Configuration)
+            .Include(x => x.PackageVersion)
+            .SingleAsync();
+        definition.Status = AgentDefinitionStatus.NeedsConfiguration;
+        definition.IsAvailableForHire = false;
+        definition.PackageVersion!.Status = AgentPackageVersionStatus.Built;
+        definition.PackageVersion.PackageDigest = new string('c', 64);
+        definition.PackageVersion.ArtifactSignature = "test-signature";
+        await dbContext.SaveChangesAsync();
+        var service = new AgentInstallationConfigurationService(dbContext, new TestAuditEventWriter());
+
+        var view = await service.SaveDefinitionAsync(definition.Id, new PutAgentDefinitionConfigurationRequest(
+            "1.0", new Dictionary<string, JsonElement>(), ExpectedRevision: 1));
+
+        Assert.True(definition.IsAvailableForHire);
+        Assert.Equal(AgentDefinitionStatus.Available, definition.Status);
+        Assert.Equal(1, view.ExpectedRevision);
+        Assert.Empty(await dbContext.AgentRuntimeInstances.ToListAsync());
+    }
+
     private static IReadOnlyDictionary<string, JsonElement> Settings(string providerId) =>
         new Dictionary<string, JsonElement>
         {
@@ -59,8 +130,9 @@ public sealed class AgentInstallationConfigurationServiceTests
 
     private static async Task<AgentInstallation> SeedInstallationAsync(
         CSweetDbContext dbContext,
-        string businessId)
+        string businessLabel)
     {
+        var organizationId = Guid.NewGuid();
         var package = new AgentPackageVersion
         {
             Id = Guid.NewGuid(),
@@ -89,11 +161,62 @@ public sealed class AgentInstallationConfigurationServiceTests
             Id = Guid.NewGuid(),
             PackageVersionId = package.Id,
             PackageVersion = package,
-            BusinessId = businessId,
+            BusinessId = organizationId.ToString("D"),
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         };
-        dbContext.AgentInstallations.Add(installation);
+        var definition = new AgentDefinition
+        {
+            Id = Guid.NewGuid(),
+            PackageSourceId = package.PackageSourceId,
+            AgentId = package.AgentId,
+            PackageVersionId = package.Id,
+            PackageVersion = package,
+            Status = AgentDefinitionStatus.Available,
+            IsAvailableForHire = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        definition.Configuration = new AgentDefinitionConfiguration
+        {
+            Id = Guid.NewGuid(),
+            AgentDefinitionId = definition.Id,
+            SchemaVersion = "1.0",
+            SettingsJson = "{}",
+            Revision = 1,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        installation.AgentDefinitionId = definition.Id;
+        installation.AgentDefinition = definition;
+        installation.Configuration = new AgentInstallationConfiguration
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            SchemaVersion = "1.0",
+            SettingsJson = "{}",
+            Revision = 0,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var organization = new Organization
+        {
+            Id = organizationId,
+            Name = businessLabel,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        var employee = new OrganizationUser
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            DisplayName = businessLabel,
+            EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Contributor,
+            AgentInstallationId = installation.Id,
+            IsActive = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.AddRange(organization, definition, installation, employee);
         await dbContext.SaveChangesAsync();
         return installation;
     }

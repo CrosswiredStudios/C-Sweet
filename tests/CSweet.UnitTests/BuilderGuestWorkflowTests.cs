@@ -122,14 +122,23 @@ public sealed class BuilderGuestWorkflowTests
             Guid.NewGuid(), Guid.NewGuid(), "https://github.com/example/agent.git", new string('c', 40),
             "src/Agent/Agent.csproj", "net10.0", "dotnet-publish-v1", 600, 512, 50, 128, 128, 8);
         resultStore.WorkloadId = request.BuildJobId;
-        var workspace = await executor.CloneAsync(request, new NoOpProgressReporter());
+        var progress = new RecordingProgressReporter();
+        var workspace = await executor.CloneAsync(request, progress);
 
-        var result = await executor.BuildAsync(request, workspace, new NoOpProgressReporter());
+        var result = await executor.BuildAsync(request, workspace, progress);
 
         Assert.True(provider.Created);
         Assert.True(provider.Started);
         Assert.True(provider.Destroyed);
         Assert.True(session.Started);
+        Assert.Contains(progress.Updates, update =>
+            update.StepKey == AgentBuildStepKeys.Isolate &&
+            update.Status == AgentBuildStepStatuses.InProgress &&
+            update.Detail?.Contains("certified builder image", StringComparison.Ordinal) == true);
+        Assert.Contains(progress.Updates, update =>
+            update.StepKey == AgentBuildStepKeys.Isolate &&
+            update.Status == AgentBuildStepStatuses.InProgress &&
+            update.Detail?.Contains("Starting the disposable builder guest", StringComparison.Ordinal) == true);
         Assert.Equal(digest, provider.Workload!.GuestImage.Digest);
         Assert.Equal(new string('b', 64), result.PackageDigest);
         Assert.True(File.Exists(workspace.LogPath));
@@ -265,6 +274,19 @@ public sealed class BuilderGuestWorkflowTests
     private sealed class NoOpProgressReporter : IAgentBuildProgressReporter
     {
         public Task ReportAsync(AgentBuildProgressUpdate update, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class RecordingProgressReporter : IAgentBuildProgressReporter
+    {
+        public List<AgentBuildProgressUpdate> Updates { get; } = [];
+
+        public Task ReportAsync(
+            AgentBuildProgressUpdate update,
+            CancellationToken cancellationToken = default)
+        {
+            Updates.Add(update);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class ExitedRuntimeGuestCoordinator(AgentGuestSessionOutcome outcome) : IAgentGuestSessionCoordinator

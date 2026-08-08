@@ -65,6 +65,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var packageVersion = await _dbContext.AgentPackageVersions
             .SingleOrDefaultAsync(x => x.Id == importId, cancellationToken)
             ?? throw new AgentInstallationException("The import preview was not found.");
+        if (packageVersion.PluginKind != PluginKind.Service)
+            throw new AgentInstallationException(
+                "Agent packages must be imported as global agent definitions through the agent API and hired before a runtime installation is created.");
         return await InstallCoreAsync(packageVersion, request, cancellationToken);
     }
 

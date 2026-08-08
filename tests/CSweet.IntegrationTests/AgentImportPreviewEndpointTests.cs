@@ -80,7 +80,7 @@ public class AgentImportPreviewEndpointTests
     }
 
     [Fact]
-    public async Task Install_CreatesGrantAndScheduleAndSupportsManagementActions()
+    public async Task Install_CreatesDefinitionAndBuilderJobWithoutBusinessRuntimeState()
     {
         await using var factory = CreateFactory();
         var client = factory.CreateClient();
@@ -95,9 +95,7 @@ public class AgentImportPreviewEndpointTests
         var preview = await previewResponse.Content.ReadFromJsonAsync<AgentImportPreviewResponse>();
         Assert.NotNull(preview);
 
-        var installResponse = await client.PostAsJsonAsync(
-            $"/api/agents/imports/{preview.ImportId}/install",
-            new InstallAgentRequest(
+        var installRequest = new InstallAgentRequest(
                 "default",
                 "Periodic",
                 900,
@@ -109,128 +107,43 @@ public class AgentImportPreviewEndpointTests
                 [],
                 600,
                 512,
-                50));
-        var installation = await installResponse.Content.ReadFromJsonAsync<AgentInstallationResponse>();
+                50);
+        var installResponse = await client.PostAsJsonAsync(
+            $"/api/agents/imports/{preview.ImportId}/install",
+            installRequest);
+        var definition = await installResponse.Content.ReadFromJsonAsync<AgentDefinitionResponse>();
 
         Assert.Equal(HttpStatusCode.OK, installResponse.StatusCode);
-        Assert.NotNull(installation);
-        Assert.Equal("Periodic", installation.Schedule.ActivationMode);
-        Assert.NotNull(installation.Schedule.NextTickAt);
+        Assert.NotNull(definition);
+        Assert.Equal("com.example.research-agent", definition.AgentId);
+        Assert.Equal("Periodic", definition.DefaultActivationMode);
+        Assert.False(definition.IsAvailableForHire);
+        Assert.Equal("Queued", definition.Build?.Status);
+        Assert.Equal(6, definition.Build?.Steps?.Count);
+        Assert.Equal("InProgress", definition.Build?.Steps?[0].Status);
 
-        var listed = await client.GetFromJsonAsync<IReadOnlyList<AgentInstallationResponse>>(
+        var listedDefinitions = await client.GetFromJsonAsync<IReadOnlyList<AgentDefinitionResponse>>(
+            "/api/agents/definitions");
+        var listedInstallations = await client.GetFromJsonAsync<IReadOnlyList<AgentInstallationResponse>>(
             "/api/agents/installations");
-        Assert.Single(listed!);
-        Assert.Equal("Queued", listed![0].Build?.Status);
-        Assert.Equal(6, listed[0].Build?.Steps?.Count);
-        Assert.Equal("InProgress", listed[0].Build?.Steps?[0].Status);
-
-        var scheduleResponse = await client.PutAsJsonAsync(
-            $"/api/agents/installations/{installation.Id}/schedule",
-            new UpdateAgentScheduleRequest("Manual", 1200, "Queue", 300, true));
-        var scheduled = await scheduleResponse.Content.ReadFromJsonAsync<AgentInstallationResponse>();
-        Assert.Equal(HttpStatusCode.OK, scheduleResponse.StatusCode);
-        Assert.Equal("Manual", scheduled!.Schedule.ActivationMode);
-        Assert.Null(scheduled.Schedule.NextTickAt);
-
-        var runResponse = await client.PostAsync(
-            $"/api/agents/installations/{installation.Id}/run-now",
-            null);
-        var run = await runResponse.Content.ReadFromJsonAsync<AgentInstallationResponse>();
-        Assert.Equal(HttpStatusCode.OK, runResponse.StatusCode);
-        Assert.NotNull(run?.Schedule.RunRequestedAt);
-
-        var disableResponse = await client.PostAsync(
-            $"/api/agents/installations/{installation.Id}/disable",
-            null);
-        var disabled = await disableResponse.Content.ReadFromJsonAsync<AgentInstallationResponse>();
-        Assert.Equal(HttpStatusCode.OK, disableResponse.StatusCode);
-        Assert.False(disabled!.IsEnabled);
-        Assert.False(disabled.Schedule.IsEnabled);
-
-        var enableResponse = await client.PostAsync(
-            $"/api/agents/installations/{installation.Id}/enable",
-            null);
-        var enabled = await enableResponse.Content.ReadFromJsonAsync<AgentInstallationResponse>();
-        Assert.Equal(HttpStatusCode.OK, enableResponse.StatusCode);
-        Assert.True(enabled!.IsEnabled);
-        Assert.True(enabled.Schedule.IsEnabled);
-
-        var buildLogResponse = await client.GetAsync(
-            $"/api/agents/installations/{installation.Id}/build-log");
-        var buildLog = await buildLogResponse.Content.ReadFromJsonAsync<AgentBuildLogResponse>();
-        Assert.Equal(HttpStatusCode.OK, buildLogResponse.StatusCode);
-        Assert.Equal("Queued", buildLog!.Status);
-        Assert.Contains("Build job:", buildLog.Content, StringComparison.Ordinal);
-        Assert.Contains("Build steps:", buildLog.Content, StringComparison.Ordinal);
+        Assert.Single(listedDefinitions!);
+        Assert.Empty(listedInstallations!);
 
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
-        var failedBuild = await dbContext.AgentBuildJobs.SingleAsync();
-        failedBuild.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
-        (await dbContext.AgentPackageVersions.SingleAsync()).Status = AgentPackageVersionStatus.Failed;
-        var suppressedSchedule = await dbContext.AgentSchedules.SingleAsync();
-        suppressedSchedule.ConsecutiveStartupFailures = 3;
-        suppressedSchedule.AutomaticStartSuppressedAt = DateTimeOffset.UtcNow;
-        suppressedSchedule.NextTickAt = null;
-        await dbContext.SaveChangesAsync();
+        Assert.Single(await dbContext.AgentDefinitions.ToListAsync());
+        Assert.Single(await dbContext.AgentDefinitionConfigurations.ToListAsync());
+        Assert.Single(await dbContext.AgentBuildJobs.ToListAsync());
+        Assert.Empty(await dbContext.AgentInstallations.ToListAsync());
+        Assert.Empty(await dbContext.AgentInstallationGrants.ToListAsync());
+        Assert.Empty(await dbContext.AgentSchedules.ToListAsync());
+        Assert.Empty(await dbContext.AgentRuntimeInstances.ToListAsync());
 
-        var retryResponse = await client.PostAsync(
-            $"/api/agents/installations/{installation.Id}/retry-build",
-            null);
-        var retried = await retryResponse.Content.ReadFromJsonAsync<AgentInstallationResponse>();
-        Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
-        Assert.Equal("Queued", retried!.Build?.Status);
-        Assert.Equal(2, retried.Build?.Attempt);
-        Assert.Equal(0, retried.Schedule.ConsecutiveStartupFailures);
-        Assert.Null(retried.Schedule.AutomaticStartSuppressedAt);
-
-        (await dbContext.AgentPackageVersions.SingleAsync()).Status = AgentPackageVersionStatus.Built;
-        suppressedSchedule.ActivationMode = ActivationMode.AlwaysOn;
-        suppressedSchedule.ConsecutiveStartupFailures = 3;
-        suppressedSchedule.AutomaticStartSuppressedAt = DateTimeOffset.UtcNow;
-        suppressedSchedule.NextTickAt = null;
-        await dbContext.SaveChangesAsync();
-
-        var startupRetryResponse = await client.PostAsync(
-            $"/api/agents/installations/{installation.Id}/retry-startup",
-            null);
-        var startupRetried = await startupRetryResponse.Content.ReadFromJsonAsync<AgentInstallationResponse>();
-        Assert.Equal(HttpStatusCode.OK, startupRetryResponse.StatusCode);
-        Assert.Equal(0, startupRetried!.Schedule.ConsecutiveStartupFailures);
-        Assert.Null(startupRetried.Schedule.AutomaticStartSuppressedAt);
-        Assert.NotNull(startupRetried.Schedule.NextTickAt);
-
-        var runtime = new AgentRuntimeInstance
-        {
-            Id = Guid.NewGuid(),
-            TickId = Guid.NewGuid(),
-            AgentInstallationId = installation.Id,
-            QueuedAt = DateTimeOffset.UtcNow
-        };
-        runtime.Events.Add(new AgentRuntimeEvent
-        {
-            Id = Guid.NewGuid(),
-            AgentRuntimeInstanceId = runtime.Id,
-            Status = AgentRuntimeStatus.Queued,
-            Reason = "Run requested.",
-            OccurredAt = runtime.QueuedAt
-        });
-        dbContext.AgentRuntimeInstances.Add(runtime);
-        await dbContext.SaveChangesAsync();
-
-        var runs = await client.GetFromJsonAsync<IReadOnlyList<AgentRuntimeRunResponse>>(
-            $"/api/agents/installations/{installation.Id}/runs");
-        Assert.Single(runs!);
-        Assert.Equal("Queued", runs![0].Status);
-        Assert.Single(runs[0].Events);
-        var detail = await client.GetFromJsonAsync<AgentInstallationResponse>(
-            $"/api/agents/installations/{installation.Id}");
-        Assert.Equal("Queued", detail!.LatestRuntime?.Status);
-
-        Assert.Single(await dbContext.AgentInstallations.ToListAsync());
-        Assert.Single(await dbContext.AgentInstallationGrants.ToListAsync());
-        Assert.Single(await dbContext.AgentSchedules.ToListAsync());
-        Assert.Equal(2, await dbContext.AgentBuildJobs.CountAsync());
+        var pluginBypassResponse = await client.PostAsJsonAsync(
+            $"/api/plugins/imports/{preview.ImportId}/install",
+            installRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, pluginBypassResponse.StatusCode);
+        Assert.Empty(await dbContext.AgentInstallations.ToListAsync());
     }
 
     private static async Task MarkSetupCompleteAsync(WebApplicationFactory<Program> factory)

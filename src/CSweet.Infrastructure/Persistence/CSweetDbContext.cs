@@ -41,6 +41,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<AgentRuntimeGlobalSettings> AgentRuntimeGlobalSettings => Set<AgentRuntimeGlobalSettings>();
     public DbSet<AgentPackageSource> AgentPackageSources => Set<AgentPackageSource>();
     public DbSet<AgentPackageVersion> AgentPackageVersions => Set<AgentPackageVersion>();
+    public DbSet<AgentDefinition> AgentDefinitions => Set<AgentDefinition>();
+    public DbSet<AgentDefinitionConfiguration> AgentDefinitionConfigurations => Set<AgentDefinitionConfiguration>();
     public DbSet<AgentInstallation> AgentInstallations => Set<AgentInstallation>();
     public DbSet<AgentInstallationGrant> AgentInstallationGrants => Set<AgentInstallationGrant>();
     public DbSet<AgentInstallationConfiguration> AgentInstallationConfigurations => Set<AgentInstallationConfiguration>();
@@ -654,11 +656,49 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.SetupFlowId).HasMaxLength(200);
             entity.Property(x => x.SetupStepId).HasMaxLength(200);
             entity.Property(x => x.SetupDataJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.ConfigurationSyncStatus).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ConfigurationSyncLastError).HasMaxLength(2048);
             entity.HasIndex(x => new { x.PackageVersionId, x.BusinessId });
+            entity.HasIndex(x => x.AgentDefinitionId);
+            entity.HasOne(x => x.AgentDefinition)
+                .WithMany(x => x.Installations)
+                .HasForeignKey(x => x.AgentDefinitionId)
+                .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.PackageVersion)
                 .WithMany()
                 .HasForeignKey(x => x.PackageVersionId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AgentDefinition>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.AgentId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.DefaultActivationMode).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(x => x.DefaultOverlapPolicy).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(x => x.DefaultProvidedCapabilitiesJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.DefaultRequiredCapabilitiesJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.DefaultEventSubscriptionsJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.DefaultNetworkAccessJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.DefaultCapabilityBindingsJson).HasColumnType("text").IsRequired();
+            entity.HasIndex(x => new { x.PackageSourceId, x.AgentId }).IsUnique();
+            entity.HasOne(x => x.PackageSource).WithMany()
+                .HasForeignKey(x => x.PackageSourceId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.PackageVersion).WithMany()
+                .HasForeignKey(x => x.PackageVersionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AgentDefinitionConfiguration>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SchemaVersion).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.SettingsJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.AgentDefinitionId).IsUnique();
+            entity.HasOne(x => x.AgentDefinition).WithOne(x => x.Configuration)
+                .HasForeignKey<AgentDefinitionConfiguration>(x => x.AgentDefinitionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<AgentInstallationGrant>(entity =>
@@ -758,6 +798,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 entity.HasKey(x => x.Id);
                 entity.Property(x => x.SchemaVersion).HasMaxLength(64).IsRequired();
                 entity.Property(x => x.SettingsJson).HasColumnType("text").IsRequired();
+                entity.Property(x => x.Revision).IsConcurrencyToken();
                 entity.HasIndex(x => x.AgentInstallationId).IsUnique();
                 entity.HasOne(x => x.AgentInstallation)
                 .WithOne(x => x.Configuration)

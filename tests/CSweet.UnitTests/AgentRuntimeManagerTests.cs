@@ -728,7 +728,14 @@ public sealed class AgentRuntimeManagerTests
         {
             RuntimeGuestImageVersion = "1.0",
             RuntimeGuestImageDigest = "sha256:" + new string('d', 64)
-        }), NullLogger<AgentRuntimeManager>.Instance);
+        }), NullLogger<AgentRuntimeManager>.Instance, new AllowAllRuntimeEligibility());
+    }
+
+    private sealed class AllowAllRuntimeEligibility : IAgentRuntimeEligibilityService
+    {
+        public Task<AgentRuntimeEligibility> EvaluateAsync(
+            Guid installationId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AgentRuntimeEligibility(true, null));
     }
 
     private sealed class StaticGuestImageRegistry : IGuestImageRegistry

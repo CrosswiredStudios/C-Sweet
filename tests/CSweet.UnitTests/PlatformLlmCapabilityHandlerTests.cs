@@ -7,6 +7,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Llm;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.AI;
@@ -58,6 +59,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             db,
             new StreamingProviderFactory(),
             new AgentEmployeeIdentityResolver(db),
+            new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
         var request = new RequestCapability
         {
@@ -154,6 +156,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             db,
             new StreamingProviderFactory(new ThrowingAfterUsageChatClient()),
             new AgentEmployeeIdentityResolver(db),
+            new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
 
         var results = await ReadAsync(handler, providerId);
@@ -180,6 +183,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             db,
             new StreamingProviderFactory(),
             new AgentEmployeeIdentityResolver(db),
+            new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
 
         var results = await ReadAsync(handler, providerId);

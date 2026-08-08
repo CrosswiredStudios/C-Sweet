@@ -9,6 +9,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Application.Communications;
 using CSweet.Infrastructure.Communications;
+using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using CSweet.Infrastructure.WorkManagement;
@@ -62,7 +63,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             return Failure("validation_error", "Business name is required.");
         }
 
-        if (request.ChiefAgentInstallationId == Guid.Empty)
+        if (request.ChiefAgentDefinitionId == Guid.Empty)
         {
             return Failure("chief_agent_required", "Select and approve a Chief of Staff agent before creating the business.");
         }
@@ -73,7 +74,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             return Failure("validation_error", "Chief of Staff name cannot exceed 160 characters.");
         }
 
-        var chiefValidation = await ValidateChiefInstallationAsync(request.ChiefAgentInstallationId, cancellationToken);
+        var chiefValidation = await ValidateChiefDefinitionAsync(request.ChiefAgentDefinitionId, cancellationToken);
         if (!chiefValidation.Succeeded)
             return Failure(chiefValidation.ErrorCode!, chiefValidation.Message!);
 
@@ -182,7 +183,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
 
         var assignment = await CreateChiefAssignmentAsync(
             organizationId,
-            request.ChiefAgentInstallationId,
+            request.ChiefAgentDefinitionId,
             chiefDisplayName,
             cancellationToken);
         if (!assignment.Succeeded)
@@ -210,7 +211,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             await transaction.CommitAsync(cancellationToken);
 
         var runtimeWarning = await QueueChiefRuntimeAsync(
-            request.ChiefAgentInstallationId,
+            assignment.AgentInstallationId!.Value,
             cancellationToken);
         if (runtimeWarning is not null)
             chiefReadinessWarnings.Add(runtimeWarning);
@@ -243,7 +244,10 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         if (current)
             return new(false, "chief_already_assigned", "The organization already has an active Chief of Staff assignment.");
 
-        var assignment = await CreateChiefAssignmentAsync(organizationId, request.AgentInstallationId, null, cancellationToken);
+        await using var transaction = _dbContext.Database.IsRelational()
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        var assignment = await CreateChiefAssignmentAsync(organizationId, request.AgentDefinitionId, null, cancellationToken);
         if (!assignment.Succeeded)
             return new(false, assignment.ErrorCode, assignment.Message);
 
@@ -251,8 +255,10 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         organization.UpdatedAt = DateTimeOffset.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
         await _executiveBriefings.QueueActivationAsync(organizationId, assignment.OrganizationUserId!.Value, cancellationToken);
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
         var warnings = assignment.Warnings.ToList();
-        var runtimeWarning = await QueueChiefRuntimeAsync(request.AgentInstallationId, cancellationToken);
+        var runtimeWarning = await QueueChiefRuntimeAsync(assignment.AgentInstallationId!.Value, cancellationToken);
         if (runtimeWarning is not null)
             warnings.Add(runtimeWarning);
         var response = new CompleteChiefSetupResponse(
@@ -265,58 +271,47 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
 
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private async Task<ChiefAssignmentResult> ValidateChiefInstallationAsync(
-        Guid installationId,
+    private async Task<ChiefAssignmentResult> ValidateChiefDefinitionAsync(
+        Guid definitionId,
         CancellationToken cancellationToken)
     {
-        var installation = await _dbContext.AgentInstallations
+        var definition = await _dbContext.AgentDefinitions
             .Include(x => x.PackageVersion)
+            .Include(x => x.Configuration)
             .AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == installationId, cancellationToken);
-        if (installation?.PackageVersion is null)
-            return ChiefAssignmentResult.Failure("chief_agent_not_found", "The selected Chief of Staff agent installation was not found.");
-        if (!installation.IsEnabled || installation.RevisionStatus != PluginRevisionStatus.Active ||
-            installation.PackageVersion.PluginKind != PluginKind.Agent)
-            return ChiefAssignmentResult.Failure("chief_agent_unavailable", "The selected installation is not an enabled active agent.");
-        if (!string.Equals(installation.BusinessId, "default", StringComparison.OrdinalIgnoreCase))
-            return ChiefAssignmentResult.Failure("chief_agent_wrong_organization", "The selected installation is already assigned to another business.");
+            .SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken);
+        if (definition?.PackageVersion is null)
+            return ChiefAssignmentResult.Failure("chief_agent_not_found", "The selected Chief of Staff agent definition was not found.");
+        if (!IsDefinitionHireable(definition))
+            return ChiefAssignmentResult.Failure("chief_agent_unavailable",
+                "The selected Chief of Staff definition is not built, signed, configured, and available for hire.");
         return ChiefAssignmentResult.ValidationSuccess();
     }
 
     private async Task<ChiefAssignmentResult> CreateChiefAssignmentAsync(
         Guid organizationId,
-        Guid installationId,
+        Guid definitionId,
         string? displayName,
         CancellationToken cancellationToken)
     {
-        var installation = await _dbContext.AgentInstallations
+        var definition = await _dbContext.AgentDefinitions
             .Include(x => x.PackageVersion)
-            .Include(x => x.Grant)
-            .SingleOrDefaultAsync(x => x.Id == installationId, cancellationToken);
-        if (installation is null || installation.PackageVersion is null)
+            .Include(x => x.Configuration)
+            .SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken);
+        if (definition is null || definition.PackageVersion is null)
         {
-            return ChiefAssignmentResult.Failure("chief_agent_not_found", "The selected Chief agent installation was not found.");
+            return ChiefAssignmentResult.Failure("chief_agent_not_found", "The selected Chief agent definition was not found.");
         }
 
-        if (!installation.IsEnabled || installation.RevisionStatus != PluginRevisionStatus.Active ||
-            installation.PackageVersion.PluginKind != PluginKind.Agent)
+        if (!IsDefinitionHireable(definition))
         {
-            return ChiefAssignmentResult.Failure("chief_agent_unavailable", "The selected installation is not an enabled active agent.");
+            return ChiefAssignmentResult.Failure("chief_agent_unavailable",
+                "The selected Chief agent definition is not built, signed, configured, and available for hire.");
         }
 
-        var organizationKey = organizationId.ToString("D");
-        if (!string.Equals(installation.BusinessId, "default", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(installation.BusinessId, organizationKey, StringComparison.OrdinalIgnoreCase))
-        {
-            return ChiefAssignmentResult.Failure("chief_agent_wrong_organization", "The selected installation belongs to another organization.");
-        }
-
-        installation.BusinessId = organizationKey;
-        await AgentInstallationConfigurationDefaults.EnsureAsync(
-            _dbContext,
-            installation,
-            cancellationToken);
         var now = DateTimeOffset.UtcNow;
+        var installation = OrganizationUserService.CreateHiredInstallation(definition, organizationId, now);
+        _dbContext.AgentInstallations.Add(installation);
         var chiefRole = await _dbContext.CoreRoles.SingleOrDefaultAsync(
             x => x.OrganizationId == organizationId && x.Name == "Chief of Staff", cancellationToken);
         if (chiefRole is null)
@@ -359,7 +354,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
             ReportsToOrganizationUserId = ceo.Id,
             RoleId = chiefRole.Id,
             AgentInstallationId = installation.Id,
-            DisplayName = displayName ?? installation.PackageVersion.AgentName,
+            DisplayName = displayName ?? definition.PackageVersion.AgentName,
             EmployeeType = EmployeeType.Agent,
             PermissionLevel = OrganizationPermissionLevel.Manager,
             CreatedAt = now,
@@ -389,8 +384,20 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         return ChiefAssignmentResult.Success(
             chief.Id,
             onboarding.ConversationId!.Value,
-            GetReadinessWarnings(installation.PackageVersion.ManifestJson));
+            installation.Id,
+            GetReadinessWarnings(definition.PackageVersion.ManifestJson));
     }
+
+    private static bool IsDefinitionHireable(AgentDefinition definition) =>
+        definition.IsAvailableForHire &&
+        definition.Status == AgentDefinitionStatus.Available &&
+        definition.PackageVersion is
+        {
+            PluginKind: PluginKind.Agent,
+            Status: AgentPackageVersionStatus.Built
+        } package &&
+        !string.IsNullOrWhiteSpace(package.PackageDigest) &&
+        !string.IsNullOrWhiteSpace(package.ArtifactSignature);
 
     private async Task<string?> QueueChiefRuntimeAsync(
         Guid installationId,
@@ -399,16 +406,21 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         if (_agentRuntimeManager is null)
             return null;
 
+        var alwaysOn = await _dbContext.AgentSchedules.AsNoTracking().AnyAsync(x =>
+            x.AgentInstallationId == installationId && x.IsEnabled && x.ActivationMode == ActivationMode.AlwaysOn,
+            cancellationToken);
+        if (!alwaysOn)
+            return null;
+
         try
         {
-            await _agentRuntimeManager.RestartRuntimeAsync(
+            await _agentRuntimeManager.EnsureRuntimeQueuedAsync(
                 installationId,
-                "Restarted under the assigned organization for the Chief of Staff's initial onboarding conversation.",
-                interactive: true,
+                "Started after the always-on Chief of Staff was hired and committed.",
+                interactive: false,
                 cancellationToken);
-            // Do not leave the first-run experience waiting for the schedule worker's
-            // next poll. Start reconciling the newly queued interactive runtime now so
-            // it can connect and receive its durable onboarding event immediately.
+            // Do not leave an eligible always-on hire waiting for the schedule worker's
+            // next poll. Reconcile only the runtime that was permitted after commit.
             await _agentRuntimeManager.ReconcileAsync(cancellationToken);
             return null;
         }
@@ -436,7 +448,6 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
                 : [];
             var warnings = new List<string>();
             AddReadinessWarning(provided, warnings, "assistant.converse.v1", "conversation");
-            AddReadinessWarning(provided, warnings, AgentConfigurationCapabilities.Describe, "configuration");
             AddReadinessWarning(provided, warnings, "management.check-in.v1", "management check-in");
             AddReadinessWarning(provided, warnings, "assistant.plan-work.v1", "planning");
             return warnings;
@@ -476,19 +487,21 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService
         string? Message,
         Guid? OrganizationUserId,
         Guid? ConversationId,
+        Guid? AgentInstallationId,
         IReadOnlyList<string> Warnings)
     {
         public static ChiefAssignmentResult ValidationSuccess() =>
-            new(true, null, null, null, null, []);
+            new(true, null, null, null, null, null, []);
 
         public static ChiefAssignmentResult Success(
             Guid organizationUserId,
             Guid conversationId,
+            Guid agentInstallationId,
             IReadOnlyList<string> warnings) =>
-            new(true, null, null, organizationUserId, conversationId, warnings);
+            new(true, null, null, organizationUserId, conversationId, agentInstallationId, warnings);
 
         public static ChiefAssignmentResult Failure(string errorCode, string message) =>
-            new(false, errorCode, message, null, null, []);
+            new(false, errorCode, message, null, null, null, []);
     }
 
     private static BusinessOnboardingActionResponse Failure(string errorCode, string message) =>

@@ -38,6 +38,7 @@ public partial class Employees
     private int _hireEmployeeType = 1;
     private string? _hireAgentKey;
     private IReadOnlyList<AgentInstallationResponse> _agentInstallations = [];
+    private IReadOnlyList<AgentInstallationResponse> _agentDefinitions = [];
     private IReadOnlyList<LlmProviderProfileResponse> _providerProfiles = [];
     private Guid? _hireManagerId;
     private readonly HashSet<Guid> _managedEmployeeIds = [];
@@ -48,7 +49,7 @@ public partial class Employees
     private Guid? _selectedRoleId;
     private OrganizationUserResponse? _configurationEmployee;
     private AgentConfigurationSchemaResponse? _configurationSchema;
-    private AgentRuntimeReadinessResponse? _configurationRuntime;
+    private AgentConfigurationView? _configurationView;
     private readonly Dictionary<Guid, AgentRuntimeReadinessResponse> _runtimeStatuses = [];
     private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, IReadOnlyList<string>> _providerModels = [];
@@ -108,19 +109,9 @@ public partial class Employees
         _managingRuntimeInstallationId,
         _teamDirectory);
 
-    private string ConfigurationLoadingMessage => _configurationRuntime?.Stage switch
-    {
-        AgentRuntimeReadinessStages.Queued => "Agent runtime queued...",
-        AgentRuntimeReadinessStages.StartingWorkload => "Starting isolated agent workload...",
-        AgentRuntimeReadinessStages.WaitingForMcpSession => "Establishing secure agent session...",
-        AgentRuntimeReadinessStages.Stopping => "Cleaning up the previous runtime...",
-        AgentRuntimeReadinessStages.Ready => "Loading agent configuration...",
-        _ => "Preparing agent runtime..."
-    };
-
-    private IReadOnlyList<AgentChoice> AvailableAgents => _agentInstallations
+    private IReadOnlyList<AgentChoice> AvailableAgents => _agentDefinitions
         .Where(x => x.IsEnabled)
-        .Select(x => new AgentChoice($"installation:{x.Id}", x.AgentName, x.AgentId, x.Id, x.GrantedCapabilities, true))
+        .Select(x => new AgentChoice($"definition:{x.Id}", x.AgentName, x.AgentId, x.Id, x.GrantedCapabilities))
         .OrderBy(x => x.Name)
         .ToList();
 
@@ -136,9 +127,11 @@ public partial class Employees
             _roles = await Http.GetFromJsonAsync<IReadOnlyList<RoleResponse>>($"api/organizations/{OrganizationId}/roles") ?? [];
             _workers = await Http.GetFromJsonAsync<IReadOnlyList<WorkerResponse>>($"api/organizations/{OrganizationId}/workers") ?? [];
             var installationsTask = AgentApi.ListInstallationsAsync();
+            var definitionsTask = AgentApi.ListDefinitionsAsync();
             var providersTask = LlmProviderApi.ListAsync();
-            await Task.WhenAll(installationsTask, providersTask);
+            await Task.WhenAll(installationsTask, definitionsTask, providersTask);
             _agentInstallations = await installationsTask;
+            _agentDefinitions = await definitionsTask;
             _providerProfiles = await providersTask;
             _hiringDashboard = await Http.GetFromJsonAsync<HiringDashboardResponse>(
                 $"api/core/organizations/{OrganizationId}/hiring");
@@ -913,8 +906,9 @@ public partial class Employees
                 WorkerId: workerId,
                 ReportsToOrganizationUserId: _hireManagerId,
                 ManagedOrganizationUserIds: _managedEmployeeIds.ToArray(),
-                AgentInstallationId: _hireEmployeeType == (int)EmployeeType.Agent
-                    ? AvailableAgents.First(x => x.Key == _hireAgentKey).InstallationId
+                AgentInstallationId: null,
+                AgentDefinitionId: _hireEmployeeType == (int)EmployeeType.Agent
+                    ? AvailableAgents.First(x => x.Key == _hireAgentKey).DefinitionId
                     : null);
             var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId}/users", request);
             if (!response.IsSuccessStatusCode)
@@ -1066,7 +1060,7 @@ public partial class Employees
 
     private async Task OpenConfigurationAsync(OrganizationUserResponse employee)
     {
-        if (employee.AgentInstallationId is not Guid installationId)
+        if (employee.AgentInstallationId is null)
         {
             _actionError = "This agent employee is not linked to an installation.";
             return;
@@ -1077,7 +1071,7 @@ public partial class Employees
         _loadingConfiguration = true;
         _configurationError = null;
         _configurationMessage = null;
-        _configurationRuntime = null;
+        _configurationView = null;
         _configurationValues.Clear();
         _configurationCts?.Cancel();
         _configurationCts?.Dispose();
@@ -1086,41 +1080,17 @@ public partial class Employees
         var cancellationToken = _configurationCts.Token;
         try
         {
-            _configurationRuntime = await AgentApi.EnsureRuntimeAsync(installationId, cancellationToken);
-            while (!_configurationRuntime.IsReady)
-            {
-                if (_configurationRuntime.IsTerminal)
-                {
-                    throw new InvalidOperationException(
-                        _configurationRuntime.Reason ?? "The agent runtime could not be started.");
-                }
-
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-                _configurationRuntime = await AgentApi.GetRuntimeStatusAsync(installationId, cancellationToken);
-                StateHasChanged();
-            }
-
-            _configurationSchema = await AgentApi.GetConfigurationAsync(
-                installationId.ToString(),
-                cancellationToken);
-            foreach (var field in _configurationSchema.Fields)
-            {
-                _configurationValues[field.Key] = _configurationSchema.Settings.TryGetValue(field.Key, out var value)
-                    ? field.Type switch
-                    {
-                        AgentConfigurationFieldTypes.Boolean => value.ValueKind == JsonValueKind.True,
-                        AgentConfigurationFieldTypes.Number when value.TryGetDecimal(out var number) => number,
-                        _ => value.ValueKind == JsonValueKind.String ? value.GetString() : null
-                    }
-                    : null;
-            }
+            _configurationView = await AgentApi.GetEmployeeConfigurationAsync(
+                OrganizationId, employee.Id, cancellationToken);
+            _configurationSchema = ToSchema(_configurationView);
+            HydrateConfigurationValues(_configurationSchema);
             await LoadConfiguredProviderModelsAsync(_configurationSchema, cancellationToken);
         }
         catch (OperationCanceledException) when (_configurationCts.IsCancellationRequested)
         {
             if (_configurationDialogOpen && !_disposeCts.IsCancellationRequested)
             {
-                _configurationError = "The agent runtime did not become ready in time. Try again or review its run history.";
+                _configurationError = "The configuration request timed out. Try again.";
             }
             _configurationSchema = null;
         }
@@ -1137,7 +1107,7 @@ public partial class Employees
 
     private async Task SaveConfigurationAsync()
     {
-        if (_configurationEmployee?.AgentInstallationId is not Guid installationId || _configurationSchema is null) return;
+        if (_configurationEmployee is null || _configurationSchema is null || _configurationView is null) return;
         _savingConfiguration = true;
         _configurationError = null;
         _configurationMessage = null;
@@ -1147,14 +1117,15 @@ public partial class Employees
                 field => field.Key,
                 field => JsonSerializer.SerializeToElement(_configurationValues.GetValueOrDefault(field.Key), SerializerOptions),
                 StringComparer.Ordinal);
-            var result = await AgentApi.UpdateConfigurationAsync(
-                installationId.ToString(),
-                new UpdateAgentConfigurationRequest(settings)
-                {
-                    SchemaVersion = _configurationSchema.SchemaVersion
-                });
-            if (!result.Succeeded) throw new InvalidOperationException(result.Message ?? "The agent rejected its configuration.");
-            _configurationMessage = result.Message ?? "Agent instance configuration saved.";
+            _configurationView = await AgentApi.UpdateEmployeeConfigurationAsync(
+                OrganizationId,
+                _configurationEmployee.Id,
+                new PutAgentConfigurationOverridesRequest(settings, _configurationView.ExpectedRevision));
+            _configurationSchema = ToSchema(_configurationView);
+            HydrateConfigurationValues(_configurationSchema);
+            _configurationMessage = _configurationView.SynchronizationStatus == "Current"
+                ? "Agent overrides saved and current."
+                : "Agent overrides saved. A running instance will refresh; a stopped instance remains stopped.";
         }
         catch (Exception exception)
         {
@@ -1171,6 +1142,70 @@ public partial class Employees
         _configurationDialogOpen = false;
         _configurationCts?.Cancel();
     }
+
+    private async Task RestoreConfigurationKeyAsync(string key)
+    {
+        if (_configurationEmployee is null || _configurationView is null) return;
+        await MutateConfigurationAsync(async () =>
+            await AgentApi.RestoreEmployeeConfigurationKeyAsync(
+                OrganizationId, _configurationEmployee.Id, key, _configurationView.ExpectedRevision,
+                _disposeCts.Token), $"Restored {key} to the global default.");
+    }
+
+    private async Task RestoreAllConfigurationAsync()
+    {
+        if (_configurationEmployee is null || _configurationView is null) return;
+        await MutateConfigurationAsync(async () =>
+            await AgentApi.RestoreAllEmployeeConfigurationAsync(
+                OrganizationId, _configurationEmployee.Id, _configurationView.ExpectedRevision,
+                _disposeCts.Token), "Restored all global defaults.");
+    }
+
+    private async Task MutateConfigurationAsync(
+        Func<Task<AgentConfigurationView>> action, string successMessage)
+    {
+        _savingConfiguration = true;
+        _configurationError = null;
+        _configurationMessage = null;
+        try
+        {
+            _configurationView = await action();
+            _configurationSchema = ToSchema(_configurationView);
+            HydrateConfigurationValues(_configurationSchema);
+            _configurationMessage = successMessage;
+        }
+        catch (Exception exception)
+        {
+            _configurationError = exception.Message;
+        }
+        finally
+        {
+            _savingConfiguration = false;
+        }
+    }
+
+    private bool IsConfigurationOverridden(string key) =>
+        _configurationView?.OverriddenKeys.Contains(key, StringComparer.Ordinal) == true;
+
+    private static AgentConfigurationSchemaResponse ToSchema(AgentConfigurationView view) => new(
+        view.AgentId, view.AgentVersion, view.SchemaVersion, view.Fields, view.EffectiveValues);
+
+    private void HydrateConfigurationValues(AgentConfigurationSchemaResponse schema)
+    {
+        _configurationValues.Clear();
+        foreach (var field in schema.Fields)
+        {
+            _configurationValues[field.Key] = schema.Settings.TryGetValue(field.Key, out var value)
+                ? field.Type switch
+                {
+                    AgentConfigurationFieldTypes.Boolean => value.ValueKind == JsonValueKind.True,
+                    AgentConfigurationFieldTypes.Number when value.TryGetDecimal(out var number) => number,
+                    _ => value.ValueKind == JsonValueKind.String ? value.GetString() : null
+                }
+                : null;
+        }
+    }
+
     private string ConfigurationString(string key) => _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
     private bool ConfigurationBoolean(string key) => _configurationValues.GetValueOrDefault(key) is true;
     private decimal? ConfigurationNumber(string key) => _configurationValues.GetValueOrDefault(key) as decimal?;
@@ -1355,13 +1390,13 @@ public partial class Employees
         var endpointConfiguration = JsonSerializer.Serialize(new
         {
             agentId = choice.AgentId,
-            installationId = choice.InstallationId
+            agentDefinitionId = choice.DefinitionId
         });
         var createWorker = new CreateWorkerRequest(
             choice.Name,
             $"Employee backed by the installed agent {choice.AgentId}.",
-            choice.IsInstallation ? 1 : 0,
-            choice.IsInstallation ? 1 : 0,
+            1,
+            1,
             JsonSerializer.Serialize(choice.Capabilities),
             null,
             endpointConfiguration,
@@ -1397,9 +1432,8 @@ public partial class Employees
         string Key,
         string Name,
         string AgentId,
-        Guid? InstallationId,
-        IReadOnlyList<string> Capabilities,
-        bool IsInstallation);
+        Guid DefinitionId,
+        IReadOnlyList<string> Capabilities);
 
     public void Dispose()
     {
