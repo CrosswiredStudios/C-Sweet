@@ -1,0 +1,30 @@
+@using CSweet.Contracts.Communications
+
+@if (Mentions.Count == 0)
+{
+    <ChatMarkdown Content="@Content" />
+}
+else
+{
+    <div class="mentioned-message-content">
+        @{ var cursor = 0; }
+        @foreach (var mention in Mentions.OrderBy(x => x.Offset))
+        {
+            if (mention.Offset > cursor)
+            {
+                <span>@Content[cursor..mention.Offset]</span>
+            }
+            <span class="chat-mention" title="@($"{mention.DisplayName} · {mention.EmployeeType}")">@mention.DisplayText</span>
+            cursor = mention.Offset + mention.Length;
+        }
+        @if (cursor < Content.Length)
+        {
+            <span>@Content[cursor..]</span>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Content { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<CommunicationMessageMentionResponse> Mentions { get; set; } = [];
+}

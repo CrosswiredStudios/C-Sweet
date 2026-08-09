@@ -146,6 +146,8 @@ public sealed class CommunicationHubService(
             .ToDictionaryAsync(x => x.Id, cancellationToken);
         var messages = await db.CoreConversationMessages.AsNoTracking()
             .Where(x => x.ConversationId == chatId)
+            .Include(x => x.Mentions)
+                .ThenInclude(x => x.MentionedOrganizationUser)
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         var decisionCards = decisions is null
@@ -379,6 +381,9 @@ public sealed class CommunicationHubService(
             .SingleOrDefaultAsync(x => x.Id == chatId && x.OrganizationId == organizationId && x.ArchivedAt == null &&
                 x.Participants.Any(p => p.OrganizationUserId == actorOrganizationUserId && p.LeftAt == null), cancellationToken);
         if (actor is null || chat is null || string.IsNullOrWhiteSpace(request.Content)) return null;
+        var content = request.Content.TrimEnd();
+        var mentions = await ValidateMentionsAsync(
+            organizationId, chat, actor.Id, content, request.Mentions, cancellationToken);
 
         var suppliedIdempotencyKey = string.IsNullOrWhiteSpace(request.IdempotencyKey)
             ? null
@@ -390,6 +395,7 @@ public sealed class CommunicationHubService(
         if (idempotencyKey is not null)
         {
             var existing = await db.CoreConversationMessages.AsNoTracking()
+                .Include(x => x.Mentions).ThenInclude(x => x.MentionedOrganizationUser)
                 .SingleOrDefaultAsync(x => x.ConversationId == chat.Id &&
                     x.SenderOrganizationUserId == actor.Id && x.IdempotencyKey == idempotencyKey, cancellationToken);
             if (existing is not null)
@@ -417,16 +423,24 @@ public sealed class CommunicationHubService(
             : null;
         if (targetAgentId.HasValue)
         {
+            await using var mentionTransaction = mentions.Count > 0 &&
+                db.Database.IsRelational() && db.Database.CurrentTransaction is null
+                ? await db.Database.BeginTransactionAsync(cancellationToken)
+                : null;
             var started = await turns.StartForAgentAsync(
                 organizationId,
                 chat.Id,
                 targetAgentId.Value,
-                request.Content,
+                content,
                 actor.Id,
                 CommunicationProviderKeys.InApp,
                 idempotencyKey: idempotencyKey,
                 cancellationToken: cancellationToken);
             if (started is null) return null;
+            await PersistMentionsAsync(
+                organizationId, chat, actor, started.UserMessage.Id, content, mentions, cancellationToken);
+            if (mentionTransaction is not null)
+                await mentionTransaction.CommitAsync(cancellationToken);
             var response = new CommunicationMessageSendResponse(
                 new CommunicationHubMessageResponse(
                     started.UserMessage.Id,
@@ -437,7 +451,10 @@ public sealed class CommunicationHubService(
                     actor.EmployeeType.ToString(),
                     started.UserMessage.Content,
                     started.UserMessage.CreatedAt,
-                    started.Turn.Id),
+                    started.Turn.Id)
+                {
+                    Mentions = ToMentionResponses(mentions)
+                },
                 started.Turn);
             await WriteMessageAuditAsync(
                 organizationId, actor, chat, response.Message,
@@ -450,15 +467,20 @@ public sealed class CommunicationHubService(
         {
             Id = Guid.NewGuid(), ConversationId = chat.Id, SenderOrganizationUserId = actor.Id,
             Role = actor.EmployeeType == EmployeeType.Agent ? ConversationRole.Assistant : ConversationRole.User,
-            Content = request.Content.Trim(), CorrelationId = Guid.NewGuid(), DeliveryIntent = CommunicationDeliveryIntent.Inform,
+            Content = content, CorrelationId = Guid.NewGuid(), DeliveryIntent = CommunicationDeliveryIntent.Inform,
             SourceProvider = "InApp", IdempotencyKey = idempotencyKey, CreatedAt = now
         };
         chat.UpdatedAt = now;
         db.CoreConversationMessages.Add(message);
+        AddMentionEntities(organizationId, chat.Id, message.Id, mentions, now);
+        QueueMentionDeliveries(organizationId, chat, actor, message.Id, content, mentions, now);
         await db.SaveChangesAsync(cancellationToken);
         var sent = new CommunicationMessageSendResponse(
             new CommunicationHubMessageResponse(message.Id, message.Sequence, chat.Id, actor.Id, actor.DisplayName,
-                actor.EmployeeType.ToString(), message.Content, message.CreatedAt, message.ChatTurnId));
+                actor.EmployeeType.ToString(), message.Content, message.CreatedAt, message.ChatTurnId)
+            {
+                Mentions = ToMentionResponses(mentions)
+            });
         await WriteMessageAuditAsync(
             organizationId, actor, chat, sent.Message, message.CorrelationId, cancellationToken);
         return sent;
@@ -791,6 +813,14 @@ public sealed class CommunicationHubService(
             hiringWorkflow)
         {
             CoordinationSessionId = message.CoordinationSessionId,
+            Mentions = message.Mentions
+                .OrderBy(x => x.Offset)
+                .Select(x => new CommunicationMessageMentionResponse(
+                    x.MentionedOrganizationUserId,
+                    x.MentionedOrganizationUser?.DisplayName ?? x.DisplayText.TrimStart('@'),
+                    x.MentionedOrganizationUser?.EmployeeType.ToString() ?? "Unknown",
+                    x.Offset, x.Length, x.DisplayText))
+                .ToList(),
             MessageType = hiringWorkflow is not null
                 ? CommunicationMessageTypes.HiringWorkflowApproval
                 : resourceChange is not null
@@ -800,6 +830,147 @@ public sealed class CommunicationHubService(
                 : CommunicationMessageTypes.Standard
         };
     }
+
+    private async Task<IReadOnlyList<ValidatedMention>> ValidateMentionsAsync(
+        Guid organizationId,
+        Conversation chat,
+        Guid senderId,
+        string content,
+        IReadOnlyList<CommunicationMessageMentionInput>? requested,
+        CancellationToken cancellationToken)
+    {
+        if (requested is not { Count: > 0 }) return [];
+        if (requested.Count > 50) throw new ArgumentException("A message cannot contain more than 50 mentions.");
+        var ordered = requested.OrderBy(x => x.Offset).ToList();
+        for (var index = 0; index < ordered.Count; index++)
+        {
+            var item = ordered[index];
+            if (item.Offset < 0 || item.Length < 2 || item.Offset + item.Length > content.Length)
+                throw new ArgumentException("A mention range is outside the message content.");
+            if (index > 0 && ordered[index - 1].Offset + ordered[index - 1].Length > item.Offset)
+                throw new ArgumentException("Mention ranges cannot overlap.");
+        }
+
+        var ids = ordered.Select(x => x.OrganizationUserId).Distinct().ToList();
+        var users = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.IsActive && ids.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+        if (users.Count != ids.Count)
+            throw new ArgumentException("Every mentioned identity must be active in this organization.");
+        var participantIds = chat.Participants.Where(x => x.LeftAt == null)
+            .Select(x => x.OrganizationUserId).ToHashSet();
+        var result = new List<ValidatedMention>(ordered.Count);
+        foreach (var item in ordered)
+        {
+            var user = users[item.OrganizationUserId];
+            var displayText = content.Substring(item.Offset, item.Length);
+            if (!string.Equals(displayText, $"@{user.DisplayName}", StringComparison.Ordinal))
+                throw new ArgumentException("Mention text must match the selected person's current display name.");
+            result.Add(new ValidatedMention(
+                item.OrganizationUserId, user.DisplayName, user.EmployeeType,
+                user.AgentInstallationId, item.Offset, item.Length, displayText,
+                item.OrganizationUserId != senderId && participantIds.Contains(item.OrganizationUserId)));
+        }
+        return result;
+    }
+
+    private async Task PersistMentionsAsync(
+        Guid organizationId,
+        Conversation chat,
+        OrganizationUser sender,
+        Guid messageId,
+        string content,
+        IReadOnlyList<ValidatedMention> mentions,
+        CancellationToken cancellationToken)
+    {
+        if (mentions.Count == 0) return;
+        var now = DateTimeOffset.UtcNow;
+        AddMentionEntities(organizationId, chat.Id, messageId, mentions, now);
+        QueueMentionDeliveries(organizationId, chat, sender, messageId, content, mentions, now);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private void AddMentionEntities(
+        Guid organizationId,
+        Guid chatId,
+        Guid messageId,
+        IReadOnlyList<ValidatedMention> mentions,
+        DateTimeOffset now)
+    {
+        foreach (var mention in mentions)
+        {
+            db.ConversationMessageMentions.Add(new ConversationMessageMention
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, ConversationId = chatId,
+                MessageId = messageId, MentionedOrganizationUserId = mention.OrganizationUserId,
+                Offset = mention.Offset, Length = mention.Length, DisplayText = mention.DisplayText,
+                RecipientWasParticipant = mention.RecipientWasParticipant, CreatedAt = now
+            });
+        }
+    }
+
+    private void QueueMentionDeliveries(
+        Guid organizationId,
+        Conversation chat,
+        OrganizationUser sender,
+        Guid messageId,
+        string content,
+        IReadOnlyList<ValidatedMention> mentions,
+        DateTimeOffset now)
+    {
+        foreach (var mention in mentions.Where(x => x.RecipientWasParticipant)
+                     .GroupBy(x => x.OrganizationUserId).Select(x => x.First()))
+        {
+            var mentionId = Guid.NewGuid();
+            var payload = new CommunicationMessageMentionedEvent(
+                mentionId, messageId, chat.Id, mention.OrganizationUserId, sender.Id,
+                sender.DisplayName, content, mention.Offset, mention.Length, now);
+            if (mention.EmployeeType == EmployeeType.Agent && mention.AgentInstallationId.HasValue)
+            {
+                db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+                {
+                    Id = mentionId, OrganizationId = organizationId,
+                    TargetInstallationId = mention.AgentInstallationId,
+                    EventType = CommunicationEvents.MessageMentioned,
+                    DataJson = JsonSerializer.Serialize(payload),
+                    IdempotencyKey = $"message-mention:{messageId:N}:{mention.OrganizationUserId:N}",
+                    Status = AgentPlatformEventOutboxStatus.Pending,
+                    NextAttemptAt = now, OccurredAt = now
+                });
+            }
+            else if (mention.EmployeeType == EmployeeType.Human)
+            {
+                db.UserNotifications.Add(new UserNotification
+                {
+                    Id = mentionId, OrganizationId = organizationId,
+                    RecipientOrganizationUserId = mention.OrganizationUserId,
+                    OriginatingAgentOrganizationUserId = sender.EmployeeType == EmployeeType.Agent ? sender.Id : null,
+                    Severity = NotificationSeverity.Routine, Category = "Mention",
+                    Title = $"{sender.DisplayName} mentioned you",
+                    Body = content.Length <= 500 ? content : content[..500],
+                    ActionUri = $"/organizations/{organizationId:D}/communications/{chat.Id:D}?message={messageId:D}",
+                    DeduplicationKey = $"message-mention:{messageId:N}:{mention.OrganizationUserId:N}",
+                    CreatedAt = now
+                });
+            }
+        }
+    }
+
+    private static IReadOnlyList<CommunicationMessageMentionResponse> ToMentionResponses(
+        IReadOnlyList<ValidatedMention> mentions) =>
+        mentions.Select(x => new CommunicationMessageMentionResponse(
+            x.OrganizationUserId, x.DisplayName, x.EmployeeType.ToString(),
+            x.Offset, x.Length, x.DisplayText)).ToList();
+
+    private sealed record ValidatedMention(
+        Guid OrganizationUserId,
+        string DisplayName,
+        EmployeeType EmployeeType,
+        Guid? AgentInstallationId,
+        int Offset,
+        int Length,
+        string DisplayText,
+        bool RecipientWasParticipant);
 
     private static SuggestedUserActionResponse ToAction(SuggestedUserAction action) =>
         new(action.Id, action.WorkflowType, action.Label, action.Description, action.NavigationUri,

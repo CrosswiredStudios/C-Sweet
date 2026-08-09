@@ -60,6 +60,21 @@ public static class WorkAutomationActions
     public static readonly IReadOnlyList<string> All = [Read, Manage];
 }
 
+public static class PersonalTodoActions
+{
+    public const string Read = WorkManagementCapabilityNames.PersonalTodoRead;
+    public const string Add = WorkManagementCapabilityNames.PersonalTodoAdd;
+    public const string Reorder = WorkManagementCapabilityNames.PersonalTodoReorder;
+    public const string Requeue = WorkManagementCapabilityNames.PersonalTodoRequeue;
+    public const string Claim = WorkManagementCapabilityNames.PersonalTodoClaim;
+    public const string Complete = WorkManagementCapabilityNames.PersonalTodoComplete;
+    public const string Block = WorkManagementCapabilityNames.PersonalTodoBlock;
+    public const string Release = WorkManagementCapabilityNames.PersonalTodoRelease;
+
+    public static readonly IReadOnlyList<string> All =
+        [Read, Add, Reorder, Requeue, Claim, Complete, Block, Release];
+}
+
 public sealed record WorkBoardDirectoryQuery(
     string? Search = null,
     Guid? WorkstreamId = null,

@@ -294,6 +294,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IWorkerService, WorkerService>();
         builder.Services.AddScoped<IWorkTaskService, WorkTaskService>();
         builder.Services.AddScoped<IWorkBoardService, WorkBoardService>();
+        builder.Services.AddScoped<IPersonalTodoService, PersonalTodoService>();
         builder.Services.AddScoped<ISoftwareDevelopmentWorkService, SoftwareDevelopmentWorkService>();
         builder.Services.AddScoped<RepositoryProvisioningProcessor>();
         builder.Services.AddScoped<SourceControlPlatformSetupService>();

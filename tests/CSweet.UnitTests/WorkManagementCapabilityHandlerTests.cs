@@ -25,6 +25,7 @@ public sealed class WorkManagementCapabilityHandlerTests
             .Concat(WorkItemActions.All)
             .Concat(WorkSprintActions.All)
             .Concat(WorkOrchestrationActions.All)
+            .Concat(PersonalTodoActions.All)
             .Append(SharedWork.WorkManagementCapabilityNames.ExecutionRunV1)
             .Where(SharedWork.WorkManagementCapabilityNames.All.Contains)
             .ToHashSet(StringComparer.Ordinal);

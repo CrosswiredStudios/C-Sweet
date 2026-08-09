@@ -22,6 +22,24 @@ public sealed class ConversationMessage
 
     // Navigation
     public Conversation? Conversation { get; set; }
+    public ICollection<ConversationMessageMention> Mentions { get; set; } = [];
+}
+
+public sealed class ConversationMessageMention
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid ConversationId { get; set; }
+    public Guid MessageId { get; set; }
+    public Guid MentionedOrganizationUserId { get; set; }
+    public int Offset { get; set; }
+    public int Length { get; set; }
+    public string DisplayText { get; set; } = string.Empty;
+    public bool RecipientWasParticipant { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public ConversationMessage? Message { get; set; }
+    public OrganizationUser? MentionedOrganizationUser { get; set; }
 }
 
 public sealed class SuggestedUserAction

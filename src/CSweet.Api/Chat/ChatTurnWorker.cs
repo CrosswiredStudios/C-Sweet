@@ -75,7 +75,9 @@ public sealed class ChatTurnWorker(
         var configurations = services.GetRequiredService<IAgentInstallationConfigurationService>();
         var inbox = services.GetRequiredService<AgentWorkInbox>();
         var audit = services.GetRequiredService<IAuditEventWriter>();
-        var turn = await db.ChatTurns.Include(x => x.UserMessage).Include(x => x.Conversation)
+        var turn = await db.ChatTurns
+            .Include(x => x.UserMessage!).ThenInclude(x => x.Mentions).ThenInclude(x => x.MentionedOrganizationUser)
+            .Include(x => x.Conversation)
             .SingleAsync(x => x.Id == turnId, stoppingToken);
         var conversation = turn.Conversation!;
         var userMessage = turn.UserMessage!;
@@ -166,22 +168,32 @@ public sealed class ChatTurnWorker(
                     sender.DisplayName,
                     sender.EmployeeType.ToString(),
                     sender.Role?.Name);
-            var eventContext = senderContext is null
-                ? null
-                : new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    [AgentChatContextKeys.SenderOrganizationUserId] = senderContext.OrganizationUserId.ToString("D"),
-                    [AgentChatContextKeys.SenderDisplayName] = senderContext.DisplayName,
-                    [AgentChatContextKeys.SenderEmployeeType] = senderContext.EmployeeType,
-                    [AgentChatContextKeys.SenderRole] = senderContext.Role ?? string.Empty
-                };
+            var mentionContext = userMessage.Mentions.OrderBy(x => x.Offset)
+                .Select(x => new ChatMessageMentionContext(
+                    x.MentionedOrganizationUserId,
+                    x.MentionedOrganizationUser?.DisplayName ?? x.DisplayText.TrimStart('@'),
+                    x.MentionedOrganizationUser?.EmployeeType.ToString() ?? "Unknown",
+                    x.Offset, x.Length))
+                .ToList();
+            var eventContext = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [AgentChatContextKeys.MessageId] = userMessage.Id.ToString("D"),
+                [AgentChatContextKeys.MentionsJson] = JsonSerializer.Serialize(mentionContext, JsonOptions)
+            };
+            if (senderContext is not null)
+            {
+                eventContext[AgentChatContextKeys.SenderOrganizationUserId] = senderContext.OrganizationUserId.ToString("D");
+                eventContext[AgentChatContextKeys.SenderDisplayName] = senderContext.DisplayName;
+                eventContext[AgentChatContextKeys.SenderEmployeeType] = senderContext.EmployeeType;
+                eventContext[AgentChatContextKeys.SenderRole] = senderContext.Role ?? string.Empty;
+            }
             var recentConversation = await LoadRecentConversationAsync(db, userMessage, hardTimeout.Token);
             var conversationPrompt = ChatPromptPolicy.BuildConversationPrompt(
                 recalledMemory,
                 userMessage.Content,
                 recentConversation);
             var agentPrompt = ChatPromptPolicy.BuildPrimaryAgentPrompt(
-                conversation.Id, turnId, conversationPrompt, senderContext);
+                conversation.Id, turnId, userMessage.Id, conversationPrompt, senderContext, mentionContext);
             try
             {
                 var readiness = await WaitForRuntimeReadyAsync(

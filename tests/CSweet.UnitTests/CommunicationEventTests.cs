@@ -63,7 +63,9 @@ public sealed class CommunicationEventTests
         AssertEvents(db, CommunicationEvents.ChatDeleted, CommunicationEvents.MessageDeleted);
 
         var eventTypes = await db.CommunicationEventOutbox.Select(x => x.EventType).Distinct().ToListAsync();
-        Assert.Equal(CommunicationEvents.All.Order(), eventTypes.Order());
+        Assert.Equal(
+            CommunicationEvents.All.Except([CommunicationEvents.MessageMentioned]).Order(),
+            eventTypes.Order());
         Assert.All(await db.CommunicationEventOutbox.ToListAsync(), item =>
         {
             Assert.Equal(organizationId, item.OrganizationId);

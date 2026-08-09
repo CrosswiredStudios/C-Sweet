@@ -2,6 +2,7 @@
 @page "/organizations/{OrganizationId:guid}/communications/{ChatId:guid}"
 @using CSweet.Contracts.Communications
 @using CSweet.Contracts.Core
+@using CSweet.UI.Components.Communications
 @implements IAsyncDisposable
 @inject HttpClient Http
 @inject IChatTurnApiClient ChatTurns
@@ -96,6 +97,34 @@
                         @if (ChatUnread(chat) > 0) { <span class="hub-unread-dot" aria-label="@($"{ChatUnread(chat)} unread messages")"></span> }
                         @if (person?.EmployeeType == "Agent") { <span class="agent-mark">AI</span> }
                     </button>
+                }
+                @if (!_hub.IsReadOnlyPerspective)
+                {
+                    <div class="hub-section-title direct">
+                        <button class="hub-mentions-toggle" @onclick="@(() => _showMentions = !_showMentions)"
+                                aria-expanded="@_showMentions">
+                            <span>Mentions</span>
+                            @if (UnreadMentions > 0) { <span class="hub-unread-count">@UnreadMentions</span> }
+                        </button>
+                    </div>
+                    @if (_showMentions)
+                    {
+                        <div class="hub-mentions-list">
+                            @foreach (var mention in MentionNotifications)
+                            {
+                                <button class="hub-mention-entry @(mention.ReadAt is null ? "unread" : null)"
+                                        @onclick="@(() => OpenMentionAsync(mention))">
+                                    <strong>@mention.Title</strong>
+                                    <span>@mention.Body</span>
+                                    <small>@mention.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</small>
+                                </button>
+                            }
+                            @if (!MentionNotifications.Any())
+                            {
+                                <p class="hub-nav-empty">No mentions yet</p>
+                            }
+                        </div>
+                    }
                 }
             </nav>
             <a class="hub-settings" href="/settings/communications"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" /> Connected apps</a>
@@ -222,7 +251,7 @@
                                 </div>
                                   @if (message.ResourceChange is null)
                                   {
-                                      <ChatMarkdown Content="@message.Content" />
+                                      <MentionedMessageContent Content="@message.Content" Mentions="@message.Mentions" />
                                   }
                                  @if (message.ResourceChange is { } resourceChange)
                                  {
@@ -404,8 +433,28 @@
                 else
                 {
                     <footer class="hub-composer">
-                        <MudTextField @bind-Value="_draft" Placeholder="@ComposerPlaceholder"
-                                      Variant="Variant.Outlined" Lines="2" Immediate="true" OnKeyDown="OnComposerKeyDown" Disabled="@(_sending || ComposerBlocked)" />
+                        <div class="hub-composer-input">
+                            <MudTextField T="string" InputId="communication-composer"
+                                          Value="_draft" ValueChanged="OnDraftChangedAsync"
+                                          Placeholder="@ComposerPlaceholder" Variant="Variant.Outlined"
+                                          Lines="2" Immediate="true" OnKeyDown="OnComposerKeyDown"
+                                          Disabled="@(_sending || ComposerBlocked)" />
+                            @if (_mentionOpen)
+                            {
+                                <div class="hub-mention-menu" role="listbox" aria-label="Mention a person or agent">
+                                    @foreach (var match in _mentionMatches.Select((person, index) => (person, index)))
+                                    {
+                                        <button class="@(match.index == _mentionSelection ? "selected" : null)"
+                                                role="option" aria-selected="@(match.index == _mentionSelection)"
+                                                @onmousedown:preventDefault="true"
+                                                @onclick="@(() => CommitMentionAsync(match.person))">
+                                            <span class="hub-avatar @AvatarClass(match.person.EmployeeType)">@Initials(match.person.DisplayName)</span>
+                                            <span><strong>@match.person.DisplayName</strong><small>@match.person.RoleName · @match.person.EmployeeType</small></span>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
                         @if (BlockingTurn is { } activeTurn)
                         {
                             <MudButton Variant="Variant.Filled" Color="Color.Error"
@@ -557,6 +606,8 @@
     [Parameter] public Guid? ChatId { get; set; }
     [Parameter, SupplyParameterFromQuery(Name = "perspective")]
     public Guid? PerspectiveAgentId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "message")]
+    public Guid? SourceMessageId { get; set; }
     private readonly CancellationTokenSource _disposeCts = new();
     private CancellationTokenSource? _chatCts;
     private IJSObjectReference? _communicationsModule;
@@ -565,6 +616,9 @@
     private CommunicationChatResponse? _selected;
     private CommunicationChatResponse? _editing;
     private readonly List<CommunicationHubMessageResponse> _messages = [];
+    private IReadOnlyList<NotificationResponse> _notifications = [];
+    private readonly List<DraftMention> _draftMentions = [];
+    private IReadOnlyList<CommunicationPersonResponse> _mentionMatches = [];
     private readonly List<AgentCoordinationSessionResponse> _coordinationSessions = [];
     private readonly HashSet<Guid> _stoppingCoordination = [];
     private readonly Dictionary<Guid, TurnView> _turns = [];
@@ -580,6 +634,8 @@
     private readonly Dictionary<Guid, string> _decisionErrors = [];
     private const string SomethingElseKey = "__something_else__";
     private bool _loading = true, _sending, _stoppingTurn, _showMembers, _showEditor, _editorBusy, _editorPrivate, _confirmArchive;
+    private bool _showMentions, _mentionOpen;
+    private int _mentionTriggerOffset, _mentionCaret, _mentionSelection;
     private string _search = string.Empty, _draft = string.Empty, _editorTitle = string.Empty, _editorDescription = string.Empty;
     private string? _error, _notice, _editorError;
     private readonly DialogOptions _thinkingDialogOptions = new() { MaxWidth = MaxWidth.Large, FullWidth = true };
@@ -609,6 +665,10 @@
     private IEnumerable<CommunicationPersonResponse> VisiblePeople => _selected is null || !_showMembers
         ? (_hub?.People ?? [])
         : _hub!.People.Where(x => _selected.Participants.Any(p => p.OrganizationUserId == x.Id));
+    private IEnumerable<NotificationResponse> MentionNotifications => _notifications
+        .Where(x => x.Category == "Mention" && x.DismissedAt is null)
+        .OrderByDescending(x => x.CreatedAt);
+    private int UnreadMentions => MentionNotifications.Count(x => x.ReadAt is null);
     private string ComposerPlaceholder => _selected is null ? "Message" :
         $"Message {(_selected.IsDirect ? _selected.Title : $"#{_selected.Title}")}";
     private bool HasActiveTurn => _turns.Values.Any(x => !IsTerminal(x.Turn.Status));
@@ -652,12 +712,15 @@
         try
         {
             _hub = await Http.GetFromJsonAsync<CommunicationHubResponse>(HubReadPath, _disposeCts.Token);
+            await LoadNotificationsAsync();
             _selected = ChatId.HasValue
                 ? _hub?.Chats.FirstOrDefault(x => x.Id == ChatId.Value)
                 : _hub?.Chats.FirstOrDefault(x => x.Id == _selected?.Id) ?? _hub?.Chats.FirstOrDefault();
             if (ChatId.HasValue && _selected is null)
                 throw new InvalidOperationException("This conversation was not found or is not available to you.");
             if (_selected is not null) await LoadMessagesAsync();
+            if (SourceMessageId.HasValue)
+                await MarkSourceMentionReadAsync(SourceMessageId.Value);
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { _error = ex.Message; }
         finally { _loading = false; }
@@ -677,6 +740,7 @@
         _messages.Clear();
         _turns.Clear();
         _draft = string.Empty;
+        _draftMentions.Clear();
         _notice = null;
         _search = string.Empty;
         _showMembers = false;
@@ -696,6 +760,46 @@
         _notice = null;
         Navigation.NavigateTo(ChatHref(chat.Id));
         return Task.CompletedTask;
+    }
+
+    private async Task LoadNotificationsAsync()
+    {
+        if (_hub?.IsReadOnlyPerspective == true)
+        {
+            _notifications = [];
+            return;
+        }
+        _notifications = await Http.GetFromJsonAsync<IReadOnlyList<NotificationResponse>>(
+            $"api/organizations/{OrganizationId:D}/communications/notifications",
+            _disposeCts.Token) ?? [];
+    }
+
+    private async Task OpenMentionAsync(NotificationResponse mention)
+    {
+        await MarkMentionReadAsync(mention);
+        if (!string.IsNullOrWhiteSpace(mention.ActionUri))
+            Navigation.NavigateTo(mention.ActionUri);
+    }
+
+    private async Task MarkSourceMentionReadAsync(Guid messageId)
+    {
+        var token = $"message={messageId:D}";
+        foreach (var mention in MentionNotifications
+                     .Where(x => x.ReadAt is null && x.ActionUri?.Contains(
+                         token, StringComparison.OrdinalIgnoreCase) == true).ToList())
+            await MarkMentionReadAsync(mention);
+    }
+
+    private async Task MarkMentionReadAsync(NotificationResponse mention)
+    {
+        if (mention.ReadAt.HasValue) return;
+        var response = await Http.PostAsync(
+            $"api/organizations/{OrganizationId:D}/communications/notifications/{mention.Id:D}/read",
+            null, _disposeCts.Token);
+        if (!response.IsSuccessStatusCode) return;
+        _notifications = _notifications.Select(x => x.Id == mention.Id
+            ? x with { ReadAt = DateTimeOffset.UtcNow }
+            : x).ToList();
     }
     private async Task LoadMessagesAsync(bool markRead = true)
     {
@@ -775,11 +879,19 @@
             string.IsNullOrWhiteSpace(_draft))
             return;
         _sending = true; _notice = null;
-        var content = _draft.Trim(); _draft = string.Empty;
+        var content = _draft.TrimEnd();
+        var mentions = _draftMentions
+            .Where(x => x.Offset + x.Length <= content.Length)
+            .Select(x => new CommunicationMessageMentionInput(x.OrganizationUserId, x.Offset, x.Length))
+            .ToList();
+        var mentionSnapshot = _draftMentions.ToList();
+        _draft = string.Empty;
+        _draftMentions.Clear();
+        await SetMentionMenuOpenAsync(false);
         try
         {
             var response = await Http.PostAsJsonAsync($"{BasePath}/chats/{_selected.Id}/messages",
-                new SendCommunicationMessageRequest(content, Guid.NewGuid().ToString("N")), _disposeCts.Token);
+                new SendCommunicationMessageRequest(content, Guid.NewGuid().ToString("N"), mentions), _disposeCts.Token);
             if (!response.IsSuccessStatusCode) throw new InvalidOperationException(await response.Content.ReadAsStringAsync(_disposeCts.Token));
             var sent = await response.Content.ReadFromJsonAsync<CommunicationMessageSendResponse>(_disposeCts.Token);
             if (sent is not null)
@@ -795,7 +907,12 @@
                 }
             }
         }
-        catch (Exception ex) { _draft = content; _notice = ex.Message; }
+        catch (Exception ex)
+        {
+            _draft = content;
+            _draftMentions.AddRange(mentionSnapshot);
+            _notice = ex.Message;
+        }
         finally
         {
             _sending = false;
@@ -910,7 +1027,137 @@
             ? decision.Options.FirstOrDefault(x => x.Id == selected)?.Label ?? "Answer submitted"
             : decision.FreeTextAnswer ?? decision.Status;
 
-    private Task OnComposerKeyDown(KeyboardEventArgs args) => args.Key == "Enter" && !args.ShiftKey ? SendAsync() : Task.CompletedTask;
+    private async Task OnComposerKeyDown(KeyboardEventArgs args)
+    {
+        if (_mentionOpen)
+        {
+            if (args.Key == "ArrowDown")
+                _mentionSelection = (_mentionSelection + 1) % _mentionMatches.Count;
+            else if (args.Key == "ArrowUp")
+                _mentionSelection = (_mentionSelection - 1 + _mentionMatches.Count) % _mentionMatches.Count;
+            else if (args.Key is "Tab" or "Enter")
+                await CommitMentionAsync(_mentionMatches[_mentionSelection]);
+            else if (args.Key == "Escape")
+                await SetMentionMenuOpenAsync(false);
+            return;
+        }
+        if (args.Key == "Enter" && !args.ShiftKey)
+            await SendAsync();
+    }
+
+    private async Task OnDraftChangedAsync(string? value)
+    {
+        var next = value ?? string.Empty;
+        UpdateDraftMentions(_draft, next);
+        _draft = next;
+        try
+        {
+            var module = await GetCommunicationsModuleAsync();
+            _mentionCaret = await module.InvokeAsync<int>(
+                "getComposerCaret", "communication-composer");
+        }
+        catch (JSException) { _mentionCaret = _draft.Length; }
+        await RefreshMentionMatchesAsync();
+    }
+
+    private async Task RefreshMentionMatchesAsync()
+    {
+        if (_hub is null || _draft.Length == 0)
+        {
+            await SetMentionMenuOpenAsync(false);
+            return;
+        }
+        var caret = Math.Clamp(_mentionCaret, 0, _draft.Length);
+        var trigger = caret == 0 ? -1 : _draft.LastIndexOf('@', caret - 1);
+        if (trigger < 0 || (trigger > 0 && !char.IsWhiteSpace(_draft[trigger - 1])))
+        {
+            await SetMentionMenuOpenAsync(false);
+            return;
+        }
+        var query = _draft[(trigger + 1)..caret];
+        if (query.Length > 80 || query.Contains('\n') ||
+            query.Any(x => !(char.IsLetterOrDigit(x) || char.IsWhiteSpace(x) || x is '-' or '\'' or '.')))
+        {
+            await SetMentionMenuOpenAsync(false);
+            return;
+        }
+        _mentionMatches = _hub.People
+            .Where(x => x.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.DisplayName.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(x => x.DisplayName)
+            .ThenBy(x => x.EmployeeType)
+            .Take(8)
+            .ToList();
+        if (_mentionMatches.Count == 0)
+        {
+            await SetMentionMenuOpenAsync(false);
+            return;
+        }
+        _mentionTriggerOffset = trigger;
+        _mentionCaret = caret;
+        _mentionSelection = Math.Clamp(_mentionSelection, 0, _mentionMatches.Count - 1);
+        await SetMentionMenuOpenAsync(true);
+    }
+
+    private async Task CommitMentionAsync(CommunicationPersonResponse person)
+    {
+        if (!_mentionOpen) return;
+        var old = _draft;
+        var mentionText = $"@{person.DisplayName}";
+        var next = old[.._mentionTriggerOffset] + mentionText + " " + old[_mentionCaret..];
+        UpdateDraftMentions(old, next);
+        _draft = next;
+        _draftMentions.Add(new DraftMention(
+            person.Id, _mentionTriggerOffset, mentionText.Length, mentionText));
+        var caret = _mentionTriggerOffset + mentionText.Length + 1;
+        await SetMentionMenuOpenAsync(false);
+        var module = await GetCommunicationsModuleAsync();
+        await module.InvokeVoidAsync("setComposerCaret", "communication-composer", caret);
+    }
+
+    private void UpdateDraftMentions(string oldValue, string newValue)
+    {
+        if (_draftMentions.Count == 0) return;
+        var prefix = 0;
+        while (prefix < oldValue.Length && prefix < newValue.Length &&
+               oldValue[prefix] == newValue[prefix]) prefix++;
+        var suffix = 0;
+        while (suffix < oldValue.Length - prefix && suffix < newValue.Length - prefix &&
+               oldValue[oldValue.Length - 1 - suffix] == newValue[newValue.Length - 1 - suffix]) suffix++;
+        var oldChangeEnd = oldValue.Length - suffix;
+        var delta = newValue.Length - oldValue.Length;
+        for (var index = _draftMentions.Count - 1; index >= 0; index--)
+        {
+            var mention = _draftMentions[index];
+            var mentionEnd = mention.Offset + mention.Length;
+            if (oldChangeEnd <= mention.Offset)
+                mention = mention with { Offset = mention.Offset + delta };
+            else if (prefix < mentionEnd && oldChangeEnd > mention.Offset)
+            {
+                _draftMentions.RemoveAt(index);
+                continue;
+            }
+            if (mention.Offset < 0 || mention.Offset + mention.Length > newValue.Length ||
+                !newValue.AsSpan(mention.Offset, mention.Length).SequenceEqual(mention.DisplayText))
+            {
+                _draftMentions.RemoveAt(index);
+                continue;
+            }
+            _draftMentions[index] = mention;
+        }
+    }
+
+    private async Task SetMentionMenuOpenAsync(bool open)
+    {
+        _mentionOpen = open;
+        if (!open) _mentionMatches = [];
+        try
+        {
+            var module = await GetCommunicationsModuleAsync();
+            await module.InvokeVoidAsync("setMentionMenuOpen", "communication-composer", open);
+        }
+        catch (JSException) { }
+    }
 
     private async Task StartDirectAsync(CommunicationPersonResponse person)
     {
@@ -1175,7 +1422,8 @@
     private void OnRealtimeEvent(CSweet.Contracts.Realtime.AppRealtimeEventEnvelope envelope)
     {
         if (envelope.OrganizationId != OrganizationId ||
-            !envelope.EventType.StartsWith("com.csweet.communication.", StringComparison.Ordinal)) return;
+            (!envelope.EventType.StartsWith("com.csweet.communication.", StringComparison.Ordinal) &&
+             !envelope.EventType.StartsWith("com.csweet.app.notification.", StringComparison.Ordinal))) return;
         _realtimeRefreshPending = true;
         _ = InvokeAsync(RefreshFromRealtimeAsync);
     }
@@ -1198,6 +1446,7 @@
                 _realtimeRefreshPending = false;
                 var visible = await IsDocumentVisibleAsync();
                 await RefreshHubAsync(_selected?.Id, visible);
+                await LoadNotificationsAsync();
                 await InvokeAsync(StateHasChanged);
             }
             while (_realtimeRefreshPending && !_disposeCts.IsCancellationRequested);
@@ -1278,6 +1527,12 @@
         public List<ChatTurnTraceEventResponse> Events { get; } = [];
         public string StreamingText { get; set; } = string.Empty;
     }
+
+    private sealed record DraftMention(
+        Guid OrganizationUserId,
+        int Offset,
+        int Length,
+        string DisplayText);
 
     public async ValueTask DisposeAsync()
     {

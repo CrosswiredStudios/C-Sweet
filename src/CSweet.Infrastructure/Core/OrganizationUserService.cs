@@ -10,6 +10,8 @@ using System.Text.Json;
 using CSweet.Domain.Communications;
 using CSweet.Application.Communications;
 using CSweet.Infrastructure.Communications;
+using CSweet.Application.WorkManagement;
+using CSweet.Infrastructure.WorkManagement;
 using Microsoft.Extensions.Logging;
 
 namespace CSweet.Infrastructure.Core;
@@ -21,17 +23,20 @@ public sealed class OrganizationUserService : IOrganizationUserService
     private readonly IAgentCommunicationOnboardingService _agentOnboarding;
     private readonly IAgentRuntimeManager? _agentRuntimeManager;
     private readonly ILogger<OrganizationUserService>? _logger;
+    private readonly IPersonalTodoService _personalTodo;
 
     public OrganizationUserService(CSweetDbContext dbContext, IAuditEventWriter auditEventWriter,
         IAgentCommunicationOnboardingService? agentOnboarding = null,
         IAgentRuntimeManager? agentRuntimeManager = null,
-        ILogger<OrganizationUserService>? logger = null)
+        ILogger<OrganizationUserService>? logger = null,
+        IPersonalTodoService? personalTodo = null)
     {
         _dbContext = dbContext;
         _auditEventWriter = auditEventWriter;
         _agentOnboarding = agentOnboarding ?? new AgentCommunicationOnboardingService(dbContext);
         _agentRuntimeManager = agentRuntimeManager;
         _logger = logger;
+        _personalTodo = personalTodo ?? new PersonalTodoService(dbContext, TimeProvider.System);
     }
 
     public async Task<IReadOnlyList<OrganizationUserResponse>> ListByOrganizationAsync(Guid organizationId, CancellationToken cancellationToken = default)
@@ -201,6 +206,10 @@ public sealed class OrganizationUserService : IOrganizationUserService
         }
 
         var now = DateTimeOffset.UtcNow;
+        await using var transaction = _dbContext.Database.IsRelational() &&
+            _dbContext.Database.CurrentTransaction is null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         var user = new OrganizationUser
         {
             Id = Guid.NewGuid(),
@@ -281,6 +290,10 @@ public sealed class OrganizationUserService : IOrganizationUserService
             OccurredAt = now
         });
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (user.EmployeeType == EmployeeType.Agent)
+            await _personalTodo.EnsureBoardAsync(organizationId, user.Id, cancellationToken);
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
 
         if (onboarding is not null)
         {

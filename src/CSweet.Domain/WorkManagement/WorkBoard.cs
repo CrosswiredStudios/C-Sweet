@@ -34,6 +34,8 @@ public sealed class WorkBoard
     public Guid? TeamId { get; set; }
     public Guid? WorkstreamId { get; set; }
     public Guid? ManagerOrganizationUserId { get; set; }
+    public Guid? PersonalTodoOwnerOrganizationUserId { get; set; }
+    public bool IsPersonalTodo { get; set; }
     public string Key { get; set; } = string.Empty;
     public long NextItemSequence { get; set; } = 1;
     public string Name { get; set; } = string.Empty;

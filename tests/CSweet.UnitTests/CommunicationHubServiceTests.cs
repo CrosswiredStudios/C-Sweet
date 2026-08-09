@@ -553,6 +553,78 @@ public sealed class CommunicationHubServiceTests
             organization.Id, owner.Id, Guid.NewGuid()));
     }
 
+    [Fact]
+    public async Task StructuredMentionsPersistAndNotifyOnlyActiveParticipantsOncePerIdentity()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var sender = User(organization.Id, "Morgan", OrganizationPermissionLevel.Manager);
+        var agent = User(organization.Id, "Henry", OrganizationPermissionLevel.Contributor);
+        agent.EmployeeType = EmployeeType.Agent;
+        agent.AgentInstallationId = Guid.NewGuid();
+        var human = User(organization.Id, "Harriet", OrganizationPermissionLevel.Contributor);
+        var outsider = User(organization.Id, "Nora", OrganizationPermissionLevel.Contributor);
+        db.AddRange(organization, sender, agent, human, outsider);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var chat = (await service.CreateAsync(organization.Id, sender.Id,
+            new CreateCommunicationChatRequest("Mentions", null, false, false,
+                [agent.Id, human.Id]))).Chat!;
+        const string content = "Hi @Henry, please sync with @Harriet. FYI @Nora. Again @Henry.";
+        var firstHenry = content.IndexOf("@Henry", StringComparison.Ordinal);
+        var harriet = content.IndexOf("@Harriet", StringComparison.Ordinal);
+        var nora = content.IndexOf("@Nora", StringComparison.Ordinal);
+        var secondHenry = content.LastIndexOf("@Henry", StringComparison.Ordinal);
+
+        await service.SendAsync(organization.Id, chat.Id, sender.Id,
+            new SendCommunicationMessageRequest(content, "mentions", [
+                new(agent.Id, firstHenry, "@Henry".Length),
+                new(human.Id, harriet, "@Harriet".Length),
+                new(outsider.Id, nora, "@Nora".Length),
+                new(agent.Id, secondHenry, "@Henry".Length)
+            ]));
+
+        Assert.Equal(4, await db.ConversationMessageMentions.CountAsync());
+        var agentEvent = Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == CommunicationEvents.MessageMentioned).ToListAsync());
+        Assert.Equal(agent.AgentInstallationId, agentEvent.TargetInstallationId);
+        var notification = Assert.Single(await db.UserNotifications.Where(x =>
+            x.Category == "Mention").ToListAsync());
+        Assert.Equal(human.Id, notification.RecipientOrganizationUserId);
+        Assert.DoesNotContain(await db.UserNotifications.ToListAsync(), x =>
+            x.RecipientOrganizationUserId == outsider.Id);
+    }
+
+    [Fact]
+    public async Task StructuredMentionsRejectInvisibleOverlappingAndCrossOrganizationIdentities()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var otherOrganization = Organization();
+        var sender = User(organization.Id, "Morgan", OrganizationPermissionLevel.Manager);
+        var recipient = User(organization.Id, "Henry", OrganizationPermissionLevel.Contributor);
+        var foreign = User(otherOrganization.Id, "Henry", OrganizationPermissionLevel.Contributor);
+        db.AddRange(organization, otherOrganization, sender, recipient, foreign);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var chat = (await service.CreateAsync(organization.Id, sender.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [recipient.Id]))).Chat!;
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.SendAsync(
+            organization.Id, chat.Id, sender.Id,
+            new SendCommunicationMessageRequest("Hello Henry", null,
+                [new(recipient.Id, 6, 5)])));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.SendAsync(
+            organization.Id, chat.Id, sender.Id,
+            new SendCommunicationMessageRequest("@Henry", null,
+                [new(recipient.Id, 0, 6), new(recipient.Id, 1, 5)])));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.SendAsync(
+            organization.Id, chat.Id, sender.Id,
+            new SendCommunicationMessageRequest("@Henry", null,
+                [new(foreign.Id, 0, 6)])));
+        Assert.Empty(await db.CoreConversationMessages.ToListAsync());
+    }
+
     private static Organization Organization() => new() { Id = Guid.NewGuid(), Name = "Example",
         Status = OrganizationStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
     private static OrganizationUser User(Guid organizationId, string name, OrganizationPermissionLevel permission, Guid? roleId = null) => new()

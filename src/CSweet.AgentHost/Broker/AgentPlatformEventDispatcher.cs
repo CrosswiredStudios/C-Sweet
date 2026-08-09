@@ -49,7 +49,8 @@ public sealed class AgentPlatformEventDispatcher(
                     item.IdempotencyKey,
                     item.TargetInstallationId,
                     requireSubscription: true,
-                    deadline: item.EventType == WorkItemEvents.Assigned
+                    deadline: item.EventType is WorkItemEvents.Assigned or
+                        CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available
                         ? new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero)
                         : now.AddHours(1),
                     cancellationToken: cancellationToken);

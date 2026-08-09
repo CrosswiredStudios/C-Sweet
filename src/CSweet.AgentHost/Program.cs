@@ -34,6 +34,7 @@ builder.Services
 builder.Services.AddHostedService<ManagementReviewScheduler>();
 builder.Services.AddHostedService<AgentOnboardingEventDispatcher>();
 builder.Services.AddHostedService<AgentPlatformEventDispatcher>();
+builder.Services.AddHostedService<PersonalTodoReconciliationWorker>();
 builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService>();
 builder.Services.AddScoped<AgentEmployeeIdentityResolver>();
 builder.Services.AddScoped<PlatformLlmCapabilityHandler>();
@@ -63,6 +64,7 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilit
 builder.Services.AddScoped<IPlatformCapabilityHandler, PluginOperationsCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, PlatformMediaTransferCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkManagementCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, PersonalTodoCapabilityHandler>();
 var agentBrokerKey = builder.Configuration["CSweet:SourceControl:AgentBrokerKeyBase64"];
 var coreBrokerBaseUrl = builder.Configuration["CSweet:SourceControl:CoreBrokerBaseUrl"];
 if (HasValidBrokerConfiguration(agentBrokerKey, coreBrokerBaseUrl, out var coreBrokerUri))

@@ -17,6 +17,9 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.Key).HasMaxLength(12).IsRequired();
             entity.HasIndex(x => new { x.OrganizationId, x.Key }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Name });
+            entity.HasIndex(x => x.PersonalTodoOwnerOrganizationUserId)
+                .IsUnique()
+                .HasFilter("\"PersonalTodoOwnerOrganizationUserId\" IS NOT NULL");
             entity.HasIndex(x => new { x.OrganizationId, x.IsDefault })
                 .IsUnique()
                 .HasFilter("\"IsDefault\" = TRUE AND \"ArchivedAt\" IS NULL");
@@ -35,6 +38,10 @@ internal static class WorkManagementConfigurations
             entity.HasOne<OrganizationUser>()
                 .WithMany()
                 .HasForeignKey(x => x.ManagerOrganizationUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<OrganizationUser>()
+                .WithMany()
+                .HasForeignKey(x => x.PersonalTodoOwnerOrganizationUserId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

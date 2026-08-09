@@ -25,6 +25,7 @@ internal static class CoreConfigurations
         modelBuilder.Entity<Conversation>(ConfigureConversation);
         modelBuilder.Entity<ConversationParticipant>(ConfigureConversationParticipant);
         modelBuilder.Entity<ConversationMessage>(ConfigureConversationMessage);
+        modelBuilder.Entity<ConversationMessageMention>(ConfigureConversationMessageMention);
         modelBuilder.Entity<SuggestedUserAction>(ConfigureSuggestedUserAction);
         modelBuilder.Entity<ChatTurn>(ConfigureChatTurn);
         modelBuilder.Entity<ChatTurnTraceEvent>(ConfigureChatTurnTraceEvent);
@@ -443,6 +444,9 @@ internal static class CoreConfigurations
         entity.Property(x => x.MergeCommitSha).HasMaxLength(128);
         entity.Property(x => x.QualityFindingFingerprint).HasMaxLength(128);
         entity.Property(x => x.Identifier).HasMaxLength(32);
+        entity.Property(x => x.PersonalTodoResultSummary).HasMaxLength(4096);
+        entity.Property(x => x.PersonalTodoBlockReason).HasMaxLength(4096);
+        entity.Property(x => x.PersonalTodoIdempotencyKey).HasMaxLength(160);
         entity.HasIndex(x => new { x.BoardId, x.Identifier }).IsUnique()
             .HasFilter("\"Identifier\" IS NOT NULL");
         entity.HasIndex(x => new { x.BoardId, x.IdentifierSequence }).IsUnique()
@@ -452,6 +456,9 @@ internal static class CoreConfigurations
             .HasFilter("\"QualityFindingFingerprint\" IS NOT NULL");
         entity.HasIndex(x => new { x.BoardColumnId, x.BoardRank });
         entity.HasIndex(x => new { x.SprintId, x.BoardRank });
+        entity.HasIndex(x => new { x.CreatedByOrganizationUserId, x.PersonalTodoIdempotencyKey })
+            .IsUnique()
+            .HasFilter("\"PersonalTodoIdempotencyKey\" IS NOT NULL");
 
         entity.HasOne(x => x.Organization)
             .WithMany()
@@ -507,6 +514,21 @@ internal static class CoreConfigurations
             .WithMany()
             .HasForeignKey(x => x.AccountableOrganizationUserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(x => x.CreatedByOrganizationUser)
+            .WithMany()
+            .HasForeignKey(x => x.CreatedByOrganizationUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne<Conversation>()
+            .WithMany()
+            .HasForeignKey(x => x.SourceConversationId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        entity.HasOne<ConversationMessage>()
+            .WithMany()
+            .HasForeignKey(x => x.SourceMessageId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 
     static void ConfigureTaskRun(EntityTypeBuilder<TaskRun> entity)
@@ -620,6 +642,26 @@ internal static class CoreConfigurations
         entity.HasIndex(x => x.ChatTurnId);
         entity.HasIndex(x => x.CoordinationSessionId);
         entity.HasIndex(x => x.IdempotencyKey).IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
+    }
+
+    static void ConfigureConversationMessageMention(EntityTypeBuilder<ConversationMessageMention> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.DisplayText).HasMaxLength(161).IsRequired();
+        entity.HasIndex(x => new { x.MessageId, x.MentionedOrganizationUserId, x.Offset }).IsUnique();
+        entity.HasIndex(x => new { x.MentionedOrganizationUserId, x.CreatedAt });
+        entity.HasOne(x => x.Message)
+            .WithMany(x => x.Mentions)
+            .HasForeignKey(x => x.MessageId)
+            .OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne(x => x.MentionedOrganizationUser)
+            .WithMany()
+            .HasForeignKey(x => x.MentionedOrganizationUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne<Conversation>()
+            .WithMany()
+            .HasForeignKey(x => x.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 
     static void ConfigureSuggestedUserAction(EntityTypeBuilder<SuggestedUserAction> entity)

@@ -12,6 +12,12 @@
 @using WorkSprintPreflightResult = CSweet.WorkManagement.Contracts.WorkSprintPreflightResult
 @using WorkOrchestrationPolicyRevision = CSweet.WorkManagement.Contracts.WorkOrchestrationPolicyRevision
 @using WorkStageAssignment = CSweet.WorkManagement.Contracts.WorkStageAssignment
+@using PersonalTodoDirectory = CSweet.WorkManagement.Contracts.PersonalTodoDirectory
+@using PersonalTodoBoard = CSweet.WorkManagement.Contracts.PersonalTodoBoard
+@using PersonalTodoItem = CSweet.WorkManagement.Contracts.PersonalTodoItem
+@using AddPersonalTodoItemRequest = CSweet.WorkManagement.Contracts.AddPersonalTodoItemRequest
+@using ReorderPersonalTodoItemRequest = CSweet.WorkManagement.Contracts.ReorderPersonalTodoItemRequest
+@using RequeuePersonalTodoItemRequest = CSweet.WorkManagement.Contracts.RequeuePersonalTodoItemRequest
 @implements IAsyncDisposable
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
@@ -153,7 +159,116 @@
         </MudGrid>
     }
 </MudPaper>
+
+@if (_personalTodos?.Boards.Count > 0)
+{
+    <MudPaper Elevation="1" Class="surface-panel mt-5">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+            <div>
+                <MudText Typo="Typo.overline" Color="Color.Primary">Protected work</MudText>
+                <MudText Typo="Typo.h5">Direct reports' personal to-do boards</MudText>
+                <MudText Color="Color.Secondary">
+                    Inspect priorities, add work, reorder ready items, and requeue blocked work.
+                </MudText>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Color="Color.Primary"
+                           OnClick="LoadPersonalTodosAsync" aria-label="Refresh personal boards" />
+        </MudStack>
+        <MudExpansionPanels Class="mt-4" MultiExpansion="true">
+            @foreach (var board in _personalTodos.Boards)
+            {
+                <MudExpansionPanel>
+                    <TitleContent>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudText Typo="Typo.h6">@board.OwnerDisplayName</MudText>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                @board.Items.Count item(s)
+                            </MudChip>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Outlined.Add"
+                                       OnClick="@(() => OpenPersonalTodoAdd(board))">
+                                Add task
+                            </MudButton>
+                        </MudStack>
+                    </TitleContent>
+                    <ChildContent>
+                    @if (board.Items.Count == 0)
+                    {
+                        <MudText Color="Color.Secondary">This queue is empty.</MudText>
+                    }
+                    else
+                    {
+                        @foreach (var item in board.Items.OrderBy(x => x.Rank))
+                        {
+                            <MudPaper Outlined="true" Class="pa-3 mb-2">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                    <MudChip T="string" Size="Size.Small" Color="@PersonalTodoColor(item.Status)">
+                                        @item.Status
+                                    </MudChip>
+                                    <div style="min-width: 0; flex: 1;">
+                                        <MudText Typo="Typo.subtitle2">@item.Title</MudText>
+                                        @if (!string.IsNullOrWhiteSpace(item.Description))
+                                        {
+                                            <MudText Typo="Typo.body2" Color="Color.Secondary">@item.Description</MudText>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(item.BlockReason))
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Error">Blocked: @item.BlockReason</MudText>
+                                        }
+                                    </div>
+                                    @if (item.Status == "Ready")
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Outlined.KeyboardArrowUp"
+                                                       Disabled="_personalTodoSaving"
+                                                       OnClick="@(() => ReorderPersonalTodoAsync(board, item, -1))"
+                                                       aria-label="Move task up" />
+                                        <MudIconButton Icon="@Icons.Material.Outlined.KeyboardArrowDown"
+                                                       Disabled="_personalTodoSaving"
+                                                       OnClick="@(() => ReorderPersonalTodoAsync(board, item, 1))"
+                                                       aria-label="Move task down" />
+                                    }
+                                    @if (item.Status == "Blocked")
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                                   Disabled="_personalTodoSaving"
+                                                   OnClick="@(() => RequeuePersonalTodoAsync(item))">
+                                            Requeue
+                                        </MudButton>
+                                    }
+                                </MudStack>
+                            </MudPaper>
+                        }
+                    }
+                    </ChildContent>
+                </MudExpansionPanel>
+            }
+        </MudExpansionPanels>
+        @if (!string.IsNullOrWhiteSpace(_personalTodoError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                @_personalTodoError
+            </MudAlert>
+        }
+    </MudPaper>
 }
+}
+
+<MudDialog @bind-Visible="_personalTodoAddOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Add personal task for @_personalTodoTarget?.OwnerDisplayName</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField T="string" Label="Task" @bind-Value="_personalTodoTitle"
+                      Variant="Variant.Outlined" Required="true" />
+        <MudTextField T="string" Label="Details" @bind-Value="_personalTodoDescription"
+                      Variant="Variant.Outlined" Lines="3" Class="mt-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _personalTodoAddOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="_personalTodoSaving" OnClick="AddPersonalTodoAsync">Add</MudButton>
+    </DialogActions>
+</MudDialog>
 
 <MudDialog @bind-Visible="_editorOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
@@ -1372,6 +1487,13 @@
     [Parameter] public Guid? BoardId { get; set; }
 
     private WorkBoardDirectoryResponse? _directory;
+    private PersonalTodoDirectory? _personalTodos;
+    private PersonalTodoBoard? _personalTodoTarget;
+    private bool _personalTodoAddOpen;
+    private bool _personalTodoSaving;
+    private string _personalTodoTitle = "";
+    private string _personalTodoDescription = "";
+    private string? _personalTodoError;
     private WorkBoardSummaryResponse? _editingBoard;
     private WorkBoardSummaryResponse? _detailBoard;
     private WorkBoardDetailResponse? _detail;
@@ -1551,6 +1673,7 @@
             }
             response.EnsureSuccessStatusCode();
             _directory = await response.Content.ReadFromJsonAsync<WorkBoardDirectoryResponse>();
+            await LoadPersonalTodosAsync();
         }
         catch (Exception exception)
         {
@@ -1561,6 +1684,101 @@
             _loading = false;
         }
     }
+
+    private async Task LoadPersonalTodosAsync()
+    {
+        try
+        {
+            var response = await Http.GetAsync(
+                $"api/organizations/{OrganizationId:D}/work/personal-todos");
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _personalTodos = null;
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            _personalTodos = await response.Content.ReadFromJsonAsync<PersonalTodoDirectory>();
+            _personalTodoError = null;
+        }
+        catch (Exception exception)
+        {
+            _personalTodoError = exception.Message;
+        }
+    }
+
+    private void OpenPersonalTodoAdd(PersonalTodoBoard board)
+    {
+        _personalTodoTarget = board;
+        _personalTodoTitle = "";
+        _personalTodoDescription = "";
+        _personalTodoAddOpen = true;
+    }
+
+    private async Task AddPersonalTodoAsync()
+    {
+        if (_personalTodoTarget is null || string.IsNullOrWhiteSpace(_personalTodoTitle)) return;
+        _personalTodoSaving = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/personal-todos/items",
+                new AddPersonalTodoItemRequest(
+                    _personalTodoTitle.Trim(), _personalTodoDescription.Trim(), "Medium", null,
+                    $"manager-ui:{Guid.NewGuid():N}", _personalTodoTarget.OwnerOrganizationUserId));
+            response.EnsureSuccessStatusCode();
+            _personalTodoAddOpen = false;
+            await LoadPersonalTodosAsync();
+        }
+        catch (Exception exception) { _personalTodoError = exception.Message; }
+        finally { _personalTodoSaving = false; }
+    }
+
+    private async Task ReorderPersonalTodoAsync(
+        PersonalTodoBoard board, PersonalTodoItem item, int direction)
+    {
+        var ready = board.Items.Where(x => x.Status == "Ready").OrderBy(x => x.Rank).ToList();
+        var oldIndex = ready.FindIndex(x => x.Id == item.Id);
+        var newIndex = Math.Clamp(oldIndex + direction, 0, ready.Count - 1);
+        if (oldIndex < 0 || newIndex == oldIndex) return;
+        ready.RemoveAt(oldIndex);
+        var beforeItemId = newIndex >= ready.Count ? (Guid?)null : ready[newIndex].Id;
+        _personalTodoSaving = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/personal-todos/items/reorder",
+                new ReorderPersonalTodoItemRequest(item.Id, beforeItemId, item.Revision,
+                    $"manager-ui-reorder:{Guid.NewGuid():N}"));
+            response.EnsureSuccessStatusCode();
+            await LoadPersonalTodosAsync();
+        }
+        catch (Exception exception) { _personalTodoError = exception.Message; }
+        finally { _personalTodoSaving = false; }
+    }
+
+    private async Task RequeuePersonalTodoAsync(PersonalTodoItem item)
+    {
+        _personalTodoSaving = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/personal-todos/items/requeue",
+                new RequeuePersonalTodoItemRequest(item.Id, item.Revision,
+                    $"manager-ui-requeue:{Guid.NewGuid():N}"));
+            response.EnsureSuccessStatusCode();
+            await LoadPersonalTodosAsync();
+        }
+        catch (Exception exception) { _personalTodoError = exception.Message; }
+        finally { _personalTodoSaving = false; }
+    }
+
+    private static Color PersonalTodoColor(string status) => status switch
+    {
+        "Completed" => Color.Success,
+        "Blocked" => Color.Error,
+        "Running" => Color.Info,
+        _ => Color.Default
+    };
 
     private async Task SearchKeyDown(KeyboardEventArgs args)
     {

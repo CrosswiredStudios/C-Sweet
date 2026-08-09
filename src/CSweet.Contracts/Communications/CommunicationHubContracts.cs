@@ -73,7 +73,21 @@ public sealed record CommunicationHubMessageResponse(
 {
     public string MessageType { get; init; } = CommunicationMessageTypes.Standard;
     public Guid? CoordinationSessionId { get; init; }
+    public IReadOnlyList<CommunicationMessageMentionResponse> Mentions { get; init; } = [];
 }
+
+public sealed record CommunicationMessageMentionResponse(
+    Guid OrganizationUserId,
+    string DisplayName,
+    string EmployeeType,
+    int Offset,
+    int Length,
+    string DisplayText);
+
+public sealed record CommunicationMessageMentionInput(
+    Guid OrganizationUserId,
+    int Offset,
+    int Length);
 
 public sealed record AgentCoordinationParticipantResponse(
     Guid OrganizationUserId,
@@ -210,7 +224,8 @@ public sealed record UpdateCommunicationChatRequest(
 
 public sealed record SendCommunicationMessageRequest(
     [property: Required, MaxLength(32768)] string Content,
-    [property: MaxLength(160)] string? IdempotencyKey = null);
+    [property: MaxLength(160)] string? IdempotencyKey = null,
+    IReadOnlyList<CommunicationMessageMentionInput>? Mentions = null);
 
 public sealed record CommunicationHubActionResponse(
     bool Succeeded,

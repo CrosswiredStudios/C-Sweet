@@ -151,6 +151,22 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Reopen a completed or cancelled work item into To Do or In Progress."),
         Write(WorkItemActions.Transfer, "transfer_work_item",
             "Transfer one canonical, non-hierarchical work item between two granted boards."),
+        Read(PersonalTodoActions.Read, "list_personal_todos",
+            "List this agent's protected personal to-do board and boards of its direct reports."),
+        Write(PersonalTodoActions.Add, "add_personal_todo",
+            "Add durable personal work for this agent or one direct-report agent. Omit targetOrganizationUserId for self."),
+        Write(PersonalTodoActions.Reorder, "reorder_personal_todo",
+            "Reorder ready personal work for a direct-report agent."),
+        Write(PersonalTodoActions.Requeue, "requeue_personal_todo",
+            "Return a blocked personal work item to the ready queue."),
+        HiddenWrite(PersonalTodoActions.Claim, "claim_personal_todo",
+            "Atomically claim the next personal work item for SDK-managed execution."),
+        HiddenWrite(PersonalTodoActions.Complete, "complete_personal_todo",
+            "Complete SDK-managed personal work."),
+        HiddenWrite(PersonalTodoActions.Block, "block_personal_todo",
+            "Block SDK-managed personal work with a durable reason."),
+        HiddenWrite(PersonalTodoActions.Release, "release_personal_todo",
+            "Release SDK-managed personal work after a retryable callback failure."),
         Write(GitWorkspaceCapabilities.Prepare, "prepare_git_workspace",
             "Materialize the assigned repository as a credential-free snapshot; Core derives its repository and ref."),
         Write(GitWorkspaceCapabilities.Refresh, "refresh_git_workspace",
@@ -441,6 +457,28 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         WorkItemActions.Transfer => Schema("""
             {"type":"object","required":["boardId","itemId","targetBoardId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"targetBoardId":{"type":"string","format":"uuid"},"targetColumnId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Read => EmptyInput,
+        PersonalTodoActions.Add => Schema("""
+            {"type":"object","required":["title","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"dueDate":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"targetOrganizationUserId":{"type":["string","null"],"format":"uuid"},"sourceConversationId":{"type":["string","null"],"format":"uuid"},"sourceMessageId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Reorder => Schema("""
+            {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"beforeItemId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Requeue => Schema("""
+            {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Claim => Schema("""
+            {"type":"object","required":["eventId","idempotencyKey"],"properties":{"eventId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Complete => Schema("""
+            {"type":"object","required":["itemId","eventId","expectedRevision","summary","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"eventId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"summary":{"type":"string","minLength":1,"maxLength":4096},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Block => Schema("""
+            {"type":"object","required":["itemId","eventId","expectedRevision","reason","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"eventId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"reason":{"type":"string","minLength":1,"maxLength":4096},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Release => Schema("""
+            {"type":"object","required":["itemId","eventId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"eventId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Prepare => Schema("""
             {"type":"object","required":["workItemId","assignmentRevision","idempotencyKey"],"properties":{"workItemId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

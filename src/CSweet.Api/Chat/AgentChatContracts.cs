@@ -15,6 +15,8 @@ internal static class AgentChatContextKeys
     public const string SenderDisplayName = "senderDisplayName";
     public const string SenderEmployeeType = "senderEmployeeType";
     public const string SenderRole = "senderRole";
+    public const string MessageId = "messageId";
+    public const string MentionsJson = "mentionsJson";
 }
 
 internal sealed record ChatMessageSender(
@@ -27,6 +29,13 @@ internal sealed record RecentConversationMessage(
     long Sequence,
     string Role,
     string Content);
+
+internal sealed record ChatMessageMentionContext(
+    Guid OrganizationUserId,
+    string DisplayName,
+    string EmployeeType,
+    int Offset,
+    int Length);
 
 internal sealed record UserMessageReceived(
     Guid ProviderProfileId,

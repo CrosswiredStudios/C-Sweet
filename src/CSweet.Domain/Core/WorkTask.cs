@@ -19,6 +19,14 @@ public sealed class WorkTask
     public Guid? AssignedEmployeeId { get; set; }
     public Guid? AssignedAgentInstallationId { get; set; }
     public Guid? AccountableOrganizationUserId { get; set; }
+    public Guid? CreatedByOrganizationUserId { get; set; }
+    public Guid? SourceConversationId { get; set; }
+    public Guid? SourceMessageId { get; set; }
+    public string? PersonalTodoResultSummary { get; set; }
+    public string? PersonalTodoBlockReason { get; set; }
+    public Guid? PersonalTodoClaimEventId { get; set; }
+    public DateTimeOffset? PersonalTodoClaimExpiresAt { get; set; }
+    public string? PersonalTodoIdempotencyKey { get; set; }
     public long? IdentifierSequence { get; set; }
     public string? Identifier { get; set; }
     public string? DevelopmentBriefJson { get; set; }
@@ -62,5 +70,6 @@ public sealed class WorkTask
     public OrganizationUser? AssignedEmployee { get; set; }
     public CSweet.Domain.Setup.AgentInstallation? AssignedAgentInstallation { get; set; }
     public OrganizationUser? AccountableOrganizationUser { get; set; }
+    public OrganizationUser? CreatedByOrganizationUser { get; set; }
     public ICollection<CSweet.Domain.WorkManagement.WorkItemStageAssignment> StageAssignments { get; set; } = [];
 }

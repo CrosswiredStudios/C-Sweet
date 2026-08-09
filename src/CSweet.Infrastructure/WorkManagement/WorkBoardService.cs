@@ -47,7 +47,7 @@ public sealed class WorkBoardService(
             x.Action == WorkBoardActions.Read && x.ScopeKind == GrantScopeKind.Organization);
 
         var boards = db.WorkBoards.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId)
+            .Where(x => x.OrganizationId == organizationId && !x.IsPersonalTodo)
             .Where(x => organizationRead || accessibleBoardIds.Contains(x.Id));
         if (!query.IncludeArchived)
             boards = boards.Where(x => x.ArchivedAt == null);
@@ -124,7 +124,9 @@ public sealed class WorkBoardService(
             organizationId, member, WorkBoardActions.Read, boardId, cancellationToken);
         var board = await db.WorkBoards
             .Include(x => x.Columns.OrderBy(column => column.Position))
-            .SingleOrDefaultAsync(x => x.Id == boardId && x.OrganizationId == organizationId, cancellationToken);
+            .SingleOrDefaultAsync(x =>
+                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                cancellationToken);
         if (board is null) return null;
         await WorkBoardProvisioning.EnsureTaskPlacementAsync(db, board, cancellationToken);
         if (db.ChangeTracker.HasChanges())
@@ -214,7 +216,9 @@ public sealed class WorkBoardService(
             organizationId, request.Name, request.WorkstreamId, teamId: null, cancellationToken);
         var board = await db.WorkBoards
             .Include(x => x.Columns.OrderBy(column => column.Position))
-            .SingleOrDefaultAsync(x => x.Id == boardId && x.OrganizationId == organizationId, cancellationToken);
+            .SingleOrDefaultAsync(x =>
+                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                cancellationToken);
         if (board is null) return null;
         if (board.ArchivedAt.HasValue)
             throw new InvalidOperationException("Archived boards must be restored before they can be configured.");
@@ -276,7 +280,8 @@ public sealed class WorkBoardService(
         var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
         await RequireAsync(organizationId, member, WorkBoardActions.Read, boardId, cancellationToken);
         if (!await db.WorkBoards.AnyAsync(x =>
-                x.Id == boardId && x.OrganizationId == organizationId, cancellationToken))
+                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                cancellationToken))
             return false;
         var preference = await db.WorkBoardUserPreferences.SingleOrDefaultAsync(x =>
             x.BoardId == boardId && x.OrganizationUserId == member.Id, cancellationToken);
@@ -307,7 +312,9 @@ public sealed class WorkBoardService(
             organizationId, member, WorkBoardActions.ConfigureColumns, boardId, cancellationToken);
         var board = await db.WorkBoards
             .Include(x => x.Columns)
-            .SingleOrDefaultAsync(x => x.Id == boardId && x.OrganizationId == organizationId, cancellationToken);
+            .SingleOrDefaultAsync(x =>
+                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                cancellationToken);
         if (board is null) return null;
         if (board.ArchivedAt.HasValue)
             throw new InvalidOperationException("Archived boards must be restored before their columns can be configured.");
@@ -388,7 +395,8 @@ public sealed class WorkBoardService(
         var board = await db.WorkBoards
             .Include(x => x.Columns)
             .SingleOrDefaultAsync(x =>
-                x.Id == boardId && x.OrganizationId == organizationId && x.ArchivedAt == null,
+                x.Id == boardId && x.OrganizationId == organizationId &&
+                x.ArchivedAt == null && !x.IsPersonalTodo,
                 cancellationToken)
             ?? throw new KeyNotFoundException("Board was not found.");
         if (string.IsNullOrWhiteSpace(request.Title))
@@ -494,6 +502,10 @@ public sealed class WorkBoardService(
         CancellationToken cancellationToken = default)
     {
         var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
+        if (!await db.WorkBoards.AsNoTracking().AnyAsync(x =>
+                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                cancellationToken))
+            return null;
         var item = await db.CoreWorkTasks.SingleOrDefaultAsync(x =>
             x.Id == itemId && x.OrganizationId == organizationId && x.BoardId == boardId,
             cancellationToken);
@@ -743,7 +755,8 @@ public sealed class WorkBoardService(
         var action = archive ? WorkBoardActions.Archive : WorkBoardActions.Restore;
         var decision = await RequireAsync(organizationId, member, action, boardId, cancellationToken);
         var board = await db.WorkBoards.SingleOrDefaultAsync(x =>
-            x.Id == boardId && x.OrganizationId == organizationId, cancellationToken);
+            x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+            cancellationToken);
         if (board is null) return false;
         if (archive && board.IsDefault)
             throw new InvalidOperationException("The default board cannot be archived.");

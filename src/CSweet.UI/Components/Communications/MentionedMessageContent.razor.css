@@ -1,0 +1,16 @@
+.mentioned-message-content {
+    margin-top: 5px;
+    color: #333c47;
+    font-size: .88rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.chat-mention {
+    padding: 1px 3px;
+    border-radius: 4px;
+    color: #5140b3;
+    background: #eeeafd;
+    font-weight: 700;
+}

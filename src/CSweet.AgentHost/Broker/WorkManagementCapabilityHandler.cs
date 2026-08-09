@@ -85,6 +85,7 @@ public sealed class WorkManagementCapabilityHandler(
 
         try
         {
+            await RejectPersonalBoardReferencesAsync(organizationId, request, cancellationToken);
             return request.Capability switch
             {
                 WorkBoardActions.Read => Success(
@@ -373,7 +374,7 @@ public sealed class WorkManagementCapabilityHandler(
             throw new UnauthorizedAccessException("The installation has no board read grant.");
 
         var query = db.WorkBoards.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId)
+            .Where(x => x.OrganizationId == organizationId && !x.IsPersonalTodo)
             .Where(x => organizationRead || boardIds.Contains(x.Id) ||
                         (x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value)));
         if (!input.IncludeArchived)
@@ -1867,6 +1868,38 @@ public sealed class WorkManagementCapabilityHandler(
             new { action, boardId }, cancellationToken, outcome: "Denied");
         throw new UnauthorizedAccessException(
             $"The installation does not have '{action}' on the requested scope.");
+    }
+
+    private async Task RejectPersonalBoardReferencesAsync(
+        Guid organizationId,
+        RequestCapability request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Payload.IsEmpty)
+            return;
+
+        var payload = request.Payload.ToElement();
+        if (payload.ValueKind != JsonValueKind.Object)
+            return;
+
+        var boardIds = payload.EnumerateObject()
+            .Where(x => x.Name.EndsWith("BoardId", StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Value.ValueKind == JsonValueKind.String &&
+                         Guid.TryParse(x.Value.GetString(), out var boardId)
+                ? boardId
+                : Guid.Empty)
+            .Where(x => x != Guid.Empty)
+            .Distinct()
+            .ToArray();
+        if (boardIds.Length == 0)
+            return;
+
+        if (await db.WorkBoards.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId &&
+                x.IsPersonalTodo &&
+                boardIds.Contains(x.Id), cancellationToken))
+            throw new UnauthorizedAccessException(
+                "Personal to-do boards are accessible only through personal-todo actions.");
     }
 
     private async Task<ScopedAuthorizationDecision> RequireForItemAsync(
