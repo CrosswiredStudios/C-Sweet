@@ -1,0 +1,17 @@
+.employee-personal-kanban {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(15rem, 1fr));
+    gap: 1rem;
+    align-items: start;
+    overflow-x: auto;
+    padding-bottom: .5rem;
+}
+
+.employee-personal-column {
+    min-width: 15rem;
+    min-height: 12rem;
+}
+
+@media (max-width: 900px) {
+    .employee-personal-kanban { grid-template-columns: minmax(16rem, 1fr); }
+}

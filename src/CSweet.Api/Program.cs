@@ -177,6 +177,7 @@ app.MapPlanningWorkflowEndpoints();
 app.MapBusinessOnboardingEndpoints();
 app.MapCoreOrganizationEndpoints();
 app.MapOrganizationUserEndpoints();
+app.MapEmployeeEndpoints();
 app.MapTeamEndpoints();
 app.MapHiringEndpoints();
 app.MapApprovalEndpoints();

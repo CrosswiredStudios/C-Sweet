@@ -24,13 +24,13 @@ public static class WorkBoardEndpoints
                 "/api/organizations/{organizationId:guid}/work/boards/{boardId:guid}/orchestration");
 
         personalTodoGroup.MapGet("/", async (
-            Guid organizationId, HttpContext http, CSweetDbContext db,
+            Guid organizationId, bool? includeArchived, HttpContext http, CSweetDbContext db,
             IPersonalTodoService service, CancellationToken cancellationToken) =>
         {
             var actor = await ResolvePersonalTodoActorAsync(
                 organizationId, http, db, cancellationToken);
             if (actor is null) return Results.Unauthorized();
-            try { return Results.Ok(await service.ListAsync(organizationId, actor, cancellationToken)); }
+            try { return Results.Ok(await service.ListAsync(organizationId, actor, includeArchived ?? false, cancellationToken)); }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
         });
 
@@ -80,6 +80,66 @@ public static class WorkBoardEndpoints
             { return Results.Conflict(new { error = "revision_conflict", message = exception.Message }); }
             catch (InvalidOperationException exception)
             { return Results.BadRequest(new { error = "invalid_personal_todo", message = exception.Message }); }
+        });
+
+        personalTodoGroup.MapPut("/items", async (
+            Guid organizationId, Wire.UpdatePersonalTodoItemRequest request,
+            HttpContext http, CSweetDbContext db, IPersonalTodoService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actor = await ResolvePersonalTodoActorAsync(organizationId, http, db, cancellationToken);
+            if (actor is null) return Results.Unauthorized();
+            try { return Results.Ok(await service.UpdateAsync(organizationId, actor, request, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (DbUpdateConcurrencyException exception)
+            { return Results.Conflict(new { error = "revision_conflict", message = exception.Message }); }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            { return Results.BadRequest(new { error = "invalid_personal_task", message = exception.Message }); }
+        });
+
+        personalTodoGroup.MapPost("/items/archive", async (
+            Guid organizationId, Wire.ArchivePersonalTodoItemRequest request,
+            HttpContext http, CSweetDbContext db, IPersonalTodoService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actor = await ResolvePersonalTodoActorAsync(organizationId, http, db, cancellationToken);
+            if (actor is null) return Results.Unauthorized();
+            try { return Results.Ok(await service.ArchiveAsync(organizationId, actor, request, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (DbUpdateConcurrencyException exception)
+            { return Results.Conflict(new { error = "revision_conflict", message = exception.Message }); }
+        });
+
+        personalTodoGroup.MapPost("/items/restore", async (
+            Guid organizationId, Wire.RestorePersonalTodoItemRequest request,
+            HttpContext http, CSweetDbContext db, IPersonalTodoService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actor = await ResolvePersonalTodoActorAsync(organizationId, http, db, cancellationToken);
+            if (actor is null) return Results.Unauthorized();
+            try { return Results.Ok(await service.RestoreAsync(organizationId, actor, request, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (DbUpdateConcurrencyException exception)
+            { return Results.Conflict(new { error = "revision_conflict", message = exception.Message }); }
+        });
+
+        personalTodoGroup.MapPost("/items/status", async (
+            Guid organizationId, Wire.SetHumanPersonalTodoStatusRequest request,
+            HttpContext http, CSweetDbContext db, IPersonalTodoService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actor = await ResolvePersonalTodoActorAsync(organizationId, http, db, cancellationToken);
+            if (actor is null) return Results.Unauthorized();
+            try { return Results.Ok(await service.SetHumanStatusAsync(organizationId, actor, request, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (DbUpdateConcurrencyException exception)
+            { return Results.Conflict(new { error = "revision_conflict", message = exception.Message }); }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            { return Results.BadRequest(new { error = "invalid_personal_task", message = exception.Message }); }
         });
 
         orchestrationGroup.MapGet("/policy", async (

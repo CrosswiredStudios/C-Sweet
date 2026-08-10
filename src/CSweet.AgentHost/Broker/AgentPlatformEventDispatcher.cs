@@ -62,6 +62,13 @@ public sealed class AgentPlatformEventDispatcher(
                         $"Received platform event {item.EventType} ({item.Id:D}).",
                         cancellationToken: cancellationToken);
                 }
+                if (item.EventType == PersonalTodoEvents.Available && deliveries == 0)
+                {
+                    item.Attempts++;
+                    item.NextAttemptAt = now.AddSeconds(30);
+                    item.LastError = "The target installation has not granted the personal to-do subscription yet.";
+                    continue;
+                }
                 if (item.EventType == ResourceChangeEvents.Requested &&
                     payload.RootElement.TryGetProperty("requestId", out var requestIdElement) &&
                     requestIdElement.TryGetGuid(out var requestId))

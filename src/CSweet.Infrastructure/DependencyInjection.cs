@@ -294,7 +294,15 @@ public static class DependencyInjection
         builder.Services.AddScoped<IWorkerService, WorkerService>();
         builder.Services.AddScoped<IWorkTaskService, WorkTaskService>();
         builder.Services.AddScoped<IWorkBoardService, WorkBoardService>();
-        builder.Services.AddScoped<IPersonalTodoService, PersonalTodoService>();
+        builder.Services.AddScoped<IWorkItemMutationEngine, WorkItemMutationEngine>();
+        builder.Services.AddScoped<IPersonalTodoService>(services =>
+            new PersonalTodoService(services.GetRequiredService<IWorkItemMutationEngine>()));
+        builder.Services.AddScoped<IEmployeeHierarchyAccessService, EmployeeHierarchyAccessService>();
+        builder.Services.AddScoped<IEmployeeDetailsService, EmployeeDetailsService>();
+        builder.Services.AddScoped<IEmployeeAssignedWorkQueryService, EmployeeAssignedWorkQueryService>();
+        builder.Services.AddSingleton<IWorkBoardBehavior, StandardBoardBehavior>();
+        builder.Services.AddSingleton<IWorkBoardBehavior, HumanPersonalBoardBehavior>();
+        builder.Services.AddSingleton<IWorkBoardBehavior, AgentPersonalBoardBehavior>();
         builder.Services.AddScoped<ISoftwareDevelopmentWorkService, SoftwareDevelopmentWorkService>();
         builder.Services.AddScoped<RepositoryProvisioningProcessor>();
         builder.Services.AddScoped<SourceControlPlatformSetupService>();

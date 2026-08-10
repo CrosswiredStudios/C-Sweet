@@ -12,4 +12,5 @@ public sealed record CreateWorkTaskRequest(
     int Priority,
     DateTimeOffset? DueDate,
     bool RequiresApproval,
-    Guid? BoardId = null);
+    Guid? BoardId = null,
+    IReadOnlyList<CSweet.WorkManagement.Contracts.WorkItemMentionInput>? Mentions = null);

@@ -1,0 +1,229 @@
+@using CSweet.Contracts.Core
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using Wire = CSweet.WorkManagement.Contracts
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="work-mention-editor">
+    <MudTextField T="string" InputId="@_inputId" Value="_currentValue"
+                  ValueChanged="OnValueChangedAsync" Label="@Label" Placeholder="@Placeholder"
+                  Variant="@Variant" Margin="@Margin" Lines="@Lines" Immediate="true"
+                  Disabled="@Disabled" OnKeyDown="OnKeyDownAsync" />
+    @if (_menuOpen)
+    {
+        <div class="work-mention-menu" role="listbox" aria-label="Mention a person or agent">
+            @foreach (var match in _matches.Select((person, index) => (person, index)))
+            {
+                <button type="button" class="@(match.index == _selection ? "selected" : null)"
+                        role="option" aria-selected="@(match.index == _selection)"
+                        @onmousedown:preventDefault="true"
+                        @onclick="@(() => CommitMentionAsync(match.person))">
+                    <span class="work-mention-avatar">@Initials(match.person.DisplayName)</span>
+                    <span><strong>@match.person.DisplayName</strong><small>@EmployeeTypeLabel(match.person)</small></span>
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public IReadOnlyList<Wire.WorkItemMentionInput> Mentions { get; set; } = [];
+    [Parameter] public EventCallback<IReadOnlyList<Wire.WorkItemMentionInput>> MentionsChanged { get; set; }
+    [Parameter] public IReadOnlyList<OrganizationUserResponse> People { get; set; } = [];
+    [Parameter, EditorRequired] public string Field { get; set; } = Wire.WorkItemMentionFields.Title;
+    [Parameter] public int Lines { get; set; } = 1;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public Variant Variant { get; set; } = Variant.Outlined;
+    [Parameter] public Margin Margin { get; set; } = Margin.None;
+
+    private readonly string _inputId = $"work-mention-{Guid.NewGuid():N}";
+    private readonly List<DraftMention> _draftMentions = [];
+    private IJSObjectReference? _module;
+    private string _currentValue = string.Empty;
+    private IReadOnlyList<OrganizationUserResponse> _matches = [];
+    private bool _menuOpen;
+    private int _selection;
+    private int _triggerOffset;
+    private int _caret;
+    private string _mentionsSignature = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        var next = Value ?? string.Empty;
+        var signature = string.Join('|', Mentions.Select(x =>
+            $"{x.OrganizationUserId:N}:{x.Field}:{x.Offset}:{x.Length}"));
+        if (next == _currentValue && signature == _mentionsSignature) return;
+        _currentValue = next;
+        _mentionsSignature = signature;
+        _draftMentions.Clear();
+        foreach (var mention in Mentions.Where(x => x.Field == Field && x.Offset >= 0 &&
+                     x.Length > 0 && x.Offset + x.Length <= next.Length))
+        {
+            _draftMentions.Add(new DraftMention(mention.OrganizationUserId, mention.Offset,
+                mention.Length, next.Substring(mention.Offset, mention.Length)));
+        }
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (!_menuOpen || _matches.Count == 0) return;
+        if (args.Key == "ArrowDown")
+            _selection = (_selection + 1) % _matches.Count;
+        else if (args.Key == "ArrowUp")
+            _selection = (_selection - 1 + _matches.Count) % _matches.Count;
+        else if (args.Key is "Tab" or "Enter")
+            await CommitMentionAsync(_matches[_selection]);
+        else if (args.Key == "Escape")
+            await SetMenuOpenAsync(false);
+    }
+
+    private async Task OnValueChangedAsync(string? value)
+    {
+        var next = value ?? string.Empty;
+        UpdateMentions(_currentValue, next);
+        _currentValue = next;
+        await ValueChanged.InvokeAsync(next);
+        await EmitMentionsAsync();
+        try
+        {
+            _caret = await (await GetModuleAsync()).InvokeAsync<int>("getCaret", _inputId);
+        }
+        catch (JSException)
+        {
+            _caret = next.Length;
+        }
+        await RefreshMatchesAsync();
+    }
+
+    private async Task RefreshMatchesAsync()
+    {
+        if (_currentValue.Length == 0)
+        {
+            await SetMenuOpenAsync(false);
+            return;
+        }
+        var caret = Math.Clamp(_caret, 0, _currentValue.Length);
+        var trigger = caret == 0 ? -1 : _currentValue.LastIndexOf('@', caret - 1);
+        if (trigger < 0 || (trigger > 0 && !char.IsWhiteSpace(_currentValue[trigger - 1])))
+        {
+            await SetMenuOpenAsync(false);
+            return;
+        }
+        var query = _currentValue[(trigger + 1)..caret];
+        if (query.Length > 80 || query.Contains('\n') ||
+            query.Any(x => !(char.IsLetterOrDigit(x) || char.IsWhiteSpace(x) || x is '-' or '\'' or '.')))
+        {
+            await SetMenuOpenAsync(false);
+            return;
+        }
+        _matches = People.Where(x => x.IsActive &&
+                x.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.DisplayName.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(x => x.DisplayName)
+            .ThenBy(x => x.EmployeeType)
+            .Take(8)
+            .ToList();
+        if (_matches.Count == 0)
+        {
+            await SetMenuOpenAsync(false);
+            return;
+        }
+        _triggerOffset = trigger;
+        _caret = caret;
+        _selection = Math.Clamp(_selection, 0, _matches.Count - 1);
+        await SetMenuOpenAsync(true);
+    }
+
+    private async Task CommitMentionAsync(OrganizationUserResponse person)
+    {
+        if (!_menuOpen) return;
+        var old = _currentValue;
+        var displayText = $"@{person.DisplayName}";
+        var next = old[.._triggerOffset] + displayText + " " + old[_caret..];
+        UpdateMentions(old, next);
+        _currentValue = next;
+        _draftMentions.Add(new DraftMention(
+            person.Id, _triggerOffset, displayText.Length, displayText));
+        var caret = _triggerOffset + displayText.Length + 1;
+        await ValueChanged.InvokeAsync(next);
+        await EmitMentionsAsync();
+        await SetMenuOpenAsync(false);
+        await (await GetModuleAsync()).InvokeVoidAsync("setCaret", _inputId, caret);
+    }
+
+    private void UpdateMentions(string oldValue, string newValue)
+    {
+        if (_draftMentions.Count == 0) return;
+        var prefix = 0;
+        while (prefix < oldValue.Length && prefix < newValue.Length &&
+               oldValue[prefix] == newValue[prefix]) prefix++;
+        var suffix = 0;
+        while (suffix < oldValue.Length - prefix && suffix < newValue.Length - prefix &&
+               oldValue[oldValue.Length - 1 - suffix] == newValue[newValue.Length - 1 - suffix]) suffix++;
+        var oldChangeEnd = oldValue.Length - suffix;
+        var delta = newValue.Length - oldValue.Length;
+        for (var index = _draftMentions.Count - 1; index >= 0; index--)
+        {
+            var mention = _draftMentions[index];
+            var mentionEnd = mention.Offset + mention.Length;
+            if (oldChangeEnd <= mention.Offset)
+                mention = mention with { Offset = mention.Offset + delta };
+            else if (prefix < mentionEnd && oldChangeEnd > mention.Offset)
+            {
+                _draftMentions.RemoveAt(index);
+                continue;
+            }
+            if (mention.Offset < 0 || mention.Offset + mention.Length > newValue.Length ||
+                !newValue.AsSpan(mention.Offset, mention.Length).SequenceEqual(mention.DisplayText))
+            {
+                _draftMentions.RemoveAt(index);
+                continue;
+            }
+            _draftMentions[index] = mention;
+        }
+    }
+
+    private async Task EmitMentionsAsync()
+    {
+        var result = _draftMentions.OrderBy(x => x.Offset)
+            .Select(x => new Wire.WorkItemMentionInput(
+                x.OrganizationUserId, Field, x.Offset, x.Length))
+            .ToList();
+        _mentionsSignature = string.Join('|', result.Select(x =>
+            $"{x.OrganizationUserId:N}:{x.Field}:{x.Offset}:{x.Length}"));
+        await MentionsChanged.InvokeAsync(result);
+    }
+
+    private async Task SetMenuOpenAsync(bool open)
+    {
+        _menuOpen = open;
+        if (!open) _matches = [];
+        try
+        {
+            await (await GetModuleAsync()).InvokeVoidAsync("setMenuOpen", _inputId, open);
+        }
+        catch (JSException) { }
+    }
+
+    private async Task<IJSObjectReference> GetModuleAsync() =>
+        _module ??= await JS.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/CSweet.UI/js/structuredMentions.js");
+
+    private static string Initials(string name) => string.Concat(name.Split(' ',
+        StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => char.ToUpperInvariant(x[0])));
+    private static string EmployeeTypeLabel(OrganizationUserResponse person) =>
+        person.EmployeeType == 1 ? "Agent" : "Human";
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null) await _module.DisposeAsync();
+    }
+
+    private sealed record DraftMention(
+        Guid OrganizationUserId, int Offset, int Length, string DisplayText);
+}

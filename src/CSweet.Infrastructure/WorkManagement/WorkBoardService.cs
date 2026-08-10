@@ -47,7 +47,7 @@ public sealed class WorkBoardService(
             x.Action == WorkBoardActions.Read && x.ScopeKind == GrantScopeKind.Organization);
 
         var boards = db.WorkBoards.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId && !x.IsPersonalTodo)
+            .Where(x => x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard)
             .Where(x => organizationRead || accessibleBoardIds.Contains(x.Id));
         if (!query.IncludeArchived)
             boards = boards.Where(x => x.ArchivedAt == null);
@@ -125,7 +125,7 @@ public sealed class WorkBoardService(
         var board = await db.WorkBoards
             .Include(x => x.Columns.OrderBy(column => column.Position))
             .SingleOrDefaultAsync(x =>
-                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                x.Id == boardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard,
                 cancellationToken);
         if (board is null) return null;
         await WorkBoardProvisioning.EnsureTaskPlacementAsync(db, board, cancellationToken);
@@ -217,7 +217,7 @@ public sealed class WorkBoardService(
         var board = await db.WorkBoards
             .Include(x => x.Columns.OrderBy(column => column.Position))
             .SingleOrDefaultAsync(x =>
-                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                x.Id == boardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard,
                 cancellationToken);
         if (board is null) return null;
         if (board.ArchivedAt.HasValue)
@@ -280,7 +280,7 @@ public sealed class WorkBoardService(
         var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
         await RequireAsync(organizationId, member, WorkBoardActions.Read, boardId, cancellationToken);
         if (!await db.WorkBoards.AnyAsync(x =>
-                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                x.Id == boardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard,
                 cancellationToken))
             return false;
         var preference = await db.WorkBoardUserPreferences.SingleOrDefaultAsync(x =>
@@ -313,7 +313,7 @@ public sealed class WorkBoardService(
         var board = await db.WorkBoards
             .Include(x => x.Columns)
             .SingleOrDefaultAsync(x =>
-                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                x.Id == boardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard,
                 cancellationToken);
         if (board is null) return null;
         if (board.ArchivedAt.HasValue)
@@ -396,7 +396,7 @@ public sealed class WorkBoardService(
             .Include(x => x.Columns)
             .SingleOrDefaultAsync(x =>
                 x.Id == boardId && x.OrganizationId == organizationId &&
-                x.ArchivedAt == null && !x.IsPersonalTodo,
+                x.ArchivedAt == null && x.Kind == WorkBoardKind.Standard,
                 cancellationToken)
             ?? throw new KeyNotFoundException("Board was not found.");
         if (string.IsNullOrWhiteSpace(request.Title))
@@ -437,6 +437,10 @@ public sealed class WorkBoardService(
             : [];
         ValidateStageAssignments(executable, policyStages, request.StageAssignments);
 
+        var normalized = await WorkItemMentionCodec.NormalizeAndValidateAsync(
+            db, organizationId, request.Title, request.Description, request.Mentions,
+            cancellationToken);
+
         var now = DateTimeOffset.UtcNow;
         var item = new WorkTask
         {
@@ -449,8 +453,9 @@ public sealed class WorkBoardService(
             Identifier = $"{board.Key}-{board.NextItemSequence}",
             ParentWorkTaskId = request.ParentItemId,
             Kind = kind,
-            Title = request.Title.Trim(),
-            Description = request.Description?.Trim() ?? string.Empty,
+            Title = normalized.Title,
+            Description = normalized.Description,
+            StructuredMentionsJson = normalized.MentionsJson,
             Status = StatusFor(column.Category),
             Priority = priority,
             BoardRank = (await db.CoreWorkTasks
@@ -503,7 +508,7 @@ public sealed class WorkBoardService(
     {
         var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
         if (!await db.WorkBoards.AsNoTracking().AnyAsync(x =>
-                x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+                x.Id == boardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard,
                 cancellationToken))
             return null;
         var item = await db.CoreWorkTasks.SingleOrDefaultAsync(x =>
@@ -653,7 +658,8 @@ public sealed class WorkBoardService(
     {
         Identifier = item.Identifier,
         AccountableOrganizationUserId = item.AccountableOrganizationUserId,
-        StageAssignments = item.StageAssignments.Select(ToAssignmentContract).ToList()
+        StageAssignments = item.StageAssignments.Select(ToAssignmentContract).ToList(),
+        Mentions = WorkItemMentionCodec.Deserialize(item.StructuredMentionsJson)
     };
 
     private static CSweet.WorkManagement.Contracts.WorkStageAssignment ToAssignmentContract(
@@ -755,7 +761,7 @@ public sealed class WorkBoardService(
         var action = archive ? WorkBoardActions.Archive : WorkBoardActions.Restore;
         var decision = await RequireAsync(organizationId, member, action, boardId, cancellationToken);
         var board = await db.WorkBoards.SingleOrDefaultAsync(x =>
-            x.Id == boardId && x.OrganizationId == organizationId && !x.IsPersonalTodo,
+            x.Id == boardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard,
             cancellationToken);
         if (board is null) return false;
         if (archive && board.IsDefault)

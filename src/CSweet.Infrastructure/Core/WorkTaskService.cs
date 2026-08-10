@@ -122,6 +122,17 @@ public sealed class WorkTaskService : IWorkTaskService
             await _dbContext.CoreWorkTasks.CountAsync(
                 x => x.BoardColumnId == column.Id, cancellationToken) >= column.WipLimit.Value)
             return Failure("wip_limit", $"Column '{column.Name}' has reached its WIP limit.");
+        WorkItemMentionCodec.NormalizedWorkItemText normalized;
+        try
+        {
+            normalized = await WorkItemMentionCodec.NormalizeAndValidateAsync(
+                _dbContext, organizationId, request.Title, request.Description,
+                request.Mentions, cancellationToken);
+        }
+        catch (ArgumentException exception)
+        {
+            return Failure("validation_error", exception.Message);
+        }
         var task = new WorkTask
         {
             Id = Guid.NewGuid(),
@@ -132,8 +143,9 @@ public sealed class WorkTaskService : IWorkTaskService
             StrategicObjectiveId = request.StrategicObjectiveId,
             AssignedRoleId = request.AssignedRoleId,
             AssignedWorkerId = request.AssignedWorkerId,
-            Title = request.Title.Trim(),
-            Description = request.Description ?? string.Empty,
+            Title = normalized.Title,
+            Description = normalized.Description,
+            StructuredMentionsJson = normalized.MentionsJson,
             Status = status,
             Priority = (WorkTaskPriority)request.Priority,
             DueDate = request.DueDate,
@@ -171,9 +183,25 @@ public sealed class WorkTaskService : IWorkTaskService
             !Enum.IsDefined(typeof(WorkTaskPriority), request.Priority.Value))
             return Failure("validation_error", "Task priority is invalid.");
 
-        if (!string.IsNullOrWhiteSpace(request.Title))
-            task.Title = request.Title.Trim();
-        if (!string.IsNullOrEmpty(request.Description))
+        if (!string.IsNullOrWhiteSpace(request.Title) || request.Description is not null ||
+            request.Mentions is not null)
+        {
+            try
+            {
+                var normalized = await WorkItemMentionCodec.NormalizeAndValidateAsync(
+                    _dbContext, task.OrganizationId, request.Title ?? task.Title,
+                    request.Description ?? task.Description, request.Mentions,
+                    cancellationToken);
+                task.Title = normalized.Title;
+                task.Description = normalized.Description;
+                task.StructuredMentionsJson = normalized.MentionsJson;
+            }
+            catch (ArgumentException exception)
+            {
+                return Failure("validation_error", exception.Message);
+            }
+        }
+        else if (!string.IsNullOrEmpty(request.Description))
             task.Description = request.Description;
         if (request.StrategicObjectiveId.HasValue)
             task.StrategicObjectiveId = request.StrategicObjectiveId;

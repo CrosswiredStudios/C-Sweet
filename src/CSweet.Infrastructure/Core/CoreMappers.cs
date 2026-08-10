@@ -48,7 +48,8 @@ internal static class CoreMappers
             SupportsAgentConfiguration = user.AgentInstallation?.PackageVersion?.ManifestJson.Contains(
                 "\"configuration\"", StringComparison.OrdinalIgnoreCase) == true,
             IsActive = user.IsActive,
-            ArchivedAt = user.ArchivedAt
+            ArchivedAt = user.ArchivedAt,
+            Revision = user.Revision
         };
     }
 
@@ -159,7 +160,11 @@ internal static class CoreMappers
               task.Kind.ToString(),
               task.ParentWorkTaskId,
               task.SprintId,
-              task.EstimatePoints);
+              task.EstimatePoints)
+        {
+            Mentions = CSweet.Infrastructure.WorkManagement.WorkItemMentionCodec.Deserialize(
+                task.StructuredMentionsJson)
+        };
     }
 
     #endregion

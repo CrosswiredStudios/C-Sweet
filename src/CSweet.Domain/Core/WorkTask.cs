@@ -22,11 +22,14 @@ public sealed class WorkTask
     public Guid? CreatedByOrganizationUserId { get; set; }
     public Guid? SourceConversationId { get; set; }
     public Guid? SourceMessageId { get; set; }
-    public string? PersonalTodoResultSummary { get; set; }
-    public string? PersonalTodoBlockReason { get; set; }
-    public Guid? PersonalTodoClaimEventId { get; set; }
-    public DateTimeOffset? PersonalTodoClaimExpiresAt { get; set; }
-    public string? PersonalTodoIdempotencyKey { get; set; }
+    public string? ResultSummary { get; set; }
+    public string? BlockReason { get; set; }
+    public Guid? ClaimEventId { get; set; }
+    public DateTimeOffset? ClaimExpiresAt { get; set; }
+    public string? CreationIdempotencyKey { get; set; }
+    public string? CorrelationId { get; set; }
+    public string? CausationId { get; set; }
+    public string StructuredMentionsJson { get; set; } = "[]";
     public long? IdentifierSequence { get; set; }
     public string? Identifier { get; set; }
     public string? DevelopmentBriefJson { get; set; }
@@ -54,6 +57,7 @@ public sealed class WorkTask
     public bool RequiresApproval { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public DateTimeOffset? ArchivedAt { get; set; }
 
     // Navigation
     public Organization? Organization { get; set; }

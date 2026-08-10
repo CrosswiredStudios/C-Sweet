@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics.Metrics;
 using CSweet.Application.WorkManagement;
 using CSweet.Contracts.Communications;
 using CSweet.Contracts.WorkManagement;
@@ -13,13 +14,24 @@ using Wire = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
-public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) : IPersonalTodoService
+public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider clock) : IWorkItemMutationEngine
 {
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
+    private const int SoftOpenItemLimit = 100;
+    private const int HardOpenItemLimit = 250;
+    private static readonly Meter Meter = new("CSweet.Application.PersonalWork");
+    private static readonly Counter<long> SoftLimitWarnings = Meter.CreateCounter<long>("csweet.personal_work.soft_limit_warnings");
+    private static readonly Counter<long> HardLimitRejections = Meter.CreateCounter<long>("csweet.personal_work.hard_limit_rejections");
     private static readonly IReadOnlySet<string> OwnerActions = new HashSet<string>(
-        [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Requeue,
+        [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder, PersonalTodoActions.Requeue,
          PersonalTodoActions.Claim, PersonalTodoActions.Complete, PersonalTodoActions.Block,
-         PersonalTodoActions.Release], StringComparer.Ordinal);
+         PersonalTodoActions.Release, PersonalTodoActions.Update,
+         PersonalTodoActions.Archive, PersonalTodoActions.Restore], StringComparer.Ordinal);
+    private static readonly IReadOnlySet<string> HumanOwnerActions = new HashSet<string>(
+        [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
+         PersonalTodoActions.Requeue, PersonalTodoActions.Complete, PersonalTodoActions.Block,
+         PersonalTodoActions.Release, PersonalTodoActions.Update,
+         PersonalTodoActions.Archive, PersonalTodoActions.Restore], StringComparer.Ordinal);
     private static readonly IReadOnlySet<string> ManagerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
          PersonalTodoActions.Requeue], StringComparer.Ordinal);
@@ -27,8 +39,7 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
     public async Task ReconcileAsync(CancellationToken cancellationToken = default)
     {
         var activeOwners = await db.CoreOrganizationUsers.AsNoTracking()
-            .Where(x => x.IsActive && x.EmployeeType == EmployeeType.Agent &&
-                x.AgentInstallationId != null)
+            .Where(x => x.IsActive)
             .Select(x => new { x.OrganizationId, x.Id })
             .ToListAsync(cancellationToken);
         foreach (var owner in activeOwners)
@@ -36,9 +47,9 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
 
         var activeOwnerIds = activeOwners.Select(x => x.Id).ToHashSet();
         var inactiveBoardIds = await db.WorkBoards.AsNoTracking()
-            .Where(x => x.IsPersonalTodo &&
-                (!x.PersonalTodoOwnerOrganizationUserId.HasValue ||
-                 !activeOwnerIds.Contains(x.PersonalTodoOwnerOrganizationUserId.Value)))
+            .Where(x => x.Kind == WorkBoardKind.Personal &&
+                (!x.OwnerOrganizationUserId.HasValue ||
+                 !activeOwnerIds.Contains(x.OwnerOrganizationUserId.Value)))
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
         var now = clock.GetUtcNow();
@@ -47,7 +58,8 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
             var inactiveGrants = await db.ScopedActionGrants.Where(x =>
                 x.ScopeKind == GrantScopeKind.Board && x.ScopeId.HasValue &&
                 inactiveBoardIds.Contains(x.ScopeId.Value) && x.RevokedAt == null &&
-                PersonalTodoActions.All.Contains(x.Action)).ToListAsync(cancellationToken);
+                (PersonalTodoActions.All.Contains(x.Action) || x.Action == WorkItemActions.Transfer))
+                .ToListAsync(cancellationToken);
             foreach (var grant in inactiveGrants)
             {
                 grant.RevokedAt = now;
@@ -57,13 +69,14 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
 
         var expired = await db.CoreWorkTasks
             .Include(x => x.Board)
-            .Where(x => x.Board != null && x.Board.IsPersonalTodo &&
-                x.Status == WorkTaskStatus.Running && x.PersonalTodoClaimExpiresAt < now)
+            .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
+                x.Status == WorkTaskStatus.Running && x.ClaimExpiresAt < now)
             .ToListAsync(cancellationToken);
+        var replacementWakeItemIds = new HashSet<Guid>();
         foreach (var item in expired)
         {
             var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
-                x.Id == item.Board!.PersonalTodoOwnerOrganizationUserId && x.IsActive &&
+                x.Id == item.Board!.OwnerOrganizationUserId && x.IsActive &&
                 x.AgentInstallationId != null, cancellationToken);
             if (owner is null)
                 continue;
@@ -72,30 +85,64 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
                 .Select(x => x.Id).SingleAsync(cancellationToken);
             item.Status = WorkTaskStatus.Ready;
             item.BoardColumnId = todoColumnId;
-            item.PersonalTodoClaimEventId = null;
-            item.PersonalTodoClaimExpiresAt = null;
+            item.ClaimEventId = null;
+            item.ClaimExpiresAt = null;
             item.Revision++;
             item.UpdatedAt = now;
             QueueAvailable(item.OrganizationId, owner, item.BoardId!.Value, item.Id, now);
+            replacementWakeItemIds.Add(item.Id);
+        }
+
+        var strandedReady = await db.CoreWorkTasks.AsNoTracking()
+            .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
+                x.Board.OwnerOrganizationUserId.HasValue && x.ArchivedAt == null &&
+                x.Status == WorkTaskStatus.Ready)
+            .Select(x => new
+            {
+                x.Id,
+                x.OrganizationId,
+                x.BoardId,
+                OwnerId = x.Board!.OwnerOrganizationUserId!.Value
+            })
+            .ToListAsync(cancellationToken);
+        foreach (var ready in strandedReady.Where(x => !replacementWakeItemIds.Contains(x.Id)))
+        {
+            var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == ready.OwnerId && x.IsActive && x.EmployeeType == EmployeeType.Agent &&
+                x.AgentInstallationId != null, cancellationToken);
+            if (owner is null) continue;
+            var prefix = $"personal-todo-available:{ready.Id:N}:";
+            var hasPendingWake = await db.AgentPlatformEventOutbox.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == ready.OrganizationId &&
+                x.EventType == Wire.PersonalTodoEvents.Available &&
+                x.Status == AgentPlatformEventOutboxStatus.Pending &&
+                x.IdempotencyKey.StartsWith(prefix), cancellationToken);
+            if (hasPendingWake) continue;
+            var lastWake = await db.AgentPlatformEventOutbox.AsNoTracking()
+                .Where(x => x.OrganizationId == ready.OrganizationId &&
+                    x.EventType == Wire.PersonalTodoEvents.Available &&
+                    x.IdempotencyKey.StartsWith(prefix))
+                .MaxAsync(x => (DateTimeOffset?)x.OccurredAt, cancellationToken);
+            if (lastWake.HasValue && lastWake.Value > now.AddMinutes(-1)) continue;
+            QueueAvailable(ready.OrganizationId, owner, ready.BoardId!.Value, ready.Id, now);
         }
         if (db.ChangeTracker.HasChanges())
             await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task EnsureBoardAsync(Guid organizationId, Guid agentOrganizationUserId,
+    public async Task EnsureBoardAsync(Guid organizationId, Guid ownerOrganizationUserId,
         CancellationToken cancellationToken = default)
     {
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(cancellationToken)
             : null;
         var owner = await db.CoreOrganizationUsers
-            .SingleOrDefaultAsync(x => x.Id == agentOrganizationUserId &&
-                x.OrganizationId == organizationId && x.IsActive &&
-                x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId != null,
+            .SingleOrDefaultAsync(x => x.Id == ownerOrganizationUserId &&
+                x.OrganizationId == organizationId && x.IsActive,
                 cancellationToken)
-            ?? throw new ArgumentException("The personal to-do owner must be an active linked agent.");
+            ?? throw new ArgumentException("The personal-board owner must be an active employee.");
         var board = await db.WorkBoards.Include(x => x.Columns)
-            .SingleOrDefaultAsync(x => x.PersonalTodoOwnerOrganizationUserId == owner.Id,
+            .SingleOrDefaultAsync(x => x.OwnerOrganizationUserId == owner.Id,
                 cancellationToken);
         var now = clock.GetUtcNow();
         if (board is null)
@@ -103,7 +150,7 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
             board = new WorkBoard
             {
                 Id = Guid.NewGuid(), OrganizationId = organizationId,
-                PersonalTodoOwnerOrganizationUserId = owner.Id, IsPersonalTodo = true,
+                OwnerOrganizationUserId = owner.Id, Kind = WorkBoardKind.Personal,
                 ManagerOrganizationUserId = owner.ReportsToOrganizationUserId,
                 Key = PersonalKey(owner.Id), Name = PersonalName(owner.DisplayName),
                 Description = "Protected personal work queue.", CreatedAt = now, UpdatedAt = now,
@@ -111,14 +158,18 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
                 [
                     NewColumn("To Do", WorkBoardColumnCategory.ToDo, 0),
                     NewColumn("Doing", WorkBoardColumnCategory.InProgress, 1),
-                    NewColumn("Done", WorkBoardColumnCategory.Done, 2)
+                    NewColumn("Blocked", WorkBoardColumnCategory.Blocked, 2),
+                    NewColumn("Done", WorkBoardColumnCategory.Done, 3)
                 ]
             };
             db.WorkBoards.Add(board);
         }
         else
         {
-            board.IsPersonalTodo = true;
+            board.Kind = WorkBoardKind.Personal;
+            if (!board.Columns.Any(x => x.Category == WorkBoardColumnCategory.Blocked))
+                board.Columns.Add(NewColumn("Blocked", WorkBoardColumnCategory.Blocked,
+                    board.Columns.Count));
             var expectedName = PersonalName(owner.DisplayName);
             if (board.ManagerOrganizationUserId != owner.ReportsToOrganizationUserId ||
                 board.Name != expectedName)
@@ -137,19 +188,18 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
     }
 
     public async Task<Wire.PersonalTodoDirectory> ListAsync(
-        Guid organizationId, PersonalTodoActor actor, CancellationToken cancellationToken = default)
+        Guid organizationId, PersonalTodoActor actor, bool includeArchived = false,
+        CancellationToken cancellationToken = default)
     {
         await EnsureActorAsync(organizationId, actor, cancellationToken);
-        var owners = await db.CoreOrganizationUsers.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId && x.IsActive && x.EmployeeType == EmployeeType.Agent &&
-                (x.Id == actor.OrganizationUserId || x.ReportsToOrganizationUserId == actor.OrganizationUserId))
-            .Select(x => x.Id).ToListAsync(cancellationToken);
+        var owners = (await AccessibleOwnerIdsAsync(organizationId, actor.OrganizationUserId,
+            cancellationToken)).ToList();
         foreach (var ownerId in owners)
             await EnsureBoardAsync(organizationId, ownerId, cancellationToken);
 
         var boards = await db.WorkBoards.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId && x.IsPersonalTodo &&
-                x.PersonalTodoOwnerOrganizationUserId.HasValue && owners.Contains(x.PersonalTodoOwnerOrganizationUserId.Value))
+            .Where(x => x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Personal &&
+                x.OwnerOrganizationUserId.HasValue && owners.Contains(x.OwnerOrganizationUserId.Value))
             .Include(x => x.Columns)
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
@@ -157,9 +207,9 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
         foreach (var board in boards)
         {
             await RequireGrantAsync(organizationId, board.Id, actor, PersonalTodoActions.Read, cancellationToken);
-            results.Add(await MapBoardAsync(board, cancellationToken));
+            results.Add(await MapBoardAsync(board, includeArchived, cancellationToken));
         }
-        return new Wire.PersonalTodoDirectory(results);
+        return new Wire.PersonalTodoDirectory(results, actor.OrganizationUserId);
     }
 
     public async Task<Wire.PersonalTodoItem> AddAsync(
@@ -169,11 +219,12 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
         var actorUser = await EnsureActorAsync(organizationId, actor, cancellationToken);
         var ownerId = request.TargetOrganizationUserId ?? actor.OrganizationUserId;
         var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
-            x.Id == ownerId && x.OrganizationId == organizationId && x.IsActive &&
-            x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId != null, cancellationToken)
-            ?? throw new ArgumentException("The personal to-do target is not an active linked agent.");
-        if (owner.Id != actor.OrganizationUserId && owner.ReportsToOrganizationUserId != actor.OrganizationUserId)
-            throw new UnauthorizedAccessException("Only an agent or its direct manager may add personal work.");
+            x.Id == ownerId && x.OrganizationId == organizationId && x.IsActive, cancellationToken)
+            ?? throw new ArgumentException("The personal-board target is not an active employee.");
+        var accessibleOwners = await AccessibleOwnerIdsAsync(organizationId,
+            actor.OrganizationUserId, cancellationToken);
+        if (!accessibleOwners.Contains(owner.Id))
+            throw new UnauthorizedAccessException("Personal work may only be added for yourself or a reporting descendant.");
         await EnsureBoardAsync(organizationId, owner.Id, cancellationToken);
         var board = await PersonalBoardAsync(organizationId, owner.Id, cancellationToken);
         await RequireGrantAsync(organizationId, board.Id, actor, PersonalTodoActions.Add, cancellationToken);
@@ -182,11 +233,36 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
         var key = request.IdempotencyKey.Trim();
         var existing = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
             x.CreatedByOrganizationUserId == actor.OrganizationUserId &&
-            x.PersonalTodoIdempotencyKey == key, cancellationToken);
+            x.CreationIdempotencyKey == key, cancellationToken);
         if (existing is not null) return await MapItemAsync(existing, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(request.CorrelationId))
+        {
+            existing = await db.CoreWorkTasks.AsNoTracking().FirstOrDefaultAsync(x =>
+                x.BoardId == board.Id && x.CreatedByOrganizationUserId == actor.OrganizationUserId &&
+                x.CorrelationId == request.CorrelationId.Trim(), cancellationToken);
+            if (existing is not null) return await MapItemAsync(existing, cancellationToken);
+        }
+
+        var openCount = await db.CoreWorkTasks.AsNoTracking().CountAsync(x =>
+            x.BoardId == board.Id && x.ArchivedAt == null &&
+            x.Status != WorkTaskStatus.Completed && x.Status != WorkTaskStatus.Cancelled,
+            cancellationToken);
+        if (openCount >= HardOpenItemLimit)
+        {
+            HardLimitRejections.Add(1, new KeyValuePair<string, object?>("organization.id", organizationId));
+            throw new InvalidOperationException($"This personal board has reached its limit of {HardOpenItemLimit} open tasks.");
+        }
+        if (openCount >= SoftOpenItemLimit)
+        {
+            SoftLimitWarnings.Add(1, new KeyValuePair<string, object?>("organization.id", organizationId));
+            await AddOpenLimitNotificationsAsync(owner, openCount + 1, cancellationToken);
+        }
 
         if (request.SourceMessageId.HasValue || request.SourceConversationId.HasValue)
             await ValidateSourceAsync(organizationId, owner.Id, request, cancellationToken);
+        var normalized = await WorkItemMentionCodec.NormalizeAndValidateAsync(
+            db, organizationId, request.Title, request.Description, request.Mentions,
+            cancellationToken);
         var todoColumn = board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo);
         var now = clock.GetUtcNow();
         var item = new WorkTask
@@ -197,8 +273,11 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
             CreatedByOrganizationUserId = actorUser.Id,
             SourceConversationId = request.SourceConversationId,
             SourceMessageId = request.SourceMessageId,
-            PersonalTodoIdempotencyKey = key,
-            Title = request.Title.Trim(), Description = request.Description?.Trim() ?? string.Empty,
+            CorrelationId = request.CorrelationId?.Trim(),
+            CausationId = request.CausationId?.Trim(),
+            CreationIdempotencyKey = key,
+            Title = normalized.Title, Description = normalized.Description,
+            StructuredMentionsJson = normalized.MentionsJson,
             Kind = WorkItemKind.Task, Status = WorkTaskStatus.Ready,
             Priority = Enum.Parse<WorkTaskPriority>(request.Priority, true),
             DueDate = request.DueDate,
@@ -208,6 +287,7 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
         };
         db.CoreWorkTasks.Add(item);
         QueueAvailable(organizationId, owner, board.Id, item.Id, now);
+        await AddManagerCreatedNotificationAsync(actorUser, owner, item, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
@@ -221,7 +301,8 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
         if (item.Status != WorkTaskStatus.Ready)
             throw new InvalidOperationException("Only ready personal work can be reordered.");
         RequireRevision(item, request.ExpectedRevision);
-        var ready = await db.CoreWorkTasks.Where(x => x.BoardId == item.BoardId && x.Status == WorkTaskStatus.Ready && x.Id != item.Id)
+        var ready = await db.CoreWorkTasks.Where(x => x.BoardId == item.BoardId && x.ArchivedAt == null &&
+                x.Status == WorkTaskStatus.Ready && x.Id != item.Id)
             .OrderBy(x => x.BoardRank).ToListAsync(cancellationToken);
         var index = request.BeforeItemId.HasValue
             ? ready.FindIndex(x => x.Id == request.BeforeItemId.Value)
@@ -246,10 +327,116 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
         var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == item.BoardId, cancellationToken);
         item.Status = WorkTaskStatus.Ready;
         item.BoardColumnId = board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo).Id;
-        item.PersonalTodoBlockReason = null; item.PersonalTodoClaimEventId = null;
-        item.PersonalTodoClaimExpiresAt = null; item.Revision++; item.UpdatedAt = clock.GetUtcNow();
+        item.BlockReason = null; item.ClaimEventId = null;
+        item.ClaimExpiresAt = null; item.Revision++; item.UpdatedAt = clock.GetUtcNow();
         var owner = await OwnerAsync(board, cancellationToken);
         QueueAvailable(organizationId, owner, board.Id, item.Id, item.UpdatedAt);
+        await db.SaveChangesAsync(cancellationToken);
+        return await MapItemAsync(item, cancellationToken);
+    }
+
+    public async Task<Wire.PersonalTodoItem> UpdateAsync(
+        Guid organizationId, PersonalTodoActor actor, Wire.UpdatePersonalTodoItemRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var item = await LoadPersonalItemAsync(organizationId, request.ItemId, cancellationToken);
+        await RequireGrantAsync(organizationId, item.BoardId!.Value, actor,
+            PersonalTodoActions.Update, cancellationToken);
+        RequireRevision(item, request.ExpectedRevision);
+        ValidateEditableFields(request.Title, request.Description, request.Priority);
+        if (item.ArchivedAt.HasValue)
+            throw new InvalidOperationException("Restore this personal task before editing it.");
+        var normalized = await WorkItemMentionCodec.NormalizeAndValidateAsync(
+            db, organizationId, request.Title, request.Description, request.Mentions,
+            cancellationToken);
+        item.Title = normalized.Title;
+        item.Description = normalized.Description;
+        item.StructuredMentionsJson = normalized.MentionsJson;
+        item.Priority = Enum.Parse<WorkTaskPriority>(request.Priority, true);
+        item.DueDate = request.DueDate;
+        item.Revision++;
+        item.UpdatedAt = clock.GetUtcNow();
+        await db.SaveChangesAsync(cancellationToken);
+        return await MapItemAsync(item, cancellationToken);
+    }
+
+    public async Task<Wire.PersonalTodoItem> ArchiveAsync(
+        Guid organizationId, PersonalTodoActor actor, Wire.ArchivePersonalTodoItemRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var item = await LoadPersonalItemAsync(organizationId, request.ItemId, cancellationToken);
+        await RequireGrantAsync(organizationId, item.BoardId!.Value, actor,
+            PersonalTodoActions.Archive, cancellationToken);
+        RequireRevision(item, request.ExpectedRevision);
+        if (item.ArchivedAt.HasValue)
+            return await MapItemAsync(item, cancellationToken);
+        item.ArchivedAt = clock.GetUtcNow();
+        item.ClaimEventId = null;
+        item.ClaimExpiresAt = null;
+        item.Revision++;
+        item.UpdatedAt = item.ArchivedAt.Value;
+        await db.SaveChangesAsync(cancellationToken);
+        return await MapItemAsync(item, cancellationToken);
+    }
+
+    public async Task<Wire.PersonalTodoItem> RestoreAsync(
+        Guid organizationId, PersonalTodoActor actor, Wire.RestorePersonalTodoItemRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var item = await LoadPersonalItemAsync(organizationId, request.ItemId, cancellationToken);
+        await RequireGrantAsync(organizationId, item.BoardId!.Value, actor,
+            PersonalTodoActions.Restore, cancellationToken);
+        RequireRevision(item, request.ExpectedRevision);
+        if (!item.ArchivedAt.HasValue)
+            return await MapItemAsync(item, cancellationToken);
+        item.ArchivedAt = null;
+        item.Revision++;
+        item.UpdatedAt = clock.GetUtcNow();
+        await db.SaveChangesAsync(cancellationToken);
+        return await MapItemAsync(item, cancellationToken);
+    }
+
+    public async Task<Wire.PersonalTodoItem> SetHumanStatusAsync(
+        Guid organizationId, PersonalTodoActor actor, Wire.SetHumanPersonalTodoStatusRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (actor.AgentInstallationId.HasValue)
+            throw new UnauthorizedAccessException("Agent installations must use claim-based transitions.");
+        var actorUser = await EnsureActorAsync(organizationId, actor, cancellationToken);
+        if (actorUser.EmployeeType != EmployeeType.Human)
+            throw new UnauthorizedAccessException("Human board transitions require a human employee owner.");
+        var item = await LoadPersonalItemAsync(organizationId, request.ItemId, cancellationToken);
+        if (item.Board!.OwnerOrganizationUserId != actorUser.Id)
+            throw new UnauthorizedAccessException("Managers cannot impersonate an employee's execution state.");
+        if (item.ArchivedAt.HasValue)
+            throw new InvalidOperationException("Restore this personal task before changing its status.");
+        if (!Enum.TryParse<WorkTaskStatus>(request.Status, true, out var status) ||
+            status is not (WorkTaskStatus.Ready or WorkTaskStatus.Running or
+                WorkTaskStatus.Blocked or WorkTaskStatus.Completed))
+            throw new ArgumentException("The requested personal task status is invalid.");
+        if (status == WorkTaskStatus.Blocked && string.IsNullOrWhiteSpace(request.Reason))
+            throw new ArgumentException("A block reason is required.");
+        RequireRevision(item, request.ExpectedRevision);
+        var action = status switch
+        {
+            WorkTaskStatus.Completed => PersonalTodoActions.Complete,
+            WorkTaskStatus.Blocked => PersonalTodoActions.Block,
+            _ => PersonalTodoActions.Release
+        };
+        await RequireGrantAsync(organizationId, item.BoardId!.Value, actor, action, cancellationToken);
+        var board = await db.WorkBoards.Include(x => x.Columns)
+            .SingleAsync(x => x.Id == item.BoardId, cancellationToken);
+        var now = clock.GetUtcNow();
+        item.Status = status;
+        item.BoardColumnId = ColumnForStatus(board, status).Id;
+        item.ResultSummary = status == WorkTaskStatus.Completed ? request.Summary?.Trim() : null;
+        item.BlockReason = status == WorkTaskStatus.Blocked ? request.Reason?.Trim() : null;
+        item.ClaimEventId = null;
+        item.ClaimExpiresAt = null;
+        item.Revision++;
+        item.UpdatedAt = now;
+        if (status == WorkTaskStatus.Blocked)
+            await AddBlockedNotificationsAsync(item, board, item.BlockReason!, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
@@ -269,11 +456,11 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
         var now = clock.GetUtcNow();
         var columns = board.Columns.ToDictionary(x => x.Category);
         var expired = await db.CoreWorkTasks.Where(x => x.BoardId == board.Id && x.Status == WorkTaskStatus.Running &&
-            x.PersonalTodoClaimExpiresAt < now).ToListAsync(cancellationToken);
+            x.ClaimExpiresAt < now).ToListAsync(cancellationToken);
         foreach (var stale in expired)
         {
             stale.Status = WorkTaskStatus.Ready; stale.BoardColumnId = columns[WorkBoardColumnCategory.ToDo].Id;
-            stale.PersonalTodoClaimEventId = null; stale.PersonalTodoClaimExpiresAt = null;
+            stale.ClaimEventId = null; stale.ClaimExpiresAt = null;
             stale.Revision++; stale.UpdatedAt = now;
         }
         if (expired.Count > 0)
@@ -283,12 +470,13 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
                 db.Entry(stale).State = EntityState.Detached;
         }
         var item = await db.CoreWorkTasks.FirstOrDefaultAsync(x => x.BoardId == board.Id &&
-            x.Status == WorkTaskStatus.Running && x.PersonalTodoClaimEventId == request.EventId,
+            x.Status == WorkTaskStatus.Running && x.ClaimEventId == request.EventId,
             cancellationToken);
         while (item is null)
         {
             var candidate = await db.CoreWorkTasks.AsNoTracking()
-                .Where(x => x.BoardId == board.Id && x.Status == WorkTaskStatus.Ready)
+                .Where(x => x.BoardId == board.Id && x.ArchivedAt == null &&
+                    x.Status == WorkTaskStatus.Ready)
                 .OrderBy(x => x.BoardRank).ThenBy(x => x.CreatedAt)
                 .Select(x => new { x.Id, x.Revision })
                 .FirstOrDefaultAsync(cancellationToken);
@@ -301,8 +489,8 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
                     .SetProperty(x => x.Status, WorkTaskStatus.Running)
                     .SetProperty(x => x.BoardColumnId,
                         columns[WorkBoardColumnCategory.InProgress].Id)
-                    .SetProperty(x => x.PersonalTodoClaimEventId, request.EventId)
-                    .SetProperty(x => x.PersonalTodoClaimExpiresAt, now.Add(ClaimDuration))
+                    .SetProperty(x => x.ClaimEventId, request.EventId)
+                    .SetProperty(x => x.ClaimExpiresAt, now.Add(ClaimDuration))
                     .SetProperty(x => x.Revision, x => x.Revision + 1)
                     .SetProperty(x => x.UpdatedAt, now), cancellationToken);
             if (updated == 1)
@@ -338,20 +526,15 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
             throw new UnauthorizedAccessException("Only the owning installation may transition claimed personal work.");
         var item = await LoadPersonalItemAsync(organizationId, itemId, cancellationToken);
         await RequireGrantAsync(organizationId, item.BoardId!.Value, actor, action, cancellationToken);
-        if (item.Status != WorkTaskStatus.Running || item.PersonalTodoClaimEventId != eventId)
+        if (item.Status != WorkTaskStatus.Running || item.ClaimEventId != eventId)
             throw new InvalidOperationException("The personal work item is not claimed by this event.");
         RequireRevision(item, expectedRevision);
         var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == item.BoardId, cancellationToken);
         var now = clock.GetUtcNow();
-        item.Status = status; item.PersonalTodoResultSummary = summary?.Trim();
-        item.PersonalTodoBlockReason = reason?.Trim(); item.PersonalTodoClaimEventId = null;
-        item.PersonalTodoClaimExpiresAt = null; item.Revision++; item.UpdatedAt = now;
-        item.BoardColumnId = status switch
-        {
-            WorkTaskStatus.Completed => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Done).Id,
-            WorkTaskStatus.Ready => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo).Id,
-            _ => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.InProgress).Id
-        };
+        item.Status = status; item.ResultSummary = summary?.Trim();
+        item.BlockReason = reason?.Trim(); item.ClaimEventId = null;
+        item.ClaimExpiresAt = null; item.Revision++; item.UpdatedAt = now;
+        item.BoardColumnId = ColumnForStatus(board, status).Id;
         if (status == WorkTaskStatus.Blocked)
             await AddBlockedNotificationsAsync(item, board, reason!, now, cancellationToken);
         if (status == WorkTaskStatus.Ready)
@@ -363,22 +546,40 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
     private async Task ReconcileGrantsAsync(WorkBoard board, OrganizationUser owner, CancellationToken token)
     {
         var desired = new HashSet<(GrantSubjectKind Kind, Guid Id, string Action)>();
-        foreach (var action in OwnerActions)
-            desired.Add((GrantSubjectKind.AgentInstallation, owner.AgentInstallationId!.Value, action));
-        if (owner.ReportsToOrganizationUserId.HasValue)
+        if (owner.EmployeeType == EmployeeType.Agent && owner.AgentInstallationId.HasValue)
+        {
+            foreach (var action in OwnerActions)
+                desired.Add((GrantSubjectKind.AgentInstallation, owner.AgentInstallationId.Value, action));
+            desired.Add((GrantSubjectKind.AgentInstallation, owner.AgentInstallationId.Value,
+                WorkItemActions.Transfer));
+        }
+        if (owner.EmployeeType == EmployeeType.Human || owner.ApplicationUserId.HasValue)
+        {
+            foreach (var action in HumanOwnerActions)
+                desired.Add((GrantSubjectKind.OrganizationUser, owner.Id, action));
+            desired.Add((GrantSubjectKind.OrganizationUser, owner.Id, WorkItemActions.Transfer));
+        }
+
+        var organizationUsers = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == board.OrganizationId && x.IsActive)
+            .Select(x => new { x.Id, x.ReportsToOrganizationUserId, x.AgentInstallationId })
+            .ToListAsync(token);
+        var byId = organizationUsers.ToDictionary(x => x.Id);
+        var managerId = owner.ReportsToOrganizationUserId;
+        var visited = new HashSet<Guid> { owner.Id };
+        while (managerId.HasValue && visited.Add(managerId.Value) &&
+            byId.TryGetValue(managerId.Value, out var manager))
         {
             foreach (var action in ManagerActions)
-                desired.Add((GrantSubjectKind.OrganizationUser, owner.ReportsToOrganizationUserId.Value, action));
-            var managerInstallation = await db.CoreOrganizationUsers.AsNoTracking()
-                .Where(x => x.Id == owner.ReportsToOrganizationUserId && x.IsActive)
-                .Select(x => x.AgentInstallationId).SingleOrDefaultAsync(token);
-            if (managerInstallation.HasValue)
+                desired.Add((GrantSubjectKind.OrganizationUser, manager.Id, action));
+            if (manager.AgentInstallationId.HasValue)
                 foreach (var action in ManagerActions)
-                    desired.Add((GrantSubjectKind.AgentInstallation, managerInstallation.Value, action));
+                    desired.Add((GrantSubjectKind.AgentInstallation, manager.AgentInstallationId.Value, action));
+            managerId = manager.ReportsToOrganizationUserId;
         }
         var active = await db.ScopedActionGrants.Where(x => x.OrganizationId == board.OrganizationId &&
             x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id && x.RevokedAt == null &&
-            PersonalTodoActions.All.Contains(x.Action)).ToListAsync(token);
+            (PersonalTodoActions.All.Contains(x.Action) || x.Action == WorkItemActions.Transfer)).ToListAsync(token);
         var now = clock.GetUtcNow();
         foreach (var grant in active.Where(x => !desired.Contains((x.SubjectKind, x.SubjectId, x.Action))))
         {
@@ -420,17 +621,43 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
         return user;
     }
 
+    private async Task<HashSet<Guid>> AccessibleOwnerIdsAsync(Guid organizationId, Guid actorId,
+        CancellationToken token)
+    {
+        var employees = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.IsActive)
+            .Select(x => new { x.Id, x.ReportsToOrganizationUserId })
+            .ToListAsync(token);
+        if (!employees.Any(x => x.Id == actorId))
+            throw new UnauthorizedAccessException("The employee is not active in this organization.");
+        var children = employees.Where(x => x.ReportsToOrganizationUserId.HasValue)
+            .GroupBy(x => x.ReportsToOrganizationUserId!.Value)
+            .ToDictionary(x => x.Key, x => x.Select(y => y.Id).ToArray());
+        var result = new HashSet<Guid>();
+        var pending = new Queue<Guid>();
+        pending.Enqueue(actorId);
+        while (pending.TryDequeue(out var current))
+        {
+            if (!result.Add(current))
+                return [];
+            if (children.TryGetValue(current, out var directReports))
+                foreach (var child in directReports)
+                    pending.Enqueue(child);
+        }
+        return result;
+    }
+
     private Task<WorkBoard> PersonalBoardAsync(Guid organizationId, Guid ownerId, CancellationToken token) =>
         db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.OrganizationId == organizationId &&
-            x.IsPersonalTodo && x.PersonalTodoOwnerOrganizationUserId == ownerId, token);
+            x.Kind == WorkBoardKind.Personal && x.OwnerOrganizationUserId == ownerId, token);
 
     private async Task<WorkTask> LoadPersonalItemAsync(Guid organizationId, Guid itemId, CancellationToken token) =>
         await db.CoreWorkTasks.Include(x => x.Board).SingleOrDefaultAsync(x => x.Id == itemId &&
-            x.OrganizationId == organizationId && x.Board != null && x.Board.IsPersonalTodo, token)
+            x.OrganizationId == organizationId && x.Board != null && x.Board.Kind == WorkBoardKind.Personal, token)
         ?? throw new KeyNotFoundException("The personal work item was not found.");
 
     private Task<OrganizationUser> OwnerAsync(WorkBoard board, CancellationToken token) =>
-        db.CoreOrganizationUsers.SingleAsync(x => x.Id == board.PersonalTodoOwnerOrganizationUserId, token);
+        db.CoreOrganizationUsers.SingleAsync(x => x.Id == board.OwnerOrganizationUserId, token);
 
     private async Task ValidateSourceAsync(Guid organizationId, Guid ownerId,
         Wire.AddPersonalTodoItemRequest request, CancellationToken token)
@@ -453,10 +680,25 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
             throw new ArgumentException("A personal to-do idempotency key is required.");
         if (!Enum.TryParse<WorkTaskPriority>(request.Priority, true, out _))
             throw new ArgumentException("The personal to-do priority is invalid.");
+        if ((request.CorrelationId?.Trim().Length ?? 0) > 160 ||
+            (request.CausationId?.Trim().Length ?? 0) > 160)
+            throw new ArgumentException("Correlation and causation IDs cannot exceed 160 characters.");
+    }
+
+    private static void ValidateEditableFields(string title, string? description, string priority)
+    {
+        if (string.IsNullOrWhiteSpace(title) || title.Trim().Length > 512)
+            throw new ArgumentException("A personal task title between 1 and 512 characters is required.");
+        if ((description?.Trim().Length ?? 0) > 8192)
+            throw new ArgumentException("A personal task description cannot exceed 8192 characters.");
+        if (!Enum.TryParse<WorkTaskPriority>(priority, true, out _))
+            throw new ArgumentException("The personal task priority is invalid.");
     }
 
     private void QueueAvailable(Guid organizationId, OrganizationUser owner, Guid boardId, Guid itemId, DateTimeOffset now)
     {
+        if (!owner.AgentInstallationId.HasValue)
+            return;
         var eventId = Guid.NewGuid();
         db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
         {
@@ -466,6 +708,63 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
             IdempotencyKey = $"personal-todo-available:{itemId:N}:{eventId:N}",
             Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
         });
+    }
+
+    private async Task AddManagerCreatedNotificationAsync(OrganizationUser actor,
+        OrganizationUser owner, WorkTask item, CancellationToken token)
+    {
+        if (actor.Id == owner.Id || owner.EmployeeType != EmployeeType.Human)
+            return;
+        if (await db.UserNotifications.AsNoTracking().AnyAsync(x =>
+            x.OrganizationId == item.OrganizationId &&
+            x.RecipientOrganizationUserId == owner.Id &&
+            x.DeduplicationKey == $"personal-task-added:{item.Id:N}", token))
+            return;
+        db.UserNotifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(), OrganizationId = item.OrganizationId,
+            RecipientOrganizationUserId = owner.Id, Severity = NotificationSeverity.Routine,
+            Category = "PersonalTaskAdded", Title = $"{actor.DisplayName} added personal work",
+            Body = item.Title, ActionUri = $"/organizations/{item.OrganizationId:D}/employees/{owner.Id:D}",
+            DeduplicationKey = $"personal-task-added:{item.Id:N}", CreatedAt = item.CreatedAt
+        });
+    }
+
+    private async Task AddOpenLimitNotificationsAsync(OrganizationUser owner, int openCount,
+        CancellationToken token)
+    {
+        var recipientIds = new HashSet<Guid>();
+        if (owner.EmployeeType == EmployeeType.Human)
+            recipientIds.Add(owner.Id);
+        var managerId = owner.ReportsToOrganizationUserId;
+        var visited = new HashSet<Guid>();
+        while (managerId.HasValue && visited.Add(managerId.Value))
+        {
+            var manager = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == managerId.Value && x.OrganizationId == owner.OrganizationId && x.IsActive, token);
+            if (manager is null) break;
+            if (manager.EmployeeType == EmployeeType.Human) recipientIds.Add(manager.Id);
+            managerId = manager.ReportsToOrganizationUserId;
+        }
+        var thresholdBucket = openCount / 25;
+        foreach (var recipientId in recipientIds)
+        {
+            var deduplicationKey = $"personal-task-soft-limit:{owner.Id:N}:{thresholdBucket}";
+            if (await db.UserNotifications.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == owner.OrganizationId &&
+                x.RecipientOrganizationUserId == recipientId &&
+                x.DeduplicationKey == deduplicationKey, token))
+                continue;
+            db.UserNotifications.Add(new UserNotification
+            {
+                Id = Guid.NewGuid(), OrganizationId = owner.OrganizationId,
+                RecipientOrganizationUserId = recipientId, Severity = NotificationSeverity.Important,
+                Category = "PersonalTaskLimit", Title = $"{owner.DisplayName}'s personal board is growing",
+                Body = $"The board now has {openCount} open tasks. The creation limit is {HardOpenItemLimit}.",
+                ActionUri = $"/organizations/{owner.OrganizationId:D}/employees/{owner.Id:D}",
+                DeduplicationKey = deduplicationKey, CreatedAt = clock.GetUtcNow()
+            });
+        }
     }
 
     private async Task AddBlockedNotificationsAsync(WorkTask item, WorkBoard board, string reason,
@@ -490,13 +789,15 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
         }
     }
 
-    private async Task<Wire.PersonalTodoBoard> MapBoardAsync(WorkBoard board, CancellationToken token)
+    private async Task<Wire.PersonalTodoBoard> MapBoardAsync(WorkBoard board, bool includeArchived,
+        CancellationToken token)
     {
-        var ownerId = board.PersonalTodoOwnerOrganizationUserId!.Value;
+        var ownerId = board.OwnerOrganizationUserId!.Value;
         var names = await db.CoreOrganizationUsers.AsNoTracking()
             .Where(x => x.Id == ownerId || x.Id == board.ManagerOrganizationUserId)
             .ToDictionaryAsync(x => x.Id, x => x.DisplayName, token);
-        var items = await db.CoreWorkTasks.AsNoTracking().Where(x => x.BoardId == board.Id)
+        var items = await db.CoreWorkTasks.AsNoTracking().Where(x =>
+                x.BoardId == board.Id && (includeArchived || x.ArchivedAt == null))
             .OrderBy(x => x.BoardRank).ToListAsync(token);
         var mapped = new List<Wire.PersonalTodoItem>();
         foreach (var item in items) mapped.Add(await MapItemAsync(item, token));
@@ -511,7 +812,7 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
             ? await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.Id == item.CreatedByOrganizationUserId)
                 .Select(x => x.DisplayName).SingleOrDefaultAsync(token)
             : null;
-        var mentions = item.SourceMessageId.HasValue
+        var sourceMentions = item.SourceMessageId.HasValue
             ? await db.ConversationMessageMentions.AsNoTracking()
                 .Where(x => x.MessageId == item.SourceMessageId)
                 .Include(x => x.MentionedOrganizationUser)
@@ -520,16 +821,34 @@ public sealed class PersonalTodoService(CSweetDbContext db, TimeProvider clock) 
                     x.MentionedOrganizationUser!.DisplayName, x.MentionedOrganizationUser.EmployeeType.ToString()))
                 .ToListAsync(token)
             : [];
+        var mentionSpans = WorkItemMentionCodec.Deserialize(item.StructuredMentionsJson);
+        var mentions = sourceMentions.Concat(mentionSpans.Select(x =>
+                new Wire.PersonalTodoMention(x.OrganizationUserId, x.DisplayName, x.EmployeeType)))
+            .GroupBy(x => x.OrganizationUserId)
+            .Select(x => x.First())
+            .ToList();
         return new Wire.PersonalTodoItem(item.Id, item.BoardId!.Value, item.AssignedEmployeeId!.Value,
             item.CreatedByOrganizationUserId ?? item.AssignedEmployeeId.Value, creator ?? "Unknown",
             item.Title, item.Description, item.Status.ToString(), item.Priority.ToString(), item.BoardRank,
             item.Revision, item.DueDate, item.SourceConversationId, item.SourceMessageId, mentions,
-            item.PersonalTodoResultSummary, item.PersonalTodoBlockReason, item.CreatedAt, item.UpdatedAt);
+            item.ResultSummary, item.BlockReason, item.CreatedAt, item.UpdatedAt, item.ArchivedAt)
+        {
+            MentionSpans = mentionSpans
+        };
     }
 
     private static WorkBoardColumn NewColumn(string name, WorkBoardColumnCategory category, int position) =>
         new() { Id = Guid.NewGuid(), Name = name, Category = category, Position = position,
             WipPolicy = WorkBoardWipPolicy.Disabled };
+
+    private static WorkBoardColumn ColumnForStatus(WorkBoard board, WorkTaskStatus status) => status switch
+    {
+        WorkTaskStatus.Completed => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Done),
+        WorkTaskStatus.Ready => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo),
+        WorkTaskStatus.Blocked => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Blocked),
+        WorkTaskStatus.Running => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.InProgress),
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unsupported personal task status.")
+    };
 
     private static string PersonalKey(Guid ownerId) => $"TD{ownerId:N}"[..12].ToUpperInvariant();
 

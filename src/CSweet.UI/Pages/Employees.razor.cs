@@ -734,6 +734,13 @@ public partial class Employees
         return Task.CompletedTask;
     }
 
+    private Task OpenEmployeeDetailsAsync(Guid employeeId)
+    {
+        if (_employees.Any(x => x.Id == employeeId))
+            Navigation.NavigateTo($"/organizations/{OrganizationId}/employees/{employeeId}");
+        return Task.CompletedTask;
+    }
+
     private Task ChangeDegreesAsync(int degrees)
     {
         _graphDegrees = Math.Clamp(degrees, 1, 3);

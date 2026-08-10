@@ -9,4 +9,5 @@ public sealed record UpdateWorkTaskRequest(
     int? Status,
     int? Priority,
     DateTimeOffset? DueDate,
-    bool? RequiresApproval);
+    bool? RequiresApproval,
+    IReadOnlyList<CSweet.WorkManagement.Contracts.WorkItemMentionInput>? Mentions = null);

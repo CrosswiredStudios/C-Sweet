@@ -1,0 +1,43 @@
+@using Wire = CSweet.WorkManagement.Contracts
+
+@foreach (var segment in Segments)
+{
+    if (segment.IsMention)
+    {
+        <span class="work-ticket-mention" data-organization-user-id="@segment.OrganizationUserId">@segment.Text</span>
+    }
+    else
+    {
+        @segment.Text
+    }
+}
+
+@code {
+    [Parameter] public string Text { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<Wire.WorkItemMentionSpan> Mentions { get; set; } = [];
+    [Parameter, EditorRequired] public string Field { get; set; } = Wire.WorkItemMentionFields.Title;
+
+    private IReadOnlyList<Segment> Segments
+    {
+        get
+        {
+            var result = new List<Segment>();
+            var position = 0;
+            foreach (var mention in Mentions.Where(x => x.Field == Field && x.Offset >= position &&
+                         x.Length > 0 && x.Offset + x.Length <= Text.Length)
+                     .OrderBy(x => x.Offset))
+            {
+                if (mention.Offset > position)
+                    result.Add(new(Text[position..mention.Offset], false, null));
+                result.Add(new(Text.Substring(mention.Offset, mention.Length), true,
+                    mention.OrganizationUserId));
+                position = mention.Offset + mention.Length;
+            }
+            if (position < Text.Length) result.Add(new(Text[position..], false, null));
+            if (result.Count == 0) result.Add(new(Text, false, null));
+            return result;
+        }
+    }
+
+    private sealed record Segment(string Text, bool IsMention, Guid? OrganizationUserId);
+}

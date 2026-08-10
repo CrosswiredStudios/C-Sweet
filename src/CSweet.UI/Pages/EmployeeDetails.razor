@@ -1,0 +1,264 @@
+@page "/organizations/{OrganizationId:guid}/employees/{EmployeeId:guid}"
+@using CSweet.Contracts.Agents
+@using CSweet.Contracts.Analytics
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.Memory
+@using CSweet.Contracts.WorkManagement
+@using Wire = CSweet.WorkManagement.Contracts
+@inject HttpClient Http
+
+<PageTitle>@(_details?.Employee.DisplayName ?? "Employee") - C-Sweet</PageTitle>
+
+<div class="command-center-shell employee-details-page">
+    <MudBreadcrumbs Items="_breadcrumbs" />
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_details is null)
+    {
+        <MudAlert Severity="Severity.Error">@(_error ?? "The employee could not be loaded.")</MudAlert>
+    }
+    else
+    {
+        <MudPaper Elevation="0" Class="page-header">
+            <div>
+                <MudText Typo="Typo.overline">@EmployeeTypeLabel</MudText>
+                <MudText Typo="Typo.h3">@_details.Employee.DisplayName</MudText>
+                <MudText Color="Color.Secondary">@(_details.Role?.Name ?? "No organization role")</MudText>
+            </div>
+            <MudStack Row="true" Spacing="1">
+                <MudChip T="string" Color="@(_details.Employee.IsActive ? Color.Success : Color.Default)">@(_details.Employee.IsActive ? "Active" : "Inactive")</MudChip>
+                <MudButton Href="@($"/organizations/{OrganizationId}/employees")" Variant="Variant.Outlined">Directory</MudButton>
+            </MudStack>
+        </MudPaper>
+
+        <MudTabs Rounded="true" Elevation="0" Class="mt-4">
+            <MudTabPanel Text="Overview" Icon="@Icons.Material.Outlined.Badge">
+                <MudGrid Class="mt-2">
+                    <MudItem xs="12" md="6">
+                        <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+                            <MudText Typo="Typo.h6">Profile</MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem T="string">Email: @(_details.Employee.Email ?? "Not set")</MudListItem>
+                                <MudListItem T="string">Role: @(_details.Role?.Name ?? "Not assigned")</MudListItem>
+                                <MudListItem T="string">Manager: @(_details.Manager?.DisplayName ?? "None")</MudListItem>
+                                <MudListItem T="string">Worker: @(_details.Worker?.Name ?? "Not linked")</MudListItem>
+                                <MudListItem T="string">Started: @_details.Employee.CreatedAt.ToLocalTime().ToString("D")</MudListItem>
+                            </MudList>
+                            @if (!string.IsNullOrWhiteSpace(_details.Role?.Description)) { <MudText Class="mt-2">@_details.Role.Description</MudText> }
+                            @if (_details.Permissions.CanEditIdentity)
+                            {
+                                <MudButton Class="mt-3" Size="Size.Small" Variant="Variant.Outlined" OnClick="ToggleProfileEdit">@(_editingProfile ? "Cancel edit" : "Edit profile")</MudButton>
+                            }
+                            @if (_editingProfile)
+                            {
+                                <MudStack Spacing="2" Class="mt-3">
+                                    <MudTextField @bind-Value="_profileName" Label="Name" Variant="Variant.Outlined" />
+                                    <MudTextField @bind-Value="_profileEmail" Label="Email" Variant="Variant.Outlined" />
+                                    @if (_details.Permissions.CanManageStructure)
+                                    {
+                                        <MudSelect T="Guid?" @bind-Value="_profileRoleId" Label="Organization role" Variant="Variant.Outlined" Clearable="true">
+                                            @foreach (var role in _roles) { <MudSelectItem T="Guid?" Value="@((Guid?)role.Id)">@role.Name</MudSelectItem> }
+                                        </MudSelect>
+                                        <MudSelect T="Guid?" @bind-Value="_profileManagerId" Label="Reports to" Variant="Variant.Outlined" Clearable="true">
+                                            @foreach (var employee in _employees.Where(x => x.Id != EmployeeId)) { <MudSelectItem T="Guid?" Value="@((Guid?)employee.Id)">@employee.DisplayName</MudSelectItem> }
+                                        </MudSelect>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(_profileError)) { <MudAlert Severity="Severity.Error">@_profileError</MudAlert> }
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_profileSaving" OnClick="SaveProfileAsync">Save profile</MudButton>
+                                </MudStack>
+                            }
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+                            <MudText Typo="Typo.h6">Organization</MudText>
+                            <MudText Typo="Typo.subtitle2" Class="mt-2">Direct reports</MudText>
+                            <MudStack Row="true" Spacing="1" Style="flex-wrap:wrap">
+                                @foreach (var report in _details.DirectReports)
+                                { <MudChip T="string" Href="@($"/organizations/{OrganizationId}/employees/{report.Id}")">@report.DisplayName</MudChip> }
+                                @if (_details.DirectReports.Count == 0) { <MudText Color="Color.Secondary">None</MudText> }
+                            </MudStack>
+                            <MudText Typo="Typo.subtitle2" Class="mt-3">Teams</MudText>
+                            <MudStack Row="true" Spacing="1" Style="flex-wrap:wrap">
+                                @foreach (var team in _details.Teams) { <MudChip T="string">@team.Name</MudChip> }
+                                @if (_details.Teams.Count == 0) { <MudText Color="Color.Secondary">None</MudText> }
+                            </MudStack>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
+            </MudTabPanel>
+            <MudTabPanel Text="Personal Board" Icon="@Icons.Material.Outlined.ViewKanban">
+                @if (!_details.Permissions.CanViewSensitive)
+                { <MudAlert Severity="Severity.Warning" Class="mt-3">Personal boards are limited to the employee and their recursive management chain.</MudAlert> }
+                else if (_personalBoard is null)
+                { <MudProgressLinear Indeterminate="true" Class="mt-3" /> }
+                else
+                {
+                    <div class="mt-3">
+                        <EmployeePersonalBoard OrganizationId="OrganizationId" EmployeeId="EmployeeId" Board="_personalBoard"
+                            CanAdd="_details.Permissions.CanManagePersonalBoard"
+                            CanExecute="_details.Permissions.CanExecutePersonalWork"
+                            IncludeArchived="_includeArchived" IncludeArchivedChanged="SetIncludeArchivedAsync"
+                            RefreshRequested="LoadPersonalBoardAsync" />
+                    </div>
+                }
+            </MudTabPanel>
+            <MudTabPanel Text="Assigned Work" Icon="@Icons.Material.Outlined.AssignmentInd">
+                @if (!_details.Permissions.CanViewSensitive)
+                { <MudAlert Severity="Severity.Warning" Class="mt-3">Assignment details are restricted.</MudAlert> }
+                else if (_assigned is null)
+                { <MudProgressLinear Indeterminate="true" Class="mt-3" /> }
+                else
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-3 mb-3">
+                        This is a read-only projection from authoritative team boards. Changes must be made on the source board.
+                    </MudAlert>
+                    <MudTable T="EmployeeAssignedWorkItemResponse" Items="_assigned.Items" Hover="true" Dense="true">
+                        <HeaderContent><MudTh>Task</MudTh><MudTh>Board / column</MudTh><MudTh>Relationship</MudTh><MudTh>Priority</MudTh><MudTh>Due</MudTh><MudTh></MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Task"><MudText Typo="Typo.subtitle2">@(!string.IsNullOrWhiteSpace(context.Item.Identifier) ? $"{context.Item.Identifier} · " : "")@context.Item.Title</MudText><MudText Typo="Typo.caption">@context.Item.Status · @context.Item.Kind</MudText></MudTd>
+                            <MudTd DataLabel="Board">@context.BoardName / @context.ColumnName@if (!string.IsNullOrWhiteSpace(context.SprintName)) { <MudText Typo="Typo.caption">Sprint: @context.SprintName</MudText> }</MudTd>
+                            <MudTd DataLabel="Relationship">@string.Join(", ", context.Relationships.Select(RelationshipLabel))</MudTd>
+                            <MudTd DataLabel="Priority">@context.Item.Priority</MudTd>
+                            <MudTd DataLabel="Due">@(context.Item.DueDate?.ToLocalTime().ToString("MMM d, yyyy") ?? "—")</MudTd>
+                            <MudTd>@if (context.CanOpenBoard) { <MudButton Size="Size.Small" Href="@($"/organizations/{OrganizationId}/work/boards/{context.Item.BoardId}")">Open board</MudButton> }</MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent><MudText Class="pa-4">No work from other boards is assigned to this employee.</MudText></NoRecordsContent>
+                    </MudTable>
+                }
+            </MudTabPanel>
+            <MudTabPanel Text="Agent operations" Icon="@Icons.Material.Outlined.SettingsSuggest" Disabled="@(_details.Employee.AgentInstallationId is null)">
+                @if (_details.Employee.AgentInstallationId.HasValue)
+                {
+                    <MudGrid Class="mt-3">
+                        <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">Runtime</MudText><MudText>@(_runtime?.Stage ?? "Unavailable")</MudText><MudText Color="Color.Secondary">@(_runtime?.Reason ?? _runtime?.RuntimeStatus)</MudText></MudPaper></MudItem>
+                        <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">Schedule & resources</MudText><MudText>@(_installation?.Schedule.ActivationMode ?? "Unavailable")</MudText><MudText Color="Color.Secondary">@(_installation is null ? "" : $"{_installation.MemoryMb} MB · {_installation.CpuPercent}% CPU · {_installation.Schedule.MaxRuntimeSeconds}s max runtime")</MudText></MudPaper></MudItem>
+                        <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">Capabilities & access</MudText><MudText Typo="Typo.caption">Capabilities: @(_installation is null ? "—" : string.Join(", ", _installation.GrantedCapabilities))</MudText><MudText Typo="Typo.caption">Network: @(_installation is null ? "—" : string.Join(", ", _installation.GrantedNetworkAccess))</MudText></MudPaper></MudItem>
+                        <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">History, build & configuration</MudText><MudText>@_runtimeRuns.Count runtime run(s)</MudText><MudText Color="Color.Secondary">Build: @(_installation?.Build?.Status ?? "No build status") · Configuration: @(_configuration?.SynchronizationStatus ?? "Unavailable")</MudText><MudText Typo="Typo.caption">@(_configuration?.Fields.Count ?? 0) configuration field(s); secret values remain masked.</MudText>@if (_buildLog is not null) { <MudExpansionPanels Class="mt-2"><MudExpansionPanel Text="Build log"><pre style="white-space:pre-wrap;max-height:20rem;overflow:auto">@_buildLog.Content</pre></MudExpansionPanel></MudExpansionPanels> }<MudButton Class="mt-2" Href="@($"/organizations/{OrganizationId}/employees/{EmployeeId}/memory")">Memory</MudButton></MudPaper></MudItem>
+                    </MudGrid>
+                }
+            </MudTabPanel>
+            <MudTabPanel Text="Memory" Icon="@Icons.Material.Outlined.Hub" Disabled="@(_details.Employee.AgentInstallationId is null)">
+                <MudPaper Outlined="true" Class="pa-5 mt-3"><MudStack Row="true" Justify="Justify.SpaceBetween"><div><MudText Typo="Typo.h6">Memory workspace</MudText><MudText Color="Color.Secondary">Inspect summaries here, then search records, open details, and explore the relationship graph.</MudText></div>@if (_memorySummary is not null) { <MudChip T="string" Color="@(_memorySummary.Health == "Healthy" ? Color.Success : Color.Warning)">@_memorySummary.Health</MudChip> }</MudStack>@if (_memorySummary is not null) { <MudGrid Class="mt-2"><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.EpisodeCount</MudText><MudText Typo="Typo.caption">Episodes</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.ClaimCount</MudText><MudText Typo="Typo.caption">Claims</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.EntityCount</MudText><MudText Typo="Typo.caption">Entities</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.RelationshipCount</MudText><MudText Typo="Typo.caption">Relationships</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.ProcedureCount</MudText><MudText Typo="Typo.caption">Procedures</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.PendingCaptureCount</MudText><MudText Typo="Typo.caption">Pending</MudText></MudItem></MudGrid> }<MudButton Class="mt-3" Variant="Variant.Filled" Href="@($"/organizations/{OrganizationId}/employees/{EmployeeId}/memory")">Search and explore memory</MudButton></MudPaper>
+            </MudTabPanel>
+            <MudTabPanel Text="Usage" Icon="@Icons.Material.Outlined.QueryStats">
+                <MudGrid Class="mt-3">
+                    @foreach (var window in UsageWindows)
+                    {
+                        var usage = UsageFor(window.Key);
+                        <MudItem xs="12" md="4"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.overline">@window.Label</MudText><MudText Typo="Typo.h5">@(usage?.Sum(x => x.TotalTokens).ToString("N0") ?? "—") tokens</MudText><MudText Color="Color.Secondary">@(usage?.Sum(x => x.RequestCount).ToString("N0") ?? "—") model calls</MudText></MudPaper></MudItem>
+                    }
+                </MudGrid>
+            </MudTabPanel>
+        </MudTabs>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    private EmployeeDetailsResponse? _details;
+    private Wire.PersonalTodoBoard? _personalBoard;
+    private EmployeeAssignedWorkResponse? _assigned;
+    private AgentRuntimeReadinessResponse? _runtime;
+    private AgentInstallationResponse? _installation;
+    private IReadOnlyList<AgentRuntimeRunResponse> _runtimeRuns = [];
+    private AgentBuildLogResponse? _buildLog;
+    private AgentConfigurationView? _configuration;
+    private AgentMemorySummaryResponse? _memorySummary;
+    private IReadOnlyList<OrganizationUserResponse> _employees = [];
+    private IReadOnlyList<RoleResponse> _roles = [];
+    private readonly Dictionary<string, IReadOnlyList<EmployeeModelInferenceUsageResponse>> _usage = [];
+    private bool _loading = true;
+    private bool _includeArchived;
+    private string? _error;
+    private bool _editingProfile;
+    private bool _profileSaving;
+    private string _profileName = string.Empty;
+    private string? _profileEmail;
+    private Guid? _profileRoleId;
+    private Guid? _profileManagerId;
+    private string? _profileError;
+    private readonly List<BreadcrumbItem> _breadcrumbs = [];
+    private static readonly (string Key, string Label)[] UsageWindows = [("24h", "Last 24 hours"), ("7d", "Last 7 days"), ("30d", "Last 30 days")];
+    private string EmployeeTypeLabel => _details?.Employee.EmployeeType == 1 ? "Agent employee" : "Human employee";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true; _error = null; _breadcrumbs.Clear();
+        _breadcrumbs.Add(new("Employees", $"/organizations/{OrganizationId}/employees"));
+        try
+        {
+            _details = await Http.GetFromJsonAsync<EmployeeDetailsResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/details");
+            if (_details is null) throw new InvalidOperationException("The employee response was empty.");
+            _employees = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>($"api/core/organizations/{OrganizationId}/users") ?? [];
+            _roles = await Http.GetFromJsonAsync<IReadOnlyList<RoleResponse>>($"api/organizations/{OrganizationId}/roles") ?? [];
+            _breadcrumbs.Add(new(_details.Employee.DisplayName, null, true));
+            if (_details.Permissions.CanViewSensitive)
+            {
+                await Task.WhenAll(LoadPersonalBoardAsync(), LoadAssignmentsAsync(), LoadUsageAsync());
+                if (_details.Employee.AgentInstallationId.HasValue)
+                {
+                    try
+                    {
+                        var runtimeTask = Http.GetFromJsonAsync<AgentRuntimeReadinessResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/runtime");
+                        var operationsTask = Http.GetFromJsonAsync<AgentInstallationResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/operations");
+                        var historyTask = Http.GetFromJsonAsync<IReadOnlyList<AgentRuntimeRunResponse>>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/runtime-history");
+                        await Task.WhenAll(runtimeTask, operationsTask, historyTask);
+                        _runtime = await runtimeTask; _installation = await operationsTask;
+                        _runtimeRuns = await historyTask ?? [];
+                        try { _configuration = await Http.GetFromJsonAsync<AgentConfigurationView>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/configuration"); } catch { _configuration = null; }
+                        try { _buildLog = await Http.GetFromJsonAsync<AgentBuildLogResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/build-log"); } catch { _buildLog = null; }
+                        try { _memorySummary = await Http.GetFromJsonAsync<AgentMemorySummaryResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/summary"); } catch { _memorySummary = null; }
+                    }
+                    catch { _runtime = null; _installation = null; _runtimeRuns = []; _configuration = null; _buildLog = null; _memorySummary = null; }
+                }
+            }
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _loading = false; }
+    }
+    private async Task LoadPersonalBoardAsync() => _personalBoard = await Http.GetFromJsonAsync<Wire.PersonalTodoBoard>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/personal-board?includeArchived={_includeArchived.ToString().ToLowerInvariant()}");
+    private async Task SetIncludeArchivedAsync(bool value) { _includeArchived = value; await LoadPersonalBoardAsync(); }
+    private async Task LoadAssignmentsAsync() => _assigned = await Http.GetFromJsonAsync<EmployeeAssignedWorkResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/assignments");
+    private async Task LoadUsageAsync()
+    {
+        foreach (var window in UsageWindows)
+        {
+            try
+            {
+                var response = await Http.GetFromJsonAsync<InferenceAnalyticsResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/usage?window={window.Key}");
+                _usage[window.Key] = response?.Employees.Where(x => x.EmployeeId == EmployeeId).ToList() ?? [];
+            }
+            catch { _usage[window.Key] = []; }
+        }
+    }
+    private IReadOnlyList<EmployeeModelInferenceUsageResponse>? UsageFor(string window) => _usage.GetValueOrDefault(window);
+    private void ToggleProfileEdit()
+    {
+        _editingProfile = !_editingProfile; _profileError = null;
+        if (!_editingProfile || _details is null) return;
+        _profileName = _details.Employee.DisplayName; _profileEmail = _details.Employee.Email;
+        _profileRoleId = _details.Employee.RoleId; _profileManagerId = _details.Employee.ReportsToOrganizationUserId;
+    }
+    private async Task SaveProfileAsync()
+    {
+        if (_details is null) return;
+        _profileSaving = true; _profileError = null;
+        try
+        {
+            var response = await Http.PutAsJsonAsync($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/profile",
+                new UpdateEmployeeProfileRequest(_profileName, _profileEmail, _profileRoleId,
+                    _profileManagerId, _details.Employee.Revision));
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
+            _details = await response.Content.ReadFromJsonAsync<EmployeeDetailsResponse>()
+                ?? throw new InvalidOperationException("The updated employee response was empty.");
+            _editingProfile = false;
+        }
+        catch (Exception exception) { _profileError = exception.Message; }
+        finally { _profileSaving = false; }
+    }
+    private static string RelationshipLabel(string value) => value switch { "DirectAssignee" => "Direct assignee", "AccountableOwner" => "Accountable owner", "StageAssignee" => "Stage assignee", "StageAgent" => "Stage agent", _ => value };
+}

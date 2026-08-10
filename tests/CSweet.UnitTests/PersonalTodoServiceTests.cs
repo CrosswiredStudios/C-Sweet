@@ -25,12 +25,13 @@ public sealed class PersonalTodoServiceTests
         await service.EnsureBoardAsync(setup.Organization.Id, setup.Agent.Id);
 
         var board = Assert.Single(await db.WorkBoards.Include(x => x.Columns).ToListAsync());
-        Assert.True(board.IsPersonalTodo);
-        Assert.Equal(setup.Agent.Id, board.PersonalTodoOwnerOrganizationUserId);
+        Assert.Equal(WorkBoardKind.Personal, board.Kind);
+        Assert.Equal(setup.Agent.Id, board.OwnerOrganizationUserId);
         Assert.Equal(
-            [WorkBoardColumnCategory.ToDo, WorkBoardColumnCategory.InProgress, WorkBoardColumnCategory.Done],
+            [WorkBoardColumnCategory.ToDo, WorkBoardColumnCategory.InProgress,
+             WorkBoardColumnCategory.Blocked, WorkBoardColumnCategory.Done],
             board.Columns.OrderBy(x => x.Position).Select(x => x.Category).ToArray());
-        Assert.Equal(7, ActiveGrants(db, board.Id, GrantSubjectKind.AgentInstallation,
+        Assert.Equal(PersonalTodoActions.All.Count, ActiveGrants(db, board.Id, GrantSubjectKind.AgentInstallation,
             setup.Agent.AgentInstallationId!.Value).Count());
         Assert.Equal(4, ActiveGrants(db, board.Id, GrantSubjectKind.OrganizationUser,
             setup.FirstManager.Id).Count());
@@ -66,7 +67,8 @@ public sealed class PersonalTodoServiceTests
         second = await service.ReorderAsync(setup.Organization.Id, manager,
             new Wire.ReorderPersonalTodoItemRequest(second.Id, first.Id, second.Revision, "reorder"));
         var directory = await service.ListAsync(setup.Organization.Id, manager);
-        Assert.Equal([second.Id, first.Id], Assert.Single(directory.Boards).Items.Select(x => x.Id).ToArray());
+        Assert.Equal([second.Id, first.Id], directory.Boards.Single(x =>
+            x.OwnerOrganizationUserId == setup.Agent.Id).Items.Select(x => x.Id).ToArray());
 
         var claimEventId = Guid.NewGuid();
         var claimed = await db.CoreWorkTasks.SingleAsync(x => x.Id == second.Id);
@@ -74,8 +76,8 @@ public sealed class PersonalTodoServiceTests
             x.Category == WorkBoardColumnCategory.InProgress);
         claimed.Status = WorkTaskStatus.Running;
         claimed.BoardColumnId = doing.Id;
-        claimed.PersonalTodoClaimEventId = claimEventId;
-        claimed.PersonalTodoClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
+        claimed.ClaimEventId = claimEventId;
+        claimed.ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
         claimed.Revision++;
         await db.SaveChangesAsync();
 
@@ -114,6 +116,101 @@ public sealed class PersonalTodoServiceTests
         Assert.Equal(first.Id, replay.Id);
         Assert.Equal(setup.Agent.Id, first.OwnerOrganizationUserId);
         Assert.Single(await db.CoreWorkTasks.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ReconcileQueuesAReplacementWakeForStrandedReadyAgentWork()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        await service.AddAsync(setup.Organization.Id,
+            new PersonalTodoActor(setup.FirstManager.Id, null),
+            Add("Stranded task", "stranded", setup.Agent.Id));
+        var original = await db.AgentPlatformEventOutbox.SingleAsync();
+        original.Status = AgentPlatformEventOutboxStatus.Published;
+        original.OccurredAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        original.PublishedAt = original.OccurredAt;
+        await db.SaveChangesAsync();
+
+        await service.ReconcileAsync();
+
+        Assert.Equal(2, await db.AgentPlatformEventOutbox.CountAsync(x =>
+            x.EventType == Wire.PersonalTodoEvents.Available));
+        Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.Status == AgentPlatformEventOutboxStatus.Pending).ToListAsync());
+    }
+
+    [Fact]
+    public async Task TicketMentionsAreValidatedPersistedAndReturnedAsAuthoritativeIdentities()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var manager = new PersonalTodoActor(setup.FirstManager.Id, null);
+        var request = Add("Tell @Morgan a joke", "mentioned", setup.Agent.Id) with
+        {
+            Mentions =
+            [
+                new Wire.WorkItemMentionInput(setup.FirstManager.Id,
+                    Wire.WorkItemMentionFields.Title, 5, 7)
+            ]
+        };
+
+        var item = await service.AddAsync(setup.Organization.Id, manager, request);
+
+        Assert.Equal(setup.FirstManager.Id, Assert.Single(item.Mentions).OrganizationUserId);
+        var span = Assert.Single(item.MentionSpans);
+        Assert.Equal("@Morgan", span.DisplayText);
+        Assert.Equal(Wire.WorkItemMentionFields.Title, span.Field);
+        Assert.Equal("@Morgan", item.Title.Substring(span.Offset, span.Length));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.AddAsync(
+            setup.Organization.Id, manager,
+            request with
+            {
+                IdempotencyKey = "malformed",
+                Mentions =
+                [
+                    new Wire.WorkItemMentionInput(setup.SecondManager.Id,
+                        Wire.WorkItemMentionFields.Title, 5, 7)
+                ]
+            }));
+    }
+
+    [Fact]
+    public async Task HumanOwnerCanCreateTransitionEditAndArchiveWithoutASecondTaskEngine()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        setup.FirstManager.ApplicationUserId = Guid.NewGuid();
+        await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var actor = new PersonalTodoActor(setup.FirstManager.Id, null);
+
+        var item = await service.AddAsync(setup.Organization.Id, actor,
+            Add("Review roadmap", "human-create", null));
+        item = await service.SetHumanStatusAsync(setup.Organization.Id, actor,
+            new(item.Id, Wire.PersonalTodoStatuses.Running, item.Revision, null, null, "doing"));
+        Assert.Equal(Wire.PersonalTodoStatuses.Running, item.Status);
+
+        item = await service.UpdateAsync(setup.Organization.Id, actor,
+            new(item.Id, "Review product roadmap", "Prepare decisions", Wire.WorkPriorities.High,
+                null, item.Revision, "edit"));
+        Assert.Equal("Review product roadmap", item.Title);
+
+        item = await service.SetHumanStatusAsync(setup.Organization.Id, actor,
+            new(item.Id, Wire.PersonalTodoStatuses.Blocked, item.Revision, null,
+                "Waiting for finance.", "block"));
+        Assert.Equal("Waiting for finance.", item.BlockReason);
+
+        item = await service.ArchiveAsync(setup.Organization.Id, actor,
+            new(item.Id, item.Revision, "archive"));
+        Assert.Empty((await service.ListAsync(setup.Organization.Id, actor)).Boards.Single(x =>
+            x.OwnerOrganizationUserId == setup.FirstManager.Id).Items);
+        Assert.NotNull((await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id)).ArchivedAt);
     }
 
     private static Wire.AddPersonalTodoItemRequest Add(string title, string key, Guid? target) =>

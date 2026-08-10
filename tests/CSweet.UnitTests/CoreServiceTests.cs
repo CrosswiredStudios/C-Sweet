@@ -6,6 +6,7 @@ using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Domain.Security;
+using CSweet.Domain.WorkManagement;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
@@ -303,10 +304,10 @@ public class CoreServiceTests
         Assert.False(runtimeManager.Interactive);
         Assert.False(runtimeManager.Restarted);
         var personalBoard = await dbContext.WorkBoards.Include(x => x.Columns).SingleAsync(x =>
-            x.PersonalTodoOwnerOrganizationUserId == result.OrganizationUser.Id);
-        Assert.True(personalBoard.IsPersonalTodo);
-        Assert.Equal(3, personalBoard.Columns.Count);
-        Assert.Equal(7, await dbContext.ScopedActionGrants.CountAsync(x =>
+            x.OwnerOrganizationUserId == result.OrganizationUser.Id);
+        Assert.Equal(WorkBoardKind.Personal, personalBoard.Kind);
+        Assert.Equal(4, personalBoard.Columns.Count);
+        Assert.Equal(PersonalTodoActions.All.Count, await dbContext.ScopedActionGrants.CountAsync(x =>
             x.ScopeKind == GrantScopeKind.Board && x.ScopeId == personalBoard.Id &&
             x.SubjectKind == GrantSubjectKind.AgentInstallation &&
             x.SubjectId == installation.Id && x.RevokedAt == null &&

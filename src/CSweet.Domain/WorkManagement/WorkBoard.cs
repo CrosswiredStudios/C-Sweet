@@ -7,8 +7,15 @@ public enum WorkBoardColumnCategory
 {
     ToDo,
     InProgress,
+    Blocked,
     Done,
     Cancelled
+}
+
+public enum WorkBoardKind
+{
+    Standard,
+    Personal
 }
 
 public enum WorkBoardWipPolicy
@@ -34,8 +41,8 @@ public sealed class WorkBoard
     public Guid? TeamId { get; set; }
     public Guid? WorkstreamId { get; set; }
     public Guid? ManagerOrganizationUserId { get; set; }
-    public Guid? PersonalTodoOwnerOrganizationUserId { get; set; }
-    public bool IsPersonalTodo { get; set; }
+    public Guid? OwnerOrganizationUserId { get; set; }
+    public WorkBoardKind Kind { get; set; } = WorkBoardKind.Standard;
     public string Key { get; set; } = string.Empty;
     public long NextItemSequence { get; set; } = 1;
     public string Name { get; set; } = string.Empty;

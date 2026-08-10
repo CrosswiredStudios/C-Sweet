@@ -128,6 +128,52 @@ public sealed class AgentPlatformEventDispatcherTests
         Assert.Equal([subscribed.Id], runtime.QueuedInstallationIds);
     }
 
+    [Fact]
+    public async Task PersonalTodoWakeRemainsPendingUntilTargetSubscriptionIsGranted()
+    {
+        var databaseName = Guid.NewGuid().ToString("N");
+        var runtime = new RecordingRuntimeManager();
+        var services = new ServiceCollection();
+        services.AddDbContext<CSweetDbContext>(options => options.UseInMemoryDatabase(databaseName));
+        services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<AgentWorkInbox>();
+        services.AddScoped<AgentWorkRouter>();
+        services.AddSingleton<IAgentRuntimeManager>(runtime);
+        await using var provider = services.BuildServiceProvider();
+        var organizationId = Guid.NewGuid();
+        var installation = Installation(organizationId, []);
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            db.Add(installation);
+            var now = DateTimeOffset.UtcNow;
+            db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId,
+                TargetInstallationId = installation.Id,
+                EventType = CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available,
+                DataJson = "{}", IdempotencyKey = "personal-todo-wake",
+                Status = AgentPlatformEventOutboxStatus.Pending,
+                NextAttemptAt = now, OccurredAt = now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var dispatcher = new AgentPlatformEventDispatcher(
+            provider.GetRequiredService<IServiceScopeFactory>(), TimeProvider.System,
+            NullLogger<AgentPlatformEventDispatcher>.Instance);
+        await dispatcher.DispatchPendingAsync(CancellationToken.None);
+
+        await using var verification = provider.CreateAsyncScope();
+        var outbox = await verification.ServiceProvider.GetRequiredService<CSweetDbContext>()
+            .AgentPlatformEventOutbox.SingleAsync();
+        Assert.Equal(AgentPlatformEventOutboxStatus.Pending, outbox.Status);
+        Assert.Equal(1, outbox.Attempts);
+        Assert.True(outbox.NextAttemptAt > outbox.OccurredAt);
+        Assert.Empty(runtime.QueuedInstallationIds);
+    }
+
     private static AgentInstallation Installation(Guid organizationId, IReadOnlyList<string> subscriptions)
     {
         var installation = new AgentInstallation

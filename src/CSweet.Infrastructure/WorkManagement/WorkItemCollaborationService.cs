@@ -118,8 +118,6 @@ public sealed class WorkItemCollaborationService(
         var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
         var sourceDecision = await RequireAsync(
             organizationId, sourceBoardId, member, WorkItemActions.Transfer, cancellationToken);
-        var targetDecision = await RequireAsync(
-            organizationId, request.TargetBoardId, member, WorkItemActions.Transfer, cancellationToken);
         ValidateMutation("transfer", request.IdempotencyKey, "Transfer");
         var replay = await db.WorkItemActivities.AsNoTracking().SingleOrDefaultAsync(x =>
             x.ActorKind == GrantSubjectKind.OrganizationUser &&
@@ -149,6 +147,14 @@ public sealed class WorkItemCollaborationService(
                 x.OrganizationId == organizationId &&
                 x.ArchivedAt == null, cancellationToken)
             ?? throw new KeyNotFoundException("Target board was not found.");
+        var targetCreateAction = targetBoard.Kind == WorkBoardKind.Personal
+            ? PersonalTodoActions.Add : WorkItemActions.Create;
+        var targetReadAction = targetBoard.Kind == WorkBoardKind.Personal
+            ? PersonalTodoActions.Read : WorkBoardActions.Read;
+        var targetDecision = await RequireAsync(
+            organizationId, request.TargetBoardId, member, targetCreateAction, cancellationToken);
+        _ = await RequireAsync(
+            organizationId, request.TargetBoardId, member, targetReadAction, cancellationToken);
         var targetColumn = request.TargetColumnId.HasValue
             ? targetBoard.Columns.SingleOrDefault(x => x.Id == request.TargetColumnId.Value)
             : targetBoard.Columns.OrderBy(x => x.Position)
@@ -163,10 +169,15 @@ public sealed class WorkItemCollaborationService(
         item.BoardId = targetBoard.Id;
         item.BoardColumnId = targetColumn.Id;
         item.SprintId = null;
+        item.ClaimEventId = null;
+        item.ClaimExpiresAt = null;
         item.BoardRank = (await db.CoreWorkTasks
             .Where(x => x.BoardColumnId == targetColumn.Id)
             .MaxAsync(x => (long?)x.BoardRank, cancellationToken) ?? 0) + 1024;
         item.Status = StatusFor(targetColumn.Category);
+        item.IdentifierSequence = targetBoard.NextItemSequence;
+        item.Identifier = $"{targetBoard.Key}-{targetBoard.NextItemSequence}";
+        targetBoard.NextItemSequence++;
         item.Revision++;
         item.UpdatedAt = now;
         AddActivity(
@@ -393,6 +404,7 @@ public sealed class WorkItemCollaborationService(
     {
         WorkBoardColumnCategory.ToDo => WorkTaskStatus.Ready,
         WorkBoardColumnCategory.InProgress => WorkTaskStatus.Running,
+        WorkBoardColumnCategory.Blocked => WorkTaskStatus.Blocked,
         WorkBoardColumnCategory.Done => WorkTaskStatus.Completed,
         WorkBoardColumnCategory.Cancelled => WorkTaskStatus.Cancelled,
         _ => WorkTaskStatus.Ready

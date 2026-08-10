@@ -1,0 +1,313 @@
+@using Wire = CSweet.WorkManagement.Contracts
+@using CSweet.Contracts.WorkManagement
+@using CSweet.Contracts.Core
+@inject HttpClient Http
+
+<MudStack Spacing="3">
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        This is an operational work queue. It is visible to the employee and their management chain.
+    </MudAlert>
+    <MudStack Row="true" Spacing="1">
+        <MudSwitch T="bool" @bind-Value="_showCompleted" Label="Show completed" Color="Color.Primary" />
+        @if (IncludeArchivedChanged.HasDelegate)
+        { <MudSwitch T="bool" Value="IncludeArchived" ValueChanged="SetIncludeArchivedAsync" Label="Show archived" Color="Color.Primary" /> }
+    </MudStack>
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error">@_error</MudAlert>
+    }
+    @if (CanAdd)
+    {
+        <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+            <MudText Typo="Typo.subtitle1">Add personal task</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="5">
+                    <StructuredMentionTextField Label="Title" Value="_title" ValueChanged="@(value => _title = value)"
+                        Mentions="_titleMentions" MentionsChanged="@(value => _titleMentions = value)"
+                        People="_people" Field="@Wire.WorkItemMentionFields.Title" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <StructuredMentionTextField Label="Description" Value="@(_description ?? string.Empty)"
+                        ValueChanged="@(value => _description = value)" Mentions="_descriptionMentions"
+                        MentionsChanged="@(value => _descriptionMentions = value)" People="_people"
+                        Field="@Wire.WorkItemMentionFields.Description" />
+                </MudItem>
+                <MudItem xs="8" md="2">
+                    <MudSelect T="string" @bind-Value="_priority" Label="Priority" Variant="Variant.Outlined">
+                        @foreach (var priority in Priorities)
+                        {
+                            <MudSelectItem T="string" Value="@priority">@priority</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="4" md="1"><MudButton FullWidth="true" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AddAsync">Add</MudButton></MudItem>
+            </MudGrid>
+        </MudPaper>
+    }
+    <div class="employee-personal-kanban">
+        @foreach (var column in Columns)
+        {
+            <MudPaper Outlined="true" Elevation="0" Class="pa-3 employee-personal-column">
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+                    <MudText Typo="Typo.h6">@column.Label</MudText>
+                    <MudChip T="int" Size="Size.Small">@ItemsFor(column.Status).Count</MudChip>
+                </MudStack>
+                <MudStack Spacing="2">
+                    @foreach (var item in ItemsFor(column.Status))
+                    {
+                        <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                            @if (_editingId == item.Id)
+                            {
+                                <StructuredMentionTextField Label="Title" Value="_editTitle" ValueChanged="@(value => _editTitle = value)"
+                                    Mentions="_editTitleMentions" MentionsChanged="@(value => _editTitleMentions = value)"
+                                    People="_people" Field="@Wire.WorkItemMentionFields.Title" Margin="Margin.Dense" />
+                                <StructuredMentionTextField Label="Description" Value="@(_editDescription ?? string.Empty)"
+                                    ValueChanged="@(value => _editDescription = value)" Mentions="_editDescriptionMentions"
+                                    MentionsChanged="@(value => _editDescriptionMentions = value)" People="_people"
+                                    Field="@Wire.WorkItemMentionFields.Description" Margin="Margin.Dense" />
+                                <MudSelect T="string" @bind-Value="_editPriority" Label="Priority" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                    @foreach (var priority in Priorities) { <MudSelectItem T="string" Value="@priority">@priority</MudSelectItem> }
+                                </MudSelect>
+                                <MudStack Row="true" Spacing="1" Class="mt-2">
+                                    <MudButton Size="Size.Small" OnClick="@(() => SaveEditAsync(item))">Save</MudButton>
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="CancelEdit">Cancel</MudButton>
+                                </MudStack>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.subtitle2"><StructuredMentionText Text="@item.Title" Mentions="@item.MentionSpans" Field="@Wire.WorkItemMentionFields.Title" /></MudText>
+                                @if (!string.IsNullOrWhiteSpace(item.Description)) { <MudText Typo="Typo.body2" Color="Color.Secondary"><StructuredMentionText Text="@item.Description" Mentions="@item.MentionSpans" Field="@Wire.WorkItemMentionFields.Description" /></MudText> }
+                                <MudStack Row="true" Spacing="1" Class="mt-2">
+                                    <MudChip T="string" Size="Size.Small">@item.Priority</MudChip>
+                                    @if (item.DueDate.HasValue) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Due @item.DueDate.Value.ToLocalTime().ToString("MMM d")</MudChip> }
+                                </MudStack>
+                                @if (!string.IsNullOrWhiteSpace(item.BlockReason)) { <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@item.BlockReason</MudAlert> }
+                                <MudStack Row="true" Spacing="1" Class="mt-2" Style="flex-wrap:wrap">
+                                    @if (CanExecute)
+                                    {
+                                        @if (item.Status != Wire.PersonalTodoStatuses.Running) { <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SetStatusAsync(item, Wire.PersonalTodoStatuses.Running))">Doing</MudButton> }
+                                        @if (item.Status != Wire.PersonalTodoStatuses.Completed) { <MudButton Size="Size.Small" Color="Color.Success" Variant="Variant.Text" OnClick="@(() => SetStatusAsync(item, Wire.PersonalTodoStatuses.Completed))">Done</MudButton> }
+                                        @if (item.Status != Wire.PersonalTodoStatuses.Blocked) { <MudButton Size="Size.Small" Color="Color.Warning" Variant="Variant.Text" OnClick="@(() => BeginBlock(item))">Block</MudButton> }
+                                        @if (item.Status != Wire.PersonalTodoStatuses.Ready) { <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SetStatusAsync(item, Wire.PersonalTodoStatuses.Ready))">To do</MudButton> }
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => BeginEdit(item))">Edit</MudButton>
+                                        <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text" OnClick="@(() => ArchiveAsync(item))">Archive</MudButton>
+                                        <MudMenu Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" AriaLabel="More task actions">
+                                            <MudMenuItem OnClick="@(() => BeginTransfer(item))">Transfer to another board</MudMenuItem>
+                                        </MudMenu>
+                                    }
+                                    else if (item.Status == Wire.PersonalTodoStatuses.Blocked && CanAdd)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => RequeueAsync(item))">Requeue</MudButton>
+                                    }
+                                    @if (CanAdd && item.Status == Wire.PersonalTodoStatuses.Ready)
+                                    {
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.KeyboardArrowUp" OnClick="@(() => ReorderAsync(item, -1))" aria-label="Move task up" />
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.KeyboardArrowDown" OnClick="@(() => ReorderAsync(item, 1))" aria-label="Move task down" />
+                                    }
+                                </MudStack>
+                                @if (_blockingId == item.Id)
+                                {
+                                    <MudTextField @bind-Value="_blockReason" Label="Why is this blocked?" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" />
+                                    <MudButton Size="Size.Small" Color="Color.Warning" Disabled="@string.IsNullOrWhiteSpace(_blockReason)" OnClick="@(() => ConfirmBlockAsync(item))">Confirm block</MudButton>
+                                }
+                            }
+                        </MudPaper>
+                    }
+                </MudStack>
+            </MudPaper>
+        }
+    </div>
+    @if (IncludeArchived && ArchivedItems.Count > 0)
+    {
+        <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+            <MudText Typo="Typo.h6">Archived</MudText>
+            @foreach (var item in ArchivedItems)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2">
+                    <div style="flex:1"><MudText Typo="Typo.subtitle2">@item.Title</MudText><MudText Typo="Typo.caption">Archived @item.ArchivedAt?.ToLocalTime().ToString("g")</MudText></div>
+                    @if (CanExecute) { <MudButton Size="Size.Small" OnClick="@(() => RestoreAsync(item))">Restore</MudButton> }
+                </MudStack>
+            }
+        </MudPaper>
+    }
+    @if (_transferItem is not null)
+    {
+        <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+            <MudText Typo="Typo.subtitle1">Transfer “@_transferItem.Title”</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">This moves the canonical task and preserves its ID, comments, provenance, and history.</MudText>
+            <MudStack Row="true" Spacing="2" Class="mt-2">
+                <MudSelect T="Guid?" @bind-Value="_transferBoardId" Label="Destination board" Variant="Variant.Outlined" Style="min-width:18rem">
+                    @foreach (var target in _transferTargets) { <MudSelectItem T="Guid?" Value="@((Guid?)target.Id)">@target.Name</MudSelectItem> }
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Disabled="@(!_transferBoardId.HasValue || _busy)" OnClick="TransferAsync">Transfer</MudButton>
+                <MudButton Variant="Variant.Text" OnClick="CancelTransfer">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public Guid EmployeeId { get; set; }
+    [Parameter, EditorRequired] public Wire.PersonalTodoBoard Board { get; set; } = default!;
+    [Parameter] public bool CanAdd { get; set; }
+    [Parameter] public bool CanExecute { get; set; }
+    [Parameter] public bool IncludeArchived { get; set; }
+    [Parameter] public EventCallback<bool> IncludeArchivedChanged { get; set; }
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+
+    private static readonly string[] Priorities = ["Low", "Medium", "High", "Critical"];
+    private static readonly (string Label, string Status)[] Columns =
+        [("To Do", Wire.PersonalTodoStatuses.Ready), ("Doing", Wire.PersonalTodoStatuses.Running),
+         ("Blocked", Wire.PersonalTodoStatuses.Blocked), ("Done", Wire.PersonalTodoStatuses.Completed)];
+    private string _title = string.Empty;
+    private string? _description;
+    private string _priority = "Medium";
+    private string? _error;
+    private bool _showCompleted;
+    private bool _busy;
+    private Guid? _blockingId;
+    private string? _blockReason;
+    private Guid? _editingId;
+    private string _editTitle = string.Empty;
+    private string? _editDescription;
+    private string _editPriority = "Medium";
+    private IReadOnlyList<Wire.WorkItemMentionInput> _titleMentions = [];
+    private IReadOnlyList<Wire.WorkItemMentionInput> _descriptionMentions = [];
+    private IReadOnlyList<Wire.WorkItemMentionInput> _editTitleMentions = [];
+    private IReadOnlyList<Wire.WorkItemMentionInput> _editDescriptionMentions = [];
+    private IReadOnlyList<OrganizationUserResponse> _people = [];
+    private bool _peopleLoaded;
+    private Wire.PersonalTodoItem? _transferItem;
+    private Guid? _transferBoardId;
+    private IReadOnlyList<WorkBoardSummaryResponse> _transferTargets = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_peopleLoaded && (CanAdd || CanExecute))
+        {
+            try
+            {
+                _people = (await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
+                    $"api/core/organizations/{OrganizationId:D}/users") ?? [])
+                    .Where(x => x.IsActive).OrderBy(x => x.DisplayName).ToList();
+                _peopleLoaded = true;
+            }
+            catch { _people = []; }
+        }
+        if (!CanExecute) return;
+        try
+        {
+            var directory = await Http.GetFromJsonAsync<WorkBoardDirectoryResponse>(
+                $"api/organizations/{OrganizationId}/work/boards");
+            _transferTargets = directory?.Boards.Where(x => !x.IsArchived &&
+                x.AllowedActions.Contains(WorkItemActions.Create) &&
+                x.AllowedActions.Contains(WorkBoardActions.Read)).OrderBy(x => x.Name).ToList() ?? [];
+        }
+        catch { _transferTargets = []; }
+    }
+
+    private IReadOnlyList<Wire.PersonalTodoItem> ItemsFor(string status) => Board.Items
+        .Where(x => x.ArchivedAt is null && x.Status == status &&
+            (_showCompleted || status != Wire.PersonalTodoStatuses.Completed))
+        .OrderBy(x => x.Rank).ToList();
+    private IReadOnlyList<Wire.PersonalTodoItem> ArchivedItems => Board.Items
+        .Where(x => x.ArchivedAt.HasValue).OrderByDescending(x => x.ArchivedAt).ToList();
+    private async Task SetIncludeArchivedAsync(bool value) => await IncludeArchivedChanged.InvokeAsync(value);
+
+    private async Task AddAsync() => await MutateAsync(async () =>
+    {
+        if (string.IsNullOrWhiteSpace(_title)) throw new InvalidOperationException("A title is required.");
+        var request = new Wire.AddPersonalTodoItemRequest(_title, _description, _priority, null,
+            $"employee-details:add:{Guid.NewGuid():N}", EmployeeId,
+            Mentions: _titleMentions.Concat(_descriptionMentions).ToList());
+        await EnsureSuccessAsync(await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId}/work/personal-todos/items", request));
+        _title = string.Empty; _description = null; _priority = "Medium";
+        _titleMentions = []; _descriptionMentions = [];
+    });
+
+    private async Task SetStatusAsync(Wire.PersonalTodoItem item, string status, string? reason = null) =>
+        await MutateAsync(async () => await EnsureSuccessAsync(await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId}/work/personal-todos/items/status",
+            new Wire.SetHumanPersonalTodoStatusRequest(item.Id, status, item.Revision, null, reason,
+                $"employee-details:status:{item.Id:N}:{Guid.NewGuid():N}"))));
+
+    private void BeginBlock(Wire.PersonalTodoItem item) { _blockingId = item.Id; _blockReason = item.BlockReason; }
+    private async Task ConfirmBlockAsync(Wire.PersonalTodoItem item)
+    { await SetStatusAsync(item, Wire.PersonalTodoStatuses.Blocked, _blockReason); _blockingId = null; _blockReason = null; }
+
+    private void BeginEdit(Wire.PersonalTodoItem item)
+    {
+        _editingId = item.Id; _editTitle = item.Title; _editDescription = item.Description;
+        _editPriority = item.Priority;
+        _editTitleMentions = item.MentionSpans.Where(x => x.Field == Wire.WorkItemMentionFields.Title)
+            .Select(x => new Wire.WorkItemMentionInput(x.OrganizationUserId, x.Field, x.Offset, x.Length)).ToList();
+        _editDescriptionMentions = item.MentionSpans.Where(x => x.Field == Wire.WorkItemMentionFields.Description)
+            .Select(x => new Wire.WorkItemMentionInput(x.OrganizationUserId, x.Field, x.Offset, x.Length)).ToList();
+    }
+    private void CancelEdit() => _editingId = null;
+    private async Task SaveEditAsync(Wire.PersonalTodoItem item) => await MutateAsync(async () =>
+    {
+        await EnsureSuccessAsync(await Http.PutAsJsonAsync(
+            $"api/organizations/{OrganizationId}/work/personal-todos/items",
+            new Wire.UpdatePersonalTodoItemRequest(item.Id, _editTitle, _editDescription,
+                _editPriority, item.DueDate, item.Revision, $"employee-details:update:{Guid.NewGuid():N}",
+                _editTitleMentions.Concat(_editDescriptionMentions).ToList())));
+        _editingId = null;
+    });
+    private async Task ArchiveAsync(Wire.PersonalTodoItem item) => await MutateAsync(async () =>
+        await EnsureSuccessAsync(await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId}/work/personal-todos/items/archive",
+            new Wire.ArchivePersonalTodoItemRequest(item.Id, item.Revision,
+                $"employee-details:archive:{Guid.NewGuid():N}"))));
+    private async Task RestoreAsync(Wire.PersonalTodoItem item) => await MutateAsync(async () =>
+        await EnsureSuccessAsync(await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId}/work/personal-todos/items/restore",
+            new Wire.RestorePersonalTodoItemRequest(item.Id, item.Revision,
+                $"employee-details:restore:{Guid.NewGuid():N}"))));
+    private async Task RequeueAsync(Wire.PersonalTodoItem item) => await MutateAsync(async () =>
+        await EnsureSuccessAsync(await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId}/work/personal-todos/items/requeue",
+            new Wire.RequeuePersonalTodoItemRequest(item.Id, item.Revision,
+                $"employee-details:requeue:{Guid.NewGuid():N}"))));
+    private async Task ReorderAsync(Wire.PersonalTodoItem item, int direction)
+    {
+        var ready = ItemsFor(Wire.PersonalTodoStatuses.Ready).ToList();
+        var oldIndex = ready.FindIndex(x => x.Id == item.Id);
+        var newIndex = Math.Clamp(oldIndex + direction, 0, ready.Count - 1);
+        if (oldIndex < 0 || oldIndex == newIndex) return;
+        ready.RemoveAt(oldIndex);
+        var beforeItemId = newIndex >= ready.Count ? (Guid?)null : ready[newIndex].Id;
+        await MutateAsync(async () => await EnsureSuccessAsync(await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId}/work/personal-todos/items/reorder",
+            new Wire.ReorderPersonalTodoItemRequest(item.Id, beforeItemId, item.Revision,
+                $"employee-details:reorder:{Guid.NewGuid():N}"))));
+    }
+    private void BeginTransfer(Wire.PersonalTodoItem item) { _transferItem = item; _transferBoardId = null; }
+    private void CancelTransfer() { _transferItem = null; _transferBoardId = null; }
+    private async Task TransferAsync()
+    {
+        if (_transferItem is null || !_transferBoardId.HasValue) return;
+        await MutateAsync(async () => await EnsureSuccessAsync(await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId}/work/boards/{_transferItem.BoardId}/items/{_transferItem.Id}/transfer",
+            new TransferWorkItemRequest(_transferBoardId.Value, null, _transferItem.Revision,
+                $"personal-board-transfer:{Guid.NewGuid():N}"))));
+        CancelTransfer();
+    }
+
+    private async Task MutateAsync(Func<Task> action)
+    {
+        _busy = true; _error = null;
+        try { await action(); await RefreshRequested.InvokeAsync(); }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var message = await response.Content.ReadAsStringAsync();
+        throw new InvalidOperationException(string.IsNullOrWhiteSpace(message)
+            ? $"The task update failed ({(int)response.StatusCode})." : message);
+    }
+}

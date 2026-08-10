@@ -70,10 +70,49 @@ public static class PersonalTodoActions
     public const string Complete = WorkManagementCapabilityNames.PersonalTodoComplete;
     public const string Block = WorkManagementCapabilityNames.PersonalTodoBlock;
     public const string Release = WorkManagementCapabilityNames.PersonalTodoRelease;
+    public const string Update = WorkManagementCapabilityNames.PersonalTodoUpdate;
+    public const string Archive = WorkManagementCapabilityNames.PersonalTodoArchive;
+    public const string Restore = WorkManagementCapabilityNames.PersonalTodoRestore;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Add, Reorder, Requeue, Claim, Complete, Block, Release];
+        [Read, Add, Reorder, Requeue, Claim, Complete, Block, Release, Update, Archive, Restore];
 }
+
+public sealed record EmployeeDetailsPermissions(
+    bool CanViewSensitive,
+    bool CanEditIdentity,
+    bool CanManageStructure,
+    bool CanManagePersonalBoard,
+    bool IsSelf,
+    bool CanExecutePersonalWork);
+
+public sealed record EmployeeDetailsResponse(
+    CSweet.Contracts.Core.OrganizationUserResponse Employee,
+    CSweet.Contracts.Core.RoleResponse? Role,
+    CSweet.Contracts.Core.WorkerResponse? Worker,
+    CSweet.Contracts.Core.OrganizationUserResponse? Manager,
+    IReadOnlyList<CSweet.Contracts.Core.OrganizationUserResponse> DirectReports,
+    IReadOnlyList<CSweet.Contracts.Core.TeamSummaryResponse> Teams,
+    EmployeeDetailsPermissions Permissions);
+
+public sealed record UpdateEmployeeProfileRequest(
+    string DisplayName,
+    string? Email,
+    Guid? RoleId,
+    Guid? ReportsToOrganizationUserId,
+    long ExpectedRevision);
+
+public sealed record EmployeeAssignedWorkItemResponse(
+    CSweet.WorkManagement.Contracts.WorkItemResponse Item,
+    string BoardName,
+    string ColumnName,
+    string? SprintName,
+    IReadOnlyList<string> Relationships,
+    bool CanOpenBoard);
+
+public sealed record EmployeeAssignedWorkResponse(
+    Guid EmployeeId,
+    IReadOnlyList<EmployeeAssignedWorkItemResponse> Items);
 
 public sealed record WorkBoardDirectoryQuery(
     string? Search = null,
@@ -187,6 +226,7 @@ public sealed record WorkBoardItemResponse(
     public string? Identifier { get; init; }
     public Guid? AccountableOrganizationUserId { get; init; }
     public IReadOnlyList<WorkStageAssignment> StageAssignments { get; init; } = [];
+    public IReadOnlyList<WorkItemMentionSpan> Mentions { get; init; } = [];
 }
 
 public sealed record CreateBoardWorkItemRequest(
@@ -200,6 +240,7 @@ public sealed record CreateBoardWorkItemRequest(
 {
     public Guid? AccountableOrganizationUserId { get; init; }
     public IReadOnlyList<WorkStageAssignment> StageAssignments { get; init; } = [];
+    public IReadOnlyList<WorkItemMentionInput> Mentions { get; init; } = [];
 }
 
 public sealed record MoveBoardWorkItemRequest(

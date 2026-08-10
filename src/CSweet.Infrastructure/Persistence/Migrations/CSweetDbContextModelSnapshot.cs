@@ -2498,6 +2498,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ReportsToOrganizationUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
                     b.Property<Guid?>("RoleId")
                         .HasColumnType("uuid");
 
@@ -3216,6 +3220,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("AccountableOrganizationUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("AssignedAgentInstallationId")
                         .HasColumnType("uuid");
 
@@ -3231,6 +3238,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<long>("AssignmentRevision")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("BlockReason")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
                     b.Property<Guid?>("BoardColumnId")
                         .HasColumnType("uuid");
 
@@ -3240,11 +3251,29 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<long>("BoardRank")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("CausationId")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid?>("ClaimEventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ClaimExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("CreatedByOrganizationUserId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("CreationIdempotencyKey")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
 
                     b.Property<string>("DeliverySpecificationJson")
                         .HasColumnType("text");
@@ -3306,24 +3335,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ParentWorkTaskId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("PersonalTodoBlockReason")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
-                    b.Property<Guid?>("PersonalTodoClaimEventId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("PersonalTodoClaimExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PersonalTodoIdempotencyKey")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
-
-                    b.Property<string>("PersonalTodoResultSummary")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
                     b.Property<string>("Priority")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -3341,6 +3352,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("RequiresApproval")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("ResultSummary")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
 
                     b.Property<long>("Revision")
                         .HasColumnType("bigint");
@@ -3361,6 +3376,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid?>("StrategicObjectiveId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("StructuredMentionsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -3400,15 +3419,17 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"IdentifierSequence\" IS NOT NULL");
 
-                    b.HasIndex("CreatedByOrganizationUserId", "PersonalTodoIdempotencyKey")
+                    b.HasIndex("CreatedByOrganizationUserId", "CreationIdempotencyKey")
                         .IsUnique()
-                        .HasFilter("\"PersonalTodoIdempotencyKey\" IS NOT NULL");
+                        .HasFilter("\"CreationIdempotencyKey\" IS NOT NULL");
 
                     b.HasIndex("ParentWorkTaskId", "QualityFindingFingerprint")
                         .IsUnique()
                         .HasFilter("\"QualityFindingFingerprint\" IS NOT NULL");
 
                     b.HasIndex("SprintId", "BoardRank");
+
+                    b.HasIndex("BoardId", "ArchivedAt", "Status", "BoardRank");
 
                     b.ToTable("CoreWorkTasks", t =>
                         {
@@ -7482,13 +7503,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDefault")
                         .HasColumnType("boolean");
 
-                    b.Property<bool>("IsPersonalTodo")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasMaxLength(12)
                         .HasColumnType("character varying(12)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
 
                     b.Property<Guid?>("ManagerOrganizationUserId")
                         .HasColumnType("uuid");
@@ -7504,7 +7527,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("PersonalTodoOwnerOrganizationUserId")
+                    b.Property<Guid?>("OwnerOrganizationUserId")
                         .HasColumnType("uuid");
 
                     b.Property<long>("Revision")
@@ -7523,9 +7546,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ManagerOrganizationUserId");
 
-                    b.HasIndex("PersonalTodoOwnerOrganizationUserId")
+                    b.HasIndex("OwnerOrganizationUserId")
                         .IsUnique()
-                        .HasFilter("\"PersonalTodoOwnerOrganizationUserId\" IS NOT NULL");
+                        .HasFilter("\"OwnerOrganizationUserId\" IS NOT NULL");
 
                     b.HasIndex("TeamId");
 
@@ -10234,7 +10257,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.HasOne("CSweet.Domain.Core.OrganizationUser", null)
                         .WithMany()
-                        .HasForeignKey("PersonalTodoOwnerOrganizationUserId")
+                        .HasForeignKey("OwnerOrganizationUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("CSweet.Domain.Core.OrganizationTeam", null)

@@ -152,13 +152,19 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         Write(WorkItemActions.Transfer, "transfer_work_item",
             "Transfer one canonical, non-hierarchical work item between two granted boards."),
         Read(PersonalTodoActions.Read, "list_personal_todos",
-            "List this agent's protected personal to-do board and boards of its direct reports."),
+            "List this employee's personal board and boards in its recursive reporting subtree."),
         Write(PersonalTodoActions.Add, "add_personal_todo",
-            "Add durable personal work for this agent or one direct-report agent. Omit targetOrganizationUserId for self."),
+            "Add durable personal work for this employee or one reporting descendant. Omit targetOrganizationUserId for self."),
         Write(PersonalTodoActions.Reorder, "reorder_personal_todo",
-            "Reorder ready personal work for a direct-report agent."),
+            "Reorder ready personal work on a granted personal board."),
         Write(PersonalTodoActions.Requeue, "requeue_personal_todo",
             "Return a blocked personal work item to the ready queue."),
+        Write(PersonalTodoActions.Update, "update_personal_todo",
+            "Update this agent's canonical personal work item."),
+        Write(PersonalTodoActions.Archive, "archive_personal_todo",
+            "Archive this agent's personal work item while retaining history."),
+        Write(PersonalTodoActions.Restore, "restore_personal_todo",
+            "Restore an archived personal work item."),
         HiddenWrite(PersonalTodoActions.Claim, "claim_personal_todo",
             "Atomically claim the next personal work item for SDK-managed execution."),
         HiddenWrite(PersonalTodoActions.Complete, "complete_personal_todo",
@@ -441,7 +447,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["boardId","expectedRevision","columns","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"columns":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","required":["name","category","wipPolicy"],"properties":{"id":{"type":["string","null"],"format":"uuid"},"name":{"type":"string","minLength":1,"maxLength":160},"category":{"type":"string","enum":["ToDo","InProgress","Done","Cancelled"]},"wipPolicy":{"type":"string","enum":["Disabled","Warning","HardLimit"]},"wipLimit":{"type":["integer","null"],"minimum":1}},"additionalProperties":false}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkItemActions.Create => Schema("""
-            {"type":"object","required":["boardId","title","kind","priority","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"kind":{"type":"string","enum":["Initiative","Epic","Story","Task","Bug"]},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"columnId":{"type":["string","null"],"format":"uuid"},"parentItemId":{"type":["string","null"],"format":"uuid"},"dueDate":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["boardId","title","kind","priority","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"kind":{"type":"string","enum":["Initiative","Epic","Story","Task","Bug"]},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"columnId":{"type":["string","null"],"format":"uuid"},"parentItemId":{"type":["string","null"],"format":"uuid"},"dueDate":{"type":["string","null"],"format":"date-time"},"mentions":{"type":"array","maxItems":100,"items":{"type":"object","required":["organizationUserId","field","offset","length"],"properties":{"organizationUserId":{"type":"string","format":"uuid"},"field":{"type":"string","enum":["Title","Description"]},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1}},"additionalProperties":false}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkItemActions.Comment => Schema("""
             {"type":"object","required":["boardId","itemId","body","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"body":{"type":"string","minLength":1,"maxLength":8192},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
@@ -460,12 +466,18 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         PersonalTodoActions.Read => EmptyInput,
         PersonalTodoActions.Add => Schema("""
-            {"type":"object","required":["title","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"dueDate":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"targetOrganizationUserId":{"type":["string","null"],"format":"uuid"},"sourceConversationId":{"type":["string","null"],"format":"uuid"},"sourceMessageId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
+            {"type":"object","required":["title","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"dueDate":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"targetOrganizationUserId":{"type":["string","null"],"format":"uuid"},"sourceConversationId":{"type":["string","null"],"format":"uuid"},"sourceMessageId":{"type":["string","null"],"format":"uuid"},"correlationId":{"type":["string","null"],"maxLength":160},"causationId":{"type":["string","null"],"maxLength":160},"mentions":{"type":"array","maxItems":100,"items":{"type":"object","required":["organizationUserId","field","offset","length"],"properties":{"organizationUserId":{"type":"string","format":"uuid"},"field":{"type":"string","enum":["Title","Description"]},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1}},"additionalProperties":false}}},"additionalProperties":false}
             """),
         PersonalTodoActions.Reorder => Schema("""
             {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"beforeItemId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         PersonalTodoActions.Requeue => Schema("""
+            {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Update => Schema("""
+            {"type":"object","required":["itemId","title","priority","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"dueDate":{"type":["string","null"],"format":"date-time"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"mentions":{"type":"array","maxItems":100,"items":{"type":"object","required":["organizationUserId","field","offset","length"],"properties":{"organizationUserId":{"type":"string","format":"uuid"},"field":{"type":"string","enum":["Title","Description"]},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1}},"additionalProperties":false}}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Archive or PersonalTodoActions.Restore => Schema("""
             {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         PersonalTodoActions.Claim => Schema("""

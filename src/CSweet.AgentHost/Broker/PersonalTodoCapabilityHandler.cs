@@ -46,13 +46,19 @@ public sealed class PersonalTodoCapabilityHandler(
         {
             object result = request.Capability switch
             {
-                PersonalTodoActions.Read => await service.ListAsync(organizationId, actor, token),
+                PersonalTodoActions.Read => await service.ListAsync(organizationId, actor, false, token),
                 PersonalTodoActions.Add => await service.AddAsync(organizationId, actor,
                     Read<Wire.AddPersonalTodoItemRequest>(request), token),
                 PersonalTodoActions.Reorder => await service.ReorderAsync(organizationId, actor,
                     Read<Wire.ReorderPersonalTodoItemRequest>(request), token),
                 PersonalTodoActions.Requeue => await service.RequeueAsync(organizationId, actor,
                     Read<Wire.RequeuePersonalTodoItemRequest>(request), token),
+                PersonalTodoActions.Update => await service.UpdateAsync(organizationId, actor,
+                    Read<Wire.UpdatePersonalTodoItemRequest>(request), token),
+                PersonalTodoActions.Archive => await service.ArchiveAsync(organizationId, actor,
+                    Read<Wire.ArchivePersonalTodoItemRequest>(request), token),
+                PersonalTodoActions.Restore => await service.RestoreAsync(organizationId, actor,
+                    Read<Wire.RestorePersonalTodoItemRequest>(request), token),
                 PersonalTodoActions.Claim => await service.ClaimAsync(organizationId, actor,
                     Read<Wire.ClaimPersonalTodoItemRequest>(request), token),
                 PersonalTodoActions.Complete => await service.CompleteAsync(organizationId, actor,

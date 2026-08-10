@@ -21,4 +21,7 @@ public sealed record WorkTaskResponse(
     string Kind = "Task",
     Guid? ParentWorkTaskId = null,
     Guid? SprintId = null,
-    decimal? EstimatePoints = null);
+    decimal? EstimatePoints = null)
+{
+    public IReadOnlyList<CSweet.WorkManagement.Contracts.WorkItemMentionSpan> Mentions { get; init; } = [];
+}

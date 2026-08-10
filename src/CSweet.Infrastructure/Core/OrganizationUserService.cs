@@ -290,8 +290,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
             OccurredAt = now
         });
         await _dbContext.SaveChangesAsync(cancellationToken);
-        if (user.EmployeeType == EmployeeType.Agent)
-            await _personalTodo.EnsureBoardAsync(organizationId, user.Id, cancellationToken);
+        await _personalTodo.EnsureBoardAsync(organizationId, user.Id, cancellationToken);
         if (transaction is not null)
             await transaction.CommitAsync(cancellationToken);
 

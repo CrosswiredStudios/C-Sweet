@@ -374,7 +374,7 @@ public sealed class WorkManagementCapabilityHandler(
             throw new UnauthorizedAccessException("The installation has no board read grant.");
 
         var query = db.WorkBoards.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId && !x.IsPersonalTodo)
+            .Where(x => x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard)
             .Where(x => organizationRead || boardIds.Contains(x.Id) ||
                         (x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value)));
         if (!input.IncludeArchived)
@@ -446,7 +446,8 @@ public sealed class WorkManagementCapabilityHandler(
                 x.EstimatePoints,
                 x.BoardRank,
                 x.Revision,
-                x.DueDate
+                x.DueDate,
+                x.StructuredMentionsJson
             })
             .ToListAsync(cancellationToken);
         var items = itemRows
@@ -454,7 +455,10 @@ public sealed class WorkManagementCapabilityHandler(
                 x.Id, x.BoardColumnId!.Value, x.ParentWorkTaskId, x.SprintId,
                 x.Kind.ToString(), x.Title, x.Description, x.Status.ToString(),
                 x.Priority.ToString(), x.EstimatePoints, x.BoardRank, x.Revision,
-                x.DueDate))
+                x.DueDate)
+            {
+                Mentions = WorkItemMentionCodec.Deserialize(x.StructuredMentionsJson)
+            })
             .ToList();
         await WriteAuditAsync(
             organizationId, installationId, board.Id, WorkItemActions.Read, itemGrant,
@@ -1269,6 +1273,10 @@ public sealed class WorkManagementCapabilityHandler(
                     "Every delivery dependency must already exist on the same board.");
         }
 
+        var normalized = await WorkItemMentionCodec.NormalizeAndValidateAsync(
+            db, organizationId, input.Title, input.Description, input.Mentions,
+            cancellationToken);
+
         var now = DateTimeOffset.UtcNow;
         var item = new WorkTask
         {
@@ -1281,8 +1289,9 @@ public sealed class WorkManagementCapabilityHandler(
             IdentifierSequence = board.NextItemSequence,
             Identifier = $"{board.Key}-{board.NextItemSequence}",
             Kind = kind,
-            Title = input.Title.Trim(),
-            Description = input.Description?.Trim() ?? string.Empty,
+            Title = normalized.Title,
+            Description = normalized.Description,
+            StructuredMentionsJson = normalized.MentionsJson,
             Status = StatusFor(column.Category),
             Priority = priority,
             BoardRank = (await db.CoreWorkTasks
@@ -1896,7 +1905,7 @@ public sealed class WorkManagementCapabilityHandler(
 
         if (await db.WorkBoards.AsNoTracking().AnyAsync(x =>
                 x.OrganizationId == organizationId &&
-                x.IsPersonalTodo &&
+                x.Kind == WorkBoardKind.Personal &&
                 boardIds.Contains(x.Id), cancellationToken))
             throw new UnauthorizedAccessException(
                 "Personal to-do boards are accessible only through personal-todo actions.");
@@ -2146,6 +2155,7 @@ public sealed class WorkManagementCapabilityHandler(
             item.DeliverySpecificationJson),
         Identifier = item.Identifier,
         AccountableOrganizationUserId = item.AccountableOrganizationUserId,
+        Mentions = WorkItemMentionCodec.Deserialize(item.StructuredMentionsJson),
         StageAssignments = item.StageAssignments.Select(x => new Wire.WorkStageAssignment(
             x.StageKey, x.PrincipalKind.ToString(), x.OrganizationUserId,
             x.AgentInstallationId, x.PlatformAction)).ToList()

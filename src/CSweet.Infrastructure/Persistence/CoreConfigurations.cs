@@ -57,6 +57,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.Email).HasMaxLength(256);
         entity.Property(x => x.EmployeeType).HasConversion<string>().HasMaxLength(16).IsRequired();
         entity.Property(x => x.PermissionLevel).HasConversion<string>().HasMaxLength(16).IsRequired();
+        entity.Property(x => x.Revision).IsConcurrencyToken();
 
         entity.HasOne<ApplicationUser>()
             .WithMany()
@@ -444,9 +445,12 @@ internal static class CoreConfigurations
         entity.Property(x => x.MergeCommitSha).HasMaxLength(128);
         entity.Property(x => x.QualityFindingFingerprint).HasMaxLength(128);
         entity.Property(x => x.Identifier).HasMaxLength(32);
-        entity.Property(x => x.PersonalTodoResultSummary).HasMaxLength(4096);
-        entity.Property(x => x.PersonalTodoBlockReason).HasMaxLength(4096);
-        entity.Property(x => x.PersonalTodoIdempotencyKey).HasMaxLength(160);
+        entity.Property(x => x.ResultSummary).HasMaxLength(4096);
+        entity.Property(x => x.BlockReason).HasMaxLength(4096);
+        entity.Property(x => x.CreationIdempotencyKey).HasMaxLength(160);
+        entity.Property(x => x.CorrelationId).HasMaxLength(160);
+        entity.Property(x => x.CausationId).HasMaxLength(160);
+        entity.Property(x => x.StructuredMentionsJson).HasColumnType("text").IsRequired();
         entity.HasIndex(x => new { x.BoardId, x.Identifier }).IsUnique()
             .HasFilter("\"Identifier\" IS NOT NULL");
         entity.HasIndex(x => new { x.BoardId, x.IdentifierSequence }).IsUnique()
@@ -456,9 +460,10 @@ internal static class CoreConfigurations
             .HasFilter("\"QualityFindingFingerprint\" IS NOT NULL");
         entity.HasIndex(x => new { x.BoardColumnId, x.BoardRank });
         entity.HasIndex(x => new { x.SprintId, x.BoardRank });
-        entity.HasIndex(x => new { x.CreatedByOrganizationUserId, x.PersonalTodoIdempotencyKey })
+        entity.HasIndex(x => new { x.BoardId, x.ArchivedAt, x.Status, x.BoardRank });
+        entity.HasIndex(x => new { x.CreatedByOrganizationUserId, x.CreationIdempotencyKey })
             .IsUnique()
-            .HasFilter("\"PersonalTodoIdempotencyKey\" IS NOT NULL");
+            .HasFilter("\"CreationIdempotencyKey\" IS NOT NULL");
 
         entity.HasOne(x => x.Organization)
             .WithMany()
