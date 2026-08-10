@@ -33,7 +33,7 @@ public sealed class PersonalTodoServiceTests
             board.Columns.OrderBy(x => x.Position).Select(x => x.Category).ToArray());
         Assert.Equal(PersonalTodoActions.All.Count, ActiveGrants(db, board.Id, GrantSubjectKind.AgentInstallation,
             setup.Agent.AgentInstallationId!.Value).Count());
-        Assert.Equal(4, ActiveGrants(db, board.Id, GrantSubjectKind.OrganizationUser,
+        Assert.Equal(5, ActiveGrants(db, board.Id, GrantSubjectKind.OrganizationUser,
             setup.FirstManager.Id).Count());
 
         setup.Agent.ReportsToOrganizationUserId = setup.SecondManager.Id;
@@ -42,9 +42,9 @@ public sealed class PersonalTodoServiceTests
 
         Assert.Empty(ActiveGrants(db, board.Id, GrantSubjectKind.OrganizationUser,
             setup.FirstManager.Id));
-        Assert.Equal(4, db.ScopedActionGrants.Count(x => x.ScopeId == board.Id &&
+        Assert.Equal(5, db.ScopedActionGrants.Count(x => x.ScopeId == board.Id &&
             x.SubjectId == setup.FirstManager.Id && x.RevokedAt != null));
-        Assert.Equal(4, ActiveGrants(db, board.Id, GrantSubjectKind.OrganizationUser,
+        Assert.Equal(5, ActiveGrants(db, board.Id, GrantSubjectKind.OrganizationUser,
             setup.SecondManager.Id).Count());
     }
 
@@ -101,6 +101,56 @@ public sealed class PersonalTodoServiceTests
     }
 
     [Fact]
+    public async Task AgentCanKeepClaimedWorkInDoingUntilAnExternalEventResumesItForCompletion()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var owner = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+        var item = await service.AddAsync(setup.Organization.Id, owner,
+            Add("Hire Product Manager", "hire-product-manager", null));
+        var firstEventId = Guid.NewGuid();
+        var stored = await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id);
+        var doingColumn = await db.WorkBoardColumns.SingleAsync(x =>
+            x.BoardId == stored.BoardId && x.Category == WorkBoardColumnCategory.InProgress);
+        stored.Status = WorkTaskStatus.Running;
+        stored.BoardColumnId = doingColumn.Id;
+        stored.ClaimEventId = firstEventId;
+        stored.ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
+        stored.Revision++;
+        await db.SaveChangesAsync();
+
+        var doing = await service.ReleaseAsync(setup.Organization.Id, owner,
+            new Wire.ReleasePersonalTodoItemRequest(
+                item.Id, firstEventId, stored.Revision, "wait-for-hire")
+            {
+                KeepInProgress = true
+            });
+
+        Assert.Equal(Wire.PersonalTodoStatuses.Running, doing.Status);
+        var storedDoing = await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id);
+        Assert.Null(storedDoing.ClaimEventId);
+        Assert.Null(storedDoing.ClaimExpiresAt);
+
+        var resumed = await service.RequeueAsync(setup.Organization.Id, owner,
+            new Wire.RequeuePersonalTodoItemRequest(doing.Id, doing.Revision, "hire-fulfilled"));
+        Assert.Equal(Wire.PersonalTodoStatuses.Ready, resumed.Status);
+        var completionEventId = Guid.NewGuid();
+        storedDoing.Status = WorkTaskStatus.Running;
+        storedDoing.BoardColumnId = doingColumn.Id;
+        storedDoing.ClaimEventId = completionEventId;
+        storedDoing.ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
+        storedDoing.Revision++;
+        await db.SaveChangesAsync();
+        var completed = await service.CompleteAsync(setup.Organization.Id, owner,
+            new Wire.CompletePersonalTodoItemRequest(
+                item.Id, completionEventId, storedDoing.Revision, "Hire fulfilled", "complete-hire"));
+
+        Assert.Equal(Wire.PersonalTodoStatuses.Completed, completed.Status);
+    }
+
+    [Fact]
     public async Task AddInfersTheOwningAgentAndIsIdempotent()
     {
         await using var db = CreateDb();
@@ -116,6 +166,33 @@ public sealed class PersonalTodoServiceTests
         Assert.Equal(first.Id, replay.Id);
         Assert.Equal(setup.Agent.Id, first.OwnerOrganizationUserId);
         Assert.Single(await db.CoreWorkTasks.ToListAsync());
+    }
+
+    [Fact]
+    public async Task BacklogWorkDoesNotDispatchUntilExplicitlyActivated()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var owner = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+
+        var item = await service.AddAsync(
+            setup.Organization.Id,
+            owner,
+            Add("Hire QA", "hire-qa", null) with { StartInBacklog = true });
+
+        Assert.Equal(Wire.PersonalTodoStatuses.Backlog, item.Status);
+        Assert.Empty(await db.AgentPlatformEventOutbox.ToListAsync());
+
+        item = await service.ActivateAsync(
+            setup.Organization.Id,
+            owner,
+            new Wire.ActivatePersonalTodoItemRequest(item.Id, item.Revision, "activate-hire-qa"));
+
+        Assert.Equal(Wire.PersonalTodoStatuses.Ready, item.Status);
+        Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == Wire.PersonalTodoEvents.Available).ToListAsync());
     }
 
     [Fact]

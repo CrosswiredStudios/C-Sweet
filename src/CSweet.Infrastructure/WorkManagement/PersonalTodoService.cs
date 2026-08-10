@@ -24,16 +24,19 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
     private static readonly Counter<long> HardLimitRejections = Meter.CreateCounter<long>("csweet.personal_work.hard_limit_rejections");
     private static readonly IReadOnlySet<string> OwnerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder, PersonalTodoActions.Requeue,
+         PersonalTodoActions.Activate,
          PersonalTodoActions.Claim, PersonalTodoActions.Complete, PersonalTodoActions.Block,
          PersonalTodoActions.Release, PersonalTodoActions.Update,
          PersonalTodoActions.Archive, PersonalTodoActions.Restore], StringComparer.Ordinal);
     private static readonly IReadOnlySet<string> HumanOwnerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
+         PersonalTodoActions.Activate,
          PersonalTodoActions.Requeue, PersonalTodoActions.Complete, PersonalTodoActions.Block,
          PersonalTodoActions.Release, PersonalTodoActions.Update,
          PersonalTodoActions.Archive, PersonalTodoActions.Restore], StringComparer.Ordinal);
     private static readonly IReadOnlySet<string> ManagerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
+         PersonalTodoActions.Activate,
          PersonalTodoActions.Requeue], StringComparer.Ordinal);
 
     public async Task ReconcileAsync(CancellationToken cancellationToken = default)
@@ -278,7 +281,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             CreationIdempotencyKey = key,
             Title = normalized.Title, Description = normalized.Description,
             StructuredMentionsJson = normalized.MentionsJson,
-            Kind = WorkItemKind.Task, Status = WorkTaskStatus.Ready,
+            Kind = WorkItemKind.Task,
+            Status = request.StartInBacklog ? WorkTaskStatus.Backlog : WorkTaskStatus.Ready,
             Priority = Enum.Parse<WorkTaskPriority>(request.Priority, true),
             DueDate = request.DueDate,
             BoardRank = (await db.CoreWorkTasks.Where(x => x.BoardId == board.Id)
@@ -286,7 +290,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             CreatedAt = now, UpdatedAt = now
         };
         db.CoreWorkTasks.Add(item);
-        QueueAvailable(organizationId, owner, board.Id, item.Id, now);
+        if (item.Status == WorkTaskStatus.Ready)
+            QueueAvailable(organizationId, owner, board.Id, item.Id, now);
         await AddManagerCreatedNotificationAsync(actorUser, owner, item, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
@@ -321,8 +326,11 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
     {
         var item = await LoadPersonalItemAsync(organizationId, request.ItemId, cancellationToken);
         await RequireGrantAsync(organizationId, item.BoardId!.Value, actor, PersonalTodoActions.Requeue, cancellationToken);
-        if (item.Status != WorkTaskStatus.Blocked)
-            throw new InvalidOperationException("Only blocked personal work can be requeued.");
+        var isWaitingInProgress = item.Status == WorkTaskStatus.Running &&
+            !item.ClaimEventId.HasValue && !item.ClaimExpiresAt.HasValue;
+        if (item.Status != WorkTaskStatus.Blocked && !isWaitingInProgress)
+            throw new InvalidOperationException(
+                "Only blocked or unclaimed in-progress personal work can be requeued.");
         RequireRevision(item, request.ExpectedRevision);
         var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == item.BoardId, cancellationToken);
         item.Status = WorkTaskStatus.Ready;
@@ -331,6 +339,32 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.ClaimExpiresAt = null; item.Revision++; item.UpdatedAt = clock.GetUtcNow();
         var owner = await OwnerAsync(board, cancellationToken);
         QueueAvailable(organizationId, owner, board.Id, item.Id, item.UpdatedAt);
+        await db.SaveChangesAsync(cancellationToken);
+        return await MapItemAsync(item, cancellationToken);
+    }
+
+    public async Task<Wire.PersonalTodoItem> ActivateAsync(
+        Guid organizationId, PersonalTodoActor actor,
+        Wire.ActivatePersonalTodoItemRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var item = await LoadPersonalItemAsync(organizationId, request.ItemId, cancellationToken);
+        await RequireGrantAsync(organizationId, item.BoardId!.Value, actor,
+            PersonalTodoActions.Activate, cancellationToken);
+        if (item.ArchivedAt.HasValue)
+            throw new InvalidOperationException("Restore this personal task before activating it.");
+        if (item.Status != WorkTaskStatus.Backlog)
+            throw new InvalidOperationException("Only backlog personal work can be activated.");
+        RequireRevision(item, request.ExpectedRevision);
+        var board = await db.WorkBoards.Include(x => x.Columns)
+            .SingleAsync(x => x.Id == item.BoardId, cancellationToken);
+        item.Status = WorkTaskStatus.Ready;
+        item.BoardColumnId = board.Columns.Single(x =>
+            x.Category == WorkBoardColumnCategory.ToDo).Id;
+        item.Revision++;
+        item.UpdatedAt = clock.GetUtcNow();
+        QueueAvailable(organizationId, await OwnerAsync(board, cancellationToken),
+            board.Id, item.Id, item.UpdatedAt);
         await db.SaveChangesAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
@@ -515,7 +549,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
     public Task<Wire.PersonalTodoItem> ReleaseAsync(Guid organizationId, PersonalTodoActor actor,
         Wire.ReleasePersonalTodoItemRequest request, CancellationToken cancellationToken = default) =>
         FinishAsync(organizationId, actor, request.ItemId, request.EventId, request.ExpectedRevision,
-            WorkTaskStatus.Ready, null, null, PersonalTodoActions.Release, cancellationToken);
+            request.KeepInProgress ? WorkTaskStatus.Running : WorkTaskStatus.Ready,
+            null, null, PersonalTodoActions.Release, cancellationToken);
 
     private async Task<Wire.PersonalTodoItem> FinishAsync(
         Guid organizationId, PersonalTodoActor actor, Guid itemId, Guid eventId, long expectedRevision,
@@ -833,7 +868,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             item.Revision, item.DueDate, item.SourceConversationId, item.SourceMessageId, mentions,
             item.ResultSummary, item.BlockReason, item.CreatedAt, item.UpdatedAt, item.ArchivedAt)
         {
-            MentionSpans = mentionSpans
+            MentionSpans = mentionSpans,
+            CorrelationId = item.CorrelationId
         };
     }
 

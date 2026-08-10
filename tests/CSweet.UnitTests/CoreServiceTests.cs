@@ -312,7 +312,7 @@ public class CoreServiceTests
             x.SubjectKind == GrantSubjectKind.AgentInstallation &&
             x.SubjectId == installation.Id && x.RevokedAt == null &&
             PersonalTodoActions.All.Contains(x.Action)));
-        Assert.Equal(4, await dbContext.ScopedActionGrants.CountAsync(x =>
+        Assert.Equal(5, await dbContext.ScopedActionGrants.CountAsync(x =>
             x.ScopeKind == GrantScopeKind.Board && x.ScopeId == personalBoard.Id &&
             x.SubjectKind == GrantSubjectKind.OrganizationUser &&
             x.SubjectId == owner.Id && x.RevokedAt == null &&

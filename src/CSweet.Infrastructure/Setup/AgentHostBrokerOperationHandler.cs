@@ -7,7 +7,9 @@ public sealed class AgentHostBrokerOptions
 {
     public const string SectionName = "CSweet:AgentRuntime:AgentHostBroker";
     public string BaseUrl { get; set; } = "https+http://_mcp.agenthost";
-    public int TimeoutSeconds { get; set; } = 30;
+    // The AgentHost allows LLM requests to run for up to two minutes. Leave
+    // enough forwarding headroom for that request and response to complete.
+    public int TimeoutSeconds { get; set; } = 180;
     public int MaximumResponseBytes { get; set; } = 16 * 1024 * 1024;
 
     public Uri ValidatedBaseUri()

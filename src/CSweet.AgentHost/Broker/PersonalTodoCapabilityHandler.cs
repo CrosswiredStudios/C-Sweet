@@ -53,6 +53,8 @@ public sealed class PersonalTodoCapabilityHandler(
                     Read<Wire.ReorderPersonalTodoItemRequest>(request), token),
                 PersonalTodoActions.Requeue => await service.RequeueAsync(organizationId, actor,
                     Read<Wire.RequeuePersonalTodoItemRequest>(request), token),
+                PersonalTodoActions.Activate => await service.ActivateAsync(organizationId, actor,
+                    Read<Wire.ActivatePersonalTodoItemRequest>(request), token),
                 PersonalTodoActions.Update => await service.UpdateAsync(organizationId, actor,
                     Read<Wire.UpdatePersonalTodoItemRequest>(request), token),
                 PersonalTodoActions.Archive => await service.ArchiveAsync(organizationId, actor,

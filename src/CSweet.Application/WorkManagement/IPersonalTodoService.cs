@@ -17,6 +17,8 @@ public interface IPersonalTodoService
         ReorderPersonalTodoItemRequest request, CancellationToken cancellationToken = default);
     Task<PersonalTodoItem> RequeueAsync(Guid organizationId, PersonalTodoActor actor,
         RequeuePersonalTodoItemRequest request, CancellationToken cancellationToken = default);
+    Task<PersonalTodoItem> ActivateAsync(Guid organizationId, PersonalTodoActor actor,
+        ActivatePersonalTodoItemRequest request, CancellationToken cancellationToken = default);
     Task<PersonalTodoItem> UpdateAsync(Guid organizationId, PersonalTodoActor actor,
         UpdatePersonalTodoItemRequest request, CancellationToken cancellationToken = default);
     Task<PersonalTodoItem> ArchiveAsync(Guid organizationId, PersonalTodoActor actor,

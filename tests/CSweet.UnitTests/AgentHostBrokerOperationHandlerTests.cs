@@ -9,6 +9,12 @@ namespace CSweet.UnitTests;
 public sealed class AgentHostBrokerOperationHandlerTests
 {
     [Fact]
+    public void Options_DefaultTimeoutCoversAgentHostLlmRequests()
+    {
+        Assert.True(new AgentHostBrokerOptions().TimeoutSeconds > 120);
+    }
+
+    [Fact]
     public async Task HandleAsync_BuffersBodyAndRemovesHopByHopResponseHeaders()
     {
         HttpRequestMessage? captured = null;
