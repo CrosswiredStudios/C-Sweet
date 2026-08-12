@@ -129,7 +129,7 @@
                             <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">Copy</MudButton>
                         </div>
                         <MudText Typo="Typo.caption" Color="Color.Secondary">
-                            The token is intentionally omitted. The configuration command requests it through a hidden prompt or standard input.
+                            The token is intentionally omitted. The installer requests it through a hidden prompt and, for a private certificate, asks you to verify and trust its SHA-256 fingerprint only for Satellite Office.
                         </MudText>
                         <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description"
                                    OnClick="() => DownloadInstructionsAsync(packages)">Download non-secret instructions</MudButton>
@@ -422,8 +422,9 @@
                    $"1. Open the signed release manifest or private mirror: {SelectedPackageUrl(packages)}\n" +
                    $"2. Verify the publisher signature, then install the package with the platform package installer.\n" +
                    $"3. Run the installed configuration command as administrator/root:\n   {InstallCommand(packages.ControlPlaneUrl)}\n" +
-                   "4. Paste the one-use enrollment token only when the installer prompts for it.\n" +
-                   "5. Ask the C-Sweet administrator to verify and approve this machine.\n";
+                   "4. If prompted for a private TLS certificate, compare its SHA-256 fingerprint with the administrator-provided value and approve it only when they match.\n" +
+                   "5. Paste the one-use enrollment token only when the installer prompts for it.\n" +
+                   "6. Ask the C-Sweet administrator to verify and approve this machine.\n";
         var module = await ModuleAsync();
         await module.InvokeVoidAsync("downloadText", $"csweet-satellite-office-{_remotePlatform}.txt", text);
     }

@@ -456,7 +456,7 @@
                             </li>
                             <li>
                                 <span>2</span>
-                                <div><strong>Run the setup command</strong><small>The installer will ask for your one-use connection code.</small></div>
+                                <div><strong>Run the setup command</strong><small>The installer verifies TLS and asks before trusting a private certificate only for Satellite Office.</small></div>
                                 <div class="host-copy-field">
                                     <code>@InstallCommand(packages.ControlPlaneUrl!)</code>
                                     <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">Copy</MudButton>
