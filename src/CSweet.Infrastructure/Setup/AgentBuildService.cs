@@ -27,17 +27,20 @@ public sealed class AgentBuildService : IAgentBuildService
     private readonly IAgentBuildExecutor _executor;
     private readonly IAuditEventWriter _auditWriter;
     private readonly ILogger<AgentBuildService> _logger;
+    private readonly IExecutionFleetService? _executionFleet;
 
     public AgentBuildService(
         CSweetDbContext dbContext,
         IAgentBuildExecutor executor,
         IAuditEventWriter auditWriter,
-        ILogger<AgentBuildService> logger)
+        ILogger<AgentBuildService> logger,
+        IExecutionFleetService? executionFleet = null)
     {
         _dbContext = dbContext;
         _executor = executor;
         _auditWriter = auditWriter;
         _logger = logger;
+        _executionFleet = executionFleet;
     }
 
     public async Task<Guid> QueueAsync(
@@ -69,6 +72,9 @@ public sealed class AgentBuildService : IAgentBuildService
             Attempt = (activeJob?.Attempt ?? 0) + 1,
             QueuedAt = DateTimeOffset.UtcNow
         };
+        job.ExecutionPoolId = await _dbContext.AgentRuntimeGlobalSettings.AsNoTracking()
+            .Select(x => x.DefaultBuildExecutionPoolId)
+            .SingleOrDefaultAsync(cancellationToken);
         job.StepsJson = AgentBuildStepStore.CreateInitialJson(job.QueuedAt);
         packageVersion.Status = AgentPackageVersionStatus.Approved;
         _dbContext.AgentBuildJobs.Add(job);
@@ -79,6 +85,8 @@ public sealed class AgentBuildService : IAgentBuildService
 
     public async Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default)
     {
+        if (_executionFleet is not null && !await _executionFleet.IsReadyAsync(cancellationToken))
+            return false;
         var job = await _dbContext.AgentBuildJobs
             .Include(x => x.PackageVersion)
                 .ThenInclude(x => x!.PackageSource)

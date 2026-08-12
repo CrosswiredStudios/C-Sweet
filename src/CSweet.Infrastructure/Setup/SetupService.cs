@@ -11,7 +11,7 @@ public sealed class SetupService : ISetupService
     public static readonly IReadOnlyList<(string Key, string DisplayName, bool IsRequired)> RequiredSteps =
     [
         ("welcome", "Welcome", true),
-        ("agent-isolation", "Agent Isolation", false),
+        ("agent-execution", "Agent Execution", true),
         ("llm-provider", "LLM Provider", true),
         ("genai-provider", "GenAI Provider", false),
         ("email-delivery", "Email Delivery", false),
@@ -19,10 +19,12 @@ public sealed class SetupService : ISetupService
     ];
 
     private readonly CSweetDbContext _dbContext;
+    private readonly IExecutionFleetService? _executionFleet;
 
-    public SetupService(CSweetDbContext dbContext)
+    public SetupService(CSweetDbContext dbContext, IExecutionFleetService? executionFleet = null)
     {
         _dbContext = dbContext;
+        _executionFleet = executionFleet;
     }
 
     public async Task EnsureSeededAsync(CancellationToken cancellationToken = default)
@@ -72,6 +74,10 @@ public sealed class SetupService : ISetupService
             obsoleteStep.UpdatedAt = now;
         }
 
+        var configuration = _dbContext.SystemConfigurations.Local.FirstOrDefault() ??
+            await _dbContext.SystemConfigurations
+                .OrderBy(x => x.CreatedAt)
+                .FirstAsync(cancellationToken);
         if (!await _dbContext.AgentRuntimeGlobalSettings.AnyAsync(cancellationToken))
         {
             _dbContext.AgentRuntimeGlobalSettings.Add(new AgentRuntimeGlobalSettings
@@ -157,6 +163,15 @@ public sealed class SetupService : ISetupService
         }
 
         await EnsureSeededAsync(cancellationToken);
+
+        if (string.Equals(normalizedKey, "agent-execution", StringComparison.OrdinalIgnoreCase) &&
+            (_executionFleet is null || !await _executionFleet.IsReadyAsync(cancellationToken)))
+        {
+            return await FailureAsync(
+                "execution_node_required",
+                "Install and connect at least one healthy Agent Host before continuing.",
+                cancellationToken);
+        }
 
         var step = await _dbContext.OnboardingSteps
             .SingleAsync(x => x.Key == normalizedKey, cancellationToken);

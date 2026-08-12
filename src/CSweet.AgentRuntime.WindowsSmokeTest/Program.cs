@@ -10,14 +10,21 @@ using System.Text.Json.Serialization;
 using CSweet.AgentBroker;
 using CSweet.AgentRuntime.Abstractions;
 using CSweet.AgentRuntime.Core;
+using CSweet.AgentRuntime.Firecracker;
 using CSweet.AgentRuntime.HyperV;
 using CSweet.AgentRuntime.Protocol;
 using Microsoft.Win32;
 
 var arguments = SmokeArguments.Parse(args);
-if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("The smoke test requires Windows Hyper-V.");
-if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
-    throw new InvalidOperationException("Run the Windows isolation smoke test from the administrator prompt opened by the test bootstrap script.");
+if (arguments.Provider == "hyperv" && !OperatingSystem.IsWindows())
+    throw new PlatformNotSupportedException("The Hyper-V smoke test requires Windows.");
+if (arguments.Provider == "firecracker" && !OperatingSystem.IsLinux())
+    throw new PlatformNotSupportedException("The Firecracker smoke test requires Linux.");
+if (arguments.Provider == "hyperv" &&
+    !new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
+    throw new InvalidOperationException("Run the Hyper-V isolation smoke test from an administrator prompt.");
+if (arguments.Provider == "firecracker" && Environment.UserName != "root")
+    throw new InvalidOperationException("Run the Firecracker isolation smoke test as root.");
 
 var root = arguments.ValidatedOutputRoot();
 var mediaRoot = Path.Combine(root, "artifact-media");
@@ -25,18 +32,35 @@ var helperRoot = Path.Combine(root, "hyperv-helper-data");
 Directory.CreateDirectory(mediaRoot);
 Directory.CreateDirectory(helperRoot);
 Environment.SetEnvironmentVariable("CSWEET_ARTIFACT_MEDIA_ROOT", mediaRoot);
-Environment.SetEnvironmentVariable("CSWEET_HYPERV_DATA_ROOT", helperRoot);
+if (arguments.Provider == "hyperv")
+    Environment.SetEnvironmentVariable("CSWEET_HYPERV_DATA_ROOT", helperRoot);
+else
+    Environment.SetEnvironmentVariable("CSWEET_FIRECRACKER_DATA_ROOT", helperRoot);
 var socketOptions = new HyperVSocketTransportOptions { ConnectTimeoutSeconds = 120 };
 var serviceId = socketOptions.ServiceId;
-Environment.SetEnvironmentVariable("CSWEET_HYPERV_BROKER_SERVICE_ID", serviceId.ToString("D"));
-RegisterHyperVSocket(serviceId);
+if (arguments.Provider == "hyperv")
+{
+    Environment.SetEnvironmentVariable("CSWEET_HYPERV_BROKER_SERVICE_ID", serviceId.ToString("D"));
+    RegisterHyperVSocket(serviceId);
+}
 
-var guestImage = arguments.RequireFile(arguments.GuestImagePath, ".vhdx");
-var helper = arguments.RequireFile(arguments.HelperExecutablePath, ".exe");
+var descriptor = arguments.Provider == "hyperv"
+    ? IsolationProviderCatalog.HyperV(RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant())
+    : IsolationProviderCatalog.Firecracker(RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant());
+var guestImage = arguments.RequireFile(arguments.GuestImagePath,
+    arguments.Provider == "hyperv" ? ".vhdx" : ".ext4");
+var helper = arguments.RequireFile(arguments.HelperExecutablePath,
+    arguments.Provider == "hyperv" ? ".exe" : string.Empty);
 var probe = arguments.RequireFile(arguments.ProbeExecutablePath, string.Empty);
 var guestDigest = await DigestAsync(guestImage);
+var guestArchitecture = RuntimeInformation.ProcessArchitecture switch
+{
+    Architecture.X64 => "x64",
+    Architecture.Arm64 => "arm64",
+    _ => throw new PlatformNotSupportedException("The certification host architecture is unsupported.")
+};
 var bundle = Path.Combine(root, "certification-probe.csab");
-var artifactDigest = await CreateProbeBundleAsync(probe, bundle);
+var artifactDigest = await CreateProbeBundleAsync(probe, bundle, guestArchitecture);
 var artifactIso = Path.Combine(mediaRoot, $"{artifactDigest[7..]}.iso");
 await using (var input = new FileStream(bundle, FileMode.Open, FileAccess.Read, FileShare.Read))
 await using (var output = new FileStream(artifactIso, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -52,7 +76,7 @@ var businessId = Guid.NewGuid();
 var tickId = Guid.NewGuid();
 var bootToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 var expiresAt = now.AddMinutes(5);
-var image = new GuestImageReference("csweet-hyperv-test", "1.0", guestDigest, "linux", "x64");
+var image = new GuestImageReference("csweet-hardware-vm-test", "1.0", guestDigest, "linux", guestArchitecture);
 var workload = new RuntimeWorkloadSpec(
     workloadId,
     image,
@@ -76,7 +100,7 @@ try
     if (!Guid.TryParseExact(created.ProviderInstanceId, "N", out var virtualMachineId))
         throw new InvalidDataException("The helper returned an invalid Hyper-V VM identifier.");
     handle = new IsolationWorkloadHandle(
-        IsolationProviderCatalog.HyperV().ProviderId, workloadId,
+        descriptor.ProviderId, workloadId,
         virtualMachineId.ToString("N"), IsolationWorkloadKind.Runtime);
     EnsureSuccess(await InvokeHelperAsync(helper, "start", new PlatformHelperRequest { Handle = handle }));
 
@@ -112,8 +136,8 @@ try
     var hostSession = new GuestBrokerHostSession(
         grant, collector, TimeProvider.System,
         bootConfiguration: boot, startCommand: start);
-    await using var transport = await new WindowsHyperVSocketTransport(socketOptions)
-        .ConnectAsync(virtualMachineId);
+    await using var transport = await ConnectGuestAsync(
+        arguments.Provider, helper, handle, socketOptions);
     using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
     var sessionTask = hostSession.RunAsync(transport, transport, timeout.Token);
     var startupTask = hostSession.Started.WaitAsync(timeout.Token);
@@ -124,7 +148,7 @@ try
     if (completed == sessionTask && !collector.Report.IsCompleted) await sessionTask;
     var report = await collector.Report.WaitAsync(timeout.Token);
     if (!report.Passed || report.Checks.Count == 0 || report.Checks.Any(check => !check.Value))
-        throw new InvalidOperationException("The Hyper-V guest reported a failed isolation check: " +
+        throw new InvalidOperationException("The guest reported a failed isolation check: " +
             string.Join(", ", report.Checks.Where(check => !check.Value).Select(check => check.Key)));
     await sessionTask.WaitAsync(timeout.Token);
     certifiedReport = report;
@@ -134,7 +158,7 @@ finally
     if (handle is not null && arguments.PreserveFailedVirtualMachine && certifiedReport is null)
     {
         Console.Error.WriteLine(
-            $"Diagnostic preservation requested. Hyper-V VM id: {handle.ProviderInstanceId}; data root: {helperRoot}");
+            $"Diagnostic preservation requested. Provider VM id: {handle.ProviderInstanceId}; data root: {helperRoot}");
     }
     else if (handle is not null)
     {
@@ -160,14 +184,16 @@ var builderChecks = await RunBuilderSmokeAsync(
     guestImage,
     guestDigest,
     root,
-    socketOptions);
+    socketOptions,
+    arguments.Provider,
+    descriptor,
+    guestArchitecture);
 if (builderChecks.Any(check => !check.Value))
     throw new InvalidOperationException("The builder certification probe failed: " +
         string.Join(", ", builderChecks.Where(check => !check.Value).Select(check => check.Key)));
 var combinedChecks = validatedReport.Checks
     .Concat(builderChecks)
     .ToDictionary(check => check.Key, check => check.Value, StringComparer.Ordinal);
-var descriptor = IsolationProviderCatalog.HyperV(RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant());
 var evidence = new
 {
     providerId = descriptor.ProviderId,
@@ -199,14 +225,17 @@ static async Task<IReadOnlyDictionary<string, bool>> RunBuilderSmokeAsync(
     string guestImage,
     string guestDigest,
     string root,
-    HyperVSocketTransportOptions socketOptions)
+    HyperVSocketTransportOptions socketOptions,
+    string provider,
+    IsolationProviderDescriptor descriptor,
+    string guestArchitecture)
 {
     var workloadId = Guid.NewGuid();
     var channelId = Guid.NewGuid();
     var installationId = Guid.NewGuid();
     var bootToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     var expiresAt = DateTimeOffset.UtcNow.AddMinutes(6);
-    var image = new GuestImageReference("csweet-hyperv-test", "1.0", guestDigest, "linux", "x64");
+    var image = new GuestImageReference("csweet-hardware-vm-test", "1.0", guestDigest, "linux", guestArchitecture);
     var workload = new BuilderWorkloadSpec(
         workloadId,
         image,
@@ -231,7 +260,7 @@ static async Task<IReadOnlyDictionary<string, bool>> RunBuilderSmokeAsync(
         if (!Guid.TryParseExact(created.ProviderInstanceId, "N", out var virtualMachineId))
             throw new InvalidDataException("The helper returned an invalid builder VM identifier.");
         handle = new IsolationWorkloadHandle(
-            IsolationProviderCatalog.HyperV().ProviderId,
+            descriptor.ProviderId,
             workloadId,
             virtualMachineId.ToString("N"),
             IsolationWorkloadKind.Builder);
@@ -277,8 +306,7 @@ static async Task<IReadOnlyDictionary<string, bool>> RunBuilderSmokeAsync(
             TimeProvider.System,
             bootConfiguration: boot,
             startCommand: start);
-        await using var transport = await new WindowsHyperVSocketTransport(socketOptions)
-            .ConnectAsync(virtualMachineId);
+        await using var transport = await ConnectGuestAsync(provider, helper, handle, socketOptions);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         var sessionTask = hostSession.RunAsync(transport, transport, timeout.Token);
         var startupCompleted = await Task.WhenAny(hostSession.Started, sessionTask).WaitAsync(timeout.Token);
@@ -349,6 +377,29 @@ static bool ValidateBuilderArtifact(byte[] artifact)
     return foundManifest && foundExecutable;
 }
 
+static async Task<Stream> ConnectGuestAsync(
+    string provider,
+    string helper,
+    IsolationWorkloadHandle handle,
+    HyperVSocketTransportOptions socketOptions)
+{
+    if (provider == "hyperv")
+    {
+        if (!Guid.TryParseExact(handle.ProviderInstanceId, "N", out var virtualMachineId))
+            throw new InvalidDataException("The helper returned an invalid virtual machine identifier.");
+        return await new WindowsHyperVSocketTransport(socketOptions).ConnectAsync(virtualMachineId);
+    }
+
+    var options = new FirecrackerIsolationBackendOptions
+    {
+        HelperExecutablePath = helper,
+        HelperExecutableDigest = await DigestAsync(helper),
+        RequiredGuestChannelTransport = ExternalPlatformStdioGuestChannelConnector.TransportName,
+        GuestChannelConnectTimeoutSeconds = 120
+    };
+    return await new FirecrackerGuestChannelConnector(options).OpenGuestChannelAsync(handle);
+}
+
 static void RegisterHyperVSocket(Guid serviceId)
 {
     Registry.LocalMachine.DeleteSubKeyTree(
@@ -360,14 +411,19 @@ static void RegisterHyperVSocket(Guid serviceId)
     key.SetValue("ElementName", "C-Sweet Windows isolation certification", RegistryValueKind.String);
 }
 
-static async Task<string> CreateProbeBundleAsync(string probePath, string outputPath)
+static async Task<string> CreateProbeBundleAsync(string probePath, string outputPath, string architecture)
 {
     await using (var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
     await using (var probe = new FileStream(probePath, FileMode.Open, FileAccess.Read, FileShare.Read))
     using (var writer = new TarWriter(output, leaveOpen: true))
     {
-        var manifest = Encoding.UTF8.GetBytes(
-            "{\"formatVersion\":\"1.0\",\"operatingSystem\":\"linux\",\"architecture\":\"x64\",\"entrypoint\":[\"probe\"]}");
+        var manifest = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            formatVersion = "1.0",
+            operatingSystem = "linux",
+            architecture,
+            entrypoint = new[] { "probe" }
+        });
         writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "artifact.json")
         {
             DataStream = new MemoryStream(manifest), Uid = 0, Gid = 0,
@@ -415,15 +471,15 @@ static async Task<PlatformHelperResponse> InvokeHelperAsync(
     var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
     var error = process.StandardError.ReadToEndAsync(timeout.Token);
     await process.WaitForExitAsync(timeout.Token);
-    if (process.ExitCode != 0) throw new IOException("The Hyper-V helper failed: " + await error);
+    if (process.ExitCode != 0) throw new IOException("The platform helper failed: " + await error);
     return JsonSerializer.Deserialize<PlatformHelperResponse>(await output, SmokeJson.Options) ??
-        throw new InvalidDataException("The Hyper-V helper returned an empty response.");
+        throw new InvalidDataException("The platform helper returned an empty response.");
 }
 
 static void EnsureSuccess(PlatformHelperResponse response)
 {
     if (!response.Success)
-        throw new InvalidOperationException($"Hyper-V helper rejected the smoke test ({response.ErrorCode}): {response.SanitizedError}");
+        throw new InvalidOperationException($"Platform helper rejected the smoke test ({response.ErrorCode}): {response.SanitizedError}");
 }
 
 internal sealed class CertificationReportHandler : IAgentBrokerOperationHandler
@@ -584,6 +640,7 @@ internal static class SmokeJson
 }
 
 internal sealed record SmokeArguments(
+    string Provider,
     string HelperExecutablePath,
     string GuestImagePath,
     string ProbeExecutablePath,
@@ -604,7 +661,13 @@ internal sealed record SmokeArguments(
             ? value : throw new ArgumentException($"Required argument --{name} is missing.");
         var preserve = values.TryGetValue("preserve-failed-vm", out var preserveValue) &&
             bool.TryParse(preserveValue, out var parsedPreserve) && parsedPreserve;
+        var provider = values.TryGetValue("provider", out var providerValue)
+            ? providerValue.Trim().ToLowerInvariant()
+            : "hyperv";
+        if (provider is not ("hyperv" or "firecracker"))
+            throw new ArgumentException("--provider must be hyperv or firecracker.");
         return new SmokeArguments(
+            provider,
             Required("helper"), Required("guest-image"), Required("probe"),
             Required("output-root"), Required("evidence"), preserve);
     }

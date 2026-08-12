@@ -12,7 +12,7 @@ namespace CSweet.AgentRuntime.Guest;
 /// </summary>
 public sealed partial class GuestArtifactMaterializer
 {
-    private const string DevicePath = "/dev/sr0";
+    private const string DefaultDevicePath = "/dev/sr0";
     private const string MediaRoot = "/run/csweet/artifact-media";
     private const ulong RestrictiveMountFlags = 1 | 2 | 4 | 8; // RDONLY | NOSUID | NODEV | NOEXEC
     private const int MaximumEntries = 10_000;
@@ -28,7 +28,9 @@ public sealed partial class GuestArtifactMaterializer
         ValidateDigest(expectedDigest);
         destinationRoot = ValidateDestinationRoot(destinationRoot);
         Directory.CreateDirectory(MediaRoot);
-        if (Mount(DevicePath, MediaRoot, "iso9660", RestrictiveMountFlags, 0) != 0)
+        var devicePath = ResolveDevicePath(
+            Environment.GetEnvironmentVariable("CSWEET_GUEST_ARTIFACT_DEVICE"));
+        if (Mount(devicePath, MediaRoot, "iso9660", RestrictiveMountFlags, 0) != 0)
             throw new IOException($"The guest artifact DVD could not be mounted (errno {Marshal.GetLastPInvokeError()}).");
         try
         {
@@ -176,6 +178,14 @@ public sealed partial class GuestArtifactMaterializer
                    ? UnixFileMode.UserExecute | UnixFileMode.GroupExecute
                    : 0);
     }
+
+    internal static string ResolveDevicePath(string? configured) => configured switch
+    {
+        null or "" => DefaultDevicePath,
+        "/dev/sr0" => "/dev/sr0",
+        "/dev/vdc" => "/dev/vdc",
+        _ => throw new InvalidDataException("The guest artifact device is not an approved immutable device.")
+    };
 
     private static void ValidateDigest(string value)
     {

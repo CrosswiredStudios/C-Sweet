@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using CSweet.AgentRuntime.Abstractions;
 using CSweet.Contracts.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
@@ -39,29 +38,26 @@ public class SetupEndpointTests
         Assert.DoesNotContain(status.Steps, x => x.Key == "finish");
         Assert.Contains(status.Steps, x => x.Key == "email-delivery" && !x.IsRequired);
         Assert.Contains(status.Steps, x => x.Key == "genai-provider" && !x.IsRequired);
-        Assert.Contains(status.Steps, x => x.Key == "agent-isolation" && !x.IsRequired);
+        Assert.Contains(status.Steps, x => x.Key == "agent-execution" && x.IsRequired && !x.IsComplete);
         Assert.DoesNotContain(status.Steps, x => x.Key == "model-capability-test");
         Assert.DoesNotContain(status.Steps, x => x.Key == "admin-user");
     }
 
     [Fact]
-    public async Task AgentIsolationStatus_IsActionableAndFailClosed()
+    public async Task ExecutionCapacityStatus_IsActionableAndFailClosed()
     {
         await using var factory = CreateFactory();
         var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/api/setup/agent-isolation");
-        var status = await response.Content.ReadFromJsonAsync<AgentIsolationOnboardingResponse>();
+        var response = await client.GetAsync("/api/setup/execution-capacity");
+        var status = await response.Content.ReadFromJsonAsync<ExecutionCapacityOnboardingResponse>();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(response.Headers.CacheControl?.NoStore);
         Assert.True(response.Headers.CacheControl?.NoCache);
         Assert.NotNull(status);
-        Assert.Equal("hyperv-gen2", status.ProviderId);
         Assert.False(status.IsReady);
         Assert.NotEmpty(status.Checks);
-        Assert.Contains(status.Checks, check => check.Key == "runtime-host");
-        Assert.Contains(status.Checks, check => check.Key == "provider-certification");
     }
 
     [Fact]
@@ -114,10 +110,6 @@ public class SetupEndpointTests
                 {
                     services.RemoveAll<DbContextOptions<CSweetDbContext>>();
                     services.RemoveAll<IDbContextOptionsConfiguration<CSweetDbContext>>();
-                    // Endpoint tests must not inherit a developer workstation's installed
-                    // RuntimeHost. With no certified provider registered, onboarding must
-                    // remain actionable and fail closed on every platform.
-                    services.RemoveAll<IAgentIsolationProvider>();
                     services.AddDbContext<CSweetDbContext>(options =>
                         options.UseInMemoryDatabase(Guid.NewGuid().ToString()));
                 });

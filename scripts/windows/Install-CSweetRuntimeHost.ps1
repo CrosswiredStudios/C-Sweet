@@ -5,6 +5,8 @@ param(
     [string] $InstallRoot = "$env:ProgramFiles\CSweet\RuntimeHost",
     [string] $DataRoot = "$env:ProgramData\CSweet\AgentRuntime",
     [string] $ControlPlaneUserSid,
+    [string] $ControlPlaneUrl,
+    [string] $EnrollmentTokenInputPath,
     [string] $ProgressPath,
     [guid] $ProgressJobId,
     [string] $ProgressWorkflow = 'packaged-installer'
@@ -96,6 +98,22 @@ if ($null -eq $manifest.files -or @($manifest.files).Count -lt 1 -or @($manifest
     throw 'The RuntimeHost payload file manifest is invalid.'
 }
 
+$existingNodeService = Get-Service -Name 'CSweet.ExecutionNode' -ErrorAction SilentlyContinue
+if ($null -ne $existingNodeService) {
+    $maintenance = Join-Path $env:ProgramData 'CSweet\ExecutionNode\maintenance'
+    $drainPath = Join-Path $maintenance 'drain-state'
+    $activeRoot = Join-Path $maintenance 'active-assignments'
+    $drainState = if (Test-Path -LiteralPath $drainPath -PathType Leaf) {
+        [IO.File]::ReadAllText($drainPath).Trim()
+    } else { '' }
+    $activeCount = if (Test-Path -LiteralPath $activeRoot -PathType Container) {
+        @(Get-ChildItem -LiteralPath $activeRoot -File -Filter '*.active').Count
+    } else { 0 }
+    if ($drainState -ne 'draining' -or $activeCount -ne 0) {
+        throw 'Drain this node in C-Sweet and wait for active assignments to reach zero before upgrading RuntimeHost.'
+    }
+}
+
 $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($file in $manifest.files) {
     if (-not $seen.Add([string]$file.path)) { throw "Duplicate payload path: $($file.path)" }
@@ -127,11 +145,17 @@ foreach ($file in $manifest.files) {
 
 $runtimeHostExe = Resolve-SafeChildPath $versionRoot ([string]$manifest.runtimeHostExecutable)
 $helperExe = Resolve-SafeChildPath $versionRoot ([string]$manifest.helperExecutable)
+$helperManifestPath = ([string]$manifest.helperExecutable).Replace('\\', '/')
+$helperManifestEntries = @($manifest.files | Where-Object { ([string]$_.path).Replace('\\', '/') -ceq $helperManifestPath })
+if ($helperManifestEntries.Count -ne 1) { throw 'The RuntimeHost helper must have exactly one payload digest entry.' }
+$helperExecutableDigest = "sha256:$([string]$helperManifestEntries[0].sha256)"
+Assert-Sha256 $helperExecutableDigest 'helperExecutableDigest'
+$executionNodeExe = Resolve-SafeChildPath $versionRoot ([string]$manifest.executionNodeExecutable)
 $guestImage = Resolve-SafeChildPath $versionRoot ([string]$manifest.guestImage)
 $guestSignature = Resolve-SafeChildPath $versionRoot ([string]$manifest.guestImageSignature)
 $signingCertificate = Resolve-SafeChildPath $versionRoot ([string]$manifest.guestImageSigningCertificate)
 $certificationEvidence = Resolve-SafeChildPath $versionRoot ([string]$manifest.certificationEvidence)
-foreach ($required in @($runtimeHostExe, $helperExe, $guestImage, $guestSignature, $signingCertificate, $certificationEvidence)) {
+foreach ($required in @($runtimeHostExe, $helperExe, $executionNodeExe, $guestImage, $guestSignature, $signingCertificate, $certificationEvidence)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Required installed file is missing: $required" }
 }
 
@@ -151,7 +175,7 @@ if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
     try { $random.GetBytes($keyBytes) } finally { $random.Dispose() }
     [IO.File]::WriteAllText($keyPath, [Convert]::ToBase64String($keyBytes), [Text.UTF8Encoding]::new($false))
 }
-& "$env:SystemRoot\System32\icacls.exe" $keyPath '/inheritance:r' "/grant:r" "*$ControlPlaneUserSid`:R" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Host
+& "$env:SystemRoot\System32\icacls.exe" $keyPath '/inheritance:r' "/grant:r" "*$ControlPlaneUserSid`:R" '*S-1-5-19:R' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'The RuntimeHost key ACL could not be secured.' }
 foreach ($artifactRoot in @($artifactStoreRoot, $artifactMediaRoot)) {
     & "$env:SystemRoot\System32\icacls.exe" $artifactRoot '/inheritance:r' "/grant:r" "*$ControlPlaneUserSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
@@ -165,11 +189,12 @@ $config = @{
     }
     CSweet = @{
         AgentRuntime = @{
-            RuntimeHost = @{ NamedPipeName = 'csweet-runtime-host-v1'; AllowedClientSid = $ControlPlaneUserSid; UnixSocketPath = '/var/run/csweet/runtime-host-v1.sock'; ConnectTimeoutSeconds = 10; MaximumFrameBytes = 1048576 }
+            RuntimeHost = @{ NamedPipeName = 'csweet-runtime-host-v1'; AllowedClientSid = $ControlPlaneUserSid; AllowedClientSids = @($ControlPlaneUserSid, 'S-1-5-19'); UnixSocketPath = '/var/run/csweet/runtime-host-v1.sock'; ConnectTimeoutSeconds = 10; MaximumFrameBytes = 1048576 }
             HostAuthentication = @{ KeyId = 'control-plane'; SharedKeyBase64 = ''; SharedKeyFilePath = $keyPath }
             Providers = @{
                 HyperV = @{
                     HelperExecutablePath = $helperExe
+                    HelperExecutableDigest = $helperExecutableDigest
                     GuestImagePath = $guestImage
                     GuestImageDigest = [string]$manifest.guestImageDigest
                     GuestImageSignaturePath = $guestSignature
@@ -244,6 +269,58 @@ New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName" -N
 Invoke-Sc @('failure', $serviceName, 'reset=', '86400', 'actions=', 'restart/5000/restart/15000/none/0')
 Start-Service -Name $serviceName
 (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+
+if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
+    -not [String]::IsNullOrWhiteSpace($EnrollmentTokenInputPath)) {
+    $gatewayUri = [Uri]$ControlPlaneUrl
+    if (-not $gatewayUri.IsAbsoluteUri -or $gatewayUri.Scheme -ne 'https') { throw 'ControlPlaneUrl must be an absolute HTTPS URL.' }
+    $inputPath = [IO.Path]::GetFullPath($EnrollmentTokenInputPath)
+    if (-not (Test-Path -LiteralPath $inputPath -PathType Leaf)) { throw 'The protected enrollment input is missing.' }
+    $token = [IO.File]::ReadAllText($inputPath).Trim()
+    Remove-Item -LiteralPath $inputPath -Force
+    if ($token.Length -lt 32 -or $token.Length -gt 256) { throw 'The protected enrollment token is invalid.' }
+    $nodeDataRoot = Join-Path $env:ProgramData 'CSweet\ExecutionNode'
+    New-Item -ItemType Directory -Path $nodeDataRoot -Force | Out-Null
+    $nodeTokenPath = Join-Path $nodeDataRoot 'enrollment.secret'
+    [IO.File]::WriteAllText($nodeTokenPath, $token, [Text.UTF8Encoding]::new($false))
+    $token = $null
+    & "$env:SystemRoot\System32\icacls.exe" $nodeDataRoot '/inheritance:r' '/grant:r' '*S-1-5-19:(OI)(CI)M' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'The ExecutionNode state ACL could not be secured.' }
+    $config.CSweet.ExecutionNode = @{
+        ControlPlaneUrl = $gatewayUri.AbsoluteUri
+        StateDirectory = $nodeDataRoot
+        ArtifactCacheDirectory = (Join-Path $nodeDataRoot 'artifact-cache')
+        ArtifactMediaDirectory = $artifactMediaRoot
+        EnrollmentTokenFilePath = $nodeTokenPath
+    }
+    [IO.File]::WriteAllText((Join-Path $versionRoot 'appsettings.json'),
+        ($config | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+    $nodeServiceName = 'CSweet.ExecutionNode'
+    $nodeBinaryPath = '"' + $executionNodeExe + '" --contentRoot "' + $versionRoot + '" --environment Production'
+    $nodeService = Get-Service -Name $nodeServiceName -ErrorAction SilentlyContinue
+    if ($null -eq $nodeService) {
+        $nodeService = New-Service -Name $nodeServiceName -BinaryPathName $nodeBinaryPath `
+            -DisplayName 'C-Sweet ExecutionNode' -Description 'Unprivileged outbound C-Sweet execution node.' -StartupType Automatic
+    } elseif ($nodeService.Status -ne 'Stopped') {
+        Stop-Service -Name $nodeServiceName -Force
+        $nodeService.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+    }
+    $nodeServiceConfiguration = Get-CimInstance -ClassName Win32_Service -Filter "Name='$nodeServiceName'"
+    if ($null -eq $nodeServiceConfiguration) { throw 'The ExecutionNode service configuration could not be loaded.' }
+    $nodeChangeResult = Invoke-CimMethod -InputObject $nodeServiceConfiguration -MethodName Change -Arguments @{
+        PathName = $nodeBinaryPath
+        StartName = 'NT AUTHORITY\LocalService'
+        StartPassword = ''
+        StartMode = 'Automatic'
+    }
+    if ($null -eq $nodeChangeResult -or [int]$nodeChangeResult.ReturnValue -ne 0) {
+        $nodeReturnValue = if ($null -eq $nodeChangeResult) { 'no result' } else { [string]$nodeChangeResult.ReturnValue }
+        throw "The ExecutionNode service could not be configured. Win32_Service.Change returned $nodeReturnValue."
+    }
+    Invoke-Sc @('failure', $nodeServiceName, 'reset=', '86400', 'actions=', 'restart/5000/restart/15000/none/0')
+    Start-Service -Name $nodeServiceName
+    (Get-Service -Name $nodeServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+}
 if ($ProgressWorkflow -eq 'packaged-installer') {
     Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $ProgressWorkflow `
         -State completed -PhaseKey setup-complete -PhaseDisplayName 'Secure agent runtime ready' `

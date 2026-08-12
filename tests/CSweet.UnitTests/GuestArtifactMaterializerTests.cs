@@ -4,6 +4,20 @@ namespace CSweet.UnitTests;
 
 public sealed class GuestArtifactMaterializerTests
 {
+    [Theory]
+    [InlineData(null, "/dev/sr0")]
+    [InlineData("/dev/sr0", "/dev/sr0")]
+    [InlineData("/dev/vdc", "/dev/vdc")]
+    public void ArtifactDeviceAllowsOnlyProviderOwnedFixedDevices(string? configured, string expected) =>
+        Assert.Equal(expected, GuestArtifactMaterializer.ResolveDevicePath(configured));
+
+    [Theory]
+    [InlineData("/dev/vdb")]
+    [InlineData("/tmp/artifact.iso")]
+    [InlineData("/dev/vdc\n")]
+    public void ArtifactDeviceRejectsArbitraryGuestPaths(string configured) =>
+        Assert.Throws<InvalidDataException>(() => GuestArtifactMaterializer.ResolveDevicePath(configured));
+
     [Fact]
     public void WorkloadModesKeepArtifactRootOwnedAndGroupReadable()
     {

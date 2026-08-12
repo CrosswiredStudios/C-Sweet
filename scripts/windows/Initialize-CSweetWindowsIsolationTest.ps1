@@ -5,6 +5,8 @@ param(
     [switch] $SkipInstall,
     [switch] $NoElevation,
     [string] $ControlPlaneUserSid,
+    [string] $ControlPlaneUrl,
+    [string] $EnrollmentTokenInputPath,
     [string] $ProgressPath,
     [guid] $ProgressJobId = [guid]::Empty
 )
@@ -292,7 +294,8 @@ if (-not $SkipInstall) {
     Write-Host 'Installing the certified development RuntimeHost payload...'
     & (Join-Path $PSScriptRoot 'Install-CSweetRuntimeHost.ps1') -PayloadRoot $payloadRoot `
         -ControlPlaneUserSid $ControlPlaneUserSid -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId `
-        -ProgressWorkflow $progressWorkflow
+        -ProgressWorkflow $progressWorkflow -ControlPlaneUrl $ControlPlaneUrl `
+        -EnrollmentTokenInputPath $EnrollmentTokenInputPath
     if ($LASTEXITCODE -ne 0) { throw 'The Windows RuntimeHost installation failed.' }
 }
 

@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+option csharp_namespace = "CSweet.AgentRuntime.Protocol";
+package csweet.executionnode.v1;
+
+service ExecutionNodeGateway {
+  rpc Connect(stream NodeControlMessage) returns (stream ControlPlaneMessage);
+  rpc OpenWorkloadTunnel(stream WorkloadTunnelFrame) returns (stream WorkloadTunnelFrame);
+  rpc DownloadArtifact(ArtifactDownloadRequest) returns (stream ArtifactChunk);
+}
+
+message NodeControlMessage {
+  string protocol_version = 1;
+  string node_id = 2;
+  int64 session_epoch = 3;
+  oneof body {
+    NodeHeartbeat heartbeat = 10;
+    AssignmentLeaseRenewal lease_renewal = 11;
+    AssignmentStatusUpdate assignment_status = 12;
+  }
+}
+
+message ControlPlaneMessage {
+  string protocol_version = 1;
+  string node_id = 2;
+  int64 session_epoch = 3;
+  oneof body {
+    WorkloadAssignment assignment = 10;
+    FenceAssignment fence = 11;
+    DrainNode drain = 12;
+    GatewayHello hello = 13;
+  }
+}
+
+message GatewayHello {
+  string assignment_signing_key_id = 1;
+  bytes assignment_verification_public_key = 2;
+}
+
+message NodeHeartbeat {
+  int64 occurred_at_unix_seconds = 1;
+  int32 allocatable_cpu_count = 2;
+  int32 allocatable_memory_mb = 3;
+  int32 allocatable_disk_mb = 4;
+  int32 maximum_concurrent_workloads = 5;
+  repeated NodeProviderInventory providers = 6;
+}
+
+message NodeProviderInventory {
+  string provider_id = 1;
+  string provider_version = 2;
+  string broker_protocol_version = 3;
+  string guest_image_digest = 4;
+  string certification_suite_version = 5;
+  string certification_evidence_digest = 6;
+  int64 certified_at_unix_seconds = 7;
+  int64 certification_expires_at_unix_seconds = 8;
+  bool supports_builder_workloads = 9;
+  bool supports_runtime_workloads = 10;
+  bool is_available = 11;
+  string unavailable_reason = 12;
+}
+
+message WorkloadAssignment {
+  string assignment_id = 1;
+  string workload_id = 2;
+  int64 fencing_epoch = 3;
+  string provider_id = 4;
+  string specification_json = 5;
+  string specification_sha256 = 6;
+  string signature_key_id = 7;
+  bytes signature = 8;
+  int64 lease_expires_at_unix_seconds = 9;
+  string artifact_read_token = 10;
+}
+
+message AssignmentLeaseRenewal {
+  string assignment_id = 1;
+  int64 fencing_epoch = 2;
+  int64 requested_expiry_unix_seconds = 3;
+}
+
+message AssignmentStatusUpdate {
+  string assignment_id = 1;
+  int64 fencing_epoch = 2;
+  string status = 3;
+  string failure_code = 4;
+  string sanitized_failure = 5;
+  string provider_instance_id = 6;
+  string log_excerpt = 13;
+}
+
+message FenceAssignment {
+  string assignment_id = 1;
+  int64 fencing_epoch = 2;
+  string reason = 3;
+}
+
+message DrainNode {
+  bool drain = 1;
+  string reason = 2;
+}
+
+message WorkloadTunnelFrame {
+  string node_id = 1;
+  string assignment_id = 2;
+  int64 fencing_epoch = 3;
+  int64 sequence = 4;
+  bytes content = 5;
+  bool completed = 6;
+  int64 session_epoch = 7;
+}
+
+message ArtifactDownloadRequest {
+  string protocol_version = 1;
+  string node_id = 2;
+  int64 session_epoch = 3;
+  string assignment_id = 4;
+  int64 fencing_epoch = 5;
+  string artifact_digest = 6;
+  string artifact_read_token = 7;
+  string transfer_id = 8;
+}
+
+message ArtifactChunk {
+  int64 offset = 1;
+  bytes content = 2;
+  bool completed = 3;
+  int64 total_size = 4;
+  string sha256 = 5;
+}

@@ -23,7 +23,19 @@ message RuntimeHostEnvelope {
     OperationResponse operation_response = 19;
     ReadLogsRequest read_logs_request = 20;
     LogChunk log_chunk = 21;
+    OpenGuestChannelRequest open_guest_channel_request = 22;
+    OpenGuestChannelResponse open_guest_channel_response = 23;
   }
+}
+
+message OpenGuestChannelRequest {
+  WorkloadOperationRequest workload = 1;
+}
+
+message OpenGuestChannelResponse {
+  bool success = 1;
+  string error_code = 2;
+  string sanitized_error = 3;
 }
 
 message ProbeRequest {

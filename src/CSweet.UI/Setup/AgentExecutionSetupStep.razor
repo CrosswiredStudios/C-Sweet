@@ -1,0 +1,492 @@
+@using CSweet.Contracts.Setup
+@inject ISetupApiClient SetupApi
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<section class="execution-step" aria-labelledby="execution-title">
+    <header class="execution-step-header">
+        <MudIcon Icon="@Icons.Material.Filled.Dns" Color="Color.Primary" />
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Secondary">Certified execution capacity</MudText>
+            <MudText Typo="Typo.h4" id="execution-title">Agent Execution</MudText>
+            <MudText Color="Color.Secondary">Choose where isolated agent builds and runtimes will execute.</MudText>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <div class="execution-loading" aria-live="polite">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <MudText>Checking execution capacity...</MudText>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+        <MudButton Variant="Variant.Outlined" OnClick="RefreshAsync">Retry</MudButton>
+    }
+    else if (_status is not null)
+    {
+        <div class="execution-mode-grid">
+            <button type="button" class="execution-mode-card @ModeClass("local")"
+                    disabled="@(_busy || !_status.CanInstallLocalNode)" @onclick='@(() => SelectModeAsync("local"))'>
+                <MudIcon Icon="@Icons.Material.Filled.Computer" />
+                <strong>This machine</strong>
+                <span>Install and enroll a daemon on this @_status.LocalOperatingSystem host.</span>
+            </button>
+            <button type="button" class="execution-mode-card @ModeClass("remote")"
+                    disabled="@_busy" @onclick='@(() => SelectModeAsync("remote"))'>
+                <MudIcon Icon="@Icons.Material.Filled.Hub" />
+                <strong>Another machine</strong>
+                <span>Connect a Windows, Linux, or macOS execution-node daemon.</span>
+            </button>
+        </div>
+
+        @if (_status.SelectedMode == "local")
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Prepare RuntimeHost and the signed provider on this machine, then enroll the ExecutionNode daemon below.
+            </MudAlert>
+            @if (_status.LocalPrerequisites is { Count: > 0 })
+            {
+                <ol class="execution-checks" aria-label="Local platform prerequisites">
+                    @foreach (var check in _status.LocalPrerequisites)
+                    {
+                        <li class="execution-check-@check.Status">
+                            <MudIcon Icon="@(check.Status == "passed" ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.RadioButtonUnchecked)" />
+                            <div><strong>@check.DisplayName</strong><span>@check.Message</span><small>@check.Remediation</small></div>
+                        </li>
+                    }
+                </ol>
+            }
+            @if (_status.LocalProvisioning is { } provisioning)
+            {
+                <div class="execution-install-card" aria-live="polite">
+                    <div>
+                        <MudText Typo="Typo.subtitle1"><strong>@provisioning.PhaseDisplayName</strong></MudText>
+                        <MudText Color="Color.Secondary">@provisioning.Message</MudText>
+                    </div>
+                    <MudProgressLinear Value="@provisioning.PercentComplete"
+                                       Color="@(provisioning.State == "failed" ? Color.Error : provisioning.State == "completed" ? Color.Success : Color.Primary)" />
+                    @if (provisioning.RequiresRestart)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">Restart this machine, then reopen setup. Progress will resume automatically.</MudAlert>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(provisioning.ErrorMessage))
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true">@provisioning.ErrorMessage</MudAlert>
+                    }
+                </div>
+            }
+            @EnrollmentPanel(true)
+        }
+        else if (_status.SelectedMode == "remote")
+        {
+            <MudText Typo="Typo.h6">Connect an execution node</MudText>
+            <MudText Color="Color.Secondary">
+                Choose the target platform, install the signed package, and review the machine identity before approving it.
+            </MudText>
+            @if (_status.Packages is { } packages)
+            {
+                <div class="execution-platform-picker" role="group" aria-label="Execution-node operating system">
+                    @foreach (var platform in RemotePlatforms)
+                    {
+                        <button type="button" class="execution-platform-button @PlatformClass(platform.Key)"
+                                disabled="@_busy" @onclick="() => SelectRemotePlatform(platform.Key)">
+                            <MudIcon Icon="@platform.Icon" />
+                            <span>@platform.Label</span>
+                        </button>
+                    }
+                </div>
+
+                <div class="execution-install-card">
+                    <div>
+                        <MudText Typo="Typo.subtitle1"><strong>@SelectedPlatform.Label installation</strong></MudText>
+                        <MudText Color="Color.Secondary">Install the signed package first, then run the command below to enroll RuntimeHost and ExecutionNode with separate least-privilege service identities.</MudText>
+                    </div>
+                    @if (SelectedPackageUrl(packages) is { Length: > 0 } packageUrl)
+                    {
+                        <MudButton Href="@packageUrl" Target="_blank" Variant="Variant.Filled" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.Download">Download signed package</MudButton>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">
+                            The signed @SelectedPlatform.Label package has not been published for this deployment.
+                        </MudAlert>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(packages.ControlPlaneUrl))
+                    {
+                        <div class="execution-copy-field">
+                            <span>Execution Gateway</span>
+                            <code>@packages.ControlPlaneUrl</code>
+                            <MudButton Variant="Variant.Text" OnClick="() => CopyGatewayAsync(packages.ControlPlaneUrl!)">Copy</MudButton>
+                        </div>
+                        <MudText Typo="Typo.subtitle2">Run on the other machine</MudText>
+                        <div class="execution-copy-field execution-command">
+                            <code>@InstallCommand(packages.ControlPlaneUrl!)</code>
+                            <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">Copy</MudButton>
+                        </div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            The token is intentionally omitted. The configuration command requests it through a hidden prompt or standard input.
+                        </MudText>
+                        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description"
+                                   OnClick="() => DownloadInstructionsAsync(packages)">Download non-secret instructions</MudButton>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true">
+                            The public Execution Gateway HTTPS address is not configured. An administrator must configure it before another device can connect.
+                        </MudAlert>
+                    }
+                </div>
+            }
+            @EnrollmentPanel(false)
+            @RemoteProgress()
+        }
+
+        @if (_status.Nodes.Count > 0)
+        {
+            <MudText Typo="Typo.h6" Class="mt-4">Enrolled nodes</MudText>
+            <div class="execution-node-list">
+                @foreach (var node in _status.Nodes)
+                {
+                    <article class="execution-node-card">
+                        <div class="execution-node-details">
+                            <strong>@node.Name</strong>
+                            <span>@node.MachineName | @node.OperatingSystem/@node.Architecture | node v@node.NodeVersion | protocol @node.ProtocolVersion</span>
+                            <span>@node.AllocatableCpuCount CPU | @node.AllocatableMemoryMb MB memory | @node.AllocatableDiskMb MB disk | @node.MaximumConcurrentWorkloads concurrent workloads</span>
+                            <span>Last heartbeat: @Heartbeat(node.LastHeartbeatAt) | certificate expires: @Heartbeat(node.CertificateExpiresAt)</span>
+                            <div class="execution-copy-field execution-fingerprint">
+                                <span>Certificate fingerprint</span>
+                                <code>@node.CertificateThumbprint</code>
+                                <MudButton Variant="Variant.Text" OnClick="() => CopyFingerprintAsync(node.CertificateThumbprint)">Copy</MudButton>
+                            </div>
+                            @foreach (var provider in node.Providers)
+                            {
+                                <div class="execution-provider-card">
+                                    <strong>@provider.ProviderId v@provider.ProviderVersion</strong>
+                                    <span>@(provider.IsAvailable ? "Available" : "Unavailable") | broker protocol @provider.BrokerProtocolVersion | builder @(provider.SupportsBuilderWorkloads ? "yes" : "no") | runtime @(provider.SupportsRuntimeWorkloads ? "yes" : "no")</span>
+                                    @if (provider.IsAvailable)
+                                    {
+                                        <span>Certification @provider.CertificationSuiteVersion | certified @provider.CertifiedAt.ToLocalTime().ToString("g") | expires @Heartbeat(provider.CertificationExpiresAt)</span>
+                                        <code>Image @provider.GuestImageDigest</code>
+                                        <code>Evidence @provider.CertificationEvidenceDigest</code>
+                                    }
+                                    else
+                                    {
+                                        <span>@provider.UnavailableReason</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <div class="execution-node-actions">
+                            <MudChip T="string" Size="Size.Small" Color="@NodeColor(node.Status)">@DisplayStatus(node.Status)</MudChip>
+                            @if (node.Status == "pendingapproval")
+                            {
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy"
+                                           OnClick="() => ApproveAsync(node.Id)">Approve node</MudButton>
+                                <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@_busy"
+                                           OnClick="() => RejectAsync(node.Id)">Reject</MudButton>
+                            }
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+
+        <ol class="execution-checks" aria-label="Execution readiness checks">
+            @foreach (var check in _status.Checks)
+            {
+                <li class="execution-check-@check.Status">
+                    <MudIcon Icon="@(check.Status == "passed" ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.RadioButtonUnchecked)" />
+                    <div>
+                        <strong>@check.DisplayName</strong>
+                        <span>@check.Message</span>
+                        @if (!string.IsNullOrWhiteSpace(check.Remediation))
+                        {
+                            <small>@check.Remediation</small>
+                        }
+                    </div>
+                </li>
+            }
+        </ol>
+
+        @if (!string.IsNullOrWhiteSpace(_actionMessage))
+        {
+            <MudAlert Severity="@(_actionSucceeded ? Severity.Success : Severity.Warning)" Dense="true">@_actionMessage</MudAlert>
+        }
+        @if (_status.IsReady)
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+                Agent execution is ready. @_status.ReadyNodeCount approved node@(_status.ReadyNodeCount == 1 ? "" : "s") can run builds and agents.
+            </MudAlert>
+        }
+    }
+
+    @if (ShowNavigation)
+    {
+        <footer class="execution-step-actions">
+            <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="@(_busy || _loading || _status?.IsReady != true)" OnClick="OnContinue">Continue</MudButton>
+        </footer>
+    }
+</section>
+
+@code {
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback OnContinue { get; set; }
+    [Parameter] public EventCallback<ExecutionCapacityOnboardingResponse> OnStatusChanged { get; set; }
+    [Parameter] public bool ShowNavigation { get; set; } = true;
+
+    private ExecutionCapacityOnboardingResponse? _status;
+    private ExecutionEnrollmentResponse? _issuedEnrollment;
+    private IJSObjectReference? _jsModule;
+    private CancellationTokenSource? _polling;
+    private string _remotePlatform = "windows";
+    private bool _loading = true;
+    private bool _busy;
+    private bool _actionSucceeded;
+    private string? _actionMessage;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        StartPolling();
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _status = await SetupApi.GetExecutionCapacityStatusAsync();
+            await OnStatusChanged.InvokeAsync(_status);
+            _error = null;
+        }
+        catch
+        {
+            _error = "C-Sweet could not inspect execution-node readiness.";
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task SelectModeAsync(string mode)
+    {
+        _busy = true;
+        var result = await SetupApi.SelectExecutionModeAsync(mode);
+        Apply(result);
+        _issuedEnrollment = null;
+        _busy = false;
+    }
+
+    private async Task CreateEnrollmentAsync()
+    {
+        _busy = true;
+        var result = await SetupApi.CreateExecutionEnrollmentAsync();
+        Apply(result);
+        _issuedEnrollment = result.Enrollment;
+        if (result.Succeeded && _status?.SelectedMode == "local" &&
+            result.Enrollment?.EnrollmentToken is { Length: > 0 } token)
+        {
+            var installation = await SetupApi.InstallLocalExecutionNodeAsync(token);
+            Apply(installation);
+        }
+        _busy = false;
+    }
+
+    private async Task RevokeEnrollmentAsync(Guid id)
+    {
+        _busy = true;
+        var result = await SetupApi.RevokeExecutionEnrollmentAsync(id);
+        Apply(result);
+        _issuedEnrollment = null;
+        _busy = false;
+    }
+
+    private async Task ApproveAsync(Guid id)
+    {
+        _busy = true;
+        var result = await SetupApi.ApproveExecutionNodeAsync(id);
+        Apply(result);
+        _busy = false;
+    }
+
+    private async Task RejectAsync(Guid id)
+    {
+        _busy = true;
+        var result = await SetupApi.RejectExecutionNodeAsync(id);
+        Apply(result);
+        _busy = false;
+    }
+
+    private RenderFragment EnrollmentPanel(bool local) => @<div class="execution-enrollment-panel">
+        @if (_issuedEnrollment?.EnrollmentToken is { Length: > 0 } token)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true">This enrollment token is shown once. Treat it as a secret.</MudAlert>
+            <code class="execution-token">@token</code>
+            <div><span>Expires @_issuedEnrollment.ExpiresAt.ToLocalTime().ToString("g")</span></div>
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy"
+                           OnClick="() => CopyTokenAsync(token)">Copy token</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@_busy"
+                           OnClick="() => RevokeEnrollmentAsync(_issuedEnrollment.Id)">Revoke token</MudButton>
+            </MudStack>
+        }
+        else if (_status?.ActiveEnrollment is { } active)
+        {
+            <MudText>An enrollment is active until @active.ExpiresAt.ToLocalTime().ToString("g"). Its token is no longer displayed.</MudText>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@_busy"
+                       OnClick="() => RevokeEnrollmentAsync(active.Id)">Revoke and replace</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy"
+                       OnClick="CreateEnrollmentAsync">@(local ? "Create local enrollment" : "Create remote enrollment")</MudButton>
+        }
+    </div>;
+
+    private RenderFragment RemoteProgress() => @<ol class="execution-journey" aria-label="Remote execution-node enrollment progress">
+        <li class="@JourneyClass(1)"><span>1</span><div><strong>Prepare installer</strong><small>Download the signed package and copy the command.</small></div></li>
+        <li class="@JourneyClass(2)"><span>2</span><div><strong>Create enrollment</strong><small>Issue the one-use, 15-minute token.</small></div></li>
+        <li class="@JourneyClass(3)"><span>3</span><div><strong>Connect daemon</strong><small>Wait for the other machine to claim the enrollment.</small></div></li>
+        <li class="@JourneyClass(4)"><span>4</span><div><strong>Review and approve</strong><small>Verify the machine and certificate fingerprint.</small></div></li>
+        <li class="@JourneyClass(5)"><span>5</span><div><strong>Certified capacity ready</strong><small>The node can receive builder and runtime assignments.</small></div></li>
+    </ol>;
+
+    private static readonly RemotePlatform[] RemotePlatforms =
+    [
+        new("windows", "Windows", Icons.Material.Filled.Window),
+        new("linux", "Linux", Icons.Material.Filled.Terminal),
+        new("macos", "macOS", Icons.Material.Filled.LaptopMac)
+    ];
+
+    private RemotePlatform SelectedPlatform => RemotePlatforms.Single(x => x.Key == _remotePlatform);
+    private void SelectRemotePlatform(string platform) => _remotePlatform = platform;
+    private string PlatformClass(string platform) => platform == _remotePlatform ? "selected" : string.Empty;
+    private string? SelectedPackageUrl(ExecutionNodePackageLinksResponse packages) => _remotePlatform switch
+    {
+        "windows" => packages.WindowsUrl,
+        "linux" => packages.LinuxUrl,
+        "macos" => packages.MacOsUrl,
+        _ => null
+    };
+
+    private string InstallCommand(string controlPlaneUrl) => _remotePlatform switch
+    {
+        "windows" => $"& \"$env:ProgramFiles\\CSweet\\ExecutionNodeInstaller\\Install-CSweetExecutionFleet.ps1\" -PayloadRoot \"$env:ProgramFiles\\CSweet\\ExecutionNodeInstaller\\payload\" -ControlPlaneUrl '{PowerShellQuote(controlPlaneUrl)}'",
+        "linux" => $"sudo /usr/sbin/csweet-configure-execution-node '{UnixQuote(controlPlaneUrl)}'",
+        "macos" => $"sudo /usr/local/sbin/csweet-configure-execution-node '{UnixQuote(controlPlaneUrl)}'",
+        _ => string.Empty
+    };
+
+    private static string PowerShellQuote(string value) => value.Replace("'", "''", StringComparison.Ordinal);
+    private static string UnixQuote(string value) => value.Replace("'", "'\"'\"'", StringComparison.Ordinal);
+
+    private int JourneyStage()
+    {
+        if (_status?.IsReady == true) return 5;
+        if (_status?.Nodes.Any(node => node.Status == "pendingapproval") == true) return 4;
+        if (_status?.Nodes.Count > 0 || _status?.ActiveEnrollment?.Status == "claimed") return 3;
+        if (_issuedEnrollment is not null || _status?.ActiveEnrollment is not null) return 2;
+        return 1;
+    }
+
+    private string JourneyClass(int step)
+    {
+        var current = JourneyStage();
+        return step < current ? "completed" : step == current ? "current" : string.Empty;
+    }
+
+    private async Task CopyAsync(string value, string message)
+    {
+        var module = await ModuleAsync();
+        await module.InvokeVoidAsync("copyText", value);
+        _actionSucceeded = true;
+        _actionMessage = message;
+    }
+
+    private Task CopyGatewayAsync(string value) => CopyAsync(value, "Gateway address copied.");
+    private Task CopyCommandAsync(string value) => CopyAsync(
+        InstallCommand(value), "Installation command copied.");
+    private Task CopyTokenAsync(string value) => CopyAsync(
+        value, "Enrollment token copied. Paste it only into the protected installer prompt.");
+    private Task CopyFingerprintAsync(string value) => CopyAsync(value, "Certificate fingerprint copied.");
+
+    private async Task DownloadInstructionsAsync(ExecutionNodePackageLinksResponse packages)
+    {
+        if (string.IsNullOrWhiteSpace(packages.ControlPlaneUrl)) return;
+        var text = $"C-Sweet Execution Node - {SelectedPlatform.Label}\n\n" +
+                   $"1. Download the signed package: {SelectedPackageUrl(packages) ?? "Contact your C-Sweet administrator."}\n" +
+                   $"2. Verify the publisher signature, then install the package with the platform package installer.\n" +
+                   $"3. Run the installed configuration command as administrator/root:\n   {InstallCommand(packages.ControlPlaneUrl)}\n" +
+                   "4. Paste the one-use enrollment token only when the installer prompts for it.\n" +
+                   "5. Ask the C-Sweet administrator to verify and approve this machine.\n";
+        var module = await ModuleAsync();
+        await module.InvokeVoidAsync("downloadText", $"csweet-execution-node-{_remotePlatform}.txt", text);
+    }
+
+    private async Task<IJSObjectReference> ModuleAsync() => _jsModule ??=
+        await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/auth-security.js");
+
+    private void Apply(ExecutionCapacityActionResponse result)
+    {
+        _status = result.Status;
+        _actionSucceeded = result.Succeeded;
+        _actionMessage = result.Message;
+        _ = OnStatusChanged.InvokeAsync(result.Status);
+    }
+
+    private void StartPolling()
+    {
+        _polling = new CancellationTokenSource();
+        _ = PollAsync(_polling.Token);
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                var status = await SetupApi.GetExecutionCapacityStatusAsync(cancellationToken);
+                await InvokeAsync(async () =>
+                {
+                    _status = status;
+                    if (status.Nodes.Count > 0 || status.ActiveEnrollment?.Status == "claimed")
+                        _issuedEnrollment = null;
+                    await OnStatusChanged.InvokeAsync(status);
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch { }
+    }
+
+    private string ModeClass(string mode) => _status?.SelectedMode == mode ? "selected" : string.Empty;
+    private static string Short(string value) => value.Length <= 18 ? value : $"{value[..10]}…{value[^6..]}";
+    private static string Heartbeat(DateTimeOffset? value) => value is null ? "never" : value.Value.ToLocalTime().ToString("g");
+    private static Color NodeColor(string status) => status == "ready" ? Color.Success : status == "pendingapproval" ? Color.Warning : Color.Default;
+    private static string DisplayStatus(string status) => status switch
+    {
+        "pendingapproval" => "Pending approval",
+        "ready" => "Ready",
+        "draining" => "Draining",
+        "offline" => "Offline",
+        "revoked" => "Revoked",
+        _ => status
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        _polling?.Cancel();
+        _polling?.Dispose();
+        if (_jsModule is not null) await _jsModule.DisposeAsync();
+    }
+
+    private sealed record RemotePlatform(string Key, string Label, string Icon);
+}

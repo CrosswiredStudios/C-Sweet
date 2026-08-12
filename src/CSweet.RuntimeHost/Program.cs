@@ -4,10 +4,12 @@ using CSweet.AgentRuntime.Firecracker;
 using CSweet.AgentRuntime.HyperV;
 using CSweet.AgentRuntime.LocalRpc;
 using CSweet.AgentRuntime.Protocol;
+using CSweet.AgentRuntime.Core;
 using CSweet.RuntimeHost;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(options => options.ServiceName = "CSweet.RuntimeHost");
+builder.Services.AddSystemd();
 
 var endpoint = builder.Configuration
     .GetSection(RuntimeHostEndpointOptions.SectionName)
@@ -36,11 +38,24 @@ var firecracker = builder.Configuration.GetSection("CSweet:AgentRuntime:Provider
     .Get<FirecrackerIsolationBackendOptions>() ?? new FirecrackerIsolationBackendOptions();
 var apple = builder.Configuration.GetSection("CSweet:AgentRuntime:Providers:AppleVirtualization")
     .Get<AppleVirtualizationIsolationBackendOptions>() ?? new AppleVirtualizationIsolationBackendOptions();
+PlatformRuntimePayloadManifest.ApplyIfConfigured(firecracker, IsolationProviderCatalog.Firecracker());
+PlatformRuntimePayloadManifest.ApplyIfConfigured(apple, IsolationProviderCatalog.AppleVirtualization());
 builder.Services.AddSingleton(hyperV);
 builder.Services.AddSingleton(firecracker);
 builder.Services.AddSingleton(apple);
 builder.Services.AddSingleton<IPlatformIsolationBackend, HyperVIsolationBackend>();
 builder.Services.AddSingleton<IPlatformIsolationBackend, FirecrackerIsolationBackend>();
 builder.Services.AddSingleton<IPlatformIsolationBackend, AppleVirtualizationIsolationBackend>();
+var hyperVSocket = builder.Configuration.GetSection("CSweet:AgentRuntime:HyperVSocket")
+    .Get<HyperVSocketTransportOptions>() ?? new HyperVSocketTransportOptions();
+hyperVSocket.Validate();
+builder.Services.AddSingleton(hyperVSocket);
+builder.Services.AddSingleton<WindowsHyperVSocketTransport>();
+builder.Services.AddSingleton<IHyperVGuestTransport>(services =>
+    services.GetRequiredService<WindowsHyperVSocketTransport>());
+builder.Services.AddSingleton<IPlatformGuestChannelConnector>(services =>
+    services.GetRequiredService<WindowsHyperVSocketTransport>());
+builder.Services.AddSingleton<IPlatformGuestChannelConnector, FirecrackerGuestChannelConnector>();
+builder.Services.AddSingleton<IPlatformGuestChannelConnector, AppleVirtualizationGuestChannelConnector>();
 
 await builder.Build().RunAsync();

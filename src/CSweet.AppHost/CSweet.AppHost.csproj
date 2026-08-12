@@ -17,6 +17,8 @@
   <ItemGroup>
     <ProjectReference Include="..\CSweet.AgentHost\CSweet.AgentHost.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\CSweet.Api\CSweet.Api.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\CSweet.ExecutionGateway\CSweet.ExecutionGateway.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\CSweet.ExecutionNode\CSweet.ExecutionNode.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\CSweet.App\CSweet.App.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\CSweet.GitHost\CSweet.GitHost.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\CSweet.Migrator\CSweet.Migrator.csproj" IsAspireProjectResource="true" />

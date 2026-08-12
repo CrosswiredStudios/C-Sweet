@@ -1,0 +1,69 @@
+@inject ISetupApiClient SetupApi
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+@if (_setupComplete && _fleetAvailable == false)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="execution-capacity-alert" aria-live="polite">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="width: 100%; gap: 1rem; flex-wrap: wrap">
+            <div>
+                <strong>Agent execution capacity is unavailable.</strong>
+                <div>New builds and agent runs will remain queued or fail closed until an administrator restores a certified execution node.</div>
+            </div>
+            <MudButton Variant="Variant.Filled" Color="Color.Inherit"
+                       StartIcon="@Icons.Material.Filled.Dns"
+                       OnClick="OpenFleet">Open execution fleet</MudButton>
+        </MudStack>
+    </MudAlert>
+}
+
+@code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private bool _setupComplete;
+    private bool? _fleetAvailable;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync(_lifetime.Token);
+        _ = PollAsync(_lifetime.Token);
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await RefreshAsync(cancellationToken);
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var setup = await SetupApi.GetStatusAsync(cancellationToken);
+            _setupComplete = setup.IsFirstRunComplete;
+            _fleetAvailable = !_setupComplete ||
+                (await SetupApi.GetExecutionCapacityStatusAsync(cancellationToken)).IsReady;
+        }
+        catch
+        {
+            // Connectivity errors are surfaced by individual pages; do not misreport them as fleet loss.
+            _fleetAvailable = null;
+        }
+    }
+
+    private void OpenFleet() => Navigation.NavigateTo("/settings/agents/execution-fleet");
+
+    public ValueTask DisposeAsync()
+    {
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

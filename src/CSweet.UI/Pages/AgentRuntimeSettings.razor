@@ -16,12 +16,12 @@
     </MudPaper>
 
     <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-        <AgentIsolationSetupStep ShowNavigation="false" OnStatusChanged="HandleIsolationStatusChanged" />
-        @if (_isIsolationReady)
+        <AgentExecutionSetupStep ShowNavigation="false" OnStatusChanged="HandleExecutionStatusChanged" />
+        @if (_isExecutionReady)
         {
             <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mt-4">
                 <MudStack Spacing="2">
-                    <MudText Typo="Typo.subtitle2">The secure runtime is ready.</MudText>
+                    <MudText Typo="Typo.subtitle2">Certified execution capacity is ready.</MudText>
                     <MudText Typo="Typo.body2">
                         C-Sweet creates a private VM only while an agent is building or running, then removes it automatically.
                     </MudText>
@@ -145,7 +145,7 @@
     private bool _isLoading = true, _isBusy, _enableImportedAgents, _allowAlwaysOnCommunityAgents,
         _allowPublicInternetByDefault, _keepFailedBuildWorkspaces, _removeWorkloadsAfterCompletion,
         _removeWorkspacesAfterCompletion;
-    private bool _isIsolationReady;
+    private bool _isExecutionReady;
     private bool? _actionSucceeded;
     private string? _pageError, _actionMessage;
     private string _defaultActivationMode = "Periodic", _defaultOverlapPolicy = "Skip", _defaultRestartPolicy = "Never",
@@ -162,8 +162,8 @@
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
-    private void HandleIsolationStatusChanged(AgentIsolationOnboardingResponse status) =>
-        _isIsolationReady = status.IsReady;
+    private void HandleExecutionStatusChanged(ExecutionCapacityOnboardingResponse status) =>
+        _isExecutionReady = status.IsReady;
 
     private void ContinueToAgentBuilds() => Navigation.NavigateTo("/settings/agents");
 

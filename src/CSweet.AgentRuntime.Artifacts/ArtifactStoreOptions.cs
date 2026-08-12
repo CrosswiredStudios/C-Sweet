@@ -5,6 +5,7 @@ public sealed class ArtifactStoreOptions
     public const string SectionName = "CSweet:AgentRuntime:Artifacts";
 
     public string RootPath { get; set; } = string.Empty;
+    public string Provider { get; set; } = "filesystem";
     public int MaximumFileCount { get; set; } = 10_000;
     public int MaximumPathLength { get; set; } = 512;
     public long MaximumUncompressedBytes { get; set; } = 2L * 1024 * 1024 * 1024;
@@ -23,5 +24,12 @@ public sealed class ArtifactStoreOptions
             MaximumManifestBytes is < 128 or > 16 * 1024 * 1024)
             throw new InvalidOperationException("One or more artifact validation limits are invalid.");
         return fullPath;
+    }
+
+    public string ValidatedProvider()
+    {
+        var provider = Provider.Trim().ToLowerInvariant();
+        return provider is "filesystem" or "s3" ? provider :
+            throw new InvalidOperationException("The artifact store provider must be filesystem or s3.");
     }
 }

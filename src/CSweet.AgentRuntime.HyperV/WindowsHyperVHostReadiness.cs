@@ -107,4 +107,10 @@ public interface IWindowsRuntimeHostProvisioner
     Task<WindowsRuntimeHostInstallResult> LaunchInstallerAsync(
         WindowsRuntimeHostProvisioningAction action,
         CancellationToken cancellationToken = default);
+    Task<WindowsRuntimeHostInstallResult> LaunchInstallerAsync(
+        WindowsRuntimeHostProvisioningAction action,
+        string controlPlaneUrl,
+        string enrollmentToken,
+        CancellationToken cancellationToken = default) =>
+        LaunchInstallerAsync(action, cancellationToken);
 }

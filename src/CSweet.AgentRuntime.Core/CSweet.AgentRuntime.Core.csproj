@@ -2,4 +2,5 @@
   <ItemGroup>
     <ProjectReference Include="..\CSweet.AgentRuntime.Abstractions\CSweet.AgentRuntime.Abstractions.csproj" />
   </ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.UnitTests" /></ItemGroup>
 </Project>

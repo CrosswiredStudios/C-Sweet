@@ -10,7 +10,9 @@ namespace CSweet.AgentRuntime.Core;
 
 public class PlatformIsolationBackendOptions
 {
+    public string PayloadManifestPath { get; set; } = string.Empty;
     public string HelperExecutablePath { get; set; } = string.Empty;
+    public string HelperExecutableDigest { get; set; } = string.Empty;
     public string GuestImagePath { get; set; } = string.Empty;
     public string GuestImageDigest { get; set; } = string.Empty;
     public string GuestImageSignaturePath { get; set; } = string.Empty;
@@ -24,6 +26,8 @@ public class PlatformIsolationBackendOptions
     public DateTimeOffset? CertifiedAt { get; set; }
     public DateTimeOffset? CertificationExpiresAt { get; set; }
     public int HelperTimeoutSeconds { get; set; } = 120;
+    public int GuestChannelConnectTimeoutSeconds { get; set; } = 30;
+    public string RequiredGuestChannelTransport { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -58,8 +62,11 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
     public async Task<IsolationProviderProbeResult> ProbeAsync(CancellationToken cancellationToken = default)
     {
         if (!IsHostPlatform(out var platformReason)) return Unavailable(platformReason);
-        if (!TryResolveFile(_options.HelperExecutablePath, out _))
+        if (!TryResolveFile(_options.HelperExecutablePath, out var helper))
             return Unavailable("The privileged platform helper is not installed at its configured absolute path.");
+        if (!IsSha256(_options.HelperExecutableDigest) ||
+            !await VerifyFileDigestAsync(helper, _options.HelperExecutableDigest, cancellationToken))
+            return Unavailable("The privileged platform helper does not match its immutable package digest.");
         if (!TryResolveFile(_options.GuestImagePath, out var guestImage))
             return Unavailable("The immutable guest image is not installed at its configured absolute path.");
         if (!TryResolveFile(_options.GuestImageSignaturePath, out var guestSignature) ||
@@ -89,6 +96,10 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
             return Unavailable($"Platform helper probe failed: {Sanitize(exception.Message)}");
         }
         if (!response.Success) return Unavailable(response.SanitizedError ?? response.ErrorCode ?? "Platform helper reported unavailable.");
+        if (!string.IsNullOrWhiteSpace(_options.RequiredGuestChannelTransport) &&
+            !string.Equals(response.GuestChannelTransport, _options.RequiredGuestChannelTransport,
+                StringComparison.Ordinal))
+            return Unavailable("The platform helper does not advertise the certified guest-channel transport.");
 
         var certification = new IsolationProviderCertification(
             Descriptor.ProviderId,
@@ -203,6 +214,9 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
     {
         if (!TryResolveFile(_options.HelperExecutablePath, out var helper))
             throw new IOException("The configured platform helper is unavailable.");
+        if (!IsSha256(_options.HelperExecutableDigest) ||
+            !await VerifyFileDigestAsync(helper, _options.HelperExecutableDigest, cancellationToken))
+            throw new IOException("The configured platform helper failed its integrity check.");
         var start = new ProcessStartInfo
         {
             FileName = helper,

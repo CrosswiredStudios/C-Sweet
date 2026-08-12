@@ -22,4 +22,5 @@ public sealed class PlatformHelperResponse
     public IsolationWorkloadStatus? Status { get; set; }
     public IReadOnlyList<IsolationLogChunk>? Logs { get; set; }
     public int WorkloadsRemoved { get; set; }
+    public string? GuestChannelTransport { get; set; }
 }

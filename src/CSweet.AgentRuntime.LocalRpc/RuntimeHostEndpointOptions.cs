@@ -6,6 +6,7 @@ public sealed class RuntimeHostEndpointOptions
 
     public string NamedPipeName { get; set; } = "csweet-runtime-host-v1";
     public string? AllowedClientSid { get; set; }
+    public string[] AllowedClientSids { get; set; } = [];
     public string UnixSocketPath { get; set; } = "/var/run/csweet/runtime-host-v1.sock";
     public int ConnectTimeoutSeconds { get; set; } = 2;
     public int MaximumFrameBytes { get; set; } = 1024 * 1024;

@@ -20,6 +20,10 @@
     padding: clamp(1rem, 2.5vw, 2.5rem);
 }
 
+::deep .execution-capacity-alert {
+    margin-bottom: 1rem;
+}
+
 @media (min-width: 961px) {
     .app-bar { display: none; }
     .content { min-height: 100vh; }

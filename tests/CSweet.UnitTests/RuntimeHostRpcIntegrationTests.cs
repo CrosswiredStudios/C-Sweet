@@ -13,6 +13,28 @@ namespace CSweet.UnitTests;
 public sealed class RuntimeHostRpcIntegrationTests
 {
     [Fact]
+    public async Task ProbeFailsClosedWhenProviderHasNoGuestChannelConnector()
+    {
+        var descriptor = Descriptor();
+        var dispatcher = new RuntimeHostRequestDispatcher(
+            [new BackendAdapter(new InMemoryAgentIsolationProvider(descriptor))], []);
+        var request = new RuntimeHostEnvelope
+        {
+            ProtocolVersion = "1.0",
+            RequestId = Guid.NewGuid().ToString("D"),
+            ProbeRequest = new ProbeRequest { ProviderId = descriptor.ProviderId }
+        };
+        var responses = new List<RuntimeHostEnvelope>();
+
+        await foreach (var response in dispatcher.DispatchAsync(request)) responses.Add(response);
+
+        var probe = Assert.Single(responses).ProbeResponse;
+        Assert.False(probe.Available);
+        Assert.Contains("guest-channel connector", probe.UnavailableReason, StringComparison.Ordinal);
+        Assert.Empty(probe.CertificationJson);
+    }
+
+    [Fact]
     [SupportedOSPlatform("windows")]
     public void WindowsPipeSecurity_GrantsExactDuplexClientConnectionRights()
     {
@@ -56,7 +78,8 @@ public sealed class RuntimeHostRpcIntegrationTests
         var server = new RuntimeHostRpcServer(
             endpoint,
             serverAuthenticator,
-            new RuntimeHostRequestDispatcher([new BackendAdapter(backend)]));
+            new RuntimeHostRequestDispatcher([new BackendAdapter(backend)], [new TestGuestConnector(descriptor.ProviderId)]),
+            [new TestGuestConnector(descriptor.ProviderId)]);
         using var stop = new CancellationTokenSource();
         var serverTask = server.RunAsync(stop.Token);
         await Task.Delay(100);
@@ -95,7 +118,8 @@ public sealed class RuntimeHostRpcIntegrationTests
         var server = new RuntimeHostRpcServer(
             endpoint,
             new RuntimeHostRequestAuthenticator(authentication, TimeProvider.System),
-            new RuntimeHostRequestDispatcher([new FailingBackend(descriptor)]));
+            new RuntimeHostRequestDispatcher([new FailingBackend(descriptor)], [new TestGuestConnector(descriptor.ProviderId)]),
+            [new TestGuestConnector(descriptor.ProviderId)]);
         using var stop = new CancellationTokenSource();
         var serverTask = server.RunAsync(stop.Token);
         await Task.Delay(100);
@@ -160,6 +184,14 @@ public sealed class RuntimeHostRpcIntegrationTests
         public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => inner.StopAsync(handle, gracePeriod, cancellationToken);
         public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) => inner.DestroyAsync(handle, cancellationToken);
         public IAsyncEnumerable<IsolationLogChunk> StreamLogsAsync(IsolationWorkloadHandle handle, int maximumBytes, CancellationToken cancellationToken = default) => inner.StreamLogsAsync(handle, maximumBytes, cancellationToken);
+    }
+
+    private sealed class TestGuestConnector(string providerId) : IPlatformGuestChannelConnector
+    {
+        public string ProviderId { get; } = providerId;
+        public Task<Stream> OpenGuestChannelAsync(
+            IsolationWorkloadHandle handle,
+            CancellationToken cancellationToken = default) => Task.FromResult<Stream>(Stream.Null);
     }
 
     private sealed class FailingBackend(IsolationProviderDescriptor descriptor) : IPlatformIsolationBackend

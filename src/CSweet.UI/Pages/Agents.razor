@@ -1169,7 +1169,7 @@
 
     private async Task<bool> GetIsolationReadinessAsync()
     {
-        try { return (await SetupApi.GetAgentIsolationStatusAsync()).IsReady; }
+        try { return (await SetupApi.GetExecutionCapacityStatusAsync()).IsReady; }
         catch { return false; }
     }
 

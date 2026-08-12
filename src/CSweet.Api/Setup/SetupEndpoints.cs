@@ -16,30 +16,82 @@ public static class SetupEndpoints
         group.MapGet("/status", async (ISetupService setupService, CancellationToken cancellationToken) =>
             Results.Ok(await setupService.GetStatusAsync(cancellationToken)));
 
-        group.MapGet("/agent-isolation", async (
+        group.MapGet("/execution-capacity", async (
             HttpContext httpContext,
-            IAgentIsolationOnboardingService service,
+            ISetupService setupService,
+            IExecutionFleetService service,
             CancellationToken cancellationToken) =>
         {
             httpContext.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
             httpContext.Response.Headers.Pragma = "no-cache";
             httpContext.Response.Headers.Expires = "0";
-            return Results.Ok(await service.GetStatusAsync(cancellationToken));
+            await setupService.EnsureSeededAsync(cancellationToken);
+            return Results.Ok(await service.GetOnboardingStatusAsync(cancellationToken));
         });
 
-        group.MapPost("/agent-isolation/enable-hyperv", async (
-            IAgentIsolationOnboardingService service,
+        group.MapPut("/execution-capacity/mode", async (
+            SelectExecutionOnboardingModeRequest request,
+            IExecutionFleetService service,
             CancellationToken cancellationToken) =>
         {
-            var result = await service.EnableHostHypervisorAsync(cancellationToken);
+            var result = await service.SelectOnboardingModeAsync(request, cancellationToken);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         }).RequireAuthorization("HostAdministration");
 
-        group.MapPost("/agent-isolation/install-runtime-host", async (
-            IAgentIsolationOnboardingService service,
+        group.MapPost("/execution-capacity/enrollments", async (
+            IExecutionFleetService service,
             CancellationToken cancellationToken) =>
         {
-            var result = await service.InstallWindowsRuntimeHostAsync(cancellationToken);
+            var result = await service.CreateEnrollmentAsync(cancellationToken);
+            return Results.Ok(result);
+        }).RequireAuthorization("HostAdministration");
+
+        group.MapPost("/execution-capacity/local-install", async (
+            InstallLocalExecutionNodeRequest request,
+            IConfiguration configuration,
+            ILocalExecutionNodeProvisioner provisioner,
+            IExecutionFleetService fleet,
+            CancellationToken cancellationToken) =>
+        {
+            var gatewayUrl = configuration["CSweet:ExecutionGateway:PublicUrl"];
+            if (string.IsNullOrWhiteSpace(gatewayUrl))
+                return Results.BadRequest(new ExecutionCapacityActionResponse(
+                    false, "execution_gateway_url_missing", "The execution gateway URL is not configured.",
+                    await fleet.GetOnboardingStatusAsync(cancellationToken)));
+            var result = await provisioner.PrepareAsync(
+                gatewayUrl,
+                request.EnrollmentToken,
+                cancellationToken);
+            var response = new ExecutionCapacityActionResponse(
+                result.Succeeded, result.ErrorCode, result.Message,
+                await fleet.GetOnboardingStatusAsync(cancellationToken));
+            return result.Succeeded ? Results.Ok(response) : Results.BadRequest(response);
+        }).RequireAuthorization("HostAdministration");
+
+        group.MapDelete("/execution-capacity/enrollments/{enrollmentId:guid}", async (
+            Guid enrollmentId,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.RevokeEnrollmentAsync(enrollmentId, cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        }).RequireAuthorization("HostAdministration");
+
+        group.MapPost("/execution-capacity/nodes/{nodeId:guid}/approve", async (
+            Guid nodeId,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.ApproveNodeAsync(nodeId, cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        }).RequireAuthorization("HostAdministration");
+
+        group.MapPost("/execution-capacity/nodes/{nodeId:guid}/reject", async (
+            Guid nodeId,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.RejectNodeAsync(nodeId, cancellationToken);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         }).RequireAuthorization("HostAdministration");
 
@@ -133,6 +185,28 @@ public static class SetupEndpoints
                 : Results.BadRequest(result);
         });
 
+        return endpoints;
+    }
+
+    public static IEndpointRouteBuilder MapExecutionNodeBootstrapEndpoints(this IEndpointRouteBuilder endpoints)
+    {
+        var group = endpoints.MapGroup("/api/execution-nodes").AllowAnonymous();
+        group.MapPost("/claim", async (
+            ClaimExecutionNodeRequest request,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.ClaimNodeAsync(request, cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        });
+        group.MapPost("/{nodeId:guid}/heartbeat", async (
+            Guid nodeId,
+            ExecutionNodeHeartbeatRequest request,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+            await service.RecordHeartbeatAsync(nodeId, request, cancellationToken)
+                ? Results.NoContent()
+                : Results.Unauthorized());
         return endpoints;
     }
 

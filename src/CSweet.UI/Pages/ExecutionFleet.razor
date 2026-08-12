@@ -1,0 +1,332 @@
+@page "/settings/agents/execution-fleet"
+@layout SettingsLayout
+@using System.Net.Http.Json
+@using CSweet.Contracts.Setup
+@inject HttpClient Http
+
+<PageTitle>Execution Fleet - C-Sweet</PageTitle>
+
+<div class="setup-shell configuration-page">
+    <MudPaper Elevation="0" Class="page-header">
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Agent settings</MudText>
+            <MudText Typo="Typo.h3">Execution fleet</MudText>
+            <MudText Color="Color.Secondary">Manage pools, enrollment, approvals, node health, capacity, draining, revocation, and assignment history.</MudText>
+        </div>
+        <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Refresh</MudButton>
+    </MudPaper>
+
+    <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+        <AgentExecutionSetupStep ShowNavigation="false" OnStatusChanged="_ => LoadAsync()" />
+    </MudPaper>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_fleet is not null)
+    {
+        @if (!string.IsNullOrWhiteSpace(_message))
+        {
+            <MudAlert Severity="@(_messageSucceeded ? Severity.Success : Severity.Warning)" Dense="true">@_message</MudAlert>
+        }
+        <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+            <MudText Typo="Typo.h5">Pools</MudText>
+            <MudText Color="Color.Secondary">Pools define workload limits, required node labels, business allowlists, and global build/runtime defaults.</MudText>
+            <MudGrid Class="mt-2">
+                <MudItem xs="12" md="3"><MudTextField Label="New pool name" @bind-Value="_newPoolName" /></MudItem>
+                <MudItem xs="12" md="2"><MudNumericField T="int" Label="Workload limit" Min="1" Max="100000" @bind-Value="_newPoolLimit" /></MudItem>
+                <MudItem xs="12" md="3"><MudTextField Label="Required labels" HelperText="region=west,tier=gpu" @bind-Value="_newPoolLabels" /></MudItem>
+                <MudItem xs="12" md="3"><MudTextField Label="Allowed businesses" HelperText="Empty allows all" @bind-Value="_newPoolBusinesses" /></MudItem>
+                <MudItem xs="12" md="1" Class="d-flex align-center"><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="CreatePoolAsync">Add</MudButton></MudItem>
+            </MudGrid>
+            @foreach (var pool in _fleet.Pools)
+            {
+                var edit = _poolEdits[pool.Id];
+                <MudPaper Outlined="true" Class="pa-4 mt-3">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudText Typo="Typo.h6">@pool.Name</MudText>
+                            @if (pool.IsDefaultBuildPool) { <MudChip T="string" Size="Size.Small" Color="Color.Primary">Build default</MudChip> }
+                            @if (pool.IsDefaultRuntimePool) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Runtime default</MudChip> }
+                            @if (!pool.IsEnabled) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Disabled</MudChip> }
+                        </MudStack>
+                        <MudText Typo="Typo.caption">@pool.ReadyNodeCount/@pool.NodeCount ready nodes | @pool.ActiveAssignmentCount active assignments</MudText>
+                    </MudStack>
+                    <MudGrid Class="mt-2">
+                        <MudItem xs="12" md="3"><MudTextField Label="Name" @bind-Value="edit.Name" /></MudItem>
+                        <MudItem xs="12" md="2"><MudNumericField T="int" Label="Workload limit" Min="1" Max="100000" @bind-Value="edit.MaximumActiveWorkloads" /></MudItem>
+                        <MudItem xs="12" md="3"><MudTextField Label="Required labels" HelperText="key=value, comma separated" @bind-Value="edit.RequiredLabels" /></MudItem>
+                        <MudItem xs="12" md="3"><MudTextField Label="Allowed businesses" HelperText="Empty allows all" @bind-Value="edit.AllowedBusinessIds" /></MudItem>
+                        <MudItem xs="12" md="1" Class="d-flex align-center"><MudCheckBox T="bool" Label="Enabled" @bind-Value="edit.IsEnabled" /></MudItem>
+                    </MudGrid>
+                    <MudStack Row="true" Spacing="1" Class="mt-2" Style="flex-wrap: wrap">
+                        <MudButton Variant="Variant.Filled" Disabled="@_busy" OnClick="() => SavePoolAsync(pool.Id)">Save policy</MudButton>
+                        @if (!pool.IsDefaultBuildPool)
+                        {
+                            <MudButton Variant="Variant.Outlined" Disabled="@(_busy || !edit.IsEnabled)" OnClick="() => SavePoolAsync(pool.Id, setBuildDefault: true)">Make build default</MudButton>
+                        }
+                        @if (!pool.IsDefaultRuntimePool)
+                        {
+                            <MudButton Variant="Variant.Outlined" Disabled="@(_busy || !edit.IsEnabled)" OnClick="() => SavePoolAsync(pool.Id, setRuntimeDefault: true)">Make runtime default</MudButton>
+                        }
+                        @if (!pool.IsDefaultBuildPool && !pool.IsDefaultRuntimePool)
+                        {
+                            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@_busy" OnClick="() => DeletePoolAsync(pool.Id)">Delete</MudButton>
+                        }
+                    </MudStack>
+                </MudPaper>
+            }
+        </MudPaper>
+
+        <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+            <MudText Typo="Typo.h5">Runtime pool overrides</MudText>
+            <MudText Color="Color.Secondary">Agents use the global runtime pool unless an administrator assigns an installation to another enabled pool.</MudText>
+            @if (_fleet.InstallationOverrides.Count == 0)
+            {
+                <MudText Class="mt-3">No active agent installations are available.</MudText>
+            }
+            @foreach (var installation in _fleet.InstallationOverrides)
+            {
+                <MudPaper Outlined="true" Class="pa-3 mt-3">
+                    <MudGrid>
+                        <MudItem xs="12" md="5">
+                            <MudText><strong>@installation.AgentName</strong></MudText>
+                            <MudText Typo="Typo.caption">Business @installation.BusinessId | effective pool @installation.EffectiveExecutionPoolName</MudText>
+                        </MudItem>
+                        <MudItem xs="12" md="7">
+                            <MudSelect T="string" Label="Runtime execution pool" Value="@PoolSelection(installation)"
+                                       ValueChanged="value => SetInstallationPoolAsync(installation.InstallationId, value)" Disabled="@_busy">
+                                <MudSelectItem T="string" Value="@DefaultPoolSelection">Use global runtime default</MudSelectItem>
+                                @foreach (var pool in _fleet.Pools.Where(x => x.IsEnabled))
+                                {
+                                    <MudSelectItem T="string" Value="@PoolValue(pool.Id)">@pool.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                    </MudGrid>
+                </MudPaper>
+            }
+        </MudPaper>
+
+        <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+            <MudText Typo="Typo.h5">Nodes</MudText>
+            @foreach (var node in _fleet.Nodes)
+            {
+                <MudPaper Outlined="true" Class="pa-4 mt-3">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                        <div>
+                            <MudText Typo="Typo.h6">@node.Name</MudText>
+                            <MudText Typo="Typo.body2">@node.MachineName - @node.OperatingSystem/@node.Architecture - @node.AllocatableCpuCount CPU / @node.AllocatableMemoryMb MB</MudText>
+                            <MudText Typo="Typo.caption">Certificate @Short(node.CertificateThumbprint); last heartbeat @Heartbeat(node.LastHeartbeatAt)</MudText>
+                            @foreach (var provider in node.Providers)
+                            {
+                                <MudText Typo="Typo.caption">@provider.ProviderId - image @Short(provider.GuestImageDigest) - certification @provider.CertificationSuiteVersion</MudText>
+                            }
+                            <MudTextField Label="Node labels" HelperText="key=value, comma separated"
+                                          @bind-Value="_nodeLabelEdits[node.Id]" Class="mt-2" />
+                        </div>
+                        <MudStack Row="true" Spacing="1">
+                            <MudChip T="string" Color="@ColorFor(node.Status)">@node.Status</MudChip>
+                            <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="() => SaveNodeLabelsAsync(node.Id)">Save labels</MudButton>
+                            @if (node.Status == "ready")
+                            {
+                                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>Drain</MudButton>
+                            }
+                            else if (node.Status == "draining" || node.Status == "offline")
+                            {
+                                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>Resume</MudButton>
+                            }
+                            @if (node.Status != "revoked")
+                            {
+                                <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="@_busy" OnClick="() => RevokeAsync(node.Id)">Revoke</MudButton>
+                            }
+                        </MudStack>
+                    </MudStack>
+                </MudPaper>
+            }
+        </MudPaper>
+
+        <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+            <MudText Typo="Typo.h5">Recent assignments</MudText>
+            @foreach (var assignment in _fleet.RecentAssignments.Take(50))
+            {
+                <MudText Typo="Typo.body2">
+                    @assignment.QueuedAt.ToLocalTime().ToString("g") - @assignment.WorkloadKind - @assignment.Status - epoch @assignment.FencingEpoch - @assignment.ProviderId
+                </MudText>
+            }
+        </MudPaper>
+    }
+</div>
+
+@code {
+    private ExecutionFleetAdministrationResponse? _fleet;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _messageSucceeded;
+    private string? _message;
+    private string _newPoolName = string.Empty;
+    private int _newPoolLimit = 100;
+    private string _newPoolLabels = string.Empty;
+    private string _newPoolBusinesses = string.Empty;
+    private readonly Dictionary<Guid, PoolEditModel> _poolEdits = [];
+    private readonly Dictionary<Guid, string> _nodeLabelEdits = [];
+    private const string DefaultPoolSelection = "default";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _fleet = await Http.GetFromJsonAsync<ExecutionFleetAdministrationResponse>("api/execution-fleet");
+            if (_fleet is not null)
+            {
+                _poolEdits.Clear();
+                foreach (var pool in _fleet.Pools)
+                    _poolEdits[pool.Id] = PoolEditModel.From(pool);
+                _nodeLabelEdits.Clear();
+                foreach (var node in _fleet.Nodes)
+                    _nodeLabelEdits[node.Id] = string.Join(',', node.Labels.Select(x => $"{x.Key}={x.Value}"));
+            }
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task CreatePoolAsync()
+    {
+        if (!TryLabels(_newPoolLabels, out var labels)) return;
+        await MutateAsync(HttpMethod.Post, "api/execution-fleet/pools", new CreateExecutionPoolRequest(
+            _newPoolName, _newPoolLimit, labels, Values(_newPoolBusinesses)));
+        if (_messageSucceeded)
+        {
+            _newPoolName = _newPoolLabels = _newPoolBusinesses = string.Empty;
+            _newPoolLimit = 100;
+        }
+    }
+
+    private async Task SavePoolAsync(Guid poolId, bool setBuildDefault = false, bool setRuntimeDefault = false)
+    {
+        var edit = _poolEdits[poolId];
+        if (!TryLabels(edit.RequiredLabels, out var labels)) return;
+        await MutateAsync(HttpMethod.Put, $"api/execution-fleet/pools/{poolId:D}", new UpdateExecutionPoolRequest(
+            edit.Name, edit.IsEnabled, edit.MaximumActiveWorkloads, labels, Values(edit.AllowedBusinessIds),
+            setBuildDefault, setRuntimeDefault));
+    }
+
+    private Task DeletePoolAsync(Guid poolId) =>
+        MutateAsync(HttpMethod.Delete, $"api/execution-fleet/pools/{poolId:D}");
+
+    private async Task SetInstallationPoolAsync(Guid installationId, string selection)
+    {
+        Guid? poolId = selection == DefaultPoolSelection ? null : Guid.Parse(selection);
+        await MutateAsync(HttpMethod.Put, $"api/execution-fleet/installations/{installationId:D}/runtime-pool",
+            new UpdateAgentExecutionPoolRequest(poolId));
+    }
+
+    private async Task SaveNodeLabelsAsync(Guid nodeId)
+    {
+        if (!TryLabels(_nodeLabelEdits[nodeId], out var labels)) return;
+        _busy = true;
+        try
+        {
+            using var response = await Http.PutAsJsonAsync(
+                $"api/execution-fleet/nodes/{nodeId:D}/labels", new UpdateExecutionNodeLabelsRequest(labels));
+            _messageSucceeded = response.IsSuccessStatusCode;
+            _message = response.IsSuccessStatusCode
+                ? "Node labels were updated."
+                : "The node labels were rejected.";
+            if (_messageSucceeded) await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task MutateAsync(HttpMethod method, string uri, object? body = null)
+    {
+        _busy = true;
+        try
+        {
+            using var request = new HttpRequestMessage(method, uri)
+            {
+                Content = body is null ? null : JsonContent.Create(body)
+            };
+            using var response = await Http.SendAsync(request);
+            var result = await response.Content.ReadFromJsonAsync<ExecutionFleetMutationResponse>();
+            _messageSucceeded = result?.Succeeded == true;
+            _message = result?.Message ?? "The execution fleet operation failed.";
+            if (_messageSucceeded) await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private bool TryLabels(string value, out IReadOnlyDictionary<string, string> labels)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var item in Values(value))
+        {
+            var parts = item.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || !result.TryAdd(parts[0], parts[1]))
+            {
+                labels = result;
+                _messageSucceeded = false;
+                _message = "Required labels must use unique key=value entries separated by commas.";
+                return false;
+            }
+        }
+        labels = result;
+        return true;
+    }
+
+    private static IReadOnlyList<string> Values(string value) => value.Split(',',
+        StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static string PoolSelection(AgentExecutionPoolOverrideResponse installation) =>
+        installation.ConfiguredExecutionPoolId?.ToString("D") ?? DefaultPoolSelection;
+    private static string PoolValue(Guid poolId) => poolId.ToString("D");
+
+    private async Task NodeActionAsync(Guid id, string action)
+    {
+        _busy = true;
+        try
+        {
+            using var response = await Http.PostAsync($"api/execution-fleet/nodes/{id:D}/{action}", null);
+            response.EnsureSuccessStatusCode();
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RevokeAsync(Guid id)
+    {
+        _busy = true;
+        try
+        {
+            using var response = await Http.DeleteAsync($"api/execution-fleet/nodes/{id:D}");
+            response.EnsureSuccessStatusCode();
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private static string Short(string value) => value.Length <= 18 ? value : $"{value[..10]}...{value[^6..]}";
+    private static string Heartbeat(DateTimeOffset? value) => value?.ToLocalTime().ToString("g") ?? "never";
+    private static Color ColorFor(string status) => status == "ready" ? Color.Success : status == "revoked" ? Color.Error : Color.Warning;
+
+    private sealed class PoolEditModel
+    {
+        public string Name { get; set; } = string.Empty;
+        public bool IsEnabled { get; set; }
+        public int MaximumActiveWorkloads { get; set; }
+        public string RequiredLabels { get; set; } = string.Empty;
+        public string AllowedBusinessIds { get; set; } = string.Empty;
+
+        public static PoolEditModel From(ExecutionPoolResponse pool) => new()
+        {
+            Name = pool.Name,
+            IsEnabled = pool.IsEnabled,
+            MaximumActiveWorkloads = pool.MaximumActiveWorkloads,
+            RequiredLabels = string.Join(',', pool.RequiredLabels.Select(x => $"{x.Key}={x.Value}")),
+            AllowedBusinessIds = string.Join(',', pool.AllowedBusinessIds)
+        };
+    }
+}

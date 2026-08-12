@@ -7,6 +7,7 @@ public sealed class FirstRunSetupGuardMiddleware
     private static readonly string[] AllowedApiPrefixes =
     [
         "/api/setup",
+        "/api/execution-nodes",
         "/api/auth",
         "/api/core",
         "/api/llm-provider-profiles",

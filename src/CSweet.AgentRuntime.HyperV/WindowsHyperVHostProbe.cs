@@ -13,6 +13,9 @@ public sealed class WindowsHyperVHostProbe : IWindowsHyperVHostProbe
     private const uint ProcessorFeatureSecondLevelAddressTranslation = 20;
     private const uint ProcessorFeatureVirtualizationFirmwareEnabled = 21;
     private const uint ProcessorFeatureHypervisorPresent = 23;
+    private readonly SemaphoreSlim _probeLock = new(1, 1);
+    private WindowsHyperVHostReadiness? _cached;
+    private DateTimeOffset _cachedAt;
 
     public async Task<WindowsHyperVHostReadiness> ProbeAsync(CancellationToken cancellationToken = default)
     {
@@ -24,7 +27,18 @@ public sealed class WindowsHyperVHostProbe : IWindowsHyperVHostProbe
                 false, false, false, null);
         }
 
-        return await ProbeWindowsAsync(cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        if (_cached is not null && now - _cachedAt < TimeSpan.FromSeconds(30)) return _cached;
+        await _probeLock.WaitAsync(cancellationToken);
+        try
+        {
+            now = DateTimeOffset.UtcNow;
+            if (_cached is not null && now - _cachedAt < TimeSpan.FromSeconds(30)) return _cached;
+            _cached = await ProbeWindowsAsync(cancellationToken);
+            _cachedAt = now;
+            return _cached;
+        }
+        finally { _probeLock.Release(); }
     }
 
     [SupportedOSPlatform("windows")]

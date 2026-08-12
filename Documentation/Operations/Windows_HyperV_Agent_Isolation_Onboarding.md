@@ -4,7 +4,7 @@
 
 After cloning the repository, double-click `Start-CSweet.cmd` at its top level. Developers may instead start AppHost from their IDE. Docker Desktop is required because AppHost provisions the PostgreSQL database through its Linux container engine. The launcher checks for the required .NET SDK and Docker, attempts to start Docker Desktop when necessary, waits for its engine, starts the complete application, and opens the browser.
 
-Docker is trusted application infrastructure, not the untrusted-agent security boundary. The first-run **Agent Isolation** page detects that the application is running from a source checkout and offers **Prepare secure agent runtime**. Choose it once and approve the standard Windows administrator prompt. C-Sweet then launches and monitors the complete development preparation without requiring the user to find or run a repository script.
+Docker is trusted application infrastructure, not the untrusted-agent security boundary. On the first-run **Agent Execution** page, choose **This machine**, then **Install Agent Host**, and approve the standard Windows administrator prompt. C-Sweet detects a source checkout and launches and monitors the complete development preparation without requiring the user to find or run a repository script.
 
 The preparation performs these operations:
 
@@ -16,7 +16,7 @@ The preparation performs these operations:
 6. Runs the in-guest isolation probe over Hyper-V sockets and creates certification evidence only when every check passes.
 7. Creates a developer-only image-signing certificate, signs the exact tested VHDX, packages RuntimeHost, and installs the versioned Windows service.
 
-The first run downloads several gigabytes and builds Ubuntu, so it can take tens of minutes. C-Sweet keeps the onboarding page available and rechecks automatically. If Hyper-V was newly enabled, save your work and restart when the page asks. Reopen C-Sweet after Windows starts and choose **Prepare secure agent runtime** again to resume. C-Sweet never initiates that restart.
+The first run downloads several gigabytes and builds Ubuntu, so it can take tens of minutes. C-Sweet keeps the onboarding page available and rechecks automatically. If Hyper-V was newly enabled, save your work and restart when the page asks. Reopen C-Sweet after Windows starts and choose **Install Agent Host** again if setup asks you to resume. C-Sweet never initiates that restart.
 
 The underlying script remains available for CI, recovery, and advanced diagnostics:
 
@@ -38,7 +38,7 @@ The onboarding page rechecks every five seconds and shows the current phase, ove
 
 ## What the user experiences
 
-First-run setup includes an **Agent Isolation** step. C-Sweet inspects the host without requesting administrator access and reports each prerequisite separately:
+First-run setup includes an **Agent Execution** step. Its compact progress experience summarizes installation and health while advanced prerequisite details remain available under **Settings > Agents > Runtime**:
 
 - Supported Windows edition.
 - SLAT, firmware virtualization, hardware DEP/NX, and at least 4 GB physical memory.
@@ -60,7 +60,7 @@ When a release contains a validated Windows runtime payload, **Install secure ag
 
 If a completed RuntimeHost installation cannot be reached from the current Windows account, onboarding presents **Repair secure agent runtime**. The short UAC-assisted repair updates only the protected pipe, key, and artifact permissions, restarts RuntimeHost, and rechecks readiness automatically. It does not rebuild the certified guest image. If the installed service or protected state is missing, repair fails closed and onboarding offers the full preparation flow.
 
-Users may continue initial setup while isolation is unavailable. The trusted control plane remains usable, but imported and marketplace agent execution stays fail-closed.
+Initial setup cannot continue until at least one Agent Host is installed, connected, approved, and healthy. The server rechecks this requirement when completing the step, and agent execution remains fail-closed whenever healthy capacity is unavailable.
 
 The same panel remains available after setup at **Settings > Agents > Runtime**, so upgraded installations and administrators can recheck or remediate the host later.
 

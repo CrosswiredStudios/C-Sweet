@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.AgentRuntime.Protocol\CSweet.AgentRuntime.Protocol.csproj" />
+    <ProjectReference Include="..\CSweet.Contracts\CSweet.Contracts.csproj" />
+    <ProjectReference Include="..\CSweet.Infrastructure\CSweet.Infrastructure.csproj" />
+    <ProjectReference Include="..\CSweet.ServiceDefaults\CSweet.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>

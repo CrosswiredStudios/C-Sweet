@@ -2,10 +2,12 @@ using CSweet.AgentRuntime.Guest;
 using CSweet.AgentRuntime.Protocol;
 
 var transportName = Environment.GetEnvironmentVariable("CSWEET_GUEST_BROKER_TRANSPORT") ?? "stdio";
+var usesHostBootChannel = transportName is "hyperv-vsock" or "firecracker-vsock";
 IGuestBrokerTransport transport = transportName switch
 {
     "stdio" => new StandardIoGuestBrokerTransport(),
     "hyperv-vsock" => new LinuxHyperVSocketGuestTransport(),
+    "firecracker-vsock" => new LinuxHyperVSocketGuestTransport(ReadFirecrackerPort()),
     _ => throw new InvalidOperationException("The configured guest broker transport is unsupported.")
 };
 await using var connection = await transport.AcceptAsync();
@@ -14,7 +16,7 @@ try
     GuestServiceOptions options;
     try
     {
-        options = transportName == "stdio"
+        options = !usesHostBootChannel
             ? GuestServiceOptions.FromEnvironment()
             : GuestServiceOptions.FromBootConfiguration(
                 await GuestBootConfigurationReader.ReadAsync(connection.Input));
@@ -28,7 +30,7 @@ try
             await new GuestArtifactMaterializer().MaterializeAsync(artifactDigest, destinationRoot);
         }
     }
-    catch (Exception exception) when (transportName == "hyperv-vsock")
+    catch (Exception exception) when (usesHostBootChannel)
     {
         var reason = exception switch
         {
@@ -62,6 +64,15 @@ try
 }
 finally
 {
-    if (transportName == "hyperv-vsock")
+    if (usesHostBootChannel)
         await GuestSystemPower.PowerOffAsync();
+}
+
+static int ReadFirecrackerPort()
+{
+    var value = Environment.GetEnvironmentVariable("CSWEET_GUEST_VSOCK_PORT") ?? "5000";
+    return int.TryParse(value, System.Globalization.NumberStyles.None,
+        System.Globalization.CultureInfo.InvariantCulture, out var port) && port is >= 1024 and <= 65535
+        ? port
+        : throw new InvalidOperationException("The configured Firecracker guest broker port is invalid.");
 }

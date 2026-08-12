@@ -18,6 +18,7 @@ builder.Services.AddHostedService<AgentRuntimeCleanupWorker>();
 builder.Services.AddHostedService<PluginBootstrapWorker>();
 builder.Services.AddHostedService<CommunicationDeliveryWorker>();
 builder.Services.AddHostedService<RepositoryProvisioningWorker>();
+builder.Services.AddHostedService<ExecutionFleetReconciliationWorker>();
 
 var host = builder.Build();
 host.Run();

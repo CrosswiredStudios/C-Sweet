@@ -135,6 +135,39 @@ public sealed class RuntimeHostProviderClient(
         }
     }
 
+    public async Task<Stream> OpenGuestChannelAsync(
+        A.IsolationWorkloadHandle handle,
+        CancellationToken cancellationToken = default)
+    {
+        var stream = await LocalRuntimeHostTransport.ConnectAsync(endpointOptions, cancellationToken);
+        try
+        {
+            var request = Prepare(new P.RuntimeHostEnvelope
+            {
+                OpenGuestChannelRequest = new P.OpenGuestChannelRequest
+                {
+                    Workload = RuntimeHostProtocolMapper.ToProtocol(handle)
+                }
+            });
+            await P.LengthDelimitedProtobuf.WriteAsync(
+                stream, request, endpointOptions.MaximumFrameBytes, cancellationToken);
+            var response = await P.LengthDelimitedProtobuf.ReadAsync(
+                stream, P.RuntimeHostEnvelope.Parser, endpointOptions.MaximumFrameBytes, cancellationToken)
+                ?? throw new EndOfStreamException("RuntimeHost closed the guest-channel request unexpectedly.");
+            ValidateResponse(request, response, P.RuntimeHostEnvelope.BodyOneofCase.OpenGuestChannelResponse);
+            EnsureSuccess(
+                response.OpenGuestChannelResponse.Success,
+                response.OpenGuestChannelResponse.ErrorCode,
+                response.OpenGuestChannelResponse.SanitizedError);
+            return stream;
+        }
+        catch
+        {
+            await stream.DisposeAsync();
+            throw;
+        }
+    }
+
     private async Task OperationAsync(P.RuntimeHostEnvelope request, CancellationToken cancellationToken)
     {
         var response = await CallAsync(request, P.RuntimeHostEnvelope.BodyOneofCase.OperationResponse, cancellationToken);

@@ -101,6 +101,16 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 
         builder.Services.AddScoped<ISetupService, SetupService>();
+        builder.Services.AddScoped<IExecutionFleetService, ExecutionFleetService>();
+        builder.Services.AddScoped<IExecutionPoolAdministrationService, ExecutionPoolAdministrationService>();
+        builder.Services.AddOptions<ExecutionFleetOptions>()
+            .Bind(builder.Configuration.GetSection(ExecutionFleetOptions.SectionName));
+        builder.Services.AddOptions<ExecutionNodeCertificateAuthorityOptions>()
+            .Bind(builder.Configuration.GetSection(ExecutionNodeCertificateAuthorityOptions.SectionName));
+        builder.Services.AddSingleton<IExecutionNodeCertificateAuthority, ExecutionNodeCertificateAuthority>();
+        builder.Services.AddScoped<IExecutionWorkloadOrchestrator, ExecutionWorkloadOrchestrator>();
+        builder.Services.AddScoped<ExecutionArtifactGrantLeaseService>();
+        builder.Services.AddScoped<IExecutionBrokerSessionRunner, ExecutionBrokerSessionRunner>();
         builder.Services.AddSingleton<IAuditExecutionContextAccessor, AuditExecutionContextAccessor>();
         builder.Services.AddSingleton<IAuditEventWriter, AuditEventWriter>();
         builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
@@ -117,23 +127,33 @@ public static class DependencyInjection
         var artifactStore = builder.Configuration.GetSection(ArtifactStoreOptions.SectionName)
             .Get<ArtifactStoreOptions>() ?? new ArtifactStoreOptions();
         artifactStore.RootPath = artifactRoot;
+        var artifactStoreProvider = artifactStore.ValidatedProvider();
         var artifactMedia = builder.Configuration.GetSection(ArtifactMediaOptions.SectionName)
             .Get<ArtifactMediaOptions>() ?? new ArtifactMediaOptions();
         artifactMedia.RootPath = artifactMediaRoot;
         builder.Services.AddSingleton(artifactStore);
         builder.Services.AddSingleton(artifactMedia);
         builder.Services.AddSingleton<IAgentArtifactSigner, DataProtectionAgentArtifactSigner>();
-        builder.Services.AddSingleton<IAgentArtifactStore, FileSystemAgentArtifactStore>();
+        builder.Services.AddSingleton<FileSystemAgentArtifactStore>();
+        if (artifactStoreProvider == "s3")
+        {
+            var s3 = builder.Configuration.GetSection(S3ArtifactStoreOptions.SectionName)
+                .Get<S3ArtifactStoreOptions>() ?? new S3ArtifactStoreOptions();
+            s3.Validate();
+            builder.Services.AddSingleton(s3);
+            builder.Services.AddSingleton<IS3ArtifactObjectClient, AmazonS3ArtifactObjectClient>();
+            builder.Services.AddSingleton<IAgentArtifactStore, S3AgentArtifactStore>();
+        }
+        else
+        {
+            builder.Services.AddSingleton<IAgentArtifactStore>(services =>
+                services.GetRequiredService<FileSystemAgentArtifactStore>());
+        }
         builder.Services.AddSingleton<IAgentArtifactMediaStore, FileSystemAgentArtifactMediaStore>();
         builder.Services.AddSingleton<IWindowsHyperVHostProbe, WindowsHyperVHostProbe>();
         builder.Services.AddSingleton<IWindowsHyperVFeatureProvisioner, WindowsHyperVFeatureProvisioner>();
         builder.Services.AddSingleton<IWindowsRuntimeHostProvisioner, WindowsRuntimeHostProvisioner>();
-        builder.Services.AddScoped<IAgentIsolationOnboardingService, AgentIsolationOnboardingService>();
-        var hyperVSocket = builder.Configuration.GetSection("CSweet:AgentRuntime:HyperVSocket")
-            .Get<HyperVSocketTransportOptions>() ?? new HyperVSocketTransportOptions();
-        hyperVSocket.Validate();
-        builder.Services.AddSingleton(hyperVSocket);
-        builder.Services.AddSingleton<IHyperVGuestTransport, WindowsHyperVSocketTransport>();
+        builder.Services.AddSingleton<ILocalExecutionNodeProvisioner, LocalExecutionNodeProvisioner>();
         var agentHostBroker = builder.Configuration.GetSection(AgentHostBrokerOptions.SectionName)
             .Get<AgentHostBrokerOptions>() ?? new AgentHostBrokerOptions();
         // Aspire gives each named endpoint a concrete, host-reachable address. Prefer that
@@ -150,8 +170,6 @@ public static class DependencyInjection
             client.Timeout = Timeout.InfiniteTimeSpan;
         });
         builder.Services.AddSingleton<IAgentBrokerOperationHandler, AgentHostBrokerOperationHandler>();
-        builder.Services.AddSingleton<IAgentGuestSessionCoordinator, HyperVGuestSessionCoordinator>();
-        builder.Services.AddSingleton<IBuilderGuestSessionCoordinator, BuilderGuestSessionCoordinator>();
         builder.Services.AddScoped<AgentImportPreviewService>();
         builder.Services.AddScoped<IAgentImportPreviewService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
         builder.Services.AddScoped<IPluginImportService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
@@ -179,16 +197,16 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentConfigurationService>(sp =>
             sp.GetRequiredService<AgentInstallationConfigurationService>());
         builder.Services.AddScoped<IAgentBuildService, AgentBuildService>();
-        AddAgentIsolationControlPlane(builder);
+        builder.Services.AddScoped<IGuestImageRegistry, FleetGuestImageRegistry>();
         builder.Services.AddSingleton<InMemoryBuilderArtifactResultStore>();
         builder.Services.AddSingleton<IBuilderArtifactResultStore>(sp => sp.GetRequiredService<InMemoryBuilderArtifactResultStore>());
         builder.Services.AddSingleton<IBuilderArtifactResultPublisher>(sp => sp.GetRequiredService<InMemoryBuilderArtifactResultStore>());
-        builder.Services.AddSingleton<VmAgentBuildExecutor>();
-        builder.Services.AddSingleton<IAgentBuildExecutor>(sp => sp.GetRequiredService<VmAgentBuildExecutor>());
-        builder.Services.AddSingleton<IPluginBuildExecutor>(sp => sp.GetRequiredService<VmAgentBuildExecutor>());
-        builder.Services.AddSingleton<IsolationAgentWorkloadRunner>();
-        builder.Services.AddSingleton<IAgentWorkloadRunner>(sp => sp.GetRequiredService<IsolationAgentWorkloadRunner>());
-        builder.Services.AddSingleton<IPluginWorkloadRunner>(sp => sp.GetRequiredService<IsolationAgentWorkloadRunner>());
+        builder.Services.AddScoped<FleetAgentBuildExecutor>();
+        builder.Services.AddScoped<IAgentBuildExecutor>(sp => sp.GetRequiredService<FleetAgentBuildExecutor>());
+        builder.Services.AddScoped<IPluginBuildExecutor>(sp => sp.GetRequiredService<FleetAgentBuildExecutor>());
+        builder.Services.AddScoped<FleetAgentWorkloadRunner>();
+        builder.Services.AddScoped<IAgentWorkloadRunner>(sp => sp.GetRequiredService<FleetAgentWorkloadRunner>());
+        builder.Services.AddScoped<IPluginWorkloadRunner>(sp => sp.GetRequiredService<FleetAgentWorkloadRunner>());
         builder.Services.AddScoped<AgentRuntimeManager>();
         builder.Services.AddScoped<IAgentRuntimeManager>(sp => sp.GetRequiredService<AgentRuntimeManager>());
         builder.Services.AddScoped<IAgentRuntimeEligibilityService, AgentRuntimeEligibilityService>();
@@ -419,42 +437,6 @@ public static class DependencyInjection
         builder.Services.TryAddSingleton(TimeProvider.System);
 
         return builder;
-    }
-
-    private static void AddAgentIsolationControlPlane(IHostApplicationBuilder builder)
-    {
-        var endpoint = builder.Configuration.GetSection(RuntimeHostEndpointOptions.SectionName)
-            .Get<RuntimeHostEndpointOptions>() ?? new RuntimeHostEndpointOptions();
-        endpoint.Validate();
-        builder.Services.AddSingleton(endpoint);
-
-        var authentication = builder.Configuration.GetSection(RuntimeHostAuthenticationOptions.SectionName)
-            .Get<RuntimeHostAuthenticationOptions>() ?? new RuntimeHostAuthenticationOptions();
-        authentication.LoadSharedKeyFileIfNeeded(DefaultRuntimeHostKeyPath());
-        builder.Services.AddSingleton(authentication);
-        builder.Services.AddSingleton<RuntimeHostRequestAuthenticator>();
-        builder.Services.AddSingleton<IAgentIsolationProvider>(services => new RuntimeHostProviderClient(
-            IsolationProviderCatalog.HyperV(), endpoint,
-            services.GetRequiredService<RuntimeHostRequestAuthenticator>(),
-            services.GetRequiredService<ILogger<RuntimeHostProviderClient>>()));
-        builder.Services.AddSingleton<IAgentIsolationProvider>(services => new RuntimeHostProviderClient(
-            IsolationProviderCatalog.Firecracker(), endpoint,
-            services.GetRequiredService<RuntimeHostRequestAuthenticator>(),
-            services.GetRequiredService<ILogger<RuntimeHostProviderClient>>()));
-        builder.Services.AddSingleton<IAgentIsolationProvider>(services => new RuntimeHostProviderClient(
-            IsolationProviderCatalog.AppleVirtualization(), endpoint,
-            services.GetRequiredService<RuntimeHostRequestAuthenticator>(),
-            services.GetRequiredService<ILogger<RuntimeHostProviderClient>>()));
-        builder.Services.AddSingleton<IAgentIsolationProviderSelector, FailClosedIsolationProviderSelector>();
-        builder.Services.AddSingleton<IGuestImageRegistry, CertifiedGuestImageRegistry>();
-    }
-
-    private static string DefaultRuntimeHostKeyPath()
-    {
-        var commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        return string.IsNullOrWhiteSpace(commonData)
-            ? Path.Combine(GetLocalStateDirectory(), "AgentRuntime", "runtime-host.key")
-            : Path.Combine(commonData, "CSweet", "AgentRuntime", "runtime-host.key");
     }
 
     private static string GetLocalStateFilePath(

@@ -4,6 +4,7 @@ public sealed class AgentBuildJob
 {
     public Guid Id { get; set; }
     public Guid PackageVersionId { get; set; }
+    public Guid? ExecutionPoolId { get; set; }
     public int Attempt { get; set; } = 1;
     public AgentBuildStatus Status { get; private set; } = AgentBuildStatus.Queued;
     public string? SourceWorkspacePath { get; set; }
@@ -17,6 +18,7 @@ public sealed class AgentBuildJob
     public DateTimeOffset? CompletedAt { get; private set; }
 
     public AgentPackageVersion? PackageVersion { get; set; }
+    public ICollection<ExecutionWorkloadAssignment> ExecutionAssignments { get; set; } = [];
 
     public void TransitionTo(AgentBuildStatus nextStatus, DateTimeOffset occurredAt)
     {

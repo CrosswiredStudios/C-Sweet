@@ -1,0 +1,24 @@
+[Unit]
+Description=C-Sweet unprivileged ExecutionNode
+After=network-online.target csweet-runtime-host.service
+Wants=network-online.target
+Requires=csweet-runtime-host.service
+
+[Service]
+Type=notify
+User=csweet-node
+Group=csweet-node
+SupplementaryGroups=csweet-runtime
+EnvironmentFile=/etc/csweet/execution-node.env
+ExecStart=/opt/csweet/execution/CSweet.ExecutionNode
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/csweet/execution-node /var/lib/csweet/artifact-media /run/csweet
+
+[Install]
+WantedBy=multi-user.target

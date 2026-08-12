@@ -24,6 +24,7 @@ public sealed class AgentRuntimeInstance
 
     public AgentInstallation? AgentInstallation { get; set; }
     public ICollection<AgentRuntimeEvent> Events { get; set; } = [];
+    public ICollection<ExecutionWorkloadAssignment> ExecutionAssignments { get; set; } = [];
 
     public void TransitionTo(AgentRuntimeStatus next, DateTimeOffset occurredAt, string? reason = null)
     {

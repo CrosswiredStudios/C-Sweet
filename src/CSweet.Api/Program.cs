@@ -168,6 +168,8 @@ app.MapAuthenticationEndpoints();
 app.MapLlmProviderProfileEndpoints();
 app.MapGenAiEndpoints();
 app.MapSetupEndpoints();
+app.MapExecutionNodeBootstrapEndpoints();
+app.MapExecutionFleetEndpoints();
 app.MapAgentRuntimeSettingsEndpoints();
 app.MapPlanningRunEndpoints();
 app.MapPlanningDocumentEndpoints();

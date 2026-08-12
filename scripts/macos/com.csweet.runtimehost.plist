@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.csweet.runtimehost</string>
+  <key>ProgramArguments</key><array><string>/Library/Application Support/CSweet/Execution/CSweet.RuntimeHost</string></array>
+  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+  <key>EnvironmentVariables</key><dict>
+    <key>CSweet__AgentRuntime__Providers__AppleVirtualization__ArtifactImageRoot</key><string>/Library/Application Support/CSweet/ArtifactMedia</string>
+    <key>CSweet__AgentRuntime__Providers__AppleVirtualization__PayloadManifestPath</key><string>/Library/Application Support/CSweet/Execution/runtime-manifest.json</string>
+    <key>CSweet__AgentRuntime__HostAuthentication__SharedKeyFilePath</key><string>/Library/Application Support/CSweet/AgentRuntime/runtime-host.key</string>
+    <key>CSWEET_APPLE_VIRTUALIZATION_DATA_ROOT</key><string>/Library/Application Support/CSweet/AgentRuntime/AppleVirtualization</string>
+    <key>CSWEET_APPLE_VIRTUALIZATION_PACKAGE_ROOT</key><string>/Library/Application Support/CSweet/Execution/apple-virtualization</string>
+    <key>CSWEET_APPLE_VIRTUALIZATION_GUEST_PORT</key><string>5000</string>
+    <key>CSWEET_APPLE_VIRTUALIZATION_SOCKET_ROOT</key><string>/var/run/csweet-av</string>
+    <key>CSWEET_ARTIFACT_MEDIA_ROOT</key><string>/Library/Application Support/CSweet/ArtifactMedia</string>
+  </dict>
+  <key>ProcessType</key><string>Background</string>
+  <key>Umask</key><integer>27</integer>
+</dict></plist>

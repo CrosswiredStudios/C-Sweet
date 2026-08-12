@@ -1,0 +1,666 @@
+.host-onboarding {
+    display: grid;
+    gap: 1.5rem;
+    padding: clamp(1.25rem, 3.5vw, 3rem);
+}
+
+.host-onboarding-header h1 {
+    max-width: 42rem;
+    margin: .35rem 0 .45rem;
+    color: var(--cs-navy);
+    font-size: clamp(2rem, 4vw, 3.15rem);
+    font-weight: 800;
+    letter-spacing: -.05em;
+    line-height: 1.04;
+}
+
+.host-onboarding-header p,
+.host-install-prompt p,
+.host-progress-card p,
+.host-approval-card p {
+    margin: 0;
+    color: var(--cs-muted);
+    line-height: 1.55;
+}
+
+.host-location-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.host-location-card {
+    position: relative;
+    display: grid;
+    min-height: 6.5rem;
+    grid-template-columns: 2.8rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .9rem;
+    padding: 1.1rem;
+    border: 1px solid var(--cs-border);
+    border-radius: var(--cs-radius);
+    background: #fff;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.host-location-card:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: #aebfca;
+    box-shadow: 0 10px 22px rgba(24, 35, 63, .07);
+}
+
+.host-location-card:focus-visible,
+.host-platform-picker button:focus-visible {
+    outline: 3px solid rgba(155, 231, 194, .72);
+    outline-offset: 2px;
+}
+
+.host-location-card.selected {
+    border-color: var(--cs-navy);
+    background: #fbfdfc;
+    box-shadow: 0 0 0 1px var(--cs-navy), 0 10px 22px rgba(24, 35, 63, .07);
+}
+
+.host-location-card:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+}
+
+.host-location-icon,
+.host-install-mark,
+.host-approval-icon {
+    display: grid;
+    place-items: center;
+    border-radius: 11px;
+    background: #edf4f8;
+    color: var(--cs-navy-deep);
+}
+
+.host-location-icon {
+    width: 2.8rem;
+    height: 2.8rem;
+}
+
+.host-location-copy strong,
+.host-location-copy small,
+.host-ready-state strong,
+.host-ready-state span,
+.host-waiting-state strong,
+.host-waiting-state span,
+.host-feedback strong,
+.host-feedback span,
+.host-inline-notice strong,
+.host-inline-notice span {
+    display: block;
+}
+
+.host-location-copy strong {
+    color: var(--cs-navy);
+    font-size: .94rem;
+}
+
+.host-location-copy small {
+    max-width: 25rem;
+    margin-top: .22rem;
+    color: var(--cs-muted);
+    line-height: 1.45;
+}
+
+.host-location-check {
+    color: transparent;
+    font-size: 1.2rem;
+}
+
+.host-location-card.selected .host-location-check {
+    color: var(--cs-mint-strong);
+}
+
+.host-workspace {
+    padding: clamp(1rem, 2.8vw, 2rem);
+    border: 1px solid var(--cs-border);
+    border-radius: var(--cs-radius);
+    background: #fbfcfc;
+}
+
+.host-empty-state,
+.host-install-prompt,
+.host-waiting-state,
+.host-ready-state {
+    min-height: 9rem;
+}
+
+.host-empty-state {
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: .4rem;
+    border: 1px dashed #cad4dc;
+    border-radius: var(--cs-radius);
+    color: var(--cs-muted);
+    text-align: center;
+}
+
+.host-empty-state ::deep .mud-icon-root {
+    color: var(--cs-mint-strong);
+    font-size: 2rem;
+}
+
+.host-empty-state strong {
+    color: var(--cs-navy);
+}
+
+.host-install-prompt {
+    display: grid;
+    grid-template-columns: 3.8rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1.2rem;
+}
+
+.host-install-mark,
+.host-approval-icon {
+    width: 3.8rem;
+    height: 3.8rem;
+}
+
+.host-install-prompt h2,
+.host-progress-heading h2,
+.remote-instructions h2,
+.host-approval-card h3 {
+    margin: .2rem 0 .35rem;
+    color: var(--cs-navy);
+    font-weight: 800;
+    letter-spacing: -.025em;
+}
+
+.host-install-prompt h2,
+.host-progress-heading h2,
+.remote-instructions h2 {
+    font-size: 1.25rem;
+}
+
+.host-section-kicker {
+    color: var(--cs-muted);
+    font-size: .65rem;
+    font-weight: 850;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.host-progress-card {
+    display: grid;
+    gap: 1rem;
+}
+
+.host-progress-heading,
+.host-progress-meta,
+.host-onboarding-actions,
+.host-onboarding-actions > div,
+.host-secret-field,
+.host-approval-actions {
+    display: flex;
+    align-items: center;
+}
+
+.host-progress-heading,
+.host-onboarding-actions {
+    justify-content: space-between;
+}
+
+.host-progress-heading > strong {
+    color: var(--cs-navy);
+    font-size: 1.15rem;
+}
+
+.host-progress-meta {
+    justify-content: space-between;
+    gap: 1rem;
+    color: var(--cs-muted);
+    font-size: .74rem;
+    font-weight: 700;
+}
+
+.host-inline-notice,
+.host-feedback {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .8rem .9rem;
+    border-radius: 11px;
+    font-size: .8rem;
+}
+
+.host-inline-notice > div,
+.host-feedback > div {
+    min-width: 0;
+    flex: 1;
+}
+
+.host-inline-notice span,
+.host-feedback span {
+    color: var(--cs-muted);
+    line-height: 1.45;
+}
+
+.host-inline-notice.warning,
+.host-feedback.warning {
+    background: #fff8e8;
+    color: #806013;
+}
+
+.host-inline-notice.error,
+.host-feedback.error {
+    background: #fff0f1;
+    color: #aa3440;
+}
+
+.host-inline-notice.checking,
+.host-feedback.checking {
+    background: #eef6fa;
+    color: var(--cs-navy);
+}
+
+.host-feedback.success {
+    background: #effaf5;
+    color: var(--cs-mint-strong);
+}
+
+.host-ready-state,
+.host-waiting-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    text-align: left;
+}
+
+.host-ready-icon {
+    display: grid;
+    width: 3rem;
+    height: 3rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--cs-mint-strong);
+    color: #fff;
+}
+
+.host-ready-state strong,
+.host-waiting-state strong {
+    color: var(--cs-navy);
+    font-size: 1.05rem;
+}
+
+.host-ready-state span,
+.host-waiting-state span {
+    margin-top: .2rem;
+    color: var(--cs-muted);
+    font-size: .82rem;
+}
+
+.remote-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(14rem, .55fr);
+    gap: 2rem;
+}
+
+.remote-status {
+    padding-left: 2rem;
+    border-left: 1px solid var(--cs-border);
+}
+
+.host-platform-picker {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .55rem;
+    margin-top: 1rem;
+}
+
+.host-platform-picker button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .45rem;
+    padding: .65rem;
+    border: 1px solid var(--cs-border);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--cs-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: .75rem;
+    font-weight: 750;
+}
+
+.host-platform-picker button.selected {
+    border-color: var(--cs-navy);
+    background: #edf4f8;
+    color: var(--cs-navy);
+}
+
+.remote-steps,
+.remote-progress-list {
+    display: grid;
+    padding: 0;
+    margin: 1.2rem 0 0;
+    list-style: none;
+}
+
+.remote-steps {
+    gap: 1rem;
+}
+
+.remote-steps > li {
+    display: grid;
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .7rem;
+}
+
+.remote-steps > li > span {
+    display: grid;
+    width: 1.65rem;
+    height: 1.65rem;
+    place-items: center;
+    border-radius: 50%;
+    background: rgba(155, 231, 194, .3);
+    color: var(--cs-mint-strong);
+    font-size: .68rem;
+    font-weight: 850;
+}
+
+.remote-steps strong,
+.remote-steps small {
+    display: block;
+}
+
+.remote-steps strong {
+    color: var(--cs-navy);
+    font-size: .8rem;
+}
+
+.remote-steps small {
+    margin-top: .1rem;
+    color: var(--cs-muted);
+    font-size: .69rem;
+    line-height: 1.4;
+}
+
+.remote-steps .remote-unavailable {
+    max-width: 11rem;
+    color: #8a6410;
+}
+
+.host-copy-field,
+.host-secret-field {
+    grid-column: 2 / -1;
+    min-width: 0;
+}
+
+.host-copy-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+}
+
+.host-copy-field code,
+.host-secret-field code,
+.remote-details code,
+.host-approval-card code {
+    overflow-wrap: anywhere;
+    border-radius: 8px;
+    background: #edf2f5;
+    color: var(--cs-navy-deep);
+    font-size: .68rem;
+}
+
+.host-copy-field code {
+    max-height: 5.5rem;
+    overflow: auto;
+    padding: .65rem;
+    white-space: pre-wrap;
+}
+
+.host-secret-field {
+    justify-content: space-between;
+    gap: .6rem;
+    padding: .55rem;
+    border: 1px solid var(--cs-border);
+    border-radius: 10px;
+    background: #fff;
+}
+
+.host-secret-field code {
+    padding: .5rem;
+    letter-spacing: .08em;
+}
+
+.remote-details,
+.host-approval-card details {
+    margin-top: 1rem;
+    color: var(--cs-muted);
+    font-size: .72rem;
+}
+
+.remote-details summary,
+.host-approval-card summary {
+    cursor: pointer;
+    font-weight: 750;
+}
+
+.remote-details span,
+.remote-details code,
+.host-approval-card details span,
+.host-approval-card details code {
+    display: block;
+    margin-top: .5rem;
+}
+
+.remote-details code,
+.host-approval-card details code {
+    padding: .65rem;
+}
+
+.remote-progress-list {
+    gap: .3rem;
+}
+
+.remote-progress-list li {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1.8rem minmax(0, 1fr);
+    gap: .65rem;
+    min-height: 3.5rem;
+    opacity: .45;
+}
+
+.remote-progress-list li > span {
+    z-index: 1;
+    display: grid;
+    width: 1.65rem;
+    height: 1.65rem;
+    place-items: center;
+    border: 1px solid #cbd3da;
+    border-radius: 50%;
+    background: #fff;
+    color: var(--cs-muted);
+}
+
+.remote-progress-list li:not(:last-child)::after {
+    position: absolute;
+    top: 1.65rem;
+    left: .8rem;
+    width: 1px;
+    height: 1.85rem;
+    background: #d8dde2;
+    content: "";
+}
+
+.remote-progress-list li.current,
+.remote-progress-list li.complete {
+    opacity: 1;
+}
+
+.remote-progress-list li.current > span {
+    border-color: var(--cs-navy);
+    background: var(--cs-navy);
+    color: #fff;
+}
+
+.remote-progress-list li.complete > span {
+    border-color: var(--cs-mint-strong);
+    background: #effaf5;
+    color: var(--cs-mint-strong);
+}
+
+.remote-progress-list strong,
+.remote-progress-list small {
+    display: block;
+}
+
+.remote-progress-list strong {
+    color: var(--cs-navy);
+    font-size: .77rem;
+}
+
+.remote-progress-list small {
+    margin-top: .1rem;
+    color: var(--cs-muted);
+    font-size: .66rem;
+    line-height: 1.35;
+}
+
+.remote-waiting {
+    display: flex;
+    gap: .6rem;
+    padding: .7rem;
+    border-radius: 9px;
+    background: #eef6fa;
+    color: var(--cs-muted);
+    font-size: .7rem;
+    line-height: 1.45;
+}
+
+.host-approval-card {
+    display: grid;
+    grid-template-columns: 3.8rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid #d6b86a;
+    border-radius: var(--cs-radius);
+    background: #fffdf7;
+}
+
+.host-approval-card h3 {
+    font-size: 1rem;
+}
+
+.host-approval-card p {
+    font-size: .76rem;
+}
+
+.host-approval-actions {
+    gap: .35rem;
+}
+
+.host-onboarding-actions {
+    gap: 1rem;
+    padding-top: 1.35rem;
+    border-top: 1px solid var(--cs-border);
+}
+
+.host-onboarding-actions > div {
+    justify-content: flex-end;
+    gap: .9rem;
+}
+
+.host-onboarding-actions > div > span {
+    color: var(--cs-muted);
+    font-size: .72rem;
+    font-weight: 650;
+}
+
+@media (max-width: 860px) {
+    .remote-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .remote-status {
+        padding-top: 1.25rem;
+        padding-left: 0;
+        border-top: 1px solid var(--cs-border);
+        border-left: 0;
+    }
+}
+
+@media (max-width: 700px) {
+    .host-location-grid,
+    .host-platform-picker {
+        grid-template-columns: 1fr;
+    }
+
+    .host-install-prompt,
+    .host-approval-card {
+        grid-template-columns: 1fr;
+        justify-items: start;
+    }
+
+    .host-install-prompt ::deep .mud-button-root,
+    .host-approval-actions,
+    .host-approval-actions ::deep .mud-button-root {
+        width: 100%;
+    }
+
+    .host-approval-actions,
+    .host-onboarding-actions,
+    .host-onboarding-actions > div {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .host-onboarding-actions > div > span {
+        text-align: center;
+    }
+
+    .host-onboarding-actions > ::deep .mud-button-root,
+    .host-onboarding-actions > div ::deep .mud-button-root {
+        width: 100%;
+    }
+
+    .remote-steps > li {
+        grid-template-columns: 1.75rem minmax(0, 1fr);
+    }
+
+    .remote-steps > li > ::deep .mud-button-root,
+    .remote-steps .remote-unavailable {
+        grid-column: 2;
+        max-width: none;
+        justify-self: start;
+    }
+
+    .host-progress-meta {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: .25rem;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .host-workspace {
+        animation: host-workspace-in .25s cubic-bezier(.22, .75, .2, 1) both;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .host-location-card {
+        transition: none;
+    }
+}
+
+@keyframes host-workspace-in {
+    from { opacity: 0; transform: translateY(.35rem); }
+    to { opacity: 1; transform: none; }
+}

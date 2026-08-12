@@ -64,12 +64,6 @@ var runtimeOptions = new AgentRuntimeManagerOptions
     RequiredCertificationSuiteVersion = AgentRuntimeManagerOptions.CurrentDevelopmentCertificationSuiteVersion,
     BuildLogStorePath = Path.Combine(outputRoot, "logs")
 };
-var executor = new VmAgentBuildExecutor(
-    selector,
-    guestImages,
-    builderSessions,
-    results,
-    Options.Create(runtimeOptions));
 var buildRequest = new AgentBuildExecutionRequest(
     Guid.NewGuid(),
     Guid.NewGuid(),
@@ -85,9 +79,48 @@ var buildRequest = new AgentBuildExecutionRequest(
     512,
     16);
 var progress = new ConsoleProgressReporter();
-var workspace = await executor.CloneAsync(buildRequest, progress);
 Console.WriteLine($"Building {arguments.RepositoryUrl}@{arguments.CommitSha} inside a disposable Hyper-V VM...");
-var build = await executor.BuildAsync(buildRequest, workspace, progress);
+var builderGuest = await guestImages.ResolveAsync(new GuestImageResolutionRequest(
+    runtimeOptions.BuilderGuestImageId,
+    runtimeOptions.BuilderGuestImageVersion,
+    runtimeOptions.BuilderGuestOperatingSystem,
+    runtimeOptions.BuilderGuestArchitecture,
+    AgentTrustLevel.UntrustedRepository,
+    "1.0",
+    provider.Descriptor.ProviderId,
+    runtimeOptions.BuilderGuestImageDigest,
+    runtimeOptions.RequiredCertificationSuiteVersion));
+var builderSpec = new BuilderWorkloadSpec(
+    buildRequest.BuildJobId,
+    builderGuest,
+    new IsolationResourceLimits(1, 100, 4096, 1536, 256, 16 * 1024 * 1024, TimeSpan.FromMinutes(15)),
+    new BrokerChannelLease(Guid.NewGuid(), "1.0", Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
+        builderGuest.Digest, null, DateTimeOffset.UtcNow.AddMinutes(20)),
+    new RepositoryDescriptor(arguments.RepositoryUrl, arguments.CommitSha, false, "dotnet-publish-v1", "1.0"),
+    512L * 1024 * 1024);
+var builderHandle = await provider.CreateAsync(builderSpec);
+BuilderArtifactResult builtArtifact;
+try
+{
+    await provider.StartAsync(builderHandle);
+    var artifactTask = results.WaitAsync(builderSpec.WorkloadId);
+    await using var builderSession = await builderSessions.StartAsync(
+        builderHandle, builderSpec, buildRequest, progress);
+    await builderSession.Completion;
+    builtArtifact = await artifactTask;
+}
+finally
+{
+    await provider.DestroyAsync(builderHandle, CancellationToken.None);
+}
+var build = new AgentBuildExecutionResult(
+    builtArtifact.OpaqueLocator,
+    builtArtifact.Artifact.Digest[7..],
+    Path.Combine(outputRoot, "logs", $"build-{buildRequest.BuildJobId:N}.log"),
+    builtArtifact.Artifact.Signature,
+    builtArtifact.Artifact.FormatVersion,
+    builtArtifact.Artifact.OperatingSystem,
+    builtArtifact.Artifact.Architecture);
 Console.WriteLine($"Immutable package built: sha256:{build.PackageDigest}");
 
 var artifact = new AgentArtifactReference(
@@ -105,7 +138,6 @@ var runtimeSessions = new HyperVGuestSessionCoordinator(
     operationHandler,
     TimeProvider.System,
     NullLogger<HyperVGuestSessionCoordinator>.Instance);
-var runner = new IsolationAgentWorkloadRunner(selector, providers, runtimeSessions, media);
 var guest = await guestImages.ResolveAsync(new GuestImageResolutionRequest(
     runtimeOptions.RuntimeGuestImageId,
     runtimeOptions.RuntimeGuestImageVersion,
@@ -136,34 +168,32 @@ try
         new RuntimeAgentIdentity(Guid.NewGuid(), Guid.NewGuid().ToString("D"), Guid.NewGuid()),
         [Path.GetFileNameWithoutExtension(arguments.ProjectPath)]);
     Console.WriteLine("Starting the built agent inside a separate disposable Hyper-V VM...");
-    handle = await runner.CreateAndStartAsync(
-        runtimeWorkload,
-        AgentTrustLevel.UntrustedRepository,
-        provider.Descriptor.ProviderId);
+    await media.EnsureReadOnlyMediaAsync(runtimeWorkload.Artifact.Digest);
+    handle = await provider.CreateAsync(runtimeWorkload);
+    await provider.StartAsync(handle);
+    await runtimeSessions.StartAsync(handle, runtimeWorkload);
     using var startupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
     while (!operationHandler.RuntimeReady.IsCompleted)
     {
-        var startupStatus = await runner.InspectAsync(handle, startupTimeout.Token);
+        var startupStatus = await provider.InspectAsync(handle, startupTimeout.Token);
         if (startupStatus?.State is not IsolationWorkloadState.Running)
         {
-            var startupLogs = await runner.GetLogsAsync(handle, 1024 * 1024, CancellationToken.None);
             throw new InvalidOperationException(
                 $"The built agent exited before completing its MCP startup handshake " +
                 $"(state: {startupStatus?.State.ToString() ?? "missing"}, " +
                 $"error: {startupStatus?.ErrorCode ?? "none"}, " +
-                $"detail: {startupStatus?.SanitizedError ?? "none"}). Output: {startupLogs}");
+                $"detail: {startupStatus?.SanitizedError ?? "none"}).");
         }
         await Task.Delay(TimeSpan.FromMilliseconds(500), startupTimeout.Token);
     }
     await operationHandler.RuntimeReady;
     await Task.Delay(TimeSpan.FromSeconds(2));
-    var status = await runner.InspectAsync(handle);
+    var status = await provider.InspectAsync(handle);
     if (status?.State != IsolationWorkloadState.Running)
     {
-        var logs = await runner.GetLogsAsync(handle, 1024 * 1024);
         throw new InvalidOperationException(
             $"The built agent did not remain running (state: {status?.State.ToString() ?? "missing"}, " +
-            $"error: {status?.ErrorCode ?? "none"}, detail: {status?.SanitizedError ?? "none"}). Output: {logs}");
+            $"error: {status?.ErrorCode ?? "none"}, detail: {status?.SanitizedError ?? "none"}).");
     }
     Console.WriteLine(
         $"Agent workload {workloadId:D} initialized its MCP session, entered the work loop, " +
@@ -173,8 +203,9 @@ finally
 {
     if (handle is not null)
     {
-        try { await runner.StopAsync(handle, TimeSpan.FromSeconds(5)); } catch { }
-        try { await runner.DestroyAsync(handle); } catch { }
+        try { await runtimeSessions.StopAsync(handle); } catch { }
+        try { await provider.StopAsync(handle, TimeSpan.FromSeconds(5)); } catch { }
+        try { await provider.DestroyAsync(handle); } catch { }
     }
 }
 

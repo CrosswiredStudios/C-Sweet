@@ -104,6 +104,20 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
     public Task<WindowsRuntimeHostInstallResult> LaunchInstallerAsync(
         WindowsRuntimeHostProvisioningAction action,
         CancellationToken cancellationToken = default)
+        => LaunchInstallerCoreAsync(action, null, null, cancellationToken);
+
+    public Task<WindowsRuntimeHostInstallResult> LaunchInstallerAsync(
+        WindowsRuntimeHostProvisioningAction action,
+        string controlPlaneUrl,
+        string enrollmentToken,
+        CancellationToken cancellationToken = default)
+        => LaunchInstallerCoreAsync(action, controlPlaneUrl, enrollmentToken, cancellationToken);
+
+    private Task<WindowsRuntimeHostInstallResult> LaunchInstallerCoreAsync(
+        WindowsRuntimeHostProvisioningAction action,
+        string? controlPlaneUrl,
+        string? enrollmentToken,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!OperatingSystem.IsWindows())
@@ -116,11 +130,14 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
         if (action == WindowsRuntimeHostProvisioningAction.RepairAccess &&
             progress is { State: WindowsRuntimeHostProvisioningState.Completed } &&
             TryResolveAccessRepair(out var repair))
-            return Task.FromResult(LaunchElevated(repair, WindowsRuntimeHostProvisioningMode.AccessRepair));
+            return Task.FromResult(LaunchElevated(repair, WindowsRuntimeHostProvisioningMode.AccessRepair,
+                controlPlaneUrl, enrollmentToken));
         if (TryResolveInstaller(out var installer))
-            return Task.FromResult(LaunchElevated(installer, WindowsRuntimeHostProvisioningMode.PackagedInstaller));
+            return Task.FromResult(LaunchElevated(installer, WindowsRuntimeHostProvisioningMode.PackagedInstaller,
+                controlPlaneUrl, enrollmentToken));
         if (TryResolveDeveloperBootstrap(out var bootstrap))
-            return Task.FromResult(LaunchElevated(bootstrap, WindowsRuntimeHostProvisioningMode.DeveloperBootstrap));
+            return Task.FromResult(LaunchElevated(bootstrap, WindowsRuntimeHostProvisioningMode.DeveloperBootstrap,
+                controlPlaneUrl, enrollmentToken));
         return Task.FromResult(Failure("installer_payload_missing",
             "This build does not contain a signed Windows runtime and has no source-development bootstrap configured."));
     }
@@ -128,7 +145,9 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
     [SupportedOSPlatform("windows")]
     private WindowsRuntimeHostInstallResult LaunchElevated(
         string script,
-        WindowsRuntimeHostProvisioningMode mode)
+        WindowsRuntimeHostProvisioningMode mode,
+        string? controlPlaneUrl = null,
+        string? enrollmentToken = null)
     {
         var progressJobId = Guid.NewGuid();
         var progressPath = WindowsRuntimeHostProgressStore.CreatePath(progressJobId);
@@ -142,6 +161,21 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
             Verb = "runas",
             WindowStyle = ProcessWindowStyle.Normal
         };
+        string? enrollmentInputPath = null;
+        if (!string.IsNullOrWhiteSpace(controlPlaneUrl) || !string.IsNullOrWhiteSpace(enrollmentToken))
+        {
+            if (!Uri.TryCreate(controlPlaneUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+                string.IsNullOrWhiteSpace(enrollmentToken) || enrollmentToken.Length is < 32 or > 256)
+                return Failure("invalid_execution_node_enrollment", "The local execution-node enrollment input is invalid.");
+            var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var secretDirectory = Path.Combine(localData, "CSweet", "Setup");
+            Directory.CreateDirectory(secretDirectory);
+            enrollmentInputPath = Path.Combine(secretDirectory, $"execution-enrollment-{Guid.NewGuid():N}.secret");
+            using (var secret = new FileStream(enrollmentInputPath, FileMode.CreateNew, FileAccess.Write,
+                       FileShare.None, 4096, FileOptions.WriteThrough))
+            using (var writer = new StreamWriter(secret, new System.Text.UTF8Encoding(false)))
+                writer.Write(enrollmentToken);
+        }
         start.ArgumentList.Add("-NoLogo");
         start.ArgumentList.Add("-NoProfile");
         start.ArgumentList.Add("-ExecutionPolicy");
@@ -164,12 +198,23 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
         {
             start.ArgumentList.Add("-NoElevation");
         }
+        if (enrollmentInputPath is not null)
+        {
+            start.ArgumentList.Add("-ControlPlaneUrl");
+            start.ArgumentList.Add(controlPlaneUrl!);
+            start.ArgumentList.Add("-EnrollmentTokenInputPath");
+            start.ArgumentList.Add(enrollmentInputPath);
+        }
         try
         {
             using var process = Process.Start(start);
             if (process is not null)
             {
                 lock (_progressLock) _activeProgressPath = progressPath;
+            }
+            else if (enrollmentInputPath is not null)
+            {
+                File.Delete(enrollmentInputPath);
             }
             return process is null
                 ? Failure("installer_start_failed", "The elevated RuntimeHost installer could not be started.")
@@ -183,10 +228,12 @@ public sealed class WindowsRuntimeHostProvisioner : IWindowsRuntimeHostProvision
         }
         catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
         {
+            if (enrollmentInputPath is not null) File.Delete(enrollmentInputPath);
             return Failure("elevation_cancelled", "The administrator prompt was cancelled. RuntimeHost was not changed.");
         }
         catch (Win32Exception)
         {
+            if (enrollmentInputPath is not null) File.Delete(enrollmentInputPath);
             return Failure("installer_start_failed", "Windows could not open the RuntimeHost installer.");
         }
     }

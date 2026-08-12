@@ -9,6 +9,7 @@ public sealed class AgentInstallation
     public Guid? SupersedesInstallationId { get; set; }
     public Guid? AgentDefinitionId { get; set; }
     public Guid PackageVersionId { get; set; }
+    public Guid? ExecutionPoolId { get; set; }
     public string BusinessId { get; set; } = "default";
     public PluginInstallationScope Scope { get; set; } = PluginInstallationScope.Organization;
     public bool IsEnabled { get; set; } = true;

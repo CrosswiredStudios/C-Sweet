@@ -1,0 +1,733 @@
+@using CSweet.Contracts.Setup
+@inject ISetupApiClient SetupApi
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<section class="host-onboarding" aria-labelledby="host-onboarding-title">
+    <header class="host-onboarding-header">
+        <MudText Typo="Typo.overline">Step 2 of 6</MudText>
+        <h1 id="host-onboarding-title">Where should your agents run?</h1>
+        <p>Choose the first machine that will securely build and run your agents.</p>
+    </header>
+
+    @if (_loading)
+    {
+        <div class="host-feedback checking" role="status" aria-live="polite">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
+            <span>Checking for an Agent Host...</span>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="host-feedback error" role="alert">
+            <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" />
+            <div><strong>We couldn't check your Agent Hosts.</strong><span>@_error</span></div>
+            <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="RefreshAsync">Try again</MudButton>
+        </div>
+    }
+    else if (_status is not null)
+    {
+        <div class="host-location-grid" role="group" aria-label="Agent Host location">
+            <button type="button"
+                    class="host-location-card @ModeClass("local")"
+                    aria-pressed="@(_status.SelectedMode == "local")"
+                    disabled="@(_busy || !_status.CanInstallLocalNode)"
+                    @onclick='@(() => SelectModeAsync("local"))'>
+                <span class="host-location-icon"><MudIcon Icon="@Icons.Material.Outlined.Computer" /></span>
+                <span class="host-location-copy">
+                    <strong>This machine</strong>
+                    <small>Install an Agent Host here. You can add additional machines later.</small>
+                </span>
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="host-location-check" />
+            </button>
+            <button type="button"
+                    class="host-location-card @ModeClass("remote")"
+                    aria-pressed="@(_status.SelectedMode == "remote")"
+                    disabled="@_busy"
+                    @onclick='@(() => SelectModeAsync("remote"))'>
+                <span class="host-location-icon"><MudIcon Icon="@Icons.Material.Outlined.Devices" /></span>
+                <span class="host-location-copy">
+                    <strong>Another machine</strong>
+                    <small>Install an Agent Host on another Windows, Linux, or macOS machine.</small>
+                </span>
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="host-location-check" />
+            </button>
+        </div>
+
+        @if (_status.SelectedMode == "local")
+        {
+            @LocalExperience()
+        }
+        else if (_status.SelectedMode == "remote")
+        {
+            @RemoteExperience()
+        }
+        else
+        {
+            <div class="host-empty-state">
+                <MudIcon Icon="@Icons.Material.Outlined.Dns" />
+                <strong>Choose a location to get started</strong>
+                <span>We'll show only the steps needed for that machine.</span>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_actionMessage))
+        {
+            <div class="host-feedback @(_actionSucceeded ? "success" : "warning")" role="status" aria-live="polite">
+                <MudIcon Icon="@(_actionSucceeded ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.Info)" />
+                <span>@_actionMessage</span>
+            </div>
+        }
+    }
+
+    <footer class="host-onboarding-actions">
+        <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
+        <div>
+            @if (_status?.IsReady != true)
+            {
+                <span>Connect one healthy Agent Host to continue</span>
+            }
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       EndIcon="@Icons.Material.Filled.ArrowForward"
+                       Disabled="@(_busy || _loading || _status?.IsReady != true)"
+                       OnClick="OnContinue">Continue</MudButton>
+        </div>
+    </footer>
+</section>
+
+@code {
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback OnContinue { get; set; }
+
+    private readonly HashSet<Guid> _remoteApprovalInFlight = [];
+    private ExecutionCapacityOnboardingResponse? _status;
+    private ExecutionEnrollmentResponse? _issuedEnrollment;
+    private IJSObjectReference? _jsModule;
+    private CancellationTokenSource? _polling;
+    private string _remotePlatform = "windows";
+    private bool _loading = true;
+    private bool _busy;
+    private bool _automaticEnrollmentInFlight;
+    private bool _automaticApprovalInFlight;
+    private long _statusMutationVersion;
+    private Guid? _lastAutomaticApprovalNodeId;
+    private DateTimeOffset _lastAutomaticApprovalAt;
+    private bool _actionSucceeded;
+    private string? _actionMessage;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        StartPolling();
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var status = await SetupApi.GetExecutionCapacityStatusAsync();
+            await AcceptStatusAsync(status);
+            _error = null;
+        }
+        catch
+        {
+            _error = "Check the connection and try again.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SelectModeAsync(string mode)
+    {
+        BeginStatusMutation();
+        _busy = true;
+        _actionMessage = null;
+        try
+        {
+            var result = await SetupApi.SelectExecutionModeAsync(mode);
+            Apply(result);
+            if (result.Succeeded && mode == "remote")
+                await EnsureRemoteEnrollmentAsync();
+        }
+        catch
+        {
+            SetAction(false, "The Agent Host location could not be saved. Try again.");
+        }
+        finally
+        {
+            _busy = false;
+            EndStatusMutation();
+        }
+    }
+
+    private async Task StartLocalInstallAsync()
+    {
+        if (_status is null) return;
+        BeginStatusMutation();
+        _busy = true;
+        _actionMessage = null;
+        try
+        {
+            if (_status.ActiveEnrollment is { Status: "claimed" })
+            {
+                SetAction(true, "The Agent Host connected. C-Sweet is verifying it now.");
+                return;
+            }
+
+            if (_status.ActiveEnrollment is { Status: "available" } active &&
+                (_issuedEnrollment?.Id != active.Id || string.IsNullOrWhiteSpace(_issuedEnrollment.EnrollmentToken)))
+            {
+                var revoked = await SetupApi.RevokeExecutionEnrollmentAsync(active.Id);
+                Apply(revoked);
+                if (!revoked.Succeeded) return;
+                _issuedEnrollment = null;
+            }
+
+            if (_issuedEnrollment?.EnrollmentToken is not { Length: > 0 } token)
+            {
+                var enrollment = await SetupApi.CreateExecutionEnrollmentAsync();
+                Apply(enrollment);
+                if (!enrollment.Succeeded || enrollment.Enrollment?.EnrollmentToken is not { Length: > 0 } createdToken)
+                    return;
+                _issuedEnrollment = enrollment.Enrollment;
+                token = createdToken;
+            }
+
+            var installation = await SetupApi.InstallLocalExecutionNodeAsync(token);
+            Apply(installation);
+            if (installation.Succeeded)
+                _issuedEnrollment = null;
+        }
+        catch
+        {
+            SetAction(false, "The Agent Host installer could not be started. Try again.");
+        }
+        finally
+        {
+            _busy = false;
+            EndStatusMutation();
+        }
+    }
+
+    private async Task EnsureRemoteEnrollmentAsync()
+    {
+        if (_status is null || _automaticEnrollmentInFlight || _status.SelectedMode != "remote" ||
+            _status.IsReady || _status.ActiveEnrollment is not null ||
+            _status.Nodes.Any(node => !node.IsLocalMachine && (node.Status is "pendingapproval" or "ready")))
+            return;
+
+        _automaticEnrollmentInFlight = true;
+        BeginStatusMutation();
+        try
+        {
+            var result = await SetupApi.CreateExecutionEnrollmentAsync();
+            Apply(result);
+            if (result.Succeeded)
+                _issuedEnrollment = result.Enrollment;
+        }
+        catch
+        {
+            SetAction(false, "Connection instructions could not be created. Try again.");
+        }
+        finally
+        {
+            _automaticEnrollmentInFlight = false;
+            EndStatusMutation();
+        }
+    }
+
+    private async Task RestartRemoteInstructionsAsync()
+    {
+        if (_status?.ActiveEnrollment is not { Status: "available" } active) return;
+        BeginStatusMutation();
+        _busy = true;
+        try
+        {
+            var revoked = await SetupApi.RevokeExecutionEnrollmentAsync(active.Id);
+            Apply(revoked);
+            if (!revoked.Succeeded) return;
+            _issuedEnrollment = null;
+            await EnsureRemoteEnrollmentAsync();
+        }
+        catch
+        {
+            SetAction(false, "The connection instructions could not be restarted. Try again.");
+        }
+        finally
+        {
+            _busy = false;
+            EndStatusMutation();
+        }
+    }
+
+    private async Task ApproveRemoteAsync(Guid nodeId)
+    {
+        if (!_remoteApprovalInFlight.Add(nodeId)) return;
+        BeginStatusMutation();
+        _busy = true;
+        try
+        {
+            var result = await SetupApi.ApproveExecutionNodeAsync(nodeId);
+            Apply(result);
+        }
+        catch
+        {
+            SetAction(false, "This Agent Host could not be approved. Check the host and try again.");
+        }
+        finally
+        {
+            _remoteApprovalInFlight.Remove(nodeId);
+            _busy = false;
+            EndStatusMutation();
+        }
+    }
+
+    private async Task RejectRemoteAsync(Guid nodeId)
+    {
+        BeginStatusMutation();
+        _busy = true;
+        try
+        {
+            var result = await SetupApi.RejectExecutionNodeAsync(nodeId);
+            Apply(result);
+            if (result.Succeeded)
+                await EnsureRemoteEnrollmentAsync();
+        }
+        catch
+        {
+            SetAction(false, "This Agent Host could not be rejected. Try again.");
+        }
+        finally
+        {
+            _busy = false;
+            EndStatusMutation();
+        }
+    }
+
+    private RenderFragment LocalExperience() => @<section class="host-workspace" aria-labelledby="local-host-title">
+        @if (_status?.IsReady == true && LocalNode is not null)
+        {
+            <div class="host-ready-state" role="status" aria-live="polite">
+                <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
+                <div><strong id="local-host-title">Your Agent Host is ready</strong><span>@LocalNode.MachineName is connected and healthy.</span></div>
+            </div>
+        }
+        else if (_status?.LocalProvisioning is { } progress &&
+                 (progress.State != "completed" || LocalNode is null))
+        {
+            <div class="host-progress-card" aria-live="polite">
+                <div class="host-progress-heading">
+                    <div>
+                        <span class="host-section-kicker">Installing on this machine</span>
+                        <h2 id="local-host-title">@progress.PhaseDisplayName</h2>
+                    </div>
+                    <strong>@progress.PercentComplete%</strong>
+                </div>
+                <MudProgressLinear Value="@progress.PercentComplete"
+                                   Color="@(IsFailed(progress) ? Color.Error : Color.Primary)" />
+                <p>@progress.Message</p>
+                <div class="host-progress-meta">
+                    <span>Elapsed @FormatDuration(DateTimeOffset.UtcNow - progress.StartedAt)</span>
+                    @if (Eta(progress) is { } eta)
+                    {
+                        <span>@eta</span>
+                    }
+                    else if (IsRunning(progress))
+                    {
+                        <span>Estimating time remaining...</span>
+                    }
+                </div>
+                @if (progress.RequiresRestart || progress.State is "restartrequired" or "restart-required")
+                {
+                    <div class="host-inline-notice warning">
+                        <MudIcon Icon="@Icons.Material.Outlined.RestartAlt" />
+                        <div><strong>Restart required</strong><span>Save your work, restart this machine, then reopen C-Sweet. Setup will resume automatically.</span></div>
+                    </div>
+                }
+                else if (IsFailed(progress))
+                {
+                    <div class="host-inline-notice error">
+                        <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" />
+                        <div><strong>Installation paused</strong><span>@(progress.ErrorMessage ?? "The installer did not complete.")</span></div>
+                    </div>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="StartLocalInstallAsync">Try installation again</MudButton>
+                }
+                else if (progress.State == "completed" && LocalNode is null)
+                {
+                    <div class="host-inline-notice checking">
+                        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                        <div><strong>Waiting for the Agent Host</strong><span>The services are installed and should connect automatically.</span></div>
+                    </div>
+                }
+            </div>
+        }
+        else if (LocalNode?.Status == "pendingapproval")
+        {
+            <div class="host-waiting-state" role="status" aria-live="polite">
+                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                <div><strong id="local-host-title">Verifying this Agent Host</strong><span>C-Sweet is checking its identity, secure runtime, and available capacity.</span></div>
+            </div>
+        }
+        else if (LocalNode?.Status == "ready")
+        {
+            <div class="host-waiting-state" role="status" aria-live="polite">
+                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                <div><strong id="local-host-title">Running final health checks</strong><span>Waiting for a secure connection and the first healthy heartbeat.</span></div>
+            </div>
+        }
+        else
+        {
+            <div class="host-install-prompt">
+                <span class="host-install-mark"><MudIcon Icon="@Icons.Material.Outlined.InstallDesktop" /></span>
+                <div>
+                    <span class="host-section-kicker">This machine</span>
+                    <h2 id="local-host-title">Install your first Agent Host</h2>
+                    <p>C-Sweet will request administrator approval, install the secure background services, and verify the machine.</p>
+                </div>
+                @if (_status?.CanInstallLocalNode == true)
+                {
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Size="Size.Large"
+                               StartIcon="@Icons.Material.Outlined.Download"
+                               Disabled="@_busy"
+                               OnClick="StartLocalInstallAsync">
+                        @(_busy ? "Starting installer..." : "Install Agent Host")
+                    </MudButton>
+                }
+                else
+                {
+                    <div class="host-inline-notice warning">
+                        <MudIcon Icon="@Icons.Material.Outlined.Info" />
+                        <span>This machine is not available as an Agent Host for this deployment. Choose another machine or contact an administrator.</span>
+                    </div>
+                }
+            </div>
+        }
+    </section>;
+
+    private RenderFragment RemoteExperience() => @<section class="host-workspace" aria-labelledby="remote-host-title">
+        @if (_status?.IsReady == true)
+        {
+            <div class="host-ready-state" role="status" aria-live="polite">
+                <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
+                <div><strong id="remote-host-title">Your Agent Host is ready</strong><span>A remote machine is connected and healthy.</span></div>
+            </div>
+        }
+        else
+        {
+            <div class="remote-layout">
+                <div class="remote-instructions">
+                    <div class="host-progress-heading">
+                        <div>
+                            <span class="host-section-kicker">Another machine</span>
+                            <h2 id="remote-host-title">Install an Agent Host</h2>
+                        </div>
+                    </div>
+                    <div class="host-platform-picker" role="group" aria-label="Agent Host operating system">
+                        @foreach (var platform in RemotePlatforms)
+                        {
+                            <button type="button" class="@(platform.Key == _remotePlatform ? "selected" : null)"
+                                    aria-pressed="@(platform.Key == _remotePlatform)" disabled="@_busy"
+                                    @onclick="() => _remotePlatform = platform.Key">
+                                <MudIcon Icon="@platform.Icon" /><span>@platform.Label</span>
+                            </button>
+                        }
+                    </div>
+
+                    @if (_status?.Packages is { } packages && !string.IsNullOrWhiteSpace(packages.ControlPlaneUrl))
+                    {
+                        <ol class="remote-steps">
+                            <li>
+                                <span>1</span>
+                                <div><strong>Install the signed package</strong><small>Open it on the machine you want to use.</small></div>
+                                @if (SelectedPackageUrl(packages) is { Length: > 0 } packageUrl)
+                                {
+                                    <MudButton Href="@packageUrl" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Download">Download</MudButton>
+                                }
+                                else
+                                {
+                                    <small class="remote-unavailable">The package has not been published for this deployment.</small>
+                                }
+                            </li>
+                            <li>
+                                <span>2</span>
+                                <div><strong>Run the setup command</strong><small>The installer will ask for your one-use connection code.</small></div>
+                                <div class="host-copy-field">
+                                    <code>@InstallCommand(packages.ControlPlaneUrl!)</code>
+                                    <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">Copy</MudButton>
+                                </div>
+                            </li>
+                            <li>
+                                <span>3</span>
+                                <div><strong>Enter the connection code</strong><small>It expires after 15 minutes and can be used only once.</small></div>
+                                @if (_issuedEnrollment?.EnrollmentToken is { Length: > 0 } token)
+                                {
+                                    <div class="host-secret-field">
+                                        <code>@MaskedToken(token)</code>
+                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => CopyTokenAsync(token)">Copy code</MudButton>
+                                    </div>
+                                }
+                                else if (_status.ActiveEnrollment is { Status: "available" })
+                                {
+                                    <div class="host-inline-notice warning">
+                                        <MudIcon Icon="@Icons.Material.Outlined.Lock" />
+                                        <div><strong>This code is already active</strong><span>For security it cannot be shown again after a reload.</span></div>
+                                        <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="RestartRemoteInstructionsAsync">Restart instructions</MudButton>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="host-inline-notice checking">
+                                        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                                        <span>Creating a secure connection code...</span>
+                                    </div>
+                                }
+                            </li>
+                        </ol>
+                        <details class="remote-details">
+                            <summary>Connection details</summary>
+                            <span>Execution Gateway</span>
+                            <code>@packages.ControlPlaneUrl</code>
+                        </details>
+                    }
+                    else
+                    {
+                        <div class="host-inline-notice error">
+                            <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" />
+                            <div><strong>Remote setup is unavailable</strong><span>An administrator must configure the public Execution Gateway before another machine can connect.</span></div>
+                        </div>
+                    }
+                </div>
+
+                <aside class="remote-status" aria-label="Agent Host connection progress">
+                    <span class="host-section-kicker">Connection progress</span>
+                    <ol class="remote-progress-list">
+                        <li class="@RemoteStageClass(1)"><span><MudIcon Icon="@RemoteStageIcon(1)" /></span><div><strong>Instructions ready</strong><small>Install on the other machine.</small></div></li>
+                        <li class="@RemoteStageClass(2)"><span><MudIcon Icon="@RemoteStageIcon(2)" /></span><div><strong>Host connected</strong><small>Waiting for its secure hello.</small></div></li>
+                        <li class="@RemoteStageClass(3)"><span><MudIcon Icon="@RemoteStageIcon(3)" /></span><div><strong>Host approved</strong><small>Confirm the machine belongs to you.</small></div></li>
+                        <li class="@RemoteStageClass(4)"><span><MudIcon Icon="@RemoteStageIcon(4)" /></span><div><strong>Health check</strong><small>Verify secure runtime and capacity.</small></div></li>
+                    </ol>
+                    @if (RemotePendingNodes.Count == 0 && RemoteStage < 3)
+                    {
+                        <div class="remote-waiting" role="status" aria-live="polite">
+                            <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
+                            <span>Waiting for the other machine. Timing depends on when its installation is completed.</span>
+                        </div>
+                    }
+                </aside>
+            </div>
+
+            @foreach (var node in RemotePendingNodes)
+            {
+                <article class="host-approval-card">
+                    <span class="host-approval-icon"><MudIcon Icon="@Icons.Material.Outlined.Laptop" /></span>
+                    <div class="host-approval-copy">
+                        <span class="host-section-kicker">Approval required</span>
+                        <h3>@node.MachineName</h3>
+                        <p>@DisplayPlatform(node) · Agent Host @node.NodeVersion</p>
+                        <details>
+                            <summary>Identity details</summary>
+                            <span>Certificate fingerprint</span>
+                            <code>@node.CertificateThumbprint</code>
+                        </details>
+                    </div>
+                    <div class="host-approval-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="() => ApproveRemoteAsync(node.Id)">Approve host</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@_busy" OnClick="() => RejectRemoteAsync(node.Id)">Not my host</MudButton>
+                    </div>
+                </article>
+            }
+        }
+    </section>;
+
+    private async Task AcceptStatusAsync(ExecutionCapacityOnboardingResponse status)
+    {
+        _status = status;
+        if (_issuedEnrollment is not null &&
+            (status.ActiveEnrollment?.Id != _issuedEnrollment.Id || status.ActiveEnrollment.Status != "available"))
+            _issuedEnrollment = null;
+        await TryAutoApproveLocalAsync();
+        await EnsureRemoteEnrollmentAsync();
+    }
+
+    private async Task TryAutoApproveLocalAsync()
+    {
+        if (_status?.SelectedMode != "local" || _automaticApprovalInFlight) return;
+        var node = _status.Nodes.FirstOrDefault(candidate => candidate.IsLocalMachine && candidate.Status == "pendingapproval");
+        if (node is null) return;
+        var now = DateTimeOffset.UtcNow;
+        if (_lastAutomaticApprovalNodeId == node.Id && now - _lastAutomaticApprovalAt < TimeSpan.FromSeconds(15)) return;
+        _lastAutomaticApprovalNodeId = node.Id;
+        _lastAutomaticApprovalAt = now;
+        _automaticApprovalInFlight = true;
+        BeginStatusMutation();
+        try
+        {
+            var result = await SetupApi.ApproveExecutionNodeAsync(node.Id);
+            Apply(result);
+            if (!result.Succeeded)
+                SetAction(false, "The Agent Host connected but has not passed its secure runtime checks yet. C-Sweet will keep checking.");
+        }
+        catch
+        {
+            SetAction(false, "The Agent Host connected but could not be verified yet. C-Sweet will keep checking.");
+        }
+        finally
+        {
+            _automaticApprovalInFlight = false;
+            EndStatusMutation();
+        }
+    }
+
+    private void Apply(ExecutionCapacityActionResponse result)
+    {
+        _status = result.Status;
+        SetAction(result.Succeeded, result.Message);
+    }
+
+    private void SetAction(bool succeeded, string message)
+    {
+        _actionSucceeded = succeeded;
+        _actionMessage = message;
+    }
+
+    private void StartPolling()
+    {
+        _polling = new CancellationTokenSource();
+        _ = PollAsync(_polling.Token);
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                try
+                {
+                    var requestVersion = Volatile.Read(ref _statusMutationVersion);
+                    var status = await SetupApi.GetExecutionCapacityStatusAsync(cancellationToken);
+                    await InvokeAsync(async () =>
+                    {
+                        if (requestVersion != Volatile.Read(ref _statusMutationVersion) ||
+                            _busy || _automaticEnrollmentInFlight || _automaticApprovalInFlight)
+                            return;
+                        await AcceptStatusAsync(status);
+                        StateHasChanged();
+                    });
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch
+                {
+                    // A transient refresh failure should not end the waiting experience.
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch { }
+    }
+
+    private void BeginStatusMutation() => Interlocked.Increment(ref _statusMutationVersion);
+    private void EndStatusMutation() => Interlocked.Increment(ref _statusMutationVersion);
+
+    private ExecutionNodeSummaryResponse? LocalNode => _status?.Nodes.FirstOrDefault(node => node.IsLocalMachine && node.Status != "revoked");
+    private IReadOnlyList<ExecutionNodeSummaryResponse> RemotePendingNodes => _status?.Nodes
+        .Where(node => !node.IsLocalMachine && node.Status == "pendingapproval").ToArray() ?? [];
+    private int RemoteStage => _status?.IsReady == true ? 5
+        : _status?.Nodes.Any(node => !node.IsLocalMachine && node.Status == "ready") == true ? 4
+        : RemotePendingNodes.Count > 0 ? 3
+        : _status?.ActiveEnrollment?.Status == "claimed" ? 2
+        : _status?.ActiveEnrollment is not null || _issuedEnrollment is not null ? 1
+        : 0;
+
+    private string RemoteStageClass(int stage) => RemoteStage > stage ? "complete" : RemoteStage == stage ? "current" : string.Empty;
+    private string RemoteStageIcon(int stage) => RemoteStage > stage
+        ? Icons.Material.Filled.Check
+        : RemoteStage == stage ? Icons.Material.Filled.MoreHoriz : Icons.Material.Outlined.RadioButtonUnchecked;
+    private string ModeClass(string mode) => _status?.SelectedMode == mode ? "selected" : string.Empty;
+    private static bool IsRunning(LocalExecutionNodeProvisioningProgressResponse progress) => progress.State == "running";
+    private static bool IsFailed(LocalExecutionNodeProvisioningProgressResponse progress) => progress.State == "failed";
+    private static string DisplayPlatform(ExecutionNodeSummaryResponse node) => $"{Title(node.OperatingSystem)} / {node.Architecture}";
+    private static string Title(string value) => value switch { "windows" => "Windows", "linux" => "Linux", "macos" => "macOS", _ => value };
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.Zero) duration = TimeSpan.Zero;
+        if (duration.TotalHours >= 1) return $"{(int)duration.TotalHours}h {duration.Minutes}m";
+        if (duration.TotalMinutes >= 1) return $"{(int)duration.TotalMinutes}m {duration.Seconds}s";
+        return $"{Math.Max(0, duration.Seconds)}s";
+    }
+
+    private static string? Eta(LocalExecutionNodeProvisioningProgressResponse progress)
+    {
+        if (progress.EstimatedRemainingMaximumSeconds is not { } maximum) return null;
+        var minimum = Math.Max(0, progress.EstimatedRemainingMinimumSeconds ?? maximum);
+        maximum = Math.Max(minimum, maximum);
+        return minimum == maximum
+            ? $"About {FormatDuration(TimeSpan.FromSeconds(maximum))} remaining"
+            : $"About {FormatDuration(TimeSpan.FromSeconds(minimum))}–{FormatDuration(TimeSpan.FromSeconds(maximum))} remaining";
+    }
+
+    private static string MaskedToken(string token) => token.Length < 4 ? "••••" : $"•••• •••• •••• {token[^4..]}";
+
+    private static readonly RemotePlatform[] RemotePlatforms =
+    [
+        new("windows", "Windows", Icons.Material.Filled.Window),
+        new("linux", "Linux", Icons.Material.Filled.Terminal),
+        new("macos", "macOS", Icons.Material.Filled.LaptopMac)
+    ];
+
+    private string? SelectedPackageUrl(ExecutionNodePackageLinksResponse packages) => _remotePlatform switch
+    {
+        "windows" => packages.WindowsUrl,
+        "linux" => packages.LinuxUrl,
+        "macos" => packages.MacOsUrl,
+        _ => null
+    };
+
+    private string InstallCommand(string controlPlaneUrl) => _remotePlatform switch
+    {
+        "windows" => $"& \"$env:ProgramFiles\\CSweet\\ExecutionNodeInstaller\\Install-CSweetExecutionFleet.ps1\" -PayloadRoot \"$env:ProgramFiles\\CSweet\\ExecutionNodeInstaller\\payload\" -ControlPlaneUrl '{PowerShellQuote(controlPlaneUrl)}'",
+        "linux" => $"sudo /usr/sbin/csweet-configure-execution-node '{UnixQuote(controlPlaneUrl)}'",
+        "macos" => $"sudo /usr/local/sbin/csweet-configure-execution-node '{UnixQuote(controlPlaneUrl)}'",
+        _ => string.Empty
+    };
+
+    private static string PowerShellQuote(string value) => value.Replace("'", "''", StringComparison.Ordinal);
+    private static string UnixQuote(string value) => value.Replace("'", "'\"'\"'", StringComparison.Ordinal);
+
+    private async Task CopyCommandAsync(string gateway) => await CopyAsync(InstallCommand(gateway), "Setup command copied.");
+    private async Task CopyTokenAsync(string token) => await CopyAsync(token, "Connection code copied. Paste it only into the Agent Host installer.");
+
+    private async Task CopyAsync(string value, string message)
+    {
+        var module = await ModuleAsync();
+        await module.InvokeVoidAsync("copyText", value);
+        SetAction(true, message);
+    }
+
+    private Task<IJSObjectReference> ModuleAsync() => _jsModule is not null
+        ? Task.FromResult(_jsModule)
+        : LoadModuleAsync();
+
+    private async Task<IJSObjectReference> LoadModuleAsync() => _jsModule =
+        await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/auth-security.js");
+
+    public async ValueTask DisposeAsync()
+    {
+        _polling?.Cancel();
+        _polling?.Dispose();
+        if (_jsModule is not null) await _jsModule.DisposeAsync();
+    }
+
+    private sealed record RemotePlatform(string Key, string Label, string Icon);
+}

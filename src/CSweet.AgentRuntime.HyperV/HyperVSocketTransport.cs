@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using CSweet.AgentRuntime.Abstractions;
 
 namespace CSweet.AgentRuntime.HyperV;
 
@@ -50,10 +51,22 @@ public interface IHyperVGuestTransport
     Task<Stream> ConnectAsync(Guid virtualMachineId, CancellationToken cancellationToken = default);
 }
 
-public sealed class WindowsHyperVSocketTransport(HyperVSocketTransportOptions options) : IHyperVGuestTransport
+public sealed class WindowsHyperVSocketTransport(HyperVSocketTransportOptions options) :
+    IHyperVGuestTransport, IPlatformGuestChannelConnector
 {
     private const int AddressFamilyHyperV = 34;
     private const int HyperVProtocolRaw = 1;
+    public string ProviderId => IsolationProviderCatalog.HyperV().ProviderId;
+
+    public Task<Stream> OpenGuestChannelAsync(
+        IsolationWorkloadHandle handle,
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.Equals(handle.ProviderId, ProviderId, StringComparison.Ordinal) ||
+            !Guid.TryParseExact(handle.ProviderInstanceId, "N", out var virtualMachineId))
+            throw new InvalidDataException("The Hyper-V workload handle is invalid.");
+        return ConnectAsync(virtualMachineId, cancellationToken);
+    }
 
     public async Task<Stream> ConnectAsync(Guid virtualMachineId, CancellationToken cancellationToken = default)
     {

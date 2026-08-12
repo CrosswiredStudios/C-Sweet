@@ -26,15 +26,18 @@ foreach ($source in @($GuestImage, $GuestImageSignature, $GuestImageSigningCerti
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 $runtimeRoot = Join-Path $OutputRoot 'runtime'
 $helperRoot = Join-Path $OutputRoot 'helper'
+$nodeRoot = Join-Path $OutputRoot 'node'
 $imageRoot = Join-Path $OutputRoot 'images'
 $certificateRoot = Join-Path $OutputRoot 'certificates'
 $certificationRoot = Join-Path $OutputRoot 'certification'
-New-Item -ItemType Directory -Path $runtimeRoot, $helperRoot, $imageRoot, $certificateRoot, $certificationRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $runtimeRoot, $helperRoot, $nodeRoot, $imageRoot, $certificateRoot, $certificationRoot -Force | Out-Null
 
 dotnet publish (Join-Path $repositoryRoot 'src\CSweet.RuntimeHost\CSweet.RuntimeHost.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $runtimeRoot
 if ($LASTEXITCODE -ne 0) { throw 'RuntimeHost publish failed.' }
 dotnet publish (Join-Path $repositoryRoot 'src\CSweet.AgentRuntime.HyperV.Helper\CSweet.AgentRuntime.HyperV.Helper.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $helperRoot
 if ($LASTEXITCODE -ne 0) { throw 'Hyper-V helper publish failed.' }
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.ExecutionNode\CSweet.ExecutionNode.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $nodeRoot
+if ($LASTEXITCODE -ne 0) { throw 'ExecutionNode publish failed.' }
 
 $installedImage = Join-Path $imageRoot 'csweet-agent-guest.vhdx'
 $installedSignature = "$installedImage.sig"
@@ -58,6 +61,7 @@ $manifest = [ordered]@{
     packageVersion = $PackageVersion
     runtimeHostExecutable = "runtime/CSweet.RuntimeHost.exe"
     helperExecutable = "helper/CSweet.AgentRuntime.HyperV.Helper.exe"
+    executionNodeExecutable = "node/CSweet.ExecutionNode.exe"
     guestImage = "images/csweet-agent-guest.vhdx"
     guestImageDigest = "sha256:$(Digest $installedImage)"
     guestImageSignature = "images/csweet-agent-guest.vhdx.sig"

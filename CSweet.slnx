@@ -8,6 +8,7 @@
     <Project Path="src/CSweet.AgentRuntime.Core/CSweet.AgentRuntime.Core.csproj" />
     <Project Path="src/CSweet.AgentRuntime.Guest/CSweet.AgentRuntime.Guest.csproj" />
     <Project Path="src/CSweet.AgentRuntime.GuestProbe/CSweet.AgentRuntime.GuestProbe.csproj" />
+    <Project Path="src/CSweet.AgentRuntime.Firecracker.Helper/CSweet.AgentRuntime.Firecracker.Helper.csproj" />
     <Project Path="src/CSweet.AgentRuntime.Firecracker/CSweet.AgentRuntime.Firecracker.csproj" />
     <Project Path="src/CSweet.AgentRuntime.HyperV/CSweet.AgentRuntime.HyperV.csproj" />
     <Project Path="src/CSweet.AgentRuntime.HyperV.Helper/CSweet.AgentRuntime.HyperV.Helper.csproj" />
@@ -22,6 +23,8 @@
     <Project Path="src/CSweet.Application/CSweet.Application.csproj" />
     <Project Path="src/CSweet.Contracts/CSweet.Contracts.csproj" />
     <Project Path="src/CSweet.Domain/CSweet.Domain.csproj" />
+    <Project Path="src/CSweet.ExecutionGateway/CSweet.ExecutionGateway.csproj" />
+    <Project Path="src/CSweet.ExecutionNode/CSweet.ExecutionNode.csproj" />
     <Project Path="src/CSweet.GitHost/CSweet.GitHost.csproj" />
     <Project Path="src/CSweet.Infrastructure/CSweet.Infrastructure.csproj" />
     <Project Path="src/CSweet.Maui/CSweet.Maui.csproj" />

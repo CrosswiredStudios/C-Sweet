@@ -7,7 +7,8 @@ namespace CSweet.Infrastructure.Setup;
 
 public sealed class AgentRuntimeEligibilityService(
     CSweetDbContext db,
-    IAgentConfigurationService configurations) : IAgentRuntimeEligibilityService
+    IAgentConfigurationService configurations,
+    IExecutionFleetService? executionFleet = null) : IAgentRuntimeEligibilityService
 {
     public async Task<AgentRuntimeEligibility> EvaluateAsync(
         Guid installationId,
@@ -27,6 +28,8 @@ public sealed class AgentRuntimeEligibilityService(
         if (package.Status != AgentPackageVersionStatus.Built || string.IsNullOrWhiteSpace(package.PackageDigest) ||
             string.IsNullOrWhiteSpace(package.ArtifactSignature))
             return Denied("The package is not built and signed.");
+        if (executionFleet is not null && !await executionFleet.IsReadyAsync(cancellationToken))
+            return Denied("No approved, connected execution node has certified builder and runtime capacity.");
 
         var systemService = package.PluginKind == PluginKind.Service && installation.Scope == PluginInstallationScope.System;
         if (systemService)

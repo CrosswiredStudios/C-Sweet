@@ -42,11 +42,25 @@
              Link="windows-runtime\Repair-CSweetRuntimeHostAccess.ps1"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\scripts\windows\Uninstall-CSweetExecutionFleet.ps1"
+             Link="windows-runtime\Uninstall-CSweetExecutionFleet.ps1"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\artifacts\windows-runtime\payload\**\*"
              Link="windows-runtime\payload\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest"
              Condition="Exists('..\..\artifacts\windows-runtime\payload\runtime-manifest.json')" />
+    <Content Include="..\..\artifacts\linux-runtime\payload\**\*"
+             Link="linux-runtime\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             Condition="Exists('..\..\artifacts\linux-runtime\payload\runtime-manifest.json')" />
+    <Content Include="..\..\artifacts\macos-runtime\payload\**\*"
+             Link="macos-runtime\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             Condition="Exists('..\..\artifacts\macos-runtime\payload\runtime-manifest.json')" />
   </ItemGroup>
 
 </Project>

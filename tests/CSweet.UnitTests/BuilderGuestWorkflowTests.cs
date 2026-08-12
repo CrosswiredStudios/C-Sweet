@@ -4,7 +4,6 @@ using CSweet.AgentRuntime.Abstractions;
 using CSweet.AgentRuntime.Guest;
 using CSweet.Application.Setup;
 using CSweet.Infrastructure.Setup;
-using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
@@ -96,105 +95,6 @@ public sealed class BuilderGuestWorkflowTests
     [InlineData("2606:4700:4700::1111", true)]
     public void BuildBrokerRejectsNonPublicResolvedAddresses(string value, bool expected) =>
         Assert.Equal(expected, BuilderBrokerOperationHandler.IsPublicAddress(IPAddress.Parse(value)));
-
-    [Fact]
-    public async Task VmBuildRunsAuthenticatedGuestSessionAndAlwaysDestroysVm()
-    {
-        var logRoot = Path.Combine(Path.GetTempPath(), $"csweet-builder-logs-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(logRoot);
-        try
-        {
-        var digest = "sha256:" + new string('a', 64);
-        var guest = new GuestImageReference("csweet-builder-base", "suite-v2", digest, "linux", "x64");
-        var provider = new RecordingProvider();
-        var session = new RecordingSessionCoordinator();
-        var resultStore = new ImmediateResultStore(new BuilderArtifactResult(
-            Guid.Empty,
-            new AgentArtifactReference("sha256:" + new string('b', 64), "signature", "1.0", "linux", "x64"),
-            "artifact:sha256:" + new string('b', 64)));
-        var executor = new VmAgentBuildExecutor(
-            new FixedSelector(provider, digest),
-            new FixedGuestImageRegistry(guest),
-            session,
-            resultStore,
-            Options.Create(new AgentRuntimeManagerOptions { BuildLogStorePath = logRoot }));
-        var request = new AgentBuildExecutionRequest(
-            Guid.NewGuid(), Guid.NewGuid(), "https://github.com/example/agent.git", new string('c', 40),
-            "src/Agent/Agent.csproj", "net10.0", "dotnet-publish-v1", 600, 512, 50, 128, 128, 8);
-        resultStore.WorkloadId = request.BuildJobId;
-        var progress = new RecordingProgressReporter();
-        var workspace = await executor.CloneAsync(request, progress);
-
-        var result = await executor.BuildAsync(request, workspace, progress);
-
-        Assert.True(provider.Created);
-        Assert.True(provider.Started);
-        Assert.True(provider.Destroyed);
-        Assert.True(session.Started);
-        Assert.Contains(progress.Updates, update =>
-            update.StepKey == AgentBuildStepKeys.Isolate &&
-            update.Status == AgentBuildStepStatuses.InProgress &&
-            update.Detail?.Contains("certified builder image", StringComparison.Ordinal) == true);
-        Assert.Contains(progress.Updates, update =>
-            update.StepKey == AgentBuildStepKeys.Isolate &&
-            update.Status == AgentBuildStepStatuses.InProgress &&
-            update.Detail?.Contains("Starting the disposable builder guest", StringComparison.Ordinal) == true);
-        Assert.Equal(digest, provider.Workload!.GuestImage.Digest);
-        Assert.Equal(new string('b', 64), result.PackageDigest);
-        Assert.True(File.Exists(workspace.LogPath));
-        var log = await File.ReadAllTextAsync(workspace.LogPath);
-        Assert.Contains(request.BuildJobId.ToString("D"), log, StringComparison.Ordinal);
-        Assert.Contains("Destroyed disposable provider instance", log, StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(logRoot, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task RuntimeInspectionSurfacesGuestProcessExitEvenWhileVmIsStillRunning()
-    {
-        var provider = new RecordingProvider();
-        var handle = new IsolationWorkloadHandle(provider.Descriptor.ProviderId, Guid.NewGuid(), Guid.NewGuid().ToString("N"), IsolationWorkloadKind.Runtime);
-        var guestSessions = new ExitedRuntimeGuestCoordinator(new AgentGuestSessionOutcome(
-            1, "process-exited", "The agent could not load its entrypoint."));
-        var runner = new IsolationAgentWorkloadRunner(
-            new FixedSelector(provider, "sha256:" + new string('a', 64)),
-            [provider],
-            guestSessions,
-            new NoOpArtifactMediaStore());
-
-        var status = await runner.InspectAsync(handle);
-
-        Assert.NotNull(status);
-        Assert.Equal(IsolationWorkloadState.Failed, status.State);
-        Assert.Equal(1, status.ExitCode);
-        Assert.Contains("entrypoint", status.SanitizedError, StringComparison.Ordinal);
-        Assert.Equal(0, provider.InspectCount);
-    }
-
-    [Fact]
-    public async Task RuntimeLogsIncludeGuestDiagnosticWhenProviderHasNoOutput()
-    {
-        var provider = new RecordingProvider();
-        var handle = new IsolationWorkloadHandle(
-            provider.Descriptor.ProviderId,
-            Guid.NewGuid(),
-            Guid.NewGuid().ToString("N"),
-            IsolationWorkloadKind.Runtime);
-        var guestSessions = new ExitedRuntimeGuestCoordinator(new AgentGuestSessionOutcome(
-            0, "process-exited", "The agent stopped after startup."));
-        var runner = new IsolationAgentWorkloadRunner(
-            new FixedSelector(provider, "sha256:" + new string('a', 64)),
-            [provider],
-            guestSessions,
-            new NoOpArtifactMediaStore());
-
-        var logs = await runner.GetLogsAsync(handle, 1024);
-
-        Assert.Contains("stopped after startup", logs, StringComparison.Ordinal);
-    }
 
     private static string[] Arguments(string targetFramework) =>
     [

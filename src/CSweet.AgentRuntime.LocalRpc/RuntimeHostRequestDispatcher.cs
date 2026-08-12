@@ -7,10 +7,13 @@ namespace CSweet.AgentRuntime.LocalRpc;
 
 public sealed class RuntimeHostRequestDispatcher(
     IEnumerable<A.IPlatformIsolationBackend> backends,
+    IEnumerable<A.IPlatformGuestChannelConnector> guestChannelConnectors,
     ILogger<RuntimeHostRequestDispatcher>? logger = null)
 {
     private readonly IReadOnlyDictionary<string, A.IPlatformIsolationBackend> _backends = backends
         .ToDictionary(item => item.Descriptor.ProviderId, StringComparer.Ordinal);
+    private readonly IReadOnlySet<string> _guestChannelProviders = guestChannelConnectors
+        .Select(item => item.ProviderId).ToHashSet(StringComparer.Ordinal);
 
     public async IAsyncEnumerable<P.RuntimeHostEnvelope> DispatchAsync(
         P.RuntimeHostEnvelope request,
@@ -72,6 +75,13 @@ public sealed class RuntimeHostRequestDispatcher(
                 UnavailableReason = DiagnosticMessage("The provider readiness probe failed", request.RequestId)
             });
         }
+        if (probe.IsAvailable && !_guestChannelProviders.Contains(probe.Descriptor.ProviderId))
+            probe = probe with
+            {
+                IsAvailable = false,
+                UnavailableReason = "The provider does not have a certified guest-channel connector installed.",
+                Certification = null
+            };
         return Response(request, new P.ProbeResponse
         {
             ProviderId = probe.Descriptor.ProviderId,
@@ -88,6 +98,9 @@ public sealed class RuntimeHostRequestDispatcher(
     private async Task<P.RuntimeHostEnvelope> CreateAsync(P.RuntimeHostEnvelope request, CancellationToken cancellationToken)
     {
         if (!_backends.TryGetValue(request.CreateRequest.ProviderId, out var backend)) return Error(request, "provider-not-registered");
+        if (!_guestChannelProviders.Contains(request.CreateRequest.ProviderId))
+            return ErrorHandle(request, "guest-channel-unavailable",
+                "The provider does not have a certified guest-channel connector installed.");
         try
         {
             var workload = RuntimeHostProtocolMapper.FromProtocol(request.CreateRequest);

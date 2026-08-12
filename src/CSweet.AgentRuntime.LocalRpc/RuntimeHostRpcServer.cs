@@ -14,10 +14,13 @@ public sealed class RuntimeHostRpcServer(
     RuntimeHostEndpointOptions endpointOptions,
     P.RuntimeHostRequestAuthenticator authenticator,
     RuntimeHostRequestDispatcher dispatcher,
+    IEnumerable<CSweet.AgentRuntime.Abstractions.IPlatformGuestChannelConnector> guestChannelConnectors,
     ILogger<RuntimeHostRpcServer>? logger = null)
 {
     private readonly ConcurrentDictionary<int, Task> _connections = [];
     private int _connectionId;
+    private readonly IReadOnlyDictionary<string, CSweet.AgentRuntime.Abstractions.IPlatformGuestChannelConnector>
+        _guestChannelConnectors = guestChannelConnectors.ToDictionary(x => x.ProviderId, StringComparer.Ordinal);
 
     public Task RunAsync(CancellationToken cancellationToken = default)
     {
@@ -30,7 +33,9 @@ public sealed class RuntimeHostRpcServer(
     [SupportedOSPlatform("windows")]
     private async Task RunNamedPipeAsync(CancellationToken cancellationToken)
     {
-        var pipeSecurity = CreateWindowsPipeSecurity(endpointOptions.AllowedClientSid);
+        var pipeSecurity = CreateWindowsPipeSecurityForClients(
+            endpointOptions.AllowedClientSids.Prepend(endpointOptions.AllowedClientSid)
+                .Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).Distinct(StringComparer.Ordinal).ToArray());
         logger?.LogInformation(
             "RuntimeHost RPC server is listening on Windows named pipe {NamedPipeName}.",
             endpointOptions.NamedPipeName);
@@ -69,20 +74,14 @@ public sealed class RuntimeHostRpcServer(
     }
 
     [SupportedOSPlatform("windows")]
-    private static PipeSecurity CreateWindowsPipeSecurity(string? allowedClientSid)
-    {
-        if (string.IsNullOrWhiteSpace(allowedClientSid))
-            throw new InvalidOperationException("The RuntimeHost allowed client SID is not configured.");
+    private static PipeSecurity CreateWindowsPipeSecurity(string allowedClientSid) =>
+        CreateWindowsPipeSecurityForClients([allowedClientSid]);
 
-        SecurityIdentifier client;
-        try
-        {
-            client = new SecurityIdentifier(allowedClientSid);
-        }
-        catch (ArgumentException exception)
-        {
-            throw new InvalidOperationException("The RuntimeHost allowed client SID is invalid.", exception);
-        }
+    [SupportedOSPlatform("windows")]
+    private static PipeSecurity CreateWindowsPipeSecurityForClients(IReadOnlyList<string> allowedClientSids)
+    {
+        if (allowedClientSids.Count == 0)
+            throw new InvalidOperationException("The RuntimeHost allowed client SIDs are not configured.");
 
         var security = new PipeSecurity();
         security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
@@ -100,14 +99,20 @@ public sealed class RuntimeHostRpcServer(
             new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
             PipeAccessRights.FullControl,
             AccessControlType.Allow));
-        security.AddAccessRule(new PipeAccessRule(
-            client,
-            // Windows maps duplex generic-write opens to FILE_CREATE_PIPE_INSTANCE (bit 0x4).
-            // NamedPipeClientStream therefore requires this bit even though only RuntimeHost
-            // calls the server-side creation API. The HMAC key and this explicit SID remain
-            // the authorization boundary for control-plane requests.
-            PipeAccessRights.ReadWrite | PipeAccessRights.Synchronize | PipeAccessRights.CreateNewInstance,
-            AccessControlType.Allow));
+        foreach (var allowedClientSid in allowedClientSids)
+        {
+            SecurityIdentifier client;
+            try { client = new SecurityIdentifier(allowedClientSid); }
+            catch (ArgumentException exception)
+            {
+                throw new InvalidOperationException("A RuntimeHost allowed client SID is invalid.", exception);
+            }
+            security.AddAccessRule(new PipeAccessRule(
+                client,
+                // Windows maps duplex generic-write opens to FILE_CREATE_PIPE_INSTANCE (bit 0x4).
+                PipeAccessRights.ReadWrite | PipeAccessRights.Synchronize | PipeAccessRights.CreateNewInstance,
+                AccessControlType.Allow));
+        }
         return security;
     }
 
@@ -180,6 +185,11 @@ public sealed class RuntimeHostRpcServer(
                 logger?.LogInformation(
                     "RuntimeHost accepted {Operation} request {RuntimeHostRequestId}.",
                     request.BodyCase, request.RequestId);
+                if (request.BodyCase == P.RuntimeHostEnvelope.BodyOneofCase.OpenGuestChannelRequest)
+                {
+                    await OpenGuestChannelAsync(stream, request, cancellationToken);
+                    return;
+                }
                 await foreach (var response in dispatcher.DispatchAsync(request, cancellationToken))
                 {
                     authenticator.Sign(response);
@@ -210,6 +220,56 @@ public sealed class RuntimeHostRpcServer(
                     request?.RequestId,
                     Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             }
+        }
+    }
+
+    private async Task OpenGuestChannelAsync(
+        Stream client,
+        P.RuntimeHostEnvelope request,
+        CancellationToken cancellationToken)
+    {
+        Stream? guest = null;
+        P.OpenGuestChannelResponse result;
+        try
+        {
+            var handle = RuntimeHostProtocolMapper.FromProtocol(request.OpenGuestChannelRequest.Workload);
+            if (!_guestChannelConnectors.TryGetValue(handle.ProviderId, out var connector))
+                throw new InvalidOperationException("The selected provider does not expose a guest broker channel.");
+            guest = await connector.OpenGuestChannelAsync(handle, cancellationToken);
+            result = new P.OpenGuestChannelResponse { Success = true };
+        }
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException or IOException)
+        {
+            logger?.LogWarning(exception,
+                "RuntimeHost could not open guest channel for request {RuntimeHostRequestId}.", request.RequestId);
+            result = new P.OpenGuestChannelResponse
+            {
+                Success = false,
+                ErrorCode = "guest-channel-unavailable",
+                SanitizedError = "The provider guest broker channel is unavailable."
+            };
+        }
+
+        var response = new P.RuntimeHostEnvelope
+        {
+            ProtocolVersion = request.ProtocolVersion,
+            RequestId = request.RequestId,
+            OpenGuestChannelResponse = result
+        };
+        authenticator.Sign(response);
+        await P.LengthDelimitedProtobuf.WriteAsync(
+            client, response, endpointOptions.MaximumFrameBytes, cancellationToken);
+        if (guest is null) return;
+
+        await using (guest)
+        using (var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            var clientToGuest = client.CopyToAsync(guest, 64 * 1024, lifetime.Token);
+            var guestToClient = guest.CopyToAsync(client, 64 * 1024, lifetime.Token);
+            await Task.WhenAny(clientToGuest, guestToClient);
+            await lifetime.CancelAsync();
+            try { await Task.WhenAll(clientToGuest, guestToClient); }
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         }
     }
 

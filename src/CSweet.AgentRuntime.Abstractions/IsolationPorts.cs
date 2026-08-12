@@ -33,6 +33,23 @@ public interface IAgentIsolationProvider
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>Opens the provider-neutral authenticated guest broker byte stream.</summary>
+public interface IAgentGuestChannelProvider
+{
+    Task<Stream> OpenGuestChannelAsync(
+        IsolationWorkloadHandle handle,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>Privileged RuntimeHost-side connector for one platform provider.</summary>
+public interface IPlatformGuestChannelConnector
+{
+    string ProviderId { get; }
+    Task<Stream> OpenGuestChannelAsync(
+        IsolationWorkloadHandle handle,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IAgentIsolationProviderSelector
 {
     Task<IsolationProviderSelection> SelectAsync(
@@ -40,7 +57,7 @@ public interface IAgentIsolationProviderSelector
         CancellationToken cancellationToken = default);
 }
 
-public interface IRuntimeHostClient : IAgentIsolationProvider;
+public interface IRuntimeHostClient : IAgentIsolationProvider, IAgentGuestChannelProvider;
 
 public interface IPlatformIsolationBackend : IAgentIsolationProvider;
 
@@ -54,8 +71,8 @@ public interface IPlatformWorkloadReaper
 }
 
 /// <summary>
-/// Contract boundary for a future remote runner. Remote execution is deliberately
-/// not an implicit fallback: callers must select it as a separately certified provider.
+/// Contract boundary for provider implementations hosted by an execution node.
+/// Providers remain node-local and are never used to model fleet machines.
 /// </summary>
 public interface IRemoteSecureRunnerClient : IAgentIsolationProvider;
 

@@ -3,6 +3,8 @@ namespace CSweet.Domain.Setup;
 public sealed class AgentRuntimeGlobalSettings
 {
     public Guid Id { get; set; }
+    public Guid? DefaultBuildExecutionPoolId { get; set; }
+    public Guid? DefaultRuntimeExecutionPoolId { get; set; }
     public bool EnableImportedAgents { get; set; }
     public ActivationMode DefaultActivationMode { get; set; }
     public int DefaultTickFrequencySeconds { get; set; } = 3600;

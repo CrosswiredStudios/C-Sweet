@@ -42,7 +42,7 @@ public sealed class CertifiedGuestImageRegistry(IAgentIsolationProviderSelector 
             throw new IsolationUnavailableException(
                 $"The installed secure agent runtime is out of date (installed: {certifiedVersion}; " +
                 $"required: {request.RequiredCertificationSuiteVersion.Trim()}). " +
-                "Open Agent Isolation setup and prepare the secure agent runtime before retrying.");
+                "Open Agent Execution setup and prepare the secure agent runtime before retrying.");
         var version = string.IsNullOrWhiteSpace(request.Version)
             ? certifiedVersion
             : request.Version.Trim();

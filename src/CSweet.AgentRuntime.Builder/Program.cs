@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -160,7 +161,13 @@ internal static class BuilderProgram
     {
         var files = Directory.EnumerateFiles(outputRoot, "*", SearchOption.AllDirectories).ToArray();
         if (files.Length is < 1 or > 10_000) throw new InvalidDataException("The publish output file count is invalid.");
-        var manifest = JsonSerializer.SerializeToUtf8Bytes(new { formatVersion = "1.0", operatingSystem = "linux", architecture = "x64", entrypoint = new[] { entrypoint } });
+        var architecture = RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.X64 => "x64",
+            Architecture.Arm64 => "arm64",
+            _ => throw new PlatformNotSupportedException("The builder guest architecture is unsupported.")
+        };
+        var manifest = JsonSerializer.SerializeToUtf8Bytes(new { formatVersion = "1.0", operatingSystem = "linux", architecture, entrypoint = new[] { entrypoint } });
         await using var output = new FileStream(bundlePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
         await using (var writer = new TarWriter(output, leaveOpen: true))
         {

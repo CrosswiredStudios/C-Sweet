@@ -84,7 +84,7 @@ function Assert-SafeOutputPath([string] $Value) {
 Assert-Administrator
 Import-Module Hyper-V -ErrorAction Stop
 $feature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -ErrorAction Stop
-if ($feature.State -ne 'Enabled') { throw 'Hyper-V is not enabled. Use the C-Sweet Agent Isolation onboarding action first, then restart Windows.' }
+if ($feature.State -ne 'Enabled') { throw 'Hyper-V is not enabled. Complete the C-Sweet Agent Execution prerequisites first, then restart Windows.' }
 if (-not (Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue)) {
     $available = @(Get-VMSwitch | Select-Object -ExpandProperty Name)
     throw "Hyper-V switch '$SwitchName' does not exist. Available switches: $($available -join ', ')"

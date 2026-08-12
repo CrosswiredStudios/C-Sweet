@@ -39,6 +39,11 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<AgentRunLog> AgentRunLogs => Set<AgentRunLog>();
     public DbSet<AgentRuntimeGlobalSettings> AgentRuntimeGlobalSettings => Set<AgentRuntimeGlobalSettings>();
+    public DbSet<ExecutionPool> ExecutionPools => Set<ExecutionPool>();
+    public DbSet<ExecutionNode> ExecutionNodes => Set<ExecutionNode>();
+    public DbSet<ExecutionNodeProvider> ExecutionNodeProviders => Set<ExecutionNodeProvider>();
+    public DbSet<ExecutionNodeEnrollment> ExecutionNodeEnrollments => Set<ExecutionNodeEnrollment>();
+    public DbSet<ExecutionWorkloadAssignment> ExecutionWorkloadAssignments => Set<ExecutionWorkloadAssignment>();
     public DbSet<AgentPackageSource> AgentPackageSources => Set<AgentPackageSource>();
     public DbSet<AgentPackageVersion> AgentPackageVersions => Set<AgentPackageVersion>();
     public DbSet<AgentDefinition> AgentDefinitions => Set<AgentDefinition>();
@@ -430,6 +435,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         modelBuilder.Entity<SystemConfiguration>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ExecutionOnboardingMode).HasConversion<string>().HasMaxLength(16).IsRequired();
         });
 
         modelBuilder.Entity<LlmProviderProfile>(entity =>
@@ -598,6 +604,141 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.DefaultNetworkPolicy).HasMaxLength(64).IsRequired();
             entity.Property(x => x.AllowedPackageFeedHosts).HasMaxLength(2048);
             entity.Property(x => x.BlockedNetworkCidrs).HasMaxLength(2048);
+            entity.HasOne<ExecutionPool>()
+                .WithMany()
+                .HasForeignKey(x => x.DefaultBuildExecutionPoolId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ExecutionPool>()
+                .WithMany()
+                .HasForeignKey(x => x.DefaultRuntimeExecutionPoolId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ExecutionPool>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.RequiredLabelsJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.AllowedBusinessIdsJson).HasColumnType("jsonb").IsRequired();
+            entity.HasIndex(x => x.Name).IsUnique();
+            entity.HasIndex(x => x.IsDefaultBuildPool)
+                .IsUnique()
+                .HasFilter("\"IsDefaultBuildPool\" = TRUE");
+            entity.HasIndex(x => x.IsDefaultRuntimePool)
+                .IsUnique()
+                .HasFilter("\"IsDefaultRuntimePool\" = TRUE");
+        });
+
+        modelBuilder.Entity<ExecutionNode>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.MachineName).HasMaxLength(255).IsRequired();
+            entity.Property(x => x.OperatingSystem).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Architecture).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.NodeVersion).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ProtocolVersion).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.CertificateThumbprint).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.CertificateSerialNumber).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.CertificateSigningRequestPem).HasMaxLength(16 * 1024).IsRequired();
+            entity.Property(x => x.IssuedCertificateBase64).HasMaxLength(16 * 1024);
+            entity.Property(x => x.LabelsJson).HasColumnType("jsonb").IsRequired();
+            entity.HasIndex(x => x.CertificateThumbprint).IsUnique();
+            entity.HasIndex(x => new { x.ExecutionPoolId, x.Status });
+            entity.HasOne(x => x.ExecutionPool)
+                .WithMany(x => x.Nodes)
+                .HasForeignKey(x => x.ExecutionPoolId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ExecutionNodeProvider>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderId).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.ProviderVersion).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.BrokerProtocolVersion).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.GuestImageDigest).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.CertificationSuiteVersion).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.CertificationEvidenceDigest).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.UnavailableReason).HasMaxLength(1024);
+            entity.HasIndex(x => new { x.ExecutionNodeId, x.ProviderId, x.GuestImageDigest }).IsUnique();
+            entity.HasOne(x => x.ExecutionNode)
+                .WithMany(x => x.Providers)
+                .HasForeignKey(x => x.ExecutionNodeId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExecutionNodeEnrollment>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ReceiptHash).HasMaxLength(64);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => x.ReceiptHash).IsUnique();
+            entity.HasIndex(x => new { x.ExecutionPoolId, x.Status, x.ExpiresAt });
+            entity.HasOne(x => x.ExecutionPool)
+                .WithMany()
+                .HasForeignKey(x => x.ExecutionPoolId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.ExecutionNode)
+                .WithMany()
+                .HasForeignKey(x => x.ExecutionNodeId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ExecutionWorkloadAssignment>(entity =>
+        {
+            entity.ToTable(table => table.HasCheckConstraint(
+                "CK_ExecutionWorkloadAssignments_ExactlyOneWorkload",
+                "(\"AgentBuildJobId\" IS NOT NULL AND \"AgentRuntimeInstanceId\" IS NULL) OR " +
+                "(\"AgentBuildJobId\" IS NULL AND \"AgentRuntimeInstanceId\" IS NOT NULL)"));
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.WorkloadKind).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.Property(x => x.BusinessId).HasMaxLength(128);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.ProviderId).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.GuestImageDigest).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.ArtifactDigest).HasMaxLength(128);
+            entity.Property(x => x.SpecificationJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.SpecificationDigest).HasMaxLength(71).IsRequired();
+            entity.Property(x => x.AssignmentTokenHash).HasMaxLength(64).IsRequired().IsConcurrencyToken();
+            entity.Property(x => x.ArtifactGrantTransferHash).HasMaxLength(64).IsConcurrencyToken();
+            entity.Property(x => x.FencingEpoch).IsConcurrencyToken();
+            entity.Property(x => x.FailureCode).HasMaxLength(128);
+            entity.Property(x => x.SanitizedFailure).HasMaxLength(2048);
+            entity.Property(x => x.ProviderInstanceId).HasMaxLength(256);
+            entity.Property(x => x.ResultArtifactLocator).HasMaxLength(2048);
+            entity.Property(x => x.ResultArtifactDigest).HasMaxLength(128);
+            entity.Property(x => x.ResultArtifactSignature).HasMaxLength(4096);
+            entity.Property(x => x.ResultArtifactFormatVersion).HasMaxLength(64);
+            entity.Property(x => x.ResultArtifactOperatingSystem).HasMaxLength(64);
+            entity.Property(x => x.ResultArtifactArchitecture).HasMaxLength(64);
+            entity.Property(x => x.ResultLogExcerpt).HasMaxLength(64 * 1024);
+            entity.HasIndex(x => new { x.ExecutionPoolId, x.Status, x.QueuedAt });
+            entity.HasIndex(x => x.AgentBuildJobId)
+                .IsUnique()
+                .HasFilter("\"AgentBuildJobId\" IS NOT NULL AND \"Status\" IN ('Pending','Assigned','Starting','Running','Stopping')");
+            entity.HasIndex(x => x.AgentRuntimeInstanceId)
+                .IsUnique()
+                .HasFilter("\"AgentRuntimeInstanceId\" IS NOT NULL AND \"Status\" IN ('Pending','Assigned','Starting','Running','Stopping')");
+            entity.HasOne(x => x.ExecutionPool)
+                .WithMany()
+                .HasForeignKey(x => x.ExecutionPoolId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.ExecutionNode)
+                .WithMany(x => x.Assignments)
+                .HasForeignKey(x => x.ExecutionNodeId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.AgentBuildJob)
+                .WithMany(x => x.ExecutionAssignments)
+                .HasForeignKey(x => x.AgentBuildJobId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.AgentRuntimeInstance)
+                .WithMany(x => x.ExecutionAssignments)
+                .HasForeignKey(x => x.AgentRuntimeInstanceId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<AgentPackageSource>(entity =>
@@ -659,6 +800,10 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.SetupDataJson).HasColumnType("text").IsRequired();
             entity.Property(x => x.ConfigurationSyncStatus).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.ConfigurationSyncLastError).HasMaxLength(2048);
+            entity.HasOne<ExecutionPool>()
+                .WithMany()
+                .HasForeignKey(x => x.ExecutionPoolId)
+                .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(x => new { x.PackageVersionId, x.BusinessId });
             entity.HasIndex(x => x.AgentDefinitionId);
             entity.HasOne(x => x.AgentDefinition)
@@ -836,6 +981,10 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 .WithMany(x => x.BuildJobs)
                 .HasForeignKey(x => x.PackageVersionId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ExecutionPool>()
+                .WithMany()
+                .HasForeignKey(x => x.ExecutionPoolId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<AgentRuntimeInstance>(entity =>
