@@ -51,7 +51,7 @@
                             @if (pool.IsDefaultRuntimePool) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Runtime default</MudChip> }
                             @if (!pool.IsEnabled) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Disabled</MudChip> }
                         </MudStack>
-                        <MudText Typo="Typo.caption">@pool.ReadyNodeCount/@pool.NodeCount ready nodes | @pool.ActiveAssignmentCount active assignments</MudText>
+                        <MudText Typo="Typo.caption">@pool.ReadyNodeCount/@pool.NodeCount ready offices | @pool.ActiveAssignmentCount active assignments</MudText>
                     </MudStack>
                     <MudGrid Class="mt-2">
                         <MudItem xs="12" md="3"><MudTextField Label="Name" @bind-Value="edit.Name" /></MudItem>
@@ -110,7 +110,7 @@
         </MudPaper>
 
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-            <MudText Typo="Typo.h5">Nodes</MudText>
+            <MudText Typo="Typo.h5">Satellite Offices</MudText>
             @foreach (var node in _fleet.Nodes)
             {
                 <MudPaper Outlined="true" Class="pa-4 mt-3">
@@ -123,7 +123,7 @@
                             {
                                 <MudText Typo="Typo.caption">@provider.ProviderId - image @Short(provider.GuestImageDigest) - certification @provider.CertificationSuiteVersion</MudText>
                             }
-                            <MudTextField Label="Node labels" HelperText="key=value, comma separated"
+                            <MudTextField Label="Satellite Office labels" HelperText="key=value, comma separated"
                                           @bind-Value="_nodeLabelEdits[node.Id]" Class="mt-2" />
                         </div>
                         <MudStack Row="true" Spacing="1">
@@ -234,7 +234,7 @@
                 $"api/execution-fleet/nodes/{nodeId:D}/labels", new UpdateExecutionNodeLabelsRequest(labels));
             _messageSucceeded = response.IsSuccessStatusCode;
             _message = response.IsSuccessStatusCode
-                ? "Node labels were updated."
+                ? "Satellite Office labels were updated."
                 : "The node labels were rejected.";
             if (_messageSucceeded) await LoadAsync();
         }

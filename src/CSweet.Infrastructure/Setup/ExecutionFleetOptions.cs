@@ -4,9 +4,11 @@ public sealed class ExecutionFleetOptions
 {
     public const string SectionName = "CSweet:ExecutionFleet";
     public bool PublicLaunchEnabled { get; set; }
-    public string? WindowsPackageUrl { get; set; }
-    public string? LinuxPackageUrl { get; set; }
-    public string? MacOsPackageUrl { get; set; }
+    public string ReleaseManifestUrl { get; set; } =
+        "https://github.com/CrosswiredStudios/CSweet.SatelliteOffice/releases/latest/download/satellite-office-release.json";
+    public string? WindowsPackageOverrideUrl { get; set; }
+    public string? LinuxPackageOverrideUrl { get; set; }
+    public string? MacOsPackageOverrideUrl { get; set; }
     public bool AllowUnpinnedDevelopmentImages { get; set; }
     public int MinimumBuilderCpuCount { get; set; } = 1;
     public int MinimumBuilderMemoryMb { get; set; } = 4096;

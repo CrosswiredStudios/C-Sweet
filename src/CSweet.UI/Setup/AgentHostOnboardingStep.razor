@@ -14,29 +14,29 @@
     {
         <div class="host-feedback checking" role="status" aria-live="polite">
             <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
-            <span>Checking for an Agent Host...</span>
+            <span>Checking for a Satellite Office...</span>
         </div>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {
         <div class="host-feedback error" role="alert">
             <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" />
-            <div><strong>We couldn't check your Agent Hosts.</strong><span>@_error</span></div>
+            <div><strong>We couldn't check your Satellite Offices.</strong><span>@_error</span></div>
             <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="RefreshAsync">Try again</MudButton>
         </div>
     }
     else if (_status is not null)
     {
-        <div class="host-location-grid" role="group" aria-label="Agent Host location">
+        <div class="host-location-grid" role="group" aria-label="Satellite Office location">
             <button type="button"
                     class="host-location-card @ModeClass("local")"
                     aria-pressed="@(_status.SelectedMode == "local")"
-                    disabled="@(_busy || !_status.CanInstallLocalNode)"
-                    @onclick='@(() => SelectModeAsync("local"))'>
+                    disabled="@_busy"
+                    @onclick='@(() => SelectModeAsync("remote"))'>
                 <span class="host-location-icon"><MudIcon Icon="@Icons.Material.Outlined.Computer" /></span>
                 <span class="host-location-copy">
                     <strong>This machine</strong>
-                    <small>Install an Agent Host here. You can add additional machines later.</small>
+                    <small>Install C-Sweet Satellite Office here. You can add additional machines later.</small>
                 </span>
                 <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="host-location-check" />
             </button>
@@ -48,7 +48,7 @@
                 <span class="host-location-icon"><MudIcon Icon="@Icons.Material.Outlined.Devices" /></span>
                 <span class="host-location-copy">
                     <strong>Another machine</strong>
-                    <small>Install an Agent Host on another Windows, Linux, or macOS machine.</small>
+                    <small>Install C-Sweet Satellite Office on another Windows, Linux, or macOS machine.</small>
                 </span>
                 <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="host-location-check" />
             </button>
@@ -85,7 +85,7 @@
         <div>
             @if (_status?.IsReady != true)
             {
-                <span>Connect one healthy Agent Host to continue</span>
+                <span>Connect one healthy Satellite Office to continue</span>
             }
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
@@ -155,7 +155,7 @@
         }
         catch
         {
-            SetAction(false, "The Agent Host location could not be saved. Try again.");
+            SetAction(false, "The C-Sweet Satellite Office location could not be saved. Try again.");
         }
         finally
         {
@@ -174,7 +174,7 @@
         {
             if (_status.ActiveEnrollment is { Status: "claimed" })
             {
-                SetAction(true, "The Agent Host connected. C-Sweet is verifying it now.");
+                SetAction(true, "The C-Sweet Satellite Office connected. C-Sweet is verifying it now.");
                 return;
             }
 
@@ -204,7 +204,7 @@
         }
         catch
         {
-            SetAction(false, "The Agent Host installer could not be started. Try again.");
+            SetAction(false, "The C-Sweet Satellite Office installer could not be started. Try again.");
         }
         finally
         {
@@ -276,7 +276,7 @@
         }
         catch
         {
-            SetAction(false, "This Agent Host could not be approved. Check the host and try again.");
+            SetAction(false, "This C-Sweet Satellite Office could not be approved. Check the host and try again.");
         }
         finally
         {
@@ -299,7 +299,7 @@
         }
         catch
         {
-            SetAction(false, "This Agent Host could not be rejected. Try again.");
+            SetAction(false, "This C-Sweet Satellite Office could not be rejected. Try again.");
         }
         finally
         {
@@ -313,7 +313,7 @@
         {
             <div class="host-ready-state" role="status" aria-live="polite">
                 <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
-                <div><strong id="local-host-title">Your Agent Host is ready</strong><span>@LocalNode.MachineName is connected and healthy.</span></div>
+                <div><strong id="local-host-title">Your C-Sweet Satellite Office is ready</strong><span>@LocalNode.MachineName is connected and healthy.</span></div>
             </div>
         }
         else if (_status?.LocalProvisioning is { } progress &&
@@ -360,7 +360,7 @@
                 {
                     <div class="host-inline-notice checking">
                         <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-                        <div><strong>Waiting for the Agent Host</strong><span>The services are installed and should connect automatically.</span></div>
+                        <div><strong>Waiting for the C-Sweet Satellite Office</strong><span>The services are installed and should connect automatically.</span></div>
                     </div>
                 }
             </div>
@@ -369,7 +369,7 @@
         {
             <div class="host-waiting-state" role="status" aria-live="polite">
                 <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                <div><strong id="local-host-title">Verifying this Agent Host</strong><span>C-Sweet is checking its identity, secure runtime, and available capacity.</span></div>
+                <div><strong id="local-host-title">Verifying this C-Sweet Satellite Office</strong><span>C-Sweet is checking its identity, secure runtime, and available capacity.</span></div>
             </div>
         }
         else if (LocalNode?.Status == "ready")
@@ -385,7 +385,7 @@
                 <span class="host-install-mark"><MudIcon Icon="@Icons.Material.Outlined.InstallDesktop" /></span>
                 <div>
                     <span class="host-section-kicker">This machine</span>
-                    <h2 id="local-host-title">Install your first Agent Host</h2>
+                    <h2 id="local-host-title">Install your first C-Sweet Satellite Office</h2>
                     <p>C-Sweet will request administrator approval, install the secure background services, and verify the machine.</p>
                 </div>
                 @if (_status?.CanInstallLocalNode == true)
@@ -396,14 +396,14 @@
                                StartIcon="@Icons.Material.Outlined.Download"
                                Disabled="@_busy"
                                OnClick="StartLocalInstallAsync">
-                        @(_busy ? "Starting installer..." : "Install Agent Host")
+                        @(_busy ? "Starting installer..." : "Install C-Sweet Satellite Office")
                     </MudButton>
                 }
                 else
                 {
                     <div class="host-inline-notice warning">
                         <MudIcon Icon="@Icons.Material.Outlined.Info" />
-                        <span>This machine is not available as an Agent Host for this deployment. Choose another machine or contact an administrator.</span>
+                        <span>This machine is not available as an C-Sweet Satellite Office for this deployment. Choose another machine or contact an administrator.</span>
                     </div>
                 }
             </div>
@@ -415,7 +415,7 @@
         {
             <div class="host-ready-state" role="status" aria-live="polite">
                 <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
-                <div><strong id="remote-host-title">Your Agent Host is ready</strong><span>A remote machine is connected and healthy.</span></div>
+                <div><strong id="remote-host-title">Your C-Sweet Satellite Office is ready</strong><span>A remote machine is connected and healthy.</span></div>
             </div>
         }
         else
@@ -425,10 +425,10 @@
                     <div class="host-progress-heading">
                         <div>
                             <span class="host-section-kicker">Another machine</span>
-                            <h2 id="remote-host-title">Install an Agent Host</h2>
+                            <h2 id="remote-host-title">Install an C-Sweet Satellite Office</h2>
                         </div>
                     </div>
-                    <div class="host-platform-picker" role="group" aria-label="Agent Host operating system">
+                    <div class="host-platform-picker" role="group" aria-label="C-Sweet Satellite Office operating system">
                         @foreach (var platform in RemotePlatforms)
                         {
                             <button type="button" class="@(platform.Key == _remotePlatform ? "selected" : null)"
@@ -504,7 +504,7 @@
                     }
                 </div>
 
-                <aside class="remote-status" aria-label="Agent Host connection progress">
+                <aside class="remote-status" aria-label="C-Sweet Satellite Office connection progress">
                     <span class="host-section-kicker">Connection progress</span>
                     <ol class="remote-progress-list">
                         <li class="@RemoteStageClass(1)"><span><MudIcon Icon="@RemoteStageIcon(1)" /></span><div><strong>Instructions ready</strong><small>Install on the other machine.</small></div></li>
@@ -529,7 +529,7 @@
                     <div class="host-approval-copy">
                         <span class="host-section-kicker">Approval required</span>
                         <h3>@node.MachineName</h3>
-                        <p>@DisplayPlatform(node) · Agent Host @node.NodeVersion</p>
+                        <p>@DisplayPlatform(node) · C-Sweet Satellite Office @node.NodeVersion</p>
                         <details>
                             <summary>Identity details</summary>
                             <span>Certificate fingerprint</span>
@@ -571,11 +571,11 @@
             var result = await SetupApi.ApproveExecutionNodeAsync(node.Id);
             Apply(result);
             if (!result.Succeeded)
-                SetAction(false, "The Agent Host connected but has not passed its secure runtime checks yet. C-Sweet will keep checking.");
+                SetAction(false, "The C-Sweet Satellite Office connected but has not passed its secure runtime checks yet. C-Sweet will keep checking.");
         }
         catch
         {
-            SetAction(false, "The Agent Host connected but could not be verified yet. C-Sweet will keep checking.");
+            SetAction(false, "The C-Sweet Satellite Office connected but could not be verified yet. C-Sweet will keep checking.");
         }
         finally
         {
@@ -686,19 +686,19 @@
         new("macos", "macOS", Icons.Material.Filled.LaptopMac)
     ];
 
-    private string? SelectedPackageUrl(ExecutionNodePackageLinksResponse packages) => _remotePlatform switch
+    private string? SelectedPackageUrl(SatelliteOfficePackageLinksResponse packages) => _remotePlatform switch
     {
-        "windows" => packages.WindowsUrl,
-        "linux" => packages.LinuxUrl,
-        "macos" => packages.MacOsUrl,
-        _ => null
+        "windows" => packages.WindowsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
+        "linux" => packages.LinuxPackageOverrideUrl ?? packages.ReleaseManifestUrl,
+        "macos" => packages.MacOsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
+        _ => packages.ReleaseManifestUrl
     };
 
     private string InstallCommand(string controlPlaneUrl) => _remotePlatform switch
     {
-        "windows" => $"& \"$env:ProgramFiles\\CSweet\\ExecutionNodeInstaller\\Install-CSweetExecutionFleet.ps1\" -PayloadRoot \"$env:ProgramFiles\\CSweet\\ExecutionNodeInstaller\\payload\" -ControlPlaneUrl '{PowerShellQuote(controlPlaneUrl)}'",
-        "linux" => $"sudo /usr/sbin/csweet-configure-execution-node '{UnixQuote(controlPlaneUrl)}'",
-        "macos" => $"sudo /usr/local/sbin/csweet-configure-execution-node '{UnixQuote(controlPlaneUrl)}'",
+        "windows" => $"& \"$env:ProgramFiles\\CSweet\\SatelliteOffice\\Install-CSweetSatelliteOffice.ps1\" -PayloadRoot \"$env:ProgramFiles\\CSweet\\SatelliteOffice\\payload\" -ControlPlaneUrl '{PowerShellQuote(controlPlaneUrl)}'",
+        "linux" => $"sudo /usr/sbin/csweet-configure-satellite-office '{UnixQuote(controlPlaneUrl)}'",
+        "macos" => $"sudo /usr/local/sbin/csweet-configure-satellite-office '{UnixQuote(controlPlaneUrl)}'",
         _ => string.Empty
     };
 
@@ -706,7 +706,7 @@
     private static string UnixQuote(string value) => value.Replace("'", "'\"'\"'", StringComparison.Ordinal);
 
     private async Task CopyCommandAsync(string gateway) => await CopyAsync(InstallCommand(gateway), "Setup command copied.");
-    private async Task CopyTokenAsync(string token) => await CopyAsync(token, "Connection code copied. Paste it only into the Agent Host installer.");
+    private async Task CopyTokenAsync(string token) => await CopyAsync(token, "Connection code copied. Paste it only into the C-Sweet Satellite Office installer.");
 
     private async Task CopyAsync(string value, string message)
     {

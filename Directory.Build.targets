@@ -1,0 +1,8 @@
+<Project>
+  <ItemGroup Condition="'$(UsesSatelliteOfficeContracts)' == 'true'">
+    <ProjectReference Condition="'$(UseLocalSatelliteOfficeContracts)' == 'true'"
+                      Include="$(CSweetSatelliteOfficeContractsRepositoryRoot)\src\CSweet.SatelliteOffice.Contracts\CSweet.SatelliteOffice.Contracts.csproj" />
+    <PackageReference Condition="'$(UseLocalSatelliteOfficeContracts)' != 'true'"
+                      Include="CSweet.SatelliteOffice.Contracts" />
+  </ItemGroup>
+</Project>

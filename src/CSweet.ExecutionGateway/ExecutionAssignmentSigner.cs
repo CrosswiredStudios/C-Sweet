@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using CSweet.AgentRuntime.Protocol;
+using CSweet.SatelliteOffice.Contracts.Security;
 using Microsoft.Extensions.Options;
 
 namespace CSweet.ExecutionGateway;
@@ -28,7 +28,7 @@ public sealed class ExecutionAssignmentSigner : IDisposable
         string specificationDigest,
         DateTimeOffset expiry,
         string artifactReadToken) =>
-        _key.SignData(ExecutionAssignmentEnvelope.Payload(
+        _key.SignData(AssignmentEnvelope.Payload(
             nodeId, assignmentId, epoch, specificationDigest, expiry, artifactReadToken), HashAlgorithmName.SHA256);
 
     public string ExportPublicKeyBase64() => Convert.ToBase64String(_key.ExportSubjectPublicKeyInfo());

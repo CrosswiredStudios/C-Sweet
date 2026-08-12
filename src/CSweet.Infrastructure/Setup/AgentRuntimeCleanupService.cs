@@ -1,5 +1,5 @@
 using CSweet.Application.Setup;
-using CSweet.AgentRuntime.Abstractions;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -53,7 +53,7 @@ public sealed class AgentRuntimeCleanupService(
             try
             {
                 var handle = new IsolationWorkloadHandle(
-                    instance.IsolationProviderId!, instance.Id, instance.ProviderInstanceId!, IsolationWorkloadKind.Runtime);
+                    instance.IsolationProviderId!, instance.Id, instance.ProviderInstanceId!, WorkloadKind.Runtime);
                 var status = await workloads.InspectAsync(handle, cancellationToken);
                 if (status is not null) await workloads.DestroyAsync(handle, cancellationToken);
                 instance.ProviderInstanceId = null;

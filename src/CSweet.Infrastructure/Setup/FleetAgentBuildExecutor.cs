@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using CSweet.AgentRuntime.Abstractions;
 using CSweet.Application.Setup;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -55,10 +55,10 @@ public sealed class FleetAgentBuildExecutor(
             configured.BuilderGuestImageDigest,
             configured.RequiredCertificationSuiteVersion), cancellationToken);
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        var workload = new BuilderWorkloadSpec(
+        var workload = new BuilderWorkloadSpecification(
             request.BuildJobId,
             guest,
-            new IsolationResourceLimits(
+            new WorkloadResourceLimits(
                 Math.Max(1, (int)Math.Ceiling(request.CpuPercent / 100d)),
                 request.CpuPercent,
                 Math.Max(request.MemoryMb, MinimumBuilderMemoryMb),

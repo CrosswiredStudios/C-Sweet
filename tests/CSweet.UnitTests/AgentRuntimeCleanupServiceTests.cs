@@ -1,5 +1,5 @@
 using CSweet.Application.Setup;
-using CSweet.AgentRuntime.Abstractions;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
@@ -90,7 +90,7 @@ public sealed class AgentRuntimeCleanupServiceTests
     private sealed class CleanupRunner : IAgentWorkloadRunner
     {
         public List<IsolationWorkloadHandle> Destroyed { get; } = [];
-        public Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpec workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpecification workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) => Task.FromResult<IsolationWorkloadStatus?>(new(handle, IsolationWorkloadState.Stopped, IsolationTerminationReason.Completed, 0, null, DateTimeOffset.UtcNow, null, null));
         public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) { Destroyed.Add(handle); return Task.CompletedTask; }

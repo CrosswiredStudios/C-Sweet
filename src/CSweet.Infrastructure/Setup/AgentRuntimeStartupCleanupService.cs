@@ -1,5 +1,5 @@
-using CSweet.AgentRuntime.Abstractions;
 using CSweet.Application.Setup;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -29,7 +29,7 @@ public sealed class AgentRuntimeStartupCleanupService(
         foreach (var instance in stale)
         {
             var handle = new IsolationWorkloadHandle(
-                instance.IsolationProviderId!, instance.Id, instance.ProviderInstanceId!, IsolationWorkloadKind.Runtime);
+                instance.IsolationProviderId!, instance.Id, instance.ProviderInstanceId!, WorkloadKind.Runtime);
             try
             {
                 if (await workloads.InspectAsync(handle, cancellationToken) is not null)

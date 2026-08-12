@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup><UsesSatelliteOfficeContracts>true</UsesSatelliteOfficeContracts></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\CSweet.Application\CSweet.Application.csproj" />
     <ProjectReference Include="..\CSweet.Contracts\CSweet.Contracts.csproj" />
@@ -29,38 +30,5 @@
              CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="..\..\scripts\windows\Install-CSweetRuntimeHost.ps1"
-             Link="windows-runtime\Install-CSweetRuntimeHost.ps1"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\scripts\windows\CSweet.WindowsSetupProgress.ps1"
-             Link="windows-runtime\CSweet.WindowsSetupProgress.ps1"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\scripts\windows\Repair-CSweetRuntimeHostAccess.ps1"
-             Link="windows-runtime\Repair-CSweetRuntimeHostAccess.ps1"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\scripts\windows\Uninstall-CSweetExecutionFleet.ps1"
-             Link="windows-runtime\Uninstall-CSweetExecutionFleet.ps1"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\artifacts\windows-runtime\payload\**\*"
-             Link="windows-runtime\payload\%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest"
-             Condition="Exists('..\..\artifacts\windows-runtime\payload\runtime-manifest.json')" />
-    <Content Include="..\..\artifacts\linux-runtime\payload\**\*"
-             Link="linux-runtime\%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest"
-             Condition="Exists('..\..\artifacts\linux-runtime\payload\runtime-manifest.json')" />
-    <Content Include="..\..\artifacts\macos-runtime\payload\**\*"
-             Link="macos-runtime\%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest"
-             Condition="Exists('..\..\artifacts\macos-runtime\payload\runtime-manifest.json')" />
-  </ItemGroup>
 
 </Project>

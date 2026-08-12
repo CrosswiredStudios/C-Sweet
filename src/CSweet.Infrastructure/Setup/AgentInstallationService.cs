@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text;
 using CSweet.Application.Setup;
-using CSweet.AgentRuntime.Abstractions;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Contracts.Agents;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
@@ -1004,7 +1004,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         }
         output.AppendLine();
         output.AppendLine(
-            "RuntimeHost request IDs in failures correlate with the Windows Application event log source CSweet.RuntimeHost.");
+            "RuntimeHost request IDs in failures correlate with the Windows Application event log source CSweet.SatelliteOffice.RuntimeHost.");
         return output.ToString();
     }
 
@@ -1121,7 +1121,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         runtime.IsolationProviderId ?? throw new InvalidOperationException("The runtime isolation provider is missing."),
         runtime.Id,
         runtime.ProviderInstanceId ?? throw new InvalidOperationException("The runtime provider instance is missing."),
-        IsolationWorkloadKind.Runtime);
+        WorkloadKind.Runtime);
 
     private async Task<IReadOnlyDictionary<string, JsonElement>> ValidateConfigurationAsync(
         PluginManifest manifest,

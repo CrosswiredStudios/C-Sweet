@@ -1,3 +1,4 @@
+using CSweet.SatelliteOffice.Contracts.ControlPlane;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Setup;
@@ -33,7 +34,7 @@ public sealed class ExecutionFleetServiceTests
         Assert.Equal(ExecutionNodeStatus.PendingApproval,
             (await db.ExecutionNodes.SingleAsync()).Status);
 
-        var approval = await fleet.ApproveNodeAsync(claim.NodeId!.Value);
+        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
         var approvedNode = await db.ExecutionNodes.SingleAsync();
         approvedNode.LastHeartbeatAt = Now; // Simulates the first mTLS gateway heartbeat.
         await db.SaveChangesAsync();
@@ -59,7 +60,7 @@ public sealed class ExecutionFleetServiceTests
 
         var enrollment = await fleet.CreateEnrollmentAsync();
         var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!, certified: false));
-        var approval = await fleet.ApproveNodeAsync(claim.NodeId!.Value);
+        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
         Assert.False(approval.Succeeded);
 
         var provider = await db.ExecutionNodeProviders.SingleAsync();
@@ -67,7 +68,7 @@ public sealed class ExecutionFleetServiceTests
         provider.GuestImageDigest = Digest('a');
         provider.CertificationEvidenceDigest = Digest('b');
         await db.SaveChangesAsync();
-        Assert.True((await fleet.ApproveNodeAsync(claim.NodeId.Value)).Succeeded);
+        Assert.True((await fleet.ApproveNodeAsync(claim.SatelliteOfficeId.Value)).Succeeded);
 
         clock.Advance(TimeSpan.FromSeconds(31));
         Assert.False(await fleet.IsReadyAsync());
@@ -123,25 +124,6 @@ public sealed class ExecutionFleetServiceTests
     }
 
     [Fact]
-    public async Task OnboardingPreservesLocalInstallerEtaRange()
-    {
-        await using var db = CreateDb();
-        await new SetupService(db).EnsureSeededAsync();
-        var progress = new LocalExecutionNodeProvisioningProgress(
-            Guid.NewGuid(), "windows", "running", "build-guest", "Building guest image",
-            "Preparing the secure guest image.", 24, Now.AddMinutes(-2), Now.AddMinutes(-1),
-            false, null, null, Environment.ProcessId, 900, 2100);
-        var fleet = CreateFleet(db, new MutableTimeProvider(Now),
-            localProvisioner: new FakeLocalProvisioner(progress));
-
-        var status = await fleet.GetOnboardingStatusAsync();
-
-        Assert.NotNull(status.LocalProvisioning);
-        Assert.Equal(900, status.LocalProvisioning.EstimatedRemainingMinimumSeconds);
-        Assert.Equal(2100, status.LocalProvisioning.EstimatedRemainingMaximumSeconds);
-    }
-
-    [Fact]
     public async Task UnavailableProviderCanEnrollForDiagnosticsButCannotBeApproved()
     {
         await using var db = CreateDb();
@@ -151,13 +133,13 @@ public sealed class ExecutionFleetServiceTests
         var enrollment = await fleet.CreateEnrollmentAsync();
         var request = Claim(enrollment.Enrollment!.EnrollmentToken!) with
         {
-            Providers = [new RegisterExecutionNodeProviderRequest(
+            Providers = [new RegisterSatelliteOfficeProviderRequest(
                 "firecracker-kvm", "1.0.0", "", "", "", "",
                 DateTimeOffset.MinValue, null, true, true, false, "KVM is unavailable.")]
         };
 
         var claim = await fleet.ClaimNodeAsync(request);
-        var approval = await fleet.ApproveNodeAsync(claim.NodeId!.Value);
+        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
 
         Assert.True(claim.Succeeded);
         Assert.False(approval.Succeeded);
@@ -175,12 +157,12 @@ public sealed class ExecutionFleetServiceTests
         var enrollment = await fleet.CreateEnrollmentAsync();
         var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!));
 
-        var rejection = await fleet.RejectNodeAsync(claim.NodeId!.Value);
+        var rejection = await fleet.RejectNodeAsync(claim.SatelliteOfficeId!.Value);
 
         Assert.True(rejection.Succeeded);
         Assert.Equal(ExecutionNodeStatus.Revoked, (await db.ExecutionNodes.SingleAsync()).Status);
         Assert.False(await fleet.IsReadyAsync());
-        Assert.False((await fleet.ApproveNodeAsync(claim.NodeId.Value)).Succeeded);
+        Assert.False((await fleet.ApproveNodeAsync(claim.SatelliteOfficeId.Value)).Succeeded);
     }
 
     [Fact]
@@ -192,16 +174,16 @@ public sealed class ExecutionFleetServiceTests
         var fleet = CreateFleet(db, clock);
         var enrollment = await fleet.CreateEnrollmentAsync();
         var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!));
-        Assert.True((await fleet.ApproveNodeAsync(claim.NodeId!.Value)).Succeeded);
+        Assert.True((await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value)).Succeeded);
         var node = await db.ExecutionNodes.SingleAsync();
 
         var bootstrap = await fleet.GetOperationalCertificateAsync(
-            node.Id, new ExecutionNodeCertificateRequest(claim.EnrollmentReceipt!));
+            node.Id, new SatelliteOfficeCertificateRequest(claim.EnrollmentReceipt!));
         var rejected = await fleet.RotateOperationalCertificateAsync(node.Id, "wrong", "wrong");
         var current = await fleet.RotateOperationalCertificateAsync(
             node.Id, node.CertificateThumbprint, node.CertificateSerialNumber);
         var legacyHeartbeat = await fleet.RecordHeartbeatAsync(node.Id,
-            new ExecutionNodeHeartbeatRequest(claim.EnrollmentReceipt!, node.SessionEpoch + 1,
+            new SatelliteOfficeHeartbeatRequest(claim.EnrollmentReceipt!, node.SessionEpoch + 1,
                 4, 4096, 32768, 2, Claim("unused").Providers));
 
         Assert.True(bootstrap.Succeeded);
@@ -221,8 +203,8 @@ public sealed class ExecutionFleetServiceTests
 
         var firstEnrollment = await fleet.CreateEnrollmentAsync();
         var first = await fleet.ClaimNodeAsync(Claim(firstEnrollment.Enrollment!.EnrollmentToken!));
-        Assert.True((await fleet.ApproveNodeAsync(first.NodeId!.Value)).Succeeded);
-        var firstNode = await db.ExecutionNodes.SingleAsync(x => x.Id == first.NodeId);
+        Assert.True((await fleet.ApproveNodeAsync(first.SatelliteOfficeId!.Value)).Succeeded);
+        var firstNode = await db.ExecutionNodes.SingleAsync(x => x.Id == first.SatelliteOfficeId);
         firstNode.LastHeartbeatAt = Now;
 
         var original = await db.ExecutionPools.SingleAsync();
@@ -240,8 +222,8 @@ public sealed class ExecutionFleetServiceTests
         Assert.False(await fleet.IsReadyAsync());
         var secondEnrollment = await fleet.CreateEnrollmentAsync();
         var second = await fleet.ClaimNodeAsync(Claim(secondEnrollment.Enrollment!.EnrollmentToken!));
-        Assert.True((await fleet.ApproveNodeAsync(second.NodeId!.Value)).Succeeded);
-        var secondNode = await db.ExecutionNodes.SingleAsync(x => x.Id == second.NodeId);
+        Assert.True((await fleet.ApproveNodeAsync(second.SatelliteOfficeId!.Value)).Succeeded);
+        var secondNode = await db.ExecutionNodes.SingleAsync(x => x.Id == second.SatelliteOfficeId);
         secondNode.LastHeartbeatAt = Now;
         await db.SaveChangesAsync();
 
@@ -264,7 +246,7 @@ public sealed class ExecutionFleetServiceTests
         };
 
         var claim = await fleet.ClaimNodeAsync(wrongImage);
-        var rejected = await fleet.ApproveNodeAsync(claim.NodeId!.Value);
+        var rejected = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
 
         Assert.False(rejected.Succeeded);
         Assert.Equal("node_not_qualified", rejected.ErrorCode);
@@ -285,7 +267,7 @@ public sealed class ExecutionFleetServiceTests
             AllocatableDiskMb = 1024
         });
 
-        Assert.True((await fleet.ApproveNodeAsync(claim.NodeId!.Value)).Succeeded);
+        Assert.True((await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value)).Succeeded);
         var node = await db.ExecutionNodes.SingleAsync();
         node.LastHeartbeatAt = Now;
         await db.SaveChangesAsync();
@@ -294,12 +276,12 @@ public sealed class ExecutionFleetServiceTests
         Assert.False((await fleet.GetOnboardingStatusAsync()).IsReady);
     }
 
-    private static ClaimExecutionNodeRequest Claim(string token, bool certified = true) => new(
+    private static ClaimSatelliteOfficeRequest Claim(string token, bool certified = true) => new(
         token, "node-1", "machine-1", "linux", "x64", "1.0.0", "1.0",
         "AABBCCDD", "0011", Now.AddYears(1),
         "-----BEGIN CERTIFICATE REQUEST-----\n" + new string('A', 128) + "\n-----END CERTIFICATE REQUEST-----",
         4, 4096, 32768, 2,
-        [new RegisterExecutionNodeProviderRequest(
+        [new RegisterSatelliteOfficeProviderRequest(
             "firecracker-kvm", "1.0.0", "1.0",
             Digest('a'), "production-v1",
             Digest('b'), Now.AddHours(-1), Now.AddDays(1),
@@ -309,13 +291,11 @@ public sealed class ExecutionFleetServiceTests
     private static ExecutionFleetService CreateFleet(
         CSweetDbContext db,
         TimeProvider clock,
-        IConfiguration? configuration = null,
-        ILocalExecutionNodeProvisioner? localProvisioner = null) =>
+        IConfiguration? configuration = null) =>
         new(db, new TestAuditEventWriter(), clock,
             Options.Create(new ExecutionFleetOptions { PublicLaunchEnabled = true }),
             new FakeCertificateAuthority(clock),
             configuration,
-            localProvisioner,
             runtimeOptions: Options.Create(new AgentRuntimeManagerOptions
             {
                 RequiredCertificationSuiteVersion = "production-v1",
@@ -338,15 +318,4 @@ public sealed class ExecutionFleetServiceTests
                 nodeId.ToString("N"), "1234", clock.GetUtcNow().AddDays(1));
     }
 
-    private sealed class FakeLocalProvisioner(LocalExecutionNodeProvisioningProgress progress)
-        : ILocalExecutionNodeProvisioner
-    {
-        public LocalExecutionNodeProvisioningProgress? GetProgress() => progress;
-
-        public Task<LocalExecutionNodeProvisioningResult> PrepareAsync(
-            string controlPlaneUrl,
-            string enrollmentToken,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new LocalExecutionNodeProvisioningResult(true, null, "Started.", true));
-    }
 }

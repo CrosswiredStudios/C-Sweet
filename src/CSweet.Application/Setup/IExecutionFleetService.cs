@@ -1,3 +1,4 @@
+using CSweet.SatelliteOffice.Contracts.ControlPlane;
 using CSweet.Contracts.Setup;
 
 namespace CSweet.Application.Setup;
@@ -20,8 +21,8 @@ public interface IExecutionFleetService
         Guid enrollmentId,
         CancellationToken cancellationToken = default);
 
-    Task<ClaimExecutionNodeResponse> ClaimNodeAsync(
-        ClaimExecutionNodeRequest request,
+    Task<ClaimSatelliteOfficeResponse> ClaimNodeAsync(
+        ClaimSatelliteOfficeRequest request,
         CancellationToken cancellationToken = default);
 
     Task<ExecutionCapacityActionResponse> ApproveNodeAsync(
@@ -34,15 +35,15 @@ public interface IExecutionFleetService
 
     Task<bool> RecordHeartbeatAsync(
         Guid nodeId,
-        ExecutionNodeHeartbeatRequest request,
+        SatelliteOfficeHeartbeatRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<ExecutionNodeCertificateResponse> GetOperationalCertificateAsync(
+    Task<SatelliteOfficeCertificateResponse> GetOperationalCertificateAsync(
         Guid nodeId,
-        ExecutionNodeCertificateRequest request,
+        SatelliteOfficeCertificateRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<ExecutionNodeCertificateResponse> RotateOperationalCertificateAsync(
+    Task<SatelliteOfficeCertificateResponse> RotateOperationalCertificateAsync(
         Guid nodeId,
         string certificateThumbprint,
         string certificateSerialNumber,

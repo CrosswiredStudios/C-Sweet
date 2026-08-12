@@ -1,8 +1,8 @@
 using System.Formats.Tar;
 using System.Security.Cryptography;
 using System.Text;
-using CSweet.AgentRuntime.Abstractions;
-using CSweet.AgentRuntime.Artifacts;
+using CSweet.Application.Setup;
+using CSweet.ExecutionArtifacts;
 
 namespace CSweet.UnitTests;
 

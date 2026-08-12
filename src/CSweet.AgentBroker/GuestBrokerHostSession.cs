@@ -1,4 +1,4 @@
-using CSweet.AgentRuntime.Protocol;
+using CSweet.SatelliteOffice.Contracts.Guest;
 
 namespace CSweet.AgentBroker;
 

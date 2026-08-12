@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
-using CSweet.AgentRuntime.Abstractions;
 using CSweet.Application.Setup;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +14,7 @@ public sealed class FleetAgentWorkloadRunner(
     IExecutionWorkloadOrchestrator orchestrator) : IPluginWorkloadRunner
 {
     public async Task<IsolationWorkloadHandle> CreateAndStartAsync(
-        RuntimeWorkloadSpec workload,
+        RuntimeWorkloadSpecification workload,
         AgentTrustLevel trustLevel,
         string? preferredProviderId = null,
         CancellationToken cancellationToken = default)
@@ -129,8 +129,8 @@ public sealed class FleetAgentWorkloadRunner(
             .SingleAsync(x => x.Id == id, cancellationToken);
     }
 
-    private static IsolationWorkloadHandle Handle(RuntimeWorkloadSpec workload, ExecutionWorkloadAssignment assignment) =>
-        new("execution-fleet", workload.WorkloadId, assignment.Id.ToString("N"), IsolationWorkloadKind.Runtime);
+    private static IsolationWorkloadHandle Handle(RuntimeWorkloadSpecification workload, ExecutionWorkloadAssignment assignment) =>
+        new("execution-fleet", workload.WorkloadId, assignment.Id.ToString("N"), WorkloadKind.Runtime);
 
     private static bool TryAssignmentId(IsolationWorkloadHandle handle, out Guid assignmentId)
     {

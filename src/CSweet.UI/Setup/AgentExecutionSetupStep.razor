@@ -9,7 +9,7 @@
         <div>
             <MudText Typo="Typo.overline" Color="Color.Secondary">Certified execution capacity</MudText>
             <MudText Typo="Typo.h4" id="execution-title">Agent Execution</MudText>
-            <MudText Color="Color.Secondary">Choose where isolated agent builds and runtimes will execute.</MudText>
+            <MudText Color="Color.Secondary">Install and enroll C-Sweet Satellite Office on the machine that will host isolated agent builds and runtimes.</MudText>
         </div>
     </header>
 
@@ -29,23 +29,23 @@
     {
         <div class="execution-mode-grid">
             <button type="button" class="execution-mode-card @ModeClass("local")"
-                    disabled="@(_busy || !_status.CanInstallLocalNode)" @onclick='@(() => SelectModeAsync("local"))'>
+                    disabled="@_busy" @onclick='@(() => SelectModeAsync("remote"))'>
                 <MudIcon Icon="@Icons.Material.Filled.Computer" />
                 <strong>This machine</strong>
-                <span>Install and enroll a daemon on this @_status.LocalOperatingSystem host.</span>
+                <span>Use the same signed Satellite Office package and enrollment workflow on this host.</span>
             </button>
             <button type="button" class="execution-mode-card @ModeClass("remote")"
                     disabled="@_busy" @onclick='@(() => SelectModeAsync("remote"))'>
                 <MudIcon Icon="@Icons.Material.Filled.Hub" />
                 <strong>Another machine</strong>
-                <span>Connect a Windows, Linux, or macOS execution-node daemon.</span>
+                <span>Use the same signed Satellite Office package on another Windows, Linux, or macOS host.</span>
             </button>
         </div>
 
         @if (_status.SelectedMode == "local")
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                Prepare RuntimeHost and the signed provider on this machine, then enroll the ExecutionNode daemon below.
+                Prepare RuntimeHost and the signed provider on this machine, then enroll the Satellite Office below.
             </MudAlert>
             @if (_status.LocalPrerequisites is { Count: > 0 })
             {
@@ -82,7 +82,7 @@
         }
         else if (_status.SelectedMode == "remote")
         {
-            <MudText Typo="Typo.h6">Connect an execution node</MudText>
+            <MudText Typo="Typo.h6">Connect a C-Sweet Satellite Office</MudText>
             <MudText Color="Color.Secondary">
                 Choose the target platform, install the signed package, and review the machine identity before approving it.
             </MudText>
@@ -102,7 +102,7 @@
                 <div class="execution-install-card">
                     <div>
                         <MudText Typo="Typo.subtitle1"><strong>@SelectedPlatform.Label installation</strong></MudText>
-                        <MudText Color="Color.Secondary">Install the signed package first, then run the command below to enroll RuntimeHost and ExecutionNode with separate least-privilege service identities.</MudText>
+                        <MudText Color="Color.Secondary">Install the signed package first, then run the command below to enroll RuntimeHost and Satellite Office with separate least-privilege service identities.</MudText>
                     </div>
                     @if (SelectedPackageUrl(packages) is { Length: > 0 } packageUrl)
                     {
@@ -148,7 +148,7 @@
 
         @if (_status.Nodes.Count > 0)
         {
-            <MudText Typo="Typo.h6" Class="mt-4">Enrolled nodes</MudText>
+            <MudText Typo="Typo.h6" Class="mt-4">Enrolled Satellite Offices</MudText>
             <div class="execution-node-list">
                 @foreach (var node in _status.Nodes)
                 {
@@ -186,7 +186,7 @@
                             @if (node.Status == "pendingapproval")
                             {
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy"
-                                           OnClick="() => ApproveAsync(node.Id)">Approve node</MudButton>
+                                           OnClick="() => ApproveAsync(node.Id)">Approve Satellite Office</MudButton>
                                 <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@_busy"
                                            OnClick="() => RejectAsync(node.Id)">Reject</MudButton>
                             }
@@ -220,7 +220,7 @@
         @if (_status.IsReady)
         {
             <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
-                Agent execution is ready. @_status.ReadyNodeCount approved node@(_status.ReadyNodeCount == 1 ? "" : "s") can run builds and agents.
+                Agent execution is ready. @_status.ReadyNodeCount approved Satellite Office@(_status.ReadyNodeCount == 1 ? "" : "s") can run builds and agents.
             </MudAlert>
         }
     }
@@ -268,7 +268,7 @@
         }
         catch
         {
-            _error = "C-Sweet could not inspect execution-node readiness.";
+            _error = "C-Sweet could not inspect Satellite Office readiness.";
         }
         finally { _loading = false; }
     }
@@ -348,10 +348,10 @@
         }
     </div>;
 
-    private RenderFragment RemoteProgress() => @<ol class="execution-journey" aria-label="Remote execution-node enrollment progress">
+    private RenderFragment RemoteProgress() => @<ol class="execution-journey" aria-label="Remote Satellite Office enrollment progress">
         <li class="@JourneyClass(1)"><span>1</span><div><strong>Prepare installer</strong><small>Download the signed package and copy the command.</small></div></li>
         <li class="@JourneyClass(2)"><span>2</span><div><strong>Create enrollment</strong><small>Issue the one-use, 15-minute token.</small></div></li>
-        <li class="@JourneyClass(3)"><span>3</span><div><strong>Connect daemon</strong><small>Wait for the other machine to claim the enrollment.</small></div></li>
+        <li class="@JourneyClass(3)"><span>3</span><div><strong>Connect Satellite Office</strong><small>Wait for the selected machine to claim the enrollment.</small></div></li>
         <li class="@JourneyClass(4)"><span>4</span><div><strong>Review and approve</strong><small>Verify the machine and certificate fingerprint.</small></div></li>
         <li class="@JourneyClass(5)"><span>5</span><div><strong>Certified capacity ready</strong><small>The node can receive builder and runtime assignments.</small></div></li>
     </ol>;
@@ -366,19 +366,19 @@
     private RemotePlatform SelectedPlatform => RemotePlatforms.Single(x => x.Key == _remotePlatform);
     private void SelectRemotePlatform(string platform) => _remotePlatform = platform;
     private string PlatformClass(string platform) => platform == _remotePlatform ? "selected" : string.Empty;
-    private string? SelectedPackageUrl(ExecutionNodePackageLinksResponse packages) => _remotePlatform switch
+    private string? SelectedPackageUrl(SatelliteOfficePackageLinksResponse packages) => _remotePlatform switch
     {
-        "windows" => packages.WindowsUrl,
-        "linux" => packages.LinuxUrl,
-        "macos" => packages.MacOsUrl,
-        _ => null
+        "windows" => packages.WindowsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
+        "linux" => packages.LinuxPackageOverrideUrl ?? packages.ReleaseManifestUrl,
+        "macos" => packages.MacOsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
+        _ => packages.ReleaseManifestUrl
     };
 
     private string InstallCommand(string controlPlaneUrl) => _remotePlatform switch
     {
-        "windows" => $"& \"$env:ProgramFiles\\CSweet\\ExecutionNodeInstaller\\Install-CSweetExecutionFleet.ps1\" -PayloadRoot \"$env:ProgramFiles\\CSweet\\ExecutionNodeInstaller\\payload\" -ControlPlaneUrl '{PowerShellQuote(controlPlaneUrl)}'",
-        "linux" => $"sudo /usr/sbin/csweet-configure-execution-node '{UnixQuote(controlPlaneUrl)}'",
-        "macos" => $"sudo /usr/local/sbin/csweet-configure-execution-node '{UnixQuote(controlPlaneUrl)}'",
+        "windows" => $"& \"$env:ProgramFiles\\CSweet\\SatelliteOffice\\Install-CSweetSatelliteOffice.ps1\" -PayloadRoot \"$env:ProgramFiles\\CSweet\\SatelliteOffice\\payload\" -ControlPlaneUrl '{PowerShellQuote(controlPlaneUrl)}'",
+        "linux" => $"sudo /usr/sbin/csweet-configure-satellite-office '{UnixQuote(controlPlaneUrl)}'",
+        "macos" => $"sudo /usr/local/sbin/csweet-configure-satellite-office '{UnixQuote(controlPlaneUrl)}'",
         _ => string.Empty
     };
 
@@ -415,17 +415,17 @@
         value, "Enrollment token copied. Paste it only into the protected installer prompt.");
     private Task CopyFingerprintAsync(string value) => CopyAsync(value, "Certificate fingerprint copied.");
 
-    private async Task DownloadInstructionsAsync(ExecutionNodePackageLinksResponse packages)
+    private async Task DownloadInstructionsAsync(SatelliteOfficePackageLinksResponse packages)
     {
         if (string.IsNullOrWhiteSpace(packages.ControlPlaneUrl)) return;
-        var text = $"C-Sweet Execution Node - {SelectedPlatform.Label}\n\n" +
-                   $"1. Download the signed package: {SelectedPackageUrl(packages) ?? "Contact your C-Sweet administrator."}\n" +
+        var text = $"C-Sweet Satellite Office - {SelectedPlatform.Label}\n\n" +
+                   $"1. Open the signed release manifest or private mirror: {SelectedPackageUrl(packages)}\n" +
                    $"2. Verify the publisher signature, then install the package with the platform package installer.\n" +
                    $"3. Run the installed configuration command as administrator/root:\n   {InstallCommand(packages.ControlPlaneUrl)}\n" +
                    "4. Paste the one-use enrollment token only when the installer prompts for it.\n" +
                    "5. Ask the C-Sweet administrator to verify and approve this machine.\n";
         var module = await ModuleAsync();
-        await module.InvokeVoidAsync("downloadText", $"csweet-execution-node-{_remotePlatform}.txt", text);
+        await module.InvokeVoidAsync("downloadText", $"csweet-satellite-office-{_remotePlatform}.txt", text);
     }
 
     private async Task<IJSObjectReference> ModuleAsync() => _jsModule ??=

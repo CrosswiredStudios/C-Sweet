@@ -1,8 +1,8 @@
+using CSweet.SatelliteOffice.Contracts.ControlPlane;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Application.Setup;
-using CSweet.AgentRuntime.HyperV;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -19,9 +19,7 @@ public sealed class ExecutionFleetService(
     IOptions<ExecutionFleetOptions>? fleetOptions = null,
     IExecutionNodeCertificateAuthority? certificateAuthority = null,
     IConfiguration? appConfiguration = null,
-    ILocalExecutionNodeProvisioner? localProvisioner = null,
-    IOptions<AgentRuntimeManagerOptions>? runtimeOptions = null,
-    IWindowsHyperVHostProbe? windowsHostProbe = null) : IExecutionFleetService
+    IOptions<AgentRuntimeManagerOptions>? runtimeOptions = null) : IExecutionFleetService
 {
     private const string CurrentProtocolVersion = "1.0";
     private static readonly Version MinimumNodeVersion = new(1, 0, 0);
@@ -111,8 +109,8 @@ public sealed class ExecutionFleetService(
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var mode = configuration.ExecutionOnboardingMode.ToString().ToLowerInvariant();
-        var checks = Checks(configuration.ExecutionOnboardingMode, nodes, isReady, ready.Length, activeEnrollment).ToList();
+        const string mode = "remote";
+        var checks = Checks(ExecutionOnboardingMode.Remote, nodes, isReady, ready.Length, activeEnrollment).ToList();
         checks.Insert(0, FleetEnabled
             ? Passed("launch-gate", "Execution fleet release gate", "Production platform certification gate is enabled.")
             : Required("launch-gate", "Execution fleet release gate",
@@ -125,46 +123,32 @@ public sealed class ExecutionFleetService(
             : Required("image-policy", "Signed guest image policy",
                 "Required builder and runtime guest image digests are not configured.",
                 "Configure both CSweet:AgentRuntime image digests before enabling production execution."));
-        var localProgress = localProvisioner?.GetProgress();
-        var localPrerequisites = await LocalPrerequisiteChecksAsync(
-            nodes, localProgress, now, cancellationToken);
+        IReadOnlyList<ExecutionCapacityCheckResponse> localPrerequisites = [];
         return new ExecutionCapacityOnboardingResponse(
             mode,
             isReady,
             ready.Length,
             pending,
-            FleetEnabled && IsSupportedLocalPlatform(),
+            false,
             LocalOperatingSystem(),
             System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
             !FleetEnabled
                 ? "Distributed execution is gated until every supported platform has production builder/runtime certification."
                 : isReady
-                ? $"{ready.Length} approved execution node{(ready.Length == 1 ? " is" : "s are")} ready for agent builds and runtimes."
-                : "Choose where agents will run, then connect and approve at least one certified execution node.",
+                ? $"{ready.Length} approved Satellite Office{(ready.Length == 1 ? " is" : "s are")} ready for agent builds and runtimes."
+                : "Install, connect, and approve at least one certified Satellite Office.",
             activeEnrollment is null ? null : Map(activeEnrollment),
             nodes.Select(Map).ToArray(),
             checks,
             localPrerequisites,
-            new ExecutionNodePackageLinksResponse(
-                fleetOptions?.Value.WindowsPackageUrl,
-                fleetOptions?.Value.LinuxPackageUrl,
-                fleetOptions?.Value.MacOsPackageUrl,
+            new SatelliteOfficePackageLinksResponse(
+                fleetOptions?.Value.ReleaseManifestUrl ??
+                    "https://github.com/CrosswiredStudios/CSweet.SatelliteOffice/releases/latest/download/satellite-office-release.json",
+                fleetOptions?.Value.WindowsPackageOverrideUrl,
+                fleetOptions?.Value.LinuxPackageOverrideUrl,
+                fleetOptions?.Value.MacOsPackageOverrideUrl,
                 PublicControlPlaneUrl(appConfiguration)),
-            localProgress is null ? null : new LocalExecutionNodeProvisioningProgressResponse(
-                localProgress.JobId,
-                localProgress.Platform,
-                localProgress.State,
-                localProgress.PhaseKey,
-                localProgress.PhaseDisplayName,
-                localProgress.Message,
-                localProgress.PercentComplete,
-                localProgress.StartedAt,
-                localProgress.UpdatedAt,
-                localProgress.RequiresRestart,
-                localProgress.ErrorCode,
-                localProgress.ErrorMessage,
-                localProgress.EstimatedRemainingMinimumSeconds,
-                localProgress.EstimatedRemainingMaximumSeconds));
+            null);
     }
 
     public async Task<ExecutionCapacityActionResponse> SelectOnboardingModeAsync(
@@ -172,11 +156,9 @@ public sealed class ExecutionFleetService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!Enum.TryParse<ExecutionOnboardingMode>(request.Mode, true, out var mode) ||
-            mode == ExecutionOnboardingMode.None)
-            return await FailureAsync("invalid_mode", "Choose either this machine or another machine.", cancellationToken);
-        if (mode == ExecutionOnboardingMode.Local && !IsSupportedLocalPlatform())
-            return await FailureAsync("unsupported_local_platform", "This operating system cannot host a certified execution node.", cancellationToken);
+        if (!string.Equals(request.Mode, "remote", StringComparison.OrdinalIgnoreCase))
+            return await FailureAsync("invalid_mode", "Use the Satellite Office workflow for this or another machine.", cancellationToken);
+        const ExecutionOnboardingMode mode = ExecutionOnboardingMode.Remote;
 
         var configuration = await dbContext.SystemConfigurations
             .OrderBy(x => x.CreatedAt)
@@ -245,15 +227,15 @@ public sealed class ExecutionFleetService(
         return await SuccessAsync("Enrollment revoked.", cancellationToken);
     }
 
-    public async Task<ClaimExecutionNodeResponse> ClaimNodeAsync(
-        ClaimExecutionNodeRequest request,
+    public async Task<ClaimSatelliteOfficeResponse> ClaimNodeAsync(
+        ClaimSatelliteOfficeRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         try { ValidateClaim(request); }
         catch (ArgumentException)
         {
-            return new ClaimExecutionNodeResponse(
+            return new ClaimSatelliteOfficeResponse(
                 false, "invalid_node_claim", "The execution-node enrollment claim is invalid.", null, null);
         }
         var now = timeProvider.GetUtcNow();
@@ -261,7 +243,7 @@ public sealed class ExecutionFleetService(
         var enrollment = await dbContext.ExecutionNodeEnrollments
             .SingleOrDefaultAsync(x => x.TokenHash == tokenHash, cancellationToken);
         if (enrollment is null || enrollment.Status != ExecutionEnrollmentStatus.Available || enrollment.ExpiresAt <= now)
-            return new ClaimExecutionNodeResponse(false, "invalid_enrollment", "The enrollment is invalid, expired, or already used.", null, null);
+            return new ClaimSatelliteOfficeResponse(false, "invalid_enrollment", "The enrollment is invalid, expired, or already used.", null, null);
 
         var receipt = Base64Url(RandomNumberGenerator.GetBytes(32));
         var node = new ExecutionNode
@@ -272,7 +254,7 @@ public sealed class ExecutionFleetService(
             MachineName = request.MachineName.Trim(),
             OperatingSystem = request.OperatingSystem.Trim().ToLowerInvariant(),
             Architecture = request.Architecture.Trim().ToLowerInvariant(),
-            NodeVersion = request.NodeVersion.Trim(),
+            NodeVersion = request.SatelliteOfficeVersion.Trim(),
             ProtocolVersion = request.ProtocolVersion.Trim(),
             Status = ExecutionNodeStatus.PendingApproval,
             CertificateThumbprint = NormalizeHex(request.CertificateThumbprint),
@@ -298,9 +280,9 @@ public sealed class ExecutionFleetService(
         await auditWriter.WriteAsync(
             "execution-node.enrollment.claimed",
             nameof(ExecutionNode), node.Id,
-            $"Execution node {node.Name} claimed enrollment {enrollment.Id} and is pending approval.",
+            $"Satellite Office {node.Name} claimed enrollment {enrollment.Id} and is pending approval.",
             cancellationToken: cancellationToken);
-        return new ClaimExecutionNodeResponse(true, null, "Node enrolled and awaiting administrator approval.", node.Id, receipt);
+        return new ClaimSatelliteOfficeResponse(true, null, "Satellite Office enrolled and awaiting administrator approval.", node.Id, receipt);
     }
 
     public async Task<ExecutionCapacityActionResponse> ApproveNodeAsync(
@@ -312,9 +294,9 @@ public sealed class ExecutionFleetService(
             .Include(x => x.Providers)
             .SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
         if (node is null)
-            return await FailureAsync("node_not_found", "The execution node was not found.", cancellationToken);
+            return await FailureAsync("node_not_found", "The Satellite Office was not found.", cancellationToken);
         if (node.Status != ExecutionNodeStatus.PendingApproval)
-            return await FailureAsync("node_not_pending", "Only pending execution nodes can be approved.", cancellationToken);
+            return await FailureAsync("node_not_pending", "Only pending Satellite Offices can be approved.", cancellationToken);
         if (!IdentityAndProvidersQualify(node, now))
             return await FailureAsync("node_not_qualified", "The node does not have a current identity and certified builder/runtime provider.", cancellationToken);
 
@@ -347,9 +329,9 @@ public sealed class ExecutionFleetService(
         await auditWriter.WriteAsync(
             "execution-node.approved",
             nameof(ExecutionNode), node.Id,
-            $"Approved execution node {node.Name} for pool {node.ExecutionPoolId}.",
+            $"Approved Satellite Office {node.Name} for pool {node.ExecutionPoolId}.",
             cancellationToken: cancellationToken);
-        return await SuccessAsync("Execution node approved; waiting for its authenticated control connection.", cancellationToken);
+        return await SuccessAsync("Satellite Office approved; waiting for its authenticated control connection.", cancellationToken);
     }
 
     public async Task<ExecutionCapacityActionResponse> RejectNodeAsync(
@@ -359,9 +341,9 @@ public sealed class ExecutionFleetService(
         var node = await dbContext.ExecutionNodes
             .SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
         if (node is null)
-            return await FailureAsync("node_not_found", "The execution node was not found.", cancellationToken);
+            return await FailureAsync("node_not_found", "The Satellite Office was not found.", cancellationToken);
         if (node.Status != ExecutionNodeStatus.PendingApproval)
-            return await FailureAsync("node_not_pending", "Only a pending execution node can be rejected.", cancellationToken);
+            return await FailureAsync("node_not_pending", "Only a pending Satellite Office can be rejected.", cancellationToken);
         var now = timeProvider.GetUtcNow();
         node.Status = ExecutionNodeStatus.Revoked;
         node.RevokedAt = now;
@@ -373,13 +355,13 @@ public sealed class ExecutionFleetService(
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditWriter.WriteAsync(
             "execution-node.rejected", nameof(ExecutionNode), node.Id,
-            $"Rejected pending execution node {node.Name}.", cancellationToken: cancellationToken);
-        return await SuccessAsync("Execution node rejected.", cancellationToken);
+            $"Rejected pending Satellite Office {node.Name}.", cancellationToken: cancellationToken);
+        return await SuccessAsync("Satellite Office rejected.", cancellationToken);
     }
 
     public async Task<bool> RecordHeartbeatAsync(
         Guid nodeId,
-        ExecutionNodeHeartbeatRequest request,
+        SatelliteOfficeHeartbeatRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -408,9 +390,9 @@ public sealed class ExecutionFleetService(
         return true;
     }
 
-    public async Task<ExecutionNodeCertificateResponse> GetOperationalCertificateAsync(
+    public async Task<SatelliteOfficeCertificateResponse> GetOperationalCertificateAsync(
         Guid nodeId,
-        ExecutionNodeCertificateRequest request,
+        SatelliteOfficeCertificateRequest request,
         CancellationToken cancellationToken = default)
     {
         var receiptHash = Hash(request.EnrollmentReceipt);
@@ -429,7 +411,7 @@ public sealed class ExecutionFleetService(
         return CertificateResponse(node, "Operational certificate issued; bootstrap completes on the first authenticated control heartbeat.");
     }
 
-    public async Task<ExecutionNodeCertificateResponse> RotateOperationalCertificateAsync(
+    public async Task<SatelliteOfficeCertificateResponse> RotateOperationalCertificateAsync(
         Guid nodeId,
         string certificateThumbprint,
         string certificateSerialNumber,
@@ -451,7 +433,7 @@ public sealed class ExecutionFleetService(
     private bool TryIssueCertificate(
         ExecutionNode node,
         DateTimeOffset now,
-        out ExecutionNodeCertificateResponse? error)
+        out SatelliteOfficeCertificateResponse? error)
     {
         error = null;
         if (node.Status == ExecutionNodeStatus.Revoked)
@@ -479,7 +461,7 @@ public sealed class ExecutionFleetService(
         }
     }
 
-    private static ExecutionNodeCertificateResponse CertificateResponse(ExecutionNode node, string message) =>
+    private static SatelliteOfficeCertificateResponse CertificateResponse(ExecutionNode node, string message) =>
         new(true, null, message, node.IssuedCertificateBase64,
             node.CertificateThumbprint, node.CertificateExpiresAt);
 
@@ -594,20 +576,20 @@ public sealed class ExecutionFleetService(
                 ? Required("mode", "Execution location", "Choose whether agents run on this machine or another machine.", "Select an execution location to continue.")
                 : Passed("mode", "Execution location", $"Selected {mode.ToString().ToLowerInvariant()} execution-node onboarding."),
             nodes.Count == 0
-                ? Required("node", "Execution node", "No execution node has enrolled.",
-                    enrollment is null ? "Create an enrollment and connect a daemon." : "Use the one-time enrollment on an execution-node machine.")
-                : Passed("node", "Execution node", $"Detected {nodes.Count} enrolled execution node{(nodes.Count == 1 ? string.Empty : "s")}.")
+                ? Required("node", "Satellite Office", "No Satellite Office has enrolled.",
+                    enrollment is null ? "Create an enrollment and install C-Sweet Satellite Office." : "Use the one-time enrollment on a Satellite Office machine.")
+                : Passed("node", "Satellite Office", $"Detected {nodes.Count} enrolled Satellite Office{(nodes.Count == 1 ? string.Empty : "s")}.")
         };
         var pending = nodes.Count(x => x.Status == ExecutionNodeStatus.PendingApproval);
         result.Add(pending > 0
-            ? Required("approval", "Administrator approval", $"{pending} execution node{(pending == 1 ? " is" : "s are")} awaiting approval.", "Review the node identity and approve it.")
+            ? Required("approval", "Administrator approval", $"{pending} Satellite Office{(pending == 1 ? " is" : "s are")} awaiting approval.", "Review the Satellite Office identity and approve it.")
             : isReady
-                ? Passed("approval", "Administrator approval", "A qualifying execution node is approved.")
-                : Required("approval", "Administrator approval", "No qualifying node is approved.", "Enroll and approve an execution node."));
+                ? Passed("approval", "Administrator approval", "A qualifying Satellite Office is approved.")
+                : Required("approval", "Administrator approval", "No qualifying Satellite Office is approved.", "Enroll and approve a Satellite Office."));
         result.Add(isReady
-            ? Passed("capacity", "Certified execution capacity", $"{readyCount} node{(readyCount == 1 ? " is" : "s are")} ready for builds and runtimes.")
-            : Required("capacity", "Certified execution capacity", "No approved, connected node currently has certified builder and runtime capacity.",
-                "Connect a compatible node with current certification, images, identity, and allocatable resources."));
+            ? Passed("capacity", "Certified execution capacity", $"{readyCount} Satellite Office{(readyCount == 1 ? " is" : "s are")} ready for builds and runtimes.")
+            : Required("capacity", "Certified execution capacity", "No approved, connected Satellite Office currently has certified builder and runtime capacity.",
+                "Connect a compatible Satellite Office with current certification, images, identity, and allocatable resources."));
         return result;
     }
 
@@ -624,80 +606,6 @@ public sealed class ExecutionFleetService(
             uri.Scheme == Uri.UriSchemeHttps
             ? uri.AbsoluteUri.TrimEnd('/')
             : null;
-    }
-
-    private async Task<IReadOnlyList<ExecutionCapacityCheckResponse>> LocalPrerequisiteChecksAsync(
-        IReadOnlyList<ExecutionNode> nodes,
-        LocalExecutionNodeProvisioningProgress? progress,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        var localNode = nodes.FirstOrDefault(node =>
-            string.Equals(node.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(node.OperatingSystem, LocalOperatingSystem(), StringComparison.OrdinalIgnoreCase));
-        var providers = localNode?.Providers ?? [];
-        var runtimeInstalled = localNode is not null || progress?.State == "completed";
-        var signedImageReady = providers.Any(provider => provider.IsAvailable && IsSha256(provider.GuestImageDigest));
-        var certificationReady = providers.Any(provider => provider.IsAvailable &&
-            string.Equals(provider.CertificationSuiteVersion, RuntimePolicy.RequiredCertificationSuiteVersion, StringComparison.Ordinal) &&
-            IsSha256(provider.CertificationEvidenceDigest) && provider.CertifiedAt <= now &&
-            (provider.CertificationExpiresAt is null || provider.CertificationExpiresAt > now));
-        if (OperatingSystem.IsWindows())
-        {
-            var host = windowsHostProbe is null ? null : await windowsHostProbe.ProbeAsync(cancellationToken);
-            return
-            [
-                host?.IsSupportedEdition == true
-                    ? Passed("windows-edition", "Supported Windows edition", $"{host.ProductName} ({host.EditionId}) supports Hyper-V.")
-                    : Required("windows-edition", "Supported Windows edition", host is null ? "Windows edition has not been inspected." : $"{host.ProductName} ({host.EditionId}) does not support Hyper-V.", "Use Windows Pro, Enterprise, Education, or Server."),
-                host?.HardwareRequirementsSatisfied == true
-                    ? Passed("windows-virtualization", "Hardware virtualization", "Firmware virtualization, SLAT, DEP, memory, and hypervisor requirements are satisfied.")
-                    : Required("windows-virtualization", "Hardware virtualization", "Firmware virtualization, SLAT, DEP, memory, or hypervisor support is unavailable.", "Enable virtualization in firmware and provide at least 4 GB of physical memory."),
-                host?.FeatureState == WindowsOptionalFeatureState.Enabled
-                    ? Passed("windows-hyperv", "Hyper-V feature", "The Hyper-V feature is enabled.")
-                    : Required("windows-hyperv", "Hyper-V feature", $"Hyper-V state: {host?.FeatureState.ToString() ?? "unknown"}.", "Enable Hyper-V from the elevated local installer."),
-                host?.IsRestartPending != true
-                    ? Passed("windows-restart", "Restart state", "No Hyper-V restart is pending.")
-                    : Required("windows-restart", "Restart state", "Windows must restart before Hyper-V can run workloads.", "Restart this machine and reopen setup."),
-                runtimeInstalled ? Passed("windows-runtimehost", "RuntimeHost and ExecutionNode", "The local execution services have enrolled.") : Required("windows-runtimehost", "RuntimeHost and ExecutionNode", "The local execution services are not installed and enrolled.", "Run the elevated local installer."),
-                signedImageReady ? Passed("windows-image", "Signed guest image", "The node advertises a verified signed guest image.") : Required("windows-image", "Signed guest image", "No verified signed guest image is advertised.", "Install the certified Windows runtime payload."),
-                certificationReady ? Passed("windows-certification", "Provider certification", "Current provider certification is advertised.") : Required("windows-certification", "Provider certification", "Current provider certification is unavailable.", "Install a payload certified for this release.")
-            ];
-        }
-        if (OperatingSystem.IsLinux())
-            return
-            [
-                File.Exists("/dev/kvm")
-                    ? Passed("linux-kvm", "KVM access", "/dev/kvm is present.")
-                    : Required("linux-kvm", "KVM access", "/dev/kvm is unavailable.", "Enable KVM and grant the RuntimeHost service access."),
-                File.Exists("/sys/fs/cgroup/cgroup.controllers")
-                    ? Passed("linux-cgroups", "cgroups v2", "The cgroup v2 controller filesystem is present.")
-                    : Required("linux-cgroups", "cgroups v2", "The cgroup v2 controller filesystem is unavailable.", "Enable a unified cgroup v2 hierarchy."),
-                providers.Any(provider => provider.ProviderId == "firecracker-kvm")
-                    ? Passed("linux-firecracker", "Firecracker and jailer", "The node reports its Firecracker provider inventory.")
-                    : Required("linux-firecracker", "Firecracker and jailer", "Firecracker/jailer inventory has not been reported.", "Install the pinned Firecracker and jailer payload with required capabilities."),
-                runtimeInstalled ? Passed("linux-runtimehost", "RuntimeHost and ExecutionNode", "The local execution services have enrolled.") : Required("linux-runtimehost", "RuntimeHost and ExecutionNode", "The local execution services are not installed and enrolled.", "Install and enroll the Linux execution package."),
-                signedImageReady ? Passed("linux-image", "Signed guest image", "The node advertises a verified signed guest image.") : Required("linux-image", "Signed guest image", "No verified signed guest image is advertised.", "Install the certified Linux guest image variant."),
-                certificationReady ? Passed("linux-certification", "Provider certification", "Current provider certification is advertised.") : Required("linux-certification", "Provider certification", "Current provider certification is unavailable.", "Install a payload certified for this release.")
-            ];
-        if (OperatingSystem.IsMacOS())
-            return
-            [
-                Environment.OSVersion.Version.Major >= 13
-                    ? Passed("macos-version", "Supported macOS version", $"Detected macOS {Environment.OSVersion.Version}.")
-                    : Required("macos-version", "Supported macOS version", "This macOS version is unsupported.", "Upgrade to a supported macOS release."),
-                System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture is
-                    System.Runtime.InteropServices.Architecture.Arm64 or System.Runtime.InteropServices.Architecture.X64
-                    ? Passed("macos-hardware", "Supported Mac hardware", "The Mac architecture supports the packaged virtualization helper.")
-                    : Required("macos-hardware", "Supported Mac hardware", "This Mac architecture is unsupported.", "Use an Apple silicon or supported Intel Mac."),
-                providers.Any(provider => provider.ProviderId == "apple-virtualization")
-                    ? Passed("macos-entitlement", "Virtualization.framework entitlement", "The signed helper reports Apple Virtualization inventory.")
-                    : Required("macos-entitlement", "Virtualization.framework entitlement", "The entitled Apple Virtualization helper has not reported inventory.", "Install the signed and notarized macOS package."),
-                runtimeInstalled ? Passed("macos-runtimehost", "RuntimeHost and ExecutionNode", "The local execution services have enrolled.") : Required("macos-runtimehost", "RuntimeHost and ExecutionNode", "The local execution services are not installed and enrolled.", "Install and enroll the macOS execution package."),
-                signedImageReady ? Passed("macos-image", "Signed guest image", "The node advertises a verified signed guest image.") : Required("macos-image", "Signed guest image", "No verified signed guest image is advertised.", "Install the certified macOS guest image variant."),
-                certificationReady ? Passed("macos-certification", "Provider certification", "Current provider certification is advertised.") : Required("macos-certification", "Provider certification", "Current provider certification is unavailable.", "Install a payload certified for this release.")
-            ];
-        return [Required("platform", "Supported platform", "This platform is unsupported.", "Use a remote Windows, Linux, or macOS node.")];
     }
 
     private static ExecutionNodeSummaryResponse Map(ExecutionNode node) => new(
@@ -735,7 +643,7 @@ public sealed class ExecutionFleetService(
 
     private static ExecutionNodeProvider Map(
         Guid nodeId,
-        RegisterExecutionNodeProviderRequest provider,
+        RegisterSatelliteOfficeProviderRequest provider,
         DateTimeOffset now) => new()
     {
         Id = Guid.NewGuid(),
@@ -762,14 +670,14 @@ public sealed class ExecutionFleetService(
     private async Task<ExecutionCapacityActionResponse> FailureAsync(string code, string message, CancellationToken cancellationToken) =>
         new(false, code, message, await GetOnboardingStatusAsync(cancellationToken));
 
-    private static void ValidateClaim(ClaimExecutionNodeRequest request)
+    private static void ValidateClaim(ClaimSatelliteOfficeRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.EnrollmentToken) || request.EnrollmentToken.Length > 256 ||
             string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 160 ||
             string.IsNullOrWhiteSpace(request.MachineName) || request.MachineName.Length > 255 ||
             string.IsNullOrWhiteSpace(request.OperatingSystem) || request.OperatingSystem.Length > 32 ||
             string.IsNullOrWhiteSpace(request.Architecture) || request.Architecture.Length > 32 ||
-            !Version.TryParse(request.NodeVersion, out _) || request.ProtocolVersion != CurrentProtocolVersion ||
+            !Version.TryParse(request.SatelliteOfficeVersion, out _) || request.ProtocolVersion != CurrentProtocolVersion ||
             request.AllocatableCpuCount < 1 || request.AllocatableMemoryMb < 128 ||
             request.AllocatableDiskMb < 64 || request.MaximumConcurrentWorkloads < 1 ||
             request.CertificateExpiresAt <= DateTimeOffset.UtcNow ||

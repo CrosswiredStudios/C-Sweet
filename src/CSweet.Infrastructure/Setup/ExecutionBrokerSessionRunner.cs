@@ -1,10 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
 using CSweet.AgentBroker;
-using CSweet.AgentRuntime.Abstractions;
-using CSweet.AgentRuntime.Artifacts;
-using CSweet.AgentRuntime.Protocol;
 using CSweet.Application.Setup;
+using CSweet.SatelliteOffice.Contracts.Workloads;
+using CSweet.ExecutionArtifacts;
+using CSweet.SatelliteOffice.Contracts.Guest;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -43,7 +43,7 @@ public sealed class ExecutionBrokerSessionRunner(
         Stream stream,
         CancellationToken cancellationToken)
     {
-        var workload = JsonSerializer.Deserialize<RuntimeWorkloadSpec>(assignment.SpecificationJson)
+        var workload = JsonSerializer.Deserialize<RuntimeWorkloadSpecification>(assignment.SpecificationJson)
             ?? throw new InvalidDataException("The runtime workload specification is empty.");
         // The node opens its tunnel before the WorkerHost call that submitted the assignment
         // returns. Do not permit the guest MCP handshake to race the durable runtime transition.
@@ -79,7 +79,7 @@ public sealed class ExecutionBrokerSessionRunner(
             BootToken = workload.BrokerLease.BootToken,
             LeaseExpiresAtUnixSeconds = workload.BrokerLease.ExpiresAt.ToUnixTimeSeconds(),
             ArtifactRoot = "/run/csweet/artifact/payload",
-            WorkloadKind = (int)IsolationWorkloadKind.Runtime,
+            WorkloadKind = (int)WorkloadKind.Runtime,
             InstallationId = workload.Identity.InstallationId.ToString("D"),
             BusinessId = workload.Identity.BusinessId,
             TickId = workload.Identity.TickId.ToString("D"),
@@ -89,7 +89,7 @@ public sealed class ExecutionBrokerSessionRunner(
         };
         var start = new StartCommand
         {
-            WorkloadKind = (int)IsolationWorkloadKind.Runtime,
+            WorkloadKind = (int)WorkloadKind.Runtime,
             MaximumLogBytes = workload.ResourceLimits.MaximumLogBytes
         };
         start.Entrypoint.AddRange(workload.Entrypoint);
@@ -103,7 +103,7 @@ public sealed class ExecutionBrokerSessionRunner(
         Stream stream,
         CancellationToken cancellationToken)
     {
-        var workload = JsonSerializer.Deserialize<BuilderWorkloadSpec>(assignment.SpecificationJson)
+        var workload = JsonSerializer.Deserialize<BuilderWorkloadSpecification>(assignment.SpecificationJson)
             ?? throw new InvalidDataException("The builder workload specification is empty.");
         var job = assignment.AgentBuildJob
             ?? throw new InvalidDataException("The builder assignment is not bound to a build job.");
@@ -161,18 +161,18 @@ public sealed class ExecutionBrokerSessionRunner(
                 BootToken = workload.BrokerLease.BootToken,
                 LeaseExpiresAtUnixSeconds = workload.BrokerLease.ExpiresAt.ToUnixTimeSeconds(),
                 ArtifactRoot = "/usr/lib/csweet/builder",
-                WorkloadKind = (int)IsolationWorkloadKind.Builder,
+                WorkloadKind = (int)WorkloadKind.Builder,
                 LocalBrokerSocketPath = "/run/csweet/broker.sock",
                 WorkloadTokenPath = "/run/csweet/workload-token",
                 MaximumFrameBytes = 16 * 1024 * 1024
             };
             var start = new StartCommand
             {
-                WorkloadKind = (int)IsolationWorkloadKind.Builder,
+                WorkloadKind = (int)WorkloadKind.Builder,
                 MaximumLogBytes = workload.ResourceLimits.MaximumLogBytes
             };
             start.Entrypoint.AddRange([
-                "/usr/lib/csweet/builder/CSweet.AgentRuntime.Builder",
+                "/usr/lib/csweet/builder/CSweet.SatelliteOffice.BuilderGuest",
                 "--repository", request.RepositoryUrl,
                 "--commit", request.CommitSha,
                 "--project", request.ProjectPath,

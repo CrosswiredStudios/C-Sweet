@@ -1,20 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/CSweet.AgentBroker/CSweet.AgentBroker.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.Abstractions/CSweet.AgentRuntime.Abstractions.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.AppleVirtualization/CSweet.AgentRuntime.AppleVirtualization.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.Artifacts/CSweet.AgentRuntime.Artifacts.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.Builder/CSweet.AgentRuntime.Builder.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.Core/CSweet.AgentRuntime.Core.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.Guest/CSweet.AgentRuntime.Guest.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.GuestProbe/CSweet.AgentRuntime.GuestProbe.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.Firecracker.Helper/CSweet.AgentRuntime.Firecracker.Helper.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.Firecracker/CSweet.AgentRuntime.Firecracker.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.HyperV/CSweet.AgentRuntime.HyperV.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.HyperV.Helper/CSweet.AgentRuntime.HyperV.Helper.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.LocalRpc/CSweet.AgentRuntime.LocalRpc.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.Protocol/CSweet.AgentRuntime.Protocol.csproj" />
-    <Project Path="src/CSweet.AgentRuntime.WindowsSmokeTest/CSweet.AgentRuntime.WindowsSmokeTest.csproj" />
+    <Project Path="src/CSweet.ExecutionArtifacts/CSweet.ExecutionArtifacts.csproj" />
     <Project Path="src/CSweet.AgentHost/CSweet.AgentHost.csproj" />
     <Project Path="src/CSweet.AI/CSweet.AI.csproj" />
     <Project Path="src/CSweet.Api/CSweet.Api.csproj" />
@@ -24,7 +11,6 @@
     <Project Path="src/CSweet.Contracts/CSweet.Contracts.csproj" />
     <Project Path="src/CSweet.Domain/CSweet.Domain.csproj" />
     <Project Path="src/CSweet.ExecutionGateway/CSweet.ExecutionGateway.csproj" />
-    <Project Path="src/CSweet.ExecutionNode/CSweet.ExecutionNode.csproj" />
     <Project Path="src/CSweet.GitHost/CSweet.GitHost.csproj" />
     <Project Path="src/CSweet.Infrastructure/CSweet.Infrastructure.csproj" />
     <Project Path="src/CSweet.Maui/CSweet.Maui.csproj" />
@@ -34,11 +20,9 @@
     <Project Path="src/CSweet.SourceControlProvisionerHost/CSweet.SourceControlProvisionerHost.csproj" />
     <Project Path="src/CSweet.TrustedServices/CSweet.TrustedServices.csproj" />
     <Project Path="src/CSweet.WorkerHost/CSweet.WorkerHost.csproj" />
-    <Project Path="src/CSweet.RuntimeHost/CSweet.RuntimeHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj" />
     <Project Path="tests/CSweet.UnitTests/CSweet.UnitTests.csproj" />
-    <Project Path="tests/CSweet.WindowsSystemTest/CSweet.WindowsSystemTest.csproj" />
   </Folder>
 </Solution>

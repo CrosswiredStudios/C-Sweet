@@ -216,7 +216,7 @@ Docker stopping prevents the development stack from starting because PostgreSQL 
 | `CSweet.Api` | Authentication, setup, company operations, chat, planning, and provider APIs |
 | `CSweet.WorkerHost` | Durable background work and local agent orchestration |
 | `CSweet.AgentHost` | Unprivileged policy enforcement and brokered MCP access; it does not own the VM lifecycle |
-| `CSweet.RuntimeHost` | Narrow privileged host service that owns certified VM lifecycle operations |
+| `CSweet.ExecutionGateway` | Headquarters gateway for independently installed C-Sweet Satellite Offices |
 | `CSweet.Migrator` | One-shot database migrations and initial seed data |
 | PostgreSQL | Company state, history, memory, and operational records |
 

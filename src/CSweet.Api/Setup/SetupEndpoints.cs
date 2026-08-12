@@ -1,3 +1,4 @@
+using CSweet.SatelliteOffice.Contracts.ControlPlane;
 using CSweet.Application.Setup;
 using CSweet.AI.Providers;
 using CSweet.Contracts.Llm;
@@ -44,28 +45,6 @@ public static class SetupEndpoints
         {
             var result = await service.CreateEnrollmentAsync(cancellationToken);
             return Results.Ok(result);
-        }).RequireAuthorization("HostAdministration");
-
-        group.MapPost("/execution-capacity/local-install", async (
-            InstallLocalExecutionNodeRequest request,
-            IConfiguration configuration,
-            ILocalExecutionNodeProvisioner provisioner,
-            IExecutionFleetService fleet,
-            CancellationToken cancellationToken) =>
-        {
-            var gatewayUrl = configuration["CSweet:ExecutionGateway:PublicUrl"];
-            if (string.IsNullOrWhiteSpace(gatewayUrl))
-                return Results.BadRequest(new ExecutionCapacityActionResponse(
-                    false, "execution_gateway_url_missing", "The execution gateway URL is not configured.",
-                    await fleet.GetOnboardingStatusAsync(cancellationToken)));
-            var result = await provisioner.PrepareAsync(
-                gatewayUrl,
-                request.EnrollmentToken,
-                cancellationToken);
-            var response = new ExecutionCapacityActionResponse(
-                result.Succeeded, result.ErrorCode, result.Message,
-                await fleet.GetOnboardingStatusAsync(cancellationToken));
-            return result.Succeeded ? Results.Ok(response) : Results.BadRequest(response);
         }).RequireAuthorization("HostAdministration");
 
         group.MapDelete("/execution-capacity/enrollments/{enrollmentId:guid}", async (
@@ -188,23 +167,23 @@ public static class SetupEndpoints
         return endpoints;
     }
 
-    public static IEndpointRouteBuilder MapExecutionNodeBootstrapEndpoints(this IEndpointRouteBuilder endpoints)
+    public static IEndpointRouteBuilder MapSatelliteOfficeBootstrapEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/execution-nodes").AllowAnonymous();
+        var group = endpoints.MapGroup("/api/satellite-offices").AllowAnonymous();
         group.MapPost("/claim", async (
-            ClaimExecutionNodeRequest request,
+            ClaimSatelliteOfficeRequest request,
             IExecutionFleetService service,
             CancellationToken cancellationToken) =>
         {
             var result = await service.ClaimNodeAsync(request, cancellationToken);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         });
-        group.MapPost("/{nodeId:guid}/heartbeat", async (
-            Guid nodeId,
-            ExecutionNodeHeartbeatRequest request,
+        group.MapPost("/{satelliteOfficeId:guid}/heartbeat", async (
+            Guid satelliteOfficeId,
+            SatelliteOfficeHeartbeatRequest request,
             IExecutionFleetService service,
             CancellationToken cancellationToken) =>
-            await service.RecordHeartbeatAsync(nodeId, request, cancellationToken)
+            await service.RecordHeartbeatAsync(satelliteOfficeId, request, cancellationToken)
                 ? Results.NoContent()
                 : Results.Unauthorized());
         return endpoints;

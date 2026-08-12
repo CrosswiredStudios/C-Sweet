@@ -1,11 +1,11 @@
-using CSweet.AgentRuntime.Abstractions;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 
 namespace CSweet.Application.Setup;
 
 public interface IAgentWorkloadRunner
 {
     Task<IsolationWorkloadHandle> CreateAndStartAsync(
-        RuntimeWorkloadSpec workload,
+        RuntimeWorkloadSpecification workload,
         AgentTrustLevel trustLevel,
         string? preferredProviderId = null,
         CancellationToken cancellationToken = default);

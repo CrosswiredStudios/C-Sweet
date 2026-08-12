@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CSweet.Application.Setup;
-using CSweet.AgentRuntime.Abstractions;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Contracts.Agents;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -1020,7 +1020,7 @@ public sealed class AgentInstallationServiceTests
         public List<string> Inspected { get; } = [];
         public List<string> Removed { get; } = [];
 
-        public Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpec workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default) =>
+        public Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpecification workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) =>

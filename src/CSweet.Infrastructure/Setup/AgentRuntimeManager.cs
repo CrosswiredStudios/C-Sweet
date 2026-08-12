@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using CSweet.AgentRuntime.Abstractions;
 using CSweet.Application.Setup;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -638,7 +638,7 @@ public sealed class AgentRuntimeManager(
                 guestDigest,
                 artifactDigest,
                 now.AddSeconds(installation.Schedule.MaxRuntimeSeconds).AddMinutes(5));
-            var limits = new IsolationResourceLimits(
+            var limits = new WorkloadResourceLimits(
                 Math.Max(1, (int)Math.Ceiling(installation.Grant.CpuPercent / 100d)),
                 installation.Grant.CpuPercent,
                 installation.Grant.MemoryMb,
@@ -647,7 +647,7 @@ public sealed class AgentRuntimeManager(
                 checked(settings.DefaultWorkloadLogLimitMb * 1024 * 1024),
                 TimeSpan.FromSeconds(installation.Schedule.MaxRuntimeSeconds));
             var handle = await workloads.CreateAndStartAsync(
-                new RuntimeWorkloadSpec(
+                new RuntimeWorkloadSpecification(
                     instance.Id,
                     guestImage,
                     limits,
@@ -888,7 +888,7 @@ public sealed class AgentRuntimeManager(
                 instance.IsolationProviderId,
                 instance.Id,
                 instance.ProviderInstanceId,
-                IsolationWorkloadKind.Runtime);
+                WorkloadKind.Runtime);
 
     private static string Required(string value, string name) =>
         !string.IsNullOrWhiteSpace(value) ? value : throw new InvalidOperationException($"The {name} is not configured.");

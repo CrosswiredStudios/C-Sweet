@@ -1,5 +1,5 @@
 using CSweet.Application.Setup;
-using CSweet.AgentRuntime.Abstractions;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Contracts.Agents;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -160,7 +160,7 @@ public sealed class AgentRuntimeManagerTests
         var containers = new FakeRunner
         {
             InspectStatus = new IsolationWorkloadStatus(
-                new IsolationWorkloadHandle("test-vm", Guid.NewGuid(), "vm-1", IsolationWorkloadKind.Runtime),
+                new IsolationWorkloadHandle("test-vm", Guid.NewGuid(), "vm-1", WorkloadKind.Runtime),
                 IsolationWorkloadState.Stopped,
                 IsolationTerminationReason.ProviderFailure,
                 1,
@@ -821,7 +821,7 @@ public sealed class AgentRuntimeManagerTests
     }
 
     private sealed record StartedWorkload(
-        RuntimeWorkloadSpec Workload,
+        RuntimeWorkloadSpecification Workload,
         Guid RuntimeInstanceId,
         Guid TickId,
         Guid InstallationId,
@@ -831,21 +831,21 @@ public sealed class AgentRuntimeManagerTests
     {
         public CSweetDbContext? Db { get; set; }
         public IsolationWorkloadStatus? InspectStatus { get; init; } = new(
-            new IsolationWorkloadHandle("test-vm", Guid.NewGuid(), "vm-1", IsolationWorkloadKind.Runtime),
+            new IsolationWorkloadHandle("test-vm", Guid.NewGuid(), "vm-1", WorkloadKind.Runtime),
             IsolationWorkloadState.Running, IsolationTerminationReason.None, null, null, null, null, null);
         public Exception? StartException { get; init; }
         public string Logs { get; init; } = string.Empty;
         public List<StartedWorkload> Starts { get; } = [];
         public List<string> Stops { get; } = [];
         public List<string> Removes { get; } = [];
-        public async Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpec workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default)
+        public async Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpecification workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default)
         {
             if (StartException is not null) throw StartException;
             var runtime = await (Db ?? throw new InvalidOperationException()).AgentRuntimeInstances
                 .SingleAsync(x => x.Id == workload.WorkloadId, cancellationToken);
             Starts.Add(new StartedWorkload(
                 workload, runtime.Id, runtime.TickId, runtime.AgentInstallationId, workload.BrokerLease.BootToken));
-            return new IsolationWorkloadHandle("test-vm", workload.WorkloadId, "vm-1", IsolationWorkloadKind.Runtime);
+            return new IsolationWorkloadHandle("test-vm", workload.WorkloadId, "vm-1", WorkloadKind.Runtime);
         }
         public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) { Stops.Add(handle.ProviderInstanceId); return Task.CompletedTask; }
         public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>

@@ -1,4 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><Description>Certified Firecracker/KVM isolation backend.</Description></PropertyGroup>
-  <ItemGroup><ProjectReference Include="..\CSweet.AgentRuntime.Core\CSweet.AgentRuntime.Core.csproj" /></ItemGroup>
-</Project>

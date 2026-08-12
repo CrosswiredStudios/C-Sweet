@@ -77,8 +77,6 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WithReference(postgres)
     .WithReference(agentHostEndpoint)
     .WithEnvironment("CSweet__AgentRuntime__AgentHostBroker__BaseUrl", agentHostEndpoint)
-    .WithEnvironment("CSWEET_WINDOWS_ISOLATION_BOOTSTRAP",
-        Path.Combine(repositoryRoot, "scripts", "windows", "Initialize-CSweetWindowsIsolationTest.ps1"))
     .WithEnvironment("CSweet__AgentCatalog__LocalDirectoryPath", localAgentDirectory)
     .WithEnvironment("CSweet__GenAi__MediaRoot", Path.Combine(localStateDirectory, "media"))
     .WithEnvironment("CSweet__Marketplace__Enabled", marketplaceEnabled)
@@ -93,23 +91,11 @@ var executionGateway = builder.AddProject<Projects.CSweet_ExecutionGateway>("exe
     .WithReference(postgres)
     .WaitFor(postgres)
     .WaitForCompletion(migrator);
-var developmentExecutionBootstrapKey = Convert.ToHexString(
-    System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-executionGateway.WithEnvironment(
-    "CSweet__ExecutionGateway__DevelopmentBootstrapKey", developmentExecutionBootstrapKey)
-    .WithEnvironment("CSweet__ExecutionFleet__PublicLaunchEnabled", "true")
-    .WithEnvironment("CSweet__ExecutionFleet__AllowUnpinnedDevelopmentImages", "true");
+executionGateway.WithEnvironment("CSweet__ExecutionFleet__PublicLaunchEnabled", "true");
 var executionGatewayEndpoint = executionGateway.GetEndpoint("https");
 api.WithReference(executionGateway)
     .WithEnvironment("CSweet__ExecutionGateway__PublicUrl", executionGatewayEndpoint)
     .WithEnvironment("CSweet__ExecutionFleet__PublicLaunchEnabled", "true")
-    .WithEnvironment("CSweet__ExecutionFleet__AllowUnpinnedDevelopmentImages", "true")
-    .WaitFor(executionGateway);
-
-builder.AddProject<Projects.CSweet_ExecutionNode>("executionnode")
-    .WithReference(executionGateway)
-    .WithEnvironment("CSweet__ExecutionNode__ControlPlaneUrl", executionGatewayEndpoint)
-    .WithEnvironment("CSweet__ExecutionNode__DevelopmentBootstrapKey", developmentExecutionBootstrapKey)
     .WaitFor(executionGateway);
 
 var workerHost = builder.AddProject<Projects.CSweet_WorkerHost>("workerhost")
@@ -118,7 +104,6 @@ var workerHost = builder.AddProject<Projects.CSweet_WorkerHost>("workerhost")
     .WithReference(agentHostEndpoint)
     .WithEnvironment("CSweet__AgentRuntime__AgentHostBroker__BaseUrl", agentHostEndpoint)
     .WithEnvironment("CSweet__ExecutionFleet__PublicLaunchEnabled", "true")
-    .WithEnvironment("CSweet__ExecutionFleet__AllowUnpinnedDevelopmentImages", "true")
     .WaitFor(postgres)
     .WaitForCompletion(migrator)
     .WaitFor(agentHost)

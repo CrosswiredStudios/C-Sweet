@@ -1,6 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <UsesSatelliteOfficeContracts>true</UsesSatelliteOfficeContracts>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -23,19 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CSweet.AgentBroker\CSweet.AgentBroker.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.AppleVirtualization\CSweet.AgentRuntime.AppleVirtualization.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Firecracker\CSweet.AgentRuntime.Firecracker.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Firecracker.Helper\CSweet.AgentRuntime.Firecracker.Helper.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Guest\CSweet.AgentRuntime.Guest.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.HyperV\CSweet.AgentRuntime.HyperV.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.HyperV.Helper\CSweet.AgentRuntime.HyperV.Helper.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Abstractions\CSweet.AgentRuntime.Abstractions.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Artifacts\CSweet.AgentRuntime.Artifacts.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Builder\CSweet.AgentRuntime.Builder.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Core\CSweet.AgentRuntime.Core.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.LocalRpc\CSweet.AgentRuntime.LocalRpc.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.AgentRuntime.Protocol\CSweet.AgentRuntime.Protocol.csproj" />
-    <ProjectReference Include="..\..\src\CSweet.ExecutionNode\CSweet.ExecutionNode.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.ExecutionArtifacts\CSweet.ExecutionArtifacts.csproj" />
     <Using Include="Xunit" />
     <Compile Remove="PersonalAssistantAgentTests.cs" />
   </ItemGroup>

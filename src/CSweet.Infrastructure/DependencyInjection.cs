@@ -42,13 +42,8 @@ using CSweet.Infrastructure.WorkManagement;
 using CSweet.Infrastructure.SourceControl;
 using CSweet.Infrastructure.Analytics;
 using CSweet.TrustedServices;
-using CSweet.AgentRuntime.Abstractions;
-using CSweet.AgentRuntime.Core;
-using CSweet.AgentRuntime.LocalRpc;
-using CSweet.AgentRuntime.Protocol;
-using CSweet.AgentRuntime.HyperV;
 using CSweet.AgentBroker;
-using CSweet.AgentRuntime.Artifacts;
+using CSweet.ExecutionArtifacts;
 
 namespace CSweet.Infrastructure;
 
@@ -120,19 +115,11 @@ public static class DependencyInjection
             builder.Configuration,
             "CSweet:AgentRuntime:Artifacts:RootPath",
             "artifacts");
-        var artifactMediaRoot = ResolveAgentRuntimePath(
-            builder.Configuration,
-            "CSweet:AgentRuntime:ArtifactMedia:RootPath",
-            "artifact-media");
         var artifactStore = builder.Configuration.GetSection(ArtifactStoreOptions.SectionName)
             .Get<ArtifactStoreOptions>() ?? new ArtifactStoreOptions();
         artifactStore.RootPath = artifactRoot;
         var artifactStoreProvider = artifactStore.ValidatedProvider();
-        var artifactMedia = builder.Configuration.GetSection(ArtifactMediaOptions.SectionName)
-            .Get<ArtifactMediaOptions>() ?? new ArtifactMediaOptions();
-        artifactMedia.RootPath = artifactMediaRoot;
         builder.Services.AddSingleton(artifactStore);
-        builder.Services.AddSingleton(artifactMedia);
         builder.Services.AddSingleton<IAgentArtifactSigner, DataProtectionAgentArtifactSigner>();
         builder.Services.AddSingleton<FileSystemAgentArtifactStore>();
         if (artifactStoreProvider == "s3")
@@ -149,11 +136,6 @@ public static class DependencyInjection
             builder.Services.AddSingleton<IAgentArtifactStore>(services =>
                 services.GetRequiredService<FileSystemAgentArtifactStore>());
         }
-        builder.Services.AddSingleton<IAgentArtifactMediaStore, FileSystemAgentArtifactMediaStore>();
-        builder.Services.AddSingleton<IWindowsHyperVHostProbe, WindowsHyperVHostProbe>();
-        builder.Services.AddSingleton<IWindowsHyperVFeatureProvisioner, WindowsHyperVFeatureProvisioner>();
-        builder.Services.AddSingleton<IWindowsRuntimeHostProvisioner, WindowsRuntimeHostProvisioner>();
-        builder.Services.AddSingleton<ILocalExecutionNodeProvisioner, LocalExecutionNodeProvisioner>();
         var agentHostBroker = builder.Configuration.GetSection(AgentHostBrokerOptions.SectionName)
             .Get<AgentHostBrokerOptions>() ?? new AgentHostBrokerOptions();
         // Aspire gives each named endpoint a concrete, host-reachable address. Prefer that

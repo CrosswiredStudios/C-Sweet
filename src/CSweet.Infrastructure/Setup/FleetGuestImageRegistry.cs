@@ -1,4 +1,5 @@
-using CSweet.AgentRuntime.Abstractions;
+using CSweet.Application.Setup;
+using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
