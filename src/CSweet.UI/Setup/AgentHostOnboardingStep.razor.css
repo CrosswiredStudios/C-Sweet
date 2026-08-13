@@ -250,6 +250,11 @@
     color: #806013;
 }
 
+.host-inline-notice.success {
+    background: #effaf5;
+    color: var(--cs-mint-strong);
+}
+
 .host-inline-notice.error,
 .host-feedback.error {
     background: #fff0f1;
@@ -368,6 +373,11 @@
     color: var(--cs-mint-strong);
     font-size: .68rem;
     font-weight: 850;
+}
+
+.remote-steps > li > .host-inline-notice {
+    grid-column: 2 / -1;
+    min-width: 0;
 }
 
 .remote-steps strong,

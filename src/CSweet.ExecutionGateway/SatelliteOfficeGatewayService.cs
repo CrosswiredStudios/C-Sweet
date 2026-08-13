@@ -197,27 +197,49 @@ public sealed class SatelliteOfficeGatewayService(
             providers.Select(provider => provider.ProviderId).Distinct(StringComparer.OrdinalIgnoreCase).Count() !=
                 providers.Length)
             throw new RpcException(new Status(StatusCode.InvalidArgument, "The provider inventory is invalid."));
-        db.ExecutionNodeProviders.RemoveRange(node.Providers);
-        node.Providers = providers.Select(provider => new ExecutionNodeProvider
+        var reportedKeys = providers.Select(ProviderKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var obsolete in node.Providers.Where(provider =>
+                     !reportedKeys.Contains(ProviderKey(provider))).ToArray())
         {
-            Id = Guid.NewGuid(),
-            ExecutionNodeId = node.Id,
-            ProviderId = provider.ProviderId,
-            ProviderVersion = provider.ProviderVersion,
-            BrokerProtocolVersion = provider.BrokerProtocolVersion,
-            GuestImageDigest = provider.GuestImageDigest,
-            CertificationSuiteVersion = provider.CertificationSuiteVersion,
-            CertificationEvidenceDigest = provider.CertificationEvidenceDigest,
-            CertifiedAt = DateTimeOffset.FromUnixTimeSeconds(provider.CertifiedAtUnixSeconds),
-            CertificationExpiresAt = provider.CertificationExpiresAtUnixSeconds == 0 ? null :
-                DateTimeOffset.FromUnixTimeSeconds(provider.CertificationExpiresAtUnixSeconds),
-            SupportsBuilderWorkloads = provider.SupportsBuilderWorkloads,
-            SupportsRuntimeWorkloads = provider.SupportsRuntimeWorkloads,
-            IsAvailable = provider.IsAvailable,
-            UnavailableReason = string.IsNullOrWhiteSpace(provider.UnavailableReason) ? null : provider.UnavailableReason,
-            UpdatedAt = now
-        }).ToList();
+            db.ExecutionNodeProviders.Remove(obsolete);
+            node.Providers.Remove(obsolete);
+        }
+
+        foreach (var reported in providers)
+        {
+            var existing = node.Providers.SingleOrDefault(provider =>
+                string.Equals(ProviderKey(provider), ProviderKey(reported), StringComparison.OrdinalIgnoreCase));
+            if (existing is null)
+            {
+                existing = new ExecutionNodeProvider
+                {
+                    Id = Guid.NewGuid(),
+                    ExecutionNodeId = node.Id,
+                    ProviderId = reported.ProviderId,
+                    GuestImageDigest = reported.GuestImageDigest
+                };
+                node.Providers.Add(existing);
+            }
+            existing.ProviderVersion = reported.ProviderVersion;
+            existing.BrokerProtocolVersion = reported.BrokerProtocolVersion;
+            existing.CertificationSuiteVersion = reported.CertificationSuiteVersion;
+            existing.CertificationEvidenceDigest = reported.CertificationEvidenceDigest;
+            existing.CertifiedAt = DateTimeOffset.FromUnixTimeSeconds(reported.CertifiedAtUnixSeconds);
+            existing.CertificationExpiresAt = reported.CertificationExpiresAtUnixSeconds == 0 ? null :
+                DateTimeOffset.FromUnixTimeSeconds(reported.CertificationExpiresAtUnixSeconds);
+            existing.SupportsBuilderWorkloads = reported.SupportsBuilderWorkloads;
+            existing.SupportsRuntimeWorkloads = reported.SupportsRuntimeWorkloads;
+            existing.IsAvailable = reported.IsAvailable;
+            existing.UnavailableReason = string.IsNullOrWhiteSpace(reported.UnavailableReason) ? null : reported.UnavailableReason;
+            existing.UpdatedAt = now;
+        }
     }
+
+    private static string ProviderKey(ExecutionNodeProvider provider) =>
+        $"{provider.ProviderId}\n{provider.GuestImageDigest}";
+
+    private static string ProviderKey(SatelliteOfficeProviderInventory provider) =>
+        $"{provider.ProviderId}\n{provider.GuestImageDigest}";
 
     private static void ValidateHeartbeat(SatelliteOfficeHeartbeat heartbeat)
     {

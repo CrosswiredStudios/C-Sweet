@@ -172,7 +172,32 @@ public sealed class ExecutionFleetServiceTests
         Assert.True(claim.Succeeded);
         Assert.False(approval.Succeeded);
         Assert.Equal("node_not_qualified", approval.ErrorCode);
+        Assert.Contains("Provider firecracker-kvm is unavailable: KVM is unavailable.", approval.Message, StringComparison.Ordinal);
         Assert.Equal("KVM is unavailable.", (await db.ExecutionNodeProviders.SingleAsync()).UnavailableReason);
+    }
+
+    [Fact]
+    public async Task ApprovalDoesNotExposeSerializedPowerShellDiagnostics()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var fleet = CreateFleet(db, clock);
+        var enrollment = await fleet.CreateEnrollmentAsync();
+        var request = Claim(enrollment.Enrollment!.EnrollmentToken!) with
+        {
+            Providers = [new RegisterSatelliteOfficeProviderRequest(
+                "hyperv-gen2", "1.0.0", "", "", "", "",
+                DateTimeOffset.MinValue, null, true, true, false,
+                "#< CLIXML<Objs Version=\"1.1.0.1\"><Obj S=\"progress\" /></Objs>")]
+        };
+
+        var claim = await fleet.ClaimNodeAsync(request);
+        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+
+        Assert.False(approval.Succeeded);
+        Assert.DoesNotContain("CLIXML", approval.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RuntimeHost event log", approval.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -219,6 +244,39 @@ public sealed class ExecutionFleetServiceTests
         Assert.Equal("node_certificate_rejected", rejected.ErrorCode);
         Assert.True(current.Succeeded);
         Assert.False(legacyHeartbeat);
+    }
+
+    [Fact]
+    public async Task BootstrapHeartbeatUpdatesProviderInventoryWithoutReplacingExistingRows()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var fleet = CreateFleet(db, clock);
+        var enrollment = await fleet.CreateEnrollmentAsync();
+        var claimRequest = Claim(enrollment.Enrollment!.EnrollmentToken!);
+        var claim = await fleet.ClaimNodeAsync(claimRequest);
+        var originalProviderId = (await db.ExecutionNodeProviders.SingleAsync()).Id;
+        var updatedProvider = claimRequest.Providers[0] with
+        {
+            ProviderVersion = "1.0.1",
+            CertifiedAt = Now.AddMinutes(-5),
+            CertificationExpiresAt = Now.AddDays(2)
+        };
+
+        var accepted = await fleet.RecordHeartbeatAsync(
+            claim.SatelliteOfficeId!.Value,
+            new SatelliteOfficeHeartbeatRequest(claim.EnrollmentReceipt!, 1, 8, 8192, 65536, 4, [updatedProvider]));
+
+        var provider = await db.ExecutionNodeProviders.SingleAsync();
+        Assert.True(accepted);
+        Assert.Equal(originalProviderId, provider.Id);
+        Assert.Equal("1.0.1", provider.ProviderVersion);
+        Assert.Equal(Now.AddMinutes(-5), provider.CertifiedAt);
+        var node = await db.ExecutionNodes.SingleAsync();
+        Assert.Equal(1, node.SessionEpoch);
+        Assert.Equal(8, node.AllocatableCpuCount);
+        Assert.Equal(Now, node.LastHeartbeatAt);
     }
 
     [Fact]

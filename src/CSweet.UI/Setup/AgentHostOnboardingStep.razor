@@ -29,10 +29,10 @@
     {
         <div class="host-location-grid" role="group" aria-label="Satellite Office location">
             <button type="button"
-                    class="host-location-card @ModeClass("local")"
-                    aria-pressed="@(_status.SelectedMode == "local")"
+                    class="host-location-card @TargetClass("local")"
+                    aria-pressed="@(_installationTarget == "local")"
                     disabled="@_busy"
-                    @onclick='@(() => SelectModeAsync("remote"))'>
+                    @onclick='@(() => SelectInstallationTargetAsync("local"))'>
                 <span class="host-location-icon"><MudIcon Icon="@Icons.Material.Outlined.Computer" /></span>
                 <span class="host-location-copy">
                     <strong>This machine</strong>
@@ -41,10 +41,10 @@
                 <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="host-location-check" />
             </button>
             <button type="button"
-                    class="host-location-card @ModeClass("remote")"
-                    aria-pressed="@(_status.SelectedMode == "remote")"
+                    class="host-location-card @TargetClass("remote")"
+                    aria-pressed="@(_installationTarget == "remote")"
                     disabled="@_busy"
-                    @onclick='@(() => SelectModeAsync("remote"))'>
+                    @onclick='@(() => SelectInstallationTargetAsync("remote"))'>
                 <span class="host-location-icon"><MudIcon Icon="@Icons.Material.Outlined.Devices" /></span>
                 <span class="host-location-copy">
                     <strong>Another machine</strong>
@@ -54,22 +54,7 @@
             </button>
         </div>
 
-        @if (_status.SelectedMode == "local")
-        {
-            @LocalExperience()
-        }
-        else if (_status.SelectedMode == "remote")
-        {
-            @RemoteExperience()
-        }
-        else
-        {
-            <div class="host-empty-state">
-                <MudIcon Icon="@Icons.Material.Outlined.Dns" />
-                <strong>Choose a location to get started</strong>
-                <span>We'll show only the steps needed for that machine.</span>
-            </div>
-        }
+        @RemoteExperience()
 
         @if (!string.IsNullOrWhiteSpace(_actionMessage))
         {
@@ -106,6 +91,7 @@
     private IJSObjectReference? _jsModule;
     private CancellationTokenSource? _polling;
     private string _remotePlatform = "windows";
+    private string _installationTarget = "local";
     private bool _loading = true;
     private bool _busy;
     private bool _automaticEnrollmentInFlight;
@@ -141,16 +127,28 @@
         }
     }
 
-    private async Task SelectModeAsync(string mode)
+    private async Task SelectInstallationTargetAsync(string target)
     {
+        _installationTarget = target;
+        if (target == "local" && _status is not null)
+        {
+            _remotePlatform = _status.LocalOperatingSystem switch
+            {
+                "linux" => "linux",
+                "macos" => "macos",
+                _ => "windows"
+            };
+        }
         BeginStatusMutation();
         _busy = true;
         _actionMessage = null;
         try
         {
-            var result = await SetupApi.SelectExecutionModeAsync(mode);
+            // Both destinations use the independently installed Satellite Office workflow.
+            // "remote" is the persisted protocol mode retained by the control plane.
+            var result = await SetupApi.SelectExecutionModeAsync("remote");
             Apply(result);
-            if (result.Succeeded && mode == "remote")
+            if (result.Succeeded)
                 await EnsureRemoteEnrollmentAsync();
         }
         catch
@@ -215,9 +213,9 @@
 
     private async Task EnsureRemoteEnrollmentAsync()
     {
-        if (_status is null || _automaticEnrollmentInFlight || _status.SelectedMode != "remote" ||
+        if (_status is null || _automaticEnrollmentInFlight ||
             _status.IsReady || _status.ActiveEnrollment is not null ||
-            _status.Nodes.Any(node => !node.IsLocalMachine && (node.Status is "pendingapproval" or "ready")))
+            _status.Nodes.Any(node => node.Status is "pendingapproval" or "ready"))
             return;
 
         _automaticEnrollmentInFlight = true;
@@ -240,22 +238,28 @@
         }
     }
 
-    private async Task RestartRemoteInstructionsAsync()
+    private async Task ReplaceRemoteEnrollmentAsync()
     {
         if (_status?.ActiveEnrollment is not { Status: "available" } active) return;
         BeginStatusMutation();
         _busy = true;
+        _actionMessage = null;
         try
         {
             var revoked = await SetupApi.RevokeExecutionEnrollmentAsync(active.Id);
             Apply(revoked);
             if (!revoked.Succeeded) return;
             _issuedEnrollment = null;
-            await EnsureRemoteEnrollmentAsync();
+            var replacement = await SetupApi.CreateExecutionEnrollmentAsync();
+            Apply(replacement);
+            if (!replacement.Succeeded || replacement.Enrollment?.EnrollmentToken is not { Length: > 0 })
+                return;
+            _issuedEnrollment = replacement.Enrollment;
+            SetAction(true, "A new connection code is ready. Copy it and run the Satellite Office installer again; the previous code no longer works.");
         }
         catch
         {
-            SetAction(false, "The connection instructions could not be restarted. Try again.");
+            SetAction(false, "A new connection code could not be generated. Try again.");
         }
         finally
         {
@@ -415,7 +419,7 @@
         {
             <div class="host-ready-state" role="status" aria-live="polite">
                 <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
-                <div><strong id="remote-host-title">Your C-Sweet Satellite Office is ready</strong><span>A remote machine is connected and healthy.</span></div>
+                <div><strong id="remote-host-title">Your C-Sweet Satellite Office is ready</strong><span>@TargetReadyMessage</span></div>
             </div>
         }
         else
@@ -424,8 +428,8 @@
                 <div class="remote-instructions">
                     <div class="host-progress-heading">
                         <div>
-                            <span class="host-section-kicker">Another machine</span>
-                            <h2 id="remote-host-title">Install an C-Sweet Satellite Office</h2>
+                            <span class="host-section-kicker">@TargetKicker</span>
+                            <h2 id="remote-host-title">Install a C-Sweet Satellite Office</h2>
                         </div>
                     </div>
                     <div class="host-platform-picker" role="group" aria-label="C-Sweet Satellite Office operating system">
@@ -444,7 +448,7 @@
                         <ol class="remote-steps">
                             <li>
                                 <span>1</span>
-                                <div><strong>Install the signed package</strong><small>Open it on the machine you want to use.</small></div>
+                                    <div><strong>Install the signed package</strong><small>@PackageLocationInstruction</small></div>
                                 @if (SelectedPackageUrl(packages) is { Length: > 0 } packageUrl)
                                 {
                                     <MudButton Href="@packageUrl" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Download">Download</MudButton>
@@ -464,20 +468,35 @@
                             </li>
                             <li>
                                 <span>3</span>
-                                <div><strong>Enter the connection code</strong><small>It expires after 15 minutes and can be used only once.</small></div>
-                                @if (_issuedEnrollment?.EnrollmentToken is { Length: > 0 } token)
+                                <div><strong>Enter the connection code</strong><small>@ConnectionCodeHint</small></div>
+                                @if (PendingNodes.Count > 0 || _status.ActiveEnrollment is { Status: "claimed" })
+                                {
+                                    <div class="host-inline-notice success">
+                                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" />
+                                        <div><strong>Connection code accepted</strong><span>The Satellite Office is connected. Review its identity below and approve it to continue.</span></div>
+                                    </div>
+                                }
+                                else if (_issuedEnrollment?.EnrollmentToken is { Length: > 0 } token)
                                 {
                                     <div class="host-secret-field">
                                         <code>@MaskedToken(token)</code>
                                         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => CopyTokenAsync(token)">Copy code</MudButton>
+                                        <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="ReplaceRemoteEnrollmentAsync">Generate a different code</MudButton>
                                     </div>
                                 }
                                 else if (_status.ActiveEnrollment is { Status: "available" })
                                 {
                                     <div class="host-inline-notice warning">
                                         <MudIcon Icon="@Icons.Material.Outlined.Lock" />
-                                        <div><strong>This code is already active</strong><span>For security it cannot be shown again after a reload.</span></div>
-                                        <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="RestartRemoteInstructionsAsync">Restart instructions</MudButton>
+                                        <div><strong>The active code cannot be shown</strong><span>Connection codes are shown only once. Generate a new code to continue; the previous code will stop working.</span></div>
+                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="ReplaceRemoteEnrollmentAsync">Generate a new code</MudButton>
+                                    </div>
+                                }
+                                else if (_status.Nodes.Any(node => node.Status == "ready"))
+                                {
+                                    <div class="host-inline-notice checking">
+                                        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                                        <div><strong>Satellite Office approved</strong><span>Waiting for its authenticated health check. This page updates automatically.</span></div>
                                     </div>
                                 }
                                 else
@@ -499,7 +518,7 @@
                     {
                         <div class="host-inline-notice error">
                             <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" />
-                            <div><strong>Remote setup is unavailable</strong><span>An administrator must configure the public Execution Gateway before another machine can connect.</span></div>
+                            <div><strong>Satellite Office setup is unavailable</strong><span>An administrator must configure the Execution Gateway before a machine can connect.</span></div>
                         </div>
                     }
                 </div>
@@ -507,22 +526,22 @@
                 <aside class="remote-status" aria-label="C-Sweet Satellite Office connection progress">
                     <span class="host-section-kicker">Connection progress</span>
                     <ol class="remote-progress-list">
-                        <li class="@RemoteStageClass(1)"><span><MudIcon Icon="@RemoteStageIcon(1)" /></span><div><strong>Instructions ready</strong><small>Install on the other machine.</small></div></li>
+                        <li class="@RemoteStageClass(1)"><span><MudIcon Icon="@RemoteStageIcon(1)" /></span><div><strong>Instructions ready</strong><small>@ProgressInstallInstruction</small></div></li>
                         <li class="@RemoteStageClass(2)"><span><MudIcon Icon="@RemoteStageIcon(2)" /></span><div><strong>Host connected</strong><small>Waiting for its secure hello.</small></div></li>
                         <li class="@RemoteStageClass(3)"><span><MudIcon Icon="@RemoteStageIcon(3)" /></span><div><strong>Host approved</strong><small>Confirm the machine belongs to you.</small></div></li>
                         <li class="@RemoteStageClass(4)"><span><MudIcon Icon="@RemoteStageIcon(4)" /></span><div><strong>Health check</strong><small>Verify secure runtime and capacity.</small></div></li>
                     </ol>
-                    @if (RemotePendingNodes.Count == 0 && RemoteStage < 3)
+                    @if (PendingNodes.Count == 0 && RemoteStage < 3)
                     {
                         <div class="remote-waiting" role="status" aria-live="polite">
                             <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
-                            <span>Waiting for the other machine. Timing depends on when its installation is completed.</span>
+                            <span>@RemoteWaitingMessage</span>
                         </div>
                     }
                 </aside>
             </div>
 
-            @foreach (var node in RemotePendingNodes)
+            @foreach (var node in PendingNodes)
             {
                 <article class="host-approval-card">
                     <span class="host-approval-icon"><MudIcon Icon="@Icons.Material.Outlined.Laptop" /></span>
@@ -640,20 +659,44 @@
     private void EndStatusMutation() => Interlocked.Increment(ref _statusMutationVersion);
 
     private ExecutionNodeSummaryResponse? LocalNode => _status?.Nodes.FirstOrDefault(node => node.IsLocalMachine && node.Status != "revoked");
-    private IReadOnlyList<ExecutionNodeSummaryResponse> RemotePendingNodes => _status?.Nodes
-        .Where(node => !node.IsLocalMachine && node.Status == "pendingapproval").ToArray() ?? [];
+    private IReadOnlyList<ExecutionNodeSummaryResponse> PendingNodes => _status?.Nodes
+        .Where(node => node.Status == "pendingapproval").ToArray() ?? [];
     private int RemoteStage => _status?.IsReady == true ? 5
-        : _status?.Nodes.Any(node => !node.IsLocalMachine && node.Status == "ready") == true ? 4
-        : RemotePendingNodes.Count > 0 ? 3
+        : _status?.Nodes.Any(node => node.Status == "ready") == true ? 4
+        : PendingNodes.Count > 0 ? 3
         : _status?.ActiveEnrollment?.Status == "claimed" ? 2
         : _status?.ActiveEnrollment is not null || _issuedEnrollment is not null ? 1
         : 0;
+
+    private string ConnectionCodeHint => _issuedEnrollment is { } enrollment
+        ? $"Shown only once and {ExpiryDescription(enrollment.ExpiresAt)}. It can be used only once."
+        : "Shown only once, expires after 15 minutes, and can be used only once.";
+
+    private string RemoteWaitingMessage =>
+        _issuedEnrollment?.EnrollmentToken is { Length: > 0 }
+            ? $"Run the installer {TargetPrepositionalPhrase} with the code shown here. This page updates automatically when the Satellite Office connects."
+            : _status?.ActiveEnrollment is { Status: "available" }
+                ? "The active code is hidden after a reload. Generate a new code above to continue setup."
+                : $"Waiting for {TargetNounPhrase}. This page updates automatically when it connects.";
+
+    private string TargetKicker => _installationTarget == "local" ? "This machine" : "Another machine";
+    private string TargetNounPhrase => _installationTarget == "local" ? "this machine" : "the other machine";
+    private string TargetPrepositionalPhrase => _installationTarget == "local" ? "on this machine" : "on the other machine";
+    private string PackageLocationInstruction => _installationTarget == "local"
+        ? "Open it on this machine."
+        : "Open it on the other machine you want to use.";
+    private string ProgressInstallInstruction => _installationTarget == "local"
+        ? "Install on this machine."
+        : "Install on the other machine.";
+    private string TargetReadyMessage => _installationTarget == "local"
+        ? "This machine is connected and healthy."
+        : "The other machine is connected and healthy.";
 
     private string RemoteStageClass(int stage) => RemoteStage > stage ? "complete" : RemoteStage == stage ? "current" : string.Empty;
     private string RemoteStageIcon(int stage) => RemoteStage > stage
         ? Icons.Material.Filled.Check
         : RemoteStage == stage ? Icons.Material.Filled.MoreHoriz : Icons.Material.Outlined.RadioButtonUnchecked;
-    private string ModeClass(string mode) => _status?.SelectedMode == mode ? "selected" : string.Empty;
+    private string TargetClass(string target) => _installationTarget == target ? "selected" : string.Empty;
     private static bool IsRunning(LocalExecutionNodeProvisioningProgressResponse progress) => progress.State == "running";
     private static bool IsFailed(LocalExecutionNodeProvisioningProgressResponse progress) => progress.State == "failed";
     private static string DisplayPlatform(ExecutionNodeSummaryResponse node) => $"{Title(node.OperatingSystem)} / {node.Architecture}";
@@ -665,6 +708,14 @@
         if (duration.TotalHours >= 1) return $"{(int)duration.TotalHours}h {duration.Minutes}m";
         if (duration.TotalMinutes >= 1) return $"{(int)duration.TotalMinutes}m {duration.Seconds}s";
         return $"{Math.Max(0, duration.Seconds)}s";
+    }
+
+    private static string ExpiryDescription(DateTimeOffset expiresAt)
+    {
+        var remaining = expiresAt - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero) return "has expired";
+        var minutes = Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes));
+        return $"expires in about {minutes} minute{(minutes == 1 ? string.Empty : "s")}";
     }
 
     private static string? Eta(LocalExecutionNodeProvisioningProgressResponse progress)

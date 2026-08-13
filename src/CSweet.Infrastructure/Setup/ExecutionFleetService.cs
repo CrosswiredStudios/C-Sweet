@@ -297,8 +297,8 @@ public sealed class ExecutionFleetService(
             return await FailureAsync("node_not_found", "The Satellite Office was not found.", cancellationToken);
         if (node.Status != ExecutionNodeStatus.PendingApproval)
             return await FailureAsync("node_not_pending", "Only pending Satellite Offices can be approved.", cancellationToken);
-        if (!IdentityAndProvidersQualify(node, now))
-            return await FailureAsync("node_not_qualified", "The node does not have a current identity and certified builder/runtime provider.", cancellationToken);
+        if (QualificationFailure(node, now) is { } qualificationFailure)
+            return await FailureAsync("node_not_qualified", qualificationFailure, cancellationToken);
 
         IssuedExecutionNodeCertificate issued;
         try
@@ -384,8 +384,7 @@ public sealed class ExecutionFleetService(
         node.MaximumConcurrentWorkloads = request.MaximumConcurrentWorkloads;
         node.LastHeartbeatAt = now;
         node.UpdatedAt = now;
-        dbContext.ExecutionNodeProviders.RemoveRange(node.Providers);
-        node.Providers = request.Providers.Select(provider => Map(node.Id, provider, now)).ToList();
+        SynchronizeProviderInventory(node, request.Providers, now);
         await dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -521,13 +520,53 @@ public sealed class ExecutionFleetService(
         ProviderQualifies(node, now, kind) && CapacityQualifies(node, kind);
 
     private bool IdentityAndProvidersQualify(ExecutionNode node, DateTimeOffset now) =>
-        !string.IsNullOrWhiteSpace(node.CertificateThumbprint) &&
-        node.CertificateExpiresAt > now &&
-        string.Equals(node.ProtocolVersion, CurrentProtocolVersion, StringComparison.Ordinal) &&
-        Version.TryParse(node.NodeVersion, out var version) && version >= MinimumNodeVersion &&
-        ImagePolicyConfigured() && node.Providers.Any(provider =>
-            ProviderQualifies(provider, now, ExecutionWorkloadKind.Builder) &&
-            ProviderQualifies(provider, now, ExecutionWorkloadKind.Runtime));
+        QualificationFailure(node, now) is null;
+
+    private string? QualificationFailure(ExecutionNode node, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(node.CertificateThumbprint) || node.CertificateExpiresAt <= now)
+            return "The Satellite Office identity certificate is missing or expired. Re-enroll this host.";
+        if (!string.Equals(node.ProtocolVersion, CurrentProtocolVersion, StringComparison.Ordinal))
+            return $"The Satellite Office protocol version is not supported. Required: {CurrentProtocolVersion}; reported: {node.ProtocolVersion}.";
+        if (!Version.TryParse(node.NodeVersion, out var version) || version < MinimumNodeVersion)
+            return $"The Satellite Office version is not supported. Install version {MinimumNodeVersion} or later.";
+        if (!ImagePolicyConfigured())
+            return "Headquarters has no permitted builder/runtime guest-image policy. Configure pinned image digests, or enable certified unpinned images for development.";
+        if (node.Providers.Count == 0)
+            return "The Satellite Office did not report an isolation provider. Check the RuntimeHost service and provider configuration.";
+        if (node.Providers.Any(provider =>
+                ProviderQualifies(provider, now, ExecutionWorkloadKind.Builder) &&
+                ProviderQualifies(provider, now, ExecutionWorkloadKind.Runtime)))
+            return null;
+
+        var unavailable = node.Providers.FirstOrDefault(provider => !provider.IsAvailable);
+        if (unavailable is not null)
+            return $"Provider {unavailable.ProviderId} is unavailable: {ProviderDiagnostic(unavailable.UnavailableReason)}";
+        var wrongSuite = node.Providers.FirstOrDefault(provider =>
+            !string.Equals(provider.CertificationSuiteVersion, RuntimePolicy.RequiredCertificationSuiteVersion, StringComparison.Ordinal));
+        if (wrongSuite is not null)
+            return $"Provider {wrongSuite.ProviderId} has certification suite {wrongSuite.CertificationSuiteVersion}; headquarters requires {RuntimePolicy.RequiredCertificationSuiteVersion}.";
+        var expired = node.Providers.FirstOrDefault(provider =>
+            provider.CertifiedAt > now || provider.CertificationExpiresAt <= now);
+        if (expired is not null)
+            return $"Provider {expired.ProviderId} certification is not currently valid. Rebuild and recertify the Satellite Office payload.";
+        var missingCapability = node.Providers.FirstOrDefault(provider =>
+            !provider.SupportsBuilderWorkloads || !provider.SupportsRuntimeWorkloads);
+        if (missingCapability is not null)
+            return $"Provider {missingCapability.ProviderId} does not report both builder and runtime workload support.";
+        return "The reported provider does not match the required broker protocol, signed image, or certification evidence policy.";
+    }
+
+    private static string ProviderDiagnostic(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "no diagnostic was reported";
+        if (value.Contains("#< CLIXML", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("<Objs Version=", StringComparison.OrdinalIgnoreCase))
+            return "the runtime readiness check failed; review the Satellite Office RuntimeHost event log";
+        var normalized = string.Join(' ', value.Split((char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return normalized[..Math.Min(512, normalized.Length)];
+    }
 
     private bool ProviderQualifies(ExecutionNode node, DateTimeOffset now, ExecutionWorkloadKind kind) =>
         !string.IsNullOrWhiteSpace(node.CertificateThumbprint) && node.CertificateExpiresAt > now &&
@@ -663,6 +702,52 @@ public sealed class ExecutionFleetService(
             ? null : provider.UnavailableReason.Trim()[..Math.Min(1024, provider.UnavailableReason.Trim().Length)],
         UpdatedAt = now
     };
+
+    private void SynchronizeProviderInventory(
+        ExecutionNode node,
+        IReadOnlyList<RegisterSatelliteOfficeProviderRequest> reportedProviders,
+        DateTimeOffset now)
+    {
+        var reportedKeys = reportedProviders
+            .Select(ProviderKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var obsolete in node.Providers.Where(provider =>
+                     !reportedKeys.Contains(ProviderKey(provider))).ToArray())
+        {
+            dbContext.ExecutionNodeProviders.Remove(obsolete);
+            node.Providers.Remove(obsolete);
+        }
+
+        foreach (var reported in reportedProviders)
+        {
+            var existing = node.Providers.SingleOrDefault(provider =>
+                string.Equals(ProviderKey(provider), ProviderKey(reported), StringComparison.OrdinalIgnoreCase));
+            if (existing is null)
+            {
+                node.Providers.Add(Map(node.Id, reported, now));
+                continue;
+            }
+
+            existing.ProviderVersion = reported.ProviderVersion.Trim();
+            existing.BrokerProtocolVersion = reported.BrokerProtocolVersion.Trim();
+            existing.CertificationSuiteVersion = reported.CertificationSuiteVersion.Trim();
+            existing.CertificationEvidenceDigest = reported.CertificationEvidenceDigest.Trim().ToLowerInvariant();
+            existing.CertifiedAt = reported.CertifiedAt.ToUniversalTime();
+            existing.CertificationExpiresAt = reported.CertificationExpiresAt?.ToUniversalTime();
+            existing.SupportsBuilderWorkloads = reported.SupportsBuilderWorkloads;
+            existing.SupportsRuntimeWorkloads = reported.SupportsRuntimeWorkloads;
+            existing.IsAvailable = reported.IsAvailable;
+            existing.UnavailableReason = string.IsNullOrWhiteSpace(reported.UnavailableReason)
+                ? null : reported.UnavailableReason.Trim()[..Math.Min(1024, reported.UnavailableReason.Trim().Length)];
+            existing.UpdatedAt = now;
+        }
+    }
+
+    private static string ProviderKey(ExecutionNodeProvider provider) =>
+        $"{provider.ProviderId}\n{provider.GuestImageDigest}";
+
+    private static string ProviderKey(RegisterSatelliteOfficeProviderRequest provider) =>
+        $"{provider.ProviderId.Trim()}\n{provider.GuestImageDigest.Trim()}";
 
     private async Task<ExecutionCapacityActionResponse> SuccessAsync(string message, CancellationToken cancellationToken) =>
         new(true, null, message, await GetOnboardingStatusAsync(cancellationToken));

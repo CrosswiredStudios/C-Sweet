@@ -11,19 +11,43 @@
     <a href="https://dotnet.microsoft.com/apps/aspnet/web-apps/blazor"><img src="https://img.shields.io/badge/UI-Blazor-512BD4?logo=blazor&amp;logoColor=white" alt="Blazor" /></a>
     <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&amp;logoColor=white" alt="PostgreSQL 17" /></a>
     <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Infrastructure-Docker-2496ED?logo=docker&amp;logoColor=white" alt="Docker infrastructure" /></a>
+    <a href="#security-is-part-of-the-operating-model"><img src="https://img.shields.io/badge/Security-Permission--first-23845C" alt="Permission-first security" /></a>
     <a href="#bring-your-own-models-and-infrastructure"><img src="https://img.shields.io/badge/Cloud-Optional-1E6B52" alt="Cloud optional" /></a>
     <a href="#project-status"><img src="https://img.shields.io/badge/Status-Developer_Preview-E6A84A" alt="Developer preview" /></a>
     <a href="https://github.com/CrosswiredStudios/csweet/stargazers"><img src="https://img.shields.io/github/stars/CrosswiredStudios/csweet?style=flat&amp;logo=github&amp;label=Stars" alt="GitHub stars" /></a>
   </p>
   <p>
     <a href="#a-company-can-start-with-one-person">Why C-Sweet?</a> ·
-    <a href="#from-idea-to-outcome">See how it works</a> ·
+    <a href="#security-is-part-of-the-operating-model">Security</a> ·
     <a href="#run-c-sweet">Run it</a> ·
     <a href="docs/00-product-vision.md">Explore the vision</a>
   </p>
 </div>
 
 ![A founder directing an AI-assisted company from a calm command center](assets/readme/csweet-hero.webp)
+
+<div align="center">
+  <strong>Control</strong> &nbsp;·&nbsp; <strong>Transparency</strong> &nbsp;·&nbsp; <strong>Choice</strong> &nbsp;·&nbsp; <strong>Durable knowledge</strong>
+</div>
+
+## Security is part of the operating model
+
+C-Sweet assumes that agent code, prompts, model output, tools, retrieved content, and provider responses can all be hostile. A useful agent is not automatically a trusted principal: **workers propose actions; application-enforced policy grants authority**.
+
+![C-Sweet applies policy and approval controls before work reaches hardware-isolated agents](assets/readme/csweet-security.svg)
+
+| Principle | How C-Sweet applies it |
+|---|---|
+| **Your control plane** | Self-host the core, choose local or hosted OpenAI-compatible models, and keep company state and memory in PostgreSQL you operate. The marketplace remains optional. |
+| **Explicit authority** | Installations receive narrow, organization-scoped capability grants. Resource identity and ownership are resolved server-side rather than trusted from agent input. |
+| **Human control of consequences** | Material actions can require an owner or manager decision bound to the exact payload, revision, and scope being approved. |
+| **Hardware isolation for untrusted code** | Builds and runtimes are scheduled to independently installed C-Sweet Satellite Offices. Certified providers place workloads in hardware virtual machines with no guest network device, no host shares, and ephemeral writable state. |
+| **Observable and revocable** | Short-lived, workload-bound sessions, bounded schemas and quotas, durable audit events, cancellation, and grant revocation limit and expose misuse. |
+
+The broker is the key boundary between reasoning and authority. Agents do not receive database credentials, the Docker socket, host filesystem access, or general infrastructure control. Network and platform operations pass through declarative, schema-bound capabilities where C-Sweet can enforce tenant scope, destinations, approvals, budgets, limits, and audit policy.
+
+> [!IMPORTANT]
+> Isolation reduces blast radius; it does not make granted authority harmless. An agent can still abuse every capability intentionally granted to it. C-Sweet is a developer preview, and the security architecture is not a claim of production certification. Read the [agent runtime threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md) and [Satellite Office operations guide](Documentation/Operations/DISTRIBUTED_EXECUTION_FLEET.md) before enabling untrusted workloads.
 
 ## A company can start with one person
 
@@ -86,7 +110,7 @@ The ambition is simple: make entrepreneurship feel less like juggling every job 
 - Multi-business enterprise view and business onboarding
 - CEO command center with objectives, roles, tasks, workers, artifacts, approvals, and next actions
 - Unified Communications workspace with durable human and agent conversations, streaming, retry, cancellation, and execution traces
-- Agent import, validation, configuration, hardware-isolated runtime management, and memory
+- Agent import, validation, configuration, company memory, and hardware-isolated execution through C-Sweet Satellite Offices
 - Human and agent employee directory with reporting relationships
 - Scheduled and on-demand executive briefings
 - Team-scoped work boards with Kanban workflows, sprint planning, estimates, capacity, collaboration, and delivery reports
@@ -106,7 +130,7 @@ C-Sweet's embedded catalog includes five first-party agents that are available t
 | Agent | What it enables |
 |---|---|
 | [**Chief of Staff**](https://github.com/CrosswiredStudios/CSweet.Agent.ChiefOfStaff) | Turns executive direction into priorities, organizational plans, hiring recommendations, coordination, and executive briefings. |
-| [**Product Manager**](https://github.com/CrosswiredStudios/CSweet.Agent.ProductManager) | Drives product discovery, strategy, roadmaps, requirements, prioritization, and product-team design. |
+| [**Product Manager**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareProductManager) | Drives product discovery, strategy, roadmaps, requirements, prioritization, and product-team design. |
 | [**Software Architect**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareArchitect) | Converts approved requirements into architecture decisions, incremental plans, sprints, and developer-ready tickets. |
 | [**Software Developer**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper) | Implements assigned tickets in an isolated Git workspace, validates changes, and opens reviewable pull requests. |
 | [**Software QA**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA) | Validates the assigned commit against acceptance criteria and returns structured release evidence and a pass, fail, or blocked verdict. |
@@ -119,7 +143,7 @@ C-Sweet is provider-neutral by design. The setup flow supports OpenAI-compatible
 
 - Use a local model server such as LM Studio, Ollama, or vLLM.
 - Connect a compatible hosted endpoint when stronger or specialized models are useful.
-- Use Docker for trusted application infrastructure such as PostgreSQL while keeping untrusted agent execution behind a separate hardware-virtualization boundary.
+- Use Docker for trusted application infrastructure such as PostgreSQL while independently installed Satellite Offices keep untrusted agent execution behind a certified hardware-virtualization boundary.
 - Keep framework-specific agent code behind C-Sweet-owned abstractions.
 
 Local-first does not mean isolated. It means your company can decide when the network adds value.
@@ -132,17 +156,18 @@ Local-first does not mean isolated. It means your company can decide when the ne
 - The [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) pinned by [`global.json`](global.json).
 - Git.
 - An OpenAI-compatible model endpoint; [LM Studio](https://lmstudio.ai/) is the default local preset.
-- For local untrusted agents on Windows: Windows Professional, Enterprise, or Education with hardware virtualization. Guided setup handles Hyper-V and RuntimeHost preparation.
+- To execute untrusted agents: a separately installed [C-Sweet Satellite Office](https://github.com/CrosswiredStudios/CSweet.SatelliteOffice) with a supported, certified hardware-isolation provider. The current Windows path uses Hyper-V and requires Windows Professional, Enterprise, or Education with hardware virtualization.
 
 > [!IMPORTANT]
-> Docker is required infrastructure, but it is **not** the security boundary for untrusted agents. Docker runs trusted dependencies such as the development PostgreSQL database. Untrusted agent code runs only through a certified hardware-isolation provider; on Windows that boundary is a dedicated Hyper-V virtual machine.
+> Docker is required infrastructure, but it is **not** the security boundary for untrusted agents. Docker runs trusted dependencies such as the development PostgreSQL database. Untrusted agent code runs only in a separately installed Satellite Office through a certified hardware-isolation provider; on Windows that boundary is a dedicated Hyper-V virtual machine.
 
 ### Start from a Windows source checkout
 
 1. Clone the repository.
 2. Ensure Docker Desktop is running and reports that its Linux container engine is ready.
 3. Double-click [`Start-CSweet.cmd`](Start-CSweet.cmd). The launcher checks .NET and Docker, attempts to start Docker Desktop when necessary, starts Aspire, and opens C-Sweet in the browser.
-4. Create the root administrator, save the ten offline recovery codes, and follow guided setup.
+4. Create the root administrator, save the ten offline recovery codes, and follow guided setup for models and optional services.
+5. To build or run imported agents, install a Satellite Office, create its one-use enrollment under Agent Execution setup, verify the claimed fingerprint, and approve it.
 
 Developers can instead run the AppHost from Visual Studio or use:
 
@@ -160,7 +185,7 @@ That command must succeed. Starting the Docker Desktop window is not sufficient;
 
 ### Docker Compose deployment status
 
-Docker Compose remains the intended packaging path for the trusted C-Sweet core. The checked-in Compose topology is being migrated away from the former Docker-based agent runner and must not be treated as the supported untrusted-agent execution path. For current Windows development and hardware-isolation testing, use the Aspire AppHost flow above.
+Docker Compose remains the intended packaging path for the trusted C-Sweet core. The checked-in Compose topology is being migrated away from the former Docker-based agent runner and must not be treated as the supported untrusted-agent execution path. For current Windows development and end-to-end isolation testing, run Headquarters through the Aspire AppHost flow above and connect a separately installed Satellite Office.
 
 > [!IMPORTANT]
 > A fresh instance trusts its first visitor to claim the root administrator account. Complete registration and onboarding on a trusted network before exposing C-Sweet publicly. SMTP is optional; offline recovery codes are available during registration.
@@ -169,56 +194,54 @@ For the current container topology, migration limitations, environment variables
 
 ## Architecture at a glance
 
-C-Sweet is a modular .NET application with durable state and isolated agent execution. Docker and Hyper-V have deliberately different jobs:
+C-Sweet separates the trusted company control plane from untrusted execution. Docker and a Satellite Office's hardware-virtualization provider have deliberately different jobs:
 
 ```mermaid
-flowchart TB
+flowchart LR
     User["User browser"]
 
-    subgraph Host["Trusted Windows host"]
+    subgraph HQ["C-Sweet Headquarters — trusted control plane"]
         App["C-Sweet UI"]
         API["API and WorkerHost"]
         AgentHost["AgentHost<br/>policy and MCP broker"]
-        BuildBroker["Build broker<br/>source, packages, artifact validation"]
-        RuntimeHost["RuntimeHost Windows service<br/>privileged VM lifecycle only"]
+        Gateway["ExecutionGateway<br/>enrollment, leases, and relay"]
         ArtifactStore["Validated content-addressed<br/>agent artifacts"]
+        App --> API
+        API --> AgentHost
+        API --> Gateway
+        Gateway --> ArtifactStore
     end
 
-    subgraph Docker["Docker Desktop — trusted infrastructure"]
+    subgraph Docker["Docker — trusted infrastructure"]
         Postgres[("PostgreSQL")]
     end
 
-    subgraph HyperV["Disposable Hyper-V Generation 2 VMs — untrusted-code boundary"]
-        BuilderGuest["Signed builder guest<br/>exact commit + brokered packages"]
-        RuntimeGuest["Clean signed runtime guest"]
-        Agent["Validated immutable agent artifact"]
-        RuntimeGuest --> Agent
+    subgraph Office["Independently installed Satellite Office"]
+        OfficeService["Authenticated office service"]
+        BuilderGuest["Certified builder VM"]
+        RuntimeGuest["Certified runtime VM<br/>no network device"]
+        OfficeService --> BuilderGuest
+        RuntimeGuest -->|"authenticated broker channel"| OfficeService
     end
 
-    User --> App --> API
+    User --> App
     API --> Postgres
-    API --> AgentHost
-    API --> BuildBroker
-    API -->|"authenticated local RPC"| RuntimeHost
-    RuntimeHost -->|"create, start, stop, destroy"| BuilderGuest
-    RuntimeHost -->|"create, start, stop, destroy"| RuntimeGuest
-    BuilderGuest -->|"authenticated Hyper-V socket"| BuildBroker
-    BuildBroker -->|"validate and store"| ArtifactStore
-    ArtifactStore -->|"read-only artifact media"| RuntimeHost
-    RuntimeGuest -->|"authenticated Hyper-V socket"| AgentHost
+    OfficeService <-->|"mutual authentication,<br/>leases, and bounded transfers"| Gateway
+    Gateway -->|"bounded capability relay"| AgentHost
 ```
 
-Docker stopping prevents the development stack from starting because PostgreSQL is unavailable. It does not cause C-Sweet to downgrade agent execution into a container or host process. If the certified VM boundary is unavailable, untrusted agent execution remains disabled.
+Docker stopping prevents the development stack from starting because PostgreSQL is unavailable. It does not cause C-Sweet to downgrade agent execution into a container or host process. AppHost never launches a Satellite Office. If no approved office reports current certification, untrusted agent execution remains disabled while the trusted control plane stays available.
 
 | Component | Responsibility |
 |---|---|
 | `CSweet.App` + `CSweet.UI` | Blazor web experience and shared UI |
 | `CSweet.Api` | Authentication, setup, company operations, chat, planning, and provider APIs |
-| `CSweet.WorkerHost` | Durable background work and local agent orchestration |
+| `CSweet.WorkerHost` | Durable background work and execution-fleet orchestration |
 | `CSweet.AgentHost` | Unprivileged policy enforcement and brokered MCP access; it does not own the VM lifecycle |
-| `CSweet.ExecutionGateway` | Headquarters gateway for independently installed C-Sweet Satellite Offices |
+| `CSweet.ExecutionGateway` | Headquarters enrollment, scheduling, lease, artifact-grant, and broker-relay gateway for Satellite Offices |
 | `CSweet.Migrator` | One-shot database migrations and initial seed data |
 | PostgreSQL | Company state, history, memory, and operational records |
+| [C-Sweet Satellite Office](https://github.com/CrosswiredStudios/CSweet.SatelliteOffice) | Separately installed, certified execution plane that owns privileged VM lifecycle and reports capacity and health to Headquarters |
 
 The repository also contains MAUI host foundations, plugin SDK contracts, unit and integration tests, Docker assets, and detailed architecture plans.
 
@@ -229,7 +252,7 @@ The repository also contains MAUI host foundations, plugin SDK contracts, unit a
 - Microsoft Agent Framework and Microsoft.Extensions.AI
 - PostgreSQL 17 and Entity Framework Core
 - Docker/Aspire for trusted development infrastructure and PostgreSQL
-- Certified hardware virtual machines for untrusted agent execution
+- Independently installed Satellite Offices and certified hardware virtual machines for untrusted agent execution
 - OpenTelemetry for observability
 - Server-sent events for browser streaming and private Streamable HTTP MCP for SDK-managed agent work
 
@@ -237,12 +260,12 @@ The repository also contains MAUI host foundations, plugin SDK contracts, unit a
 
 ### Agent runtime documentation
 
-Protocol-v2 executable agents use the transport-neutral SDK over C-Sweet's private, outbound-only MCP runtime and durable work inbox:
+Protocol-v2 executable agents use the transport-neutral SDK over C-Sweet's private, brokered MCP runtime and durable work inbox:
 
-- [Security architecture overview](Documentation/Architecture/AGENT_ISOLATION_SECURITY_OVERVIEW.md)
 - [Architecture](Documentation/Architecture/MCP_AGENT_RUNTIME.md)
 - [Software Developer runtime](Documentation/Architecture/SOFTWARE_DEVELOPER_RUNTIME.md)
 - [Threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md)
+- [Satellite Office fleet operations](Documentation/Operations/DISTRIBUTED_EXECUTION_FLEET.md)
 - [Implementation and migration](Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md)
 - [Operations runbook](Documentation/Operations/MCP_AGENT_RUNTIME_RUNBOOK.md)
 
