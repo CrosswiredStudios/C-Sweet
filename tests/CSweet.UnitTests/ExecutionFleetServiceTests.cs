@@ -45,6 +45,34 @@ public sealed class ExecutionFleetServiceTests
     }
 
     [Fact]
+    public async Task Enrollment_NormalizesIncomingCertificateAndCertificationTimesToUtc()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var fleet = CreateFleet(db, clock);
+        await fleet.SelectOnboardingModeAsync(new("remote"));
+        var enrollment = await fleet.CreateEnrollmentAsync();
+        var token = Assert.IsType<string>(enrollment.Enrollment?.EnrollmentToken);
+        var offset = TimeSpan.FromHours(-7);
+        var claimRequest = Claim(token) with
+        {
+            CertificateExpiresAt = Now.AddYears(1).ToOffset(offset),
+            Providers = [Claim(token).Providers[0] with
+            {
+                CertifiedAt = Now.AddHours(-1).ToOffset(offset),
+                CertificationExpiresAt = Now.AddDays(1).ToOffset(offset)
+            }]
+        };
+
+        Assert.True((await fleet.ClaimNodeAsync(claimRequest)).Succeeded);
+        var node = await db.ExecutionNodes.Include(x => x.Providers).SingleAsync();
+        Assert.Equal(TimeSpan.Zero, node.CertificateExpiresAt?.Offset);
+        Assert.Equal(TimeSpan.Zero, Assert.Single(node.Providers).CertifiedAt.Offset);
+        Assert.Equal(TimeSpan.Zero, Assert.Single(node.Providers).CertificationExpiresAt?.Offset);
+    }
+
+    [Fact]
     public async Task OfflineOrUncertifiedNode_DoesNotSatisfySetupCompletion()
     {
         await using var db = CreateDb();
