@@ -65,6 +65,17 @@ public sealed class AgentHostBrokerOperationHandlerTests
         Assert.False(captured.Headers.Contains("Connection"));
     }
 
+    [Fact]
+    public void DescribeErrorResponse_ReturnsOnlyTheBoundedSingleLineJsonRpcReason()
+    {
+        var body = Encoding.UTF8.GetBytes(
+            "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"mentions must be an array.\\nRetry after correcting the request.\"}}");
+
+        var result = AgentHostBrokerOperationHandler.DescribeErrorResponse(body);
+
+        Assert.Equal("mentions must be an array. Retry after correcting the request.", result);
+    }
+
     private sealed class StubHttpClientFactory(HttpClient client) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => client;

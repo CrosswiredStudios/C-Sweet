@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using CSweet.AgentBroker;
 using Microsoft.Extensions.Logging;
 
@@ -107,13 +108,39 @@ public sealed class AgentHostBrokerOperationHandler(
             }
             else
             {
+                var error = DescribeErrorResponse(body);
                 logger.LogWarning(
-                    "AgentHost broker request {RequestId} for workload {WorkloadId} returned HTTP {StatusCode}.",
+                    "AgentHost broker request {RequestId} for workload {WorkloadId} returned HTTP {StatusCode}: {Error}",
                     request.RequestId,
                     request.WorkloadId,
-                    (int)response.StatusCode);
+                    (int)response.StatusCode,
+                    error ?? "No structured error reason was returned.");
             }
             return new BrokerOperationResult((int)response.StatusCode, headers, body);
+        }
+    }
+
+    internal static string? DescribeErrorResponse(ReadOnlyMemory<byte> body)
+    {
+        if (body.IsEmpty) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("error", out var error) ||
+                error.ValueKind != JsonValueKind.Object ||
+                !error.TryGetProperty("message", out var message) ||
+                message.ValueKind != JsonValueKind.String)
+                return null;
+            var value = message.GetString();
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            value = new string(value.Select(character =>
+                char.IsControl(character) ? ' ' : character).ToArray()).Trim();
+            return value.Length <= 512 ? value : value[..512];
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

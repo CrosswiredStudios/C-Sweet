@@ -146,4 +146,28 @@ public sealed class McpCapabilityRegistryTests
             JsonSerializer.SerializeToElement(response, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
             tool.OutputSchema.Value);
     }
+
+    [Fact]
+    public void AddPersonalTodoSchema_AcceptsTypedSdkRequestWithNullOptionalMentions()
+    {
+        var registry = new McpToolCatalog([]);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([PersonalTodoCapabilities.Add], StringComparer.Ordinal)));
+        var request = new AddPersonalTodoItemRequest(
+            "Hire Product Manager",
+            "Advance the approved hiring recommendation.",
+            WorkPriorities.High,
+            null,
+            "hiring-recommendation:test",
+            CorrelationId: "hiring-recommendation:test")
+        {
+            StartInBacklog = false
+        };
+
+        var payload = JsonSerializer.SerializeToElement(
+            request,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal(JsonValueKind.Null, payload.GetProperty("mentions").ValueKind);
+        JsonSchemaValidator.Validate(payload, tool.InputSchema);
+    }
 }
