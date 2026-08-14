@@ -686,6 +686,11 @@
                             StringComparer.Ordinal)
                 });
 
+            if (BusinessOnboardingAgentInstallationSelector.RequiresBuildRetry(_installedChief))
+            {
+                _installedChief = await AgentApi.RetryDefinitionBuildAsync(_installedChief.Id, _disposeCts.Token);
+            }
+
             _installedChief = await WaitForChiefDefinitionAsync(_installedChief, _disposeCts.Token);
 
             var onboarding = await BusinessOnboardingApi.CompleteAsync(new CompleteBusinessOnboardingRequest(
@@ -825,9 +830,16 @@
     private static string ChiefBuildStatusDetail(AgentBuildSummaryResponse build)
     {
         var active = build.Steps?.FirstOrDefault(step => step.Status == "InProgress");
-        return active is null
-            ? build.FailureMessage ?? "C-Sweet is preparing the selected agent and will continue automatically."
-            : $"{active.Label}: {active.Detail}";
+        if (active is not null)
+            return $"{active.Label}: {active.Detail}";
+        var failed = build.Steps?.FirstOrDefault(step =>
+            step.Status is "Failed" or "Cancelled" || !string.IsNullOrWhiteSpace(step.Error));
+        if (failed is not null)
+            return failed.Error ?? $"{failed.Label} did not complete.";
+        var pending = build.Steps?.FirstOrDefault(step => step.Status == "Pending");
+        return pending is not null
+            ? $"Waiting to begin {pending.Label.ToLowerInvariant()}: {pending.Detail}"
+            : build.FailureMessage ?? "C-Sweet is finalizing the selected agent build.";
     }
     private static string ShortHash(string value) => value.Length <= 9 ? value : value[..9];
     private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);

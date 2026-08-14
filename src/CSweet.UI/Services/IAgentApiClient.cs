@@ -23,6 +23,10 @@ public interface IAgentApiClient
         Guid definitionId,
         CancellationToken cancellationToken = default);
 
+    Task<AgentInstallationResponse> RetryDefinitionBuildAsync(
+        Guid definitionId,
+        CancellationToken cancellationToken = default);
+
     Task<AgentConfigurationView> GetDefinitionConfigurationAsync(
         Guid definitionId, CancellationToken cancellationToken = default);
 

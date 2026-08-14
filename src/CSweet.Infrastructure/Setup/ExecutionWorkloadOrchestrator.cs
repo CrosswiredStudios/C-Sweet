@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Data;
 using CSweet.Application.Setup;
+using CSweet.SatelliteOffice.Contracts.Security;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,7 @@ public sealed class ExecutionWorkloadOrchestrator(
     TimeProvider timeProvider) : IExecutionWorkloadOrchestrator
 {
     private static readonly TimeSpan AssignmentLease = TimeSpan.FromSeconds(60);
+    private const int MaximumUnacknowledgedDeliveryAttempts = 3;
     private static readonly TimeSpan HeartbeatFreshness = TimeSpan.FromSeconds(30);
     private static readonly ExecutionAssignmentStatus[] ActiveStatuses =
     [
@@ -41,6 +43,7 @@ public sealed class ExecutionWorkloadOrchestrator(
             return new ExecutionWorkloadReference(existing.Id, existing.FencingEpoch);
 
         var now = timeProvider.GetUtcNow();
+        var specificationJson = BindSecurityPolicy(request.SpecificationJson, request.AllowDevelopmentSecurityPosture);
         var assignment = new ExecutionWorkloadAssignment
         {
             Id = Guid.NewGuid(),
@@ -53,8 +56,8 @@ public sealed class ExecutionWorkloadOrchestrator(
             ProviderId = request.PreferredProviderId ?? string.Empty,
             GuestImageDigest = request.GuestImageDigest,
             ArtifactDigest = request.ArtifactDigest,
-            SpecificationJson = request.SpecificationJson,
-            SpecificationDigest = Digest(request.SpecificationJson),
+            SpecificationJson = specificationJson,
+            SpecificationDigest = AssignmentEnvelope.Digest(specificationJson),
             AssignmentTokenHash = HashToken(),
             ReservedCpuCount = request.CpuCount,
             ReservedMemoryMb = request.MemoryMb,
@@ -142,14 +145,15 @@ public sealed class ExecutionWorkloadOrchestrator(
             node.ApprovedAt is null || node.DrainingAt is not null || node.RevokedAt is not null ||
             node.SessionEpoch != sessionEpoch || node.LastHeartbeatAt < now.Subtract(HeartbeatFreshness))
             return [];
-        return await dbContext.ExecutionWorkloadAssignments.AsNoTracking()
+        var assignments = await dbContext.ExecutionWorkloadAssignments.AsNoTracking()
             .Where(x => x.ExecutionNodeId == nodeId && ActiveStatuses.Contains(x.Status) && x.LeaseExpiresAt > now)
             .OrderBy(x => x.AssignedAt)
-            .Select(x => new ExecutionAssignmentLease(
+            .ToListAsync(cancellationToken);
+        return assignments.Select(x => new ExecutionAssignmentLease(
                 x.Id, nodeId, x.FencingEpoch, x.WorkloadKind, x.ProviderId,
                 x.GuestImageDigest, x.ArtifactDigest, x.SpecificationJson,
-                x.SpecificationDigest, x.LeaseExpiresAt!.Value))
-            .ToListAsync(cancellationToken);
+                AssignmentEnvelope.Digest(x.SpecificationJson), x.LeaseExpiresAt!.Value))
+            .ToList();
     }
 
     public async Task<string?> IssueArtifactReadGrantAsync(
@@ -214,28 +218,43 @@ public sealed class ExecutionWorkloadOrchestrator(
         ExecutionWorkloadResult? result,
         CancellationToken cancellationToken = default)
     {
-        var assignment = await dbContext.ExecutionWorkloadAssignments
-            .SingleOrDefaultAsync(x => x.Id == assignmentId && x.ExecutionNodeId == nodeId, cancellationToken);
-        if (assignment is null || assignment.FencingEpoch != fencingEpoch || assignment.LeaseExpiresAt <= timeProvider.GetUtcNow())
-            return false;
-        if (!CanTransition(assignment.Status, status)) return false;
-        var now = timeProvider.GetUtcNow();
-        assignment.Status = status;
-        if (status == ExecutionAssignmentStatus.Running) assignment.StartedAt ??= now;
-        if (status is ExecutionAssignmentStatus.Completed or ExecutionAssignmentStatus.Failed or ExecutionAssignmentStatus.Cancelled)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            assignment.CompletedAt = now;
-            assignment.LeaseExpiresAt = null;
+            var assignment = await dbContext.ExecutionWorkloadAssignments
+                .SingleOrDefaultAsync(x => x.Id == assignmentId && x.ExecutionNodeId == nodeId, cancellationToken);
+            if (assignment is null || assignment.FencingEpoch != fencingEpoch ||
+                assignment.LeaseExpiresAt <= timeProvider.GetUtcNow() || !CanTransition(assignment.Status, status))
+                return false;
+            var now = timeProvider.GetUtcNow();
+            assignment.Status = status;
+            if (status == ExecutionAssignmentStatus.Running) assignment.StartedAt ??= now;
+            if (status is ExecutionAssignmentStatus.Completed or ExecutionAssignmentStatus.Failed or ExecutionAssignmentStatus.Cancelled)
+            {
+                assignment.CompletedAt = now;
+                assignment.LeaseExpiresAt = null;
+            }
+            assignment.FailureCode = Bound(failureCode, 128);
+            assignment.SanitizedFailure = Bound(sanitizedFailure, 2048);
+            if (result is not null)
+            {
+                assignment.ProviderInstanceId = Bound(result.ProviderInstanceId, 256);
+                if (!string.IsNullOrWhiteSpace(result.LogExcerpt))
+                    assignment.ResultLogExcerpt = Bound(result.LogExcerpt, 64 * 1024);
+            }
+            try
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Artifact-grant consumption deliberately rotates concurrency-protected token fields
+                // in another request scope. Reload once so an otherwise valid Node status cannot tear
+                // down the long-lived control stream merely because that security state changed.
+                dbContext.Entry(assignment).State = EntityState.Detached;
+            }
         }
-        assignment.FailureCode = Bound(failureCode, 128);
-        assignment.SanitizedFailure = Bound(sanitizedFailure, 2048);
-        if (result is not null)
-        {
-            assignment.ProviderInstanceId = Bound(result.ProviderInstanceId, 256);
-            assignment.ResultLogExcerpt = Bound(result.LogExcerpt, 64 * 1024);
-        }
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return true;
+        return false;
     }
 
     public async Task<bool> CancelAsync(
@@ -260,10 +279,29 @@ public sealed class ExecutionWorkloadOrchestrator(
     {
         var now = timeProvider.GetUtcNow();
         var expired = await dbContext.ExecutionWorkloadAssignments
+            .Include(x => x.ExecutionNode)
             .Where(x => ActiveStatuses.Contains(x.Status) && x.LeaseExpiresAt <= now)
             .ToListAsync(cancellationToken);
         foreach (var assignment in expired)
         {
+            if (assignment.Status == ExecutionAssignmentStatus.Assigned &&
+                assignment.Attempt >= MaximumUnacknowledgedDeliveryAttempts)
+            {
+                var node = assignment.ExecutionNode;
+                var nodeDescription = node is null
+                    ? assignment.ExecutionNodeId?.ToString("D") ?? "unknown"
+                    : $"{node.MachineName} ({node.Id:D}, version {node.NodeVersion}, session {node.SessionEpoch})";
+                assignment.Status = ExecutionAssignmentStatus.Failed;
+                assignment.CompletedAt = now;
+                assignment.LeaseExpiresAt = null;
+                assignment.FencingEpoch++;
+                assignment.FailureCode = "assignment-not-acknowledged";
+                assignment.SanitizedFailure =
+                    $"Satellite Office {nodeDescription} did not acknowledge signed assignment {assignment.Id:D} " +
+                    $"after {assignment.Attempt} delivery attempts. Check the CSweet.SatelliteOffice.Node log for " +
+                    "a control-session or assignment-envelope error.";
+                continue;
+            }
             assignment.ExecutionNodeId = null;
             assignment.Status = ExecutionAssignmentStatus.Pending;
             assignment.FencingEpoch++;
@@ -303,8 +341,9 @@ public sealed class ExecutionWorkloadOrchestrator(
             .ToListAsync(cancellationToken);
         nodes = nodes.Where(node =>
                 string.Equals(node.ProtocolVersion, "1.0", StringComparison.Ordinal) &&
-                Version.TryParse(node.NodeVersion, out var version) && version >= new Version(1, 0, 0) &&
-                LabelsMatch(pool.RequiredLabelsJson, node.LabelsJson))
+                Version.TryParse(node.NodeVersion, out var version) && version >= new Version(1, 0, 2) &&
+                LabelsMatch(pool.RequiredLabelsJson, node.LabelsJson) &&
+                SecurityPostureAllows(node.LabelsJson, assignment.SpecificationJson))
             .ToList();
         if (nodes.Count == 0) return null;
         var nodeIds = nodes.Select(x => x.Id).ToArray();
@@ -385,9 +424,6 @@ public sealed class ExecutionWorkloadOrchestrator(
             _ => false
         };
 
-    private static string Digest(string value) => "sha256:" + Convert.ToHexStringLower(
-        SHA256.HashData(Encoding.UTF8.GetBytes(value)));
-
     private static string HashToken() => Convert.ToHexStringLower(SHA256.HashData(RandomNumberGenerator.GetBytes(32)));
     private static string Hash(string value) => Convert.ToHexStringLower(
         SHA256.HashData(Encoding.UTF8.GetBytes(value)));
@@ -417,6 +453,42 @@ public sealed class ExecutionWorkloadOrchestrator(
                 string.Equals(value, item.Value, StringComparison.Ordinal));
         }
         catch (JsonException) { return false; }
+    }
+
+    private static bool SecurityPostureAllows(string labelsJson, string specificationJson)
+    {
+        try
+        {
+            var labels = JsonSerializer.Deserialize<Dictionary<string, string>>(labelsJson) ?? [];
+            var profile = labels.GetValueOrDefault("csweet.security.profile") ?? "baseline";
+            if (!string.Equals(profile, "development", StringComparison.Ordinal)) return true;
+            if (!string.Equals(labels.GetValueOrDefault("csweet.security.development-assignments"), "true", StringComparison.Ordinal))
+                return false;
+            using var specification = JsonDocument.Parse(specificationJson);
+            return specification.RootElement.TryGetProperty("allowDevelopmentSecurityPosture", out var allowed) &&
+                allowed.ValueKind == JsonValueKind.True;
+        }
+        catch (JsonException) { return false; }
+    }
+
+    private static string BindSecurityPolicy(string specificationJson, bool allowDevelopmentSecurityPosture)
+    {
+        using var document = JsonDocument.Parse(specificationJson);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("The workload specification must be a JSON object.", nameof(specificationJson));
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (string.Equals(property.Name, "allowDevelopmentSecurityPosture", StringComparison.Ordinal)) continue;
+                property.WriteTo(writer);
+            }
+            writer.WriteBoolean("allowDevelopmentSecurityPosture", allowDevelopmentSecurityPosture);
+            writer.WriteEndObject();
+        }
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
     private static bool IsSha256(string value) => value.Length == 71 && value.StartsWith("sha256:", StringComparison.Ordinal) &&
         value.AsSpan(7).IndexOfAnyExcept("0123456789abcdef") < 0;

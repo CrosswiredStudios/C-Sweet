@@ -89,7 +89,10 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
 var executionGateway = builder.AddProject<Projects.CSweet_ExecutionGateway>("executiongateway")
     .WithHttpsEndpoint(name: "https")
     .WithReference(postgres)
+    .WithReference(agentHostEndpoint)
+    .WithEnvironment("CSweet__AgentRuntime__AgentHostBroker__BaseUrl", agentHostEndpoint)
     .WaitFor(postgres)
+    .WaitFor(agentHost)
     .WaitForCompletion(migrator);
 executionGateway
     .WithEnvironment("CSweet__ExecutionFleet__PublicLaunchEnabled", "true")

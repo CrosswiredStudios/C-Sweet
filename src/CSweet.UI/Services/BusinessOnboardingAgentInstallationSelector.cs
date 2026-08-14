@@ -4,6 +4,9 @@ namespace CSweet.UI.Services;
 
 public static class BusinessOnboardingAgentInstallationSelector
 {
+    public static bool RequiresBuildRetry(AgentInstallationResponse installation) =>
+        installation.Build?.Status is "Failed" or "Cancelled";
+
     public static AgentInstallationResponse? FindReusable(
         IReadOnlyList<AgentInstallationResponse> installations,
         Guid packageVersionId,

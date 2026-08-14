@@ -113,6 +113,61 @@ public sealed class AgentBrokerGrantTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
     }
 
+    [Fact]
+    public async Task HostSession_AcceptsAuthenticatedRuntimeDiagnosticStream()
+    {
+        var grant = Valid();
+        var streamHandler = new CaptureStreamHandler();
+        var session = new GuestBrokerHostSession(
+            grant, new DenyHandler(), TimeProvider.System, streamHandler);
+        var guestToHost = new Pipe();
+        var hostToGuest = new Pipe();
+        await using var guestOutput = guestToHost.Writer.AsStream();
+        await using var guestInput = hostToGuest.Reader.AsStream();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var run = session.RunAsync(
+            guestToHost.Reader.AsStream(),
+            hostToGuest.Writer.AsStream(),
+            cancellation.Token);
+
+        var identity = new ExpectedGuestIdentity(
+            grant.WorkloadId,
+            grant.ChannelId,
+            grant.GuestImageDigest,
+            grant.ArtifactDigest,
+            grant.BootToken,
+            grant.ExpiresAt,
+            grant.ProtocolVersion);
+        using var handshake = new GuestHandshakeClient(identity, TimeProvider.System);
+        await WriteGuestAsync(guestOutput, grant, new GuestEnvelope { Hello = handshake.CreateHello() }, cancellation.Token);
+        var challenge = await ReadHostAsync(guestInput, grant, cancellation.Token);
+        await WriteGuestAsync(guestOutput, grant, new GuestEnvelope
+        {
+            Proof = handshake.Answer(challenge.Challenge)
+        }, cancellation.Token);
+        var lease = await ReadHostAsync(guestInput, grant, cancellation.Token);
+        Assert.True(lease.Lease.Accepted);
+
+        await WriteGuestAsync(guestOutput, grant, new GuestEnvelope
+        {
+            StreamChunk = new StreamChunk
+            {
+                StreamId = "runtime.logs",
+                Sequence = 0,
+                Content = Google.Protobuf.ByteString.CopyFromUtf8("runtime ready")
+            }
+        }, cancellation.Token);
+        await WriteGuestAsync(guestOutput, grant, new GuestEnvelope
+        {
+            Exit = new GuestExit { ExitCode = 0, ReasonCode = "completed" }
+        }, cancellation.Token);
+
+        await run;
+        var received = Assert.Single(streamHandler.Chunks);
+        Assert.Equal("runtime.logs", received.StreamId);
+        Assert.Equal("runtime ready", System.Text.Encoding.UTF8.GetString(received.Content.Span));
+    }
+
     private static GuestEnvelope ProxyEnvelope(AgentBrokerGrant grant, string requestId, string path) => new()
     {
         ProtocolVersion = grant.ProtocolVersion,
@@ -161,6 +216,20 @@ public sealed class AgentBrokerGrantTests
             BrokerOperationContext request,
             CancellationToken cancellationToken) =>
             throw new UnauthorizedAccessException();
+    }
+
+    private sealed class CaptureStreamHandler : IGuestBrokerStreamHandler
+    {
+        public List<GuestBrokerStreamContext> Chunks { get; } = [];
+
+        public Task HandleAsync(
+            GuestBrokerStreamContext chunk,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Chunks.Add(chunk);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class ConcurrentHandler : IAgentBrokerOperationHandler

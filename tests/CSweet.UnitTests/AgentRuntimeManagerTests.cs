@@ -568,6 +568,35 @@ public sealed class AgentRuntimeManagerTests
     }
 
     [Fact]
+    public async Task ExpiredMcpSessionWindow_DoesNotEraseBrokerDiagnosticsWhenProviderLogsAreEmpty()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(),
+            TickId = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+            BrokerTokenHash = new string('0', 64),
+            RuntimeDeadlineAt = DateTimeOffset.UtcNow.AddMinutes(5),
+            IsolationProviderId = "test-vm",
+            ProviderInstanceId = "unresponsive-vm",
+            LogExcerpt = "Authenticated guest diagnostic"
+        };
+        runtime.TransitionTo(AgentRuntimeStatus.Starting, DateTimeOffset.UtcNow.AddMinutes(-2));
+        runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow.AddSeconds(-31));
+        db.AgentRuntimeInstances.Add(runtime);
+        await db.SaveChangesAsync();
+        var containers = new FakeRunner { Logs = string.Empty };
+
+        Assert.Equal(1, await CreateManager(db, containers).ReconcileAsync());
+
+        Assert.Equal(AgentRuntimeStatus.McpSessionTimedOut, runtime.Status);
+        Assert.Equal("Authenticated guest diagnostic", runtime.LogExcerpt);
+    }
+
+    [Fact]
     public async Task InterruptedStoppingRuntime_IsRecoveredAndReleasesInstallationSlot()
     {
         await using var db = CreateDb();

@@ -119,9 +119,31 @@
                             <MudText Typo="Typo.h6">@node.Name</MudText>
                             <MudText Typo="Typo.body2">@node.MachineName - @node.OperatingSystem/@node.Architecture - @node.AllocatableCpuCount CPU / @node.AllocatableMemoryMb MB</MudText>
                             <MudText Typo="Typo.caption">Certificate @Short(node.CertificateThumbprint); last heartbeat @Heartbeat(node.LastHeartbeatAt)</MudText>
+                            @if (node.Labels.TryGetValue("csweet.security.profile", out var securityProfile))
+                            {
+                                var mixedUse = node.Labels.GetValueOrDefault("csweet.security.mixed-use") == "true";
+                                <MudAlert Severity="@(securityProfile == "hardened" && !mixedUse ? Severity.Success : Severity.Warning)"
+                                          Dense="true" Class="mt-2">
+                                    Security posture: @securityProfile@((mixedUse ? " on a mixed-use host" : " on a dedicated host")).
+                                    @if (securityProfile == "development")
+                                    {
+                                        <span> Vulnerable development placement is enabled. Use only disposable test data and credentials.</span>
+                                    }
+                                    else if (mixedUse)
+                                    {
+                                        <span> Other software and administrators on this machine remain inside the trusted host boundary.</span>
+                                    }
+                                </MudAlert>
+                            }
                             @foreach (var provider in node.Providers)
                             {
-                                <MudText Typo="Typo.caption">@provider.ProviderId - image @Short(provider.GuestImageDigest) - certification @provider.CertificationSuiteVersion</MudText>
+                                <MudText Typo="Typo.caption" Color="@(provider.IsAvailable ? Color.Success : Color.Warning)">
+                                    @provider.ProviderId - @(provider.IsAvailable ? "certified and available" : "unavailable") - image @Short(provider.GuestImageDigest) - certification @provider.CertificationSuiteVersion
+                                    @if (!provider.IsAvailable && !string.IsNullOrWhiteSpace(provider.UnavailableReason))
+                                    {
+                                        <span>: @provider.UnavailableReason</span>
+                                    }
+                                </MudText>
                             }
                             <MudTextField Label="Satellite Office labels" HelperText="key=value, comma separated"
                                           @bind-Value="_nodeLabelEdits[node.Id]" Class="mt-2" />
@@ -187,7 +209,9 @@
                     _poolEdits[pool.Id] = PoolEditModel.From(pool);
                 _nodeLabelEdits.Clear();
                 foreach (var node in _fleet.Nodes)
-                    _nodeLabelEdits[node.Id] = string.Join(',', node.Labels.Select(x => $"{x.Key}={x.Value}"));
+                    _nodeLabelEdits[node.Id] = string.Join(',', node.Labels
+                        .Where(x => !x.Key.StartsWith("csweet.security.", StringComparison.Ordinal))
+                        .Select(x => $"{x.Key}={x.Value}"));
             }
         }
         finally { _loading = false; }

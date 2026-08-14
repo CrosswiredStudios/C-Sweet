@@ -307,9 +307,20 @@ public sealed class CommunicationHubServiceTests
             ConsecutiveStartupFailures = 3,
             AutomaticStartSuppressedAt = DateTimeOffset.UtcNow
         };
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(),
+            TickId = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        };
+        runtime.TransitionTo(
+            AgentRuntimeStatus.Failed,
+            DateTimeOffset.UtcNow,
+            "The authenticated guest broker protocol was rejected.");
         agent.AgentInstallationId = installation.Id;
         agent.AgentInstallation = installation;
-        db.AddRange(organization, owner, agent, installation);
+        db.AddRange(organization, owner, agent, installation, runtime);
         await db.SaveChangesAsync();
         var service = CreateService(db);
         var direct = await service.CreateAsync(
@@ -324,9 +335,11 @@ public sealed class CommunicationHubServiceTests
         var person = Assert.Single(hub.People, x => x.Id == agent.Id);
         Assert.Equal(CommunicationPresenceStatuses.Unhealthy, person.PresenceStatus);
         Assert.Contains("suppressed", person.PresenceDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("guest broker protocol", person.PresenceDetail, StringComparison.OrdinalIgnoreCase);
         var refreshedChat = Assert.Single(hub.Chats, x => x.Id == directChat.Id);
         var participant = Assert.Single(refreshedChat.Participants, x => x.OrganizationUserId == agent.Id);
         Assert.Equal(CommunicationPresenceStatuses.Unhealthy, participant.PresenceStatus);
+        Assert.Contains("guest broker protocol", participant.PresenceDetail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

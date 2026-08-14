@@ -164,6 +164,21 @@
                         <div class="hub-notice">@_notice</div>
                     }
 
+                    @if (SelectedUnavailableAgent is { } unavailableAgent)
+                    {
+                        <section class="hub-agent-status @PresenceClass(unavailableAgent.PresenceStatus)"
+                                 role="status" aria-live="polite">
+                            <MudIcon Icon="@(unavailableAgent.PresenceStatus == CommunicationPresenceStatuses.Unhealthy
+                                ? Icons.Material.Outlined.ErrorOutline
+                                : Icons.Material.Outlined.Info)" />
+                            <div>
+                                <strong>@unavailableAgent.DisplayName @(unavailableAgent.PresenceStatus == CommunicationPresenceStatuses.Starting ? "is starting" : "is unavailable")</strong>
+                                <span>@(unavailableAgent.PresenceDetail ?? "The agent runtime is not available.")</span>
+                            </div>
+                            <a href="/settings/agents">Review diagnostics</a>
+                        </section>
+                    }
+
                     @foreach (var coordination in _coordinationSessions)
                     {
                         <section class="hub-coordination-card" aria-label="Active agent collaboration">
@@ -672,6 +687,11 @@
     private string ComposerPlaceholder => _selected is null ? "Message" :
         $"Message {(_selected.IsDirect ? _selected.Title : $"#{_selected.Title}")}";
     private bool HasActiveTurn => _turns.Values.Any(x => !IsTerminal(x.Turn.Status));
+    private CommunicationParticipantResponse? SelectedUnavailableAgent => _selected?.IsDirect == true
+        ? _selected.Participants.FirstOrDefault(x =>
+            x.EmployeeType == "Agent" &&
+            x.PresenceStatus != CommunicationPresenceStatuses.Available)
+        : null;
     private bool ComposerBlocked => _selected?.IsDirect == true && HasActiveTurn;
     private TurnView? BlockingTurn => _selected?.IsDirect == true
         ? _turns.Values

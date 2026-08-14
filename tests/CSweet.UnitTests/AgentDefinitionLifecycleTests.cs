@@ -20,7 +20,7 @@ public sealed class AgentDefinitionLifecycleTests
         var package = SeedPackage(db, AgentPackageVersionStatus.Previewed, requiredConfiguration: false);
         await db.SaveChangesAsync();
 
-        var definition = await new AgentDefinitionService(db, new TestAuditEventWriter())
+        var definition = await new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db))
             .ImportAsync(package.Id, Request("AlwaysOn"));
 
         Assert.Equal(AgentDefinitionStatus.Building.ToString(), definition.Status);
@@ -40,11 +40,40 @@ public sealed class AgentDefinitionLifecycleTests
         package.ArtifactSignature = "test-signature";
         await db.SaveChangesAsync();
 
-        var definition = await new AgentDefinitionService(db, new TestAuditEventWriter())
+        var definition = await new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db))
             .ImportAsync(package.Id, Request("Manual"));
 
         Assert.False(definition.IsAvailableForHire);
         Assert.Equal(AgentDefinitionStatus.NeedsConfiguration.ToString(), definition.Status);
+        Assert.Empty(await db.AgentInstallations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task RetryBuild_QueuesTheDefinitionsPackageInsteadOfLookingForAnInstallation()
+    {
+        await using var db = CreateDb();
+        var package = SeedPackage(db, AgentPackageVersionStatus.Failed, requiredConfiguration: false);
+        var definition = SeedDefinition(db, package, ActivationMode.AlwaysOn);
+        definition.Status = AgentDefinitionStatus.BuildFailed;
+        definition.IsAvailableForHire = false;
+        var failedJob = new AgentBuildJob
+        {
+            Id = Guid.NewGuid(), PackageVersionId = package.Id, PackageVersion = package,
+            Attempt = 1, QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        };
+        failedJob.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
+        db.AgentBuildJobs.Add(failedJob);
+        await db.SaveChangesAsync();
+        var builds = new RecordingBuildService(db);
+        var service = new AgentDefinitionService(db, new TestAuditEventWriter(), builds);
+
+        var result = await service.RetryBuildAsync(definition.Id);
+
+        Assert.Equal(package.Id, builds.QueuedPackageVersionId);
+        Assert.Equal(AgentDefinitionStatus.Building.ToString(), result.Status);
+        Assert.False(result.IsAvailableForHire);
+        Assert.Equal("Queued", result.Build?.Status);
+        Assert.Equal(2, result.Build?.Attempt);
         Assert.Empty(await db.AgentInstallations.ToListAsync());
     }
 
@@ -225,5 +254,34 @@ public sealed class AgentDefinitionLifecycleTests
         public Task<int> EnsureAlwaysOnRuntimesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<int> ProcessDueSchedulesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<int> ReconcileAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+    }
+
+    private sealed class RecordingBuildService(CSweetDbContext db) : IAgentBuildService
+    {
+        public Guid? QueuedPackageVersionId { get; private set; }
+
+        public async Task<Guid> QueueAsync(
+            Guid packageVersionId,
+            CancellationToken cancellationToken = default)
+        {
+            QueuedPackageVersionId = packageVersionId;
+            var package = await db.AgentPackageVersions.Include(x => x.BuildJobs)
+                .SingleAsync(x => x.Id == packageVersionId, cancellationToken);
+            var job = new AgentBuildJob
+            {
+                Id = Guid.NewGuid(),
+                PackageVersionId = packageVersionId,
+                PackageVersion = package,
+                Attempt = (package.BuildJobs.Max(x => (int?)x.Attempt) ?? 0) + 1,
+                QueuedAt = DateTimeOffset.UtcNow
+            };
+            package.Status = AgentPackageVersionStatus.Approved;
+            db.AgentBuildJobs.Add(job);
+            await db.SaveChangesAsync(cancellationToken);
+            return job.Id;
+        }
+
+        public Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
     }
 }

@@ -22,7 +22,7 @@ public sealed class ExecutionFleetService(
     IOptions<AgentRuntimeManagerOptions>? runtimeOptions = null) : IExecutionFleetService
 {
     private const string CurrentProtocolVersion = "1.0";
-    private static readonly Version MinimumNodeVersion = new(1, 0, 0);
+    private static readonly Version MinimumNodeVersion = new(1, 0, 2);
     private static readonly TimeSpan EnrollmentLifetime = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan HeartbeatFreshness = TimeSpan.FromSeconds(30);
     private bool FleetEnabled => fleetOptions?.Value.PublicLaunchEnabled == true;
@@ -261,6 +261,7 @@ public sealed class ExecutionFleetService(
             CertificateSerialNumber = NormalizeHex(request.CertificateSerialNumber),
             CertificateExpiresAt = request.CertificateExpiresAt.ToUniversalTime(),
             CertificateSigningRequestPem = request.CertificateSigningRequestPem.Trim(),
+            LabelsJson = SecurityPostureLabels(request.SecurityPosture),
             AllocatableCpuCount = request.AllocatableCpuCount,
             AllocatableMemoryMb = request.AllocatableMemoryMb,
             AllocatableDiskMb = request.AllocatableDiskMb,
@@ -316,7 +317,7 @@ public sealed class ExecutionFleetService(
         node.Status = ExecutionNodeStatus.Ready;
         node.CertificateThumbprint = NormalizeHex(issued.Thumbprint);
         node.CertificateSerialNumber = NormalizeHex(issued.SerialNumber);
-        node.CertificateExpiresAt = issued.ExpiresAt;
+        node.CertificateExpiresAt = issued.ExpiresAt.ToUniversalTime();
         node.IssuedCertificateBase64 = issued.CertificateBase64;
         node.LastHeartbeatAt = null;
         node.ApprovedAt = now;
@@ -382,6 +383,7 @@ public sealed class ExecutionFleetService(
         node.AllocatableMemoryMb = request.AllocatableMemoryMb;
         node.AllocatableDiskMb = request.AllocatableDiskMb;
         node.MaximumConcurrentWorkloads = request.MaximumConcurrentWorkloads;
+        node.LabelsJson = SecurityPostureLabels(request.SecurityPosture, node.LabelsJson);
         node.LastHeartbeatAt = now;
         node.UpdatedAt = now;
         SynchronizeProviderInventory(node, request.Providers, now);
@@ -448,7 +450,7 @@ public sealed class ExecutionFleetService(
                 ?? throw new InvalidOperationException("The execution-node certificate authority is unavailable.");
             node.CertificateThumbprint = NormalizeHex(issued.Thumbprint);
             node.CertificateSerialNumber = NormalizeHex(issued.SerialNumber);
-            node.CertificateExpiresAt = issued.ExpiresAt;
+            node.CertificateExpiresAt = issued.ExpiresAt.ToUniversalTime();
             node.IssuedCertificateBase64 = issued.CertificateBase64;
             node.UpdatedAt = now;
             return true;
@@ -674,6 +676,29 @@ public sealed class ExecutionFleetService(
     {
         try { return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? []; }
         catch (JsonException) { return new Dictionary<string, string>(); }
+    }
+
+    private static string SecurityPostureLabels(
+        SatelliteOfficeSecurityPostureReport? posture,
+        string existingJson = "{}")
+    {
+        var labels = DeserializeLabels(existingJson).ToDictionary(item => item.Key, item => item.Value,
+            StringComparer.Ordinal);
+        foreach (var key in labels.Keys.Where(key => key.StartsWith("csweet.security.", StringComparison.Ordinal)).ToArray())
+            labels.Remove(key);
+        if (posture is null) return JsonSerializer.Serialize(labels);
+        var profile = posture.Profile.Trim().ToLowerInvariant();
+        if (profile is not ("baseline" or "hardened" or "development") ||
+            posture.EvaluatedAt > DateTimeOffset.UtcNow.AddMinutes(5) ||
+            posture.EnabledControls.Count > 64 || posture.MissingControls.Count > 64 ||
+            profile == "development" && !posture.DevelopmentAssignmentsAllowed ||
+            profile == "hardened" && posture.MissingControls.Count != 0)
+            throw new ArgumentException("The Satellite Office security posture report is invalid.");
+        labels["csweet.security.profile"] = profile;
+        labels["csweet.security.mixed-use"] = posture.MixedUseHost ? "true" : "false";
+        labels["csweet.security.development-assignments"] = posture.DevelopmentAssignmentsAllowed ? "true" : "false";
+        labels["csweet.security.missing-controls"] = posture.MissingControls.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return JsonSerializer.Serialize(labels);
     }
 
     private static ExecutionEnrollmentResponse Map(ExecutionNodeEnrollment enrollment) => new(

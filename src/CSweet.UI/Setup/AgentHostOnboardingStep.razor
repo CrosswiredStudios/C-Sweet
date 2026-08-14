@@ -278,9 +278,13 @@
             var result = await SetupApi.ApproveExecutionNodeAsync(nodeId);
             Apply(result);
         }
+        catch (ApiClientException exception)
+        {
+            SetAction(false, $"The C-Sweet control plane could not complete approval. {exception.Message}");
+        }
         catch
         {
-            SetAction(false, "This C-Sweet Satellite Office could not be approved. Check the host and try again.");
+            SetAction(false, "The C-Sweet control plane could not complete approval. Check the server logs and try again.");
         }
         finally
         {
@@ -549,6 +553,12 @@
                         <span class="host-section-kicker">Approval required</span>
                         <h3>@node.MachineName</h3>
                         <p>@DisplayPlatform(node) · C-Sweet Satellite Office @node.NodeVersion</p>
+                        @if (node.Providers.Any(provider => !provider.IsAvailable))
+                        {
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                                This host has unavailable isolation controls. It cannot receive agent work until its certified provider is healthy.
+                            </MudAlert>
+                        }
                         <details>
                             <summary>Identity details</summary>
                             <span>Certificate fingerprint</span>

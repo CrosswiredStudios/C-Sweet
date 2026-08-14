@@ -14,7 +14,8 @@ public sealed record ExecutionWorkloadRequest(
     int CpuCount,
     int MemoryMb,
     int DiskMb,
-    string SpecificationJson);
+    string SpecificationJson,
+    bool AllowDevelopmentSecurityPosture = false);
 
 public sealed record ExecutionWorkloadReference(Guid AssignmentId, long FencingEpoch);
 

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using CSweet.AgentBroker;
 using Microsoft.Extensions.Logging;
 
@@ -28,6 +29,8 @@ public sealed class AgentHostBrokerOperationHandler(
     AgentHostBrokerOptions options,
     ILogger<AgentHostBrokerOperationHandler> logger) : IAgentBrokerOperationHandler
 {
+    private readonly ConcurrentDictionary<Guid, byte> _observedWorkloads = new();
+
     private static readonly HashSet<string> HopByHopHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Connection",
@@ -46,6 +49,13 @@ public sealed class AgentHostBrokerOperationHandler(
     {
         if (!string.Equals(request.Purpose, "mcp.runtime", StringComparison.Ordinal))
             throw new UnauthorizedAccessException("The requested broker purpose is not available through AgentHost.");
+        if (_observedWorkloads.TryAdd(request.WorkloadId, 0))
+        {
+            logger.LogInformation(
+                "Received the first authenticated MCP broker request for workload {WorkloadId}, installation {InstallationId}.",
+                request.WorkloadId,
+                request.InstallationId);
+        }
         var client = httpClientFactory.CreateClient(nameof(AgentHostBrokerOperationHandler));
         using var message = new HttpRequestMessage(new HttpMethod(request.Method), request.Path);
         if (!request.Body.IsEmpty)
@@ -61,34 +71,50 @@ public sealed class AgentHostBrokerOperationHandler(
         }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
-        using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-        var body = await ReadBoundedAsync(
-            response.Content,
-            options.MaximumResponseBytes,
-            timeout.Token);
-        var headers = response.Headers
-            .Concat(response.Content.Headers)
-            .Where(header =>
-                !header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) &&
-                !HopByHopHeaders.Contains(header.Key))
-            .ToDictionary(header => header.Key, header => string.Join(",", header.Value), StringComparer.OrdinalIgnoreCase);
-        if (response.IsSuccessStatusCode)
+        HttpResponseMessage response;
+        try
         {
-            logger.LogDebug(
-                "AgentHost broker request {RequestId} for workload {WorkloadId} completed with HTTP {StatusCode}.",
-                request.RequestId,
-                request.WorkloadId,
-                (int)response.StatusCode);
+            response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         }
-        else
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning(
-                "AgentHost broker request {RequestId} for workload {WorkloadId} returned HTTP {StatusCode}.",
-                request.RequestId,
+                exception,
+                "AgentHost forwarding failed for authenticated workload {WorkloadId}, request {RequestId}.",
                 request.WorkloadId,
-                (int)response.StatusCode);
+                request.RequestId);
+            throw;
         }
-        return new BrokerOperationResult((int)response.StatusCode, headers, body);
+        using (response)
+        {
+            var body = await ReadBoundedAsync(
+                response.Content,
+                options.MaximumResponseBytes,
+                timeout.Token);
+            var headers = response.Headers
+                .Concat(response.Content.Headers)
+                .Where(header =>
+                    !header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) &&
+                    !HopByHopHeaders.Contains(header.Key))
+                .ToDictionary(header => header.Key, header => string.Join(",", header.Value), StringComparer.OrdinalIgnoreCase);
+            if (response.IsSuccessStatusCode)
+            {
+                logger.LogDebug(
+                    "AgentHost broker request {RequestId} for workload {WorkloadId} completed with HTTP {StatusCode}.",
+                    request.RequestId,
+                    request.WorkloadId,
+                    (int)response.StatusCode);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "AgentHost broker request {RequestId} for workload {WorkloadId} returned HTTP {StatusCode}.",
+                    request.RequestId,
+                    request.WorkloadId,
+                    (int)response.StatusCode);
+            }
+            return new BrokerOperationResult((int)response.StatusCode, headers, body);
+        }
     }
 
     private static async Task<ReadOnlyMemory<byte>> ReadBoundedAsync(

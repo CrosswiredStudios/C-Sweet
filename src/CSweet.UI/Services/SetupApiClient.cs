@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
+using System.Text.Json;
 using CSweet.Contracts.Setup;
 
 namespace CSweet.UI.Services;
@@ -114,8 +115,20 @@ public sealed class SetupApiClient : ISetupApiClient
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
-        var result = await response.Content.ReadFromJsonAsync<ExecutionCapacityActionResponse>(cancellationToken);
-        return result ?? throw new ApiClientException(response.StatusCode,
-            $"Execution-capacity request failed with {(int)response.StatusCode}.");
+        try
+        {
+            var result = await response.Content.ReadFromJsonAsync<ExecutionCapacityActionResponse>(cancellationToken);
+            if (result is not null)
+                return result;
+        }
+        catch (JsonException) when (!response.IsSuccessStatusCode)
+        {
+            // Error middleware may return Problem Details or a non-JSON 500 body.
+        }
+
+        var message = response.IsSuccessStatusCode
+            ? "The C-Sweet server returned an invalid execution-capacity response."
+            : $"The C-Sweet server returned HTTP {(int)response.StatusCode}. Check the server logs and try again.";
+        throw new ApiClientException(response.StatusCode, message);
     }
 }

@@ -6,6 +6,7 @@ using CSweet.SatelliteOffice.Contracts.Workloads;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.Setup;
@@ -15,7 +16,8 @@ public sealed class FleetAgentBuildExecutor(
     CSweetDbContext dbContext,
     IExecutionWorkloadOrchestrator orchestrator,
     IGuestImageRegistry guestImages,
-    IOptions<AgentRuntimeManagerOptions> options) : IPluginBuildExecutor
+    IOptions<AgentRuntimeManagerOptions> options,
+    ILogger<FleetAgentBuildExecutor> logger) : IPluginBuildExecutor
 {
     private const int MinimumBuilderMemoryMb = 4096;
 
@@ -89,18 +91,31 @@ public sealed class FleetAgentBuildExecutor(
             workload.ResourceLimits.WritableDiskMegabytes,
             JsonSerializer.Serialize(workload)), cancellationToken);
 
-        await progress.ReportAsync(new AgentBuildProgressUpdate(
-            AgentBuildStepKeys.Isolate, AgentBuildStepStatuses.InProgress,
-            "Waiting for a certified execution node."), cancellationToken);
+        string? reportedState = null;
         try
         {
             while (true)
             {
                 var assignment = await ReadAsync(reference.AssignmentId, cancellationToken);
-                if (assignment.Status == ExecutionAssignmentStatus.Running)
+                var state = ProgressState(assignment);
+                if (!string.Equals(reportedState, state.Key, StringComparison.Ordinal))
+                {
+                    logger.LogInformation(
+                        "Builder assignment {AssignmentId} for build {BuildJobId} is {AssignmentStatus} " +
+                        "on attempt {Attempt} using node {ExecutionNodeId} and provider {ProviderId}. Failure code: {FailureCode}",
+                        assignment.Id,
+                        request.BuildJobId,
+                        assignment.Status,
+                        assignment.Attempt,
+                        assignment.ExecutionNodeId,
+                        assignment.ProviderId,
+                        assignment.FailureCode);
                     await progress.ReportAsync(new AgentBuildProgressUpdate(
-                        AgentBuildStepKeys.Isolate, AgentBuildStepStatuses.Succeeded,
-                        $"Builder is running on execution node {assignment.ExecutionNodeId}."), cancellationToken);
+                        AgentBuildStepKeys.Isolate,
+                        state.Succeeded ? AgentBuildStepStatuses.Succeeded : AgentBuildStepStatuses.InProgress,
+                        state.Detail), cancellationToken);
+                    reportedState = state.Key;
+                }
                 if (assignment.Status == ExecutionAssignmentStatus.Completed)
                     return Result(assignment, workspace.LogPath);
                 if (assignment.Status is ExecutionAssignmentStatus.Failed or ExecutionAssignmentStatus.Fenced or
@@ -132,7 +147,42 @@ public sealed class FleetAgentBuildExecutor(
             .FirstOrDefault(x => x.Entity.Id == id);
         if (tracked is not null) await tracked.ReloadAsync(cancellationToken);
         return await dbContext.ExecutionWorkloadAssignments.AsNoTracking()
+            .Include(x => x.ExecutionNode)
             .SingleAsync(x => x.Id == id, cancellationToken);
+    }
+
+    internal static AssignmentProgressState ProgressState(ExecutionWorkloadAssignment assignment)
+    {
+        var node = assignment.ExecutionNode;
+        var nodeLabel = node is null
+            ? assignment.ExecutionNodeId?.ToString("D") ?? "an eligible Satellite Office"
+            : $"{node.MachineName} (version {node.NodeVersion})";
+        var retry = assignment.Attempt > 1
+            ? $" Retry attempt {assignment.Attempt}."
+            : string.Empty;
+        var priorFailure = assignment.Attempt > 1 && !string.IsNullOrWhiteSpace(assignment.SanitizedFailure)
+            ? $" Previous attempt: {assignment.SanitizedFailure}"
+            : string.Empty;
+        var detail = assignment.Status switch
+        {
+            ExecutionAssignmentStatus.Pending =>
+                $"No eligible certified Satellite Office currently matches this build.{retry}{priorFailure}",
+            ExecutionAssignmentStatus.Assigned =>
+                $"Dispatched to {nodeLabel}; waiting for it to accept the signed assignment.{retry}",
+            ExecutionAssignmentStatus.Starting =>
+                $"{nodeLabel} accepted the assignment and is preparing provider {assignment.ProviderId}.{retry}",
+            ExecutionAssignmentStatus.Running =>
+                $"The isolated builder VM started on {nodeLabel}; waiting for its authenticated guest channel to connect.",
+            ExecutionAssignmentStatus.Stopping =>
+                $"The isolated builder on {nodeLabel} is stopping and finalizing its result.",
+            ExecutionAssignmentStatus.Completed =>
+                $"The isolated builder completed on {nodeLabel}.",
+            _ => assignment.SanitizedFailure ?? $"The distributed builder is {assignment.Status}."
+        };
+        return new AssignmentProgressState(
+            $"{assignment.Status}|{assignment.Attempt}|{assignment.ExecutionNodeId}|{assignment.FailureCode}|{assignment.SanitizedFailure}",
+            detail,
+            assignment.Status == ExecutionAssignmentStatus.Completed);
     }
 
     private static AgentBuildExecutionResult Result(ExecutionWorkloadAssignment assignment, string logPath)
@@ -155,4 +205,6 @@ public sealed class FleetAgentBuildExecutor(
             assignment.ResultArtifactOperatingSystem ?? "linux",
             assignment.ResultArtifactArchitecture ?? "x64");
     }
+
+    internal sealed record AssignmentProgressState(string Key, string Detail, bool Succeeded);
 }

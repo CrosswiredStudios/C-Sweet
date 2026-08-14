@@ -63,6 +63,17 @@ public static class AgentManagementEndpoints
             await definitions.GetAsync(definitionId, cancellationToken) is { } definition
                 ? Results.Ok(definition) : Results.NotFound());
 
+        group.MapPost("/definitions/{definitionId:guid}/retry-build", async (
+            Guid definitionId,
+            IAgentDefinitionService definitions,
+            CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await definitions.RetryBuildAsync(definitionId, cancellationToken)); }
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        })
+            .RequireAuthorization("PluginAdministration")
+            .RequireRateLimiting(AgentRateLimiting.BuildPolicy);
+
         group.MapGet("/definitions/{definitionId:guid}/configuration", async (
             Guid definitionId, IAgentConfigurationService configurations, CancellationToken cancellationToken) =>
         {

@@ -45,6 +45,24 @@ public sealed class ExecutionFleetServiceTests
     }
 
     [Fact]
+    public async Task ApprovalRejectsNodeWithoutReliableSignedAssignmentSupport()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var fleet = CreateFleet(db, clock);
+        await fleet.SelectOnboardingModeAsync(new("remote"));
+        var enrollment = await fleet.CreateEnrollmentAsync();
+        var token = Assert.IsType<string>(enrollment.Enrollment?.EnrollmentToken);
+        var claim = await fleet.ClaimNodeAsync(Claim(token, satelliteOfficeVersion: "1.0.0"));
+
+        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+
+        Assert.False(approval.Succeeded);
+        Assert.Contains("version 1.0.2 or later", approval.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Enrollment_NormalizesIncomingCertificateAndCertificationTimesToUtc()
     {
         await using var db = CreateDb();
@@ -70,6 +88,23 @@ public sealed class ExecutionFleetServiceTests
         Assert.Equal(TimeSpan.Zero, node.CertificateExpiresAt?.Offset);
         Assert.Equal(TimeSpan.Zero, Assert.Single(node.Providers).CertifiedAt.Offset);
         Assert.Equal(TimeSpan.Zero, Assert.Single(node.Providers).CertificationExpiresAt?.Offset);
+    }
+
+    [Fact]
+    public async Task Approval_NormalizesIssuedCertificateExpiryToUtc()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var localExpiry = Now.AddDays(1).ToOffset(TimeSpan.FromHours(-7));
+        var fleet = CreateFleet(db, clock, certificateAuthority: new FixedCertificateAuthority(localExpiry));
+        var enrollment = await fleet.CreateEnrollmentAsync();
+        var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!));
+
+        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+
+        Assert.True(approval.Succeeded);
+        Assert.Equal(TimeSpan.Zero, (await db.ExecutionNodes.SingleAsync()).CertificateExpiresAt?.Offset);
     }
 
     [Fact]
@@ -362,8 +397,11 @@ public sealed class ExecutionFleetServiceTests
         Assert.False((await fleet.GetOnboardingStatusAsync()).IsReady);
     }
 
-    private static ClaimSatelliteOfficeRequest Claim(string token, bool certified = true) => new(
-        token, "node-1", "machine-1", "linux", "x64", "1.0.0", "1.0",
+    private static ClaimSatelliteOfficeRequest Claim(
+        string token,
+        bool certified = true,
+        string satelliteOfficeVersion = "1.0.2") => new(
+        token, "node-1", "machine-1", "linux", "x64", satelliteOfficeVersion, "1.0",
         "AABBCCDD", "0011", Now.AddYears(1),
         "-----BEGIN CERTIFICATE REQUEST-----\n" + new string('A', 128) + "\n-----END CERTIFICATE REQUEST-----",
         4, 4096, 32768, 2,
@@ -377,10 +415,11 @@ public sealed class ExecutionFleetServiceTests
     private static ExecutionFleetService CreateFleet(
         CSweetDbContext db,
         TimeProvider clock,
-        IConfiguration? configuration = null) =>
+        IConfiguration? configuration = null,
+        IExecutionNodeCertificateAuthority? certificateAuthority = null) =>
         new(db, new TestAuditEventWriter(), clock,
             Options.Create(new ExecutionFleetOptions { PublicLaunchEnabled = true }),
-            new FakeCertificateAuthority(clock),
+            certificateAuthority ?? new FakeCertificateAuthority(clock),
             configuration,
             runtimeOptions: Options.Create(new AgentRuntimeManagerOptions
             {
@@ -402,6 +441,12 @@ public sealed class ExecutionFleetServiceTests
         public IssuedExecutionNodeCertificate Issue(string certificateSigningRequestPem, Guid nodeId) =>
             new(Convert.ToBase64String("test-certificate"u8),
                 nodeId.ToString("N"), "1234", clock.GetUtcNow().AddDays(1));
+    }
+
+    private sealed class FixedCertificateAuthority(DateTimeOffset expiresAt) : IExecutionNodeCertificateAuthority
+    {
+        public IssuedExecutionNodeCertificate Issue(string certificateSigningRequestPem, Guid nodeId) =>
+            new(Convert.ToBase64String("test-certificate"u8), nodeId.ToString("N"), "1234", expiresAt);
     }
 
 }

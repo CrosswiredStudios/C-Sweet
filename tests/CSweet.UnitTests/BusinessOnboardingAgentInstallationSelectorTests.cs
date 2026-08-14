@@ -37,6 +37,34 @@ public sealed class BusinessOnboardingAgentInstallationSelectorTests
         Assert.Null(result);
     }
 
+    [Theory]
+    [InlineData("Failed", true)]
+    [InlineData("Cancelled", true)]
+    [InlineData("Queued", false)]
+    [InlineData("Building", false)]
+    [InlineData("Succeeded", false)]
+    public void RequiresBuildRetry_OnlyReturnsTrueForTerminalUnsuccessfulBuilds(
+        string status,
+        bool expected)
+    {
+        var installation = Installation(Guid.NewGuid(), "default") with
+        {
+            Build = new AgentBuildSummaryResponse(
+                Guid.NewGuid(),
+                status,
+                1,
+                DateTimeOffset.UtcNow,
+                null,
+                null,
+                false,
+                status is "Failed" or "Cancelled" ? "Stored failure" : null)
+        };
+
+        Assert.Equal(
+            expected,
+            BusinessOnboardingAgentInstallationSelector.RequiresBuildRetry(installation));
+    }
+
     private static AgentInstallationResponse Installation(
         Guid packageVersionId,
         string businessId,

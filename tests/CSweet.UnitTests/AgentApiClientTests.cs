@@ -1,11 +1,42 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
+using CSweet.Contracts.Agents;
 using CSweet.UI.Services;
 
 namespace CSweet.UnitTests;
 
 public sealed class AgentApiClientTests
 {
+    [Fact]
+    public async Task RetryDefinitionBuildAsync_UsesTheDefinitionRetryRoute()
+    {
+        var definitionId = Guid.NewGuid();
+        HttpRequestMessage? captured = null;
+        var response = new AgentDefinitionResponse(
+            definitionId, Guid.NewGuid(), "com.example.agent", "Example", "1.0.0", "Example",
+            new string('a', 40), "Building", false, "Manual", 3600, "Skip", 600, 512, 50,
+            1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
+            new AgentBuildSummaryResponse(Guid.NewGuid(), "Queued", 2, DateTimeOffset.UtcNow,
+                null, null, false, null));
+        var handler = new StubHandler(request =>
+        {
+            captured = request;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(response), Encoding.UTF8, "application/json")
+            };
+        });
+        var client = new AgentApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://csweet.test/") });
+
+        var result = await client.RetryDefinitionBuildAsync(definitionId);
+
+        Assert.Equal(HttpMethod.Post, captured?.Method);
+        Assert.Equal($"/api/agents/definitions/{definitionId}/retry-build", captured?.RequestUri?.AbsolutePath);
+        Assert.Equal(definitionId, result.Id);
+        Assert.Equal("Queued", result.Build?.Status);
+    }
+
     [Fact]
     public async Task GetConfigurationAsync_RuntimeStarting_DoesNotTreatReadinessAsSchema()
     {

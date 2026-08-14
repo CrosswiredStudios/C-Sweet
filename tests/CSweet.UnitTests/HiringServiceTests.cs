@@ -1147,6 +1147,11 @@ public sealed class HiringServiceTests
                 ? Response()
                 : null);
 
+        public Task<AgentDefinitionResponse> RetryBuildAsync(
+            Guid definitionId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Response());
+
         public void CompleteBuild() => IsAvailableForHire = true;
 
         private AgentDefinitionResponse Response()

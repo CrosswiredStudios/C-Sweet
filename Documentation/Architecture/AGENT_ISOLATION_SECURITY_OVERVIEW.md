@@ -27,7 +27,7 @@ flowchart LR
     end
 
     subgraph PrivilegedHost["Narrow privileged host boundary"]
-        RH["RuntimeHost service"]
+        RH["Privileged authorization and platform boundary"]
     end
 
     subgraph UntrustedVm["Certified Hyper-V VM"]
@@ -66,12 +66,20 @@ flowchart TD
 
 - Docker Desktop and the PostgreSQL container are trusted dependencies. They must be patched and operated like the rest of the host application infrastructure.
 - Untrusted agents never receive the Docker socket, host filesystem mounts, database credentials, or direct private-network access.
-- RuntimeHost has no public network listener and accepts authenticated, bounded local requests.
+- The privileged boundary has no public network listener and accepts authenticated, bounded local requests.
+- The installer pins the persistent Headquarters assignment key over verified TLS before enrollment.
+- Every create request carries the original signed authorization. The privileged boundary independently
+  verifies the office, assignment, workload, provider, canonical specification digest, fencing epoch,
+  issue time, expiry, and signature, then persists replay state before invoking a provider.
+- A gateway restart does not silently change assignment trust. Development uses a persistent local key;
+  non-development deployments must supply a persistent protected key.
 - The agent VM uses a signed base image, ephemeral writable state, no virtual network adapter, and an authenticated broker channel.
 - If certification, signing, authentication, or provider readiness fails, untrusted execution stays disabled.
+- A host may be mixed-use, but that does not improve its assurance. Baseline and hardened controls are
+  surfaced independently. Development-only placement requires explicit opt-in and may use only disposable
+  test resources; it is not a generic "run anyway" switch.
 - Docker availability does not count as agent-isolation readiness, and Hyper-V availability does not replace Docker's application-infrastructure role.
 
 ## Deployment status
 
 The Aspire AppHost is the supported path for current Windows development and end-to-end isolation testing. Docker Compose remains the intended packaging mechanism for trusted core services, but its legacy Docker-agent wiring must be removed before that topology represents the current security architecture. A containerized deployment must not mount the Docker daemon into WorkerHost or claim that a normal application container is an agent security boundary.
-

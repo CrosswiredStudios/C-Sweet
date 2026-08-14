@@ -93,9 +93,56 @@ public sealed class ExecutionBrokerSessionRunner(
             MaximumLogBytes = workload.ResourceLimits.MaximumLogBytes
         };
         start.Entrypoint.AddRange(workload.Entrypoint);
+        var diagnostics = new RuntimeDiagnosticBrokerStreamHandler(
+            workload.WorkloadId, workload.Identity.InstallationId);
         var session = new GuestBrokerHostSession(
-            grant, runtimeOperations, timeProvider, bootConfiguration: boot, startCommand: start);
-        await session.RunAsync(stream, stream, cancellationToken);
+            grant, runtimeOperations, timeProvider, diagnostics, boot, start);
+        logger.LogInformation(
+            "Starting authenticated runtime broker session for assignment {AssignmentId}, workload {WorkloadId}, installation {InstallationId}.",
+            assignment.Id, workload.WorkloadId, workload.Identity.InstallationId);
+        try
+        {
+            await session.RunAsync(stream, stream, cancellationToken);
+            logger.LogInformation(
+                "Authenticated runtime broker session completed for assignment {AssignmentId}, workload {WorkloadId}.",
+                assignment.Id, workload.WorkloadId);
+        }
+        finally
+        {
+            await PersistRuntimeDiagnosticsAsync(
+                assignment, workload.WorkloadId, diagnostics.Latest);
+        }
+    }
+
+    private async Task PersistRuntimeDiagnosticsAsync(
+        ExecutionWorkloadAssignment assignment,
+        Guid workloadId,
+        string? diagnosticExcerpt)
+    {
+        if (string.IsNullOrWhiteSpace(diagnosticExcerpt)) return;
+        try
+        {
+            // The assignment is intentionally fenced/cancelled concurrently when a runtime
+            // startup deadline expires. Persist diagnostics independently of that stale
+            // tracked assignment so its concurrency token cannot roll back the runtime log.
+            await dbContext.AgentRuntimeInstances
+                .Where(x => x.Id == workloadId)
+                .ExecuteUpdateAsync(
+                    updates => updates.SetProperty(x => x.LogExcerpt, diagnosticExcerpt),
+                    CancellationToken.None);
+            await dbContext.ExecutionWorkloadAssignments
+                .Where(x => x.Id == assignment.Id)
+                .ExecuteUpdateAsync(
+                    updates => updates.SetProperty(x => x.ResultLogExcerpt, diagnosticExcerpt),
+                    CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            // Diagnostics must never obscure the workload result or replace the original failure.
+            logger.LogWarning(exception,
+                "Could not persist the bounded runtime diagnostic excerpt for assignment {AssignmentId}, workload {WorkloadId}.",
+                assignment.Id, workloadId);
+        }
     }
 
     private async Task RunBuilderAsync(
@@ -105,6 +152,9 @@ public sealed class ExecutionBrokerSessionRunner(
     {
         var workload = JsonSerializer.Deserialize<BuilderWorkloadSpecification>(assignment.SpecificationJson)
             ?? throw new InvalidDataException("The builder workload specification is empty.");
+        logger.LogInformation(
+            "Starting authenticated builder broker session for assignment {AssignmentId}, workload {WorkloadId}.",
+            assignment.Id, workload.WorkloadId);
         var job = assignment.AgentBuildJob
             ?? throw new InvalidDataException("The builder assignment is not bound to a build job.");
         var package = job.PackageVersion
@@ -194,6 +244,9 @@ public sealed class ExecutionBrokerSessionRunner(
             assignment.ResultArtifactOperatingSystem = result.Artifact.OperatingSystem;
             assignment.ResultArtifactArchitecture = result.Artifact.Architecture;
             await dbContext.SaveChangesAsync(cancellationToken);
+            logger.LogInformation(
+                "Authenticated builder broker session completed for assignment {AssignmentId}, workload {WorkloadId}, artifact {ArtifactDigest}.",
+                assignment.Id, workload.WorkloadId, result.Artifact.Digest);
         }
     }
 }

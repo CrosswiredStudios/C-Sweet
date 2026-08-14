@@ -11,6 +11,7 @@ namespace CSweet.Infrastructure.Setup;
 public sealed class AgentDefinitionService(
     CSweetDbContext db,
     IAuditEventWriter auditWriter,
+    IAgentBuildService buildService,
     IModelCatalogClient? modelCatalog = null) : IAgentDefinitionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -144,6 +145,30 @@ public sealed class AgentDefinitionService(
     {
         var definition = await Query().SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken);
         return definition is null ? null : ToResponse(definition, definition.PackageVersion!);
+    }
+
+    public async Task<AgentDefinitionResponse> RetryBuildAsync(
+        Guid definitionId,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = await db.AgentDefinitions
+            .Include(x => x.PackageVersion).ThenInclude(x => x!.BuildJobs)
+            .SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken)
+            ?? throw new AgentInstallationException("The agent definition was not found.");
+        var package = definition.PackageVersion
+            ?? throw new AgentInstallationException("The agent definition package was not found.");
+        await buildService.QueueAsync(package.Id, cancellationToken);
+        definition.Status = AgentDefinitionStatus.Building;
+        definition.IsAvailableForHire = false;
+        definition.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        await auditWriter.WriteAsync(
+            "agent-definition.build-retry-requested",
+            nameof(AgentDefinition),
+            definition.Id,
+            $"Queued another build for global definition {package.AgentId} {package.Version}.",
+            cancellationToken: cancellationToken);
+        return ToResponse(definition, package);
     }
 
     private IQueryable<AgentDefinition> Query() => db.AgentDefinitions.AsNoTracking()

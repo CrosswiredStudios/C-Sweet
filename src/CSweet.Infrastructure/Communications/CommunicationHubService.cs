@@ -727,8 +727,12 @@ public sealed class CommunicationHubService(
 
         var schedule = installation.Schedule;
         if (schedule?.AutomaticStartSuppressedAt is not null)
+        {
+            var latestFailure = latestRuntime?.Reason;
             return CommunicationPresence.Unhealthy(
-                $"Automatic startup is suppressed after {schedule.ConsecutiveStartupFailures} consecutive failure(s).");
+                $"Automatic startup is suppressed after {schedule.ConsecutiveStartupFailures} consecutive failure(s)." +
+                (string.IsNullOrWhiteSpace(latestFailure) ? string.Empty : $" Last failure: {latestFailure}"));
+        }
 
         // Presence answers whether the agent can communicate now. A running runtime is
         // available even while a background configuration refresh is converging.

@@ -86,12 +86,19 @@ public static class ExecutionFleetEndpoints
         {
             if (request.Labels.Count > 64 || request.Labels.Any(x =>
                     x.Key.Length is < 1 or > 64 || x.Value.Length > 256 ||
+                    x.Key.StartsWith("csweet.security.", StringComparison.Ordinal) ||
                     x.Key.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.')) ||
                     x.Value.Any(char.IsControl)))
                 return Results.BadRequest();
             var node = await db.ExecutionNodes.SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
             if (node is null) return Results.NotFound();
-            node.LabelsJson = JsonSerializer.Serialize(request.Labels);
+            Dictionary<string, string> labels;
+            try { labels = JsonSerializer.Deserialize<Dictionary<string, string>>(node.LabelsJson) ?? []; }
+            catch (JsonException) { labels = []; }
+            foreach (var key in labels.Keys.Where(key => !key.StartsWith("csweet.security.", StringComparison.Ordinal)).ToArray())
+                labels.Remove(key);
+            foreach (var item in request.Labels) labels[item.Key] = item.Value;
+            node.LabelsJson = JsonSerializer.Serialize(labels);
             node.UpdatedAt = clock.GetUtcNow();
             await db.SaveChangesAsync(cancellationToken);
             return Results.NoContent();

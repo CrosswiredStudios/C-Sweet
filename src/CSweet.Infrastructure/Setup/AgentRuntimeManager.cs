@@ -751,7 +751,12 @@ public sealed class AgentRuntimeManager(
             try
             {
                 var maximumLogBytes = Math.Min(settings.DefaultWorkloadLogLimitMb * 1024 * 1024, 64 * 1024);
-                instance.LogExcerpt = await workloads.GetLogsAsync(handle, maximumLogBytes, cancellationToken);
+                var providerLogs = await workloads.GetLogsAsync(handle, maximumLogBytes, cancellationToken);
+                // The authenticated guest broker streams the useful process diagnostics to
+                // Headquarters. Some remote providers have no separate host-side log buffer;
+                // never let that empty result erase the broker-retained failure details.
+                if (!string.IsNullOrWhiteSpace(providerLogs))
+                    instance.LogExcerpt = providerLogs;
             }
             catch (AgentWorkloadException exception)
             {

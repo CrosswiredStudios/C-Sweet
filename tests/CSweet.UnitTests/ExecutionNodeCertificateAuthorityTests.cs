@@ -40,6 +40,7 @@ public sealed class ExecutionNodeCertificateAuthorityTests
                 reader.ReadCharacterString(UniversalTagNumber.UTF8String));
             reader.ThrowIfNotEmpty();
             Assert.Equal(issued.Thumbprint, certificate.Thumbprint);
+            Assert.Equal(TimeSpan.Zero, issued.ExpiresAt.Offset);
             Assert.True(File.Exists(path));
         }
         finally

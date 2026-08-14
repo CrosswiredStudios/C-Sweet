@@ -71,6 +71,15 @@ public sealed class AgentApiClient : IAgentApiClient
         return ToLegacyDefinition(definition);
     }
 
+    public async Task<AgentInstallationResponse> RetryDefinitionBuildAsync(
+        Guid definitionId,
+        CancellationToken cancellationToken = default) =>
+        ToLegacyDefinition(await SendAsync<AgentDefinitionResponse>(
+            HttpMethod.Post,
+            $"api/agents/definitions/{definitionId}/retry-build",
+            null,
+            cancellationToken));
+
     public async Task<AgentConfigurationView> GetDefinitionConfigurationAsync(
         Guid definitionId, CancellationToken cancellationToken = default) =>
         await _httpClient.GetFromJsonAsync<AgentConfigurationView>(

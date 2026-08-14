@@ -25,12 +25,23 @@ builder.Services.AddSingleton<ExecutionAssignmentSigner>();
 
 var app = builder.Build();
 app.MapGrpcService<SatelliteOfficeGatewayService>();
+app.MapGet("/api/satellite-offices/assignment-trust", (ExecutionAssignmentSigner signer) =>
+    Results.Ok(new HeadquartersAssignmentTrustResponse(
+        signer.KeyId,
+        signer.ExportPublicKeyBase64())));
 app.MapPost("/api/satellite-offices/claim", async (
     ClaimSatelliteOfficeRequest request,
     IExecutionFleetService fleet,
+    ExecutionAssignmentSigner signer,
     CancellationToken cancellationToken) =>
 {
     var result = await fleet.ClaimNodeAsync(request, cancellationToken);
+    if (result.Succeeded)
+        result = result with
+        {
+            AssignmentSigningKeyId = signer.KeyId,
+            AssignmentVerificationPublicKeyBase64 = signer.ExportPublicKeyBase64()
+        };
     return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
 });
 app.MapPost("/api/satellite-offices/{satelliteOfficeId:guid}/heartbeat", async (

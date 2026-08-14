@@ -73,7 +73,7 @@ public sealed class ExecutionNodeCertificateAuthority(
             Convert.ToBase64String(issued.Export(X509ContentType.Cert)),
             issued.Thumbprint,
             issued.SerialNumber,
-            issued.NotAfter);
+            new DateTimeOffset(issued.NotAfter.ToUniversalTime()));
     }
 
     private static X509Extension NodeIdentityExtension(Guid nodeId)
