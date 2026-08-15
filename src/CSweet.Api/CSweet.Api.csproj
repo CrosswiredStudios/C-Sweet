@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup><UsesSatelliteOfficeContracts>true</UsesSatelliteOfficeContracts></PropertyGroup>
+  <PropertyGroup><UsesOfficeContracts>true</UsesOfficeContracts></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\CSweet.Application\CSweet.Application.csproj" />
     <ProjectReference Include="..\CSweet.Contracts\CSweet.Contracts.csproj" />

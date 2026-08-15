@@ -6,7 +6,7 @@ using System.Text.Json;
 using CSweet.AgentBroker;
 using CSweet.ExecutionArtifacts;
 using CSweet.Application.Setup;
-using CSweet.SatelliteOffice.Contracts.Workloads;
+using CSweet.Office.Contracts.Workloads;
 using Microsoft.Extensions.Logging;
 
 namespace CSweet.Infrastructure.Setup;

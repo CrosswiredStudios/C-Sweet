@@ -5,7 +5,7 @@ public sealed class ExecutionFleetOptions
     public const string SectionName = "CSweet:ExecutionFleet";
     public bool PublicLaunchEnabled { get; set; }
     public string ReleaseManifestUrl { get; set; } =
-        "https://github.com/CrosswiredStudios/CSweet.SatelliteOffice/releases/latest/download/satellite-office-release.json";
+        "https://github.com/CrosswiredStudios/CSweet.Office/releases/latest/download/office-release.json";
     public string? WindowsPackageOverrideUrl { get; set; }
     public string? LinuxPackageOverrideUrl { get; set; }
     public string? MacOsPackageOverrideUrl { get; set; }

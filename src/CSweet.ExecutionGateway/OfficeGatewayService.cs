@@ -1,6 +1,6 @@
 using CSweet.AgentBroker;
-using CSweet.SatelliteOffice.Contracts.ControlPlane;
-using CSweet.SatelliteOffice.Contracts.Security;
+using CSweet.Office.Contracts.ControlPlane;
+using CSweet.Office.Contracts.Security;
 using CSweet.Application.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -9,13 +9,13 @@ using Google.Protobuf;
 using Grpc.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using CSweet.SatelliteOffice.Contracts.Workloads;
+using CSweet.Office.Contracts.Workloads;
 using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace CSweet.ExecutionGateway;
 
-public sealed class SatelliteOfficeGatewayService(
+public sealed class OfficeGatewayService(
     CSweetDbContext db,
     IExecutionWorkloadOrchestrator orchestrator,
     IExecutionBrokerSessionRunner brokerSessions,
@@ -23,35 +23,35 @@ public sealed class SatelliteOfficeGatewayService(
     ExecutionArtifactGrantLeaseService artifactGrants,
     ExecutionAssignmentSigner signer,
     TimeProvider timeProvider,
-    ILogger<SatelliteOfficeGatewayService> logger)
-    : SatelliteOfficeGateway.SatelliteOfficeGatewayBase
+    ILogger<OfficeGatewayService> logger)
+    : OfficeGateway.OfficeGatewayBase
 {
     public override async Task Connect(
-        IAsyncStreamReader<SatelliteOfficeControlMessage> requestStream,
+        IAsyncStreamReader<OfficeControlMessage> requestStream,
         IServerStreamWriter<HeadquartersControlMessage> responseStream,
         ServerCallContext context)
     {
         var delivered = new Dictionary<Guid, long>();
         var helloDelivered = false;
         bool? deliveredDrainState = null;
-        Guid? authenticatedSatelliteOfficeId = null;
+        Guid? authenticatedOfficeId = null;
         long sessionEpoch = 0;
         await foreach (var message in requestStream.ReadAllAsync(context.CancellationToken))
         {
-            if (!Guid.TryParse(message.SatelliteOfficeId, out var nodeId) || message.ProtocolVersion != "1.0")
+            if (!Guid.TryParse(message.OfficeId, out var nodeId) || message.ProtocolVersion != "1.0")
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "The node envelope is invalid."));
-            if (authenticatedSatelliteOfficeId is null)
+            if (authenticatedOfficeId is null)
             {
-                authenticatedSatelliteOfficeId = nodeId;
+                authenticatedOfficeId = nodeId;
                 sessionEpoch = message.SessionEpoch;
             }
-            if (authenticatedSatelliteOfficeId != nodeId || sessionEpoch != message.SessionEpoch)
+            if (authenticatedOfficeId != nodeId || sessionEpoch != message.SessionEpoch)
                 throw new RpcException(new Status(StatusCode.PermissionDenied, "The node session binding changed."));
             await AuthorizeAsync(nodeId, context, context.CancellationToken);
-            if (message.BodyCase != SatelliteOfficeControlMessage.BodyOneofCase.Heartbeat)
+            if (message.BodyCase != OfficeControlMessage.BodyOneofCase.Heartbeat)
                 await RequireCurrentSessionAsync(nodeId, sessionEpoch, context.CancellationToken);
 
-            if (message.BodyCase == SatelliteOfficeControlMessage.BodyOneofCase.Heartbeat)
+            if (message.BodyCase == OfficeControlMessage.BodyOneofCase.Heartbeat)
             {
                 ValidateHeartbeat(message.Heartbeat);
                 var node = await db.ExecutionNodes.Include(x => x.Providers)
@@ -86,7 +86,7 @@ public sealed class SatelliteOfficeGatewayService(
                     await responseStream.WriteAsync(new HeadquartersControlMessage
                     {
                         ProtocolVersion = "1.0",
-                        SatelliteOfficeId = nodeId.ToString("D"),
+                        OfficeId = nodeId.ToString("D"),
                         SessionEpoch = sessionEpoch,
                         Hello = new GatewayHello
                         {
@@ -104,9 +104,9 @@ public sealed class SatelliteOfficeGatewayService(
                     await responseStream.WriteAsync(new HeadquartersControlMessage
                     {
                         ProtocolVersion = "1.0",
-                        SatelliteOfficeId = nodeId.ToString("D"),
+                        OfficeId = nodeId.ToString("D"),
                         SessionEpoch = sessionEpoch,
-                        Drain = new DrainSatelliteOffice
+                        Drain = new DrainOffice
                         {
                             Drain = drain,
                             Reason = drain
@@ -161,7 +161,7 @@ public sealed class SatelliteOfficeGatewayService(
                     await responseStream.WriteAsync(new HeadquartersControlMessage
                     {
                         ProtocolVersion = "1.0",
-                        SatelliteOfficeId = nodeId.ToString("D"),
+                        OfficeId = nodeId.ToString("D"),
                         SessionEpoch = sessionEpoch,
                         Assignment = new WorkloadAssignment
                         {
@@ -183,7 +183,7 @@ public sealed class SatelliteOfficeGatewayService(
                         }
                     }, context.CancellationToken);
                     logger.LogInformation(
-                        "Dispatched assignment {AssignmentId} epoch {FencingEpoch} to Satellite Office {SatelliteOfficeId} " +
+                        "Dispatched assignment {AssignmentId} epoch {FencingEpoch} to Office {OfficeId} " +
                         "using provider {ProviderId}; lease expires at {LeaseExpiresAt}.",
                         assignment.AssignmentId,
                         assignment.FencingEpoch,
@@ -193,20 +193,20 @@ public sealed class SatelliteOfficeGatewayService(
                     delivered[assignment.AssignmentId] = assignment.FencingEpoch;
                 }
             }
-            else if (message.BodyCase == SatelliteOfficeControlMessage.BodyOneofCase.LeaseRenewal &&
+            else if (message.BodyCase == OfficeControlMessage.BodyOneofCase.LeaseRenewal &&
                 Guid.TryParse(message.LeaseRenewal.AssignmentId, out var renewalId))
             {
                 if (!await orchestrator.RenewLeaseAsync(nodeId, renewalId,
                         message.LeaseRenewal.FencingEpoch, context.CancellationToken))
                 {
                     logger.LogWarning(
-                        "Rejected lease renewal for assignment {AssignmentId} epoch {FencingEpoch} from Satellite Office {SatelliteOfficeId}.",
+                        "Rejected lease renewal for assignment {AssignmentId} epoch {FencingEpoch} from Office {OfficeId}.",
                         renewalId, message.LeaseRenewal.FencingEpoch, nodeId);
                     await WriteFenceAsync(responseStream, nodeId, sessionEpoch, renewalId,
                         message.LeaseRenewal.FencingEpoch, "The assignment lease is no longer active.", context.CancellationToken);
                 }
             }
-            else if (message.BodyCase == SatelliteOfficeControlMessage.BodyOneofCase.AssignmentStatus &&
+            else if (message.BodyCase == OfficeControlMessage.BodyOneofCase.AssignmentStatus &&
                 Guid.TryParse(message.AssignmentStatus.AssignmentId, out var statusId) &&
                 Enum.TryParse<ExecutionAssignmentStatus>(message.AssignmentStatus.Status, true, out var status))
             {
@@ -217,7 +217,7 @@ public sealed class SatelliteOfficeGatewayService(
                         Result(message.AssignmentStatus), context.CancellationToken);
                 if (accepted)
                     logger.LogInformation(
-                        "Satellite Office {SatelliteOfficeId} reported assignment {AssignmentId} epoch {FencingEpoch} " +
+                        "Office {OfficeId} reported assignment {AssignmentId} epoch {FencingEpoch} " +
                         "as {AssignmentStatus}. Failure code: {FailureCode}",
                         nodeId, statusId, message.AssignmentStatus.FencingEpoch, status,
                         message.AssignmentStatus.FailureCode);
@@ -225,7 +225,7 @@ public sealed class SatelliteOfficeGatewayService(
                 {
                     logger.LogWarning(
                         "Rejected status {AssignmentStatus} for assignment {AssignmentId} epoch {FencingEpoch} " +
-                        "from Satellite Office {SatelliteOfficeId}.",
+                        "from Office {OfficeId}.",
                         status, statusId, message.AssignmentStatus.FencingEpoch, nodeId);
                     await WriteFenceAsync(responseStream, nodeId, sessionEpoch, statusId,
                         message.AssignmentStatus.FencingEpoch, "The status update was fenced.", context.CancellationToken);
@@ -242,7 +242,7 @@ public sealed class SatelliteOfficeGatewayService(
 
     private void ReplaceProviderInventory(
         ExecutionNode node,
-        IEnumerable<SatelliteOfficeProviderInventory> inventory,
+        IEnumerable<OfficeProviderInventory> inventory,
         DateTimeOffset now)
     {
         var providers = inventory.ToArray();
@@ -297,7 +297,7 @@ public sealed class SatelliteOfficeGatewayService(
         }
     }
 
-    private static void ReplaceSecurityPosture(ExecutionNode node, SatelliteOfficeSecurityPosture? posture)
+    private static void ReplaceSecurityPosture(ExecutionNode node, OfficeSecurityPosture? posture)
     {
         if (posture is null) return;
         var profile = posture.Profile.Trim().ToLowerInvariant();
@@ -322,10 +322,10 @@ public sealed class SatelliteOfficeGatewayService(
     private static string ProviderKey(ExecutionNodeProvider provider) =>
         $"{provider.ProviderId}\n{provider.GuestImageDigest}";
 
-    private static string ProviderKey(SatelliteOfficeProviderInventory provider) =>
+    private static string ProviderKey(OfficeProviderInventory provider) =>
         $"{provider.ProviderId}\n{provider.GuestImageDigest}";
 
-    private static void ValidateHeartbeat(SatelliteOfficeHeartbeat heartbeat)
+    private static void ValidateHeartbeat(OfficeHeartbeat heartbeat)
     {
         if (heartbeat.AllocatableCpuCount < 0 || heartbeat.AllocatableCpuCount > 4096 ||
             heartbeat.AllocatableMemoryMb < 0 || heartbeat.AllocatableMemoryMb > 16 * 1024 * 1024 ||
@@ -370,14 +370,14 @@ public sealed class SatelliteOfficeGatewayService(
             first.SessionEpoch,
             context.CancellationToken);
         logger.LogInformation(
-            "Opened authenticated workload tunnel for assignment {AssignmentId} from Satellite Office {SatelliteOfficeId} at epoch {FencingEpoch}.",
+            "Opened authenticated workload tunnel for assignment {AssignmentId} from Office {OfficeId} at epoch {FencingEpoch}.",
             assignmentId, nodeId, first.FencingEpoch);
         try
         {
             await brokerSessions.RunAsync(assignmentId, tunnel, context.CancellationToken);
             await tunnel.CompleteAsync();
             logger.LogInformation(
-                "Completed authenticated workload tunnel for assignment {AssignmentId} from Satellite Office {SatelliteOfficeId}.",
+                "Completed authenticated workload tunnel for assignment {AssignmentId} from Office {OfficeId}.",
                 assignmentId, nodeId);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !context.CancellationToken.IsCancellationRequested)
@@ -387,13 +387,13 @@ public sealed class SatelliteOfficeGatewayService(
                 // Guest-provided diagnostic text is persisted through the bounded diagnostic
                 // stream. Do not duplicate it into infrastructure logs or gRPC status text.
                 logger.LogWarning(
-                    "Authenticated guest workload exited for assignment {AssignmentId} from Satellite Office {SatelliteOfficeId} at epoch {FencingEpoch} with reason {ReasonCode} and exit code {ExitCode}.",
+                    "Authenticated guest workload exited for assignment {AssignmentId} from Office {OfficeId} at epoch {FencingEpoch} with reason {ReasonCode} and exit code {ExitCode}.",
                     assignmentId, nodeId, first.FencingEpoch, SafeCode(exited.ReasonCode), exited.ExitCode);
             }
             else
             {
                 logger.LogError(exception,
-                    "Authenticated workload tunnel failed for assignment {AssignmentId} from Satellite Office {SatelliteOfficeId} at epoch {FencingEpoch}.",
+                    "Authenticated workload tunnel failed for assignment {AssignmentId} from Office {OfficeId} at epoch {FencingEpoch}.",
                     assignmentId, nodeId, first.FencingEpoch);
             }
             throw exception is RpcException
@@ -432,7 +432,7 @@ public sealed class SatelliteOfficeGatewayService(
         ServerCallContext context)
     {
         if (request.ProtocolVersion != "1.0" ||
-            !Guid.TryParse(request.SatelliteOfficeId, out var nodeId) ||
+            !Guid.TryParse(request.OfficeId, out var nodeId) ||
             !Guid.TryParse(request.AssignmentId, out var assignmentId) ||
             !Guid.TryParse(request.TransferId, out var transferId) || transferId == Guid.Empty ||
             !IsSha256(request.ArtifactDigest) || request.ArtifactReadToken.Length is < 32 or > 256)
@@ -496,7 +496,7 @@ public sealed class SatelliteOfficeGatewayService(
         ServerCallContext context,
         CancellationToken cancellationToken)
     {
-        if (!Guid.TryParse(frame.SatelliteOfficeId, out var nodeId) ||
+        if (!Guid.TryParse(frame.OfficeId, out var nodeId) ||
             !Guid.TryParse(frame.AssignmentId, out var assignmentId) || frame.Content.Length > 1024 * 1024)
             throw new RpcException(new Status(StatusCode.InvalidArgument, "The workload tunnel frame is invalid."));
         await AuthorizeAsync(nodeId, context, cancellationToken);
@@ -525,8 +525,8 @@ public sealed class SatelliteOfficeGatewayService(
                 Normalize(certificate.Thumbprint), Normalize(node.CertificateThumbprint), StringComparison.Ordinal) &&
             string.Equals(Normalize(certificate.SerialNumber), Normalize(node.CertificateSerialNumber), StringComparison.Ordinal))
             return;
-        logger.LogWarning("Rejected Satellite Office {SatelliteOfficeId} because its client certificate did not match.", nodeId);
-        throw new RpcException(new Status(StatusCode.Unauthenticated, "A matching Satellite Office client certificate is required."));
+        logger.LogWarning("Rejected Office {OfficeId} because its client certificate did not match.", nodeId);
+        throw new RpcException(new Status(StatusCode.Unauthenticated, "A matching Office client certificate is required."));
     }
 
     private static Task WriteFenceAsync(
@@ -539,7 +539,7 @@ public sealed class SatelliteOfficeGatewayService(
         CancellationToken cancellationToken) => response.WriteAsync(new HeadquartersControlMessage
     {
         ProtocolVersion = "1.0",
-        SatelliteOfficeId = nodeId.ToString("D"),
+        OfficeId = nodeId.ToString("D"),
         SessionEpoch = sessionEpoch,
         Fence = new FenceAssignment
         {

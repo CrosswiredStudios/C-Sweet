@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using CSweet.SatelliteOffice.Contracts.Security;
+using CSweet.Office.Contracts.Security;
 using Microsoft.Extensions.Options;
 
 namespace CSweet.ExecutionGateway;

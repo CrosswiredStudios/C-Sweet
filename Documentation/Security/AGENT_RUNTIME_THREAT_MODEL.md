@@ -1,6 +1,6 @@
 # Agent runtime threat model
 
-Status: required security review for the pre-release Satellite Office protocol.
+Status: required security review for the pre-release Office protocol.
 
 The protocol is a clean pre-release cutover. There is no compatibility mode, legacy digest
 representation, or development certificate bypass. The production version remains `1.0` when
@@ -26,7 +26,7 @@ Assets include tenant data, credentials, money and quota, approval state, platfo
 | Denial of service | CPU/memory/PID/runtime limits; distributed quotas; bounded input/output/progress; connection caps | saturation, long-poll, LLM/cost, question-spam dashboards | throttle, cancel, terminate, disable |
 | Supply-chain compromise | digest/version binding, signed/approved revisions, descriptor hashes, reapproval on code/schema/destination/credential/grant changes | digest mismatch and marketplace provenance alerts | quarantine revision, revoke sessions, rollback |
 | Guest or inner-container escape | certified hardware VM; dedicated guest kernel; no network device; no host shares, passthrough, daemon socket, or reusable credentials; read-only signed base and artifact; ephemeral writable disk | provider certification suite, runtime anomaly, forbidden-network and host-reachability tests | revoke grant, destroy VM state, isolate host, rotate secrets, incident response |
-| Compromised Satellite Office node | Headquarters signing key pinned by the installer over verified TLS; complete authorization verified again by the privileged boundary; provider/workload/specification/office/epoch/expiry binding; persistent replay ledger | rejected-signature, replay, key-replacement, expiry, and routing-mismatch events | fence assignment, revoke office certificate, reinstall office, rotate Headquarters key through an explicit administrator workflow |
+| Compromised Office node | Headquarters signing key pinned by the installer over verified TLS; complete authorization verified again by the privileged boundary; provider/workload/specification/office/epoch/expiry binding; persistent replay ledger | rejected-signature, replay, key-replacement, expiry, and routing-mismatch events | fence assignment, revoke office certificate, reinstall office, rotate Headquarters key through an explicit administrator workflow |
 | Mixed-use host exposure | no guest network device or host shares; immutable package; separate node and privileged identities; authorization state inaccessible to node; explicit posture warnings | provider certification and host-posture inventory | drain workloads, remediate controls, or move the office to a dedicated host |
 
 Audit records use capability-specific allowlists and hashes. They must never preview raw tokens, credentials, arbitrary prompts, response bodies, or encrypted inbox data.
@@ -41,7 +41,7 @@ describe a mixed-use host as equivalent to a dedicated hardened host. Developmen
 is an explicit two-sided opt-in (organization and office), is restricted to disposable test data
 and credentials, and is never an automatic fallback when certification fails.
 
-The development opt-in is enforced in placement, not only displayed: Satellite Office reports its
+The development opt-in is enforced in placement, not only displayed: Office reports its
 profile and local consent, Headquarters binds its independent consent into the signed workload
 specification, and the scheduler requires both before choosing a development-profile host. Every
 profile still requires an available certified hardware-VM provider.

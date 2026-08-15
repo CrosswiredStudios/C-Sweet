@@ -1,5 +1,5 @@
 using CSweet.AgentBroker;
-using CSweet.SatelliteOffice.Contracts.Guest;
+using CSweet.Office.Contracts.Guest;
 using System.IO.Pipelines;
 
 namespace CSweet.UnitTests;

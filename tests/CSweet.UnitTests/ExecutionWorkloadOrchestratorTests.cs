@@ -75,7 +75,7 @@ public sealed class ExecutionWorkloadOrchestratorTests
 
         var assignment = await db.ExecutionWorkloadAssignments.SingleAsync(x => x.Id == reference.AssignmentId);
         Assert.Equal(
-            CSweet.SatelliteOffice.Contracts.Security.AssignmentEnvelope.Digest(assignment.SpecificationJson),
+            CSweet.Office.Contracts.Security.AssignmentEnvelope.Digest(assignment.SpecificationJson),
             assignment.SpecificationDigest);
     }
 
@@ -86,7 +86,7 @@ public sealed class ExecutionWorkloadOrchestratorTests
         var pool = Pool();
         var node = Node(pool, Guid.NewGuid());
         var specification = "{\"kind\":\"builder\"}";
-        var canonical = CSweet.SatelliteOffice.Contracts.Security.AssignmentEnvelope.Digest(specification);
+        var canonical = CSweet.Office.Contracts.Security.AssignmentEnvelope.Digest(specification);
         var assignment = Assignment(pool.Id, node.Id, 1, 512);
         assignment.SpecificationJson = specification;
         assignment.SpecificationDigest = canonical;
@@ -102,7 +102,7 @@ public sealed class ExecutionWorkloadOrchestratorTests
         await db.SaveChangesAsync();
         var currentLease = Assert.Single(await scheduler.GetNodeAssignmentsAsync(node.Id, node.SessionEpoch));
         Assert.Equal(
-            CSweet.SatelliteOffice.Contracts.Security.AssignmentEnvelope.Digest(assignment.SpecificationJson),
+            CSweet.Office.Contracts.Security.AssignmentEnvelope.Digest(assignment.SpecificationJson),
             currentLease.SpecificationDigest);
         Assert.NotEqual(canonical, currentLease.SpecificationDigest);
     }
@@ -116,7 +116,7 @@ public sealed class ExecutionWorkloadOrchestratorTests
             Status = ExecutionAssignmentStatus.Pending,
             Attempt = 2,
             FailureCode = "assignment-lease-expired",
-            SanitizedFailure = "The Satellite Office did not renew its lease."
+            SanitizedFailure = "The Office did not renew its lease."
         };
 
         var pending = FleetAgentBuildExecutor.ProgressState(assignment);
@@ -192,7 +192,7 @@ public sealed class ExecutionWorkloadOrchestratorTests
         Assert.Equal("assignment-not-acknowledged", assignment.FailureCode);
         Assert.Contains(assignment.Id.ToString("D"), assignment.SanitizedFailure, StringComparison.Ordinal);
         Assert.Contains(node.Id.ToString("D"), assignment.SanitizedFailure, StringComparison.Ordinal);
-        Assert.Contains("CSweet.SatelliteOffice.Node", assignment.SanitizedFailure, StringComparison.Ordinal);
+        Assert.Contains("CSweet.Office.Node", assignment.SanitizedFailure, StringComparison.Ordinal);
     }
 
     [Fact]

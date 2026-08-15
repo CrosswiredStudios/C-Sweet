@@ -1,4 +1,4 @@
-using CSweet.SatelliteOffice.Contracts.ControlPlane;
+using CSweet.Office.Contracts.ControlPlane;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Setup;
@@ -34,7 +34,7 @@ public sealed class ExecutionFleetServiceTests
         Assert.Equal(ExecutionNodeStatus.PendingApproval,
             (await db.ExecutionNodes.SingleAsync()).Status);
 
-        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+        var approval = await fleet.ApproveNodeAsync(claim.OfficeId!.Value);
         var approvedNode = await db.ExecutionNodes.SingleAsync();
         approvedNode.LastHeartbeatAt = Now; // Simulates the first mTLS gateway heartbeat.
         await db.SaveChangesAsync();
@@ -54,9 +54,9 @@ public sealed class ExecutionFleetServiceTests
         await fleet.SelectOnboardingModeAsync(new("remote"));
         var enrollment = await fleet.CreateEnrollmentAsync();
         var token = Assert.IsType<string>(enrollment.Enrollment?.EnrollmentToken);
-        var claim = await fleet.ClaimNodeAsync(Claim(token, satelliteOfficeVersion: "1.0.0"));
+        var claim = await fleet.ClaimNodeAsync(Claim(token, officeVersion: "1.0.0"));
 
-        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+        var approval = await fleet.ApproveNodeAsync(claim.OfficeId!.Value);
 
         Assert.False(approval.Succeeded);
         Assert.Contains("version 1.0.2 or later", approval.Message, StringComparison.Ordinal);
@@ -101,7 +101,7 @@ public sealed class ExecutionFleetServiceTests
         var enrollment = await fleet.CreateEnrollmentAsync();
         var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!));
 
-        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+        var approval = await fleet.ApproveNodeAsync(claim.OfficeId!.Value);
 
         Assert.True(approval.Succeeded);
         Assert.Equal(TimeSpan.Zero, (await db.ExecutionNodes.SingleAsync()).CertificateExpiresAt?.Offset);
@@ -123,7 +123,7 @@ public sealed class ExecutionFleetServiceTests
 
         var enrollment = await fleet.CreateEnrollmentAsync();
         var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!, certified: false));
-        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+        var approval = await fleet.ApproveNodeAsync(claim.OfficeId!.Value);
         Assert.False(approval.Succeeded);
 
         var provider = await db.ExecutionNodeProviders.SingleAsync();
@@ -131,7 +131,7 @@ public sealed class ExecutionFleetServiceTests
         provider.GuestImageDigest = Digest('a');
         provider.CertificationEvidenceDigest = Digest('b');
         await db.SaveChangesAsync();
-        Assert.True((await fleet.ApproveNodeAsync(claim.SatelliteOfficeId.Value)).Succeeded);
+        Assert.True((await fleet.ApproveNodeAsync(claim.OfficeId.Value)).Succeeded);
 
         clock.Advance(TimeSpan.FromSeconds(31));
         Assert.False(await fleet.IsReadyAsync());
@@ -196,13 +196,13 @@ public sealed class ExecutionFleetServiceTests
         var enrollment = await fleet.CreateEnrollmentAsync();
         var request = Claim(enrollment.Enrollment!.EnrollmentToken!) with
         {
-            Providers = [new RegisterSatelliteOfficeProviderRequest(
+            Providers = [new RegisterOfficeProviderRequest(
                 "firecracker-kvm", "1.0.0", "", "", "", "",
                 DateTimeOffset.MinValue, null, true, true, false, "KVM is unavailable.")]
         };
 
         var claim = await fleet.ClaimNodeAsync(request);
-        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+        var approval = await fleet.ApproveNodeAsync(claim.OfficeId!.Value);
 
         Assert.True(claim.Succeeded);
         Assert.False(approval.Succeeded);
@@ -221,14 +221,14 @@ public sealed class ExecutionFleetServiceTests
         var enrollment = await fleet.CreateEnrollmentAsync();
         var request = Claim(enrollment.Enrollment!.EnrollmentToken!) with
         {
-            Providers = [new RegisterSatelliteOfficeProviderRequest(
+            Providers = [new RegisterOfficeProviderRequest(
                 "hyperv-gen2", "1.0.0", "", "", "", "",
                 DateTimeOffset.MinValue, null, true, true, false,
                 "#< CLIXML<Objs Version=\"1.1.0.1\"><Obj S=\"progress\" /></Objs>")]
         };
 
         var claim = await fleet.ClaimNodeAsync(request);
-        var approval = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+        var approval = await fleet.ApproveNodeAsync(claim.OfficeId!.Value);
 
         Assert.False(approval.Succeeded);
         Assert.DoesNotContain("CLIXML", approval.Message, StringComparison.OrdinalIgnoreCase);
@@ -245,12 +245,12 @@ public sealed class ExecutionFleetServiceTests
         var enrollment = await fleet.CreateEnrollmentAsync();
         var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!));
 
-        var rejection = await fleet.RejectNodeAsync(claim.SatelliteOfficeId!.Value);
+        var rejection = await fleet.RejectNodeAsync(claim.OfficeId!.Value);
 
         Assert.True(rejection.Succeeded);
         Assert.Equal(ExecutionNodeStatus.Revoked, (await db.ExecutionNodes.SingleAsync()).Status);
         Assert.False(await fleet.IsReadyAsync());
-        Assert.False((await fleet.ApproveNodeAsync(claim.SatelliteOfficeId.Value)).Succeeded);
+        Assert.False((await fleet.ApproveNodeAsync(claim.OfficeId.Value)).Succeeded);
     }
 
     [Fact]
@@ -262,16 +262,16 @@ public sealed class ExecutionFleetServiceTests
         var fleet = CreateFleet(db, clock);
         var enrollment = await fleet.CreateEnrollmentAsync();
         var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!));
-        Assert.True((await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value)).Succeeded);
+        Assert.True((await fleet.ApproveNodeAsync(claim.OfficeId!.Value)).Succeeded);
         var node = await db.ExecutionNodes.SingleAsync();
 
         var bootstrap = await fleet.GetOperationalCertificateAsync(
-            node.Id, new SatelliteOfficeCertificateRequest(claim.EnrollmentReceipt!));
+            node.Id, new OfficeCertificateRequest(claim.EnrollmentReceipt!));
         var rejected = await fleet.RotateOperationalCertificateAsync(node.Id, "wrong", "wrong");
         var current = await fleet.RotateOperationalCertificateAsync(
             node.Id, node.CertificateThumbprint, node.CertificateSerialNumber);
         var legacyHeartbeat = await fleet.RecordHeartbeatAsync(node.Id,
-            new SatelliteOfficeHeartbeatRequest(claim.EnrollmentReceipt!, node.SessionEpoch + 1,
+            new OfficeHeartbeatRequest(claim.EnrollmentReceipt!, node.SessionEpoch + 1,
                 4, 4096, 32768, 2, Claim("unused").Providers));
 
         Assert.True(bootstrap.Succeeded);
@@ -300,8 +300,8 @@ public sealed class ExecutionFleetServiceTests
         };
 
         var accepted = await fleet.RecordHeartbeatAsync(
-            claim.SatelliteOfficeId!.Value,
-            new SatelliteOfficeHeartbeatRequest(claim.EnrollmentReceipt!, 1, 8, 8192, 65536, 4, [updatedProvider]));
+            claim.OfficeId!.Value,
+            new OfficeHeartbeatRequest(claim.EnrollmentReceipt!, 1, 8, 8192, 65536, 4, [updatedProvider]));
 
         var provider = await db.ExecutionNodeProviders.SingleAsync();
         Assert.True(accepted);
@@ -324,8 +324,8 @@ public sealed class ExecutionFleetServiceTests
 
         var firstEnrollment = await fleet.CreateEnrollmentAsync();
         var first = await fleet.ClaimNodeAsync(Claim(firstEnrollment.Enrollment!.EnrollmentToken!));
-        Assert.True((await fleet.ApproveNodeAsync(first.SatelliteOfficeId!.Value)).Succeeded);
-        var firstNode = await db.ExecutionNodes.SingleAsync(x => x.Id == first.SatelliteOfficeId);
+        Assert.True((await fleet.ApproveNodeAsync(first.OfficeId!.Value)).Succeeded);
+        var firstNode = await db.ExecutionNodes.SingleAsync(x => x.Id == first.OfficeId);
         firstNode.LastHeartbeatAt = Now;
 
         var original = await db.ExecutionPools.SingleAsync();
@@ -343,8 +343,8 @@ public sealed class ExecutionFleetServiceTests
         Assert.False(await fleet.IsReadyAsync());
         var secondEnrollment = await fleet.CreateEnrollmentAsync();
         var second = await fleet.ClaimNodeAsync(Claim(secondEnrollment.Enrollment!.EnrollmentToken!));
-        Assert.True((await fleet.ApproveNodeAsync(second.SatelliteOfficeId!.Value)).Succeeded);
-        var secondNode = await db.ExecutionNodes.SingleAsync(x => x.Id == second.SatelliteOfficeId);
+        Assert.True((await fleet.ApproveNodeAsync(second.OfficeId!.Value)).Succeeded);
+        var secondNode = await db.ExecutionNodes.SingleAsync(x => x.Id == second.OfficeId);
         secondNode.LastHeartbeatAt = Now;
         await db.SaveChangesAsync();
 
@@ -367,7 +367,7 @@ public sealed class ExecutionFleetServiceTests
         };
 
         var claim = await fleet.ClaimNodeAsync(wrongImage);
-        var rejected = await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value);
+        var rejected = await fleet.ApproveNodeAsync(claim.OfficeId!.Value);
 
         Assert.False(rejected.Succeeded);
         Assert.Equal("node_not_qualified", rejected.ErrorCode);
@@ -388,7 +388,7 @@ public sealed class ExecutionFleetServiceTests
             AllocatableDiskMb = 1024
         });
 
-        Assert.True((await fleet.ApproveNodeAsync(claim.SatelliteOfficeId!.Value)).Succeeded);
+        Assert.True((await fleet.ApproveNodeAsync(claim.OfficeId!.Value)).Succeeded);
         var node = await db.ExecutionNodes.SingleAsync();
         node.LastHeartbeatAt = Now;
         await db.SaveChangesAsync();
@@ -397,15 +397,15 @@ public sealed class ExecutionFleetServiceTests
         Assert.False((await fleet.GetOnboardingStatusAsync()).IsReady);
     }
 
-    private static ClaimSatelliteOfficeRequest Claim(
+    private static ClaimOfficeRequest Claim(
         string token,
         bool certified = true,
-        string satelliteOfficeVersion = "1.0.2") => new(
-        token, "node-1", "machine-1", "linux", "x64", satelliteOfficeVersion, "1.0",
+        string officeVersion = "1.0.2") => new(
+        token, "node-1", "machine-1", "linux", "x64", officeVersion, "1.0",
         "AABBCCDD", "0011", Now.AddYears(1),
         "-----BEGIN CERTIFICATE REQUEST-----\n" + new string('A', 128) + "\n-----END CERTIFICATE REQUEST-----",
         4, 4096, 32768, 2,
-        [new RegisterSatelliteOfficeProviderRequest(
+        [new RegisterOfficeProviderRequest(
             "firecracker-kvm", "1.0.0", "1.0",
             Digest('a'), "production-v1",
             Digest('b'), Now.AddHours(-1), Now.AddDays(1),

@@ -1,11 +1,11 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace CSweet.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
-    public partial class RevokeLegacyExecutionNodesForSatelliteOfficeCutover : Migration
+    public partial class RevokeLegacyExecutionNodesForOfficeCutover : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -14,8 +14,8 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                 """
                 UPDATE "ExecutionWorkloadAssignments"
                 SET "Status" = 'Fenced',
-                    "FailureCode" = 'satellite-office-cutover',
-                    "SanitizedFailure" = 'The legacy execution node was fenced during the Satellite Office v1 cutover.',
+                    "FailureCode" = 'office-cutover',
+                    "SanitizedFailure" = 'The legacy execution node was fenced during the Office v1 cutover.',
                     "CompletedAt" = CURRENT_TIMESTAMP,
                     "LeaseExpiresAt" = NULL,
                     "FencingEpoch" = "FencingEpoch" + 1

@@ -1,4 +1,4 @@
-using CSweet.SatelliteOffice.Contracts.ControlPlane;
+using CSweet.Office.Contracts.ControlPlane;
 using CSweet.Application.Setup;
 using CSweet.AI.Providers;
 using CSweet.Contracts.Llm;
@@ -167,23 +167,23 @@ public static class SetupEndpoints
         return endpoints;
     }
 
-    public static IEndpointRouteBuilder MapSatelliteOfficeBootstrapEndpoints(this IEndpointRouteBuilder endpoints)
+    public static IEndpointRouteBuilder MapOfficeBootstrapEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/satellite-offices").AllowAnonymous();
+        var group = endpoints.MapGroup("/api/offices").AllowAnonymous();
         group.MapPost("/claim", async (
-            ClaimSatelliteOfficeRequest request,
+            ClaimOfficeRequest request,
             IExecutionFleetService service,
             CancellationToken cancellationToken) =>
         {
             var result = await service.ClaimNodeAsync(request, cancellationToken);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         });
-        group.MapPost("/{satelliteOfficeId:guid}/heartbeat", async (
-            Guid satelliteOfficeId,
-            SatelliteOfficeHeartbeatRequest request,
+        group.MapPost("/{officeId:guid}/heartbeat", async (
+            Guid officeId,
+            OfficeHeartbeatRequest request,
             IExecutionFleetService service,
             CancellationToken cancellationToken) =>
-            await service.RecordHeartbeatAsync(satelliteOfficeId, request, cancellationToken)
+            await service.RecordHeartbeatAsync(officeId, request, cancellationToken)
                 ? Results.NoContent()
                 : Results.Unauthorized());
         return endpoints;

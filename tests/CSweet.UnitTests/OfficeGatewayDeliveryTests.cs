@@ -1,13 +1,13 @@
 using CSweet.AgentBroker;
 using CSweet.ExecutionGateway;
 using CSweet.Domain.Setup;
-using CSweet.SatelliteOffice.Contracts.Workloads;
+using CSweet.Office.Contracts.Workloads;
 using Grpc.Core;
 using System.Text.Json;
 
 namespace CSweet.UnitTests;
 
-public sealed class SatelliteOfficeGatewayDeliveryTests
+public sealed class OfficeGatewayDeliveryTests
 {
     [Fact]
     public void RetryWithNewFencingEpochIsDeliveredEvenWhenAssignmentIdIsUnchanged()
@@ -18,8 +18,8 @@ public sealed class SatelliteOfficeGatewayDeliveryTests
             [assignmentId] = 1
         };
 
-        Assert.False(SatelliteOfficeGatewayService.ShouldDeliver(delivered, assignmentId, 1));
-        Assert.True(SatelliteOfficeGatewayService.ShouldDeliver(delivered, assignmentId, 2));
+        Assert.False(OfficeGatewayService.ShouldDeliver(delivered, assignmentId, 1));
+        Assert.True(OfficeGatewayService.ShouldDeliver(delivered, assignmentId, 2));
     }
 
     [Theory]
@@ -50,7 +50,7 @@ public sealed class SatelliteOfficeGatewayDeliveryTests
                 ["/app/agent"]);
         var json = JsonSerializer.Serialize(workload, workload.GetType());
 
-        var resolved = SatelliteOfficeGatewayService.ResolveAuthorizedWorkloadId(workloadKind, json);
+        var resolved = OfficeGatewayService.ResolveAuthorizedWorkloadId(workloadKind, json);
 
         Assert.Equal(workloadId, resolved);
     }
@@ -62,14 +62,14 @@ public sealed class SatelliteOfficeGatewayDeliveryTests
     public void InvalidWorkloadSpecificationIsNeverEligibleForSigning(string specificationJson)
     {
         Assert.Throws<InvalidDataException>(() =>
-            SatelliteOfficeGatewayService.ResolveAuthorizedWorkloadId(
+            OfficeGatewayService.ResolveAuthorizedWorkloadId(
                 ExecutionWorkloadKind.Builder, specificationJson));
     }
 
     [Fact]
     public void BrokerProtocolFailureIsActionableWithoutLeakingAStackTrace()
     {
-        var result = SatelliteOfficeGatewayService.BrokerTunnelFailure(
+        var result = OfficeGatewayService.BrokerTunnelFailure(
             new InvalidDataException("The runtime diagnostic stream is invalid."));
 
         Assert.Equal(StatusCode.FailedPrecondition, result.StatusCode);
@@ -81,7 +81,7 @@ public sealed class SatelliteOfficeGatewayDeliveryTests
     [Fact]
     public void UnexpectedBrokerFailureDoesNotExposeSensitiveExceptionText()
     {
-        var result = SatelliteOfficeGatewayService.BrokerTunnelFailure(
+        var result = OfficeGatewayService.BrokerTunnelFailure(
             new InvalidOperationException("password=do-not-leak"));
 
         Assert.Equal(StatusCode.FailedPrecondition, result.StatusCode);
@@ -91,7 +91,7 @@ public sealed class SatelliteOfficeGatewayDeliveryTests
     [Fact]
     public void GuestExitDoesNotPutGuestControlledLogsInGrpcStatus()
     {
-        var result = SatelliteOfficeGatewayService.BrokerTunnelFailure(
+        var result = OfficeGatewayService.BrokerTunnelFailure(
             new GuestWorkloadExitedException(17, "startup-failed", "token=do-not-leak"));
 
         Assert.Equal(StatusCode.FailedPrecondition, result.StatusCode);

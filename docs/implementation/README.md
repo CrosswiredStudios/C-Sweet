@@ -47,7 +47,7 @@ Cross-cutting features are documented as a phased series in their own folder:
 - [Agent Runtime Manager](./features/agent-runtime-manager/README.md) - run always-on and
   scheduled ephemeral agents, manage global container limits, build imported .NET agents, and
   spin containers up/down around broker-reported completion.
-- [Satellite Office assisted installation](./features/satellite-office-assisted-installation.md) -
+- [Office assisted installation](./features/office-assisted-installation.md) -
   provide a guided signed-package installation and one-use local enrollment handoff for **This
   machine**, while retaining portable instructions for **Another machine**.
 

@@ -1,4 +1,4 @@
-using CSweet.SatelliteOffice.Contracts.ControlPlane;
+using CSweet.Office.Contracts.ControlPlane;
 using Google.Protobuf;
 using Grpc.Core;
 
@@ -117,7 +117,7 @@ internal sealed class GrpcWorkloadTunnelStream : Stream
 
     private WorkloadTunnelFrame Frame(ByteString content, bool completed) => new()
     {
-        SatelliteOfficeId = _nodeId,
+        OfficeId = _nodeId,
         AssignmentId = _assignmentId,
         FencingEpoch = _fencingEpoch,
         SessionEpoch = _sessionEpoch,
@@ -135,7 +135,7 @@ internal sealed class GrpcWorkloadTunnelStream : Stream
 
     private void ValidateBinding(WorkloadTunnelFrame frame)
     {
-        if (!string.Equals(frame.SatelliteOfficeId, _nodeId, StringComparison.OrdinalIgnoreCase) ||
+        if (!string.Equals(frame.OfficeId, _nodeId, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(frame.AssignmentId, _assignmentId, StringComparison.OrdinalIgnoreCase) ||
             frame.FencingEpoch != _fencingEpoch || frame.SessionEpoch != _sessionEpoch)
             throw new InvalidDataException("The guest-channel tunnel binding changed.");

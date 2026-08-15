@@ -1,5 +1,5 @@
 using CSweet.Application.Setup;
-using CSweet.SatelliteOffice.Contracts.Workloads;
+using CSweet.Office.Contracts.Workloads;
 using CSweet.Contracts.Agents;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;

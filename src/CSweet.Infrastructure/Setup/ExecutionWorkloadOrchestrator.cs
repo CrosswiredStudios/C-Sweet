@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Data;
 using CSweet.Application.Setup;
-using CSweet.SatelliteOffice.Contracts.Security;
+using CSweet.Office.Contracts.Security;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -297,8 +297,8 @@ public sealed class ExecutionWorkloadOrchestrator(
                 assignment.FencingEpoch++;
                 assignment.FailureCode = "assignment-not-acknowledged";
                 assignment.SanitizedFailure =
-                    $"Satellite Office {nodeDescription} did not acknowledge signed assignment {assignment.Id:D} " +
-                    $"after {assignment.Attempt} delivery attempts. Check the CSweet.SatelliteOffice.Node log for " +
+                    $"Office {nodeDescription} did not acknowledge signed assignment {assignment.Id:D} " +
+                    $"after {assignment.Attempt} delivery attempts. Check the CSweet.Office.Node log for " +
                     "a control-session or assignment-envelope error.";
                 continue;
             }

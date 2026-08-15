@@ -110,7 +110,7 @@
         </MudPaper>
 
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-            <MudText Typo="Typo.h5">Satellite Offices</MudText>
+            <MudText Typo="Typo.h5">Offices</MudText>
             @foreach (var node in _fleet.Nodes)
             {
                 <MudPaper Outlined="true" Class="pa-4 mt-3">
@@ -145,7 +145,7 @@
                                     }
                                 </MudText>
                             }
-                            <MudTextField Label="Satellite Office labels" HelperText="key=value, comma separated"
+                            <MudTextField Label="Office labels" HelperText="key=value, comma separated"
                                           @bind-Value="_nodeLabelEdits[node.Id]" Class="mt-2" />
                         </div>
                         <MudStack Row="true" Spacing="1">
@@ -258,7 +258,7 @@
                 $"api/execution-fleet/nodes/{nodeId:D}/labels", new UpdateExecutionNodeLabelsRequest(labels));
             _messageSucceeded = response.IsSuccessStatusCode;
             _message = response.IsSuccessStatusCode
-                ? "Satellite Office labels were updated."
+                ? "Office labels were updated."
                 : "The node labels were rejected.";
             if (_messageSucceeded) await LoadAsync();
         }

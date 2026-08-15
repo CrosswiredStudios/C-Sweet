@@ -13,7 +13,7 @@ public sealed record ExecutionCapacityOnboardingResponse(
     IReadOnlyList<ExecutionNodeSummaryResponse> Nodes,
     IReadOnlyList<ExecutionCapacityCheckResponse> Checks,
     IReadOnlyList<ExecutionCapacityCheckResponse>? LocalPrerequisites = null,
-    SatelliteOfficePackageLinksResponse? Packages = null,
+    OfficePackageLinksResponse? Packages = null,
     LocalExecutionNodeProvisioningProgressResponse? LocalProvisioning = null);
 
 public sealed record LocalExecutionNodeProvisioningProgressResponse(
@@ -32,7 +32,7 @@ public sealed record LocalExecutionNodeProvisioningProgressResponse(
     int? EstimatedRemainingMinimumSeconds = null,
     int? EstimatedRemainingMaximumSeconds = null);
 
-public sealed record SatelliteOfficePackageLinksResponse(
+public sealed record OfficePackageLinksResponse(
     string ReleaseManifestUrl,
     string? WindowsPackageOverrideUrl,
     string? LinuxPackageOverrideUrl,

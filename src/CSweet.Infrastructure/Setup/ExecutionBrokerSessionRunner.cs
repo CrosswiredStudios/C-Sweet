@@ -2,9 +2,9 @@ using System.Globalization;
 using System.Text.Json;
 using CSweet.AgentBroker;
 using CSweet.Application.Setup;
-using CSweet.SatelliteOffice.Contracts.Workloads;
+using CSweet.Office.Contracts.Workloads;
 using CSweet.ExecutionArtifacts;
-using CSweet.SatelliteOffice.Contracts.Guest;
+using CSweet.Office.Contracts.Guest;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -222,7 +222,7 @@ public sealed class ExecutionBrokerSessionRunner(
                 MaximumLogBytes = workload.ResourceLimits.MaximumLogBytes
             };
             start.Entrypoint.AddRange([
-                "/usr/lib/csweet/builder/CSweet.SatelliteOffice.BuilderGuest",
+                "/usr/lib/csweet/builder/CSweet.Office.BuilderGuest",
                 "--repository", request.RepositoryUrl,
                 "--commit", request.CommitSha,
                 "--project", request.ProjectPath,

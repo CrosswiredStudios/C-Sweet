@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="520" viewBox="0 0 1600 520" role="img" aria-labelledby="title desc">
   <title id="title">C-Sweet security architecture</title>
-  <desc id="desc">C-Sweet Headquarters applies identity, policy, approvals, and audit controls before bounded work reaches hardware-isolated agents in a Satellite Office.</desc>
+  <desc id="desc">C-Sweet Headquarters applies identity, policy, approvals, and audit controls before bounded work reaches hardware-isolated agents in an Office.</desc>
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#fffcf7"/>
@@ -52,7 +52,7 @@
     <rect x="1110" y="185" width="410" height="13" rx="7" fill="#23845c"/>
     <rect x="1146" y="226" width="58" height="58" rx="16" fill="#dff6eb"/>
     <path d="M1161 260h28M1167 248h16M1167 272h16" fill="none" stroke="#23845c" stroke-width="5" stroke-linecap="round"/>
-    <text x="1224" y="247" fill="#18233f" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" font-weight="800">Satellite Office</text>
+    <text x="1224" y="247" fill="#18233f" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" font-weight="800">Office</text>
     <text x="1224" y="276" fill="#68738a" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="17">Independently installed execution plane</text>
     <circle cx="1156" cy="330" r="6" fill="#23845c"/>
     <text x="1176" y="337" fill="#37435d" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">Certified hardware VM boundary</text>

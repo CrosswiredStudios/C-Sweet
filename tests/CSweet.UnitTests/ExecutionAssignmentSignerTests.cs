@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using CSweet.ExecutionGateway;
-using CSweet.SatelliteOffice.Contracts.Security;
+using CSweet.Office.Contracts.Security;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;

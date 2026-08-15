@@ -1,5 +1,5 @@
 using CSweet.ExecutionGateway;
-using CSweet.SatelliteOffice.Contracts.ControlPlane;
+using CSweet.Office.Contracts.ControlPlane;
 using Google.Protobuf;
 using Grpc.Core;
 
@@ -14,7 +14,7 @@ public sealed class GrpcWorkloadTunnelStreamTests
         var assignmentId = Guid.NewGuid();
         var opening = new WorkloadTunnelFrame
         {
-            SatelliteOfficeId = nodeId.ToString("D"),
+            OfficeId = nodeId.ToString("D"),
             AssignmentId = assignmentId.ToString("D"),
             FencingEpoch = 2,
             SessionEpoch = 3,

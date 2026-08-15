@@ -1,4 +1,4 @@
-using CSweet.SatelliteOffice.Contracts.ControlPlane;
+using CSweet.Office.Contracts.ControlPlane;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -135,15 +135,15 @@ public sealed class ExecutionFleetService(
             !FleetEnabled
                 ? "Distributed execution is gated until every supported platform has production builder/runtime certification."
                 : isReady
-                ? $"{ready.Length} approved Satellite Office{(ready.Length == 1 ? " is" : "s are")} ready for agent builds and runtimes."
-                : "Install, connect, and approve at least one certified Satellite Office.",
+                ? $"{ready.Length} approved Office{(ready.Length == 1 ? " is" : "s are")} ready for agent builds and runtimes."
+                : "Install, connect, and approve at least one certified Office.",
             activeEnrollment is null ? null : Map(activeEnrollment),
             nodes.Select(Map).ToArray(),
             checks,
             localPrerequisites,
-            new SatelliteOfficePackageLinksResponse(
+            new OfficePackageLinksResponse(
                 fleetOptions?.Value.ReleaseManifestUrl ??
-                    "https://github.com/CrosswiredStudios/CSweet.SatelliteOffice/releases/latest/download/satellite-office-release.json",
+                    "https://github.com/CrosswiredStudios/CSweet.Office/releases/latest/download/office-release.json",
                 fleetOptions?.Value.WindowsPackageOverrideUrl,
                 fleetOptions?.Value.LinuxPackageOverrideUrl,
                 fleetOptions?.Value.MacOsPackageOverrideUrl,
@@ -157,7 +157,7 @@ public sealed class ExecutionFleetService(
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!string.Equals(request.Mode, "remote", StringComparison.OrdinalIgnoreCase))
-            return await FailureAsync("invalid_mode", "Use the Satellite Office workflow for this or another machine.", cancellationToken);
+            return await FailureAsync("invalid_mode", "Use the Office workflow for this or another machine.", cancellationToken);
         const ExecutionOnboardingMode mode = ExecutionOnboardingMode.Remote;
 
         var configuration = await dbContext.SystemConfigurations
@@ -227,15 +227,15 @@ public sealed class ExecutionFleetService(
         return await SuccessAsync("Enrollment revoked.", cancellationToken);
     }
 
-    public async Task<ClaimSatelliteOfficeResponse> ClaimNodeAsync(
-        ClaimSatelliteOfficeRequest request,
+    public async Task<ClaimOfficeResponse> ClaimNodeAsync(
+        ClaimOfficeRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         try { ValidateClaim(request); }
         catch (ArgumentException)
         {
-            return new ClaimSatelliteOfficeResponse(
+            return new ClaimOfficeResponse(
                 false, "invalid_node_claim", "The execution-node enrollment claim is invalid.", null, null);
         }
         var now = timeProvider.GetUtcNow();
@@ -243,7 +243,7 @@ public sealed class ExecutionFleetService(
         var enrollment = await dbContext.ExecutionNodeEnrollments
             .SingleOrDefaultAsync(x => x.TokenHash == tokenHash, cancellationToken);
         if (enrollment is null || enrollment.Status != ExecutionEnrollmentStatus.Available || enrollment.ExpiresAt <= now)
-            return new ClaimSatelliteOfficeResponse(false, "invalid_enrollment", "The enrollment is invalid, expired, or already used.", null, null);
+            return new ClaimOfficeResponse(false, "invalid_enrollment", "The enrollment is invalid, expired, or already used.", null, null);
 
         var receipt = Base64Url(RandomNumberGenerator.GetBytes(32));
         var node = new ExecutionNode
@@ -254,7 +254,7 @@ public sealed class ExecutionFleetService(
             MachineName = request.MachineName.Trim(),
             OperatingSystem = request.OperatingSystem.Trim().ToLowerInvariant(),
             Architecture = request.Architecture.Trim().ToLowerInvariant(),
-            NodeVersion = request.SatelliteOfficeVersion.Trim(),
+            NodeVersion = request.OfficeVersion.Trim(),
             ProtocolVersion = request.ProtocolVersion.Trim(),
             Status = ExecutionNodeStatus.PendingApproval,
             CertificateThumbprint = NormalizeHex(request.CertificateThumbprint),
@@ -281,9 +281,9 @@ public sealed class ExecutionFleetService(
         await auditWriter.WriteAsync(
             "execution-node.enrollment.claimed",
             nameof(ExecutionNode), node.Id,
-            $"Satellite Office {node.Name} claimed enrollment {enrollment.Id} and is pending approval.",
+            $"Office {node.Name} claimed enrollment {enrollment.Id} and is pending approval.",
             cancellationToken: cancellationToken);
-        return new ClaimSatelliteOfficeResponse(true, null, "Satellite Office enrolled and awaiting administrator approval.", node.Id, receipt);
+        return new ClaimOfficeResponse(true, null, "Office enrolled and awaiting administrator approval.", node.Id, receipt);
     }
 
     public async Task<ExecutionCapacityActionResponse> ApproveNodeAsync(
@@ -295,9 +295,9 @@ public sealed class ExecutionFleetService(
             .Include(x => x.Providers)
             .SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
         if (node is null)
-            return await FailureAsync("node_not_found", "The Satellite Office was not found.", cancellationToken);
+            return await FailureAsync("node_not_found", "The Office was not found.", cancellationToken);
         if (node.Status != ExecutionNodeStatus.PendingApproval)
-            return await FailureAsync("node_not_pending", "Only pending Satellite Offices can be approved.", cancellationToken);
+            return await FailureAsync("node_not_pending", "Only pending Offices can be approved.", cancellationToken);
         if (QualificationFailure(node, now) is { } qualificationFailure)
             return await FailureAsync("node_not_qualified", qualificationFailure, cancellationToken);
 
@@ -330,9 +330,9 @@ public sealed class ExecutionFleetService(
         await auditWriter.WriteAsync(
             "execution-node.approved",
             nameof(ExecutionNode), node.Id,
-            $"Approved Satellite Office {node.Name} for pool {node.ExecutionPoolId}.",
+            $"Approved Office {node.Name} for pool {node.ExecutionPoolId}.",
             cancellationToken: cancellationToken);
-        return await SuccessAsync("Satellite Office approved; waiting for its authenticated control connection.", cancellationToken);
+        return await SuccessAsync("Office approved; waiting for its authenticated control connection.", cancellationToken);
     }
 
     public async Task<ExecutionCapacityActionResponse> RejectNodeAsync(
@@ -342,9 +342,9 @@ public sealed class ExecutionFleetService(
         var node = await dbContext.ExecutionNodes
             .SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
         if (node is null)
-            return await FailureAsync("node_not_found", "The Satellite Office was not found.", cancellationToken);
+            return await FailureAsync("node_not_found", "The Office was not found.", cancellationToken);
         if (node.Status != ExecutionNodeStatus.PendingApproval)
-            return await FailureAsync("node_not_pending", "Only a pending Satellite Office can be rejected.", cancellationToken);
+            return await FailureAsync("node_not_pending", "Only a pending Office can be rejected.", cancellationToken);
         var now = timeProvider.GetUtcNow();
         node.Status = ExecutionNodeStatus.Revoked;
         node.RevokedAt = now;
@@ -356,13 +356,13 @@ public sealed class ExecutionFleetService(
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditWriter.WriteAsync(
             "execution-node.rejected", nameof(ExecutionNode), node.Id,
-            $"Rejected pending Satellite Office {node.Name}.", cancellationToken: cancellationToken);
-        return await SuccessAsync("Satellite Office rejected.", cancellationToken);
+            $"Rejected pending Office {node.Name}.", cancellationToken: cancellationToken);
+        return await SuccessAsync("Office rejected.", cancellationToken);
     }
 
     public async Task<bool> RecordHeartbeatAsync(
         Guid nodeId,
-        SatelliteOfficeHeartbeatRequest request,
+        OfficeHeartbeatRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -391,9 +391,9 @@ public sealed class ExecutionFleetService(
         return true;
     }
 
-    public async Task<SatelliteOfficeCertificateResponse> GetOperationalCertificateAsync(
+    public async Task<OfficeCertificateResponse> GetOperationalCertificateAsync(
         Guid nodeId,
-        SatelliteOfficeCertificateRequest request,
+        OfficeCertificateRequest request,
         CancellationToken cancellationToken = default)
     {
         var receiptHash = Hash(request.EnrollmentReceipt);
@@ -412,7 +412,7 @@ public sealed class ExecutionFleetService(
         return CertificateResponse(node, "Operational certificate issued; bootstrap completes on the first authenticated control heartbeat.");
     }
 
-    public async Task<SatelliteOfficeCertificateResponse> RotateOperationalCertificateAsync(
+    public async Task<OfficeCertificateResponse> RotateOperationalCertificateAsync(
         Guid nodeId,
         string certificateThumbprint,
         string certificateSerialNumber,
@@ -434,7 +434,7 @@ public sealed class ExecutionFleetService(
     private bool TryIssueCertificate(
         ExecutionNode node,
         DateTimeOffset now,
-        out SatelliteOfficeCertificateResponse? error)
+        out OfficeCertificateResponse? error)
     {
         error = null;
         if (node.Status == ExecutionNodeStatus.Revoked)
@@ -462,7 +462,7 @@ public sealed class ExecutionFleetService(
         }
     }
 
-    private static SatelliteOfficeCertificateResponse CertificateResponse(ExecutionNode node, string message) =>
+    private static OfficeCertificateResponse CertificateResponse(ExecutionNode node, string message) =>
         new(true, null, message, node.IssuedCertificateBase64,
             node.CertificateThumbprint, node.CertificateExpiresAt);
 
@@ -527,15 +527,15 @@ public sealed class ExecutionFleetService(
     private string? QualificationFailure(ExecutionNode node, DateTimeOffset now)
     {
         if (string.IsNullOrWhiteSpace(node.CertificateThumbprint) || node.CertificateExpiresAt <= now)
-            return "The Satellite Office identity certificate is missing or expired. Re-enroll this host.";
+            return "The Office identity certificate is missing or expired. Re-enroll this host.";
         if (!string.Equals(node.ProtocolVersion, CurrentProtocolVersion, StringComparison.Ordinal))
-            return $"The Satellite Office protocol version is not supported. Required: {CurrentProtocolVersion}; reported: {node.ProtocolVersion}.";
+            return $"The Office protocol version is not supported. Required: {CurrentProtocolVersion}; reported: {node.ProtocolVersion}.";
         if (!Version.TryParse(node.NodeVersion, out var version) || version < MinimumNodeVersion)
-            return $"The Satellite Office version is not supported. Install version {MinimumNodeVersion} or later.";
+            return $"The Office version is not supported. Install version {MinimumNodeVersion} or later.";
         if (!ImagePolicyConfigured())
             return "Headquarters has no permitted builder/runtime guest-image policy. Configure pinned image digests, or enable certified unpinned images for development.";
         if (node.Providers.Count == 0)
-            return "The Satellite Office did not report an isolation provider. Check the RuntimeHost service and provider configuration.";
+            return "The Office did not report an isolation provider. Check the RuntimeHost service and provider configuration.";
         if (node.Providers.Any(provider =>
                 ProviderQualifies(provider, now, ExecutionWorkloadKind.Builder) &&
                 ProviderQualifies(provider, now, ExecutionWorkloadKind.Runtime)))
@@ -551,7 +551,7 @@ public sealed class ExecutionFleetService(
         var expired = node.Providers.FirstOrDefault(provider =>
             provider.CertifiedAt > now || provider.CertificationExpiresAt <= now);
         if (expired is not null)
-            return $"Provider {expired.ProviderId} certification is not currently valid. Rebuild and recertify the Satellite Office payload.";
+            return $"Provider {expired.ProviderId} certification is not currently valid. Rebuild and recertify the Office payload.";
         var missingCapability = node.Providers.FirstOrDefault(provider =>
             !provider.SupportsBuilderWorkloads || !provider.SupportsRuntimeWorkloads);
         if (missingCapability is not null)
@@ -564,7 +564,7 @@ public sealed class ExecutionFleetService(
         if (string.IsNullOrWhiteSpace(value)) return "no diagnostic was reported";
         if (value.Contains("#< CLIXML", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("<Objs Version=", StringComparison.OrdinalIgnoreCase))
-            return "the runtime readiness check failed; review the Satellite Office RuntimeHost event log";
+            return "the runtime readiness check failed; review the Office RuntimeHost event log";
         var normalized = string.Join(' ', value.Split((char[]?)null,
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         return normalized[..Math.Min(512, normalized.Length)];
@@ -617,20 +617,20 @@ public sealed class ExecutionFleetService(
                 ? Required("mode", "Execution location", "Choose whether agents run on this machine or another machine.", "Select an execution location to continue.")
                 : Passed("mode", "Execution location", $"Selected {mode.ToString().ToLowerInvariant()} execution-node onboarding."),
             nodes.Count == 0
-                ? Required("node", "Satellite Office", "No Satellite Office has enrolled.",
-                    enrollment is null ? "Create an enrollment and install C-Sweet Satellite Office." : "Use the one-time enrollment on a Satellite Office machine.")
-                : Passed("node", "Satellite Office", $"Detected {nodes.Count} enrolled Satellite Office{(nodes.Count == 1 ? string.Empty : "s")}.")
+                ? Required("node", "Office", "No Office has enrolled.",
+                    enrollment is null ? "Create an enrollment and install C-Sweet Office." : "Use the one-time enrollment on an Office machine.")
+                : Passed("node", "Office", $"Detected {nodes.Count} enrolled Office{(nodes.Count == 1 ? string.Empty : "s")}.")
         };
         var pending = nodes.Count(x => x.Status == ExecutionNodeStatus.PendingApproval);
         result.Add(pending > 0
-            ? Required("approval", "Administrator approval", $"{pending} Satellite Office{(pending == 1 ? " is" : "s are")} awaiting approval.", "Review the Satellite Office identity and approve it.")
+            ? Required("approval", "Administrator approval", $"{pending} Office{(pending == 1 ? " is" : "s are")} awaiting approval.", "Review the Office identity and approve it.")
             : isReady
-                ? Passed("approval", "Administrator approval", "A qualifying Satellite Office is approved.")
-                : Required("approval", "Administrator approval", "No qualifying Satellite Office is approved.", "Enroll and approve a Satellite Office."));
+                ? Passed("approval", "Administrator approval", "A qualifying Office is approved.")
+                : Required("approval", "Administrator approval", "No qualifying Office is approved.", "Enroll and approve an Office."));
         result.Add(isReady
-            ? Passed("capacity", "Certified execution capacity", $"{readyCount} Satellite Office{(readyCount == 1 ? " is" : "s are")} ready for builds and runtimes.")
-            : Required("capacity", "Certified execution capacity", "No approved, connected Satellite Office currently has certified builder and runtime capacity.",
-                "Connect a compatible Satellite Office with current certification, images, identity, and allocatable resources."));
+            ? Passed("capacity", "Certified execution capacity", $"{readyCount} Office{(readyCount == 1 ? " is" : "s are")} ready for builds and runtimes.")
+            : Required("capacity", "Certified execution capacity", "No approved, connected Office currently has certified builder and runtime capacity.",
+                "Connect a compatible Office with current certification, images, identity, and allocatable resources."));
         return result;
     }
 
@@ -679,7 +679,7 @@ public sealed class ExecutionFleetService(
     }
 
     private static string SecurityPostureLabels(
-        SatelliteOfficeSecurityPostureReport? posture,
+        OfficeSecurityPostureReport? posture,
         string existingJson = "{}")
     {
         var labels = DeserializeLabels(existingJson).ToDictionary(item => item.Key, item => item.Value,
@@ -693,7 +693,7 @@ public sealed class ExecutionFleetService(
             posture.EnabledControls.Count > 64 || posture.MissingControls.Count > 64 ||
             profile == "development" && !posture.DevelopmentAssignmentsAllowed ||
             profile == "hardened" && posture.MissingControls.Count != 0)
-            throw new ArgumentException("The Satellite Office security posture report is invalid.");
+            throw new ArgumentException("The Office security posture report is invalid.");
         labels["csweet.security.profile"] = profile;
         labels["csweet.security.mixed-use"] = posture.MixedUseHost ? "true" : "false";
         labels["csweet.security.development-assignments"] = posture.DevelopmentAssignmentsAllowed ? "true" : "false";
@@ -707,7 +707,7 @@ public sealed class ExecutionFleetService(
 
     private static ExecutionNodeProvider Map(
         Guid nodeId,
-        RegisterSatelliteOfficeProviderRequest provider,
+        RegisterOfficeProviderRequest provider,
         DateTimeOffset now) => new()
     {
         Id = Guid.NewGuid(),
@@ -730,7 +730,7 @@ public sealed class ExecutionFleetService(
 
     private void SynchronizeProviderInventory(
         ExecutionNode node,
-        IReadOnlyList<RegisterSatelliteOfficeProviderRequest> reportedProviders,
+        IReadOnlyList<RegisterOfficeProviderRequest> reportedProviders,
         DateTimeOffset now)
     {
         var reportedKeys = reportedProviders
@@ -771,7 +771,7 @@ public sealed class ExecutionFleetService(
     private static string ProviderKey(ExecutionNodeProvider provider) =>
         $"{provider.ProviderId}\n{provider.GuestImageDigest}";
 
-    private static string ProviderKey(RegisterSatelliteOfficeProviderRequest provider) =>
+    private static string ProviderKey(RegisterOfficeProviderRequest provider) =>
         $"{provider.ProviderId.Trim()}\n{provider.GuestImageDigest.Trim()}";
 
     private async Task<ExecutionCapacityActionResponse> SuccessAsync(string message, CancellationToken cancellationToken) =>
@@ -780,14 +780,14 @@ public sealed class ExecutionFleetService(
     private async Task<ExecutionCapacityActionResponse> FailureAsync(string code, string message, CancellationToken cancellationToken) =>
         new(false, code, message, await GetOnboardingStatusAsync(cancellationToken));
 
-    private static void ValidateClaim(ClaimSatelliteOfficeRequest request)
+    private static void ValidateClaim(ClaimOfficeRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.EnrollmentToken) || request.EnrollmentToken.Length > 256 ||
             string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 160 ||
             string.IsNullOrWhiteSpace(request.MachineName) || request.MachineName.Length > 255 ||
             string.IsNullOrWhiteSpace(request.OperatingSystem) || request.OperatingSystem.Length > 32 ||
             string.IsNullOrWhiteSpace(request.Architecture) || request.Architecture.Length > 32 ||
-            !Version.TryParse(request.SatelliteOfficeVersion, out _) || request.ProtocolVersion != CurrentProtocolVersion ||
+            !Version.TryParse(request.OfficeVersion, out _) || request.ProtocolVersion != CurrentProtocolVersion ||
             request.AllocatableCpuCount < 1 || request.AllocatableMemoryMb < 128 ||
             request.AllocatableDiskMb < 64 || request.MaximumConcurrentWorkloads < 1 ||
             request.CertificateExpiresAt <= DateTimeOffset.UtcNow ||

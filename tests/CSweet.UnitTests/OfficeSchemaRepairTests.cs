@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public sealed class SatelliteOfficeSchemaRepairTests
+public sealed class OfficeSchemaRepairTests
 {
     [Fact]
     public void ArtifactGrantSchemaRepair_IsIdempotentAndDiscovered()
@@ -28,7 +28,7 @@ public sealed class SatelliteOfficeSchemaRepairTests
     }
 
     [Fact]
-    public void SatelliteOfficeApprovalUi_AttributesApiFailureToControlPlane()
+    public void OfficeApprovalUi_AttributesApiFailureToControlPlane()
     {
         var razor = File.ReadAllText(Path.Combine(
             RepositoryRoot(), "src", "CSweet.UI", "Setup", "AgentHostOnboardingStep.razor"));

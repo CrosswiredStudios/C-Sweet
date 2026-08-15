@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -53,7 +53,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSweet.UnitTests", "tests\C
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dependencies", "dependencies", "{F313B7C0-2939-4ED8-BC79-D584723C91C7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSweet.SatelliteOffice.Contracts", "..\CSweet.SatelliteOffice.Contracts\src\CSweet.SatelliteOffice.Contracts\CSweet.SatelliteOffice.Contracts.csproj", "{0B6C63F5-D317-4831-83C6-9FE935FA9FE8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSweet.Office.Contracts", "..\CSweet.Office.Contracts\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj", "{0B6C63F5-D317-4831-83C6-9FE935FA9FE8}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

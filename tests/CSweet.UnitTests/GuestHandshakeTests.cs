@@ -1,4 +1,4 @@
-using CSweet.SatelliteOffice.Contracts.Guest;
+using CSweet.Office.Contracts.Guest;
 
 namespace CSweet.UnitTests;
 

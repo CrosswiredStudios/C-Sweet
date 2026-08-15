@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using CSweet.Application.Setup;
-using CSweet.SatelliteOffice.Contracts.Workloads;
+using CSweet.Office.Contracts.Workloads;
 using Microsoft.AspNetCore.DataProtection;
 
 namespace CSweet.Infrastructure.Setup;

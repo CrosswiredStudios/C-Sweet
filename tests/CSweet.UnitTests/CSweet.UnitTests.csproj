@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <UsesSatelliteOfficeContracts>true</UsesSatelliteOfficeContracts>
+    <UsesOfficeContracts>true</UsesOfficeContracts>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>

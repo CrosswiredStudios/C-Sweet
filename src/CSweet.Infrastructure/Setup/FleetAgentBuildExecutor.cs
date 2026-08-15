@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Application.Setup;
-using CSweet.SatelliteOffice.Contracts.Workloads;
+using CSweet.Office.Contracts.Workloads;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -155,7 +155,7 @@ public sealed class FleetAgentBuildExecutor(
     {
         var node = assignment.ExecutionNode;
         var nodeLabel = node is null
-            ? assignment.ExecutionNodeId?.ToString("D") ?? "an eligible Satellite Office"
+            ? assignment.ExecutionNodeId?.ToString("D") ?? "an eligible Office"
             : $"{node.MachineName} (version {node.NodeVersion})";
         var retry = assignment.Attempt > 1
             ? $" Retry attempt {assignment.Attempt}."
@@ -166,7 +166,7 @@ public sealed class FleetAgentBuildExecutor(
         var detail = assignment.Status switch
         {
             ExecutionAssignmentStatus.Pending =>
-                $"No eligible certified Satellite Office currently matches this build.{retry}{priorFailure}",
+                $"No eligible certified Office currently matches this build.{retry}{priorFailure}",
             ExecutionAssignmentStatus.Assigned =>
                 $"Dispatched to {nodeLabel}; waiting for it to accept the signed assignment.{retry}",
             ExecutionAssignmentStatus.Starting =>

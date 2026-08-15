@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using CSweet.AgentBroker;
 using CSweet.Application.Setup;
-using CSweet.SatelliteOffice.Contracts.Workloads;
+using CSweet.Office.Contracts.Workloads;
 
 namespace CSweet.ExecutionArtifacts;
 

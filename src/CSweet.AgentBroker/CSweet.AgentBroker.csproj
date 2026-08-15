@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><Description>Capability-limited broker for all guest-to-host communication.</Description></PropertyGroup>
-  <PropertyGroup><UsesSatelliteOfficeContracts>true</UsesSatelliteOfficeContracts></PropertyGroup>
+  <PropertyGroup><UsesOfficeContracts>true</UsesOfficeContracts></PropertyGroup>
 </Project>

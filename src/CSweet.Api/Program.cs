@@ -168,7 +168,7 @@ app.MapAuthenticationEndpoints();
 app.MapLlmProviderProfileEndpoints();
 app.MapGenAiEndpoints();
 app.MapSetupEndpoints();
-app.MapSatelliteOfficeBootstrapEndpoints();
+app.MapOfficeBootstrapEndpoints();
 app.MapExecutionFleetEndpoints();
 app.MapAgentRuntimeSettingsEndpoints();
 app.MapPlanningRunEndpoints();

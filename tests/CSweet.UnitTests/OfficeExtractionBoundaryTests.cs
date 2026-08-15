@@ -1,6 +1,6 @@
 namespace CSweet.UnitTests;
 
-public sealed class SatelliteOfficeExtractionBoundaryTests
+public sealed class OfficeExtractionBoundaryTests
 {
     private static readonly string[] MigratedProjectNames =
     [
@@ -10,7 +10,7 @@ public sealed class SatelliteOfficeExtractionBoundaryTests
     ];
 
     [Fact]
-    public void Core_solution_does_not_reference_migrated_satellite_office_projects()
+    public void Core_solution_does_not_reference_migrated_office_projects()
     {
         var root = FindRepositoryRoot();
         var definitionFiles = Directory

@@ -14,8 +14,8 @@
     <CSweetWorkManagementContractsRepositoryRoot Condition="'$(CSweetWorkManagementContractsRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.WorkManagement.Contracts</CSweetWorkManagementContractsRepositoryRoot>
     <UseLocalCSweetWorkManagementContracts Condition="'$(UseLocalCSweetWorkManagementContracts)' == '' and Exists('$(CSweetWorkManagementContractsRepositoryRoot)\src\CSweet.WorkManagement.Contracts\CSweet.WorkManagement.Contracts.csproj')">true</UseLocalCSweetWorkManagementContracts>
     <UseLocalCSweetWorkManagementContracts Condition="'$(UseLocalCSweetWorkManagementContracts)' == ''">false</UseLocalCSweetWorkManagementContracts>
-    <CSweetSatelliteOfficeContractsRepositoryRoot Condition="'$(CSweetSatelliteOfficeContractsRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.SatelliteOffice.Contracts</CSweetSatelliteOfficeContractsRepositoryRoot>
-    <UseLocalSatelliteOfficeContracts Condition="'$(UseLocalSatelliteOfficeContracts)' == '' and Exists('$(CSweetSatelliteOfficeContractsRepositoryRoot)\src\CSweet.SatelliteOffice.Contracts\CSweet.SatelliteOffice.Contracts.csproj')">true</UseLocalSatelliteOfficeContracts>
-    <UseLocalSatelliteOfficeContracts Condition="'$(UseLocalSatelliteOfficeContracts)' == ''">false</UseLocalSatelliteOfficeContracts>
+    <CSweetOfficeContractsRepositoryRoot Condition="'$(CSweetOfficeContractsRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.Office.Contracts</CSweetOfficeContractsRepositoryRoot>
+    <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == '' and Exists('$(CSweetOfficeContractsRepositoryRoot)\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj')">true</UseLocalOfficeContracts>
+    <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == ''">false</UseLocalOfficeContracts>
   </PropertyGroup>
 </Project>

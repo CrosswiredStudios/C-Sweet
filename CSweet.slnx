@@ -26,6 +26,6 @@
     <Project Path="tests/CSweet.UnitTests/CSweet.UnitTests.csproj" />
   </Folder>
   <Folder Name="/dependencies/">
-    <Project Path="../CSweet.SatelliteOffice.Contracts/src/CSweet.SatelliteOffice.Contracts/CSweet.SatelliteOffice.Contracts.csproj" />
+    <Project Path="../CSweet.Office.Contracts/src/CSweet.Office.Contracts/CSweet.Office.Contracts.csproj" />
   </Folder>
 </Solution>

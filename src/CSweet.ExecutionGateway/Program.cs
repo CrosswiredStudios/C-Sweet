@@ -1,4 +1,4 @@
-using CSweet.SatelliteOffice.Contracts.ControlPlane;
+using CSweet.Office.Contracts.ControlPlane;
 using CSweet.Application.Setup;
 using CSweet.ExecutionGateway;
 using CSweet.Infrastructure;
@@ -24,13 +24,13 @@ builder.Services.Configure<ExecutionGatewayOptions>(
 builder.Services.AddSingleton<ExecutionAssignmentSigner>();
 
 var app = builder.Build();
-app.MapGrpcService<SatelliteOfficeGatewayService>();
-app.MapGet("/api/satellite-offices/assignment-trust", (ExecutionAssignmentSigner signer) =>
+app.MapGrpcService<OfficeGatewayService>();
+app.MapGet("/api/offices/assignment-trust", (ExecutionAssignmentSigner signer) =>
     Results.Ok(new HeadquartersAssignmentTrustResponse(
         signer.KeyId,
         signer.ExportPublicKeyBase64())));
-app.MapPost("/api/satellite-offices/claim", async (
-    ClaimSatelliteOfficeRequest request,
+app.MapPost("/api/offices/claim", async (
+    ClaimOfficeRequest request,
     IExecutionFleetService fleet,
     ExecutionAssignmentSigner signer,
     CancellationToken cancellationToken) =>
@@ -44,32 +44,32 @@ app.MapPost("/api/satellite-offices/claim", async (
         };
     return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
 });
-app.MapPost("/api/satellite-offices/{satelliteOfficeId:guid}/heartbeat", async (
-    Guid satelliteOfficeId,
-    SatelliteOfficeHeartbeatRequest request,
+app.MapPost("/api/offices/{officeId:guid}/heartbeat", async (
+    Guid officeId,
+    OfficeHeartbeatRequest request,
     IExecutionFleetService fleet,
     CancellationToken cancellationToken) =>
-    await fleet.RecordHeartbeatAsync(satelliteOfficeId, request, cancellationToken)
+    await fleet.RecordHeartbeatAsync(officeId, request, cancellationToken)
         ? Results.NoContent() : Results.Unauthorized());
-app.MapPost("/api/satellite-offices/{satelliteOfficeId:guid}/certificate", async (
-    Guid satelliteOfficeId,
-    SatelliteOfficeCertificateRequest request,
+app.MapPost("/api/offices/{officeId:guid}/certificate", async (
+    Guid officeId,
+    OfficeCertificateRequest request,
     HttpContext context,
     IExecutionFleetService fleet,
     CancellationToken cancellationToken) =>
 {
-    SatelliteOfficeCertificateResponse result;
+    OfficeCertificateResponse result;
     if (!string.IsNullOrWhiteSpace(request.EnrollmentReceipt))
     {
-        result = await fleet.GetOperationalCertificateAsync(satelliteOfficeId, request, cancellationToken);
+        result = await fleet.GetOperationalCertificateAsync(officeId, request, cancellationToken);
     }
     else
     {
         var certificate = context.Connection.ClientCertificate;
         result = certificate is null
-            ? new(false, "node_certificate_rejected", "A current operational Satellite Office certificate is required.", null, null, null)
+            ? new(false, "node_certificate_rejected", "A current operational Office certificate is required.", null, null, null)
             : await fleet.RotateOperationalCertificateAsync(
-                satelliteOfficeId, certificate.Thumbprint, certificate.SerialNumber, cancellationToken);
+                officeId, certificate.Thumbprint, certificate.SerialNumber, cancellationToken);
     }
     return result.Succeeded ? Results.Ok(result) : Results.Unauthorized();
 });
@@ -77,7 +77,7 @@ app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Ok(new
 {
     service = "CSweet.ExecutionGateway",
-    protocol = "csweet-satellite-office-v1",
+    protocol = "csweet-office-v1",
     status = "ok"
 }));
 app.Run();
