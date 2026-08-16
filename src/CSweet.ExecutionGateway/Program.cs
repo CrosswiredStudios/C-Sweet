@@ -44,6 +44,14 @@ app.MapPost("/api/offices/claim", async (
         };
     return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
 });
+app.MapPost("/api/offices/local-sessions/redeem", async (
+    RedeemAssistedOfficeSetupRequest request,
+    IExecutionFleetService fleet,
+    CancellationToken cancellationToken) =>
+{
+    var result = await fleet.RedeemLocalSetupSessionAsync(request, cancellationToken);
+    return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+});
 app.MapPost("/api/offices/{officeId:guid}/heartbeat", async (
     Guid officeId,
     OfficeHeartbeatRequest request,

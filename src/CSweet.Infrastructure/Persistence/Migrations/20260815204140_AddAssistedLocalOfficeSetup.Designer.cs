@@ -3,6 +3,7 @@ using System;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CSweet.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CSweetDbContext))]
-    partial class CSweetDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260815204140_AddAssistedLocalOfficeSetup")]
+    partial class AddAssistedLocalOfficeSetup
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -6208,9 +6211,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset?>("AdministratorApprovalRequestedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<int>("AllocatableCpuCount")
                         .HasColumnType("integer");
 
@@ -6298,10 +6298,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CreatedByUserId")
-                        .IsUnique()
-                        .HasFilter("\"Status\" IN ('Created', 'Redeemed', 'Connected')");
 
                     b.HasIndex("ExecutionNodeEnrollmentId")
                         .IsUnique();

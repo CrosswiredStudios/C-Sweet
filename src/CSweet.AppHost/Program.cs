@@ -85,6 +85,19 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WaitFor(postgres)
     .WaitFor(agentHost)
     .WaitForCompletion(migrator);
+if (OperatingSystem.IsWindows())
+{
+    var workspaceRoot = Directory.GetParent(repositoryRoot)?.FullName;
+    var launcher = Path.Combine(repositoryRoot, "src", "CSweet.Api", "Setup",
+        "Start-CSweetDevelopmentOfficeSetup.ps1");
+    var officeBootstrap = string.IsNullOrWhiteSpace(workspaceRoot) ? null : Path.Combine(workspaceRoot,
+        "CSweet.Office", "scripts", "windows", "Initialize-CSweetWindowsIsolationTest.ps1");
+    if (File.Exists(launcher) && officeBootstrap is not null && File.Exists(officeBootstrap))
+    {
+        api.WithEnvironment("CSweet__ExecutionFleet__WindowsDevelopmentLauncherScript", launcher)
+            .WithEnvironment("CSweet__ExecutionFleet__WindowsDevelopmentOfficeBootstrapScript", officeBootstrap);
+    }
+}
 
 var executionGateway = builder.AddProject<Projects.CSweet_ExecutionGateway>("executiongateway")
     .WithHttpsEndpoint(name: "https")

@@ -1,6 +1,7 @@
 using CSweet.Application.Setup;
 using CSweet.Office.Contracts.Workloads;
 using CSweet.Contracts.Agents;
+using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
@@ -316,6 +317,39 @@ public sealed class AgentRuntimeManagerTests
         Assert.Equal(AgentRuntimeStatus.WaitingForMcpSession, runtime.Status);
         Assert.Single(containers.Starts);
         Assert.True(installation.Schedule!.NextTickAt > DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public async Task RuntimeWorkload_IncludesEmployeeNameAndRoleForHostAdministration()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db);
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = Guid.NewGuid(),
+            Name = "Software Developer"
+        };
+        db.CoreOrganizationUsers.Add(new OrganizationUser
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = role.OrganizationId,
+            AgentInstallationId = installation.Id,
+            DisplayName = "Ada Lovelace",
+            EmployeeType = EmployeeType.Agent,
+            IsActive = true,
+            Role = role
+        });
+        await db.SaveChangesAsync();
+        var runner = new FakeRunner();
+
+        var manager = CreateManager(db, runner);
+        await manager.ProcessDueSchedulesAsync();
+        await manager.ReconcileAsync();
+
+        var identity = Assert.Single(runner.Starts).Workload.Identity;
+        Assert.Equal("Ada Lovelace", identity.AgentDisplayName);
+        Assert.Equal("Software Developer", identity.AgentRoleName);
     }
 
     [Fact]

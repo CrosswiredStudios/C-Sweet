@@ -49,14 +49,50 @@ public sealed class SetupApiClient : ISetupApiClient
         return await ReadExecutionActionResponseAsync(response, cancellationToken);
     }
 
-    public async Task<ExecutionCapacityActionResponse> InstallLocalExecutionNodeAsync(
-        string enrollmentToken,
+    public async Task<LocalOfficeSetupActionResponse> CreateLocalOfficeSetupSessionAsync(
+        CreateLocalOfficeSetupSessionRequest request,
         CancellationToken cancellationToken = default)
     {
         using var response = await _httpClient.PostAsJsonAsync(
-            "api/setup/execution-capacity/local-install",
-            new InstallLocalExecutionNodeRequest(enrollmentToken), cancellationToken);
-        return await ReadExecutionActionResponseAsync(response, cancellationToken);
+            "api/setup/execution-capacity/local-sessions", request, cancellationToken);
+        return await ReadLocalSetupActionResponseAsync(response, cancellationToken);
+    }
+
+    public async Task<LocalOfficeSetupActionResponse> LaunchLocalOfficeSetupSessionAsync(
+        Guid sessionId,
+        LaunchLocalOfficeSetupRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsJsonAsync(
+            $"api/setup/execution-capacity/local-sessions/{sessionId:D}/launch",
+            request, cancellationToken);
+        return await ReadLocalSetupActionResponseAsync(response, cancellationToken);
+    }
+
+    public async Task<LocalOfficeSetupActionResponse> GetLocalOfficeSetupSessionAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.GetAsync(
+            $"api/setup/execution-capacity/local-sessions/{sessionId:D}", cancellationToken);
+        return await ReadLocalSetupActionResponseAsync(response, cancellationToken);
+    }
+
+    public async Task<LocalOfficeSetupActionResponse> GetActiveLocalOfficeSetupSessionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.GetAsync(
+            "api/setup/execution-capacity/local-sessions/active", cancellationToken);
+        return await ReadLocalSetupActionResponseAsync(response, cancellationToken);
+    }
+
+    public async Task<LocalOfficeSetupActionResponse> RefreshLocalOfficeSetupSessionHandoffAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsync(
+            $"api/setup/execution-capacity/local-sessions/{sessionId:D}/handoff", null, cancellationToken);
+        return await ReadLocalSetupActionResponseAsync(response, cancellationToken);
     }
 
     public async Task<ExecutionCapacityActionResponse> RevokeExecutionEnrollmentAsync(
@@ -130,5 +166,21 @@ public sealed class SetupApiClient : ISetupApiClient
             ? "The C-Sweet server returned an invalid execution-capacity response."
             : $"The C-Sweet server returned HTTP {(int)response.StatusCode}. Check the server logs and try again.";
         throw new ApiClientException(response.StatusCode, message);
+    }
+
+    private static async Task<LocalOfficeSetupActionResponse> ReadLocalSetupActionResponseAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await response.Content.ReadFromJsonAsync<LocalOfficeSetupActionResponse>(cancellationToken);
+            if (result is not null) return result;
+        }
+        catch (JsonException) when (!response.IsSuccessStatusCode) { }
+        throw new ApiClientException(response.StatusCode,
+            response.IsSuccessStatusCode
+                ? "The C-Sweet server returned an invalid local setup response."
+                : $"Local Office setup failed with HTTP {(int)response.StatusCode}.");
     }
 }

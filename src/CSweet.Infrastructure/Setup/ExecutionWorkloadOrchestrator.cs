@@ -341,7 +341,8 @@ public sealed class ExecutionWorkloadOrchestrator(
             .ToListAsync(cancellationToken);
         nodes = nodes.Where(node =>
                 string.Equals(node.ProtocolVersion, "1.0", StringComparison.Ordinal) &&
-                Version.TryParse(node.NodeVersion, out var version) && version >= new Version(1, 0, 2) &&
+                Version.TryParse(node.NodeVersion, out var version) &&
+                version >= ExecutionFleetService.MinimumNodeVersion &&
                 LabelsMatch(pool.RequiredLabelsJson, node.LabelsJson) &&
                 SecurityPostureAllows(node.LabelsJson, assignment.SpecificationJson))
             .ToList();

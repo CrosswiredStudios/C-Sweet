@@ -288,12 +288,6 @@
         var result = await SetupApi.CreateExecutionEnrollmentAsync();
         Apply(result);
         _issuedEnrollment = result.Enrollment;
-        if (result.Succeeded && _status?.SelectedMode == "local" &&
-            result.Enrollment?.EnrollmentToken is { Length: > 0 } token)
-        {
-            var installation = await SetupApi.InstallLocalExecutionNodeAsync(token);
-            Apply(installation);
-        }
         _busy = false;
     }
 

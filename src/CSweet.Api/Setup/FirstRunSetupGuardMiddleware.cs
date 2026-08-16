@@ -8,6 +8,7 @@ public sealed class FirstRunSetupGuardMiddleware
     [
         "/api/setup",
         "/api/execution-nodes",
+        "/api/offices",
         "/api/auth",
         "/api/core",
         "/api/llm-provider-profiles",

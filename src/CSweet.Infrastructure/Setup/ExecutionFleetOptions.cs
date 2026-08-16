@@ -9,6 +9,8 @@ public sealed class ExecutionFleetOptions
     public string? WindowsPackageOverrideUrl { get; set; }
     public string? LinuxPackageOverrideUrl { get; set; }
     public string? MacOsPackageOverrideUrl { get; set; }
+    public string? WindowsDevelopmentLauncherScript { get; set; }
+    public string? WindowsDevelopmentOfficeBootstrapScript { get; set; }
     public bool AllowUnpinnedDevelopmentImages { get; set; }
     public int MinimumBuilderCpuCount { get; set; } = 1;
     public int MinimumBuilderMemoryMb { get; set; } = 4096;

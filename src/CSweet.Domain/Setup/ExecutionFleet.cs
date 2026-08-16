@@ -25,6 +25,17 @@ public enum ExecutionEnrollmentStatus
     Expired = 4
 }
 
+public enum LocalOfficeSetupSessionStatus
+{
+    Created = 0,
+    Redeemed = 1,
+    Connected = 2,
+    Ready = 3,
+    Failed = 4,
+    Expired = 5,
+    Revoked = 6
+}
+
 public enum ExecutionAssignmentStatus
 {
     Pending = 0,
@@ -131,6 +142,38 @@ public sealed class ExecutionNodeEnrollment
     public DateTimeOffset CreatedAt { get; set; }
 
     public ExecutionPool? ExecutionPool { get; set; }
+    public ExecutionNode? ExecutionNode { get; set; }
+}
+
+public sealed class LocalOfficeSetupSession
+{
+    public Guid Id { get; set; }
+    public Guid CreatedByUserId { get; set; }
+    public Guid? ExecutionNodeEnrollmentId { get; set; }
+    public Guid? ExecutionNodeId { get; set; }
+    public string HandoffSecretHash { get; set; } = string.Empty;
+    public string MachineBindingHash { get; set; } = string.Empty;
+    public string OperatingSystem { get; set; } = "windows";
+    public string Architecture { get; set; } = string.Empty;
+    public string ControlPlaneOrigin { get; set; } = string.Empty;
+    public string? ControlPlaneCertificateSha256 { get; set; }
+    public string PresetKey { get; set; } = "balanced";
+    public int AllocatableCpuCount { get; set; }
+    public int AllocatableMemoryMb { get; set; }
+    public int AllocatableDiskMb { get; set; }
+    public int MaximumConcurrentWorkloads { get; set; }
+    public LocalOfficeSetupSessionStatus Status { get; set; } = LocalOfficeSetupSessionStatus.Created;
+    public string? ErrorCode { get; set; }
+    public string? ErrorMessage { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset? AdministratorApprovalRequestedAt { get; set; }
+    public DateTimeOffset? RedeemedAt { get; set; }
+    public DateTimeOffset? ConnectedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    public ExecutionNodeEnrollment? ExecutionNodeEnrollment { get; set; }
     public ExecutionNode? ExecutionNode { get; set; }
 }
 

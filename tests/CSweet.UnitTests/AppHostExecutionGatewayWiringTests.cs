@@ -21,6 +21,21 @@ public sealed class AppHostExecutionGatewayWiringTests
         Assert.Contains(".WaitFor(agentHost)", registration, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void LocalOfficeSetup_UsesCurrentOfficeBootstrap()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src/CSweet.AppHost/Program.cs"));
+
+        Assert.Contains(
+            "\"CSweet.Office\", \"scripts\", \"windows\", \"Initialize-CSweetWindowsIsolationTest.ps1\"",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\"CSweet.SatelliteOffice\", \"scripts\", \"windows\", \"Initialize-CSweetWindowsIsolationTest.ps1\"",
+            source,
+            StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

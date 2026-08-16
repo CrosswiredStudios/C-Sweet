@@ -6,7 +6,7 @@
 <section class="host-onboarding" aria-labelledby="host-onboarding-title">
     <header class="host-onboarding-header">
         <MudText Typo="Typo.overline">Step 2 of 6</MudText>
-        <h1 id="host-onboarding-title">Where should your agents run?</h1>
+        <h1 id="host-onboarding-title">Where should your agents work?</h1>
         <p>Choose the first machine that will securely build and run your agents.</p>
     </header>
 
@@ -37,13 +37,19 @@
                 <span class="host-location-copy">
                     <strong>This machine</strong>
                     <small>Install C-Sweet Office here. You can add additional machines later.</small>
+                    @if (_status?.LocalCapacity is { } machineCapacity)
+                    {
+                        <small class="host-machine-stats">
+                            @FormatGb(machineCapacity.TotalMemoryMb) GB memory · @machineCapacity.TotalCpuCount CPU cores · @FormatGb(machineCapacity.FreeDiskMb) GB free
+                        </small>
+                    }
                 </span>
                 <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="host-location-check" />
             </button>
             <button type="button"
                     class="host-location-card @TargetClass("remote")"
                     aria-pressed="@(_installationTarget == "remote")"
-                    disabled="@_busy"
+                    disabled="@(_busy || LocalSetupLocksLocation)"
                     @onclick='@(() => SelectInstallationTargetAsync("remote"))'>
                 <span class="host-location-icon"><MudIcon Icon="@Icons.Material.Outlined.Devices" /></span>
                 <span class="host-location-copy">
@@ -54,9 +60,17 @@
             </button>
         </div>
 
-        @RemoteExperience()
+        @if (_installationTarget == "local")
+        {
+            @LocalExperience()
+        }
+        else
+        {
+            @RemoteExperience()
+        }
 
-        @if (!string.IsNullOrWhiteSpace(_actionMessage))
+        @if (!string.IsNullOrWhiteSpace(_actionMessage) &&
+             (_installationTarget == "remote" || !_actionSucceeded))
         {
             <div class="host-feedback @(_actionSucceeded ? "success" : "warning")" role="status" aria-live="polite">
                 <MudIcon Icon="@(_actionSucceeded ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.Info)" />
@@ -65,20 +79,23 @@
         }
     }
 
-    <footer class="host-onboarding-actions">
-        <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
-        <div>
-            @if (_status?.IsReady != true)
-            {
-                <span>Connect one healthy Office to continue</span>
-            }
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       EndIcon="@Icons.Material.Filled.ArrowForward"
-                       Disabled="@(_busy || _loading || _status?.IsReady != true)"
-                       OnClick="OnContinue">Continue</MudButton>
-        </div>
-    </footer>
+    @if (_installationTarget == "remote")
+    {
+        <footer class="host-onboarding-actions">
+            <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
+            <div>
+                @if (_status?.IsReady != true)
+                {
+                    <span>Connect one healthy Office to continue</span>
+                }
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           EndIcon="@Icons.Material.Filled.ArrowForward"
+                           Disabled="@(_busy || _loading || _status?.IsReady != true)"
+                           OnClick="OnContinue">Continue</MudButton>
+            </div>
+        </footer>
+    }
 </section>
 
 @code {
@@ -92,13 +109,20 @@
     private CancellationTokenSource? _polling;
     private string _remotePlatform = "windows";
     private string _installationTarget = "local";
+    private string _capacityPreset = "balanced";
+    private bool _capacityPresetInitialized;
+    private int _customCpuCount;
+    private int _customMemoryGb;
+    private int _customStorageGb;
+    private bool _customInitialized;
+    private LocalOfficeSetupSessionResponse? _localSession;
+    private DateTimeOffset? _localLaunchAttemptedAt;
+    private int _localLaunchAttempts;
+    private bool _localApprovalRequested;
     private bool _loading = true;
     private bool _busy;
     private bool _automaticEnrollmentInFlight;
-    private bool _automaticApprovalInFlight;
     private long _statusMutationVersion;
-    private Guid? _lastAutomaticApprovalNodeId;
-    private DateTimeOffset _lastAutomaticApprovalAt;
     private bool _actionSucceeded;
     private string? _actionMessage;
     private string? _error;
@@ -106,6 +130,7 @@
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
+        await RestoreActiveLocalSetupAsync();
         StartPolling();
     }
 
@@ -129,23 +154,14 @@
 
     private async Task SelectInstallationTargetAsync(string target)
     {
+        if (target == "remote" && LocalSetupLocksLocation) return;
         _installationTarget = target;
-        if (target == "local" && _status is not null)
-        {
-            _remotePlatform = _status.LocalOperatingSystem switch
-            {
-                "linux" => "linux",
-                "macos" => "macos",
-                _ => "windows"
-            };
-        }
+        if (target == "local") return;
         BeginStatusMutation();
         _busy = true;
         _actionMessage = null;
         try
         {
-            // Both destinations use the independently installed Office workflow.
-            // "remote" is the persisted protocol mode retained by the control plane.
             var result = await SetupApi.SelectExecutionModeAsync("remote");
             Apply(result);
             if (result.Succeeded)
@@ -164,51 +180,141 @@
 
     private async Task StartLocalInstallAsync()
     {
-        if (_status is null) return;
+        if (_busy || _localSession is not null || _status?.LocalCapacity is null || !LocalAllocationIsValid) return;
         BeginStatusMutation();
         _busy = true;
         _actionMessage = null;
         try
         {
-            if (_status.ActiveEnrollment is { Status: "claimed" })
-            {
-                SetAction(true, "The C-Sweet Office connected. C-Sweet is verifying it now.");
-                return;
-            }
-
-            if (_status.ActiveEnrollment is { Status: "available" } active &&
-                (_issuedEnrollment?.Id != active.Id || string.IsNullOrWhiteSpace(_issuedEnrollment.EnrollmentToken)))
-            {
-                var revoked = await SetupApi.RevokeExecutionEnrollmentAsync(active.Id);
-                Apply(revoked);
-                if (!revoked.Succeeded) return;
-                _issuedEnrollment = null;
-            }
-
-            if (_issuedEnrollment?.EnrollmentToken is not { Length: > 0 } token)
-            {
-                var enrollment = await SetupApi.CreateExecutionEnrollmentAsync();
-                Apply(enrollment);
-                if (!enrollment.Succeeded || enrollment.Enrollment?.EnrollmentToken is not { Length: > 0 } createdToken)
-                    return;
-                _issuedEnrollment = enrollment.Enrollment;
-                token = createdToken;
-            }
-
-            var installation = await SetupApi.InstallLocalExecutionNodeAsync(token);
-            Apply(installation);
-            if (installation.Succeeded)
-                _issuedEnrollment = null;
+            var allocation = SelectedAllocation;
+            var result = await SetupApi.CreateLocalOfficeSetupSessionAsync(new(
+                _capacityPreset, allocation.CpuCount, allocation.MemoryMb, allocation.DiskMb));
+            _status = result.Status;
+            _localSession = result.Session;
+            AdoptLocalSession(result.Session);
+            if (_localSession is { State: "created", LaunchUri: null,
+                    AdministratorApprovalRequestedAt: null })
+                await RefreshLocalHandoffAsync();
+            SetAction(result.Succeeded, result.Message);
         }
         catch
         {
-            SetAction(false, "The C-Sweet Office installer could not be started. Try again.");
+            SetAction(false, "The assisted Office setup could not be started. Try again.");
         }
         finally
         {
             _busy = false;
             EndStatusMutation();
         }
+    }
+
+    private async Task LaunchLocalConfiguratorAsync()
+    {
+        if (_localSession?.LaunchUri is not { Length: > 0 } uri) return;
+        _localLaunchAttemptedAt = DateTimeOffset.UtcNow;
+        _localLaunchAttempts++;
+        await (await ModuleAsync()).InvokeVoidAsync("launchExternalUri", uri);
+    }
+
+    private async Task RequestAdministratorApprovalAsync()
+    {
+        if (_localSession?.LaunchUri is not { Length: > 0 } launchUri) return;
+        BeginStatusMutation();
+        _busy = true;
+        _actionMessage = null;
+        try
+        {
+            var result = await SetupApi.LaunchLocalOfficeSetupSessionAsync(
+                _localSession.Id, new LaunchLocalOfficeSetupRequest(launchUri));
+            _status = result.Status;
+            _localSession = result.Session ?? _localSession;
+            SetAction(result.Succeeded, result.Message);
+            if (!result.Succeeded) return;
+            _localApprovalRequested = true;
+            _localLaunchAttemptedAt = DateTimeOffset.UtcNow;
+            _localLaunchAttempts++;
+            if (_localSession.LaunchMethod != "server")
+                await LaunchLocalConfiguratorAsync();
+        }
+        catch
+        {
+            SetAction(false, "C-Sweet could not request Windows administrator approval. Try again.");
+        }
+        finally
+        {
+            _busy = false;
+            EndStatusMutation();
+        }
+    }
+
+    private async Task RetryLocalSetupAsync()
+    {
+        if (_localSession?.State == "created")
+        {
+            if (!await RefreshLocalHandoffAsync()) return;
+        }
+        await RequestAdministratorApprovalAsync();
+    }
+
+    private async Task RestoreActiveLocalSetupAsync()
+    {
+        try
+        {
+            var result = await SetupApi.GetActiveLocalOfficeSetupSessionAsync();
+            if (result.Session is null) return;
+            _status = result.Status;
+            AdoptLocalSession(result.Session);
+            if (_localSession is { State: "created", LaunchUri: null,
+                    AdministratorApprovalRequestedAt: null })
+                await RefreshLocalHandoffAsync();
+        }
+        catch
+        {
+            // Status polling retries active-session discovery without blocking onboarding.
+        }
+    }
+
+    private void AdoptLocalSession(LocalOfficeSetupSessionResponse? session)
+    {
+        if (session is null) return;
+        _installationTarget = "local";
+        _localSession = session;
+        _localApprovalRequested = session.AdministratorApprovalRequestedAt is not null ||
+            session.State is "redeemed" or "connected" or "ready";
+        _localLaunchAttemptedAt = session.AdministratorApprovalRequestedAt;
+        _localLaunchAttempts = session.AdministratorApprovalRequestedAt is null ? 0 : 1;
+    }
+
+    private async Task<bool> RefreshLocalHandoffAsync()
+    {
+        if (_localSession is null) return false;
+        try
+        {
+            var result = await SetupApi.RefreshLocalOfficeSetupSessionHandoffAsync(_localSession.Id);
+            _status = result.Status;
+            if (!result.Succeeded || result.Session is null)
+            {
+                SetAction(false, result.Message);
+                return false;
+            }
+            AdoptLocalSession(result.Session);
+            return true;
+        }
+        catch
+        {
+            SetAction(false, "C-Sweet could not restore the secure Windows approval request. Try again.");
+            return false;
+        }
+    }
+
+    private Task ResetLocalSetupAsync()
+    {
+        _localSession = null;
+        _localLaunchAttemptedAt = null;
+        _localLaunchAttempts = 0;
+        _localApprovalRequested = false;
+        _actionMessage = null;
+        return Task.CompletedTask;
     }
 
     private async Task EnsureRemoteEnrollmentAsync()
@@ -316,106 +422,179 @@
         }
     }
 
-    private RenderFragment LocalExperience() => @<section class="host-workspace" aria-labelledby="local-host-title">
-        @if (_status?.IsReady == true && LocalNode is not null)
-        {
-            <div class="host-ready-state" role="status" aria-live="polite">
-                <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
-                <div><strong id="local-host-title">Your C-Sweet Office is ready</strong><span>@LocalNode.MachineName is connected and healthy.</span></div>
+    private RenderFragment LocalExperience() => @<section class="host-workspace local-wizard" aria-labelledby="local-host-title">
+        <header class="local-wizard-heading">
+            <div>
+                <span class="host-section-kicker">Local Office setup &nbsp;·&nbsp; @LocalStepNumber of 4</span>
+                <h2 id="local-host-title">@LocalTitle</h2>
+                <p>@LocalSubtitle</p>
             </div>
-        }
-        else if (_status?.LocalProvisioning is { } progress &&
-                 (progress.State != "completed" || LocalNode is null))
+            <ol class="local-stage-track" aria-label="Local Office setup progress">
+                @foreach (var stage in LocalStages)
+                {
+                    <li class="@LocalStageClass(stage.Number)">
+                        <span>@stage.Number</span><small>@stage.Label</small>
+                    </li>
+                }
+            </ol>
+        </header>
+
+        @if (_localSession is null)
         {
-            <div class="host-progress-card" aria-live="polite">
-                <div class="host-progress-heading">
-                    <div>
-                        <span class="host-section-kicker">Installing on this machine</span>
-                        <h2 id="local-host-title">@progress.PhaseDisplayName</h2>
-                    </div>
-                    <strong>@progress.PercentComplete%</strong>
+            @if (_status?.LocalCapacity is not { IsSupported: true } capacity)
+            {
+                <div class="host-inline-notice warning" role="alert">
+                    <MudIcon Icon="@Icons.Material.Outlined.Info" />
+                    <span>@(_status?.LocalCapacity?.UnavailableReason ?? "Assisted local setup is unavailable on this machine.")</span>
                 </div>
-                <MudProgressLinear Value="@progress.PercentComplete"
-                                   Color="@(IsFailed(progress) ? Color.Error : Color.Primary)" />
-                <p>@progress.Message</p>
-                <div class="host-progress-meta">
-                    <span>Elapsed @FormatDuration(DateTimeOffset.UtcNow - progress.StartedAt)</span>
-                    @if (Eta(progress) is { } eta)
+            }
+            else
+            {
+                <div class="capacity-card-grid" role="radiogroup" aria-label="Office capacity profile">
+                    @foreach (var option in CapacityOptions)
                     {
-                        <span>@eta</span>
-                    }
-                    else if (IsRunning(progress))
-                    {
-                        <span>Estimating time remaining...</span>
+                        <button type="button" role="radio" aria-checked="@(_capacityPreset == option.Key)"
+                                class="capacity-option @(_capacityPreset == option.Key ? "selected" : null)"
+                                @onclick="() => SelectCapacityPreset(option.Key)">
+                            @if (option.Key == RecommendedPresetKey) { <span class="capacity-recommended">Recommended</span> }
+                            <MudIcon Icon="@option.Icon" />
+                            <strong>@option.Name</strong>
+                            <small>@option.Description</small>
+                            @if (option.Key != "custom")
+                            {
+                                var preset = capacity.Presets.Single(x => x.Key == option.Key);
+                                <b>@preset.PercentOfSafeCapacity%</b>
+                                <span>@FormatGb(preset.MemoryMb) GB · @preset.CpuCount cores</span>
+                            }
+                            else
+                            {
+                                <b>Exact limits</b><span>Memory, CPU, and storage</span>
+                            }
+                        </button>
                     }
                 </div>
-                @if (progress.RequiresRestart || progress.State is "restartrequired" or "restart-required")
+
+                @if (_capacityPreset == "custom")
                 {
-                    <div class="host-inline-notice warning">
-                        <MudIcon Icon="@Icons.Material.Outlined.RestartAlt" />
-                        <div><strong>Restart required</strong><span>Save your work, restart this machine, then reopen C-Sweet. Setup will resume automatically.</span></div>
-                    </div>
+                    <fieldset class="custom-allocation">
+                        <legend>Custom allocation</legend>
+                        <div class="allocation-input-grid">
+                            @AllocationEditor("Memory", _customMemoryGb, "GB", "memory")
+                            @AllocationEditor("CPU", _customCpuCount, "cores", "cpu")
+                            @AllocationEditor("Storage", _customStorageGb, "GB", "storage")
+                        </div>
+                        <small class="@(LocalAllocationIsValid ? null : "invalid")">@CustomAllocationHint</small>
+                    </fieldset>
                 }
-                else if (IsFailed(progress))
-                {
-                    <div class="host-inline-notice error">
-                        <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" />
-                        <div><strong>Installation paused</strong><span>@(progress.ErrorMessage ?? "The installer did not complete.")</span></div>
-                    </div>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="StartLocalInstallAsync">Try installation again</MudButton>
-                }
-                else if (progress.State == "completed" && LocalNode is null)
-                {
-                    <div class="host-inline-notice checking">
-                        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-                        <div><strong>Waiting for the C-Sweet Office</strong><span>The services are installed and should connect automatically.</span></div>
-                    </div>
-                }
-            </div>
-        }
-        else if (LocalNode?.Status == "pendingapproval")
-        {
-            <div class="host-waiting-state" role="status" aria-live="polite">
-                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                <div><strong id="local-host-title">Verifying this C-Sweet Office</strong><span>C-Sweet is checking its identity, secure runtime, and available capacity.</span></div>
-            </div>
-        }
-        else if (LocalNode?.Status == "ready")
-        {
-            <div class="host-waiting-state" role="status" aria-live="polite">
-                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                <div><strong id="local-host-title">Running final health checks</strong><span>Waiting for a secure connection and the first healthy heartbeat.</span></div>
-            </div>
+            }
         }
         else
         {
-            <div class="host-install-prompt">
-                <span class="host-install-mark"><MudIcon Icon="@Icons.Material.Outlined.InstallDesktop" /></span>
-                <div>
-                    <span class="host-section-kicker">This machine</span>
-                    <h2 id="local-host-title">Install your first C-Sweet Office</h2>
-                    <p>C-Sweet will request administrator approval, install the secure background services, and verify the machine.</p>
+            @if (_localSession.State == "created" && !_localApprovalRequested)
+            {
+                <div class="local-approval-explanation">
+                    <span class="local-approval-icon"><MudIcon Icon="@Icons.Material.Outlined.AdminPanelSettings" /></span>
+                    <div>
+                        <strong>Why administrator approval is needed</strong>
+                        <p>C-Sweet uses Hyper-V to give agents an isolated, secure virtual machine runtime. Administrator approval lets C-Sweet:</p>
+                        <ul>
+                            <li>Enable and verify the required Windows virtualization features</li>
+                            <li>Create and certify the secure VM runtime images</li>
+                            <li>Install the Office background services on this machine</li>
+                        </ul>
+                        <small>Windows will show one administrator approval prompt. Setup continues automatically after you approve it.</small>
+                    </div>
                 </div>
-                @if (_status?.CanInstallLocalNode == true)
-                {
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               Size="Size.Large"
-                               StartIcon="@Icons.Material.Outlined.Download"
-                               Disabled="@_busy"
-                               OnClick="StartLocalInstallAsync">
-                        @(_busy ? "Starting installer..." : "Install C-Sweet Office")
-                    </MudButton>
-                }
-                else
+                @if (_localSession.LaunchUri is null)
                 {
                     <div class="host-inline-notice warning">
                         <MudIcon Icon="@Icons.Material.Outlined.Info" />
-                        <span>This machine is not available as an C-Sweet Office for this deployment. Choose another machine or contact an administrator.</span>
+                        <div><strong>The secure request cannot be reopened</strong><span>Start again to create a fresh administrator approval request.</span></div>
+                    </div>
+                    <div class="local-install-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
+                                   OnClick="ResetLocalSetupAsync">Start again</MudButton>
                     </div>
                 }
-            </div>
+                else
+                {
+                    <div class="local-install-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Outlined.AdminPanelSettings"
+                                   Disabled="@_busy" OnClick="RequestAdministratorApprovalAsync">
+                            @(_busy ? "Requesting approval…" : "Continue to Windows approval")
+                        </MudButton>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="local-session-progress" role="status" aria-live="polite">
+                @if (_localSession.State == "ready")
+                {
+                    <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
+                }
+                else if (LocalLaunchStalled)
+                {
+                    <span class="host-error-icon"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" /></span>
+                }
+                else
+                {
+                    <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                }
+                <div><strong>@LocalProgressTitle</strong><span>@LocalProgressMessage</span></div>
+                </div>
+                @if (_localSession.State != "created")
+                {
+                    <MudProgressLinear Value="@LocalProgressPercent" Color="Color.Primary" />
+                    <div class="local-progress-meta">
+                        <span>@LocalProgressPercent% complete</span>
+                        @if (_localSession.State == "ready")
+                        {
+                            <span>Setup complete</span>
+                        }
+                        else if (LocalProgressEta is { } localEta)
+                        {
+                            <span>@localEta</span>
+                        }
+                        else
+                        {
+                            <span>Estimating time remaining…</span>
+                        }
+                    </div>
+                }
+                @if (_localSession.State is "failed" or "expired" or "revoked")
+                {
+                    <div class="local-install-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
+                                   OnClick="ResetLocalSetupAsync">Start again</MudButton>
+                    </div>
+                }
+                else if (ShowLocalLaunchRetry)
+                {
+                    <div class="local-install-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AdminPanelSettings"
+                                   OnClick="RetryLocalSetupAsync">Try Windows approval again</MudButton>
+                    </div>
+                }
+            }
         }
+
+        <footer class="local-wizard-actions">
+            <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
+            @if (_localSession?.State == "ready")
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward"
+                           OnClick="OnContinue">Continue</MudButton>
+            }
+            else if (_localSession is null)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward"
+                           Disabled="@(_busy || !LocalAllocationIsValid)" OnClick="StartLocalInstallAsync">
+                    @(_busy ? "Creating Office..." : "Create an Office")
+                </MudButton>
+            }
+        </footer>
     </section>;
 
     private RenderFragment RemoteExperience() => @<section class="host-workspace" aria-labelledby="remote-host-title">
@@ -577,40 +756,15 @@
     private async Task AcceptStatusAsync(ExecutionCapacityOnboardingResponse status)
     {
         _status = status;
+        if (!_capacityPresetInitialized && status.LocalCapacity?.Presets is { Count: > 0 })
+        {
+            _capacityPreset = RecommendedPresetKey ?? "balanced";
+            _capacityPresetInitialized = true;
+        }
         if (_issuedEnrollment is not null &&
             (status.ActiveEnrollment?.Id != _issuedEnrollment.Id || status.ActiveEnrollment.Status != "available"))
             _issuedEnrollment = null;
-        await TryAutoApproveLocalAsync();
-        await EnsureRemoteEnrollmentAsync();
-    }
-
-    private async Task TryAutoApproveLocalAsync()
-    {
-        if (_status?.SelectedMode != "local" || _automaticApprovalInFlight) return;
-        var node = _status.Nodes.FirstOrDefault(candidate => candidate.IsLocalMachine && candidate.Status == "pendingapproval");
-        if (node is null) return;
-        var now = DateTimeOffset.UtcNow;
-        if (_lastAutomaticApprovalNodeId == node.Id && now - _lastAutomaticApprovalAt < TimeSpan.FromSeconds(15)) return;
-        _lastAutomaticApprovalNodeId = node.Id;
-        _lastAutomaticApprovalAt = now;
-        _automaticApprovalInFlight = true;
-        BeginStatusMutation();
-        try
-        {
-            var result = await SetupApi.ApproveExecutionNodeAsync(node.Id);
-            Apply(result);
-            if (!result.Succeeded)
-                SetAction(false, "The C-Sweet Office connected but has not passed its secure runtime checks yet. C-Sweet will keep checking.");
-        }
-        catch
-        {
-            SetAction(false, "The C-Sweet Office connected but could not be verified yet. C-Sweet will keep checking.");
-        }
-        finally
-        {
-            _automaticApprovalInFlight = false;
-            EndStatusMutation();
-        }
+        if (_installationTarget == "remote") await EnsureRemoteEnrollmentAsync();
     }
 
     private void Apply(ExecutionCapacityActionResponse result)
@@ -642,12 +796,37 @@
                 {
                     var requestVersion = Volatile.Read(ref _statusMutationVersion);
                     var status = await SetupApi.GetExecutionCapacityStatusAsync(cancellationToken);
+                    LocalOfficeSetupActionResponse? activeLocal = null;
+                    if (_localSession is null)
+                        activeLocal = await SetupApi.GetActiveLocalOfficeSetupSessionAsync(cancellationToken);
                     await InvokeAsync(async () =>
                     {
                         if (requestVersion != Volatile.Read(ref _statusMutationVersion) ||
-                            _busy || _automaticEnrollmentInFlight || _automaticApprovalInFlight)
+                            _busy || _automaticEnrollmentInFlight)
                             return;
+                        if (activeLocal?.Session is { } discovered)
+                        {
+                            _status = activeLocal.Status;
+                            AdoptLocalSession(discovered);
+                            if (_localSession is { State: "created", LaunchUri: null,
+                                    AdministratorApprovalRequestedAt: null })
+                                await RefreshLocalHandoffAsync();
+                        }
                         await AcceptStatusAsync(status);
+                        if (_installationTarget == "local" && _localSession is not null)
+                        {
+                            var localResult = await SetupApi.GetLocalOfficeSetupSessionAsync(
+                                _localSession.Id, cancellationToken);
+                            if (localResult.Succeeded && localResult.Session is { } refreshed)
+                            {
+                                _localSession = refreshed with
+                                {
+                                    LaunchUri = refreshed.LaunchUri ?? _localSession.LaunchUri,
+                                    WindowsPackageUrl = refreshed.WindowsPackageUrl ?? _localSession.WindowsPackageUrl
+                                };
+                                _status = localResult.Status;
+                            }
+                        }
                         StateHasChanged();
                     });
                 }
@@ -671,6 +850,155 @@
     private ExecutionNodeSummaryResponse? LocalNode => _status?.Nodes.FirstOrDefault(node => node.IsLocalMachine && node.Status != "revoked");
     private IReadOnlyList<ExecutionNodeSummaryResponse> PendingNodes => _status?.Nodes
         .Where(node => node.Status == "pendingapproval").ToArray() ?? [];
+
+    private int LocalStepNumber => _localSession is null
+        ? 1
+        : _localSession.State == "ready"
+            ? 4
+            : _localSession.PhaseKey switch
+            {
+                "connect" or "verify" => 3,
+                "ready" => 4,
+                _ => 2
+            };
+
+    private string LocalTitle => _localSession is null
+        ? "How much of this machine should Office use?"
+        : LocalProgressTitle;
+
+    private string LocalSubtitle => _localSession is null
+        ? "We detected this computer and calculated safe limits automatically."
+        : LocalProgressMessage;
+
+    private LocalExecutionNodeProvisioningProgressResponse? ActiveLocalProvisioning =>
+        _status?.LocalProvisioning is { State: "running" or "restart-required" or "failed" } progress
+            ? progress
+            : null;
+
+    private string LocalProgressTitle => _localSession?.State == "ready"
+        ? "Your Office is ready"
+        : LocalLaunchStalled
+            ? "Administrator prompt didn't open"
+            : AwaitingBootstrapAfterApproval
+                ? "Starting secure runtime preparation"
+                : ActiveLocalProvisioning?.PhaseDisplayName
+                  ?? _localSession?.PhaseDisplayName
+                  ?? "Preparing your Office";
+
+    private string LocalProgressMessage => _localSession?.State == "ready"
+        ? "This Office is connected and healthy."
+        : LocalLaunchStalled
+            ? "C-Sweet could not start Windows setup. Try again to request administrator approval."
+            : AwaitingBootstrapAfterApproval
+                ? "Administrator approval was received. C-Sweet is starting the Windows and Hyper-V checks."
+                : ActiveLocalProvisioning?.Message
+                  ?? _localSession?.Message
+                  ?? "C-Sweet is preparing this machine.";
+
+    private int LocalProgressPercent => ActiveLocalProvisioning?.PercentComplete
+        ?? _localSession?.PercentComplete
+        ?? 0;
+
+    private string? LocalProgressEta => ActiveLocalProvisioning is { } progress
+        ? Eta(progress)
+        : Eta(_localSession?.EstimatedRemainingMinimumSeconds,
+            _localSession?.EstimatedRemainingMaximumSeconds);
+
+    private bool LocalLaunchStalled => _localSession?.State == "created" &&
+        (_localSession.LaunchMethod == "server" || _localSession.LaunchUri is { Length: > 0 }) &&
+        _localLaunchAttempts > 0 &&
+        DateTimeOffset.UtcNow - _localLaunchAttemptedAt.GetValueOrDefault() >= TimeSpan.FromSeconds(8);
+
+    private bool AwaitingBootstrapAfterApproval => _localSession?.State == "created" &&
+        _localApprovalRequested && !LocalLaunchStalled;
+
+    private bool ShowLocalLaunchRetry => LocalLaunchStalled;
+
+    private bool LocalSetupLocksLocation => _localSession is not null;
+
+    private string LocalStageClass(int stage) => LocalStepNumber > stage
+        ? "complete"
+        : LocalStepNumber == stage ? "current" : string.Empty;
+
+    private void SelectCapacityPreset(string key)
+    {
+        if (key == "custom" && !_customInitialized)
+        {
+            var source = SelectedAllocation;
+            _customCpuCount = source.CpuCount;
+            _customMemoryGb = Math.Max(1, source.MemoryMb / 1024);
+            _customStorageGb = Math.Max(1, source.DiskMb / 1024);
+            _customInitialized = true;
+        }
+        _capacityPreset = key;
+    }
+
+    private Allocation SelectedAllocation
+    {
+        get
+        {
+            if (_capacityPreset == "custom")
+                return new(_customCpuCount, _customMemoryGb * 1024, _customStorageGb * 1024);
+            var preset = _status?.LocalCapacity?.Presets.FirstOrDefault(x => x.Key == _capacityPreset);
+            return preset is null ? new(0, 0, 0) : new(preset.CpuCount, preset.MemoryMb, preset.DiskMb);
+        }
+    }
+
+    private bool LocalAllocationIsValid
+    {
+        get
+        {
+            var capacity = _status?.LocalCapacity;
+            var value = SelectedAllocation;
+            return capacity is { IsSupported: true } &&
+                value.CpuCount >= capacity.MinimumCpuCount && value.CpuCount <= capacity.SafeCpuCount &&
+                value.MemoryMb >= capacity.MinimumMemoryMb && value.MemoryMb <= capacity.SafeMemoryMb &&
+                value.DiskMb >= capacity.MinimumDiskMb && value.DiskMb <= capacity.SafeDiskMb;
+        }
+    }
+
+    private string CustomAllocationHint => LocalAllocationIsValid
+        ? "Within the safe limits for this computer."
+        : "Choose values within this computer's safe limits.";
+
+    private RenderFragment AllocationEditor(string label, int value, string suffix, string key) => @<label class="allocation-editor">
+        <span>@label</span>
+        <span class="allocation-stepper">
+            <button type="button" aria-label="Decrease @label" @onclick="() => AdjustCustom(key, -1)">−</button>
+            <input type="number" value="@value" min="1" aria-label="@label allocation"
+                   @onchange="eventArgs => SetCustomValue(key, eventArgs.Value?.ToString())" />
+            <small>@suffix</small>
+            <button type="button" aria-label="Increase @label" @onclick="() => AdjustCustom(key, 1)">+</button>
+        </span>
+    </label>;
+
+    private void AdjustCustom(string key, int delta)
+    {
+        if (_status?.LocalCapacity is not { } capacity) return;
+        switch (key)
+        {
+            case "cpu": _customCpuCount = Math.Clamp(_customCpuCount + delta,
+                capacity.MinimumCpuCount, capacity.SafeCpuCount); break;
+            case "memory": _customMemoryGb = Math.Clamp(_customMemoryGb + delta,
+                Math.Max(1, capacity.MinimumMemoryMb / 1024), Math.Max(1, capacity.SafeMemoryMb / 1024)); break;
+            case "storage": _customStorageGb = Math.Clamp(_customStorageGb + delta,
+                Math.Max(1, capacity.MinimumDiskMb / 1024), Math.Max(1, capacity.SafeDiskMb / 1024)); break;
+        }
+    }
+
+    private void SetCustomValue(string key, string? text)
+    {
+        if (!int.TryParse(text, out var value)) return;
+        switch (key)
+        {
+            case "cpu": _customCpuCount = value; break;
+            case "memory": _customMemoryGb = value; break;
+            case "storage": _customStorageGb = value; break;
+        }
+    }
+
+    private static int FormatGb(int megabytes) => Math.Max(0, megabytes / 1024);
+
     private int RemoteStage => _status?.IsReady == true ? 5
         : _status?.Nodes.Any(node => node.Status == "ready") == true ? 4
         : PendingNodes.Count > 0 ? 3
@@ -729,9 +1057,12 @@
     }
 
     private static string? Eta(LocalExecutionNodeProvisioningProgressResponse progress)
+        => Eta(progress.EstimatedRemainingMinimumSeconds, progress.EstimatedRemainingMaximumSeconds);
+
+    private static string? Eta(int? estimatedMinimumSeconds, int? estimatedMaximumSeconds)
     {
-        if (progress.EstimatedRemainingMaximumSeconds is not { } maximum) return null;
-        var minimum = Math.Max(0, progress.EstimatedRemainingMinimumSeconds ?? maximum);
+        if (estimatedMaximumSeconds is not { } maximum) return null;
+        var minimum = Math.Max(0, estimatedMinimumSeconds ?? maximum);
         maximum = Math.Max(minimum, maximum);
         return minimum == maximum
             ? $"About {FormatDuration(TimeSpan.FromSeconds(maximum))} remaining"
@@ -747,6 +1078,19 @@
         new("macos", "macOS", Icons.Material.Filled.LaptopMac)
     ];
 
+    private static readonly LocalStage[] LocalStages =
+    [
+        new(1, "Capacity"), new(2, "Install"), new(3, "Connect"), new(4, "Ready")
+    ];
+
+    private static readonly CapacityOption[] CapacityOptions =
+    [
+        new("small", "Small", "Light background work", Icons.Material.Outlined.Spa),
+        new("balanced", "Balanced", "Best for most teams", Icons.Material.Outlined.Speed),
+        new("performance", "Performance", "Maximum local speed", Icons.Material.Outlined.RocketLaunch),
+        new("custom", "Custom", "Choose exact limits", Icons.Material.Outlined.Tune)
+    ];
+
     private string? SelectedPackageUrl(OfficePackageLinksResponse packages) => _remotePlatform switch
     {
         "windows" => packages.WindowsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
@@ -754,6 +1098,9 @@
         "macos" => packages.MacOsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
         _ => packages.ReleaseManifestUrl
     };
+
+    private string? RecommendedPresetKey => _status?.LocalCapacity?.Presets
+        .FirstOrDefault(preset => preset.MemoryMb >= 16 * 1024)?.Key;
 
     private string InstallCommand(string controlPlaneUrl) => _remotePlatform switch
     {
@@ -791,4 +1138,7 @@
     }
 
     private sealed record RemotePlatform(string Key, string Label, string Icon);
+    private sealed record LocalStage(int Number, string Label);
+    private sealed record CapacityOption(string Key, string Name, string Description, string Icon);
+    private readonly record struct Allocation(int CpuCount, int MemoryMb, int DiskMb);
 }

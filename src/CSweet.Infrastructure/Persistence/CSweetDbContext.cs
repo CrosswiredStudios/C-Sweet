@@ -43,6 +43,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<ExecutionNode> ExecutionNodes => Set<ExecutionNode>();
     public DbSet<ExecutionNodeProvider> ExecutionNodeProviders => Set<ExecutionNodeProvider>();
     public DbSet<ExecutionNodeEnrollment> ExecutionNodeEnrollments => Set<ExecutionNodeEnrollment>();
+    public DbSet<LocalOfficeSetupSession> LocalOfficeSetupSessions => Set<LocalOfficeSetupSession>();
     public DbSet<ExecutionWorkloadAssignment> ExecutionWorkloadAssignments => Set<ExecutionWorkloadAssignment>();
     public DbSet<AgentPackageSource> AgentPackageSources => Set<AgentPackageSource>();
     public DbSet<AgentPackageVersion> AgentPackageVersions => Set<AgentPackageVersion>();
@@ -681,6 +682,35 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasOne(x => x.ExecutionPool)
                 .WithMany()
                 .HasForeignKey(x => x.ExecutionPoolId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.ExecutionNode)
+                .WithMany()
+                .HasForeignKey(x => x.ExecutionNodeId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LocalOfficeSetupSession>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.HandoffSecretHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.MachineBindingHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.OperatingSystem).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Architecture).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ControlPlaneOrigin).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.ControlPlaneCertificateSha256).HasMaxLength(64);
+            entity.Property(x => x.PresetKey).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ErrorCode).HasMaxLength(128);
+            entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
+            entity.HasIndex(x => x.HandoffSecretHash).IsUnique();
+            entity.HasIndex(x => x.CreatedByUserId).IsUnique()
+                .HasFilter("\"Status\" IN ('Created', 'Redeemed', 'Connected')");
+            entity.HasIndex(x => new { x.CreatedByUserId, x.CreatedAt });
+            entity.HasIndex(x => x.ExecutionNodeEnrollmentId).IsUnique();
+            entity.HasIndex(x => x.ExecutionNodeId).IsUnique();
+            entity.HasOne(x => x.ExecutionNodeEnrollment)
+                .WithMany()
+                .HasForeignKey(x => x.ExecutionNodeEnrollmentId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.ExecutionNode)
                 .WithMany()

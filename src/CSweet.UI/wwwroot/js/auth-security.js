@@ -22,3 +22,12 @@ export function printText(title, text) {
     popup.document.body.append(heading, content);
     popup.print();
 }
+
+export function launchExternalUri(uri) {
+    const link = document.createElement("a");
+    link.href = uri;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}

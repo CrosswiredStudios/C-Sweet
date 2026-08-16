@@ -355,12 +355,30 @@ public sealed class ExecutionWorkloadOrchestratorTests
     }
 
     [Fact]
-    public async Task SchedulerDoesNotDispatchToNodeWithoutReliableSignedAssignmentSupport()
+    public async Task SchedulerAcceptsCurrentDevelopmentOfficeVersion()
     {
         await using var db = CreateDb();
         var pool = Pool();
         var node = Node(pool, Guid.NewGuid());
-        node.NodeVersion = "1.0.0";
+        node.NodeVersion = "0.1.0";
+        var buildId = Guid.NewGuid();
+        db.AddRange(pool, node, new AgentBuildJob { Id = buildId, PackageVersionId = Guid.NewGuid() });
+        await db.SaveChangesAsync();
+        var scheduler = new ExecutionWorkloadOrchestrator(db, new MutableTimeProvider(Now));
+        var reference = await scheduler.SubmitAsync(Request(buildId, pool.Id));
+
+        Assert.Equal(1, await scheduler.AssignPendingAsync());
+        Assert.Equal(ExecutionAssignmentStatus.Assigned,
+            (await db.ExecutionWorkloadAssignments.SingleAsync(x => x.Id == reference.AssignmentId)).Status);
+    }
+
+    [Fact]
+    public async Task SchedulerRejectsOfficeBelowCurrentDevelopmentVersion()
+    {
+        await using var db = CreateDb();
+        var pool = Pool();
+        var node = Node(pool, Guid.NewGuid());
+        node.NodeVersion = "0.0.9";
         var buildId = Guid.NewGuid();
         db.AddRange(pool, node, new AgentBuildJob { Id = buildId, PackageVersionId = Guid.NewGuid() });
         await db.SaveChangesAsync();
@@ -385,7 +403,7 @@ public sealed class ExecutionWorkloadOrchestratorTests
         {
             Id = id, ExecutionPoolId = pool.Id, ExecutionPool = pool, Name = id.ToString("N"),
             MachineName = "machine", OperatingSystem = "linux", Architecture = "x64",
-            NodeVersion = "1.0.2", ProtocolVersion = "1.0", Status = ExecutionNodeStatus.Ready,
+            NodeVersion = "0.1.0", ProtocolVersion = "1.0", Status = ExecutionNodeStatus.Ready,
             CertificateThumbprint = id.ToString("N"), CertificateExpiresAt = Now.AddDays(1),
             AllocatableCpuCount = 4, AllocatableMemoryMb = 4096, AllocatableDiskMb = 32768,
             MaximumConcurrentWorkloads = 4, SessionEpoch = 7, LastHeartbeatAt = Now,

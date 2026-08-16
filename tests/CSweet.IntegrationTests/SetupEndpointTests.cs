@@ -61,6 +61,31 @@ public class SetupEndpointTests
     }
 
     [Fact]
+    public async Task AssistedLocalSessionCreation_RequiresHostAdministration()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/setup/execution-capacity/local-sessions",
+            new CreateLocalOfficeSetupSessionRequest("balanced", 2, 4096, 32768));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AssistedLocalRedemption_IsAnonymousButRejectsUnknownHandoff()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/offices/local-sessions/redeem",
+            new CSweet.Office.Contracts.ControlPlane.RedeemAssistedOfficeSetupRequest(
+                "unknown-handoff", Environment.MachineName, "windows", "x64", "0.2.0"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CommunicationsOptions_ReturnsGuidedFirstPartyCatalog()
     {
         await using var factory = CreateFactory();

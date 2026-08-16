@@ -17,6 +17,34 @@ public interface IExecutionFleetService
     Task<ExecutionCapacityActionResponse> CreateEnrollmentAsync(
         CancellationToken cancellationToken = default);
 
+    Task<LocalOfficeSetupActionResponse> CreateLocalSetupSessionAsync(
+        CreateLocalOfficeSetupSessionRequest request,
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<LocalOfficeSetupActionResponse> LaunchLocalSetupSessionAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        LaunchLocalOfficeSetupRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<LocalOfficeSetupActionResponse> GetLocalSetupSessionAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<LocalOfficeSetupActionResponse> GetActiveLocalSetupSessionAsync(
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default);
+    Task<LocalOfficeSetupActionResponse> RefreshLocalSetupSessionHandoffAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<RedeemAssistedOfficeSetupResponse> RedeemLocalSetupSessionAsync(
+        RedeemAssistedOfficeSetupRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<ExecutionCapacityActionResponse> RevokeEnrollmentAsync(
         Guid enrollmentId,
         CancellationToken cancellationToken = default);

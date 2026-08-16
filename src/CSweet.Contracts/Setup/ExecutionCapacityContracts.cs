@@ -14,7 +14,70 @@ public sealed record ExecutionCapacityOnboardingResponse(
     IReadOnlyList<ExecutionCapacityCheckResponse> Checks,
     IReadOnlyList<ExecutionCapacityCheckResponse>? LocalPrerequisites = null,
     OfficePackageLinksResponse? Packages = null,
-    LocalExecutionNodeProvisioningProgressResponse? LocalProvisioning = null);
+    LocalExecutionNodeProvisioningProgressResponse? LocalProvisioning = null,
+    LocalOfficeCapacityResponse? LocalCapacity = null,
+    LocalOfficeSetupSessionResponse? LocalSetupSession = null);
+
+public sealed record LocalOfficeCapacityResponse(
+    bool IsSupported,
+    string? UnavailableReason,
+    int TotalCpuCount,
+    int TotalMemoryMb,
+    int FreeDiskMb,
+    int ReservedCpuCount,
+    int ReservedMemoryMb,
+    int ReservedDiskMb,
+    int SafeCpuCount,
+    int SafeMemoryMb,
+    int SafeDiskMb,
+    int MinimumCpuCount,
+    int MinimumMemoryMb,
+    int MinimumDiskMb,
+    IReadOnlyList<LocalOfficeResourcePresetResponse> Presets);
+
+public sealed record LocalOfficeResourcePresetResponse(
+    string Key,
+    string DisplayName,
+    int PercentOfSafeCapacity,
+    int CpuCount,
+    int MemoryMb,
+    int DiskMb);
+
+public sealed record CreateLocalOfficeSetupSessionRequest(
+    string PresetKey,
+    int AllocatableCpuCount,
+    int AllocatableMemoryMb,
+    int AllocatableDiskMb);
+
+public sealed record LaunchLocalOfficeSetupRequest(string LaunchUri);
+
+public sealed record LocalOfficeSetupSessionResponse(
+    Guid Id,
+    string State,
+    string PhaseKey,
+    string PhaseDisplayName,
+    string Message,
+    int PercentComplete,
+    DateTimeOffset ExpiresAt,
+    int AllocatableCpuCount,
+    int AllocatableMemoryMb,
+    int AllocatableDiskMb,
+    int MaximumConcurrentWorkloads,
+    string? WindowsPackageUrl,
+    string? LaunchUri,
+    string? ErrorCode = null,
+    string? ErrorMessage = null,
+    int? EstimatedRemainingMinimumSeconds = null,
+    int? EstimatedRemainingMaximumSeconds = null,
+    string? LaunchMethod = null,
+    DateTimeOffset? AdministratorApprovalRequestedAt = null);
+
+public sealed record LocalOfficeSetupActionResponse(
+    bool Succeeded,
+    string? ErrorCode,
+    string Message,
+    LocalOfficeSetupSessionResponse? Session,
+    ExecutionCapacityOnboardingResponse Status);
 
 public sealed record LocalExecutionNodeProvisioningProgressResponse(
     Guid JobId,
@@ -40,8 +103,6 @@ public sealed record OfficePackageLinksResponse(
     string? ControlPlaneUrl);
 
 public sealed record SelectExecutionOnboardingModeRequest(string Mode);
-public sealed record InstallLocalExecutionNodeRequest(string EnrollmentToken);
-
 public sealed record ExecutionEnrollmentResponse(
     Guid Id,
     Guid ExecutionPoolId,

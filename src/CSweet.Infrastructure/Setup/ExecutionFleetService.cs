@@ -1,5 +1,11 @@
 using CSweet.Office.Contracts.ControlPlane;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using CSweet.Application.Setup;
@@ -19,11 +25,13 @@ public sealed class ExecutionFleetService(
     IOptions<ExecutionFleetOptions>? fleetOptions = null,
     IExecutionNodeCertificateAuthority? certificateAuthority = null,
     IConfiguration? appConfiguration = null,
-    IOptions<AgentRuntimeManagerOptions>? runtimeOptions = null) : IExecutionFleetService
+    IOptions<AgentRuntimeManagerOptions>? runtimeOptions = null,
+    ILocalOfficeCapacityProbe? localCapacityProbe = null) : IExecutionFleetService
 {
     private const string CurrentProtocolVersion = "1.0";
-    private static readonly Version MinimumNodeVersion = new(1, 0, 2);
     private static readonly TimeSpan EnrollmentLifetime = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan AssistedSetupLifetime = TimeSpan.FromMinutes(5);
+    internal static readonly Version MinimumNodeVersion = new(0, 1, 0);
     private static readonly TimeSpan HeartbeatFreshness = TimeSpan.FromSeconds(30);
     private bool FleetEnabled => fleetOptions?.Value.PublicLaunchEnabled == true;
     private ExecutionFleetOptions FleetPolicy => fleetOptions?.Value ?? new ExecutionFleetOptions();
@@ -77,6 +85,7 @@ public sealed class ExecutionFleetService(
         await EnsureDefaultPoolAsync(cancellationToken);
         var now = timeProvider.GetUtcNow();
         await ExpireEnrollmentsAsync(now, cancellationToken);
+        await ExpireLocalSetupSessionsAsync(now, cancellationToken);
         var configuration = await dbContext.SystemConfigurations
             .OrderBy(x => x.CreatedAt)
             .FirstAsync(cancellationToken);
@@ -123,13 +132,17 @@ public sealed class ExecutionFleetService(
             : Required("image-policy", "Signed guest image policy",
                 "Required builder and runtime guest image digests are not configured.",
                 "Configure both CSweet:AgentRuntime image digests before enabling production execution."));
-        IReadOnlyList<ExecutionCapacityCheckResponse> localPrerequisites = [];
+        var localCapacity = DetectLocalCapacity();
+        IReadOnlyList<ExecutionCapacityCheckResponse> localPrerequisites = localCapacity.IsSupported
+            ? [Passed("local-capacity", "Local Office capacity", "This Windows host has safe capacity for C-Sweet Office.")]
+            : [Required("local-capacity", "Local Office capacity", localCapacity.UnavailableReason ??
+                "Assisted local setup is unavailable.", "Choose another machine or free resources and try again.")];
         return new ExecutionCapacityOnboardingResponse(
             mode,
             isReady,
             ready.Length,
             pending,
-            false,
+            localCapacity.IsSupported,
             LocalOperatingSystem(),
             System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
             !FleetEnabled
@@ -148,6 +161,8 @@ public sealed class ExecutionFleetService(
                 fleetOptions?.Value.LinuxPackageOverrideUrl,
                 fleetOptions?.Value.MacOsPackageOverrideUrl,
                 PublicControlPlaneUrl(appConfiguration)),
+            null,
+            localCapacity,
             null);
     }
 
@@ -206,6 +221,329 @@ public sealed class ExecutionFleetService(
             true, null, "Enrollment created. The token is shown only once.", status, response);
     }
 
+    public async Task<LocalOfficeSetupActionResponse> CreateLocalSetupSessionAsync(
+        CreateLocalOfficeSetupSessionRequest request,
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var now = timeProvider.GetUtcNow();
+        await ExpireLocalSetupSessionsAsync(now, cancellationToken);
+        var existing = await dbContext.LocalOfficeSetupSessions
+            .Include(x => x.ExecutionNode)
+            .Where(x => x.CreatedByUserId == createdByUserId &&
+                (x.Status == LocalOfficeSetupSessionStatus.Created ||
+                 x.Status == LocalOfficeSetupSessionStatus.Redeemed ||
+                 x.Status == LocalOfficeSetupSessionStatus.Connected ||
+                 x.Status == LocalOfficeSetupSessionStatus.Ready))
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (existing is not null)
+        {
+            var existingResponse = Map(existing, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
+                DevelopmentLauncherConfigured ? "server" : "protocol");
+            if (existingResponse.State != "failed")
+                return new LocalOfficeSetupActionResponse(true, "local_setup_in_progress",
+                    existingResponse.State == "ready"
+                        ? "The local Office is already ready."
+                        : "Local Office setup is already in progress.",
+                    existingResponse, await GetOnboardingStatusAsync(cancellationToken));
+
+            existing.Status = LocalOfficeSetupSessionStatus.Failed;
+            existing.ErrorCode ??= existingResponse.ErrorCode ?? "setup_failed";
+            existing.ErrorMessage ??= existingResponse.ErrorMessage ?? existingResponse.Message;
+            existing.UpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        var capacity = DetectLocalCapacity();
+        if (!LocalOfficeCapacityCalculator.Contains(capacity, request.AllocatableCpuCount,
+                request.AllocatableMemoryMb, request.AllocatableDiskMb))
+            return await LocalFailureAsync("invalid_capacity",
+                "The selected allocation is outside this machine's current safe limits.", cancellationToken);
+
+        var presetKey = request.PresetKey.Trim().ToLowerInvariant();
+        if (presetKey is not ("small" or "balanced" or "performance" or "custom"))
+            return await LocalFailureAsync("invalid_preset", "Choose a valid Office capacity profile.", cancellationToken);
+        if (presetKey != "custom")
+        {
+            var preset = capacity.Presets.Single(x => x.Key == presetKey);
+            if (preset.CpuCount != request.AllocatableCpuCount || preset.MemoryMb != request.AllocatableMemoryMb ||
+                preset.DiskMb != request.AllocatableDiskMb)
+                return await LocalFailureAsync("stale_capacity",
+                    "This machine's capacity changed. Review the refreshed recommendation and try again.", cancellationToken);
+        }
+
+        var controlPlaneOrigin = PublicControlPlaneUrl(appConfiguration);
+        var windowsPackageUrl = fleetOptions?.Value.WindowsPackageOverrideUrl;
+        if (controlPlaneOrigin is null)
+            return await LocalFailureAsync("control_plane_url_unavailable",
+                "Assisted setup requires a public HTTPS Office control-plane URL.", cancellationToken);
+        var controlPlaneCertificateSha256 = NormalizeOptionalSha256(
+            appConfiguration?["CSweet:ExecutionGateway:PublicCertificateSha256"]);
+        if (controlPlaneCertificateSha256 is null && DevelopmentLauncherConfigured)
+        {
+            var controlPlaneUri = new Uri(controlPlaneOrigin, UriKind.Absolute);
+            if (!controlPlaneUri.IsLoopback)
+                return await LocalFailureAsync("control_plane_certificate_unavailable",
+                    "Assisted setup requires an explicitly configured certificate fingerprint for a non-loopback control plane.",
+                    cancellationToken);
+            try
+            {
+                controlPlaneCertificateSha256 = await ProbeServerCertificateSha256Async(
+                    controlPlaneUri, cancellationToken);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return await LocalFailureAsync("control_plane_certificate_unavailable",
+                    "C-Sweet could not inspect the local control-plane certificate. Try again after the execution gateway is ready.",
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is IOException or SocketException or AuthenticationException)
+            {
+                return await LocalFailureAsync("control_plane_certificate_unavailable",
+                    "C-Sweet could not inspect the local control-plane certificate. Try again after the execution gateway is ready.",
+                    cancellationToken);
+            }
+        }
+        var packageUri = Uri.TryCreate(windowsPackageUrl, UriKind.Absolute, out var configuredPackageUri) &&
+            configuredPackageUri.Scheme == Uri.UriSchemeHttps
+                ? configuredPackageUri
+                : null;
+        var handoff = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var session = new LocalOfficeSetupSession
+        {
+            Id = Guid.NewGuid(),
+            CreatedByUserId = createdByUserId,
+            HandoffSecretHash = Hash(handoff),
+            MachineBindingHash = MachineBindingHash(Environment.MachineName, "windows",
+                System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString()),
+            OperatingSystem = "windows",
+            Architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
+            ControlPlaneOrigin = controlPlaneOrigin,
+            ControlPlaneCertificateSha256 = controlPlaneCertificateSha256,
+            PresetKey = presetKey,
+            AllocatableCpuCount = request.AllocatableCpuCount,
+            AllocatableMemoryMb = request.AllocatableMemoryMb,
+            AllocatableDiskMb = request.AllocatableDiskMb,
+            MaximumConcurrentWorkloads = LocalOfficeCapacityCalculator.MaximumConcurrentWorkloads(
+                request.AllocatableCpuCount),
+            ExpiresAt = now.Add(AssistedSetupLifetime),
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        dbContext.LocalOfficeSetupSessions.Add(session);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            dbContext.Entry(session).State = EntityState.Detached;
+            var concurrent = await dbContext.LocalOfficeSetupSessions.AsNoTracking()
+                .Where(x => x.CreatedByUserId == createdByUserId &&
+                    (x.Status == LocalOfficeSetupSessionStatus.Created ||
+                     x.Status == LocalOfficeSetupSessionStatus.Redeemed ||
+                     x.Status == LocalOfficeSetupSessionStatus.Connected))
+                .OrderByDescending(x => x.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (concurrent is null) throw;
+            return new LocalOfficeSetupActionResponse(true, "local_setup_in_progress",
+                "Local Office setup is already in progress.",
+                Map(concurrent, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
+                    DevelopmentLauncherConfigured ? "server" : "protocol"),
+                await GetOnboardingStatusAsync(cancellationToken));
+        }
+        await auditWriter.WriteAsync("office.local-setup.created", nameof(LocalOfficeSetupSession), session.Id,
+            $"Created an assisted Windows Office setup session using the {presetKey} profile.",
+            cancellationToken: cancellationToken);
+
+        var launchUri = LocalSetupLaunchUri(session, handoff);
+        var launchMethod = DevelopmentLauncherConfigured ? "server" : "protocol";
+        return new LocalOfficeSetupActionResponse(true, null, "Local Office setup is ready.",
+            Map(session, packageUri?.AbsoluteUri, launchUri, launchMethod),
+            await GetOnboardingStatusAsync(cancellationToken));
+    }
+
+    public async Task<LocalOfficeSetupActionResponse> LaunchLocalSetupSessionAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        LaunchLocalOfficeSetupRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var now = timeProvider.GetUtcNow();
+        await ExpireLocalSetupSessionsAsync(now, cancellationToken);
+        var session = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(x =>
+            x.Id == sessionId && x.CreatedByUserId == createdByUserId, cancellationToken);
+        if (session is null)
+            return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
+        if (session.Status != LocalOfficeSetupSessionStatus.Created || session.ExpiresAt <= now)
+            return await LocalFailureAsync("session_not_launchable",
+                "This setup session can no longer request administrator approval.", cancellationToken);
+        if (!TryReadLaunchHandoff(request.LaunchUri, session, out var handoff))
+            return await LocalFailureAsync("invalid_handoff", "The secure setup handoff is invalid.", cancellationToken);
+
+        var certificateParameter = string.IsNullOrWhiteSpace(session.ControlPlaneCertificateSha256)
+            ? string.Empty
+            : $"&certificate={session.ControlPlaneCertificateSha256}";
+        var launchUri = $"csweet-office://enroll/v1?session={session.Id:D}&origin={Uri.EscapeDataString(session.ControlPlaneOrigin)}{certificateParameter}#handoff={handoff}";
+        var launchMethod = DevelopmentLauncherConfigured ? "server" : "protocol";
+        if (launchMethod == "server")
+        {
+            var launch = TryStartWindowsDevelopmentSetup(session.Id, launchUri);
+            if (!launch.Started)
+                return new LocalOfficeSetupActionResponse(false, launch.ErrorCode,
+                    launch.ErrorMessage ?? "Windows setup could not be started.",
+                    Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, launchUri, launchMethod),
+                    await GetOnboardingStatusAsync(cancellationToken));
+        }
+        session.AdministratorApprovalRequestedAt = now;
+        session.UpdatedAt = now;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditWriter.WriteAsync("office.local-setup.launched", nameof(LocalOfficeSetupSession), session.Id,
+            "Requested administrator approval for assisted Windows Office setup.",
+            cancellationToken: cancellationToken);
+        return new LocalOfficeSetupActionResponse(true, null,
+            "Windows administrator approval requested.",
+            Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, launchUri, launchMethod),
+            await GetOnboardingStatusAsync(cancellationToken));
+    }
+
+    public async Task<LocalOfficeSetupActionResponse> GetLocalSetupSessionAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = timeProvider.GetUtcNow();
+        await ExpireLocalSetupSessionsAsync(now, cancellationToken);
+        await ReconcileClaimedLocalSetupSessionsAsync(createdByUserId, cancellationToken);
+        var session = await dbContext.LocalOfficeSetupSessions.AsNoTracking()
+            .Include(x => x.ExecutionNode)
+            .SingleOrDefaultAsync(x => x.Id == sessionId && x.CreatedByUserId == createdByUserId, cancellationToken);
+        if (session is null)
+            return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
+        return new LocalOfficeSetupActionResponse(true, null, "Local Office setup status loaded.",
+            Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
+                DevelopmentLauncherConfigured ? "server" : "protocol"),
+            await GetOnboardingStatusAsync(cancellationToken));
+    }
+
+    public async Task<LocalOfficeSetupActionResponse> GetActiveLocalSetupSessionAsync(
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = timeProvider.GetUtcNow();
+        await ExpireLocalSetupSessionsAsync(now, cancellationToken);
+        await ReconcileClaimedLocalSetupSessionsAsync(createdByUserId, cancellationToken);
+        var session = await dbContext.LocalOfficeSetupSessions
+            .Include(x => x.ExecutionNode)
+            .Where(x => x.CreatedByUserId == createdByUserId &&
+                (x.Status == LocalOfficeSetupSessionStatus.Created ||
+                 x.Status == LocalOfficeSetupSessionStatus.Redeemed ||
+                 x.Status == LocalOfficeSetupSessionStatus.Connected ||
+                 x.Status == LocalOfficeSetupSessionStatus.Ready))
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        var mapped = session is null ? null : Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
+            DevelopmentLauncherConfigured ? "server" : "protocol");
+        if (session is not null && mapped?.State == "failed")
+        {
+            session.Status = LocalOfficeSetupSessionStatus.Failed;
+            session.ErrorCode ??= mapped.ErrorCode ?? "setup_failed";
+            session.ErrorMessage ??= mapped.ErrorMessage ?? mapped.Message;
+            session.UpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            mapped = null;
+        }
+        return new LocalOfficeSetupActionResponse(true, null, "Local Office setup status loaded.",
+            mapped,
+            await GetOnboardingStatusAsync(cancellationToken));
+    }
+
+    public async Task<LocalOfficeSetupActionResponse> RefreshLocalSetupSessionHandoffAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = timeProvider.GetUtcNow();
+        await ExpireLocalSetupSessionsAsync(now, cancellationToken);
+        var session = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(x =>
+            x.Id == sessionId && x.CreatedByUserId == createdByUserId, cancellationToken);
+        if (session is null)
+            return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
+        if (session.Status != LocalOfficeSetupSessionStatus.Created)
+            return await LocalFailureAsync("session_not_refreshable",
+                "Administrator approval can only be requested while local setup is waiting to begin.", cancellationToken);
+
+        var handoff = Base64Url(RandomNumberGenerator.GetBytes(32));
+        session.HandoffSecretHash = Hash(handoff);
+        session.AdministratorApprovalRequestedAt = null;
+        session.ExpiresAt = now.Add(AssistedSetupLifetime);
+        session.UpdatedAt = now;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditWriter.WriteAsync("office.local-setup.handoff-refreshed",
+            nameof(LocalOfficeSetupSession), session.Id,
+            "Refreshed the one-use handoff for an existing local Office setup session.",
+            cancellationToken: cancellationToken);
+        return new LocalOfficeSetupActionResponse(true, null, "Local Office setup is ready to continue.",
+            Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl,
+                LocalSetupLaunchUri(session, handoff),
+                DevelopmentLauncherConfigured ? "server" : "protocol"),
+            await GetOnboardingStatusAsync(cancellationToken));
+    }
+
+    public async Task<RedeemAssistedOfficeSetupResponse> RedeemLocalSetupSessionAsync(
+        RedeemAssistedOfficeSetupRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.HandoffSecret) || request.HandoffSecret.Length > 256 ||
+            string.IsNullOrWhiteSpace(request.MachineName) || request.MachineName.Length > 255 ||
+            !string.Equals(request.OperatingSystem, "windows", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(request.Architecture) || request.Architecture.Length > 32 ||
+            !Version.TryParse(request.OfficeVersion, out _))
+            return RedeemFailure("invalid_request", "The assisted Office setup request is invalid.");
+
+        var now = timeProvider.GetUtcNow();
+        var secretHash = Hash(request.HandoffSecret);
+        var session = await dbContext.LocalOfficeSetupSessions
+            .SingleOrDefaultAsync(x => x.HandoffSecretHash == secretHash, cancellationToken);
+        if (session is null || session.Status != LocalOfficeSetupSessionStatus.Created || session.ExpiresAt <= now)
+            return RedeemFailure("invalid_handoff", "The setup handoff is invalid, expired, or already used.");
+        var machineBinding = MachineBindingHash(request.MachineName, request.OperatingSystem, request.Architecture);
+        if (string.IsNullOrWhiteSpace(session.MachineBindingHash) ||
+            !CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(session.MachineBindingHash), Encoding.ASCII.GetBytes(machineBinding)))
+            return RedeemFailure("machine_mismatch", "The setup handoff was created for a different Windows machine.");
+
+        await EnsureDefaultPoolAsync(cancellationToken);
+        var pool = await DefaultPoolAsync(cancellationToken);
+        var enrollmentToken = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var enrollment = new ExecutionNodeEnrollment
+        {
+            Id = Guid.NewGuid(),
+            ExecutionPoolId = pool.Id,
+            TokenHash = Hash(enrollmentToken),
+            ReceiptHash = Hash(Base64Url(RandomNumberGenerator.GetBytes(32))),
+            Status = ExecutionEnrollmentStatus.Available,
+            ExpiresAt = now.Add(EnrollmentLifetime),
+            CreatedAt = now
+        };
+        dbContext.ExecutionNodeEnrollments.Add(enrollment);
+        session.ExecutionNodeEnrollmentId = enrollment.Id;
+        session.Status = LocalOfficeSetupSessionStatus.Redeemed;
+        session.RedeemedAt = now;
+        session.UpdatedAt = now;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditWriter.WriteAsync("office.local-setup.redeemed", nameof(LocalOfficeSetupSession), session.Id,
+            "Redeemed a one-use assisted Office setup handoff.", cancellationToken: cancellationToken);
+        return new RedeemAssistedOfficeSetupResponse(true, null, "Assisted Office setup redeemed.",
+            session.Id, enrollmentToken, session.ControlPlaneOrigin, session.ControlPlaneCertificateSha256,
+            session.AllocatableCpuCount, session.AllocatableMemoryMb, session.AllocatableDiskMb,
+            session.MaximumConcurrentWorkloads, true);
+    }
+
     public async Task<ExecutionCapacityActionResponse> RevokeEnrollmentAsync(
         Guid enrollmentId,
         CancellationToken cancellationToken = default)
@@ -245,6 +583,24 @@ public sealed class ExecutionFleetService(
         if (enrollment is null || enrollment.Status != ExecutionEnrollmentStatus.Available || enrollment.ExpiresAt <= now)
             return new ClaimOfficeResponse(false, "invalid_enrollment", "The enrollment is invalid, expired, or already used.", null, null);
 
+        var assistedSession = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(x =>
+            x.ExecutionNodeEnrollmentId == enrollment.Id &&
+            x.Status == LocalOfficeSetupSessionStatus.Redeemed, cancellationToken);
+        if (request.AssistedSetupSessionId is { } assistedSessionId &&
+            assistedSession?.Id != assistedSessionId)
+            return new ClaimOfficeResponse(false, "assisted_session_mismatch",
+                "The assisted setup session does not match this Office.", null, null);
+        if (assistedSession is not null)
+        {
+            var binding = MachineBindingHash(request.MachineName, request.OperatingSystem,
+                request.Architecture);
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Encoding.ASCII.GetBytes(assistedSession.MachineBindingHash ?? string.Empty),
+                    Encoding.ASCII.GetBytes(binding)))
+                return new ClaimOfficeResponse(false, "assisted_session_mismatch",
+                    "The assisted setup session does not match this Office.", null, null);
+        }
+
         var receipt = Base64Url(RandomNumberGenerator.GetBytes(32));
         var node = new ExecutionNode
         {
@@ -277,12 +633,38 @@ public sealed class ExecutionFleetService(
         enrollment.Status = ExecutionEnrollmentStatus.Claimed;
         enrollment.ClaimedAt = now;
         dbContext.ExecutionNodes.Add(node);
+        if (assistedSession is not null)
+        {
+            assistedSession.ExecutionNodeId = node.Id;
+            assistedSession.Status = LocalOfficeSetupSessionStatus.Connected;
+            assistedSession.ConnectedAt = now;
+            assistedSession.UpdatedAt = now;
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditWriter.WriteAsync(
             "execution-node.enrollment.claimed",
             nameof(ExecutionNode), node.Id,
             $"Office {node.Name} claimed enrollment {enrollment.Id} and is pending approval.",
             cancellationToken: cancellationToken);
+        if (assistedSession is not null)
+        {
+            var approval = await ApproveNodeAsync(node.Id, cancellationToken);
+            if (!approval.Succeeded)
+            {
+                assistedSession.Status = LocalOfficeSetupSessionStatus.Failed;
+                assistedSession.ErrorCode = approval.ErrorCode;
+                assistedSession.ErrorMessage = approval.Message;
+                assistedSession.UpdatedAt = timeProvider.GetUtcNow();
+                await dbContext.SaveChangesAsync(cancellationToken);
+                return new ClaimOfficeResponse(false, approval.ErrorCode,
+                    "The assisted Office connected but could not be approved automatically.", node.Id, receipt);
+            }
+            assistedSession.Status = LocalOfficeSetupSessionStatus.Ready;
+            assistedSession.CompletedAt = timeProvider.GetUtcNow();
+            assistedSession.UpdatedAt = assistedSession.CompletedAt.Value;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return new ClaimOfficeResponse(true, null, "Office enrolled and approved automatically.", node.Id, receipt);
+        }
         return new ClaimOfficeResponse(true, null, "Office enrolled and awaiting administrator approval.", node.Id, receipt);
     }
 
@@ -649,6 +1031,44 @@ public sealed class ExecutionFleetService(
             : null;
     }
 
+    internal static async Task<string> ProbeServerCertificateSha256Async(
+        Uri endpoint,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        if (endpoint.Scheme != Uri.UriSchemeHttps)
+            throw new ArgumentException("The certificate endpoint must use HTTPS.", nameof(endpoint));
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        using var client = new TcpClient();
+        await client.ConnectAsync(endpoint.DnsSafeHost, endpoint.IsDefaultPort ? 443 : endpoint.Port,
+            timeout.Token);
+        X509Certificate2? remoteCertificate = null;
+        using var tls = new SslStream(client.GetStream(), false, (_, certificate, _, _) =>
+        {
+            if (certificate is not null)
+                remoteCertificate = new X509Certificate2(certificate);
+            return true;
+        });
+        try
+        {
+            await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            {
+                TargetHost = endpoint.DnsSafeHost,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+            }, timeout.Token);
+            if (remoteCertificate is null)
+                throw new AuthenticationException("The control plane did not present a TLS certificate.");
+            return Convert.ToHexString(SHA256.HashData(remoteCertificate.RawData)).ToLowerInvariant();
+        }
+        finally
+        {
+            remoteCertificate?.Dispose();
+        }
+    }
+
     private static ExecutionNodeSummaryResponse Map(ExecutionNode node) => new(
         node.Id, node.ExecutionPoolId, node.Name, node.MachineName, node.OperatingSystem,
         node.Architecture, node.NodeVersion, node.ProtocolVersion,
@@ -780,6 +1200,374 @@ public sealed class ExecutionFleetService(
     private async Task<ExecutionCapacityActionResponse> FailureAsync(string code, string message, CancellationToken cancellationToken) =>
         new(false, code, message, await GetOnboardingStatusAsync(cancellationToken));
 
+    private async Task<LocalOfficeSetupActionResponse> LocalFailureAsync(
+        string code,
+        string message,
+        CancellationToken cancellationToken) =>
+        new(false, code, message, null, await GetOnboardingStatusAsync(cancellationToken));
+
+    private static RedeemAssistedOfficeSetupResponse RedeemFailure(string code, string message) =>
+        new(false, code, message, null, null, null, null, 0, 0, 0, 0, true);
+
+    private LocalOfficeCapacityResponse DetectLocalCapacity()
+    {
+        if (localCapacityProbe is not null) return localCapacityProbe.GetCapacity();
+        var totalMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        if (totalMemory <= 0) totalMemory = 8L * 1024 * 1024 * 1024;
+        long freeDisk;
+        try
+        {
+            var root = Path.GetPathRoot(AppContext.BaseDirectory) ?? AppContext.BaseDirectory;
+            freeDisk = new DriveInfo(root).AvailableFreeSpace;
+        }
+        catch (IOException)
+        {
+            freeDisk = 0;
+        }
+        return LocalOfficeCapacityCalculator.Calculate(
+            Environment.ProcessorCount, totalMemory, freeDisk, OperatingSystem.IsWindows());
+    }
+
+    private async Task ExpireLocalSetupSessionsAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var expired = await dbContext.LocalOfficeSetupSessions.Where(x => x.ExpiresAt <= now &&
+            x.Status == LocalOfficeSetupSessionStatus.Created).ToListAsync(cancellationToken);
+        if (expired.Count == 0) return;
+        foreach (var session in expired)
+        {
+            session.Status = LocalOfficeSetupSessionStatus.Expired;
+            session.UpdatedAt = now;
+        }
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task ReconcileClaimedLocalSetupSessionsAsync(
+        Guid createdByUserId,
+        CancellationToken cancellationToken)
+    {
+        var sessions = await dbContext.LocalOfficeSetupSessions
+            .Where(x => x.CreatedByUserId == createdByUserId &&
+                x.Status == LocalOfficeSetupSessionStatus.Redeemed &&
+                x.ExecutionNodeEnrollmentId != null && x.ExecutionNodeId == null)
+            .ToListAsync(cancellationToken);
+        foreach (var session in sessions)
+        {
+            var enrollment = await dbContext.ExecutionNodeEnrollments.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == session.ExecutionNodeEnrollmentId, cancellationToken);
+            if (enrollment?.ExecutionNodeId is not { } nodeId) continue;
+            var node = await dbContext.ExecutionNodes.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
+            if (node is null) continue;
+
+            var binding = MachineBindingHash(node.MachineName, node.OperatingSystem, node.Architecture);
+            if (string.IsNullOrWhiteSpace(session.MachineBindingHash) ||
+                !CryptographicOperations.FixedTimeEquals(
+                    Encoding.ASCII.GetBytes(session.MachineBindingHash), Encoding.ASCII.GetBytes(binding)))
+            {
+                session.Status = LocalOfficeSetupSessionStatus.Failed;
+                session.ErrorCode = "assisted_session_mismatch";
+                session.ErrorMessage = "The connected Office does not match this assisted setup session.";
+                session.UpdatedAt = timeProvider.GetUtcNow();
+                await dbContext.SaveChangesAsync(cancellationToken);
+                continue;
+            }
+
+            session.ExecutionNodeId = node.Id;
+            session.Status = LocalOfficeSetupSessionStatus.Connected;
+            session.ConnectedAt = enrollment.ClaimedAt ?? timeProvider.GetUtcNow();
+            session.UpdatedAt = timeProvider.GetUtcNow();
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            ExecutionCapacityActionResponse approval;
+            if (node.Status == ExecutionNodeStatus.PendingApproval)
+                approval = await ApproveNodeAsync(node.Id, cancellationToken);
+            else if (node.Status == ExecutionNodeStatus.Ready)
+                approval = new ExecutionCapacityActionResponse(true, null, "Office is already approved.",
+                    await GetOnboardingStatusAsync(cancellationToken));
+            else
+                approval = new ExecutionCapacityActionResponse(false, "node_not_pending",
+                    "The connected Office cannot be approved from this setup session.",
+                    await GetOnboardingStatusAsync(cancellationToken));
+
+            if (!approval.Succeeded)
+            {
+                session.Status = LocalOfficeSetupSessionStatus.Failed;
+                session.ErrorCode = approval.ErrorCode;
+                session.ErrorMessage = approval.Message;
+                session.UpdatedAt = timeProvider.GetUtcNow();
+                await dbContext.SaveChangesAsync(cancellationToken);
+                continue;
+            }
+
+            session.Status = LocalOfficeSetupSessionStatus.Ready;
+            session.CompletedAt = timeProvider.GetUtcNow();
+            session.UpdatedAt = session.CompletedAt.Value;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await auditWriter.WriteAsync("office.local-setup.claim-reconciled",
+                nameof(LocalOfficeSetupSession), session.Id,
+                "Recovered an assisted Office setup after its exact enrollment was claimed.",
+                cancellationToken: cancellationToken);
+        }
+    }
+
+    private LocalOfficeSetupSessionResponse Map(
+        LocalOfficeSetupSession session,
+        string? windowsPackageUrl,
+        string? launchUri,
+        string? launchMethod = null)
+    {
+        var status = session.Status == LocalOfficeSetupSessionStatus.Connected &&
+            session.ExecutionNode is { Status: ExecutionNodeStatus.Ready, LastHeartbeatAt: not null }
+            ? LocalOfficeSetupSessionStatus.Ready
+            : session.Status;
+        (string phaseKey, string phaseName, string message, int percent,
+            int? minimumSeconds, int? maximumSeconds) = status switch
+        {
+            LocalOfficeSetupSessionStatus.Created => ("install", "Administrator approval required",
+                "Windows will ask for administrator approval so C-Sweet can create the secure VM runtime.", 0, (int?)null, (int?)null),
+            LocalOfficeSetupSessionStatus.Redeemed => ("install", "Preparing your Office",
+                "C-Sweet is installing the Office services and preparing the secure runtime images.", 25, (int?)120, (int?)480),
+            LocalOfficeSetupSessionStatus.Connected => ("verify", "Running health checks",
+                "The Office is connected. C-Sweet is verifying its capacity and secure runtime.", 90, (int?)10, (int?)60),
+            LocalOfficeSetupSessionStatus.Ready => ("ready", "Your Office is ready",
+                "This Office is connected and healthy.", 100, (int?)0, (int?)0),
+            LocalOfficeSetupSessionStatus.Expired => ("install", "Setup session expired",
+                "Start again to create a fresh secure setup handoff.", 0, (int?)null, (int?)null),
+            LocalOfficeSetupSessionStatus.Revoked => ("install", "Setup session replaced",
+                "A newer local setup session replaced this one.", 0, (int?)null, (int?)null),
+            LocalOfficeSetupSessionStatus.Failed => ("install", "Setup needs attention",
+                session.ErrorMessage ?? "The Office setup did not complete.", 0, (int?)null, (int?)null),
+            _ => ("install", "Preparing your Office", "C-Sweet is continuing setup.", 0, (int?)null, (int?)null)
+        };
+        var windowsProgress = ReadWindowsSetupProgress(session.Id);
+        if (windowsProgress is { } progress && status != LocalOfficeSetupSessionStatus.Ready)
+        {
+            phaseKey = progress.PhaseKey;
+            phaseName = progress.PhaseDisplayName;
+            message = progress.Message;
+            percent = progress.PercentComplete;
+            minimumSeconds = progress.EstimatedRemainingMinimumSeconds;
+            maximumSeconds = progress.EstimatedRemainingMaximumSeconds;
+            if (progress.State == "failed")
+            {
+                status = LocalOfficeSetupSessionStatus.Failed;
+                phaseName = "Setup needs attention";
+                message = progress.ErrorMessage ?? progress.Message;
+                percent = 0;
+            }
+            else if (progress.State == "restart-required")
+            {
+                phaseName = "Windows restart required";
+                message = "Restart this computer, then reopen C-Sweet. Office setup will resume automatically.";
+            }
+            else if (progress.State == "completed" && status == LocalOfficeSetupSessionStatus.Redeemed)
+            {
+                if (timeProvider.GetUtcNow() - progress.ObservedAt >= TimeSpan.FromSeconds(90))
+                {
+                    status = LocalOfficeSetupSessionStatus.Failed;
+                    phaseKey = "connect";
+                    phaseName = "Secure connection did not complete";
+                    message = "The Office finished installing but did not complete its secure connection. Start again to retry setup.";
+                    percent = 0;
+                    minimumSeconds = null;
+                    maximumSeconds = null;
+                }
+                else
+                {
+                    phaseKey = "connect";
+                    phaseName = "Connecting securely";
+                    message = "The Office services and runtime images are ready. C-Sweet is waiting for the secure connection.";
+                    percent = Math.Max(85, percent);
+                    minimumSeconds = 5;
+                    maximumSeconds = 60;
+                }
+            }
+        }
+        else if (status == LocalOfficeSetupSessionStatus.Redeemed &&
+                 session.RedeemedAt is { } redeemedAt &&
+                 timeProvider.GetUtcNow() - redeemedAt >= TimeSpan.FromSeconds(45))
+        {
+            status = LocalOfficeSetupSessionStatus.Failed;
+            phaseKey = "install";
+            phaseName = "Secure runtime preparation stopped";
+            message = "Windows setup did not report progress after administrator approval. Start again to create a fresh setup session.";
+            percent = 0;
+            minimumSeconds = null;
+            maximumSeconds = null;
+        }
+        return new LocalOfficeSetupSessionResponse(session.Id,
+            status.ToString().ToLowerInvariant(), phaseKey, phaseName, message, percent,
+            session.ExpiresAt, session.AllocatableCpuCount, session.AllocatableMemoryMb,
+            session.AllocatableDiskMb, session.MaximumConcurrentWorkloads,
+            windowsPackageUrl, launchUri, session.ErrorCode, session.ErrorMessage,
+            minimumSeconds, maximumSeconds, launchMethod,
+            session.AdministratorApprovalRequestedAt);
+    }
+
+    private static string LocalSetupLaunchUri(LocalOfficeSetupSession session, string handoff)
+    {
+        var certificateParameter = string.IsNullOrWhiteSpace(session.ControlPlaneCertificateSha256)
+            ? string.Empty
+            : $"&certificate={session.ControlPlaneCertificateSha256}";
+        return $"csweet-office://enroll/v1?session={session.Id:D}&origin={Uri.EscapeDataString(session.ControlPlaneOrigin)}{certificateParameter}#handoff={handoff}";
+    }
+
+    private bool DevelopmentLauncherConfigured => OperatingSystem.IsWindows() &&
+        fleetOptions?.Value.WindowsDevelopmentLauncherScript is { Length: > 0 } launcher &&
+        fleetOptions.Value.WindowsDevelopmentOfficeBootstrapScript is { Length: > 0 } bootstrap &&
+        Path.IsPathFullyQualified(launcher) && Path.IsPathFullyQualified(bootstrap) &&
+        File.Exists(launcher) && File.Exists(bootstrap);
+
+    private static bool TryReadLaunchHandoff(
+        string value,
+        LocalOfficeSetupSession session,
+        out string handoff)
+    {
+        handoff = string.Empty;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Scheme, "csweet-office", StringComparison.Ordinal) ||
+            !string.Equals(uri.Host, "enroll", StringComparison.Ordinal) ||
+            !string.Equals(uri.AbsolutePath, "/v1", StringComparison.Ordinal) ||
+            !Guid.TryParse(QueryValue(uri, "session"), out var requestedSessionId) ||
+            requestedSessionId != session.Id ||
+            !string.Equals(QueryValue(uri, "origin"), session.ControlPlaneOrigin, StringComparison.Ordinal) ||
+            !uri.Fragment.StartsWith("#handoff=", StringComparison.Ordinal))
+            return false;
+        handoff = Uri.UnescapeDataString(uri.Fragment["#handoff=".Length..]);
+        if (string.IsNullOrWhiteSpace(handoff) || handoff.Length > 256) return false;
+        var expected = Encoding.ASCII.GetBytes(session.HandoffSecretHash);
+        var actual = Encoding.ASCII.GetBytes(Hash(handoff));
+        return expected.Length == actual.Length &&
+            CryptographicOperations.FixedTimeEquals(expected, actual);
+    }
+
+    private static string? QueryValue(Uri uri, string name)
+    {
+        foreach (var part in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pair = part.Split('=', 2);
+            if (string.Equals(Uri.UnescapeDataString(pair[0]), name, StringComparison.Ordinal))
+                return pair.Length == 2 ? Uri.UnescapeDataString(pair[1]) : string.Empty;
+        }
+        return null;
+    }
+
+    private DevelopmentLaunchResult TryStartWindowsDevelopmentSetup(Guid sessionId, string launchUri)
+    {
+        var launcher = fleetOptions!.Value.WindowsDevelopmentLauncherScript!;
+        var bootstrap = fleetOptions.Value.WindowsDevelopmentOfficeBootstrapScript!;
+        string? handoffPath = null;
+        try
+        {
+            var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localData))
+                return new(false, "local_setup_storage_unavailable",
+                    "C-Sweet could not create the protected Windows setup handoff.");
+            var setupRoot = Path.Combine(localData, "CSweet", "Setup");
+            Directory.CreateDirectory(setupRoot);
+            handoffPath = Path.Combine(setupRoot, $"office-handoff-{sessionId:N}.secret");
+            File.WriteAllText(handoffPath, launchUri, new UTF8Encoding(false));
+            File.SetAttributes(handoffPath, FileAttributes.Hidden | FileAttributes.Temporary);
+
+            var powerShell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = powerShell,
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            foreach (var argument in new[]
+            {
+                "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", launcher, "-HandoffInputPath", handoffPath,
+                "-OfficeBootstrapScript", bootstrap
+            }) startInfo.ArgumentList.Add(argument);
+            using var process = Process.Start(startInfo);
+            if (process is null)
+                throw new InvalidOperationException("Windows did not start the elevated Office setup process.");
+            return new(true, null, null);
+        }
+        catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
+        {
+            DeleteTransientHandoff(handoffPath);
+            return new(false, "administrator_approval_cancelled",
+                "Administrator approval was cancelled. Try again when you are ready.");
+        }
+        catch (Exception exception) when (exception is Win32Exception or IOException or
+                                           UnauthorizedAccessException or InvalidOperationException)
+        {
+            DeleteTransientHandoff(handoffPath);
+            return new(false, "windows_setup_launch_failed",
+                $"C-Sweet could not start Windows setup: {exception.Message}");
+        }
+    }
+
+    private static void DeleteTransientHandoff(string? path)
+    {
+        try { if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) File.Delete(path); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+    }
+
+    private sealed record DevelopmentLaunchResult(bool Started, string? ErrorCode, string? ErrorMessage);
+
+    private static WindowsSetupProgressDocument? ReadWindowsSetupProgress(Guid sessionId)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            var commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            if (string.IsNullOrWhiteSpace(commonData)) return null;
+            var setupRoot = Path.GetFullPath(Path.Combine(commonData, "CSweet", "Setup"));
+            var path = Path.GetFullPath(Path.Combine(setupRoot,
+                $"windows-isolation-{sessionId:N}.json"));
+            if (!path.StartsWith(setupRoot + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+                return null;
+            var info = new FileInfo(path);
+            if (info.Length is <= 0 or > 64 * 1024) return null;
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var progress = JsonSerializer.Deserialize<WindowsSetupProgressDocument>(stream,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (progress is null || progress.SchemaVersion != 1 || progress.JobId != sessionId ||
+                progress.State is not ("running" or "restart-required" or "completed" or "failed") ||
+                string.IsNullOrWhiteSpace(progress.PhaseKey) || progress.PhaseKey.Length > 64 ||
+                string.IsNullOrWhiteSpace(progress.PhaseDisplayName) || progress.PhaseDisplayName.Length > 160 ||
+                string.IsNullOrWhiteSpace(progress.Message) || progress.Message.Length > 512 ||
+                progress.PercentComplete is < 0 or > 100)
+                return null;
+            progress.EstimatedRemainingMinimumSeconds = ClampEta(progress.EstimatedRemainingMinimumSeconds);
+            progress.EstimatedRemainingMaximumSeconds = ClampEta(progress.EstimatedRemainingMaximumSeconds);
+            progress.ObservedAt = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
+            return progress;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static int? ClampEta(int? value) => value is null ? null : Math.Clamp(value.Value, 0, 86_400);
+
+    private sealed class WindowsSetupProgressDocument
+    {
+        public int SchemaVersion { get; set; }
+        public Guid JobId { get; set; }
+        public string State { get; set; } = string.Empty;
+        public string PhaseKey { get; set; } = string.Empty;
+        public string PhaseDisplayName { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+        public int PercentComplete { get; set; }
+        public int? EstimatedRemainingMinimumSeconds { get; set; }
+        public int? EstimatedRemainingMaximumSeconds { get; set; }
+        public string? ErrorMessage { get; set; }
+        public DateTimeOffset ObservedAt { get; set; }
+    }
+
     private static void ValidateClaim(ClaimOfficeRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.EnrollmentToken) || request.EnrollmentToken.Length > 256 ||
@@ -815,6 +1603,21 @@ public sealed class ExecutionFleetService(
 
     private static string Hash(string value) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+    private static string MachineBindingHash(
+        string machineName,
+        string operatingSystem,
+        string architecture) => Hash(string.Join('\n',
+            machineName.Trim().ToUpperInvariant(),
+            operatingSystem.Trim().ToLowerInvariant(),
+            architecture.Trim().ToLowerInvariant()));
+
+    private static string? NormalizeOptionalSha256(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var normalized = new string(value.Where(Uri.IsHexDigit).Select(char.ToLowerInvariant).ToArray());
+        return normalized.Length == 64 ? normalized : null;
+    }
 
     private static string Base64Url(byte[] value) => Convert.ToBase64String(value)
         .TrimEnd('=').Replace('+', '-').Replace('/', '_');

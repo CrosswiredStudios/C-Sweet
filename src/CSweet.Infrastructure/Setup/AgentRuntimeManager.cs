@@ -613,6 +613,15 @@ public sealed class AgentRuntimeManager(
                 throw new InvalidOperationException(
                     "The software development runtime requires ReadWrite workspace access.");
             var runtimeOptions = options.Value;
+            var employeeIdentity = await dbContext.CoreOrganizationUsers
+                .AsNoTracking()
+                .Where(x => x.AgentInstallationId == installation.Id && x.IsActive)
+                .Select(x => new
+                {
+                    x.DisplayName,
+                    RoleName = x.Role == null ? null : x.Role.Name
+                })
+                .SingleOrDefaultAsync(startTimeout.Token);
             var guestImage = await guestImages.ResolveAsync(new GuestImageResolutionRequest(
                 runtimeOptions.RuntimeGuestImageId,
                 runtimeOptions.RuntimeGuestImageVersion,
@@ -653,7 +662,14 @@ public sealed class AgentRuntimeManager(
                     limits,
                     lease,
                     artifact,
-                    new RuntimeAgentIdentity(installation.Id, installation.BusinessId, instance.TickId),
+                    new RuntimeAgentIdentity(
+                        installation.Id,
+                        installation.BusinessId,
+                        instance.TickId,
+                        string.IsNullOrWhiteSpace(employeeIdentity?.DisplayName)
+                            ? package.AgentName
+                            : employeeIdentity.DisplayName,
+                        employeeIdentity?.RoleName),
                     [entrypoint]),
                 AgentTrustLevel.UntrustedRepository,
                 runtimeOptions.PreferredIsolationProviderId,
