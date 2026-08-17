@@ -61,6 +61,22 @@ public sealed class SourceControlModelTests
     }
 
     [Fact]
+    public void AccountCanBeReusedButProviderRepositoryIsGloballyExclusive()
+    {
+        using var db = CreateDbContext();
+        var connection = RequireEntity<SourceControlConnection>(db);
+        Assert.DoesNotContain(connection.GetIndexes(), index =>
+            index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(
+                [nameof(SourceControlConnection.Provider), nameof(SourceControlConnection.ProviderAccountId)]));
+
+        var repository = RequireEntity<SourceControlRepository>(db);
+        var providerIndex = Assert.Single(repository.GetIndexes(), index =>
+            index.Properties.Select(property => property.Name).SequenceEqual(
+                [nameof(SourceControlRepository.ProviderRepositoryKey)]));
+        Assert.True(providerIndex.IsUnique);
+    }
+
+    [Fact]
     public void PrimaryRepositoryIndexAllowsOnlyOneActivePrimaryPerTeam()
     {
         using var db = CreateDbContext();

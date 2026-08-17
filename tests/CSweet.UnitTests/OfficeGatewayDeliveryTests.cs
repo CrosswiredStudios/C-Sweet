@@ -10,6 +10,33 @@ namespace CSweet.UnitTests;
 public sealed class OfficeGatewayDeliveryTests
 {
     [Fact]
+    public void AssistedOfficeHeartbeatKeepsTheOnboardingAllocationAuthoritative()
+    {
+        var node = new CSweet.Domain.Setup.ExecutionNode();
+        var heartbeat = new CSweet.Office.Contracts.ControlPlane.OfficeHeartbeat
+        {
+            AllocatableCpuCount = 4,
+            AllocatableMemoryMb = 4096,
+            AllocatableDiskMb = 32768,
+            MaximumConcurrentWorkloads = 2
+        };
+        var session = new CSweet.Domain.Setup.LocalOfficeSetupSession
+        {
+            AllocatableCpuCount = 12,
+            AllocatableMemoryMb = 35840,
+            AllocatableDiskMb = 69632,
+            MaximumConcurrentWorkloads = 6
+        };
+
+        OfficeGatewayService.ApplyHeartbeatCapacity(node, heartbeat, session);
+
+        Assert.Equal(12, node.AllocatableCpuCount);
+        Assert.Equal(35840, node.AllocatableMemoryMb);
+        Assert.Equal(69632, node.AllocatableDiskMb);
+        Assert.Equal(6, node.MaximumConcurrentWorkloads);
+    }
+
+    [Fact]
     public void RetryWithNewFencingEpochIsDeliveredEvenWhenAssignmentIdIsUnchanged()
     {
         var assignmentId = Guid.NewGuid();

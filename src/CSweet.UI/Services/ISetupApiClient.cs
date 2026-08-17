@@ -23,6 +23,10 @@ public interface ISetupApiClient
     Task<LocalOfficeSetupActionResponse> RefreshLocalOfficeSetupSessionHandoffAsync(
         Guid sessionId,
         CancellationToken cancellationToken = default);
+    Task<LocalOfficeSetupActionResponse> SelectLocalOfficeRecoveryAsync(
+        Guid sessionId,
+        string action,
+        CancellationToken cancellationToken = default);
     Task<ExecutionCapacityActionResponse> RevokeExecutionEnrollmentAsync(Guid enrollmentId, CancellationToken cancellationToken = default);
     Task<ExecutionCapacityActionResponse> ApproveExecutionNodeAsync(Guid nodeId, CancellationToken cancellationToken = default);
     Task<ExecutionCapacityActionResponse> RejectExecutionNodeAsync(Guid nodeId, CancellationToken cancellationToken = default);

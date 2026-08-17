@@ -52,6 +52,10 @@ var provisionerAppId = builder.Configuration["CSweet:SourceControl:ProvisionerAp
 var provisionerPrivateKey = builder.Configuration["CSweet:SourceControl:ProvisionerPrivateKeyBase64"];
 var sourceAccessInstallUrl = builder.Configuration["CSweet:SourceControl:SourceAccessInstallUrl"];
 var provisionerInstallUrl = builder.Configuration["CSweet:SourceControl:ProvisionerInstallUrl"];
+var sourceAccessClientId = builder.Configuration["CSweet:SourceControl:SourceAccessClientId"];
+var sourceAccessClientSecret = builder.Configuration["CSweet:SourceControl:SourceAccessClientSecret"];
+var provisionerClientId = builder.Configuration["CSweet:SourceControl:ProvisionerClientId"];
+var provisionerClientSecret = builder.Configuration["CSweet:SourceControl:ProvisionerClientSecret"];
 
 var migrator = builder.AddProject<Projects.CSweet_Migrator>("migrator")
     .WithReference(postgres)
@@ -151,6 +155,10 @@ agentHost.WithEnvironment("CSweet__SourceControl__AgentBrokerKeyId", "agenthost"
     .WithEnvironment("CSweet__SourceControl__CoreBrokerBaseUrl", api.GetEndpoint("http"));
 if (!string.IsNullOrWhiteSpace(sourceAccessInstallUrl))
     api.WithEnvironment("CSweet__SourceControl__SourceAccessInstallUrl", sourceAccessInstallUrl);
+if (!string.IsNullOrWhiteSpace(sourceAccessClientId))
+    api.WithEnvironment("CSweet__SourceControl__SourceAccessClientId", sourceAccessClientId);
+if (!string.IsNullOrWhiteSpace(sourceAccessClientSecret))
+    api.WithEnvironment("CSweet__SourceControl__SourceAccessClientSecret", sourceAccessClientSecret);
 workerHost.WithReference(gitHost)
     .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyId", "core")
     .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyBase64", trustedServiceKey)
@@ -174,6 +182,10 @@ api.WithReference(provisionerHost)
     .WaitFor(provisionerHost);
 if (!string.IsNullOrWhiteSpace(provisionerInstallUrl))
     api.WithEnvironment("CSweet__SourceControl__ProvisionerInstallUrl", provisionerInstallUrl);
+if (!string.IsNullOrWhiteSpace(provisionerClientId))
+    api.WithEnvironment("CSweet__SourceControl__ProvisionerClientId", provisionerClientId);
+if (!string.IsNullOrWhiteSpace(provisionerClientSecret))
+    api.WithEnvironment("CSweet__SourceControl__ProvisionerClientSecret", provisionerClientSecret);
 workerHost.WithReference(provisionerHost)
     .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyId", "core")
     .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyBase64", trustedServiceKey)

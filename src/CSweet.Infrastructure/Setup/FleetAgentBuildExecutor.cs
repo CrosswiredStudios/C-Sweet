@@ -166,7 +166,7 @@ public sealed class FleetAgentBuildExecutor(
         var detail = assignment.Status switch
         {
             ExecutionAssignmentStatus.Pending =>
-                $"No eligible certified Office currently matches this build.{retry}{priorFailure}",
+                $"Waiting for Office capacity or connection. This build will start automatically when an Office is available.{retry}{priorFailure}",
             ExecutionAssignmentStatus.Assigned =>
                 $"Dispatched to {nodeLabel}; waiting for it to accept the signed assignment.{retry}",
             ExecutionAssignmentStatus.Starting =>

@@ -41,6 +41,24 @@ public interface IExecutionFleetService
         Guid createdByUserId,
         CancellationToken cancellationToken = default);
 
+    Task<LocalOfficeSetupActionResponse> SelectLocalSetupRecoveryAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        SelectLocalOfficeRecoveryRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<AssistedOfficePreflightResponse> PreflightLocalSetupSessionAsync(
+        AssistedOfficePreflightRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> ReportLocalSetupResultAsync(
+        ReportAssistedOfficeSetupResultRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> CompleteLocalOfficeRemovalAsync(
+        CompleteAssistedOfficeRemovalRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<RedeemAssistedOfficeSetupResponse> RedeemLocalSetupSessionAsync(
         RedeemAssistedOfficeSetupRequest request,
         CancellationToken cancellationToken = default);

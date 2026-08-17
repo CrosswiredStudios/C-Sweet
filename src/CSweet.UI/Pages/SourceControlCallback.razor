@@ -11,10 +11,10 @@
             @if (_working)
             {
                 <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                <MudText Typo="Typo.h6">Verifying your GitHub organization</MudText>
+                <MudText Typo="Typo.h6">Connecting your GitHub account</MudText>
                 <MudText Typo="Typo.body2" Align="Align.Center" Color="Color.Secondary">
-                    C-Sweet is confirming the installation directly with GitHub. No access token is
-                    being placed in your browser or given to an agent.
+                    C-Sweet is confirming your identity and installation directly with GitHub. No
+                    GitHub token is given to an agent.
                 </MudText>
             }
             else
@@ -29,6 +29,7 @@
 
 @code {
     [SupplyParameterFromQuery(Name = "state")] public string? State { get; set; }
+    [SupplyParameterFromQuery(Name = "code")] public string? Code { get; set; }
     [SupplyParameterFromQuery(Name = "installation_id")] public long InstallationId { get; set; }
     [SupplyParameterFromQuery(Name = "setup_action")] public string? SetupAction { get; set; }
 
@@ -37,7 +38,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        if (string.IsNullOrWhiteSpace(State) || InstallationId <= 0 ||
+        if (string.IsNullOrWhiteSpace(State) || string.IsNullOrWhiteSpace(Code) || InstallationId <= 0 ||
             !TryReadState(State, out var organizationId, out var sessionId))
         {
             Fail("The GitHub response did not match a valid C-Sweet setup session.");
@@ -54,7 +55,7 @@
             var appKind = active.CurrentStep == "authorize-provisioner" ? "Provisioner" : "SourceAccess";
             using var response = await Http.PostAsJsonAsync(
                 $"api/organizations/{organizationId:D}/source-control/onboarding/{sessionId:D}/github-installation",
-                new CompleteGitHubAppInstallationRequest(State, InstallationId, appKind));
+                new CompleteGitHubAppInstallationRequest(State, InstallationId, appKind, Code));
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
             var result = await response.Content.ReadFromJsonAsync<CompleteGitHubAppInstallationResponse>()

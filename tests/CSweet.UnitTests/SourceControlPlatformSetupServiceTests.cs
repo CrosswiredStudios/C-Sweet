@@ -25,7 +25,8 @@ public sealed class SourceControlPlatformSetupServiceTests
         var provisionerHost = new ConfigurableHost("csweet-provisioner", "C-Sweet Provisioner");
         var service = CreateService(db, sourceHost, provisionerHost,
             new ManifestClient(new PlatformGitHubManifestConversion(
-                1234, "C-Sweet Source Access", "csweet-source", privateKeyPem)));
+                1234, "C-Sweet Source Access", "csweet-source", privateKeyPem,
+                "Iv1.source", "source-secret")));
         var userId = Guid.NewGuid();
 
         var setup = await service.StartAsync(userId,
@@ -54,8 +55,10 @@ public sealed class SourceControlPlatformSetupServiceTests
             Assert.Equal("read", root.GetProperty("default_permissions").GetProperty("metadata").GetString());
             Assert.Equal("https://example.test/csweet/api/source-control/platform-setup/github-manifest-callback",
                 root.GetProperty("redirect_url").GetString());
+            Assert.True(root.GetProperty("request_oauth_on_install").GetBoolean());
             Assert.Equal("https://example.test/csweet/source-control/github-callback",
-                root.GetProperty("setup_url").GetString());
+                root.GetProperty("callback_urls")[0].GetString());
+            Assert.False(root.TryGetProperty("setup_url", out _));
         }
         Assert.DoesNotContain("PRIVATE KEY", launch.ManifestJson, StringComparison.Ordinal);
         var state = HttpUtility.ParseQueryString(new Uri(launch.PostUrl).Query)["state"]!;
@@ -65,6 +68,8 @@ public sealed class SourceControlPlatformSetupServiceTests
         Assert.Equal("source-access-confirm", setup.Session!.CurrentStep);
         Assert.Equal("Verified", setup.Session.SourceAccessApp!.Status);
         var stored = Assert.Single(db.PlatformGitHubAppCredentials);
+        Assert.Equal("Iv1.source", stored.ClientId);
+        Assert.DoesNotContain("source-secret", stored.ProtectedClientSecret, StringComparison.Ordinal);
         Assert.DoesNotContain(privateKeyPem, stored.ProtectedPrivateKey, StringComparison.Ordinal);
         Assert.DoesNotContain(Convert.ToBase64String(Encoding.UTF8.GetBytes(privateKeyPem)),
             stored.ProtectedPrivateKey, StringComparison.Ordinal);
@@ -93,7 +98,7 @@ public sealed class SourceControlPlatformSetupServiceTests
         var host = new ConfigurableHost("source", "Source");
         var service = CreateService(db, host, host,
             new ManifestClient(new PlatformGitHubManifestConversion(
-                42, "Source", "source", CreatePrivateKeyPem())));
+                42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "source-secret")));
         var userId = Guid.NewGuid();
 
         var setup = await service.StartAsync(userId,
@@ -126,7 +131,7 @@ public sealed class SourceControlPlatformSetupServiceTests
         var host = new ConfigurableHost("source", "Source");
         var service = CreateService(db, host, host,
             new ManifestClient(new PlatformGitHubManifestConversion(
-                42, "Source", "source", CreatePrivateKeyPem())));
+                42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "source-secret")));
         var owner = Guid.NewGuid();
         var setup = await service.StartAsync(owner,
             new StartPlatformSourceControlSetupRequest("https://csweet.example"));
@@ -153,7 +158,7 @@ public sealed class SourceControlPlatformSetupServiceTests
         var host = new ConfigurableHost("source", "Source");
         var service = CreateService(db, host, host,
             new ManifestClient(new PlatformGitHubManifestConversion(
-                42, "Source", "source", CreatePrivateKeyPem())));
+                42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "source-secret")));
 
         await service.StartAsync(Guid.NewGuid(),
             new StartPlatformSourceControlSetupRequest("https://csweet.example"));

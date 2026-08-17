@@ -1,7 +1,7 @@
 # C-Sweet Office Assisted Installation Plan
 
-Status: proposed  
-Last updated: 2026-08-12
+Status: Windows assisted installation and stale-installation recovery implemented  
+Last updated: 2026-08-16
 
 ## Summary
 
@@ -235,6 +235,41 @@ enrollment secret.
 
 ## Failure and recovery behavior
 
+### Windows stale-installation recovery
+
+Before redeeming the one-use enrollment material or preparing a development guest image, the elevated
+Configurator/launcher classifies the local installation as `none`, `clean`, `active`, or `unsafe`.
+Headquarters persists the classification and administrator-selected action on the assisted setup
+session; the URI never supplies an authoritative recovery mode.
+
+```text
+created -> preflight
+  none -----------------------------> redeem -> install
+  clean/active/unsafe --------------> recovery-required
+  recovery-required + reconnect ----> fresh handoff -> preflight -> redeem -> reconnect
+  recovery-required + remove -------> fresh handoff -> removal-in-progress -> removed -> new install session
+```
+
+**Reconnect this Office** is available only for a complete, recognized installation with no active
+assignment markers, authorized RuntimeHost workload handles, or Office-owned Hyper-V VMs. Reconnect
+keeps immutable signed runtime packages and certified base images, but deletes the old Node identity,
+PFX, enrollment/TLS trust, maintenance state, RuntimeHost Headquarters trust/replay/handle state,
+shared runtime key, artifact cache/media, and mutable Hyper-V data. It then creates new local secrets
+and enrolls a new Office identity through the normal claim, approval, and heartbeat flow. It does not
+resurrect a deleted Headquarters identity.
+
+**Remove Office** requires a separate destructive confirmation. The staged removal helper prefers the
+registered MSI force-removal path and falls back to the validated development uninstaller. It removes
+services, privileges, URI registration, data, caches, and owned Hyper-V resources, reports completion,
+and leaves installation as an explicit next action. Removal is retry-safe. Ordinary upgrades do not
+use this recovery path: they still require a drained node and preserve the existing identity only when
+active assignments have reached zero.
+
+Recovery state, action, receipts, and completion are machine-bound and time-limited. Result reporting
+uses sanitized codes (`existing_office_detected`, `existing_office_active`, `reconnect_unsafe`,
+`office_removal_failed`, or `office_setup_failed`) and never includes enrollment material. This first
+implementation is Windows-only; macOS and Linux parity remains future work.
+
 Every state must give the user an action that can make progress:
 
 | Failure | Recovery |
@@ -249,6 +284,8 @@ Every state must give the user an action that can make progress:
 | Host pending approval | Always render its machine identity and fingerprint with **Approve host** and **Not my host** actions. |
 | Heartbeat unhealthy | Show provider/runtime diagnostics and keep approval distinct from health. |
 | App or browser restarted | Rehydrate non-secret session state and continue polling; require replacement for any secret that cannot be redisplayed. |
+| Existing clean Windows Office has no Headquarters identity | Offer **Reconnect this Office** with a new identity, certificate, receipt, and trust. |
+| Existing Office has active-work evidence or unrecognized paths | Disable reconnect, explain the evidence, and retain separately confirmed **Remove Office**. |
 
 ## Implementation phases
 

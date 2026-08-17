@@ -33,7 +33,10 @@ public enum LocalOfficeSetupSessionStatus
     Ready = 3,
     Failed = 4,
     Expired = 5,
-    Revoked = 6
+    Revoked = 6,
+    RecoveryRequired = 7,
+    RemovalInProgress = 8,
+    Removed = 9
 }
 
 public enum ExecutionAssignmentStatus
@@ -165,6 +168,9 @@ public sealed class LocalOfficeSetupSession
     public LocalOfficeSetupSessionStatus Status { get; set; } = LocalOfficeSetupSessionStatus.Created;
     public string? ErrorCode { get; set; }
     public string? ErrorMessage { get; set; }
+    public string RecoveryAction { get; set; } = "none";
+    public bool RecoveryCanReconnect { get; set; }
+    public string? SetupReceiptHash { get; set; }
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset? AdministratorApprovalRequestedAt { get; set; }
     public DateTimeOffset? RedeemedAt { get; set; }

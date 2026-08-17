@@ -31,6 +31,7 @@ public sealed class ExecutionFleetService(
     private const string CurrentProtocolVersion = "1.0";
     private static readonly TimeSpan EnrollmentLifetime = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan AssistedSetupLifetime = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan AssistedRecoveryLifetime = TimeSpan.FromMinutes(30);
     internal static readonly Version MinimumNodeVersion = new(0, 1, 0);
     private static readonly TimeSpan HeartbeatFreshness = TimeSpan.FromSeconds(30);
     private bool FleetEnabled => fleetOptions?.Value.PublicLaunchEnabled == true;
@@ -235,6 +236,8 @@ public sealed class ExecutionFleetService(
                 (x.Status == LocalOfficeSetupSessionStatus.Created ||
                  x.Status == LocalOfficeSetupSessionStatus.Redeemed ||
                  x.Status == LocalOfficeSetupSessionStatus.Connected ||
+                 x.Status == LocalOfficeSetupSessionStatus.RecoveryRequired ||
+                 x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress ||
                  x.Status == LocalOfficeSetupSessionStatus.Ready))
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
@@ -344,7 +347,9 @@ public sealed class ExecutionFleetService(
                 .Where(x => x.CreatedByUserId == createdByUserId &&
                     (x.Status == LocalOfficeSetupSessionStatus.Created ||
                      x.Status == LocalOfficeSetupSessionStatus.Redeemed ||
-                     x.Status == LocalOfficeSetupSessionStatus.Connected))
+                     x.Status == LocalOfficeSetupSessionStatus.Connected ||
+                     x.Status == LocalOfficeSetupSessionStatus.RecoveryRequired ||
+                     x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress))
                 .OrderByDescending(x => x.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
             if (concurrent is null) throw;
@@ -442,6 +447,8 @@ public sealed class ExecutionFleetService(
                 (x.Status == LocalOfficeSetupSessionStatus.Created ||
                  x.Status == LocalOfficeSetupSessionStatus.Redeemed ||
                  x.Status == LocalOfficeSetupSessionStatus.Connected ||
+                 x.Status == LocalOfficeSetupSessionStatus.RecoveryRequired ||
+                 x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress ||
                  x.Status == LocalOfficeSetupSessionStatus.Ready))
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
@@ -493,6 +500,112 @@ public sealed class ExecutionFleetService(
             await GetOnboardingStatusAsync(cancellationToken));
     }
 
+    public async Task<LocalOfficeSetupActionResponse> SelectLocalSetupRecoveryAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        SelectLocalOfficeRecoveryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var action = request.Action.Trim().ToLowerInvariant();
+        if (action is not ("reconnect" or "remove"))
+            return await LocalFailureAsync("invalid_recovery_action", "Choose reconnect or remove.", cancellationToken);
+
+        var now = timeProvider.GetUtcNow();
+        var session = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(x =>
+            x.Id == sessionId && x.CreatedByUserId == createdByUserId, cancellationToken);
+        if (session is null)
+            return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
+        if (session.Status != LocalOfficeSetupSessionStatus.RecoveryRequired)
+            return await LocalFailureAsync("recovery_not_available", "This Office does not currently require recovery.", cancellationToken);
+        if (action == "reconnect" && !session.RecoveryCanReconnect)
+            return await LocalFailureAsync("reconnect_not_safe",
+                "Reconnect is unavailable while the existing Office has active or untrusted local state.", cancellationToken);
+
+        var handoff = Base64Url(RandomNumberGenerator.GetBytes(32));
+        session.HandoffSecretHash = Hash(handoff);
+        session.RecoveryAction = action;
+        session.Status = LocalOfficeSetupSessionStatus.Created;
+        session.ErrorCode = null;
+        session.ErrorMessage = null;
+        session.AdministratorApprovalRequestedAt = null;
+        session.ExpiresAt = now.Add(action == "remove" ? AssistedRecoveryLifetime : AssistedSetupLifetime);
+        session.UpdatedAt = now;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditWriter.WriteAsync($"office.local-setup.{action}-authorized",
+            nameof(LocalOfficeSetupSession), session.Id,
+            action == "reconnect"
+                ? "Authorized a fresh identity for an existing local Office installation."
+                : "Authorized destructive removal of an existing local Office installation.",
+            cancellationToken: cancellationToken);
+        return new LocalOfficeSetupActionResponse(true, null,
+            action == "reconnect" ? "Office reconnect is ready." : "Office removal is ready.",
+            Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl,
+                LocalSetupLaunchUri(session, handoff), DevelopmentLauncherConfigured ? "server" : "protocol"),
+            await GetOnboardingStatusAsync(cancellationToken));
+    }
+
+    public async Task<AssistedOfficePreflightResponse> PreflightLocalSetupSessionAsync(
+        AssistedOfficePreflightRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var observed = request.ExistingInstallationState.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(request.HandoffSecret) || request.HandoffSecret.Length > 256 ||
+            string.IsNullOrWhiteSpace(request.MachineName) || request.MachineName.Length > 255 ||
+            !string.Equals(request.OperatingSystem, "windows", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(request.Architecture) || request.Architecture.Length > 32 ||
+            !Version.TryParse(request.OfficeVersion, out _) ||
+            observed is not ("none" or "clean" or "active" or "unsafe"))
+            return PreflightFailure("invalid_request", "The Office preflight request is invalid.");
+
+        var now = timeProvider.GetUtcNow();
+        var hash = Hash(request.HandoffSecret);
+        var session = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(
+            x => x.HandoffSecretHash == hash, cancellationToken);
+        if (session is null || session.Status != LocalOfficeSetupSessionStatus.Created || session.ExpiresAt <= now)
+            return PreflightFailure("invalid_handoff", "The setup handoff is invalid, expired, or already used.");
+        if (!MachineMatches(session, request.MachineName, request.OperatingSystem, request.Architecture))
+            return PreflightFailure("machine_mismatch", "The setup handoff was created for a different Windows machine.");
+
+        if (session.RecoveryAction == "remove")
+        {
+            var setupReceipt = Base64Url(RandomNumberGenerator.GetBytes(32));
+            session.Status = observed == "none"
+                ? LocalOfficeSetupSessionStatus.Removed
+                : LocalOfficeSetupSessionStatus.RemovalInProgress;
+            session.SetupReceiptHash = observed == "none" ? null : Hash(setupReceipt);
+            session.CompletedAt = observed == "none" ? now : null;
+            session.UpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return new(true, null, observed == "none" ? "Office is already removed." : "Office removal is authorized.",
+                session.Id, "remove", false, observed == "none" ? null : setupReceipt);
+        }
+
+        if (observed == "none" || observed == "clean" && session.RecoveryAction == "reconnect")
+            return new(true, null, "Office preflight completed.", session.Id, session.RecoveryAction, true);
+
+        var code = observed switch
+        {
+            "clean" => "existing_office_detected",
+            "active" => "existing_office_active",
+            _ => "reconnect_unsafe"
+        };
+        session.Status = LocalOfficeSetupSessionStatus.RecoveryRequired;
+        session.RecoveryAction = "none";
+        session.RecoveryCanReconnect = observed == "clean";
+        session.ErrorCode = code;
+        session.ErrorMessage = RecoveryMessage(code);
+        session.ExpiresAt = now.Add(AssistedRecoveryLifetime);
+        session.UpdatedAt = now;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditWriter.WriteAsync("office.local-setup.recovery-required",
+            nameof(LocalOfficeSetupSession), session.Id,
+            $"Existing Windows Office preflight requires recovery ({code}).",
+            cancellationToken: cancellationToken);
+        return new(true, code, session.ErrorMessage, session.Id, "none", false);
+    }
+
     public async Task<RedeemAssistedOfficeSetupResponse> RedeemLocalSetupSessionAsync(
         RedeemAssistedOfficeSetupRequest request,
         CancellationToken cancellationToken = default)
@@ -520,6 +633,7 @@ public sealed class ExecutionFleetService(
         await EnsureDefaultPoolAsync(cancellationToken);
         var pool = await DefaultPoolAsync(cancellationToken);
         var enrollmentToken = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var setupReceipt = Base64Url(RandomNumberGenerator.GetBytes(32));
         var enrollment = new ExecutionNodeEnrollment
         {
             Id = Guid.NewGuid(),
@@ -533,6 +647,7 @@ public sealed class ExecutionFleetService(
         dbContext.ExecutionNodeEnrollments.Add(enrollment);
         session.ExecutionNodeEnrollmentId = enrollment.Id;
         session.Status = LocalOfficeSetupSessionStatus.Redeemed;
+        session.SetupReceiptHash = Hash(setupReceipt);
         session.RedeemedAt = now;
         session.UpdatedAt = now;
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -541,7 +656,88 @@ public sealed class ExecutionFleetService(
         return new RedeemAssistedOfficeSetupResponse(true, null, "Assisted Office setup redeemed.",
             session.Id, enrollmentToken, session.ControlPlaneOrigin, session.ControlPlaneCertificateSha256,
             session.AllocatableCpuCount, session.AllocatableMemoryMb, session.AllocatableDiskMb,
-            session.MaximumConcurrentWorkloads, true);
+            session.MaximumConcurrentWorkloads, true, session.RecoveryAction, setupReceipt);
+    }
+
+    public async Task<bool> ReportLocalSetupResultAsync(
+        ReportAssistedOfficeSetupResultRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.SetupReceipt) || request.SetupReceipt.Length > 256 ||
+            string.IsNullOrWhiteSpace(request.MachineName) || request.MachineName.Length > 255 ||
+            !string.Equals(request.OperatingSystem, "windows", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(request.Architecture) || request.Architecture.Length > 32) return false;
+        var resultCode = request.ResultCode.Trim().ToLowerInvariant();
+        if (resultCode is not ("existing_office_detected" or "existing_office_active" or "reconnect_unsafe" or
+            "office_removal_failed" or "office_setup_failed")) return false;
+        var receiptHash = Hash(request.SetupReceipt);
+        var session = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(x =>
+            x.Id == request.AssistedSetupSessionId && x.SetupReceiptHash == receiptHash, cancellationToken);
+        if (session is null || session.ExpiresAt <= timeProvider.GetUtcNow() ||
+            !MachineMatches(session, request.MachineName, request.OperatingSystem, request.Architecture) ||
+            session.Status is not (LocalOfficeSetupSessionStatus.Redeemed or LocalOfficeSetupSessionStatus.RemovalInProgress))
+            return false;
+        if (session.Status == LocalOfficeSetupSessionStatus.RemovalInProgress && resultCode != "office_removal_failed")
+            return false;
+
+        var now = timeProvider.GetUtcNow();
+        if (session.ExecutionNodeEnrollmentId is { } enrollmentId)
+        {
+            var enrollment = await dbContext.ExecutionNodeEnrollments.SingleOrDefaultAsync(
+                x => x.Id == enrollmentId, cancellationToken);
+            if (enrollment?.Status == ExecutionEnrollmentStatus.Available)
+            {
+                enrollment.Status = ExecutionEnrollmentStatus.Revoked;
+                enrollment.RevokedAt = now;
+            }
+        }
+        session.SetupReceiptHash = null;
+        session.ErrorCode = resultCode;
+        session.ErrorMessage = RecoveryMessage(resultCode);
+        session.UpdatedAt = now;
+        if (resultCode is "existing_office_detected" or "existing_office_active" or "reconnect_unsafe")
+        {
+            session.Status = LocalOfficeSetupSessionStatus.RecoveryRequired;
+            session.RecoveryAction = "none";
+            session.RecoveryCanReconnect = resultCode == "existing_office_detected";
+            session.ExpiresAt = now.Add(AssistedRecoveryLifetime);
+            session.ExecutionNodeEnrollmentId = null;
+        }
+        else
+        {
+            session.Status = LocalOfficeSetupSessionStatus.Failed;
+        }
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<bool> CompleteLocalOfficeRemovalAsync(
+        CompleteAssistedOfficeRemovalRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.HandoffSecret) || request.HandoffSecret.Length > 256 ||
+            string.IsNullOrWhiteSpace(request.MachineName) || request.MachineName.Length > 255 ||
+            !string.Equals(request.OperatingSystem, "windows", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(request.Architecture) || request.Architecture.Length > 32) return false;
+        var session = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(
+            x => x.HandoffSecretHash == Hash(request.HandoffSecret), cancellationToken);
+        if (session is null ||
+            session.Status is not (LocalOfficeSetupSessionStatus.RemovalInProgress or LocalOfficeSetupSessionStatus.Removed) ||
+            !MachineMatches(session, request.MachineName, request.OperatingSystem, request.Architecture)) return false;
+        if (session.Status == LocalOfficeSetupSessionStatus.Removed) return true;
+        var now = timeProvider.GetUtcNow();
+        session.Status = LocalOfficeSetupSessionStatus.Removed;
+        session.CompletedAt = now;
+        session.UpdatedAt = now;
+        session.ErrorCode = null;
+        session.ErrorMessage = null;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditWriter.WriteAsync("office.local-setup.removed", nameof(LocalOfficeSetupSession), session.Id,
+            "Removed the existing local Office installation after explicit administrator authorization.",
+            cancellationToken: cancellationToken);
+        return true;
     }
 
     public async Task<ExecutionCapacityActionResponse> RevokeEnrollmentAsync(
@@ -599,6 +795,12 @@ public sealed class ExecutionFleetService(
                     Encoding.ASCII.GetBytes(binding)))
                 return new ClaimOfficeResponse(false, "assisted_session_mismatch",
                     "The assisted setup session does not match this Office.", null, null);
+            if (request.AllocatableCpuCount != assistedSession.AllocatableCpuCount ||
+                request.AllocatableMemoryMb != assistedSession.AllocatableMemoryMb ||
+                request.AllocatableDiskMb != assistedSession.AllocatableDiskMb ||
+                request.MaximumConcurrentWorkloads != assistedSession.MaximumConcurrentWorkloads)
+                return new ClaimOfficeResponse(false, "assisted_allocation_mismatch",
+                    "The Office did not apply the CPU, memory, and storage selected during setup.", null, null);
         }
 
         var receipt = Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -1209,6 +1411,32 @@ public sealed class ExecutionFleetService(
     private static RedeemAssistedOfficeSetupResponse RedeemFailure(string code, string message) =>
         new(false, code, message, null, null, null, null, 0, 0, 0, 0, true);
 
+    private static AssistedOfficePreflightResponse PreflightFailure(string code, string message) =>
+        new(false, code, message, null, "none", false);
+
+    private static bool MachineMatches(
+        LocalOfficeSetupSession session,
+        string machineName,
+        string operatingSystem,
+        string architecture)
+    {
+        var expected = Encoding.ASCII.GetBytes(session.MachineBindingHash ?? string.Empty);
+        var actual = Encoding.ASCII.GetBytes(MachineBindingHash(machineName, operatingSystem, architecture));
+        return expected.Length == actual.Length && CryptographicOperations.FixedTimeEquals(expected, actual);
+    }
+
+    private static string RecoveryMessage(string code) => code switch
+    {
+        "existing_office_detected" =>
+            "An existing C-Sweet Office is installed, but this Headquarters database does not recognize its old identity.",
+        "existing_office_active" =>
+            "The existing Office still has active assignment or virtual-machine state. Reconnect is blocked; remove it only if orphaned work may be destroyed.",
+        "reconnect_unsafe" =>
+            "The existing Office installation could not be validated for safe reconnect. Remove it before installing a fresh Office.",
+        "office_removal_failed" => "Windows could not completely remove the existing Office.",
+        _ => "The Office setup did not complete."
+    };
+
     private LocalOfficeCapacityResponse DetectLocalCapacity()
     {
         if (localCapacityProbe is not null) return localCapacityProbe.GetCapacity();
@@ -1233,7 +1461,9 @@ public sealed class ExecutionFleetService(
         CancellationToken cancellationToken)
     {
         var expired = await dbContext.LocalOfficeSetupSessions.Where(x => x.ExpiresAt <= now &&
-            x.Status == LocalOfficeSetupSessionStatus.Created).ToListAsync(cancellationToken);
+            (x.Status == LocalOfficeSetupSessionStatus.Created ||
+             x.Status == LocalOfficeSetupSessionStatus.RecoveryRequired ||
+             x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress)).ToListAsync(cancellationToken);
         if (expired.Count == 0) return;
         foreach (var session in expired)
         {
@@ -1333,6 +1563,15 @@ public sealed class ExecutionFleetService(
                 "The Office is connected. C-Sweet is verifying its capacity and secure runtime.", 90, (int?)10, (int?)60),
             LocalOfficeSetupSessionStatus.Ready => ("ready", "Your Office is ready",
                 "This Office is connected and healthy.", 100, (int?)0, (int?)0),
+            LocalOfficeSetupSessionStatus.RecoveryRequired => ("recovery", "Existing Office found",
+                session.ErrorMessage ?? "This Office belongs to a Headquarters database that is no longer available.",
+                0, (int?)null, (int?)null),
+            LocalOfficeSetupSessionStatus.RemovalInProgress => ("remove", "Removing the existing Office",
+                "Windows is removing the old Office services, data, and owned virtual machines.",
+                25, (int?)5, (int?)120),
+            LocalOfficeSetupSessionStatus.Removed => ("removed", "Office removed",
+                "The existing Office was removed. You can now install a fresh Office.",
+                100, (int?)0, (int?)0),
             LocalOfficeSetupSessionStatus.Expired => ("install", "Setup session expired",
                 "Start again to create a fresh secure setup handoff.", 0, (int?)null, (int?)null),
             LocalOfficeSetupSessionStatus.Revoked => ("install", "Setup session replaced",
@@ -1341,6 +1580,9 @@ public sealed class ExecutionFleetService(
                 session.ErrorMessage ?? "The Office setup did not complete.", 0, (int?)null, (int?)null),
             _ => ("install", "Preparing your Office", "C-Sweet is continuing setup.", 0, (int?)null, (int?)null)
         };
+        var effectiveErrorCode = session.ErrorCode;
+        var effectiveErrorMessage = session.ErrorMessage;
+        var effectiveRecoveryCanReconnect = session.RecoveryCanReconnect;
         var windowsProgress = ReadWindowsSetupProgress(session.Id);
         if (windowsProgress is { } progress && status != LocalOfficeSetupSessionStatus.Ready)
         {
@@ -1352,9 +1594,24 @@ public sealed class ExecutionFleetService(
             maximumSeconds = progress.EstimatedRemainingMaximumSeconds;
             if (progress.State == "failed")
             {
-                status = LocalOfficeSetupSessionStatus.Failed;
-                phaseName = "Setup needs attention";
-                message = progress.ErrorMessage ?? progress.Message;
+                effectiveErrorCode = progress.ErrorCode ?? effectiveErrorCode;
+                effectiveErrorMessage = progress.ErrorMessage ?? effectiveErrorMessage;
+                if (effectiveErrorCode is "existing_office_detected" or "existing_office_active" or
+                    "reconnect_unsafe" or "office_removal_failed" or "office_setup_failed")
+                    effectiveErrorMessage = RecoveryMessage(effectiveErrorCode);
+                if (effectiveErrorCode is "existing_office_detected" or "existing_office_active" or "reconnect_unsafe")
+                {
+                    status = LocalOfficeSetupSessionStatus.RecoveryRequired;
+                    phaseKey = "recovery";
+                    phaseName = "Existing Office found";
+                    effectiveRecoveryCanReconnect = effectiveErrorCode == "existing_office_detected";
+                }
+                else
+                {
+                    status = LocalOfficeSetupSessionStatus.Failed;
+                    phaseName = "Setup needs attention";
+                }
+                message = effectiveErrorMessage ?? progress.Message;
                 percent = 0;
             }
             else if (progress.State == "restart-required")
@@ -1401,9 +1658,10 @@ public sealed class ExecutionFleetService(
             status.ToString().ToLowerInvariant(), phaseKey, phaseName, message, percent,
             session.ExpiresAt, session.AllocatableCpuCount, session.AllocatableMemoryMb,
             session.AllocatableDiskMb, session.MaximumConcurrentWorkloads,
-            windowsPackageUrl, launchUri, session.ErrorCode, session.ErrorMessage,
+            windowsPackageUrl, launchUri, effectiveErrorCode, effectiveErrorMessage,
             minimumSeconds, maximumSeconds, launchMethod,
-            session.AdministratorApprovalRequestedAt);
+            session.AdministratorApprovalRequestedAt, session.RecoveryAction,
+            effectiveRecoveryCanReconnect);
     }
 
     private static string LocalSetupLaunchUri(LocalOfficeSetupSession session, string handoff)
@@ -1564,6 +1822,7 @@ public sealed class ExecutionFleetService(
         public int PercentComplete { get; set; }
         public int? EstimatedRemainingMinimumSeconds { get; set; }
         public int? EstimatedRemainingMaximumSeconds { get; set; }
+        public string? ErrorCode { get; set; }
         public string? ErrorMessage { get; set; }
         public DateTimeOffset ObservedAt { get; set; }
     }

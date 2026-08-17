@@ -25,6 +25,8 @@ public sealed class SourceControlPlatformSetupService(
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly IDataProtector _protector = dataProtectionProvider.CreateProtector(
         "CSweet.PlatformGitHubAppCredentials.v1");
+    private readonly IDataProtector _clientSecretProtector = dataProtectionProvider.CreateProtector(
+        "CSweet.PlatformGitHubAppClientSecrets.v1");
 
     public async Task<SourceControlPlatformReadiness> GetReadinessAsync(
         CancellationToken cancellationToken = default)
@@ -36,12 +38,14 @@ public sealed class SourceControlPlatformSetupService(
         var provisioner = active.SingleOrDefault(x => x.Kind == PlatformGitHubAppKind.Provisioner);
         var sourceStatus = await SafeStatusAsync(sourceHost.GetConfigurationStatusAsync, cancellationToken);
         var provisionerStatus = await SafeStatusAsync(provisionerHost.GetConfigurationStatusAsync, cancellationToken);
-        var sourceManaged = Matches(source, sourceStatus);
-        var provisionerManaged = Matches(provisioner, provisionerStatus);
+        var sourceManaged = Matches(source, sourceStatus) && HasUserAuthorization(source);
+        var provisionerManaged = Matches(provisioner, provisionerStatus) && HasUserAuthorization(provisioner);
         var sourceExternal = source is null && sourceStatus.Configured && IsHttpsUrl(
-            configuration["CSweet:SourceControl:SourceAccessInstallUrl"]);
+            configuration["CSweet:SourceControl:SourceAccessInstallUrl"]) &&
+            HasExternalUserAuthorization(PlatformGitHubAppKind.SourceAccess);
         var provisionerExternal = provisioner is null && provisionerStatus.Configured && IsHttpsUrl(
-            configuration["CSweet:SourceControl:ProvisionerInstallUrl"]);
+            configuration["CSweet:SourceControl:ProvisionerInstallUrl"]) &&
+            HasExternalUserAuthorization(PlatformGitHubAppKind.Provisioner);
         var sourceReady = sourceManaged || sourceExternal;
         var managedReady = sourceReady && (provisionerManaged || provisionerExternal);
         var mode = sourceManaged ? "CSweetManaged" : sourceExternal ? "ExternallyManaged" : "Unconfigured";
@@ -68,6 +72,30 @@ public sealed class SourceControlPlatformSetupService(
         if (!IsHttpsUrl(value))
             throw new InvalidOperationException("The GitHub App installation flow is not ready.");
         return value!;
+    }
+
+    public async Task<PlatformGitHubUserAuthorizationConfiguration> GetUserAuthorizationAsync(
+        PlatformGitHubAppKind kind,
+        CancellationToken cancellationToken = default)
+    {
+        var credential = await db.PlatformGitHubAppCredentials.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Kind == kind &&
+                                       x.Status == PlatformGitHubAppCredentialStatus.Active,
+                cancellationToken);
+        if (credential is not null && HasUserAuthorization(credential))
+            return new PlatformGitHubUserAuthorizationConfiguration(
+                credential.ClientId,
+                _clientSecretProtector.Unprotect(credential.ProtectedClientSecret));
+
+        var prefix = kind == PlatformGitHubAppKind.SourceAccess
+            ? "SourceAccess"
+            : "Provisioner";
+        var clientId = configuration[$"CSweet:SourceControl:{prefix}ClientId"];
+        var clientSecret = configuration[$"CSweet:SourceControl:{prefix}ClientSecret"];
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+            throw new InvalidOperationException(
+                "The GitHub sign-in flow is not configured for this C-Sweet installation.");
+        return new PlatformGitHubUserAuthorizationConfiguration(clientId, clientSecret);
     }
 
     public async Task<PlatformSourceControlSetupResponse> GetAsync(
@@ -246,6 +274,8 @@ public sealed class SourceControlPlatformSetupService(
                 AppName = conversion.AppName,
                 AppSlug = conversion.AppSlug,
                 InstallUrl = $"https://github.com/apps/{Uri.EscapeDataString(conversion.AppSlug)}/installations/new",
+                ClientId = conversion.ClientId,
+                ProtectedClientSecret = _clientSecretProtector.Protect(conversion.ClientSecret),
                 ProtectedPrivateKey = _protector.Protect(privateKeyBase64),
                 Status = PlatformGitHubAppCredentialStatus.Pending,
                 CreatedAt = now,
@@ -577,9 +607,9 @@ public sealed class SourceControlPlatformSetupService(
                 : "Creates governed private repositories for this C-Sweet installation.",
             url = session.PublicBaseUrl,
             redirect_url = $"{session.ManifestCallbackUrl}/api/source-control/platform-setup/github-manifest-callback",
-            setup_url = $"{session.PublicBaseUrl}/source-control/github-callback",
+            callback_urls = new[] { $"{session.PublicBaseUrl}/source-control/github-callback" },
             setup_on_update = false,
-            request_oauth_on_install = false,
+            request_oauth_on_install = true,
             @public = true,
             default_events = Array.Empty<string>(),
             default_permissions = isSource
@@ -624,6 +654,20 @@ public sealed class SourceControlPlatformSetupService(
         TrustedGitHubAppConfigurationStatus status) =>
         credential is not null && status.Configured && status.AppId == credential.AppId &&
         status.Revision == credential.Revision;
+
+    private static bool HasUserAuthorization(PlatformGitHubAppCredential? credential) =>
+        credential is not null &&
+        !string.IsNullOrWhiteSpace(credential.ClientId) &&
+        !string.IsNullOrWhiteSpace(credential.ProtectedClientSecret);
+
+    private bool HasExternalUserAuthorization(PlatformGitHubAppKind kind)
+    {
+        var prefix = kind == PlatformGitHubAppKind.SourceAccess
+            ? "SourceAccess"
+            : "Provisioner";
+        return !string.IsNullOrWhiteSpace(configuration[$"CSweet:SourceControl:{prefix}ClientId"]) &&
+               !string.IsNullOrWhiteSpace(configuration[$"CSweet:SourceControl:{prefix}ClientSecret"]);
+    }
 
     private static async Task<TrustedGitHubAppConfigurationStatus> SafeStatusAsync(
         Func<CancellationToken, Task<TrustedGitHubAppConfigurationStatus>> action,

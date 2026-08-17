@@ -151,6 +151,8 @@ public sealed class PlatformGitHubAppCredential
     public string AppName { get; set; } = string.Empty;
     public string AppSlug { get; set; } = string.Empty;
     public string InstallUrl { get; set; } = string.Empty;
+    public string ClientId { get; set; } = string.Empty;
+    public string ProtectedClientSecret { get; set; } = string.Empty;
     public string ProtectedPrivateKey { get; set; } = string.Empty;
     public string ProtectionVersion { get; set; } = "v1";
     public PlatformGitHubAppCredentialStatus Status { get; set; }
@@ -257,6 +259,7 @@ public sealed class SourceControlRepository
     public Guid OrganizationId { get; set; }
     public Guid ConnectionId { get; set; }
     public string ExternalRepositoryId { get; set; } = string.Empty;
+    public string ProviderRepositoryKey { get; set; } = string.Empty;
     public string Owner { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string CanonicalPath { get; set; } = string.Empty;

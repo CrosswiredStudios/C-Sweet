@@ -121,6 +121,9 @@ public sealed class ExecutionWorkloadOrchestratorTests
 
         var pending = FleetAgentBuildExecutor.ProgressState(assignment);
 
+        Assert.Contains("Waiting for Office capacity or connection", pending.Detail, StringComparison.Ordinal);
+        Assert.Contains("start automatically", pending.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("No eligible", pending.Detail, StringComparison.Ordinal);
         Assert.Contains("Retry attempt 2", pending.Detail, StringComparison.Ordinal);
         Assert.Contains("did not renew", pending.Detail, StringComparison.Ordinal);
         assignment.Status = ExecutionAssignmentStatus.Assigned;

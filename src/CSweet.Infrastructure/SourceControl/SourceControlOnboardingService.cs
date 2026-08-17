@@ -16,6 +16,7 @@ public sealed class SourceControlOnboardingService(
     ITrustedSourceControlHostClient sourceHost,
     ITrustedProvisioningHostClient provisionerHost,
     ISourceControlPlatformConfigurationProvider platformSetup,
+    IGitHubUserAuthorizationClient githubUsers,
     TimeProvider timeProvider) : ISourceControlOnboardingService
 {
     internal SourceControlOnboardingService(
@@ -23,9 +24,10 @@ public sealed class SourceControlOnboardingService(
         ITrustedSourceControlHostClient sourceHost,
         ITrustedProvisioningHostClient provisionerHost,
         IConfiguration configuration,
+        IGitHubUserAuthorizationClient githubUsers,
         TimeProvider timeProvider)
         : this(db, sourceHost, provisionerHost,
-            new LegacyPlatformConfigurationProvider(configuration), timeProvider)
+            new LegacyPlatformConfigurationProvider(configuration), githubUsers, timeProvider)
     {
     }
     public async Task<SourceControlDashboardResponse> GetDashboardAsync(
@@ -155,7 +157,8 @@ public sealed class SourceControlOnboardingService(
             session.Status != SourceControlOnboardingStatus.AwaitingProvider ||
             session.ExpiresAt <= now)
             throw new UnauthorizedAccessException("This source-control setup session is no longer valid for the current user.");
-        if (request.InstallationId <= 0 || !VerifyState(session, request.State))
+        if (request.InstallationId <= 0 || string.IsNullOrWhiteSpace(request.Code) ||
+            !VerifyState(session, request.State))
             throw new UnauthorizedAccessException("The provider setup response did not match this source-control session.");
 
         var isSource = string.Equals(request.AppKind, "SourceAccess", StringComparison.OrdinalIgnoreCase);
@@ -165,6 +168,13 @@ public sealed class SourceControlOnboardingService(
             (isProvisioner && session.CurrentStep != "authorize-provisioner"))
             throw new InvalidOperationException("The provider setup response arrived for the wrong onboarding step.");
 
+        var appKind = isSource ? PlatformGitHubAppKind.SourceAccess : PlatformGitHubAppKind.Provisioner;
+        var userAuthorization = await platformSetup.GetUserAuthorizationAsync(appKind, cancellationToken);
+        var authorized = await githubUsers.VerifyInstallationAsync(
+            userAuthorization, request.Code, request.InstallationId, cancellationToken);
+        if (authorized.InstallationId != request.InstallationId)
+            throw new UnauthorizedAccessException("GitHub authorized a different App installation.");
+
         var installation = isSource
             ? await sourceHost.DescribeInstallationAsync(request.InstallationId, cancellationToken)
             : await provisionerHost.DescribeInstallationAsync(request.InstallationId, cancellationToken);
@@ -173,14 +183,6 @@ public sealed class SourceControlOnboardingService(
         if (session.SelectedMode == SourceControlConnectionMode.ManagedGitHub &&
             !string.Equals(installation.AccountType, "Organization", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Full access supports GitHub organizations only; personal accounts cannot create managed projects.");
-
-        var attachedElsewhere = await db.SourceControlConnections.AsNoTracking().AnyAsync(candidate =>
-            candidate.OrganizationId != organizationId &&
-            candidate.Provider == SourceControlProvider.GitHub &&
-            candidate.ProviderAccountId == installation.AccountId.ToString(),
-            cancellationToken);
-        if (attachedElsewhere)
-            throw new UnauthorizedAccessException("This GitHub account is already isolated to another business.");
 
         SourceControlConnection connection;
         if (session.ConnectionId.HasValue)
@@ -315,6 +317,15 @@ public sealed class SourceControlOnboardingService(
         var available = await sourceHost.ListRepositoriesAsync(
             connection.SourceAccessInstallationId.Value, cancellationToken);
         var selected = ResolveSelectedRepositories(connection, available, selectedIds, requireTemplate: false);
+        var selectedProviderKeys = selected
+            .Select(repository => GitHubRepositoryKey(repository.RepositoryId))
+            .ToArray();
+        if (await db.SourceControlRepositories.AsNoTracking().AnyAsync(candidate =>
+                candidate.OrganizationId != organizationId &&
+                selectedProviderKeys.Contains(candidate.ProviderRepositoryKey),
+                cancellationToken))
+            throw new UnauthorizedAccessException(
+                "One of these GitHub projects is already connected to another C-Sweet business.");
         var now = timeProvider.GetUtcNow();
         foreach (var providerRepository in selected)
         {
@@ -514,6 +525,7 @@ public sealed class SourceControlOnboardingService(
         bool isManaged,
         DateTimeOffset now)
     {
+        repository.ProviderRepositoryKey = GitHubRepositoryKey(provider.RepositoryId);
         repository.Owner = provider.Owner;
         repository.Name = provider.Name;
         repository.CanonicalPath = provider.FullName.ToLowerInvariant();
@@ -528,6 +540,8 @@ public sealed class SourceControlOnboardingService(
         repository.UpdatedAt = now;
         repository.Revision++;
     }
+
+    private static string GitHubRepositoryKey(long repositoryId) => $"github:{repositoryId}";
 
     private async Task<OrganizationUser> RequireActorAsync(
         Guid organizationId,
@@ -585,10 +599,12 @@ internal sealed class LegacyPlatformConfigurationProvider(IConfiguration configu
         CancellationToken cancellationToken = default)
     {
         var sourceReady = IsTrustedUrl(configuration["CSweet:SourceControl:GitHostBaseUrl"]) &&
-                          IsHttpsUrl(configuration["CSweet:SourceControl:SourceAccessInstallUrl"]);
+                          IsHttpsUrl(configuration["CSweet:SourceControl:SourceAccessInstallUrl"]) &&
+                          HasUserAuthorization(PlatformGitHubAppKind.SourceAccess);
         var provisionerReady = sourceReady &&
                                IsTrustedUrl(configuration["CSweet:SourceControl:ProvisionerHostBaseUrl"]) &&
-                               IsHttpsUrl(configuration["CSweet:SourceControl:ProvisionerInstallUrl"]);
+                               IsHttpsUrl(configuration["CSweet:SourceControl:ProvisionerInstallUrl"]) &&
+                               HasUserAuthorization(PlatformGitHubAppKind.Provisioner);
         return Task.FromResult(new SourceControlPlatformReadiness(
             sourceReady,
             provisionerReady,
@@ -608,6 +624,25 @@ internal sealed class LegacyPlatformConfigurationProvider(IConfiguration configu
         if (!IsHttpsUrl(value)) throw new InvalidOperationException(
             "The GitHub App installation flow is not ready.");
         return Task.FromResult(value!);
+    }
+
+    public Task<PlatformGitHubUserAuthorizationConfiguration> GetUserAuthorizationAsync(
+        PlatformGitHubAppKind kind,
+        CancellationToken cancellationToken = default)
+    {
+        var prefix = kind == PlatformGitHubAppKind.SourceAccess ? "SourceAccess" : "Provisioner";
+        var clientId = configuration[$"CSweet:SourceControl:{prefix}ClientId"];
+        var clientSecret = configuration[$"CSweet:SourceControl:{prefix}ClientSecret"];
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+            throw new InvalidOperationException("The GitHub sign-in flow is not ready.");
+        return Task.FromResult(new PlatformGitHubUserAuthorizationConfiguration(clientId, clientSecret));
+    }
+
+    private bool HasUserAuthorization(PlatformGitHubAppKind kind)
+    {
+        var prefix = kind == PlatformGitHubAppKind.SourceAccess ? "SourceAccess" : "Provisioner";
+        return !string.IsNullOrWhiteSpace(configuration[$"CSweet:SourceControl:{prefix}ClientId"]) &&
+               !string.IsNullOrWhiteSpace(configuration[$"CSweet:SourceControl:{prefix}ClientSecret"]);
     }
 
     private static bool IsHttpsUrl(string? value) =>

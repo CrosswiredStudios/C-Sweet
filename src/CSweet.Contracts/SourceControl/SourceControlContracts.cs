@@ -114,7 +114,8 @@ public sealed record StartSourceControlOnboardingResponse(
 public sealed record CompleteGitHubAppInstallationRequest(
     string State,
     long InstallationId,
-    string AppKind);
+    string AppKind,
+    string Code);
 
 public sealed record CompleteGitHubAppInstallationResponse(
     Guid SessionId,

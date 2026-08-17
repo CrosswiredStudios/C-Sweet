@@ -51,6 +51,8 @@ public sealed record CreateLocalOfficeSetupSessionRequest(
 
 public sealed record LaunchLocalOfficeSetupRequest(string LaunchUri);
 
+public sealed record SelectLocalOfficeRecoveryRequest(string Action);
+
 public sealed record LocalOfficeSetupSessionResponse(
     Guid Id,
     string State,
@@ -70,7 +72,9 @@ public sealed record LocalOfficeSetupSessionResponse(
     int? EstimatedRemainingMinimumSeconds = null,
     int? EstimatedRemainingMaximumSeconds = null,
     string? LaunchMethod = null,
-    DateTimeOffset? AdministratorApprovalRequestedAt = null);
+    DateTimeOffset? AdministratorApprovalRequestedAt = null,
+    string RecoveryAction = "none",
+    bool RecoveryCanReconnect = false);
 
 public sealed record LocalOfficeSetupActionResponse(
     bool Succeeded,

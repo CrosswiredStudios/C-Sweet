@@ -27,7 +27,7 @@ Progress is stored for 24 hours. A GitHub handoff link is valid for 20 minutes a
 without exposing a private key. If C-Sweet receives the key but cannot reach a trusted host, the key
 remains encrypted and the administrator can retry verification or activation.
 
-The browser-visible application base URL supplies the manifest homepage, callback, and setup URLs.
+The browser-visible application base URL supplies the manifest homepage and OAuth callback URLs.
 Reverse proxies must preserve the public scheme, host, and path base. HTTPS is required except for a
 loopback development URL.
 
@@ -44,7 +44,9 @@ The Repository Provisioner App requests only:
 
 - Repository administration: read and write
 
-Both Apps have webhooks and user authorization disabled and subscribe to no events. They are publicly
+Both Apps have webhooks disabled, subscribe to no events, and request GitHub user authorization during
+installation. This lets C-Sweet verify that the signed-in user can access the exact installation
+before accepting it. They are publicly
 installable so separate C-Sweet businesses can authorize their own GitHub organizations; public
 installability does not grant repository access. Each installation is still accepted only through an
 authenticated business onboarding session and is scoped to the repositories selected on GitHub.
@@ -58,6 +60,11 @@ Use manual configuration only for recovery, an externally managed deployment, or
 Server. The same commands are available in the collapsed **Advanced manual setup** section of the
 enterprise page.
 
+Each manually configured App must enable **Request user authorization (OAuth) during installation**
+and set its callback URL to the public C-Sweet URL ending in
+`/source-control/github-callback`. Copy its OAuth client ID and client secret into the protected
+configuration values below; business users never see or enter these values.
+
 For a local AppHost, create each App manually, generate its PEM, and use .NET user-secrets. Example
 for Source Access:
 
@@ -69,6 +76,8 @@ dotnet user-secrets set 'CSweet:SourceControl:TrustedServiceKeyBase64' $trustedK
 dotnet user-secrets set 'CSweet:SourceControl:SourceAccessAppId' '123456' --project src/CSweet.AppHost
 dotnet user-secrets set 'CSweet:SourceControl:SourceAccessPrivateKeyBase64' $sourcePem --project src/CSweet.AppHost
 dotnet user-secrets set 'CSweet:SourceControl:SourceAccessInstallUrl' 'https://github.com/apps/APP-SLUG/installations/new' --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:SourceAccessClientId' 'Iv1.YOUR_CLIENT_ID' --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:SourceAccessClientSecret' 'YOUR_CLIENT_SECRET' --project src/CSweet.AppHost
 ```
 
 The equivalent deployed configuration names are:
@@ -77,9 +86,13 @@ The equivalent deployed configuration names are:
 - `CSweet__SourceControl__SourceAccessAppId`
 - `CSweet__SourceControl__SourceAccessPrivateKeyBase64`
 - `CSweet__SourceControl__SourceAccessInstallUrl`
+- `CSweet__SourceControl__SourceAccessClientId`
+- `CSweet__SourceControl__SourceAccessClientSecret`
 - `CSweet__SourceControl__ProvisionerAppId`
 - `CSweet__SourceControl__ProvisionerPrivateKeyBase64`
 - `CSweet__SourceControl__ProvisionerInstallUrl`
+- `CSweet__SourceControl__ProvisionerClientId`
+- `CSweet__SourceControl__ProvisionerClientSecret`
 
 Store deployed values in the deployment platform's secret manager, never plaintext configuration or
 source-controlled deployment files. Externally configured credentials remain supported and appear as

@@ -22,6 +22,9 @@ public sealed class OfficeSchemaRepairTests
         Assert.Contains(
             "20260815235118_TrackLocalOfficeSetupLaunch",
             db.Database.GetMigrations());
+        Assert.Contains(
+            "20260817050354_AddLocalOfficeRecovery",
+            db.Database.GetMigrations());
 
         var root = RepositoryRoot();
         var migration = File.ReadAllText(Path.Combine(
@@ -88,6 +91,20 @@ public sealed class OfficeSchemaRepairTests
     }
 
     [Fact]
+    public void LocalOfficeWizard_RendersBoundRecoveryActionsAndDestructiveConfirmation()
+    {
+        var razor = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.UI", "Setup", "AgentHostOnboardingStep.razor"));
+
+        Assert.Contains("_localSession.State == \"recoveryrequired\"", razor, StringComparison.Ordinal);
+        Assert.Contains("Reconnect this Office", razor, StringComparison.Ordinal);
+        Assert.Contains("RecoveryCanReconnect", razor, StringComparison.Ordinal);
+        Assert.Contains("Remove Office", razor, StringComparison.Ordinal);
+        Assert.Contains("cannot be recovered", razor, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SelectLocalOfficeRecoveryAsync", razor, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AssistedOfficeLauncherForwardsPinnedCertificateWithoutInteractiveTrust()
     {
         var launcher = File.ReadAllText(Path.Combine(
@@ -96,6 +113,29 @@ public sealed class OfficeSchemaRepairTests
         Assert.Contains("controlPlaneCertificateSha256", launcher, StringComparison.Ordinal);
         Assert.Contains("Get-OptionalObjectProperty $redemption 'controlPlaneCertificateSha256'", launcher, StringComparison.Ordinal);
         Assert.Contains("-ControlPlaneCertificateSha256 $controlPlaneCertificateSha256", launcher, StringComparison.Ordinal);
+        Assert.Contains("local-sessions/preflight", launcher, StringComparison.Ordinal);
+        Assert.True(launcher.IndexOf("local-sessions/preflight", StringComparison.Ordinal) <
+            launcher.IndexOf("local-sessions/redeem", StringComparison.Ordinal));
+        Assert.Contains("existingInstallationAction", launcher, StringComparison.Ordinal);
+        Assert.Contains("setupReceipt", launcher, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AssistedOfficeLauncherInstallsTheRedeemedCapacityAllocation()
+    {
+        var launcher = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.Api", "Setup", "Start-CSweetDevelopmentOfficeSetup.ps1"));
+
+        Assert.Contains("Get-RequiredPositiveIntProperty $redemption 'allocatableCpuCount'", launcher, StringComparison.Ordinal);
+        Assert.Contains("Get-RequiredPositiveIntProperty $redemption 'allocatableMemoryMb'", launcher, StringComparison.Ordinal);
+        Assert.Contains("Get-RequiredPositiveIntProperty $redemption 'allocatableDiskMb'", launcher, StringComparison.Ordinal);
+        Assert.Contains("Get-RequiredPositiveIntProperty $redemption 'maximumConcurrentWorkloads'", launcher, StringComparison.Ordinal);
+        Assert.Contains("-SkipInstall", launcher, StringComparison.Ordinal);
+        Assert.Contains("-AssistedSetupSessionId $sessionId", launcher, StringComparison.Ordinal);
+        Assert.Contains("-AllocatableCpuCount $allocatableCpuCount", launcher, StringComparison.Ordinal);
+        Assert.Contains("-AllocatableMemoryMb $allocatableMemoryMb", launcher, StringComparison.Ordinal);
+        Assert.Contains("-AllocatableDiskMb $allocatableDiskMb", launcher, StringComparison.Ordinal);
+        Assert.Contains("-MaximumConcurrentWorkloads $maximumConcurrentWorkloads", launcher, StringComparison.Ordinal);
     }
 
     private static string RepositoryRoot()

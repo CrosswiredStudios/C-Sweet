@@ -256,12 +256,55 @@
         await RequestAdministratorApprovalAsync();
     }
 
+    private async Task SelectLocalRecoveryAsync(string action)
+    {
+        if (_busy || _localSession?.State != "recoveryrequired") return;
+        if (action == "remove")
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                "Remove C-Sweet Office from this computer? This permanently destroys Office services, cached artifacts, mutable runtime data, and Office-owned virtual machines. Orphaned work cannot be recovered.");
+            if (!confirmed) return;
+        }
+
+        BeginStatusMutation();
+        _busy = true;
+        _actionMessage = null;
+        var launch = false;
+        try
+        {
+            var result = await SetupApi.SelectLocalOfficeRecoveryAsync(_localSession.Id, action);
+            _status = result.Status;
+            if (result.Session is not null) AdoptLocalSession(result.Session);
+            SetAction(result.Succeeded, result.Message);
+            launch = result.Succeeded && _localSession?.LaunchUri is { Length: > 0 };
+        }
+        catch
+        {
+            SetAction(false, action == "remove"
+                ? "C-Sweet could not authorize Office removal. Try again."
+                : "C-Sweet could not authorize Office reconnect. Try again.");
+        }
+        finally
+        {
+            _busy = false;
+            EndStatusMutation();
+        }
+        if (launch) await RequestAdministratorApprovalAsync();
+    }
+
+    private Task ReconnectLocalOfficeAsync() => SelectLocalRecoveryAsync("reconnect");
+    private Task RemoveLocalOfficeAsync() => SelectLocalRecoveryAsync("remove");
+
     private async Task RestoreActiveLocalSetupAsync()
     {
         try
         {
             var result = await SetupApi.GetActiveLocalOfficeSetupSessionAsync();
-            if (result.Session is null) return;
+            if (result.Session is null)
+            {
+                if (_localSession?.State == "removalinprogress") await ResetLocalSetupAsync();
+                return;
+            }
             _status = result.Status;
             AdoptLocalSession(result.Session);
             if (_localSession is { State: "created", LaunchUri: null,
@@ -529,6 +572,39 @@
             }
             else
             {
+                @if (_localSession.State == "recoveryrequired")
+                {
+                    <div class="local-approval-explanation" role="alert">
+                        <span class="host-error-icon"><MudIcon Icon="@Icons.Material.Outlined.SyncProblem" /></span>
+                        <div>
+                            <strong>Existing Office found</strong>
+                            <p>@_localSession.Message</p>
+                            <small>Reconnect creates a fresh Office identity and clears old trust, caches, and mutable workload data. Signed runtime files and certified base images are retained.</small>
+                        </div>
+                    </div>
+                    <div class="local-install-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Outlined.Sync"
+                                   Disabled="@(_busy || !_localSession.RecoveryCanReconnect)"
+                                   OnClick="ReconnectLocalOfficeAsync">
+                            @(_busy ? "Preparing…" : "Reconnect this Office")
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                                   StartIcon="@Icons.Material.Outlined.DeleteForever"
+                                   Disabled="@_busy" OnClick="RemoveLocalOfficeAsync">
+                            Remove Office
+                        </MudButton>
+                    </div>
+                    @if (!_localSession.RecoveryCanReconnect)
+                    {
+                        <div class="host-inline-notice warning">
+                            <MudIcon Icon="@Icons.Material.Outlined.WarningAmber" />
+                            <span>Reconnect is blocked because active or untrusted local state remains. Removal permanently destroys orphaned work and Office-owned virtual machines.</span>
+                        </div>
+                    }
+                }
+                else
+                {
                 <div class="local-session-progress" role="status" aria-live="polite">
                 @if (_localSession.State == "ready")
                 {
@@ -563,7 +639,7 @@
                         }
                     </div>
                 }
-                @if (_localSession.State is "failed" or "expired" or "revoked")
+                @if (_localSession.State is "failed" or "expired" or "revoked" or "removed")
                 {
                     <div class="local-install-actions">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
@@ -576,6 +652,7 @@
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AdminPanelSettings"
                                    OnClick="RetryLocalSetupAsync">Try Windows approval again</MudButton>
                     </div>
+                }
                 }
             }
         }

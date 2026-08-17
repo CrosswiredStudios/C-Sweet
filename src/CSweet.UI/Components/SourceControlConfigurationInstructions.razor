@@ -14,7 +14,9 @@ $trustedKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGener
 dotnet user-secrets set 'CSweet:SourceControl:TrustedServiceKeyBase64' $trustedKey --project src/CSweet.AppHost
 dotnet user-secrets set 'CSweet:SourceControl:SourceAccessAppId' '123456' --project src/CSweet.AppHost
 dotnet user-secrets set 'CSweet:SourceControl:SourceAccessPrivateKeyBase64' $sourcePem --project src/CSweet.AppHost
-dotnet user-secrets set 'CSweet:SourceControl:SourceAccessInstallUrl' 'https://github.com/apps/YOUR-SOURCE-SLUG/installations/new' --project src/CSweet.AppHost</code></pre>
+dotnet user-secrets set 'CSweet:SourceControl:SourceAccessInstallUrl' 'https://github.com/apps/YOUR-SOURCE-SLUG/installations/new' --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:SourceAccessClientId' 'Iv1.YOUR_CLIENT_ID' --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:SourceAccessClientSecret' 'YOUR_CLIENT_SECRET' --project src/CSweet.AppHost</code></pre>
         }
         else
         {
@@ -22,7 +24,9 @@ dotnet user-secrets set 'CSweet:SourceControl:SourceAccessInstallUrl' 'https://g
 
 dotnet user-secrets set 'CSweet:SourceControl:ProvisionerAppId' '234567' --project src/CSweet.AppHost
 dotnet user-secrets set 'CSweet:SourceControl:ProvisionerPrivateKeyBase64' $provisionerPem --project src/CSweet.AppHost
-dotnet user-secrets set 'CSweet:SourceControl:ProvisionerInstallUrl' 'https://github.com/apps/YOUR-PROVISIONER-SLUG/installations/new' --project src/CSweet.AppHost</code></pre>
+dotnet user-secrets set 'CSweet:SourceControl:ProvisionerInstallUrl' 'https://github.com/apps/YOUR-PROVISIONER-SLUG/installations/new' --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:ProvisionerClientId' 'Iv1.YOUR_CLIENT_ID' --project src/CSweet.AppHost
+dotnet user-secrets set 'CSweet:SourceControl:ProvisionerClientSecret' 'YOUR_CLIENT_SECRET' --project src/CSweet.AppHost</code></pre>
         }
     </MudTabPanel>
     <MudTabPanel Text="Deployed installation">
@@ -37,6 +41,8 @@ dotnet user-secrets set 'CSweet:SourceControl:ProvisionerInstallUrl' 'https://gi
                 <li><code>CSweet__SourceControl__SourceAccessAppId</code> — numeric App ID</li>
                 <li><code>CSweet__SourceControl__SourceAccessPrivateKeyBase64</code> — PEM file encoded as Base64</li>
                 <li><code>CSweet__SourceControl__SourceAccessInstallUrl</code> — App installation URL</li>
+                <li><code>CSweet__SourceControl__SourceAccessClientId</code> — App OAuth client ID</li>
+                <li><code>CSweet__SourceControl__SourceAccessClientSecret</code> — App OAuth client secret</li>
             </ul>
         }
         else
@@ -45,6 +51,8 @@ dotnet user-secrets set 'CSweet:SourceControl:ProvisionerInstallUrl' 'https://gi
                 <li><code>CSweet__SourceControl__ProvisionerAppId</code> — numeric App ID</li>
                 <li><code>CSweet__SourceControl__ProvisionerPrivateKeyBase64</code> — PEM file encoded as Base64</li>
                 <li><code>CSweet__SourceControl__ProvisionerInstallUrl</code> — App installation URL</li>
+                <li><code>CSweet__SourceControl__ProvisionerClientId</code> — App OAuth client ID</li>
+                <li><code>CSweet__SourceControl__ProvisionerClientSecret</code> — App OAuth client secret</li>
             </ul>
         }
     </MudTabPanel>

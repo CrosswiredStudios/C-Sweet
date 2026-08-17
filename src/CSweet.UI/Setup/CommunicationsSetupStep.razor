@@ -5,83 +5,113 @@
 @using CSweet.Contracts.Setup
 @inject IPluginApiClient PluginApi
 
-<section class="communications-step">
+<section class="communications-step" aria-labelledby="communications-step-title">
     <header class="communications-header">
         <div>
-            <span class="communications-kicker">Communication surfaces</span>
-            <h1>Meet your team where they already work.</h1>
-            <p>C-Sweet chat is your always-on home base. Add any number of extra services now, or return to this from Settings whenever you are ready.</p>
+            <MudText Typo="Typo.overline">Step 6 of 6 · Optional</MudText>
+            <h1 id="communications-step-title">Connect communication plugins.</h1>
+            <p>Keep C-Sweet chat as your always-on home base, and add the services where your team already works.</p>
         </div>
-        <div class="communications-count" aria-label="Additional services connected">
+        <div class="communications-count" aria-live="polite">
             <strong>@ConnectedCount</strong>
-            <span>extra @(ConnectedCount == 1 ? "surface" : "surfaces")</span>
+            <span>@(ConnectedCount == 1 ? "plugin connected" : "plugins connected")</span>
         </div>
     </header>
 
-    <article class="builtin-surface">
-        <span class="surface-mark builtin"><MudIcon Icon="@Icons.Material.Filled.Forum" /></span>
-        <div>
-            <div class="surface-title-line">
-                <h2>C-Sweet chat</h2>
-                <span class="always-on-badge"><MudIcon Icon="@Icons.Material.Filled.Lock" /> Always enabled</span>
-            </div>
-            <p>Integrated conversations, notifications, and approvals are available in every C-Sweet workspace. Connecting another service adds a surface—it never replaces this one.</p>
-        </div>
-        <span class="ready-state"><MudIcon Icon="@Icons.Material.Filled.CheckCircle" /> Ready</span>
-    </article>
-
-    <div class="communications-section-heading">
-        <div>
-            <span class="communications-kicker">First-party plugins</span>
-            <h2>Add the services your team uses</h2>
-        </div>
-        <span>Connect one, several, or none</span>
-    </div>
-
-    @if (_loading)
-    {
-        <div class="communications-loading"><MudProgressCircular Indeterminate="true" Color="Color.Primary" /> Loading available plugins…</div>
-    }
-    else
-    {
-        <div class="surface-grid">
-            @foreach (var plugin in FirstPartyPlugins)
-            {
-                var installation = FindInstallation(plugin.PluginId);
-                <article class="surface-card @(installation is not null ? "connected" : null)">
-                    <div class="surface-card-topline">
-                        <span class="surface-mark @plugin.Key">@ProviderMark(plugin.Key)</span>
-                        @if (installation is not null)
-                        {
-                            <span class="connected-badge"><MudIcon Icon="@Icons.Material.Filled.Check" /> Connected</span>
-                        }
-                        else if (!plugin.IsSourceConfigured)
-                        {
-                            <span class="source-badge">Source needed</span>
-                        }
-                    </div>
-                    <h3>@plugin.DisplayName</h3>
-                    <p>@plugin.Description</p>
-                    <button type="button" class="surface-action" @onclick="() => OpenGuide(plugin)">
-                        @(installation is null ? "Set up connection" : "Review or update")
-                        <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
-                    </button>
-                </article>
-            }
-
-            <article class="surface-card custom-source">
-                <div class="surface-card-topline">
-                    <span class="surface-mark github">GH</span>
-                    <span class="source-badge">Advanced</span>
+    <div class="communications-workspace">
+        <section class="communications-roster" aria-labelledby="connected-communications-title">
+            <div class="communications-section-heading">
+                <div>
+                    <span class="communications-kicker">Your roster</span>
+                    <h2 id="connected-communications-title">Connected surfaces</h2>
                 </div>
-                <h3>Install from GitHub</h3>
-                <p>Connect another C-Sweet service plugin from a public repository, pinned to an exact commit for a reproducible review.</p>
-                <button type="button" class="surface-action" @onclick="OpenCustomGuide">
-                    Add custom plugin <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
-                </button>
-            </article>
-        </div>
-    }
+                <span class="communications-ready-badge">Ready to continue</span>
+            </div>
+
+            <div class="communications-list">
+                <article class="communications-list-item builtin">
+                    <span class="surface-mark builtin"><MudIcon Icon="@Icons.Material.Filled.Forum" /></span>
+                    <div class="communications-list-copy">
+                        <strong>C-Sweet chat</strong>
+                        <span>Conversations, notifications, and approvals</span>
+                    </div>
+                    <span class="communications-status"><MudIcon Icon="@Icons.Material.Filled.Lock" /> Always on</span>
+                </article>
+
+                @foreach (var plugin in ConnectedPlugins)
+                {
+                    <article class="communications-list-item">
+                        <span class="surface-mark @plugin.Key">@ProviderMark(plugin.Key)</span>
+                        <div class="communications-list-copy">
+                            <strong>@plugin.DisplayName</strong>
+                            <span>Connected communication plugin</span>
+                        </div>
+                        <button type="button"
+                                class="communications-list-action"
+                                aria-label="Review @plugin.DisplayName connection"
+                                disabled="@_busy"
+                                @onclick="() => OpenGuide(plugin)">
+                            <MudIcon Icon="@Icons.Material.Outlined.Edit" />
+                        </button>
+                    </article>
+                }
+            </div>
+        </section>
+
+        <section class="communications-picker" aria-labelledby="communication-options-title">
+            <div class="communications-section-heading">
+                <div>
+                    <span class="communications-kicker">Add another</span>
+                    <h2 id="communication-options-title">Choose a plugin</h2>
+                </div>
+            </div>
+
+            @if (_loading)
+            {
+                <div class="communications-loading"><MudProgressCircular Indeterminate="true" Color="Color.Primary" /> Loading plugins…</div>
+            }
+            else
+            {
+                <div class="communications-plugin-grid">
+                    @foreach (var plugin in FirstPartyPlugins)
+                    {
+                        var installation = FindInstallation(plugin.PluginId);
+                        <button type="button"
+                                class="communications-plugin-choice @(installation is not null ? "connected" : null)"
+                                disabled="@_busy"
+                                @onclick="() => OpenGuide(plugin)">
+                            <span class="surface-mark @plugin.Key">@ProviderMark(plugin.Key)</span>
+                            <span class="communications-plugin-copy">
+                                <strong>@plugin.DisplayName</strong>
+                                <small>@plugin.Description</small>
+                            </span>
+                            @if (installation is not null)
+                            {
+                                <span class="connected-badge"><MudIcon Icon="@Icons.Material.Filled.Check" /> Connected</span>
+                            }
+                            else if (!plugin.IsSourceConfigured)
+                            {
+                                <span class="source-badge">Source needed</span>
+                            }
+                            else
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+                            }
+                        </button>
+                    }
+
+                    <button type="button" class="communications-plugin-choice custom-source" disabled="@_busy" @onclick="OpenCustomGuide">
+                        <span class="surface-mark github">GH</span>
+                        <span class="communications-plugin-copy">
+                            <strong>Install from GitHub</strong>
+                            <small>Add a service plugin from a public repository pinned to an exact commit.</small>
+                        </span>
+                        <span class="source-badge">Advanced</span>
+                    </button>
+                </div>
+            }
+        </section>
+    </div>
 
     @if (!string.IsNullOrWhiteSpace(_pageMessage))
     {
@@ -310,6 +340,8 @@
     private bool _allPublicAcknowledged;
 
     private IReadOnlyList<FirstPartyCommunicationPluginResponse> FirstPartyPlugins => Options?.FirstPartyPlugins ?? [];
+    private IReadOnlyList<FirstPartyCommunicationPluginResponse> ConnectedPlugins =>
+        FirstPartyPlugins.Where(x => FindInstallation(x.PluginId) is not null).ToList();
     private int ConnectedCount => FirstPartyPlugins.Count(x => FindInstallation(x.PluginId) is not null);
     private AgentInstallationResponse? ExistingInstallation => _preview is null
         ? null

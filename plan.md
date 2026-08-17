@@ -22,7 +22,7 @@
   is complete. Missing configuration continues to fail closed with no local/provider fallback.
 - [x] Add resumable GitHub onboarding with one-time state rotation, separate Source Access and
   Provisioner installation steps, organization-only Managed GitHub enforcement, database-backed
-  cross-business account isolation, provider-verified existing-project selection, approved
+  cross-business repository isolation, provider-verified existing-project selection, approved
   template selection, naming/quota/default-team policy, and plain-language Source Control UI.
 - [x] Add durable managed-repository execution, private-template creation, fixed branch protection,
   partial-creation quarantine, automatic Core registration/team assignment, manager approval
@@ -42,10 +42,16 @@
   provider installation IDs, `.git`, Docker storage, or trusted host paths to AgentHost or agents.
 - [ ] Complete connection health/recovery, suspend/disconnect impact previews, generic Git credential
   rotation, repository/team delivery maintenance pages, and end-to-end browser tests.
-- [ ] Before public or multi-tenant GitHub onboarding, add GitHub user authorization during App
-  installation and verify that the authenticated installer can access the returned installation.
-  One-time C-Sweet state plus App-level installation lookup prevents fabricated installations but
-  does not by itself prove the current user's GitHub authority, as GitHub's setup-URL guidance warns.
+- [x] Make personal GitHub accounts the default onboarding path with a **Use My GitHub Account**
+  action. GitHub App OAuth-on-install now signs the user in, and Core accepts an installation only
+  after both one-time C-Sweet state validation and provider verification that the authenticated
+  GitHub user can access that exact installation. Users never create or paste a personal token;
+  OAuth tokens are consumed by the trusted connection broker and are never returned to agents.
+- [ ] Extend Full Access repository creation to personal GitHub accounts. Keep routine Git work on
+  short-lived Source Access installation tokens; confine the renewable GitHub user authorization
+  required for personal repository creation to the separate Provisioner host. Require an explicit
+  all-future-projects explanation if GitHub cannot attach a newly created repository to a selected-
+  repository App installation without additional user action.
 - [ ] Add durable GitHost idempotency storage and recovery of ambiguous provider timeouts before
   enabling automatic retries for repository creation or publication.
 
@@ -99,7 +105,8 @@ Agent containers receive credential-free working trees without .git, remotes, or
 Developer and QA agents continue to build and test in isolated, non-root, secretless sandboxes.
 Core Data Model
 SourceControlConnectionBusiness, provider, mode, external account identity, installation identities, status, and revision.
-One business may have multiple accounts; cross-business sharing is prohibited.
+One business may have multiple accounts. A personal GitHub account may serve multiple businesses,
+but each provider repository is exclusively bound to one business.
 
 SourceControlRepositoryConnection, provider repository ID, normalized path, default branch, provider capabilities, origin, health, and lifecycle state.
 

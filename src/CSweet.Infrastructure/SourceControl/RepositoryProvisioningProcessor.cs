@@ -91,6 +91,7 @@ public sealed class RepositoryProvisioningProcessor(
             OrganizationId = request.OrganizationId,
             ConnectionId = request.ConnectionId,
             ExternalRepositoryId = result.ExternalRepositoryId.Value.ToString(),
+            ProviderRepositoryKey = $"github:{result.ExternalRepositoryId.Value}",
             Owner = result.Owner,
             Name = result.Repository,
             CanonicalPath = $"{result.Owner}/{result.Repository}".ToLowerInvariant(),

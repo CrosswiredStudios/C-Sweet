@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using CSweet.Office.Contracts.ControlPlane;
 
 namespace CSweet.IntegrationTests;
 
@@ -83,6 +84,33 @@ public class SetupEndpointTests
                 "unknown-handoff", Environment.MachineName, "windows", "x64", "0.2.0"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AssistedLocalRecoveryEndpoints_RejectUnknownOrUnauthenticatedAuthority()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            .ToString().ToLowerInvariant();
+
+        var preflight = await client.PostAsJsonAsync("/api/offices/local-sessions/preflight",
+            new AssistedOfficePreflightRequest("unknown-handoff", Environment.MachineName,
+                "windows", architecture, "0.3.0", "clean"));
+        var result = await client.PostAsJsonAsync("/api/offices/local-sessions/result",
+            new ReportAssistedOfficeSetupResultRequest(Guid.NewGuid(), "unknown-receipt",
+                "reconnect_unsafe", Environment.MachineName, "windows", architecture));
+        var completion = await client.PostAsJsonAsync("/api/offices/local-sessions/removal-complete",
+            new CompleteAssistedOfficeRemovalRequest("unknown-handoff", Environment.MachineName,
+                "windows", architecture));
+        var selection = await client.PostAsJsonAsync(
+            $"/api/setup/execution-capacity/local-sessions/{Guid.NewGuid():D}/recovery",
+            new SelectLocalOfficeRecoveryRequest("remove"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, preflight.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, result.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, completion.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, selection.StatusCode);
     }
 
     [Fact]

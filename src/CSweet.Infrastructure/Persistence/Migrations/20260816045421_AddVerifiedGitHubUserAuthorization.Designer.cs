@@ -3,6 +3,7 @@ using System;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CSweet.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CSweetDbContext))]
-    partial class CSweetDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260816045421_AddVerifiedGitHubUserAuthorization")]
+    partial class AddVerifiedGitHubUserAuthorization
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -6286,20 +6289,8 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
-                    b.Property<string>("RecoveryAction")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<bool>("RecoveryCanReconnect")
-                        .HasColumnType("boolean");
-
                     b.Property<DateTimeOffset?>("RedeemedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("SetupReceiptHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -6313,7 +6304,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CreatedByUserId")
                         .IsUnique()
-                        .HasFilter("\"Status\" IN ('Created', 'Redeemed', 'Connected', 'RecoveryRequired', 'RemovalInProgress')");
+                        .HasFilter("\"Status\" IN ('Created', 'Redeemed', 'Connected')");
 
                     b.HasIndex("ExecutionNodeEnrollmentId")
                         .IsUnique();

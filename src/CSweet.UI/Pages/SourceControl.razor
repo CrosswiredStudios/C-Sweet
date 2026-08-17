@@ -45,15 +45,15 @@
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                     <MudIcon Icon="@Icons.Material.Outlined.AdminPanelSettings" Color="Color.Primary" Size="Size.Large" />
                     <div>
-                        <MudText Typo="Typo.h6">Enterprise GitHub setup is required</MudText>
+                        <MudText Typo="Typo.h6">Finish the one-time GitHub setup</MudText>
                         <MudText Typo="Typo.body2" Color="Color.Secondary">
-                            A C-Sweet system administrator must configure the installation-wide GitHub
-                            Apps before this business can connect code projects.
+                            A C-Sweet administrator needs to finish the guided GitHub setup once.
+                            After that, each business can connect with one click—no tokens to create or copy.
                         </MudText>
                         <MudButton Href="/settings/source-control" Variant="Variant.Outlined"
                                    Color="Color.Primary" Class="mt-3"
                                    EndIcon="@Icons.Material.Outlined.ArrowForward">
-                            Open enterprise source-control settings
+                            Finish GitHub setup
                         </MudButton>
                     </div>
                 </MudStack>
@@ -147,18 +147,19 @@
                     </MudAlert>
                 }
 
-                <MudText Typo="Typo.h5">How should C-Sweet manage your code?</MudText>
+                <MudText Typo="Typo.h5">Connect GitHub</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Sign in with the GitHub account you already use. GitHub will let you choose exactly
+                    which projects C-Sweet can access; you never need to create or paste a token.
+                </MudText>
                 <MudGrid>
             @if (_dashboard.PlatformReadiness.ManagedGitHubAvailable)
             {
-                <MudItem xs="12" md="4">
+                <MudItem xs="12" md="4" Style="order: 2">
                 <MudCard Outlined="true" Class="h-100">
                     <MudCardContent>
                         <MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Color="Color.Primary" />
                         <MudText Typo="Typo.h6" Class="mt-2">Full access</MudText>
-                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Class="my-2">
-                            Recommended
-                        </MudChip>
                         <MudText Typo="Typo.body2">
                             Best for non-technical teams. Connect a GitHub organization and let
                             C-Sweet create private code projects within your approved rules.
@@ -178,26 +179,29 @@
                 </MudCard>
                 </MudItem>
             }
-            <MudItem xs="12" md="4">
+            <MudItem xs="12" md="4" Style="order: 1">
                 <MudCard Outlined="true" Class="h-100">
                     <MudCardContent>
-                        <MudIcon Icon="@Icons.Material.Outlined.AccountTree" Color="Color.Primary" />
-                        <MudText Typo="Typo.h6" Class="mt-2">Existing GitHub projects</MudText>
+                        <MudIcon Icon="@Icons.Custom.Brands.GitHub" Color="Color.Primary" />
+                        <MudText Typo="Typo.h6" Class="mt-2">Use my GitHub account</MudText>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Class="my-2">
+                            Recommended
+                        </MudChip>
                         <MudText Typo="Typo.body2" Class="mt-2">
-                            Select existing private projects available to the Source Access App.
-                            Every GitHub account becomes a separate business connection.
+                            Works with a personal account or an organization. Sign in at GitHub and
+                            choose the existing private projects C-Sweet may use.
                         </MudText>
                     </MudCardContent>
                     <MudCardActions>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                    Disabled="@(_starting || !(_dashboard?.PlatformReadiness.ExistingGitHubAvailable ?? false))"
                                    OnClick="@(() => StartAsync("ExistingGitHub"))">
-                            Connect existing projects
+                            Use My GitHub Account
                         </MudButton>
                     </MudCardActions>
                 </MudCard>
             </MudItem>
-            <MudItem xs="12" md="4">
+            <MudItem xs="12" md="4" Style="order: 3">
                 <MudCard Outlined="true" Class="h-100">
                     <MudCardContent>
                         <MudIcon Icon="@Icons.Material.Outlined.Terminal" Color="Color.Primary" />
@@ -220,7 +224,8 @@
                 <div>
                     <MudText Typo="Typo.h6">Connected accounts</MudText>
                     <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        GitHub accounts are isolated per business and can use different App installations.
+                        You can reuse a GitHub account across businesses. Each code project belongs to
+                        only one C-Sweet business.
                     </MudText>
                 </div>
                 <MudSpacer />

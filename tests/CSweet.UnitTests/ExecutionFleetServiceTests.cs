@@ -242,6 +242,110 @@ public sealed class ExecutionFleetServiceTests
     }
 
     [Fact]
+    public async Task AssistedLocalSetup_CleanExistingOfficeRequiresBoundReconnectAndIssuesFreshSetupReceipt()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["CSweet:ExecutionGateway:PublicUrl"] = "https://office.example.test/",
+                ["CSweet:ExecutionGateway:PublicCertificateSha256"] = new string('a', 64)
+            }).Build();
+        var capacity = LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 100L << 30, true);
+        var fleet = CreateFleet(db, clock, configuration, capacityProbe: new FixedCapacityProbe(capacity));
+        var selected = capacity.Presets.Single(x => x.Key == "balanced");
+        var userId = Guid.NewGuid();
+        var created = await fleet.CreateLocalSetupSessionAsync(
+            new("balanced", selected.CpuCount, selected.MemoryMb, selected.DiskMb), userId);
+        var firstUri = new Uri(Assert.IsType<string>(created.Session?.LaunchUri));
+        var firstHandoff = Uri.UnescapeDataString(firstUri.Fragment["#handoff=".Length..]);
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            .ToString().ToLowerInvariant();
+
+        var detected = await fleet.PreflightLocalSetupSessionAsync(new(firstHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0", "clean"));
+
+        Assert.True(detected.Succeeded);
+        Assert.False(detected.ProceedToRedemption);
+        Assert.Equal("existing_office_detected", detected.ErrorCode);
+        var recovery = await fleet.GetLocalSetupSessionAsync(created.Session!.Id, userId);
+        Assert.Equal("recoveryrequired", recovery.Session?.State);
+        Assert.True(recovery.Session?.RecoveryCanReconnect);
+
+        var authorized = await fleet.SelectLocalSetupRecoveryAsync(created.Session.Id, userId, new("reconnect"));
+        var reconnectUri = new Uri(Assert.IsType<string>(authorized.Session?.LaunchUri));
+        var reconnectHandoff = Uri.UnescapeDataString(reconnectUri.Fragment["#handoff=".Length..]);
+        Assert.NotEqual(firstHandoff, reconnectHandoff);
+        var preflight = await fleet.PreflightLocalSetupSessionAsync(new(reconnectHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0", "clean"));
+        Assert.True(preflight.ProceedToRedemption);
+        Assert.Equal("reconnect", preflight.ExistingInstallationAction);
+
+        var redeemed = await fleet.RedeemLocalSetupSessionAsync(new(reconnectHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0"));
+
+        Assert.True(redeemed.Succeeded);
+        Assert.Equal("reconnect", redeemed.ExistingInstallationAction);
+        Assert.NotNull(redeemed.SetupReceipt);
+        Assert.Equal(64, (await db.LocalOfficeSetupSessions.SingleAsync()).SetupReceiptHash?.Length);
+        Assert.False(await fleet.ReportLocalSetupResultAsync(new(AssistedSetupSessionId: created.Session.Id,
+            SetupReceipt: redeemed.SetupReceipt!, ResultCode: "reconnect_unsafe",
+            MachineName: "another-machine", OperatingSystem: "windows", Architecture: architecture)));
+        Assert.True(await fleet.ReportLocalSetupResultAsync(new(created.Session.Id,
+            redeemed.SetupReceipt!, "reconnect_unsafe", Environment.MachineName, "windows", architecture)));
+        Assert.False(await fleet.ReportLocalSetupResultAsync(new(created.Session.Id,
+            redeemed.SetupReceipt!, "reconnect_unsafe", Environment.MachineName, "windows", architecture)));
+    }
+
+    [Fact]
+    public async Task AssistedLocalSetup_ActiveExistingOfficeBlocksReconnectButAllowsConfirmedRemoval()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["CSweet:ExecutionGateway:PublicUrl"] = "https://office.example.test/",
+                ["CSweet:ExecutionGateway:PublicCertificateSha256"] = new string('a', 64)
+            }).Build();
+        var capacity = LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 100L << 30, true);
+        var fleet = CreateFleet(db, clock, configuration, capacityProbe: new FixedCapacityProbe(capacity));
+        var selected = capacity.Presets.Single(x => x.Key == "balanced");
+        var userId = Guid.NewGuid();
+        var created = await fleet.CreateLocalSetupSessionAsync(
+            new("balanced", selected.CpuCount, selected.MemoryMb, selected.DiskMb), userId);
+        var firstUri = new Uri(Assert.IsType<string>(created.Session?.LaunchUri));
+        var firstHandoff = Uri.UnescapeDataString(firstUri.Fragment["#handoff=".Length..]);
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            .ToString().ToLowerInvariant();
+        await fleet.PreflightLocalSetupSessionAsync(new(firstHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0", "active"));
+
+        var reconnect = await fleet.SelectLocalSetupRecoveryAsync(created.Session!.Id, userId, new("reconnect"));
+        Assert.False(reconnect.Succeeded);
+        Assert.Equal("reconnect_not_safe", reconnect.ErrorCode);
+
+        var remove = await fleet.SelectLocalSetupRecoveryAsync(created.Session.Id, userId, new("remove"));
+        var removeUri = new Uri(Assert.IsType<string>(remove.Session?.LaunchUri));
+        var removeHandoff = Uri.UnescapeDataString(removeUri.Fragment["#handoff=".Length..]);
+        var removalPreflight = await fleet.PreflightLocalSetupSessionAsync(new(removeHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0", "active"));
+        Assert.Equal("remove", removalPreflight.ExistingInstallationAction);
+        Assert.False(removalPreflight.ProceedToRedemption);
+        Assert.NotNull(removalPreflight.SetupReceipt);
+
+        Assert.True(await fleet.CompleteLocalOfficeRemovalAsync(new(removeHandoff,
+            Environment.MachineName, "windows", architecture)));
+        Assert.True(await fleet.CompleteLocalOfficeRemovalAsync(new(removeHandoff,
+            Environment.MachineName, "windows", architecture)));
+        Assert.Equal(LocalOfficeSetupSessionStatus.Removed,
+            (await db.LocalOfficeSetupSessions.SingleAsync()).Status);
+    }
+
+    [Fact]
     public async Task AssistedLocalSetup_ReconcilesExactEnrollmentClaimStrandedByLauncher()
     {
         await using var db = CreateDb();
@@ -291,6 +395,49 @@ public sealed class ExecutionFleetServiceTests
         Assert.Equal("ready", recovered.Session?.State);
         Assert.Equal(ExecutionNodeStatus.Ready, (await db.ExecutionNodes.SingleAsync()).Status);
         Assert.Equal(LocalOfficeSetupSessionStatus.Ready, session.Status);
+    }
+
+    [Fact]
+    public async Task AssistedLocalSetup_RejectsOfficeThatDropsSelectedAllocation()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["CSweet:ExecutionGateway:PublicUrl"] = "https://office.example.test/",
+                ["CSweet:ExecutionGateway:PublicCertificateSha256"] = new string('a', 64)
+            }).Build();
+        var capacity = LocalOfficeCapacityCalculator.Calculate(16, 32L << 30, 200L << 30, true);
+        var fleet = CreateFleet(db, clock, configuration, capacityProbe: new FixedCapacityProbe(capacity));
+        var selected = capacity.Presets.Single(x => x.Key == "small");
+        var created = await fleet.CreateLocalSetupSessionAsync(
+            new("small", selected.CpuCount, selected.MemoryMb, selected.DiskMb), Guid.NewGuid());
+        var uri = new Uri(Assert.IsType<string>(created.Session?.LaunchUri));
+        var handoff = Uri.UnescapeDataString(uri.Fragment["#handoff=".Length..]);
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            .ToString().ToLowerInvariant();
+        var redeemed = await fleet.RedeemLocalSetupSessionAsync(new(
+            handoff, Environment.MachineName, "windows", architecture, "0.2.0"));
+        var claim = Claim(Assert.IsType<string>(redeemed.EnrollmentToken), officeVersion: "0.2.0") with
+        {
+            MachineName = Environment.MachineName,
+            OperatingSystem = "windows",
+            Architecture = architecture,
+            AllocatableCpuCount = 4,
+            AllocatableMemoryMb = 4096,
+            AllocatableDiskMb = 32768,
+            MaximumConcurrentWorkloads = 2
+        };
+
+        var result = await fleet.ClaimNodeAsync(claim);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("assisted_allocation_mismatch", result.ErrorCode);
+        Assert.Empty(await db.ExecutionNodes.ToListAsync());
+        Assert.Equal(LocalOfficeSetupSessionStatus.Redeemed,
+            (await db.LocalOfficeSetupSessions.SingleAsync()).Status);
     }
 
     [Fact]
@@ -358,47 +505,88 @@ public sealed class ExecutionFleetServiceTests
     [Fact]
     public async Task AssistedLocalSetup_ProbesExactLoopbackCertificateFingerprint()
     {
-        using var key = RSA.Create(2048);
-        var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256,
-            RSASignaturePadding.Pkcs1);
-        request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
-        request.CertificateExtensions.Add(new X509KeyUsageExtension(
-            X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
-        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-            new OidCollection { new Oid("1.3.6.1.5.5.7.3.1") }, false));
-        var subjectAlternativeName = new SubjectAlternativeNameBuilder();
-        subjectAlternativeName.AddDnsName("localhost");
-        request.CertificateExtensions.Add(subjectAlternativeName.Build());
-        using var transientCertificate = request.CreateSelfSigned(
-            DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(10));
-        using var certificate = X509CertificateLoader.LoadPkcs12(
-            transientCertificate.Export(X509ContentType.Pfx, "test"), "test",
-            X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable);
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        var server = Task.Run(async () =>
-        {
-            using var connection = await listener.AcceptTcpClientAsync();
-            using var tls = new SslStream(connection.GetStream(), false);
-            await tls.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
-            {
-                ServerCertificate = certificate,
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
-            });
-            await Task.Delay(250);
-        });
+        var persistedKeyName = OperatingSystem.IsWindows() ? $"csweet-test-{Guid.NewGuid():N}" : null;
         try
         {
-            var actual = await ExecutionFleetService.ProbeServerCertificateSha256Async(
-                new Uri($"https://localhost:{port}"));
+            RSA certificateKey;
+            if (OperatingSystem.IsWindows())
+            {
+                certificateKey = new RSACng(CngKey.Create(CngAlgorithm.Rsa, persistedKeyName,
+                    new CngKeyCreationParameters
+                    {
+                        Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider,
+                        ExportPolicy = CngExportPolicies.AllowExport | CngExportPolicies.AllowPlaintextExport,
+                        KeyUsage = CngKeyUsages.AllUsages
+                    }));
+            }
+            else
+            {
+                certificateKey = RSA.Create(2048);
+            }
+            using var key = certificateKey;
+            var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pkcs1);
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+            request.CertificateExtensions.Add(new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
+            request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+                new OidCollection { new Oid("1.3.6.1.5.5.7.3.1") }, false));
+            var subjectAlternativeName = new SubjectAlternativeNameBuilder();
+            subjectAlternativeName.AddDnsName("localhost");
+            request.CertificateExtensions.Add(subjectAlternativeName.Build());
+            using var certificate = request.CreateSelfSigned(
+                DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(10));
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var server = Task.Run(async () =>
+            {
+                using var connection = await listener.AcceptTcpClientAsync();
+                using var tls = new SslStream(connection.GetStream(), false);
+                await tls.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                {
+                    ServerCertificate = certificate,
+                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+                });
+                await Task.Delay(250);
+            });
+            try
+            {
+                string actual;
+                try
+                {
+                    actual = await ExecutionFleetService.ProbeServerCertificateSha256Async(
+                        new Uri($"https://localhost:{port}"));
+                }
+                catch
+                {
+                    await server;
+                    throw;
+                }
 
-            Assert.Equal(Convert.ToHexString(SHA256.HashData(certificate.RawData)).ToLowerInvariant(), actual);
-            await server;
+                Assert.Equal(Convert.ToHexString(SHA256.HashData(certificate.RawData)).ToLowerInvariant(), actual);
+                await server;
+            }
+            finally
+            {
+                listener.Stop();
+            }
         }
         finally
         {
-            listener.Stop();
+            if (OperatingSystem.IsWindows() && persistedKeyName is not null)
+            {
+                try
+                {
+                    using var persistedKey = CngKey.Open(
+                        persistedKeyName, CngProvider.MicrosoftSoftwareKeyStorageProvider);
+                    persistedKey.Delete();
+                }
+                catch (CryptographicException)
+                {
+                    // RSACng can remove the temporary persisted key when its final handle closes.
+                }
+            }
         }
     }
 

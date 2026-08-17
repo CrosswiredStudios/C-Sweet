@@ -320,6 +320,13 @@ public static class DependencyInjection
             client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
             client.Timeout = TimeSpan.FromSeconds(30);
         });
+        builder.Services.AddHttpClient<IGitHubUserAuthorizationClient, GitHubUserAuthorizationClient>(client =>
+        {
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("CSweet-Core/2.0");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+            client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
         builder.Services.AddSingleton<WorkspaceArtifactValidator>();
         builder.Services.AddScoped<IWorkspaceVolumeBridge, WorkspaceVolumeBridge>();
         builder.Services.AddScoped<IAgentWorkspaceBroker, AgentWorkspaceBroker>();

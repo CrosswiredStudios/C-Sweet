@@ -15,6 +15,8 @@ internal static class SourceControlModelConfiguration
             entity.Property(x => x.AppName).HasMaxLength(100).IsRequired();
             entity.Property(x => x.AppSlug).HasMaxLength(100).IsRequired();
             entity.Property(x => x.InstallUrl).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.ClientId).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.ProtectedClientSecret).HasMaxLength(4096).IsRequired();
             entity.Property(x => x.ProtectedPrivateKey).HasMaxLength(65536).IsRequired();
             entity.Property(x => x.ProtectionVersion).HasMaxLength(32).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
@@ -59,9 +61,6 @@ internal static class SourceControlModelConfiguration
             entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasIndex(x => new { x.OrganizationId, x.Name }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Provider, x.ProviderAccountId }).IsUnique();
-            entity.HasIndex(x => new { x.Provider, x.ProviderAccountId })
-                .IsUnique()
-                .HasFilter("\"Provider\" = 'GitHub'");
         });
 
         modelBuilder.Entity<SourceControlCredential>(entity =>
@@ -83,6 +82,7 @@ internal static class SourceControlModelConfiguration
             entity.HasKey(x => x.Id);
             entity.HasAlternateKey(x => new { x.OrganizationId, x.Id });
             entity.Property(x => x.ExternalRepositoryId).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.ProviderRepositoryKey).HasMaxLength(320).IsRequired();
             entity.Property(x => x.Owner).HasMaxLength(256).IsRequired();
             entity.Property(x => x.Name).HasMaxLength(256).IsRequired();
             entity.Property(x => x.CanonicalPath).HasMaxLength(512).IsRequired();
@@ -93,6 +93,7 @@ internal static class SourceControlModelConfiguration
             entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasIndex(x => new { x.OrganizationId, x.ConnectionId, x.ExternalRepositoryId }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.CanonicalPath }).IsUnique();
+            entity.HasIndex(x => x.ProviderRepositoryKey).IsUnique();
             entity.HasOne(x => x.Connection)
                 .WithMany(x => x.Repositories)
                 .HasForeignKey(x => new { x.OrganizationId, x.ConnectionId })

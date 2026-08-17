@@ -29,7 +29,7 @@ public sealed class SourceControlOnboardingServiceTests
         var host = new InstallationHost(new TrustedInstallationDescriptor(
             10, 99, "approved-org", "Organization", false, null));
         var service = new SourceControlOnboardingService(
-            db, host, host, new ConfigurationBuilder().Build(), TimeProvider.System);
+            db, host, host, new ConfigurationBuilder().Build(), new AuthorizingUser(), TimeProvider.System);
 
         var dashboard = await service.GetDashboardAsync(organizationId, applicationUserId);
 
@@ -62,7 +62,7 @@ public sealed class SourceControlOnboardingServiceTests
         var host = new InstallationHost(new TrustedInstallationDescriptor(
             10, 99, "approved-org", "Organization", false, null));
         var service = new SourceControlOnboardingService(
-            db, host, host, new ConfigurationBuilder().Build(), TimeProvider.System);
+            db, host, host, new ConfigurationBuilder().Build(), new AuthorizingUser(), TimeProvider.System);
 
         var dashboard = await service.GetDashboardAsync(organizationId, applicationUserId);
 
@@ -115,14 +115,14 @@ public sealed class SourceControlOnboardingServiceTests
         var sourceState = ReadState(started.AuthorizationUrl);
         var sourceResult = await service.CompleteGitHubInstallationAsync(
             organizationId, applicationUserId, started.SessionId,
-            new CompleteGitHubAppInstallationRequest(sourceState, 10, "SourceAccess"));
+            new CompleteGitHubAppInstallationRequest(sourceState, 10, "SourceAccess", "oauth-code"));
         Assert.False(sourceResult.InstallationSetupComplete);
         Assert.NotNull(sourceResult.NextAuthorizationUrl);
 
         var provisionerState = ReadState(sourceResult.NextAuthorizationUrl!);
         var result = await service.CompleteGitHubInstallationAsync(
             organizationId, applicationUserId, started.SessionId,
-            new CompleteGitHubAppInstallationRequest(provisionerState, 11, "Provisioner"));
+            new CompleteGitHubAppInstallationRequest(provisionerState, 11, "Provisioner", "oauth-code"));
 
         Assert.True(result.InstallationSetupComplete);
         var connection = await db.SourceControlConnections.SingleAsync();
@@ -153,14 +153,14 @@ public sealed class SourceControlOnboardingServiceTests
             service.CompleteGitHubInstallationAsync(
                 organizationId, applicationUserId, started.SessionId,
                 new CompleteGitHubAppInstallationRequest(
-                    ReadState(started.AuthorizationUrl), 10, "SourceAccess")));
+                    ReadState(started.AuthorizationUrl), 10, "SourceAccess", "oauth-code")));
 
         Assert.Contains("organizations only", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(db.SourceControlConnections);
     }
 
     [Fact]
-    public async Task AccountAlreadyBoundToAnotherBusinessIsDenied()
+    public async Task SamePersonalAccountCanConnectToMoreThanOneBusiness()
     {
         var organizationId = Guid.NewGuid();
         var otherOrganizationId = Guid.NewGuid();
@@ -168,28 +168,52 @@ public sealed class SourceControlOnboardingServiceTests
         await using var db = CreateDb();
         SeedManager(db, organizationId, applicationUserId);
         var now = DateTimeOffset.UtcNow;
+        var otherConnectionId = Guid.NewGuid();
         db.SourceControlConnections.Add(new SourceControlConnection
         {
-            Id = Guid.NewGuid(), OrganizationId = otherOrganizationId, Name = "Other",
+            Id = otherConnectionId, OrganizationId = otherOrganizationId, Name = "Other",
             Provider = SourceControlProvider.GitHub,
             Mode = SourceControlConnectionMode.ExistingGitHub,
             Status = SourceControlConnectionStatus.Connected,
-            ProviderAccountId = "99", AccountLogin = "approved-org", AccountType = "Organization",
+            ProviderAccountId = "99", AccountLogin = "personal-user", AccountType = "User",
             SourceAccessInstallationId = 7, CreatedAt = now, UpdatedAt = now
         });
         await db.SaveChangesAsync();
+        var repositories = new[]
+        {
+            new TrustedRepositoryDescriptor(
+                77, "personal-user", "shared-project", "personal-user/shared-project",
+                "https://github.com/personal-user/shared-project.git", "main", true, false, false)
+        };
         var host = new InstallationHost(new TrustedInstallationDescriptor(
-            10, 99, "approved-org", "Organization", false, null));
+            10, 99, "personal-user", "User", false, null), repositories);
         var service = CreateService(db, host, host);
         var started = await service.StartAsync(
             organizationId, applicationUserId,
             new StartSourceControlOnboardingRequest("ExistingGitHub"));
 
+        var completed = await service.CompleteGitHubInstallationAsync(
+            organizationId, applicationUserId, started.SessionId,
+            new CompleteGitHubAppInstallationRequest(
+                ReadState(started.AuthorizationUrl), 10, "SourceAccess", "oauth-code"));
+
+        Assert.Equal(2, await db.SourceControlConnections.CountAsync());
+
+        db.SourceControlRepositories.Add(new SourceControlRepository
+        {
+            Id = Guid.NewGuid(), OrganizationId = otherOrganizationId,
+            ConnectionId = otherConnectionId, ExternalRepositoryId = "77",
+            ProviderRepositoryKey = "github:77", Owner = "personal-user", Name = "shared-project",
+            CanonicalPath = "personal-user/shared-project", CloneUrl = repositories[0].CloneUrl,
+            DefaultBranch = "main", IsPrivate = true, Status = SourceControlRepositoryStatus.Ready,
+            CreatedAt = now, UpdatedAt = now
+        });
+        await db.SaveChangesAsync();
+
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            service.CompleteGitHubInstallationAsync(
-                organizationId, applicationUserId, started.SessionId,
-                new CompleteGitHubAppInstallationRequest(
-                    ReadState(started.AuthorizationUrl), 10, "SourceAccess")));
+            service.SelectExistingRepositoriesAsync(
+                organizationId, applicationUserId, completed.ConnectionId,
+                new SelectExistingCodeProjectsRequest(["77"])));
     }
 
     [Fact]
@@ -222,10 +246,10 @@ public sealed class SourceControlOnboardingServiceTests
             new StartSourceControlOnboardingRequest("ManagedGitHub"));
         var sourceResult = await service.CompleteGitHubInstallationAsync(
             organizationId, applicationUserId, started.SessionId,
-            new CompleteGitHubAppInstallationRequest(ReadState(started.AuthorizationUrl), 10, "SourceAccess"));
+            new CompleteGitHubAppInstallationRequest(ReadState(started.AuthorizationUrl), 10, "SourceAccess", "oauth-code"));
         var installed = await service.CompleteGitHubInstallationAsync(
             organizationId, applicationUserId, started.SessionId,
-            new CompleteGitHubAppInstallationRequest(ReadState(sourceResult.NextAuthorizationUrl!), 11, "Provisioner"));
+            new CompleteGitHubAppInstallationRequest(ReadState(sourceResult.NextAuthorizationUrl!), 11, "Provisioner", "oauth-code"));
 
         var policy = await service.ConfigureManagedRepositoriesAsync(
             organizationId, applicationUserId, installed.ConnectionId,
@@ -255,17 +279,21 @@ public sealed class SourceControlOnboardingServiceTests
         var values = new Dictionary<string, string?>
         {
             ["CSweet:SourceControl:SourceAccessInstallUrl"] = "https://github.com/apps/csweet-source/installations/new",
+            ["CSweet:SourceControl:SourceAccessClientId"] = "source-client",
+            ["CSweet:SourceControl:SourceAccessClientSecret"] = "source-secret",
             ["CSweet:SourceControl:GitHostBaseUrl"] = "http://githost/"
         };
         if (provisionerConfigured)
         {
             values["CSweet:SourceControl:ProvisionerInstallUrl"] =
                 "https://github.com/apps/csweet-provisioner/installations/new";
+            values["CSweet:SourceControl:ProvisionerClientId"] = "provisioner-client";
+            values["CSweet:SourceControl:ProvisionerClientSecret"] = "provisioner-secret";
             values["CSweet:SourceControl:ProvisionerHostBaseUrl"] = "http://provisionerhost/";
         }
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
         return new SourceControlOnboardingService(
-            db, source, provisioner, configuration, TimeProvider.System);
+            db, source, provisioner, configuration, new AuthorizingUser(), TimeProvider.System);
     }
 
     private static string ReadState(string url)
@@ -329,5 +357,15 @@ public sealed class SourceControlOnboardingServiceTests
         public Task<TrustedRepositoryProvisioningResult> ProvisionAsync(
             TrustedRepositoryProvisioningRequest request,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class AuthorizingUser : IGitHubUserAuthorizationClient
+    {
+        public Task<GitHubAuthorizedInstallation> VerifyInstallationAsync(
+            PlatformGitHubUserAuthorizationConfiguration configuration,
+            string code,
+            long installationId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new GitHubAuthorizedInstallation(installationId, 123, "installer"));
     }
 }

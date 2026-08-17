@@ -7,7 +7,14 @@ public interface ISourceControlPlatformConfigurationProvider
 {
     Task<SourceControlPlatformReadiness> GetReadinessAsync(CancellationToken cancellationToken = default);
     Task<string> GetInstallUrlAsync(PlatformGitHubAppKind kind, CancellationToken cancellationToken = default);
+    Task<PlatformGitHubUserAuthorizationConfiguration> GetUserAuthorizationAsync(
+        PlatformGitHubAppKind kind,
+        CancellationToken cancellationToken = default);
 }
+
+public sealed record PlatformGitHubUserAuthorizationConfiguration(
+    string ClientId,
+    string ClientSecret);
 
 public interface ISourceControlPlatformSetupService : ISourceControlPlatformConfigurationProvider
 {
@@ -76,4 +83,6 @@ public sealed record PlatformGitHubManifestConversion(
     long AppId,
     string AppName,
     string AppSlug,
-    string PrivateKeyPem);
+    string PrivateKeyPem,
+    string ClientId,
+    string ClientSecret);

@@ -702,9 +702,11 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.ErrorCode).HasMaxLength(128);
             entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
+            entity.Property(x => x.RecoveryAction).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.SetupReceiptHash).HasMaxLength(64);
             entity.HasIndex(x => x.HandoffSecretHash).IsUnique();
             entity.HasIndex(x => x.CreatedByUserId).IsUnique()
-                .HasFilter("\"Status\" IN ('Created', 'Redeemed', 'Connected')");
+                .HasFilter("\"Status\" IN ('Created', 'Redeemed', 'Connected', 'RecoveryRequired', 'RemovalInProgress')");
             entity.HasIndex(x => new { x.CreatedByUserId, x.CreatedAt });
             entity.HasIndex(x => x.ExecutionNodeEnrollmentId).IsUnique();
             entity.HasIndex(x => x.ExecutionNodeId).IsUnique();

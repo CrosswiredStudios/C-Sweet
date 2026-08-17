@@ -19,15 +19,19 @@ public sealed class GitHubAppManifestClient(HttpClient http) : IPlatformGitHubMa
         var payload = await response.Content.ReadFromJsonAsync<ConversionPayload>(cancellationToken)
             ?? throw new InvalidOperationException("GitHub returned an empty App manifest conversion.");
         if (payload.Id <= 0 || string.IsNullOrWhiteSpace(payload.Pem) ||
-            string.IsNullOrWhiteSpace(payload.Slug) || string.IsNullOrWhiteSpace(payload.Name))
+            string.IsNullOrWhiteSpace(payload.Slug) || string.IsNullOrWhiteSpace(payload.Name) ||
+            string.IsNullOrWhiteSpace(payload.ClientId) || string.IsNullOrWhiteSpace(payload.ClientSecret))
             throw new InvalidOperationException("GitHub returned an incomplete App manifest conversion.");
         return new PlatformGitHubManifestConversion(
-            payload.Id, payload.Name, payload.Slug, payload.Pem);
+            payload.Id, payload.Name, payload.Slug, payload.Pem,
+            payload.ClientId, payload.ClientSecret);
     }
 
     private sealed record ConversionPayload(
         long Id,
         string Name,
         string Slug,
-        string Pem);
+        string Pem,
+        [property: JsonPropertyName("client_id")] string ClientId,
+        [property: JsonPropertyName("client_secret")] string ClientSecret);
 }

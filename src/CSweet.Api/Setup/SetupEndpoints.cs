@@ -108,6 +108,20 @@ public static class SetupEndpoints
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         }).RequireAuthorization("HostAdministration");
 
+        group.MapPost("/execution-capacity/local-sessions/{sessionId:guid}/recovery", async (
+            Guid sessionId,
+            SelectLocalOfficeRecoveryRequest request,
+            ClaimsPrincipal principal,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = principal.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            var result = await service.SelectLocalSetupRecoveryAsync(
+                sessionId, userId.Value, request, cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        }).RequireAuthorization("HostAdministration");
+
         group.MapDelete("/execution-capacity/enrollments/{enrollmentId:guid}", async (
             Guid enrollmentId,
             IExecutionFleetService service,
@@ -247,6 +261,28 @@ public static class SetupEndpoints
             var result = await service.RedeemLocalSetupSessionAsync(request, cancellationToken);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         });
+        group.MapPost("/local-sessions/preflight", async (
+            AssistedOfficePreflightRequest request,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.PreflightLocalSetupSessionAsync(request, cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        });
+        group.MapPost("/local-sessions/result", async (
+            ReportAssistedOfficeSetupResultRequest request,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+            await service.ReportLocalSetupResultAsync(request, cancellationToken)
+                ? Results.NoContent()
+                : Results.Unauthorized());
+        group.MapPost("/local-sessions/removal-complete", async (
+            CompleteAssistedOfficeRemovalRequest request,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+            await service.CompleteLocalOfficeRemovalAsync(request, cancellationToken)
+                ? Results.NoContent()
+                : Results.Unauthorized());
         group.MapPost("/{officeId:guid}/heartbeat", async (
             Guid officeId,
             OfficeHeartbeatRequest request,

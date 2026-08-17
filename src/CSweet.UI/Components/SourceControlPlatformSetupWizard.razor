@@ -7,7 +7,7 @@
         <div>
             <MudText Typo="Typo.h5" id="platform-setup-title">Set up GitHub source control</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">
-                C-Sweet guides you through this one-time enterprise setup. You will review every
+                C-Sweet guides you through this one-time platform setup. You will review every
                 permission before GitHub creates anything; no terminal commands or private-key copying are required.
             </MudText>
         </div>
@@ -95,7 +95,7 @@
                     <MudStack Spacing="2" Class="py-3">
                         <MudText Typo="Typo.body2">
                             Source Access lets C-Sweet work only with projects a business explicitly selects.
-                            Webhooks and GitHub user authorization are disabled.
+                            GitHub sign-in is used to verify the person connecting the account; webhooks remain disabled.
                         </MudText>
                         <PermissionList SourceAccess="true" />
                         <MudText Typo="Typo.caption" Color="Color.Secondary">
@@ -165,13 +165,17 @@
                     </MudStack>
                 </MudStep>
 
-                @if (Setup.Session.ProvisionerRequested == true ||
-                     Setup.Session.CurrentStep.StartsWith("provisioner", StringComparison.Ordinal))
-                {
-                    <MudStep Title="Repository Provisioner" Completed="@ProvisionerComplete"
-                             Disabled="@(ActiveIndex != 4)">
+                <MudStep Title="Repository creation (optional)" Completed="@ProvisionerComplete"
+                         Disabled="@(ActiveIndex != 4)">
                         <MudStack Spacing="2" Class="py-3">
-                            @if (Setup.Session.CurrentStep == "provisioner-review")
+                            @if (Setup.Session.ProvisionerRequested != true &&
+                                 !Setup.Session.CurrentStep.StartsWith("provisioner", StringComparison.Ordinal))
+                            {
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                    Skipped. C-Sweet will connect only the existing projects you select.
+                                </MudAlert>
+                            }
+                            else if (Setup.Session.CurrentStep == "provisioner-review")
                             {
                                 <MudText Typo="Typo.body2">
                                     This separate App can create and configure private repositories. It cannot
@@ -214,8 +218,7 @@
                                            OnClick="ConfirmProvisionerAppAsync">Confirm and continue</MudButton>
                             }
                         </MudStack>
-                    </MudStep>
-                }
+                </MudStep>
 
                 <MudStep Title="Review and activate" Completed="@(Setup.Session.Status == "Active")"
                          Disabled="@(ActiveIndex != ReviewIndex)">
@@ -296,7 +299,8 @@
     private bool SourceAppComplete => Setup.Session?.SourceAccessAppConfirmed == true;
     private bool CapabilitiesComplete => Setup.Session?.ProvisionerRequested.HasValue == true;
     private bool ProvisionerComplete => Setup.Session?.ProvisionerRequested != true || Setup.Session.ProvisionerAppConfirmed;
-    private int ReviewIndex => Setup.Session?.ProvisionerRequested == true ? 5 : 4;
+    // Keep every step mounted so MudStepper child indexes never change after a capability choice.
+    private const int ReviewIndex = 5;
     private string StatusText => Setup.Session?.Status == "AwaitingGitHub"
         ? "Waiting for GitHub to return to C-Sweet."
         : "Your progress is saved automatically.";

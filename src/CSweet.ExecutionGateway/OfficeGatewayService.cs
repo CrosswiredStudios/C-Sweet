@@ -62,10 +62,13 @@ public sealed class OfficeGatewayService(
                     throw new RpcException(new Status(StatusCode.PermissionDenied, "The node session was superseded."));
                 node.SessionEpoch = sessionEpoch;
                 node.LastHeartbeatAt = timeProvider.GetUtcNow();
-                node.AllocatableCpuCount = message.Heartbeat.AllocatableCpuCount;
-                node.AllocatableMemoryMb = message.Heartbeat.AllocatableMemoryMb;
-                node.AllocatableDiskMb = message.Heartbeat.AllocatableDiskMb;
-                node.MaximumConcurrentWorkloads = message.Heartbeat.MaximumConcurrentWorkloads;
+                var assistedSession = await db.LocalOfficeSetupSessions.AsNoTracking()
+                    .Where(x => x.ExecutionNodeId == node.Id &&
+                        (x.Status == LocalOfficeSetupSessionStatus.Connected ||
+                         x.Status == LocalOfficeSetupSessionStatus.Ready))
+                    .OrderByDescending(x => x.UpdatedAt)
+                    .FirstOrDefaultAsync(context.CancellationToken);
+                ApplyHeartbeatCapacity(node, message.Heartbeat, assistedSession);
                 node.UpdatedAt = timeProvider.GetUtcNow();
                 if (message.Heartbeat.Providers.Count > 0)
                     ReplaceProviderInventory(node, message.Heartbeat.Providers, timeProvider.GetUtcNow());
@@ -332,6 +335,18 @@ public sealed class OfficeGatewayService(
             heartbeat.AllocatableDiskMb < 0 || heartbeat.AllocatableDiskMb > 1024 * 1024 * 1024 ||
             heartbeat.MaximumConcurrentWorkloads < 0 || heartbeat.MaximumConcurrentWorkloads > 100_000)
             throw new RpcException(new Status(StatusCode.InvalidArgument, "The node capacity is invalid."));
+    }
+
+    internal static void ApplyHeartbeatCapacity(
+        ExecutionNode node,
+        OfficeHeartbeat heartbeat,
+        LocalOfficeSetupSession? assistedSession)
+    {
+        node.AllocatableCpuCount = assistedSession?.AllocatableCpuCount ?? heartbeat.AllocatableCpuCount;
+        node.AllocatableMemoryMb = assistedSession?.AllocatableMemoryMb ?? heartbeat.AllocatableMemoryMb;
+        node.AllocatableDiskMb = assistedSession?.AllocatableDiskMb ?? heartbeat.AllocatableDiskMb;
+        node.MaximumConcurrentWorkloads = assistedSession?.MaximumConcurrentWorkloads ??
+            heartbeat.MaximumConcurrentWorkloads;
     }
 
     private static bool IsValidUnixSeconds(long value) =>
