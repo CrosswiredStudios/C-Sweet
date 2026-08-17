@@ -342,8 +342,13 @@ public sealed class CommunicationHubServiceTests
         Assert.Contains("guest broker protocol", participant.PresenceDetail, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task GetAsync_ReportsFreshAlwaysOnAgentAsStartingBeforeRuntimeExists()
+    [Theory]
+    [InlineData(ActivationMode.AlwaysOn, CommunicationPresenceStatuses.Starting)]
+    [InlineData(ActivationMode.OnDemand, CommunicationPresenceStatuses.ReadyOnDemand)]
+    [InlineData(ActivationMode.Scheduled, CommunicationPresenceStatuses.Scheduled)]
+    public async Task GetAsync_ReportsActivationModeWhenRuntimeDoesNotExist(
+        ActivationMode activationMode,
+        string expectedPresence)
     {
         await using var db = CreateDb();
         var organization = Organization();
@@ -367,7 +372,10 @@ public sealed class CommunicationHubServiceTests
         {
             Id = Guid.NewGuid(),
             AgentInstallationId = installation.Id,
-            ActivationMode = ActivationMode.AlwaysOn,
+            ActivationMode = activationMode,
+            NextTickAt = activationMode == ActivationMode.Scheduled
+                ? DateTimeOffset.UtcNow.AddMinutes(5)
+                : null,
             IsEnabled = true
         };
         agent.AgentInstallationId = installation.Id;
@@ -385,11 +393,72 @@ public sealed class CommunicationHubServiceTests
             await service.GetAsync(organization.Id, owner.Id));
 
         var person = Assert.Single(hub.People, x => x.Id == agent.Id);
-        Assert.Equal(CommunicationPresenceStatuses.Starting, person.PresenceStatus);
-        Assert.Contains("activation", person.PresenceDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(expectedPresence, person.PresenceStatus);
+        Assert.False(string.IsNullOrWhiteSpace(person.PresenceDetail));
         var refreshedChat = Assert.Single(hub.Chats, x => x.Id == directChat.Id);
         var participant = Assert.Single(refreshedChat.Participants, x => x.OrganizationUserId == agent.Id);
-        Assert.Equal(CommunicationPresenceStatuses.Starting, participant.PresenceStatus);
+        Assert.Equal(expectedPresence, participant.PresenceStatus);
+    }
+
+    [Fact]
+    public async Task GetAsync_ReportsPendingOnDemandActivationWithDurableWorkAndCapacity()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var owner = User(organization.Id, "Owner", OrganizationPermissionLevel.Owner);
+        var agent = User(organization.Id, "Software QA", OrganizationPermissionLevel.Contributor);
+        agent.EmployeeType = EmployeeType.Agent;
+        var installation = new AgentInstallation
+        {
+            Id = Guid.NewGuid(), InstallationKey = Guid.NewGuid(), PackageVersionId = Guid.NewGuid(),
+            BusinessId = organization.Id.ToString("D"), IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active, SetupState = PluginSetupState.Ready,
+            ConfigurationSyncStatus = AgentConfigurationSyncStatus.Current,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        installation.Schedule = new AgentSchedule
+        {
+            Id = Guid.NewGuid(), AgentInstallationId = installation.Id,
+            ActivationMode = ActivationMode.OnDemand, IsEnabled = true
+        };
+        agent.AgentInstallationId = installation.Id;
+        agent.AgentInstallation = installation;
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = installation.Id,
+            QueuedAt = DateTimeOffset.UtcNow
+        };
+        runtime.TransitionTo(
+            AgentRuntimeStatus.Queued,
+            runtime.QueuedAt,
+            "Waiting for isolated workload capacity.");
+        var now = DateTimeOffset.UtcNow;
+        db.AddRange(
+            organization, owner, agent, installation, runtime,
+            new AgentRuntimeGlobalSettings
+            {
+                Id = Guid.NewGuid(), GlobalMaxActiveWorkloads = 10,
+                PerBusinessMaxActiveWorkloads = 5, UpdatedAt = now
+            },
+            new AgentWorkItem
+            {
+                Id = Guid.NewGuid(), OrganizationId = installation.BusinessId,
+                AgentInstallationId = installation.Id, Kind = AgentWorkKind.Event,
+                Name = "message.received", ProtectedPayload = [1], PayloadHash = "hash",
+                CorrelationId = Guid.NewGuid().ToString("N"), IdempotencyKey = "pending-message",
+                Status = AgentWorkStatus.Pending, AvailableAt = now, DeadlineAt = now.AddHours(1),
+                CreatedAt = now
+            });
+        await db.SaveChangesAsync();
+
+        var hub = Assert.IsType<CommunicationHubResponse>(
+            await CreateService(db).GetAsync(organization.Id, owner.Id));
+        var person = Assert.Single(hub.People, x => x.Id == agent.Id);
+
+        Assert.Equal(CommunicationPresenceStatuses.PendingActivation, person.PresenceStatus);
+        Assert.Contains("1 durable work", person.PresenceDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("0/10 globally", person.PresenceDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("0/5 for this business", person.PresenceDetail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

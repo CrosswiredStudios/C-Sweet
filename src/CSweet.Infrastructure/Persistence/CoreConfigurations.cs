@@ -439,6 +439,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();
         entity.Property(x => x.EstimatePoints).HasPrecision(8, 2);
         entity.Property(x => x.DevelopmentBriefJson).HasColumnType("text");
+        entity.Property(x => x.PlanningSpecificationJson).HasColumnType("text");
         entity.Property(x => x.DeliverySpecificationJson).HasColumnType("text");
         entity.Property(x => x.QualityBriefJson).HasColumnType("text");
         entity.Property(x => x.MergeStatus).HasMaxLength(24).IsRequired();

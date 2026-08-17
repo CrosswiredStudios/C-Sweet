@@ -1447,11 +1447,14 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         }
     }
 
-    private static ActivationMode ParseActivationMode(string value) =>
-        Enum.TryParse<ActivationMode>(value, ignoreCase: false, out var activationMode) &&
-        Enum.IsDefined(activationMode)
-            ? activationMode
-            : throw new AgentInstallationException("Activation mode must be AlwaysOn, Periodic, or Manual.");
+    private static ActivationMode ParseActivationMode(string value) => value switch
+    {
+        "AlwaysOn" => ActivationMode.AlwaysOn,
+        "OnDemand" => ActivationMode.OnDemand,
+        "Scheduled" => ActivationMode.Scheduled,
+        _ => throw new AgentInstallationException(
+            "Activation mode must be AlwaysOn, OnDemand, or Scheduled.")
+    };
 
     private static PluginInstallationScope ParsePluginScope(string value) =>
         Enum.TryParse<PluginInstallationScope>(value, ignoreCase: true, out var scope) && Enum.IsDefined(scope)
@@ -1470,7 +1473,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         DateTimeOffset now) => activationMode switch
         {
             ActivationMode.AlwaysOn => now,
-            ActivationMode.Periodic => now.AddSeconds(tickFrequencySeconds),
+            ActivationMode.Scheduled => now.AddSeconds(tickFrequencySeconds),
             _ => null
         };
 

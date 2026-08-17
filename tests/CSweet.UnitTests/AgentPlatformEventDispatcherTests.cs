@@ -69,7 +69,7 @@ public sealed class AgentPlatformEventDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchPendingAsync_RetriesRuntimeQueueingWithoutDuplicatingInboxDelivery()
+    public async Task DispatchPendingAsync_PublishesAfterDurableDeliveryWhenRuntimeActivationIsDelayed()
     {
         var databaseName = Guid.NewGuid().ToString("N");
         var runtime = new RecordingRuntimeManager { FailNext = true };
@@ -107,25 +107,15 @@ public sealed class AgentPlatformEventDispatcherTests
             NullLogger<AgentPlatformEventDispatcher>.Instance);
 
         await dispatcher.DispatchPendingAsync(CancellationToken.None);
-        await using (var retryScope = provider.CreateAsyncScope())
+        await using (var verificationScope = provider.CreateAsyncScope())
         {
-            var db = retryScope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var db = verificationScope.ServiceProvider.GetRequiredService<CSweetDbContext>();
             var outbox = await db.AgentPlatformEventOutbox.SingleAsync();
-            Assert.Equal(AgentPlatformEventOutboxStatus.Pending, outbox.Status);
+            Assert.Equal(AgentPlatformEventOutboxStatus.Published, outbox.Status);
             Assert.Equal(1, outbox.Attempts);
             Assert.Equal(1, await db.AgentWorkItems.CountAsync());
-            outbox.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1);
-            await db.SaveChangesAsync();
         }
-
-        await dispatcher.DispatchPendingAsync(CancellationToken.None);
-
-        await using var verificationScope = provider.CreateAsyncScope();
-        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CSweetDbContext>();
-        Assert.Equal(AgentPlatformEventOutboxStatus.Published,
-            (await verificationDb.AgentPlatformEventOutbox.SingleAsync()).Status);
-        Assert.Equal(1, await verificationDb.AgentWorkItems.CountAsync());
-        Assert.Equal([subscribed.Id], runtime.QueuedInstallationIds);
+        Assert.Empty(runtime.QueuedInstallationIds);
     }
 
     [Fact]

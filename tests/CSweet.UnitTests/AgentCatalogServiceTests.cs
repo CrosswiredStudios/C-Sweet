@@ -229,7 +229,7 @@ public sealed class AgentCatalogServiceTests
         "type": "dotnet-project",
         "projectPath": "src/ProductManager/ProductManager.csproj",
         "targetFramework": "net10.0",
-        "defaultActivationMode": "Manual",
+        "defaultActivationMode": "OnDemand",
         "maximumConcurrentJobs": 1
       },
       "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },

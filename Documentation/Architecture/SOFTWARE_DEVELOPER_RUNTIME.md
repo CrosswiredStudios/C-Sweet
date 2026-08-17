@@ -158,12 +158,12 @@ The v2 role surface is:
 
 SDK and agent packages are released together because their current public contracts are replaced:
 
-- `CSweet.WorkManagement.Contracts` 3.5.0
-- `CSweet.Agent.SDK` 3.8.0
-- Software Developer 0.3.0
-- Software QA 0.2.0
-- Software Architect 0.5.0
-- Software Product Manager 2.1.0
+- `CSweet.WorkManagement.Contracts` 3.6.0
+- `CSweet.Agent.SDK` 3.9.0
+- Software Developer 0.5.0
+- Software QA 0.4.0
+- Software Architect 0.7.0
+- Software Product Manager 2.5.0
 
 ## Delivery state machine
 

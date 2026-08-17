@@ -100,6 +100,108 @@ public sealed class WorkManagementCapabilityHandlerTests
         Assert.Contains(audit.Events, x => x.EventType == WorkBoardActions.Create);
     }
 
+    [Fact]
+    public async Task PlanningTicket_IsFinalizedInPlaceIdempotentlyAfterRepositoryApproval()
+    {
+        await using var db = CreateDb();
+        var setup = SeedInstallation(db);
+        var accountableUserId = db.CoreOrganizationUsers.Local.Single().Id;
+        var board = new WorkBoard
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            Name = "Delivery", Description = string.Empty,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+            Columns = [Column("Backlog", WorkBoardColumnCategory.ToDo, 0)]
+        };
+        var policy = new WorkOrchestrationPolicy
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, BoardId = board.Id,
+            Name = "Software delivery", CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var revision = new WorkOrchestrationPolicyRevision
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, BoardId = board.Id,
+            PolicyId = policy.Id, Revision = 1, Name = policy.Name, InitialStageKey = "development",
+            IsPublished = true, CreatedAt = DateTimeOffset.UtcNow, PublishedAt = DateTimeOffset.UtcNow
+        };
+        revision.Stages.Add(new WorkOrchestrationStage
+        {
+            Id = Guid.NewGuid(), PolicyRevisionId = revision.Id, Key = "development",
+            Name = "Development", Type = WorkOrchestrationStageType.AgentExecution
+        });
+        policy.PublishedRevisionId = revision.Id;
+        policy.Revisions.Add(revision);
+        board.OrchestrationPolicies.Add(policy);
+        db.WorkBoards.Add(board);
+        Grant(db, setup, WorkItemActions.Create, GrantScopeKind.Board, board.Id);
+        Grant(db, setup, WorkItemActions.FinalizeDelivery, GrantScopeKind.Board, board.Id);
+        await db.SaveChangesAsync();
+        var handler = CreateHandler(db, new TestAuditEventWriter());
+        var session = Session(setup, WorkItemActions.Create, WorkItemActions.FinalizeDelivery);
+
+        var created = await InvokeAsync(handler, session, WorkItemActions.Create, new
+        {
+            boardId = board.Id,
+            title = "Implement flight controls",
+            kind = "Story",
+            priority = "High",
+            idempotencyKey = "planning-ticket-1",
+            planning = new
+            {
+                requirements = new[] { "Support pitch and yaw input." },
+                acceptanceCriteria = new[] { "Controls respond within one rendered frame." },
+                constraints = new[] { "Keep input handling deterministic." }
+            }
+        });
+        Assert.True(created.Succeeded, created.Error);
+        using var createdJson = JsonDocument.Parse(created.Payload.ToByteArray());
+        var itemId = createdJson.RootElement.GetProperty("id").GetGuid();
+        var itemRevision = createdJson.RootElement.GetProperty("revision").GetInt64();
+        Assert.Equal(JsonValueKind.Object, createdJson.RootElement.GetProperty("planning").ValueKind);
+        Assert.Equal(JsonValueKind.Null, createdJson.RootElement.GetProperty("delivery").ValueKind);
+
+        var finalizePayload = new
+        {
+            boardId = board.Id,
+            itemId,
+            delivery = new
+            {
+                repositoryId = Guid.NewGuid(),
+                baseBranch = "main",
+                requirements = new[] { "Support pitch and yaw input." },
+                acceptanceCriteria = new[] { "Controls respond within one rendered frame." },
+                constraints = new[] { "Keep input handling deterministic." }
+            },
+            accountableOrganizationUserId = accountableUserId,
+            stageAssignments = new[]
+            {
+                new
+                {
+                    stageKey = "development",
+                    principalKind = "AgentInstallation",
+                    agentInstallationId = setup.InstallationId
+                }
+            },
+            expectedRevision = itemRevision,
+            idempotencyKey = "finalize-ticket-1"
+        };
+        var finalized = await InvokeAsync(
+            handler, session, WorkItemActions.FinalizeDelivery, finalizePayload);
+        var replay = await InvokeAsync(
+            handler, session, WorkItemActions.FinalizeDelivery, finalizePayload);
+
+        Assert.True(finalized.Succeeded, finalized.Error);
+        Assert.True(replay.Succeeded, replay.Error);
+        using var finalizedJson = JsonDocument.Parse(finalized.Payload.ToByteArray());
+        using var replayJson = JsonDocument.Parse(replay.Payload.ToByteArray());
+        Assert.Equal(itemId, finalizedJson.RootElement.GetProperty("id").GetGuid());
+        Assert.Equal(itemId, replayJson.RootElement.GetProperty("id").GetGuid());
+        Assert.Equal("main", finalizedJson.RootElement.GetProperty("delivery").GetProperty("baseBranch").GetString());
+        Assert.Single(await db.CoreWorkTasks.ToListAsync());
+        Assert.Single(await db.WorkItemStageAssignments.ToListAsync());
+    }
+
     [Fact(Skip = "Replaced by durable orchestration execution tests.")]
     public async Task AgentCanCreateReadAndCompleteStoryWithSeparateGrants()
     {

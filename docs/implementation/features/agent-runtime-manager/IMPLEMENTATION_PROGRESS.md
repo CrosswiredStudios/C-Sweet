@@ -147,7 +147,7 @@ Last updated: 2026-07-14
 - [x] Configuration migrations: `AddAgentInstallationConfiguration` and `AddAgentRuntimeIdleTracking`
 - [x] Runtime ensure/status API shared by Configure, Chat, and server-side request enforcement
 - [x] Configure and Chat dialogs show queued, container-starting, broker-connecting, ready, timeout, and failure states
-- [x] Manual and periodic agents wake on demand, refresh a five-minute idle deadline, and stop after inactivity
+- [x] OnDemand agents wake for durable work, refresh an idle deadline, and stop after inactivity; Scheduled agents defer work until their configured run
 - [x] Always-on reconciliation restores missing containers and exempts them from interactive idle shutdown
 - [x] Chat resolves the installation's enabled LLM provider with default-provider fallback
 - [x] Saved instance configuration is hydrated through the targeted broker capability before each chat turn

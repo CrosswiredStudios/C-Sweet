@@ -70,7 +70,7 @@ Behavior:
 - Health is based on broker registration heartbeat plus process/container state.
 - It remains running until disabled, updated, or the platform shuts down.
 
-### Periodic ephemeral
+### Scheduled ephemeral
 
 Use for agents that wake up on a schedule, do bounded work, then stop.
 
@@ -90,7 +90,7 @@ Behavior:
 - Container exits or is stopped.
 - Runtime manager records result and schedules the next tick.
 
-### Manual ephemeral
+### On-demand ephemeral
 
 Use for one-off test runs and admin-triggered work.
 
@@ -127,7 +127,7 @@ Example:
     "targetFramework": "net9.0",
     "supportsMultipleInstallations": true,
     "maximumConcurrentJobs": 1,
-    "defaultActivationMode": "periodic"
+    "defaultActivationMode": "scheduled"
   },
   "protocol": {
     "minimumVersion": "1.0",
@@ -186,7 +186,7 @@ Persist schedules. Do not rely on in-memory timers as the source of truth.
 Suggested fields:
 
 - `AgentInstallationId`
-- `ActivationMode`: `AlwaysOn`, `Periodic`, `Manual`
+- `ActivationMode`: `AlwaysOn`, `OnDemand`, `Scheduled`
 - `TickFrequencySeconds`
 - `NextTickAt`
 - `LastTickAt`

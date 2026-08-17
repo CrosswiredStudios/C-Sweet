@@ -539,7 +539,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
             NextTickAt = definition.DefaultActivationMode switch
             {
                 ActivationMode.AlwaysOn => now,
-                ActivationMode.Periodic => now.AddSeconds(definition.DefaultTickFrequencySeconds),
+                ActivationMode.Scheduled => now.AddSeconds(definition.DefaultTickFrequencySeconds),
                 _ => null
             },
             MaxRuntimeSeconds = definition.DefaultMaxRuntimeSeconds,

@@ -97,7 +97,7 @@ public class AgentImportPreviewEndpointTests
 
         var installRequest = new InstallAgentRequest(
                 "default",
-                "Periodic",
+                "Scheduled",
                 900,
                 "Skip",
                 ["research.execute.v1"],
@@ -116,7 +116,7 @@ public class AgentImportPreviewEndpointTests
         Assert.Equal(HttpStatusCode.OK, installResponse.StatusCode);
         Assert.NotNull(definition);
         Assert.Equal("com.example.research-agent", definition.AgentId);
-        Assert.Equal("Periodic", definition.DefaultActivationMode);
+        Assert.Equal("Scheduled", definition.DefaultActivationMode);
         Assert.False(definition.IsAvailableForHire);
         Assert.Equal("Queued", definition.Build?.Status);
         Assert.Equal(6, definition.Build?.Steps?.Count);
@@ -200,7 +200,7 @@ public class AgentImportPreviewEndpointTests
                 "type": "dotnet-project",
                 "projectPath": "src/ResearchAgent/ResearchAgent.csproj",
                 "targetFramework": "net10.0",
-                "defaultActivationMode": "Periodic",
+                "defaultActivationMode": "Scheduled",
                 "supportsMultipleInstallations": true,
                 "maximumConcurrentJobs": 4
               },

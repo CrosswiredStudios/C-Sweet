@@ -21,6 +21,7 @@ public static class WorkItemActions
 {
     public const string Read = WorkManagementCapabilityNames.ItemRead;
     public const string Create = WorkManagementCapabilityNames.ItemCreate;
+    public const string FinalizeDelivery = WorkManagementCapabilityNames.ItemFinalizeDelivery;
     public const string Update = "work.item.update";
     public const string Start = WorkManagementCapabilityNames.ItemStart;
     public const string Move = WorkManagementCapabilityNames.ItemMove;
@@ -33,7 +34,7 @@ public static class WorkItemActions
     public const string QualitySubmit = WorkManagementCapabilityNames.ItemQualitySubmit;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Create, Update, Move, Transfer, Comment, Estimate];
+        [Read, Create, FinalizeDelivery, Update, Move, Transfer, Comment, Estimate];
 }
 
 public static class WorkSprintActions

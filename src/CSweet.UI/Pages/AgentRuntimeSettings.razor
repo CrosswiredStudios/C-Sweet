@@ -62,8 +62,8 @@
                         <MudCheckBox T="bool" Label="Enable imported agents" @bind-Value="_enableImportedAgents" Disabled="_isBusy" />
                         <MudSelect T="string" Label="Default activation mode" @bind-Value="_defaultActivationMode" Variant="Variant.Outlined" Disabled="_isBusy">
                             <MudSelectItem T="string" Value="@("AlwaysOn")">Always on</MudSelectItem>
-                            <MudSelectItem T="string" Value="@("Periodic")">Periodic</MudSelectItem>
-                            <MudSelectItem T="string" Value="@("Manual")">Manual</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("OnDemand")">On demand</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("Scheduled")">Scheduled</MudSelectItem>
                         </MudSelect>
                         <MudNumericField T="int" Label="Default tick frequency (seconds)" @bind-Value="_defaultTickFrequencySeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Minimum tick frequency (seconds)" @bind-Value="_minimumTickFrequencySeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
@@ -148,7 +148,7 @@
     private bool _isExecutionReady;
     private bool? _actionSucceeded;
     private string? _pageError, _actionMessage;
-    private string _defaultActivationMode = "Periodic", _defaultOverlapPolicy = "Skip", _defaultRestartPolicy = "Never",
+    private string _defaultActivationMode = "OnDemand", _defaultOverlapPolicy = "Skip", _defaultRestartPolicy = "Never",
         _defaultNetworkPolicy = "McpOnly", _allowedPackageFeedHosts = "", _blockedNetworkCidrs = "";
     private int _defaultTickFrequencySeconds, _minimumTickFrequencySeconds, _defaultMaxRuntimeSeconds,
         _globalMaxActiveWorkloads, _perBusinessMaxActiveWorkloads, _perInstallationMaxActiveWorkloads,

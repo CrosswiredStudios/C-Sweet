@@ -33,7 +33,7 @@ Use normal form controls:
 ### Runtime defaults
 
 - `EnableImportedAgents`
-- `DefaultActivationMode`: `Periodic`
+- `DefaultActivationMode`: `OnDemand`
 - `DefaultTickFrequencySeconds`
 - `MinimumTickFrequencySeconds`
 - `DefaultMaxRuntimeSeconds`
@@ -100,7 +100,7 @@ public sealed class AgentRuntimeGlobalSettings
 {
     public Guid Id { get; set; }
     public bool EnableImportedAgents { get; set; }
-    public string DefaultActivationMode { get; set; } = "Periodic";
+    public string DefaultActivationMode { get; set; } = "OnDemand";
     public int DefaultTickFrequencySeconds { get; set; } = 3600;
     public int MinimumTickFrequencySeconds { get; set; } = 300;
     public int DefaultMaxRuntimeSeconds { get; set; } = 600;

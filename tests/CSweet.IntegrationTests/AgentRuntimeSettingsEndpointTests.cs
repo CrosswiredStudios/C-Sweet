@@ -25,7 +25,7 @@ public class AgentRuntimeSettingsEndpointTests
 
         Assert.NotNull(settings);
         Assert.False(settings.EnableImportedAgents);
-        Assert.Equal("Periodic", settings.DefaultActivationMode);
+        Assert.Equal("OnDemand", settings.DefaultActivationMode);
         Assert.Equal(3600, settings.DefaultTickFrequencySeconds);
         Assert.Equal(300, settings.MinimumTickFrequencySeconds);
     }

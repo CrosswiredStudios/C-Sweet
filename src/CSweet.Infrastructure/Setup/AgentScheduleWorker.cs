@@ -19,6 +19,7 @@ public sealed class AgentScheduleWorker(IServiceScopeFactory scopeFactory, ILogg
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var manager = scope.ServiceProvider.GetRequiredService<IAgentRuntimeManager>();
                 await manager.EnsureAlwaysOnRuntimesAsync(stoppingToken);
+                await manager.EnsurePendingOnDemandRuntimesAsync(stoppingToken);
                 await manager.ProcessDueSchedulesAsync(stoppingToken);
                 await manager.ReconcileAsync(stoppingToken);
             }

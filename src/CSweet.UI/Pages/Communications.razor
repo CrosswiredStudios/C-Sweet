@@ -172,10 +172,13 @@
                                 ? Icons.Material.Outlined.ErrorOutline
                                 : Icons.Material.Outlined.Info)" />
                             <div>
-                                <strong>@unavailableAgent.DisplayName @(unavailableAgent.PresenceStatus == CommunicationPresenceStatuses.Starting ? "is starting" : "is unavailable")</strong>
+                                <strong>@unavailableAgent.DisplayName @PresenceBannerLabel(unavailableAgent.PresenceStatus)</strong>
                                 <span>@(unavailableAgent.PresenceDetail ?? "The agent runtime is not available.")</span>
                             </div>
-                            <a href="/settings/agents">Review diagnostics</a>
+                            @if (unavailableAgent.PresenceStatus == CommunicationPresenceStatuses.Unhealthy)
+                            {
+                                <a href="/settings/agents">Review diagnostics</a>
+                            }
                         </section>
                     }
 
@@ -1525,6 +1528,9 @@
     {
         CommunicationPresenceStatuses.Unhealthy => "unhealthy",
         CommunicationPresenceStatuses.Starting => "starting",
+        CommunicationPresenceStatuses.PendingActivation => "starting",
+        CommunicationPresenceStatuses.ReadyOnDemand => "available",
+        CommunicationPresenceStatuses.Scheduled => "offline",
         CommunicationPresenceStatuses.Offline => "offline",
         _ => "available"
     };
@@ -1535,11 +1541,22 @@
         {
             CommunicationPresenceStatuses.Unhealthy => "has a problem",
             CommunicationPresenceStatuses.Starting => "is starting",
+            CommunicationPresenceStatuses.PendingActivation => "is waiting for activation",
+            CommunicationPresenceStatuses.ReadyOnDemand => "is ready on demand",
+            CommunicationPresenceStatuses.Scheduled => "is scheduled",
             CommunicationPresenceStatuses.Offline => "is offline",
             _ => "is available"
         };
         return string.IsNullOrWhiteSpace(detail) ? $"{name} {state}." : $"{name} {state}. {detail}";
     }
+    private static string PresenceBannerLabel(string status) => status switch
+    {
+        CommunicationPresenceStatuses.Starting => "is starting",
+        CommunicationPresenceStatuses.PendingActivation => "is waiting for activation",
+        CommunicationPresenceStatuses.ReadyOnDemand => "is ready on demand",
+        CommunicationPresenceStatuses.Scheduled => "is scheduled",
+        _ => "is unavailable"
+    };
     private static string Initials(string name) => string.Join(string.Empty, name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => char.ToUpperInvariant(x[0])));
     private sealed class TurnView(ChatTurnResponse turn)
     {

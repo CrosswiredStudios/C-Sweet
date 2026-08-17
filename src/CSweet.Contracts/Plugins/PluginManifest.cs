@@ -60,7 +60,7 @@ public sealed record PluginRuntime
     public string Type { get; init; } = string.Empty;
     public string? ProjectPath { get; init; }
     public string? TargetFramework { get; init; }
-    public string DefaultActivationMode { get; init; } = "Manual";
+    public string DefaultActivationMode { get; init; } = "OnDemand";
     public bool SupportsMultipleInstallations { get; init; }
     public int MaximumConcurrentJobs { get; init; } = 1;
     public string? EnvironmentProfile { get; init; }

@@ -1,6 +1,7 @@
 using CSweet.Application.Security;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Core;
+using CSweet.Domain.Security;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Security;
@@ -11,6 +12,52 @@ namespace CSweet.UnitTests;
 
 public sealed class WorkSprintServiceTests
 {
+    [Fact]
+    public async Task PlannedSprint_RejectsPlanningOnlyTicketUntilDeliveryIsFinalized()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOwner(db);
+        var board = Board(setup.OrganizationId);
+        var item = Item(setup.OrganizationId, board);
+        item.PlanningSpecificationJson = "{}";
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        db.ScopedActionGrants.Add(new ScopedActionGrant
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            SubjectKind = GrantSubjectKind.OrganizationUser,
+            SubjectId = setup.OrganizationUserId,
+            Action = WorkSprintActions.Start,
+            ScopeKind = GrantScopeKind.Board,
+            ScopeId = board.Id,
+            GrantedBySubjectKind = GrantSubjectKind.OrganizationUser,
+            GrantedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+        var sprint = await service.CreateAsync(
+            setup.OrganizationId, board.Id, setup.ApplicationUserId,
+            new CreateWorkSprintRequest("Sprint 1", null, null, null, "planning-sprint"));
+        await service.SetItemSprintAsync(
+            setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId,
+            new SetWorkItemSprintRequest(sprint.Id, item.Revision, "planning-scope"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ChangeStateAsync(
+                setup.OrganizationId, board.Id, sprint.Id, setup.ApplicationUserId,
+                WorkSprintActions.Start,
+                new ChangeWorkSprintStateRequest(sprint.Revision, "planning-start")));
+
+        Assert.Contains("finalized", exception.Message, StringComparison.OrdinalIgnoreCase);
+        item.DeliverySpecificationJson = "{}";
+        await db.SaveChangesAsync();
+        var started = await service.ChangeStateAsync(
+            setup.OrganizationId, board.Id, sprint.Id, setup.ApplicationUserId,
+            WorkSprintActions.Start,
+            new ChangeWorkSprintStateRequest(sprint.Revision, "finalized-start"));
+        Assert.Equal("Active", started!.Status);
+    }
+
     [Fact(Skip = "Sprint start and completion are now owned by the durable orchestrator.")]
     public async Task OwnerCanCreateAssignStartAndCompleteSprintIdempotently()
     {

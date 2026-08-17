@@ -362,7 +362,7 @@ public class CoreServiceTests
             PackageVersion = package,
             Status = AgentDefinitionStatus.Available,
             IsAvailableForHire = true,
-            DefaultActivationMode = ActivationMode.Manual,
+            DefaultActivationMode = ActivationMode.OnDemand,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         };

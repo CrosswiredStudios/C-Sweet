@@ -283,8 +283,8 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         return value switch
         {
             "AlwaysOn" => ActivationMode.AlwaysOn,
-            "Periodic" => ActivationMode.Periodic,
-            "Manual" => ActivationMode.Manual,
+            "OnDemand" => ActivationMode.OnDemand,
+            "Scheduled" => ActivationMode.Scheduled,
             _ => throw new ArgumentException($"Invalid activation mode: {value}")
         };
     }

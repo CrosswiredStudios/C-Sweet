@@ -382,6 +382,10 @@ public sealed class WorkOrchestrationService(
                 WorkOrchestrationStageType.TrustedPlatformAction).Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
         foreach (var item in items)
         {
+            if (string.IsNullOrWhiteSpace(item.DeliverySpecificationJson))
+                errors.Add(new("item.delivery_not_finalized",
+                    "Planning-only work must be finalized with a repository and base branch before sprint execution.",
+                    item.Id));
             if (item.Status != WorkTaskStatus.Ready)
                 errors.Add(new("item.not_ready", "Executable items must be Ready.", item.Id));
             if (!item.AccountableOrganizationUserId.HasValue)

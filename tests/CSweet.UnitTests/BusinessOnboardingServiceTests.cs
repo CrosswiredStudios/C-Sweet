@@ -127,7 +127,7 @@ public class BusinessOnboardingServiceTests
             ArtifactSignature = "test-signature",
             ImportedAt = DateTimeOffset.UtcNow
         };
-        var definition = CreateDefinition(package, ActivationMode.Manual);
+        var definition = CreateDefinition(package, ActivationMode.OnDemand);
         dbContext.AgentDefinitions.Add(definition);
         await dbContext.SaveChangesAsync();
 

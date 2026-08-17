@@ -69,6 +69,40 @@ public sealed class CommunicationHubService(
         var latestRuntimes = runtimeInstances
             .GroupBy(x => x.AgentInstallationId)
             .ToDictionary(x => x.Key, x => x.First());
+        var pendingWorkCounts = installationIds.Count == 0
+            ? new Dictionary<Guid, int>()
+            : await db.AgentWorkItems.AsNoTracking()
+                .Where(x => installationIds.Contains(x.AgentInstallationId) &&
+                            x.Status == AgentWorkStatus.Pending)
+                .GroupBy(x => x.AgentInstallationId)
+                .Select(x => new { InstallationId = x.Key, Count = x.Count() })
+                .ToDictionaryAsync(x => x.InstallationId, x => x.Count, cancellationToken);
+        var runtimeSettings = await db.AgentRuntimeGlobalSettings.AsNoTracking()
+            .Select(x => new { x.GlobalMaxActiveWorkloads, x.PerBusinessMaxActiveWorkloads })
+            .FirstOrDefaultAsync(cancellationToken);
+        var workloadActiveStatuses = new[]
+        {
+            AgentRuntimeStatus.Starting,
+            AgentRuntimeStatus.WaitingForMcpSession,
+            AgentRuntimeStatus.Running,
+            AgentRuntimeStatus.CompletionReported,
+            AgentRuntimeStatus.Stopping
+        };
+        var businessId = people.Select(x => x.AgentInstallation?.BusinessId)
+            .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+        var globalActiveRuntimeCount = runtimeSettings is null
+            ? 0
+            : await db.AgentRuntimeInstances.AsNoTracking()
+                .CountAsync(x => workloadActiveStatuses.Contains(x.Status), cancellationToken);
+        var businessActiveRuntimeCount = runtimeSettings is null || businessId is null
+            ? 0
+            : await db.AgentRuntimeInstances.AsNoTracking()
+                .CountAsync(x => workloadActiveStatuses.Contains(x.Status) &&
+                                 x.AgentInstallation!.BusinessId == businessId, cancellationToken);
+        var capacityDetail = runtimeSettings is null
+            ? null
+            : $"Runtime capacity: {globalActiveRuntimeCount}/{runtimeSettings.GlobalMaxActiveWorkloads} globally; " +
+              $"{businessActiveRuntimeCount}/{runtimeSettings.PerBusinessMaxActiveWorkloads} for this business.";
         var presences = people.ToDictionary(
             x => x.Id,
             x => ResolvePresence(
@@ -76,7 +110,11 @@ public sealed class CommunicationHubService(
                 x.AgentInstallationId.HasValue &&
                 latestRuntimes.TryGetValue(x.AgentInstallationId.Value, out var runtime)
                     ? runtime
-                    : null));
+                    : null,
+                x.AgentInstallationId.HasValue
+                    ? pendingWorkCounts.GetValueOrDefault(x.AgentInstallationId.Value)
+                    : 0,
+                capacityDetail));
 
         var chats = await db.CoreConversations.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.ArchivedAt == null &&
@@ -704,7 +742,9 @@ public sealed class CommunicationHubService(
 
     private static CommunicationPresence ResolvePresence(
         OrganizationUser person,
-        AgentRuntimeInstance? latestRuntime)
+        AgentRuntimeInstance? latestRuntime,
+        int pendingWorkCount,
+        string? capacityDetail)
     {
         if (person.EmployeeType != EmployeeType.Agent)
             return CommunicationPresence.Available;
@@ -748,6 +788,29 @@ public sealed class CommunicationHubService(
             return new(
                 CommunicationPresenceStatuses.Starting,
                 $"Agent configuration is {installation.ConfigurationSyncStatus}.");
+
+        if (latestRuntime is null && schedule?.ActivationMode == ActivationMode.OnDemand)
+            return new(
+                CommunicationPresenceStatuses.ReadyOnDemand,
+                $"Ready on demand; {pendingWorkCount} pending work item(s)." +
+                (capacityDetail is null ? string.Empty : $" {capacityDetail}"));
+
+        if (latestRuntime is null && schedule?.ActivationMode == ActivationMode.Scheduled)
+            return new(
+                CommunicationPresenceStatuses.Scheduled,
+                schedule.NextTickAt.HasValue
+                    ? $"Scheduled for {schedule.NextTickAt.Value:O}; {pendingWorkCount} pending work item(s)."
+                    : $"Scheduled with no next run; {pendingWorkCount} pending work item(s).");
+
+        if (latestRuntime?.Status == AgentRuntimeStatus.Queued &&
+            schedule?.ActivationMode == ActivationMode.OnDemand)
+            return new(
+                CommunicationPresenceStatuses.PendingActivation,
+                $"Activation pending; {pendingWorkCount} durable work item(s) are waiting." +
+                (string.IsNullOrWhiteSpace(latestRuntime.Reason)
+                    ? string.Empty
+                    : $" {latestRuntime.Reason}") +
+                (capacityDetail is null ? string.Empty : $" {capacityDetail}"));
 
         if (latestRuntime is null &&
             (installation.ConfigurationSyncStatus == AgentConfigurationSyncStatus.PendingNextStart ||

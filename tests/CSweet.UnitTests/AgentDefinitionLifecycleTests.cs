@@ -41,7 +41,7 @@ public sealed class AgentDefinitionLifecycleTests
         await db.SaveChangesAsync();
 
         var definition = await new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db))
-            .ImportAsync(package.Id, Request("Manual"));
+            .ImportAsync(package.Id, Request("OnDemand"));
 
         Assert.False(definition.IsAvailableForHire);
         Assert.Equal(AgentDefinitionStatus.NeedsConfiguration.ToString(), definition.Status);
@@ -79,8 +79,8 @@ public sealed class AgentDefinitionLifecycleTests
 
     [Theory]
     [InlineData(ActivationMode.AlwaysOn, 1)]
-    [InlineData(ActivationMode.Periodic, 0)]
-    [InlineData(ActivationMode.Manual, 0)]
+    [InlineData(ActivationMode.Scheduled, 0)]
+    [InlineData(ActivationMode.OnDemand, 0)]
     public async Task Hiring_CreatesFreshBusinessInstallation_AndStartsOnlyAlwaysOn(
         ActivationMode activationMode, int expectedRuntimeRequests)
     {
@@ -173,7 +173,7 @@ public sealed class AgentDefinitionLifecycleTests
                 manifestVersion = "2.0", kind = "agent", id = "com.example.agent",
                 name = "Example Agent", version = "1.0.0",
                 publisher = new { id = "example", name = "Example" },
-                runtime = new { type = "dotnet-project", projectPath = "src/Agent.csproj", targetFramework = "net10.0", defaultActivationMode = "Manual" },
+                runtime = new { type = "dotnet-project", projectPath = "src/Agent.csproj", targetFramework = "net10.0", defaultActivationMode = "OnDemand" },
                 protocol = new { minimumVersion = "2.0", maximumVersion = "2.x" },
                 provides = Array.Empty<object>(), requires = Array.Empty<object>(),
                 events = new { subscribes = Array.Empty<string>() }, configuration,

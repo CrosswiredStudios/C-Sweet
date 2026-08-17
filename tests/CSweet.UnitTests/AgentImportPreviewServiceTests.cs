@@ -107,6 +107,29 @@ public class AgentImportPreviewServiceTests
         Assert.Equal("Previewed", result.Status);
     }
 
+    [Theory]
+    [InlineData("Manual")]
+    [InlineData("Periodic")]
+    [InlineData("Unknown")]
+    public async Task PreviewAsync_RejectsRemovedAndUnknownActivationModes(string activationMode)
+    {
+        await using var dbContext = CreateDbContext();
+        var manifest = ValidManifest().Replace(
+            "\"defaultActivationMode\": \"Scheduled\"",
+            $"\"defaultActivationMode\": \"{activationMode}\"",
+            StringComparison.Ordinal);
+        var service = new AgentImportPreviewService(
+            dbContext,
+            new FakeGitHubAgentRepositoryClient(manifest),
+            new TestAuditEventWriter());
+
+        var exception = await Assert.ThrowsAsync<AgentImportPreviewException>(() =>
+            service.PreviewAsync(new PreviewAgentImportRequest(
+                "https://github.com/example/research-agent")));
+
+        Assert.Contains("AlwaysOn, OnDemand, or Scheduled", exception.Message);
+    }
+
     [Fact]
     public async Task PreviewAsync_RejectsSelectWithoutOptions()
     {
@@ -280,7 +303,7 @@ public class AgentImportPreviewServiceTests
             "type": "dotnet-project",
             "projectPath": "src/ResearchAgent/ResearchAgent.csproj",
             "targetFramework": "net10.0",
-            "defaultActivationMode": "Periodic"
+            "defaultActivationMode": "Scheduled"
           },
           "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },
           "provides": [
@@ -314,7 +337,7 @@ public class AgentImportPreviewServiceTests
         {
           "manifestVersion":"2.0","kind":"agent","id":"com.example.connected","name":"Connected","version":"1.0.0",
           "publisher":{"id":"com.example","name":"Example"},
-          "runtime":{"type":"dotnet-project","projectPath":"src/Connected/Connected.csproj","targetFramework":"net10.0","defaultActivationMode":"Manual","supportsMultipleInstallations":true,"maximumConcurrentJobs":1,"workspaceAccess":"None"},
+          "runtime":{"type":"dotnet-project","projectPath":"src/Connected/Connected.csproj","targetFramework":"net10.0","defaultActivationMode":"OnDemand","supportsMultipleInstallations":true,"maximumConcurrentJobs":1,"workspaceAccess":"None"},
           "protocol":{"minimumVersion":"2.0","maximumVersion":"2.x"},
           "provides":[{"name":"example.setup.validate.v1","description":"Validate setup","inputSchema":{"type":"object"},"outputSchema":{"type":"object"},"executionTimeoutSeconds":30,"idempotency":"none"}],
           "requires":[],"events":{"subscribes":[]},"configuration":[],"credentials":[],

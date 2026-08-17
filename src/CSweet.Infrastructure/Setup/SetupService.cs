@@ -84,7 +84,7 @@ public sealed class SetupService : ISetupService
             {
                 Id = Guid.NewGuid(),
                 EnableImportedAgents = false,
-                DefaultActivationMode = ActivationMode.Periodic,
+                DefaultActivationMode = ActivationMode.OnDemand,
                 DefaultTickFrequencySeconds = 3600,
                 MinimumTickFrequencySeconds = 300,
                 DefaultMaxRuntimeSeconds = 600,

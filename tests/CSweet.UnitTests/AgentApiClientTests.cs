@@ -15,7 +15,7 @@ public sealed class AgentApiClientTests
         HttpRequestMessage? captured = null;
         var response = new AgentDefinitionResponse(
             definitionId, Guid.NewGuid(), "com.example.agent", "Example", "1.0.0", "Example",
-            new string('a', 40), "Building", false, "Manual", 3600, "Skip", 600, 512, 50,
+            new string('a', 40), "Building", false, "OnDemand", 3600, "Skip", 600, 512, 50,
             1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
             new AgentBuildSummaryResponse(Guid.NewGuid(), "Queued", 2, DateTimeOffset.UtcNow,
                 null, null, false, null));

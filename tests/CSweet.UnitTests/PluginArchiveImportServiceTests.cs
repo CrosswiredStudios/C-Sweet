@@ -78,7 +78,7 @@ public sealed class PluginArchiveImportServiceTests
         {
           "manifestVersion":"2.0", "kind":"agent", "id":"com.example.test", "name":"Test", "version":"1.0.0",
           "publisher":{"id":"com.example","name":"Example"},
-          "runtime":{"type":"dotnet-project","projectPath":"src/Test/Test.csproj","targetFramework":"net10.0","defaultActivationMode":"Manual","maximumConcurrentJobs":1},
+          "runtime":{"type":"dotnet-project","projectPath":"src/Test/Test.csproj","targetFramework":"net10.0","defaultActivationMode":"OnDemand","maximumConcurrentJobs":1},
           "protocol":{"minimumVersion":"2.0","maximumVersion":"2.x"},
           "catalog":{"role":{"key":"test-agent","name":"Test Agent"},"license":{"spdxId":"MIT"}},
           "provides":[], "requires":[], "events":{"subscribes":[]},

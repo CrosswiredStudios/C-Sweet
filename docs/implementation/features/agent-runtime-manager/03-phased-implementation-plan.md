@@ -137,8 +137,8 @@ Install an approved import with bounded grants and a periodic schedule.
 3. Add `AgentSchedule` entity.
 4. Add activation mode enum:
    - `AlwaysOn`
-   - `Periodic`
-   - `Manual`
+   - `OnDemand`
+   - `Scheduled`
 5. Add overlap policy enum:
    - `Skip`
    - `Queue`
@@ -290,7 +290,7 @@ Start periodic ephemeral containers on their configured tick frequency.
 
 ### Tests
 
-- Unit test: due periodic schedule starts one runtime instance.
+- Unit test: due scheduled activation starts one runtime instance.
 - Unit test: running previous tick with `Skip` prevents overlap.
 - Unit test: concurrency limit prevents container start.
 - Unit test: completion event transitions instance to completed.
@@ -298,7 +298,7 @@ Start periodic ephemeral containers on their configured tick frequency.
 
 ### Acceptance criteria
 
-- Periodic agent starts at tick frequency.
+- Scheduled agent starts at tick frequency.
 - Agent can report completion through broker.
 - Container is stopped after completion.
 - Next tick is scheduled after completion.

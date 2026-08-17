@@ -16,6 +16,9 @@ public interface IAgentRuntimeManager
 
     Task<int> EnsureAlwaysOnRuntimesAsync(CancellationToken cancellationToken = default);
 
+    Task<int> EnsurePendingOnDemandRuntimesAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(0);
+
     Task<int> ProcessDueSchedulesAsync(CancellationToken cancellationToken = default);
     Task<int> ReconcileAsync(CancellationToken cancellationToken = default);
 }

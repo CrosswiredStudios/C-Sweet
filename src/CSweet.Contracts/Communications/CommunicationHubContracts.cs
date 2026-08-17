@@ -45,6 +45,9 @@ public sealed record CommunicationPersonResponse(
 public static class CommunicationPresenceStatuses
 {
     public const string Available = "Available";
+    public const string ReadyOnDemand = "ReadyOnDemand";
+    public const string Scheduled = "Scheduled";
+    public const string PendingActivation = "PendingActivation";
     public const string Starting = "Starting";
     public const string Unhealthy = "Unhealthy";
     public const string Offline = "Offline";

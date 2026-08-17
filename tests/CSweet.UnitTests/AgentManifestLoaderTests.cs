@@ -19,7 +19,7 @@ public class AgentManifestLoaderTests
                 "type": "dotnet-project",
                 "projectPath": "src/ResearchAgent/ResearchAgent.csproj",
                 "targetFramework": "net10.0",
-                "defaultActivationMode": "Periodic"
+                "defaultActivationMode": "Scheduled"
               },
               "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" }
             }
@@ -32,7 +32,7 @@ public class AgentManifestLoaderTests
             Assert.Equal("dotnet-project", manifest.Runtime.Type);
             Assert.Equal("src/ResearchAgent/ResearchAgent.csproj", manifest.Runtime.ProjectPath);
             Assert.Equal("net10.0", manifest.Runtime.TargetFramework);
-            Assert.Equal("Periodic", manifest.Runtime.DefaultActivationMode);
+            Assert.Equal("Scheduled", manifest.Runtime.DefaultActivationMode);
         }
         finally
         {

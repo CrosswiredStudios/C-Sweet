@@ -191,7 +191,7 @@ public sealed class AgentInstallationServiceTests
 
         var result = await service.UpdateScheduleAsync(
             installation.Id,
-            new UpdateAgentScheduleRequest("Periodic", 900, "Skip", 86_400, true));
+            new UpdateAgentScheduleRequest("Scheduled", 900, "Skip", 86_400, true));
 
         Assert.Equal(600, result.Schedule.MaxRuntimeSeconds);
         Assert.Equal(600, (await dbContext.AgentSchedules.SingleAsync()).MaxRuntimeSeconds);
@@ -215,7 +215,7 @@ public sealed class AgentInstallationServiceTests
     }
 
     [Fact]
-    public async Task InstallAsync_CreatesInstallationGrantAndPeriodicSchedule()
+    public async Task InstallAsync_CreatesInstallationGrantAndScheduledSchedule()
     {
         await using var dbContext = CreateDbContext();
         var package = await SeedAsync(dbContext);
@@ -225,7 +225,7 @@ public sealed class AgentInstallationServiceTests
         var result = await service.InstallAsync(package.Id, ValidRequest());
 
         Assert.True(result.IsEnabled);
-        Assert.Equal("Periodic", result.Schedule.ActivationMode);
+        Assert.Equal("Scheduled", result.Schedule.ActivationMode);
         Assert.True(result.Schedule.NextTickAt >= before);
         Assert.Single(await dbContext.AgentInstallations.ToListAsync());
         Assert.Single(await dbContext.AgentInstallationGrants.ToListAsync());
@@ -766,7 +766,7 @@ public sealed class AgentInstallationServiceTests
 
     private static InstallAgentRequest ValidRequest() => new(
         "default",
-        "Periodic",
+        "Scheduled",
         900,
         "Skip",
         ["research.execute.v1"],
@@ -787,7 +787,7 @@ public sealed class AgentInstallationServiceTests
         {
             Id = Guid.NewGuid(),
             EnableImportedAgents = true,
-            DefaultActivationMode = ActivationMode.Periodic,
+            DefaultActivationMode = ActivationMode.Scheduled,
             DefaultOverlapPolicy = OverlapPolicy.Skip,
             DefaultRestartPolicy = RestartPolicy.Never,
             MinimumTickFrequencySeconds = 300,

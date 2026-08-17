@@ -31,10 +31,6 @@ public sealed class AgentRuntimeManager(
         bool interactive = false,
         CancellationToken cancellationToken = default)
     {
-        var runtimeEligibility = await EvaluateEligibilityAsync(installationId, cancellationToken);
-        if (!runtimeEligibility.IsEligible)
-            throw new AgentInstallationException(runtimeEligibility.Reason ?? "The installation is not eligible to run.");
-
         var activeRuntime = await dbContext.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .OrderByDescending(x => x.QueuedAt)
@@ -45,7 +41,7 @@ public sealed class AgentRuntimeManager(
         var now = DateTimeOffset.UtcNow;
         if (activeRuntime is not null)
         {
-            if (interactive && activeRuntime.AgentInstallation?.Schedule?.ActivationMode != ActivationMode.AlwaysOn)
+            if (interactive && activeRuntime.AgentInstallation?.Schedule?.ActivationMode == ActivationMode.OnDemand)
             {
                 activeRuntime.IsInteractive = true;
                 activeRuntime.LastInteractiveActivityAt = now;
@@ -56,10 +52,16 @@ public sealed class AgentRuntimeManager(
             return false;
         }
 
+        var runtimeEligibility = await EvaluateEligibilityAsync(installationId, cancellationToken);
+        if (!runtimeEligibility.IsEligible)
+            throw new AgentInstallationException(runtimeEligibility.Reason ?? "The installation is not eligible to run.");
+
         var activationMode = await dbContext.AgentSchedules
             .Where(x => x.AgentInstallationId == installationId)
             .Select(x => x.ActivationMode)
             .SingleAsync(cancellationToken);
+        if (activationMode == ActivationMode.Scheduled)
+            return false;
         var instance = new AgentRuntimeInstance
         {
             Id = Guid.NewGuid(),
@@ -107,7 +109,7 @@ public sealed class AgentRuntimeManager(
                         x => x.AgentInstallationId == installationId &&
                             (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)),
                         cancellationToken);
-                if (winner.AgentInstallation?.Schedule?.ActivationMode != ActivationMode.AlwaysOn)
+                if (winner.AgentInstallation?.Schedule?.ActivationMode == ActivationMode.OnDemand)
                 {
                     winner.IsInteractive = true;
                     winner.LastInteractiveActivityAt = now;
@@ -186,6 +188,51 @@ public sealed class AgentRuntimeManager(
                     cancellationToken: cancellationToken))
             {
                 queued++;
+            }
+        }
+
+        return queued;
+    }
+
+    public async Task<int> EnsurePendingOnDemandRuntimesAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var installationIds = await dbContext.AgentInstallations
+            .AsNoTracking()
+            .Where(x => x.IsEnabled &&
+                x.Schedule != null &&
+                x.Schedule.IsEnabled &&
+                x.Schedule.ActivationMode == ActivationMode.OnDemand &&
+                dbContext.AgentWorkItems.Any(work =>
+                    work.AgentInstallationId == x.Id &&
+                    work.Status == AgentWorkStatus.Pending &&
+                    work.AvailableAt <= now &&
+                    work.DeadlineAt > now) &&
+                !x.RuntimeInstances.Any(runtime =>
+                    runtime.Status == AgentRuntimeStatus.Queued ||
+                    WorkloadActiveStatuses.Contains(runtime.Status)))
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        var queued = 0;
+        foreach (var installationId in installationIds)
+        {
+            try
+            {
+                if (await EnsureRuntimeQueuedAsync(
+                        installationId,
+                        "Queued because durable on-demand work is pending.",
+                        interactive: true,
+                        cancellationToken))
+                {
+                    queued++;
+                }
+            }
+            catch (AgentInstallationException exception)
+            {
+                logger.LogDebug(exception,
+                    "On-demand installation {InstallationId} is waiting for runtime capacity.",
+                    installationId);
             }
         }
 
@@ -464,7 +511,7 @@ public sealed class AgentRuntimeManager(
         schedule.RunRequestedAt = null;
         schedule.NextTickAt = schedule.ActivationMode switch
         {
-            ActivationMode.Periodic => now.AddSeconds(schedule.TickFrequencySeconds),
+            ActivationMode.Scheduled => now.AddSeconds(schedule.TickFrequencySeconds),
             ActivationMode.AlwaysOn => null,
             _ => null
         };
@@ -477,7 +524,7 @@ public sealed class AgentRuntimeManager(
             tickOutcome = "skipped";
             // Always-on reconciliation may queue the runtime immediately before its initial
             // schedule tick is claimed. That is startup coordination, not a failed run worth
-            // surfacing in runtime history. Periodic overlap skips remain recorded.
+            // surfacing in runtime history. Scheduled overlap skips remain recorded.
             if (schedule.ActivationMode != ActivationMode.AlwaysOn)
             {
                 AddTerminalInstance(schedule.AgentInstallationId, AgentRuntimeStatus.Skipped, now, "Skipped because a prior runtime is active.");

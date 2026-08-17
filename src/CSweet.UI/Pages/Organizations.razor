@@ -415,7 +415,7 @@
     private bool RuntimeApprovalRequired => _agentPreview is not null &&
         (_runtimeSettings?.EnableImportedAgents != true ||
          (string.Equals(ActivationMode, "AlwaysOn", StringComparison.OrdinalIgnoreCase) && _runtimeSettings?.AllowAlwaysOnCommunityAgents != true));
-    private string ActivationMode => _agentPreview?.DefaultActivationMode ?? _runtimeSettings?.DefaultActivationMode ?? "Periodic";
+    private string ActivationMode => _agentPreview?.DefaultActivationMode ?? _runtimeSettings?.DefaultActivationMode ?? "OnDemand";
     private bool CanCreateBusiness => _agentPreview is not null && _agentApproved && !string.IsNullOrWhiteSpace(_chiefDisplayName) &&
         (_agentPreview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _allPublicWebApproved) &&
         (!RuntimeApprovalRequired || _runtimeApproved) &&

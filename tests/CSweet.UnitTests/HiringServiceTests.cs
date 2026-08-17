@@ -1162,7 +1162,7 @@ public sealed class HiringServiceTests
             return new AgentDefinitionResponse(
                 DefinitionId, PackageVersionId, "com.csweet.product-manager", "C-Sweet Product Manager", "1.0.0",
                 "C-Sweet", new string('a', 40), status.ToString(), IsAvailableForHire,
-                Request?.ActivationMode ?? "Manual", Request?.TickFrequencySeconds ?? 300,
+                Request?.ActivationMode ?? "OnDemand", Request?.TickFrequencySeconds ?? 300,
                 Request?.OverlapPolicy ?? "Skip", Request?.MaxRuntimeSeconds ?? 86_400,
                 Request?.MemoryMb ?? 1024, Request?.CpuPercent ?? 100, 1, now, now,
                 new AgentBuildSummaryResponse(Guid.NewGuid(), buildStatus.ToString(), 1, now, now,

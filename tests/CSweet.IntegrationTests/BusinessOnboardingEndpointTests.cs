@@ -141,7 +141,7 @@ public class BusinessOnboardingEndpointTests
         {
             Id = Guid.NewGuid(), PackageSourceId = package.PackageSourceId, AgentId = package.AgentId,
             PackageVersionId = package.Id, PackageVersion = package, Status = AgentDefinitionStatus.Available,
-            IsAvailableForHire = true, DefaultActivationMode = ActivationMode.Manual,
+            IsAvailableForHire = true, DefaultActivationMode = ActivationMode.OnDemand,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
         };
         definition.Configuration = new AgentDefinitionConfiguration

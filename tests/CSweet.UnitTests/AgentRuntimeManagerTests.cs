@@ -18,6 +18,9 @@ public sealed class AgentRuntimeManagerTests
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
+        await db.SaveChangesAsync();
         var containers = new FakeRunner();
         var manager = CreateManager(db, containers);
         var interactive = new AgentInteractiveRuntimeService(db, manager);
@@ -57,6 +60,8 @@ public sealed class AgentRuntimeManagerTests
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
         var failed = new AgentRuntimeInstance
         {
             Id = Guid.NewGuid(),
@@ -77,6 +82,21 @@ public sealed class AgentRuntimeManagerTests
         Assert.NotEqual(failed.Id, readiness.RuntimeInstanceId);
         Assert.Single(containers.Starts);
         Assert.Equal(2, await db.AgentRuntimeInstances.CountAsync());
+    }
+
+    [Fact]
+    public async Task ScheduledActivation_DefersInteractiveRequestsUntilScheduleIsDue()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        var manager = CreateManager(db, new FakeRunner());
+
+        Assert.False(await manager.EnsureRuntimeQueuedAsync(
+            installation.Id,
+            "Direct message received.",
+            interactive: true));
+        Assert.Equal(0, await manager.ProcessDueSchedulesAsync());
+        Assert.Empty(await db.AgentRuntimeInstances.ToListAsync());
     }
 
     [Fact]
@@ -147,6 +167,31 @@ public sealed class AgentRuntimeManagerTests
         await manager.ReconcileAsync();
 
         Assert.Single(containers.Starts);
+        Assert.Single(await db.AgentRuntimeInstances.ToListAsync());
+    }
+
+    [Fact]
+    public async Task OnDemandReconciliation_QueuesRuntimeForDurablePendingWork()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
+        var now = DateTimeOffset.UtcNow;
+        db.AgentWorkItems.Add(new AgentWorkItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = installation.BusinessId,
+            AgentInstallationId = installation.Id, Kind = AgentWorkKind.Event,
+            Name = "test.event", ProtectedPayload = [1], PayloadHash = "hash",
+            CorrelationId = Guid.NewGuid().ToString("N"), IdempotencyKey = "test-event",
+            Status = AgentWorkStatus.Pending, AvailableAt = now.AddSeconds(-1),
+            DeadlineAt = now.AddHours(1), CreatedAt = now
+        });
+        await db.SaveChangesAsync();
+        var manager = CreateManager(db, new FakeRunner());
+
+        Assert.Equal(1, await manager.EnsurePendingOnDemandRuntimesAsync());
+        Assert.Equal(0, await manager.EnsurePendingOnDemandRuntimesAsync());
         Assert.Single(await db.AgentRuntimeInstances.ToListAsync());
     }
 
@@ -254,6 +299,9 @@ public sealed class AgentRuntimeManagerTests
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
+        await db.SaveChangesAsync();
         var containers = new FakeRunner();
         var manager = CreateManager(db, containers);
         await new AgentInteractiveRuntimeService(db, manager).EnsureReadyAsync(installation.Id);
@@ -281,6 +329,9 @@ public sealed class AgentRuntimeManagerTests
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
+        await db.SaveChangesAsync();
         var containers = new FakeRunner();
         var manager = CreateManager(db, containers);
         await new AgentInteractiveRuntimeService(db, manager).EnsureReadyAsync(installation.Id);
@@ -303,7 +354,7 @@ public sealed class AgentRuntimeManagerTests
     }
 
     [Fact]
-    public async Task DuePeriodicSchedule_StartsOneRuntimeAndSchedulesNextTick()
+    public async Task DueScheduledActivation_StartsOneRuntimeAndSchedulesNextTick()
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db);
@@ -635,6 +686,8 @@ public sealed class AgentRuntimeManagerTests
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
         var stoppedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
         var runtime = RunningInstance(installation.Id);
         runtime.ProviderInstanceId = "missing-container";
@@ -666,6 +719,8 @@ public sealed class AgentRuntimeManagerTests
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
         var startedAt = DateTimeOffset.UtcNow.AddMinutes(-2);
         var runtime = new AgentRuntimeInstance
         {
@@ -700,6 +755,9 @@ public sealed class AgentRuntimeManagerTests
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
+        await db.SaveChangesAsync();
         var containers = new FakeRunner();
         var manager = CreateManager(db, containers);
         await manager.EnsureRuntimeQueuedAsync(installation.Id, "Interactive request.", interactive: true);
@@ -729,6 +787,8 @@ public sealed class AgentRuntimeManagerTests
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
         var current = RunningInstance(installation.Id);
         current.ProviderInstanceId = "old-container";
         current.IsolationProviderId = "test-vm";
@@ -775,6 +835,8 @@ public sealed class AgentRuntimeManagerTests
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
         installation.SetupState = PluginSetupState.Ready;
         installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.Refreshing;
         installation.DesiredConfigurationRevision = 2;
@@ -868,7 +930,7 @@ public sealed class AgentRuntimeManagerTests
         var package = new AgentPackageVersion { Id = Guid.NewGuid(), PackageSourceId = Guid.NewGuid(), CommitSha = new string('a', 40), ManifestDigest = new string('b', 64), ManifestJson = "{}", AgentId = "com.example.agent", AgentName = "Agent", Version = "1.0.0", PublisherId = "example", PublisherName = "Example", RuntimeType = "dotnet-project", ProjectPath = "src/Example.Agent.csproj", WarningsJson = "[]", Status = AgentPackageVersionStatus.Built, PackagePath = "artifact:agent", PackageDigest = new string('c', 64), ArtifactSignature = "test-signature", ImportedAt = DateTimeOffset.UtcNow };
         var installation = new AgentInstallation { Id = Guid.NewGuid(), PackageVersionId = package.Id, BusinessId = businessId, IsEnabled = true, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, PackageVersion = package };
         installation.Grant = new AgentInstallationGrant { Id = Guid.NewGuid(), AgentInstallationId = installation.Id, MemoryMb = 512, CpuPercent = 50, MaxRuntimeSeconds = 60, ApprovedAt = DateTimeOffset.UtcNow };
-        installation.Schedule = new AgentSchedule { Id = Guid.NewGuid(), AgentInstallationId = installation.Id, ActivationMode = ActivationMode.Periodic, TickFrequencySeconds = 300, NextTickAt = due ? DateTimeOffset.UtcNow.AddSeconds(-1) : DateTimeOffset.UtcNow.AddHours(1), MaxRuntimeSeconds = 60, OverlapPolicy = OverlapPolicy.Skip, IsEnabled = true };
+        installation.Schedule = new AgentSchedule { Id = Guid.NewGuid(), AgentInstallationId = installation.Id, ActivationMode = ActivationMode.Scheduled, TickFrequencySeconds = 300, NextTickAt = due ? DateTimeOffset.UtcNow.AddSeconds(-1) : DateTimeOffset.UtcNow.AddHours(1), MaxRuntimeSeconds = 60, OverlapPolicy = OverlapPolicy.Skip, IsEnabled = true };
         db.AgentInstallations.Add(installation);
         await db.SaveChangesAsync();
         return installation;

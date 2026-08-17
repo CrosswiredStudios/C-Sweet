@@ -13,7 +13,7 @@ public sealed class AgentDefinition
     public AgentDefinitionStatus Status { get; set; } = AgentDefinitionStatus.Building;
     public bool IsAvailableForHire { get; set; }
 
-    public ActivationMode DefaultActivationMode { get; set; } = ActivationMode.Manual;
+    public ActivationMode DefaultActivationMode { get; set; } = ActivationMode.OnDemand;
     public int DefaultTickFrequencySeconds { get; set; }
     public OverlapPolicy DefaultOverlapPolicy { get; set; } = OverlapPolicy.Skip;
     public int DefaultMaxRuntimeSeconds { get; set; }

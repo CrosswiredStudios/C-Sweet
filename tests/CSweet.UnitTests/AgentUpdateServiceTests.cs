@@ -76,7 +76,7 @@ public sealed class AgentUpdateServiceTests
         "dotnet-project",
         "src/ResearchAgent/ResearchAgent.csproj",
         "net10.0",
-        "Periodic",
+        "Scheduled",
         [], [], [], [], [], [],
         "Previewed");
 

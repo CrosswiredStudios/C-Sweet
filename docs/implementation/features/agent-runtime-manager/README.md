@@ -55,7 +55,7 @@ Use this plan together with
 ## Definition of done
 
 - Always-on agents can be started, stopped, and observed.
-- Periodic agents can be scheduled by tick frequency.
+- Scheduled agents run only when their configured tick is due; OnDemand agents wake for durable subscribed work.
 - Each tick creates at most one active runtime instance per installation unless configured
   otherwise.
 - Ephemeral containers stop after completion, timeout, cancellation, or failure.

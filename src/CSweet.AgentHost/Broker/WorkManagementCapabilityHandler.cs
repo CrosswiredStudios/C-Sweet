@@ -115,6 +115,11 @@ public sealed class WorkManagementCapabilityHandler(
                     await CreateItemAsync(
                         session, organizationId, installation,
                         Read<Wire.CreateWorkItemRequest>(request), cancellationToken)),
+                WorkItemActions.FinalizeDelivery => Success(
+                    request.RequestId,
+                    await FinalizeItemDeliveryAsync(
+                        session, organizationId, installation,
+                        Read<Wire.FinalizeWorkItemDeliveryRequest>(request), cancellationToken)),
                 WorkItemActions.Comment => Success(
                     request.RequestId,
                     await CommentItemAsync(
@@ -1247,8 +1252,11 @@ public sealed class WorkManagementCapabilityHandler(
                 x.BoardId == board.Id, cancellationToken))
             throw new ArgumentException("The parent work item must belong to the same board.");
         var executable = kind is not (WorkItemKind.Initiative or WorkItemKind.Epic);
-        if (executable && !input.AccountableOrganizationUserId.HasValue)
-            throw new ArgumentException("Executable work items require an accountable organization user.");
+        var deliveryReady = executable && input.Delivery is not null;
+        if (executable && input.Planning is null && input.Delivery is null)
+            throw new ArgumentException("Executable work items require a planning or delivery specification.");
+        if (deliveryReady && !input.AccountableOrganizationUserId.HasValue)
+            throw new ArgumentException("Delivery-ready work items require an accountable organization user.");
         if (input.AccountableOrganizationUserId.HasValue && !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
                 x.Id == input.AccountableOrganizationUserId && x.OrganizationId == organizationId && x.IsActive,
                 cancellationToken))
@@ -1257,10 +1265,14 @@ public sealed class WorkManagementCapabilityHandler(
         var policyStages = publishedRevisionId.HasValue
             ? board.OrchestrationPolicies.Single().Revisions.Single(x => x.Id == publishedRevisionId.Value).Stages.ToList()
             : [];
-        ValidateStageAssignments(executable, policyStages, input.StageAssignments);
+        ValidateStageAssignments(deliveryReady, policyStages, input.StageAssignments);
+        if (input.Planning is not null &&
+            (input.Planning.Requirements.Count == 0 || input.Planning.AcceptanceCriteria.Count == 0))
+            throw new ArgumentException("The planning specification is incomplete.");
         if (input.Delivery is not null)
         {
             if (input.Delivery.RepositoryId == Guid.Empty ||
+                string.IsNullOrWhiteSpace(input.Delivery.BaseBranch) ||
                 input.Delivery.Requirements.Count == 0 ||
                 input.Delivery.AcceptanceCriteria.Count == 0)
                 throw new ArgumentException("The delivery specification is incomplete.");
@@ -1298,6 +1310,9 @@ public sealed class WorkManagementCapabilityHandler(
                 .Where(x => x.BoardColumnId == column.Id)
                 .MaxAsync(x => (long?)x.BoardRank, cancellationToken) ?? 0) + 1024,
             DueDate = input.DueDate,
+            PlanningSpecificationJson = input.Planning is null
+                ? null
+                : JsonSerializer.Serialize(input.Planning, JsonOptions),
             DeliverySpecificationJson = input.Delivery is null
                 ? null
                 : JsonSerializer.Serialize(input.Delivery, JsonOptions),
@@ -1318,9 +1333,15 @@ public sealed class WorkManagementCapabilityHandler(
                 AgentInstallationId = assignment.AgentInstallationId,
                 PlatformAction = assignment.PlatformAction, CreatedAt = now
             });
-        if (input.Delivery is not null)
+        var dependencyIds = input.Planning?.DependencyItemIds ?? input.Delivery?.DependencyItemIds ?? [];
+        if (dependencyIds.Count > 0)
         {
-            foreach (var dependencyId in input.Delivery.DependencyItemIds.Distinct())
+            var dependencyCount = await db.CoreWorkTasks.CountAsync(x =>
+                x.OrganizationId == organizationId && x.BoardId == board.Id &&
+                dependencyIds.Contains(x.Id), cancellationToken);
+            if (dependencyCount != dependencyIds.Distinct().Count())
+                throw new ArgumentException("Every planning dependency must already exist on the same board.");
+            foreach (var dependencyId in dependencyIds.Distinct())
                 db.WorkItemDependencies.Add(new WorkItemDependency
                 {
                     WorkItemId = item.Id,
@@ -1342,6 +1363,109 @@ public sealed class WorkManagementCapabilityHandler(
         await WriteAuditAsync(
             organizationId, installation.Id, board.Id, WorkItemActions.Create, grant,
             new { boardId = board.Id, itemId = item.Id, item.Kind, input.IdempotencyKey },
+            cancellationToken, session);
+        return result;
+    }
+
+    private async Task<Wire.WorkItem> FinalizeItemDeliveryAsync(
+        AgentSession session,
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.FinalizeWorkItemDeliveryRequest input,
+        CancellationToken cancellationToken)
+    {
+        var grant = await RequireAsync(
+            organizationId, installation.Id, WorkItemActions.FinalizeDelivery,
+            input.BoardId, cancellationToken);
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        var replay = await ReplayAsync<Wire.WorkItem>(
+            installation.Id, WorkItemActions.FinalizeDelivery,
+            input.IdempotencyKey, cancellationToken);
+        if (replay is not null) return replay;
+
+        var board = await db.WorkBoards
+            .Include(x => x.OrchestrationPolicies).ThenInclude(x => x.Revisions).ThenInclude(x => x.Stages)
+            .SingleOrDefaultAsync(x => x.Id == input.BoardId &&
+                                       x.OrganizationId == organizationId &&
+                                       x.ArchivedAt == null, cancellationToken)
+            ?? throw new KeyNotFoundException("Board was not found.");
+        var item = await db.CoreWorkTasks
+            .Include(x => x.StageAssignments)
+            .SingleOrDefaultAsync(x => x.Id == input.ItemId &&
+                                       x.BoardId == input.BoardId &&
+                                       x.OrganizationId == organizationId,
+                cancellationToken)
+            ?? throw new KeyNotFoundException("Work item was not found.");
+        if (item.Kind is WorkItemKind.Initiative or WorkItemKind.Epic)
+            throw new ArgumentException("Initiatives and epics do not have executable delivery specifications.");
+        if (item.Revision != input.ExpectedRevision)
+            throw new DbUpdateConcurrencyException("The work item changed before delivery finalization.");
+        var planning = DeserializeJson<Wire.WorkItemPlanningSpecification>(
+            item.PlanningSpecificationJson)
+            ?? throw new InvalidOperationException("The work item has no planning specification to finalize.");
+        if (input.Delivery.RepositoryId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(input.Delivery.BaseBranch) ||
+            input.Delivery.Requirements.Count == 0 ||
+            input.Delivery.AcceptanceCriteria.Count == 0)
+            throw new ArgumentException("Repository, base branch, requirements, and acceptance criteria are required.");
+        if (!planning.Requirements.SequenceEqual(input.Delivery.Requirements, StringComparer.Ordinal) ||
+            !planning.AcceptanceCriteria.SequenceEqual(input.Delivery.AcceptanceCriteria, StringComparer.Ordinal) ||
+            !(planning.Constraints ?? []).SequenceEqual(input.Delivery.Constraints ?? [], StringComparer.Ordinal) ||
+            !planning.DependencyItemIds.Order().SequenceEqual(input.Delivery.DependencyItemIds.Order()))
+            throw new ArgumentException("Delivery finalization must preserve the approved planning requirements, acceptance criteria, constraints, and dependencies.");
+        if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.Id == input.AccountableOrganizationUserId &&
+                x.OrganizationId == organizationId && x.IsActive, cancellationToken))
+            throw new ArgumentException("The accountable organization user is not active.");
+
+        var publishedRevisionId = board.OrchestrationPolicies.SingleOrDefault()?.PublishedRevisionId
+            ?? throw new InvalidOperationException(
+                "Publish an orchestration policy before finalizing executable work.");
+        var policyStages = board.OrchestrationPolicies.Single().Revisions
+            .Single(x => x.Id == publishedRevisionId).Stages.ToList();
+        ValidateStageAssignments(true, policyStages, input.StageAssignments);
+
+        item.AccountableOrganizationUserId = input.AccountableOrganizationUserId;
+        item.DeliverySpecificationJson = JsonSerializer.Serialize(input.Delivery, JsonOptions);
+        item.IsQaTrackingDefect = input.Delivery.IsQaTrackingDefect;
+        item.Revision++;
+        item.UpdatedAt = DateTimeOffset.UtcNow;
+        db.WorkItemStageAssignments.RemoveRange(item.StageAssignments);
+        item.StageAssignments.Clear();
+        foreach (var assignment in input.StageAssignments)
+        {
+            var entity = new WorkItemStageAssignment
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, BoardId = board.Id,
+                WorkItemId = item.Id, StageKey = assignment.StageKey,
+                PrincipalKind = Enum.Parse<WorkOrchestrationPrincipalKind>(assignment.PrincipalKind, true),
+                OrganizationUserId = assignment.OrganizationUserId,
+                AgentInstallationId = assignment.AgentInstallationId,
+                PlatformAction = assignment.PlatformAction,
+                CreatedAt = item.UpdatedAt
+            };
+            item.StageAssignments.Add(entity);
+            db.Entry(entity).State = EntityState.Added;
+        }
+
+        var result = ToAgentItem(item);
+        AddActivity(
+            organizationId, board.Id, item.Id, installation.Id,
+            string.IsNullOrWhiteSpace(session.AgentId) ? "Agent" : session.AgentId,
+            WorkItemActions.FinalizeDelivery, "item.delivery.finalized", grant,
+            new { input.Delivery.RepositoryId, input.Delivery.BaseBranch }, item.UpdatedAt);
+        AddReceipt(
+            organizationId, installation.Id, WorkItemActions.FinalizeDelivery,
+            input.IdempotencyKey, item.Id, result);
+        await QueueRealtimeAsync(
+            organizationId, board.Id, item.Id, "item.delivery.finalized",
+            item.Revision, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await WriteAuditAsync(
+            organizationId, installation.Id, board.Id,
+            WorkItemActions.FinalizeDelivery, grant,
+            new { boardId = board.Id, itemId = item.Id, input.Delivery.RepositoryId,
+                  input.Delivery.BaseBranch, input.IdempotencyKey },
             cancellationToken, session);
         return result;
     }
@@ -2150,6 +2274,8 @@ public sealed class WorkManagementCapabilityHandler(
         null,
         DeserializeDevelopmentBrief(item.DevelopmentBriefJson))
     {
+        Planning = DeserializeJson<Wire.WorkItemPlanningSpecification>(
+            item.PlanningSpecificationJson),
         Quality = DeserializeJson<Wire.SoftwareQualityBrief>(item.QualityBriefJson),
         Delivery = DeserializeJson<Wire.WorkItemDeliverySpecification>(
             item.DeliverySpecificationJson),

@@ -691,8 +691,8 @@
                             <div class="agent-import-form-grid">
                                 <MudSelect T="string" Label="Activation mode" @bind-Value="_installActivationMode" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
                                     <MudSelectItem T="string" Value="@("AlwaysOn")">Always On</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("Periodic")">Periodic</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("Manual")">Manual</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("OnDemand")">On demand</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("Scheduled")">Scheduled</MudSelectItem>
                                 </MudSelect>
                                 <MudNumericField T="int" Label="Tick frequency (seconds)" @bind-Value="_installTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
                                 <MudSelect T="string" Label="Overlap policy" @bind-Value="_installOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
@@ -747,8 +747,8 @@
             <MudText Color="Color.Secondary">@_scheduleInstallation?.AgentName</MudText>
             <MudSelect T="string" Label="Activation mode" @bind-Value="_scheduleActivationMode" Variant="Variant.Outlined" Disabled="@_isManagingInstallation">
                 <MudSelectItem T="string" Value="@("AlwaysOn")">Always On</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Periodic")">Periodic</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Manual")">Manual</MudSelectItem>
+                <MudSelectItem T="string" Value="@("OnDemand")">On demand</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Scheduled")">Scheduled</MudSelectItem>
             </MudSelect>
             <MudNumericField T="int" Label="Tick frequency (seconds)" @bind-Value="_scheduleTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Variant="Variant.Outlined" Disabled="@_isManagingInstallation" />
             <MudSelect T="string" Label="Overlap policy" @bind-Value="_scheduleOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isManagingInstallation">
@@ -966,7 +966,7 @@
     private AgentImportPreviewResponse? _importPreview;
     private int _importTabIndex;
     private string _installBusinessId = "default";
-    private string _installActivationMode = "Periodic";
+    private string _installActivationMode = "OnDemand";
     private int _installTickFrequencySeconds = 3600;
     private string _installOverlapPolicy = "Skip";
     private int _installMaxRuntimeSeconds = 600;
@@ -982,7 +982,7 @@
     private readonly DialogOptions _scheduleDialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
     private bool _scheduleDialogOpen;
     private AgentInstallationResponse? _scheduleInstallation;
-    private string _scheduleActivationMode = "Periodic";
+    private string _scheduleActivationMode = "OnDemand";
     private int _scheduleTickFrequencySeconds = 3600;
     private string _scheduleOverlapPolicy = "Skip";
     private int _scheduleMaxRuntimeSeconds = 600;
@@ -1237,7 +1237,7 @@
     {
         _importTabIndex = preview.ConfigurationFields.Any(field => !field.Secret) ? 2 : 0;
         _installBusinessId = "default";
-        _installActivationMode = preview.DefaultActivationMode ?? _runtimeSettings?.DefaultActivationMode ?? "Periodic";
+        _installActivationMode = preview.DefaultActivationMode ?? _runtimeSettings?.DefaultActivationMode ?? "OnDemand";
         _installTickFrequencySeconds = _runtimeSettings?.DefaultTickFrequencySeconds ?? 3600;
         _installOverlapPolicy = _runtimeSettings?.DefaultOverlapPolicy ?? "Skip";
         _installMaxRuntimeSeconds = _runtimeSettings?.DefaultMaxRuntimeSeconds ?? 600;

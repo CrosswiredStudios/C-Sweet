@@ -47,6 +47,8 @@ public class AgentRuntimeSettingsServiceTests
     [Theory]
     [InlineData("invalid")]
     [InlineData("999")]
+    [InlineData("Manual")]
+    [InlineData("Periodic")]
     public async Task UpdateAsync_RejectsInvalidActivationMode(string activationMode)
     {
         await using var dbContext = CreateDbContext();
@@ -61,7 +63,7 @@ public class AgentRuntimeSettingsServiceTests
 
         Assert.False(result.Succeeded);
         Assert.Contains("activation mode is invalid", result.Message);
-        Assert.Equal(ActivationMode.Periodic, settings.DefaultActivationMode);
+        Assert.Equal(ActivationMode.OnDemand, settings.DefaultActivationMode);
     }
 
     [Fact]
@@ -114,7 +116,7 @@ public class AgentRuntimeSettingsServiceTests
         return new AgentRuntimeGlobalSettings
         {
             Id = Guid.NewGuid(),
-            DefaultActivationMode = ActivationMode.Periodic,
+            DefaultActivationMode = ActivationMode.OnDemand,
             DefaultOverlapPolicy = OverlapPolicy.Skip,
             DefaultRestartPolicy = RestartPolicy.Never,
             UpdatedAt = DateTimeOffset.UtcNow

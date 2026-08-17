@@ -57,10 +57,24 @@ public sealed class AgentPlatformEventDispatcher(
                 var deliveries = routing.DeliveryCount;
                 foreach (var recipientInstallationId in routing.RecipientInstallationIds)
                 {
-                    await runtimeManager.EnsureRuntimeQueuedAsync(
-                        recipientInstallationId,
-                        $"Received platform event {item.EventType} ({item.Id:D}).",
-                        cancellationToken: cancellationToken);
+                    try
+                    {
+                        await runtimeManager.EnsureRuntimeQueuedAsync(
+                            recipientInstallationId,
+                            $"Received platform event {item.EventType} ({item.Id:D}).",
+                            interactive: true,
+                            cancellationToken: cancellationToken);
+                    }
+                    catch (Exception exception) when (
+                        exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                    {
+                        // Inbox persistence is the delivery boundary. Capacity and other temporary
+                        // runtime-start conditions are reconciled independently from durable delivery.
+                        logger.LogInformation(exception,
+                            "Delivered platform event {EventId} to installation {InstallationId}; runtime activation remains pending.",
+                            item.Id,
+                            recipientInstallationId);
+                    }
                 }
                 if (item.EventType == PersonalTodoEvents.Available && deliveries == 0)
                 {

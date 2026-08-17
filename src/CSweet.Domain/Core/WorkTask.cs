@@ -33,6 +33,7 @@ public sealed class WorkTask
     public long? IdentifierSequence { get; set; }
     public string? Identifier { get; set; }
     public string? DevelopmentBriefJson { get; set; }
+    public string? PlanningSpecificationJson { get; set; }
     public string? DeliverySpecificationJson { get; set; }
     public string? QualityBriefJson { get; set; }
     public bool IsQaTrackingDefect { get; set; }
