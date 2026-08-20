@@ -134,6 +134,7 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<IApplicationRealtimePublisher, SignalRApplicationRealtimePublisher>();
 builder.Services.AddHostedService<ApplicationRealtimeOutboxWorker>();
 builder.Services.AddHostedService<WorkOrchestrationWorker>();
+builder.Services.AddHostedService<AgentHireOperationWorker>();
 
 var app = builder.Build();
 app.UseForwardedHeaders();

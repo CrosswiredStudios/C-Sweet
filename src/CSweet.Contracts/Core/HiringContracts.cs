@@ -147,6 +147,40 @@ public sealed record ConfirmHiringWorkflowRequest(
         new Dictionary<string, JsonElement>(StringComparer.Ordinal);
 }
 
+public static class AgentHireOperationStatuses
+{
+    public const string Starting = "Starting";
+    public const string Queued = "Queued";
+    public const string Building = "Building";
+    public const string CompletingHire = "CompletingHire";
+    public const string Succeeded = "Succeeded";
+    public const string NeedsSetup = "NeedsSetup";
+    public const string Failed = "Failed";
+    public const string AwaitingConfirmation = "AwaitingConfirmation";
+
+    public static bool IsActive(string status) => status is Starting or Queued or Building or CompletingHire;
+    public static bool IsTerminal(string status) => status is Succeeded or NeedsSetup or Failed;
+}
+
+public sealed record AgentHireOperationResponse(
+    Guid Id,
+    Guid WorkflowId,
+    Guid OrganizationId,
+    Guid? AgentDefinitionId,
+    string AgentName,
+    string EmployeeDisplayName,
+    string Status,
+    string Phase,
+    string Detail,
+    int CompletedBuildSteps,
+    int TotalBuildSteps,
+    Guid? ResultOrganizationUserId,
+    Guid? ResultAgentInstallationId,
+    bool RequiresSetup,
+    string? ActionUri,
+    string? Error,
+    DateTimeOffset UpdatedAt);
+
 public static class HiringWorkflowDecisionKinds
 {
     public const string Approve = "Approve";

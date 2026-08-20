@@ -14,7 +14,7 @@ public interface IAgentHireOrchestrator
         PreviewMarketplaceHireRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<HiringWorkflowResponse?> ConfirmAsync(
+    Task<AgentHireOperationResponse?> ConfirmAsync(
         Guid organizationId,
         Guid workflowId,
         Guid applicationUserId,

@@ -9,10 +9,8 @@
 @using CSweet.Domain.Core
 @using ContractAgentConfigurationFieldTypes = CSweet.Contracts.Agents.AgentConfigurationFieldTypes
 @inject HttpClient Http
-@inject IAgentApiClient AgentApi
 @inject ILlmProviderApiClient LlmProviderApi
-@inject NavigationManager Navigation
-@implements IAsyncDisposable
+@inject AgentHireOperationState HireOperations
 
 <PageTitle>Agent Catalog - C-Sweet</PageTitle>
 
@@ -389,11 +387,9 @@
     private IReadOnlyList<LlmProviderProfileResponse> _providers = [];
     private IReadOnlyList<string> _models = [];
     private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
-    private readonly CancellationTokenSource _disposeCts = new();
     private bool _loadingModels;
     private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = false };
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
-    private static readonly TimeSpan AgentBuildTimeout = TimeSpan.FromMinutes(30);
     private bool HasMissingRequiredConfiguration =>
         _preview?.ConfigurationFields
             .Where(configField => configField.Required)
@@ -551,50 +547,25 @@
                 await LoadPreviewAsync();
                 if (_preview is null) return;
             }
-            CSweet.Contracts.Core.HiringWorkflowResponse? completed;
-            while (true)
+            var preview = _preview;
+            var request = new ConfirmHiringWorkflowRequest($"marketplace-confirm:{preview.WorkflowId:D}")
             {
-                var response = await Http.PostAsJsonAsync(
-                    $"api/core/organizations/{OrganizationId:D}/hiring/workflows/{_preview.WorkflowId:D}/confirm",
-                    new ConfirmHiringWorkflowRequest($"marketplace-confirm:{_preview.WorkflowId:D}")
-                    {
-                        ConfigurationSettings = _configurationValues
-                            .Where(pair => pair.Value is not null)
-                            .ToDictionary(
-                                pair => pair.Key,
-                                pair => JsonSerializer.SerializeToElement(pair.Value, SerializerOptions),
-                                StringComparer.Ordinal)
-                    },
-                    _disposeCts.Token);
-                if (response.IsSuccessStatusCode)
-                {
-                    completed = await response.Content.ReadFromJsonAsync<CSweet.Contracts.Core.HiringWorkflowResponse>(
-                        _disposeCts.Token);
-                    break;
-                }
-
-                var failure = await response.Content.ReadFromJsonAsync<MarketplaceApiError>(_disposeCts.Token);
-                if (!string.Equals(failure?.Error, "agent_build_pending", StringComparison.Ordinal) ||
-                    failure?.DefinitionId is not Guid definitionId)
-                {
-                    throw new InvalidOperationException(failure?.Message ?? "The hire could not be completed.");
-                }
-
-                var definition = await AgentApi.GetDefinitionAsync(definitionId, _disposeCts.Token)
-                    ?? throw new InvalidOperationException("The imported agent definition could not be found.");
-                await WaitForAgentDefinitionAsync(definition, _disposeCts.Token);
-            }
-            var destination = completed?.ResultAgentInstallationId is Guid installationId &&
-                              completed.ResultAgentRequiresSetup
-                ? $"/organizations/{OrganizationId:D}/plugin-setup/{installationId:D}"
-                : $"/organizations/{OrganizationId:D}/employees";
+                ConfigurationSettings = _configurationValues
+                    .Where(pair => pair.Value is not null)
+                    .ToDictionary(
+                        pair => pair.Key,
+                        pair => JsonSerializer.SerializeToElement(pair.Value, SerializerOptions),
+                        StringComparer.Ordinal)
+            };
+            HireOperations.Start(
+                OrganizationId,
+                preview.WorkflowId,
+                _selectedAgent?.Name ?? preview.EmployeeDisplayName,
+                preview.EmployeeDisplayName,
+                request);
             _reviewOpen = false;
             _preview = null;
             _selectedAgent = null;
-            Navigation.NavigateTo(destination);
-        }
-        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
-        {
         }
         catch (Exception exception)
         {
@@ -632,55 +603,6 @@
         _employeeDisplayName = string.Empty;
         _configurationValues.Clear();
         _models = [];
-    }
-
-    private async Task WaitForAgentDefinitionAsync(
-        AgentInstallationResponse definition,
-        CancellationToken cancellationToken)
-    {
-        var deadline = DateTimeOffset.UtcNow.Add(AgentBuildTimeout);
-        while (!definition.IsEnabled)
-        {
-            if (definition.Build?.Status is "Failed" or "Cancelled")
-            {
-                var failedStep = definition.Build.Steps?.FirstOrDefault(step =>
-                    step.Status is "Failed" or "Cancelled" || !string.IsNullOrWhiteSpace(step.Error));
-                throw new InvalidOperationException(failedStep?.Error ?? definition.Build.FailureMessage ??
-                    $"The {definition.AgentName} build did not complete.");
-            }
-
-            if (definition.Build?.Status == "Succeeded")
-                throw new InvalidOperationException(
-                    $"The {definition.AgentName} build completed, but its required defaults are incomplete.");
-
-            if (DateTimeOffset.UtcNow >= deadline)
-                throw new TimeoutException(
-                    $"The {definition.AgentName} build is still running. It will continue in the background; reopen the hire to resume automatically.");
-
-            _reviewStatus = AgentBuildStatusDetail(definition);
-            await InvokeAsync(StateHasChanged);
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
-            definition = await AgentApi.GetDefinitionAsync(definition.Id, cancellationToken)
-                ?? throw new InvalidOperationException("The imported agent definition could not be found.");
-        }
-
-        _reviewStatus = $"{definition.AgentName} is ready. Completing the hire…";
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private static string AgentBuildStatusDetail(AgentInstallationResponse definition)
-    {
-        var active = definition.Build?.Steps?.FirstOrDefault(step => step.Status == "InProgress");
-        if (active is not null)
-            return $"{active.Label}: {active.Detail}";
-
-        return definition.Build?.Status switch
-        {
-            "Queued" => $"{definition.AgentName} build queued…",
-            "Cloning" => $"Preparing {definition.AgentName} source…",
-            "Building" => $"Building {definition.AgentName}…",
-            _ => $"Preparing {definition.AgentName}…"
-        };
     }
 
     private void ToggleGrantDetails() => _grantDetailsOpen = !_grantDetailsOpen;
@@ -820,10 +742,4 @@
 
     private sealed record MarketplaceApiError(string? Error, string? Message, Guid? DefinitionId = null);
 
-    public ValueTask DisposeAsync()
-    {
-        _disposeCts.Cancel();
-        _disposeCts.Dispose();
-        return ValueTask.CompletedTask;
-    }
 }

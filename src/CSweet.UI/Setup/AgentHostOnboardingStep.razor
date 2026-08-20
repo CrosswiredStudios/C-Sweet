@@ -617,9 +617,16 @@
                     <div class="local-approval-explanation" role="alert">
                         <span class="host-error-icon"><MudIcon Icon="@Icons.Material.Outlined.SyncProblem" /></span>
                         <div>
-                            <strong>Existing Office found</strong>
+                            <strong>@(RemovalRetryRequired ? "Office removal needs attention" : "Existing Office found")</strong>
                             <p>@_localSession.Message</p>
-                            <small>Reassignment keeps the installed Office, creates a fresh Headquarters identity, and clears old trust and disposable caches. It proceeds only after Windows verifies that no assignments, authorized workloads, or Office-owned virtual machines remain.</small>
+                            @if (RemovalRetryRequired)
+                            {
+                                <small>Removal is idempotent. Retry it to finish deleting the remaining Office services, data, privileges, and Office-owned virtual machines.</small>
+                            }
+                            else
+                            {
+                                <small>Reassignment keeps the installed Office, creates a fresh Headquarters identity, and clears old trust and disposable caches. It proceeds only after Windows verifies that no assignments, authorized workloads, or Office-owned virtual machines remain.</small>
+                            }
                         </div>
                     </div>
                     <div class="local-install-actions">
@@ -634,14 +641,16 @@
                         <MudButton Variant="Variant.Outlined" Color="Color.Error"
                                    StartIcon="@Icons.Material.Outlined.DeleteForever"
                                    Disabled="@_busy" OnClick="RemoveLocalOfficeAsync">
-                            Remove Office
+                            @(RemovalRetryRequired ? "Retry removal" : "Remove Office")
                         </MudButton>
                     </div>
                     @if (!_localSession.RecoveryCanReconnect)
                     {
                         <div class="host-inline-notice warning">
                             <MudIcon Icon="@Icons.Material.Outlined.WarningAmber" />
-                            <span>Reassignment is blocked because active or untrusted local state remains. Removal permanently destroys orphaned work and Office-owned virtual machines.</span>
+                            <span>@(RemovalRetryRequired
+                                ? "Windows did not finish the previous removal. Retrying is safe; anything already removed stays removed."
+                                : "Reassignment is blocked because active or untrusted local state remains. Removal permanently destroys orphaned work and Office-owned virtual machines.")</span>
                         </div>
                     }
                 }
@@ -1036,6 +1045,8 @@
         _localApprovalRequested && ActiveLocalProvisioning is null && !LocalSetupStartStalled;
 
     private bool ShowLocalLaunchRetry => LocalSetupStartStalled;
+
+    private bool RemovalRetryRequired => _localSession?.ErrorCode == "office_removal_failed";
 
     private bool LocalSetupLocksLocation => _localSession is not null;
 

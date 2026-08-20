@@ -104,6 +104,9 @@ public sealed class OfficeSchemaRepairTests
         Assert.Contains("RecoveryCanReconnect", razor, StringComparison.Ordinal);
         Assert.Contains("no assignments or Office-owned virtual machines remain", razor, StringComparison.Ordinal);
         Assert.Contains("Remove Office", razor, StringComparison.Ordinal);
+        Assert.Contains("Retry removal", razor, StringComparison.Ordinal);
+        Assert.Contains("Removal is idempotent", razor, StringComparison.Ordinal);
+        Assert.Contains("office_removal_failed", razor, StringComparison.Ordinal);
         Assert.Contains("cannot be recovered", razor, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("SelectLocalOfficeRecoveryAsync", razor, StringComparison.Ordinal);
         var fleet = File.ReadAllText(Path.Combine(

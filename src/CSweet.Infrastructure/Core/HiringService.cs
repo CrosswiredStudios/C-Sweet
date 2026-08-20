@@ -5,7 +5,9 @@ using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
 using CSweet.Contracts.Core;
 using CSweet.Contracts.Plugins;
+using CSweet.Contracts.Realtime;
 using CSweet.Domain.Core;
+using CSweet.Domain.Notifications;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -25,7 +27,7 @@ public sealed class HiringService(
     ILocalAgentSourceArchiveService? localAgentArchives = null,
     IPluginArchiveImportService? archiveImport = null,
     IResourceChangeService? resourceChanges = null,
-    ITeamService? teams = null) : IHiringService, IAgentHireOrchestrator
+    ITeamService? teams = null) : IHiringService, IAgentHireOrchestrator, IAgentHireOperationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     // Retained only for binary/source compatibility with older composition roots; imports now use definitions.
@@ -549,13 +551,267 @@ public sealed class HiringService(
         CancellationToken cancellationToken) =>
         PreviewMarketplaceHireAsync(organizationId, applicationUserId, request, cancellationToken);
 
-    Task<HiringWorkflowResponse?> IAgentHireOrchestrator.ConfirmAsync(
+    Task<AgentHireOperationResponse?> IAgentHireOrchestrator.ConfirmAsync(
         Guid organizationId,
         Guid workflowId,
         Guid applicationUserId,
         ConfirmHiringWorkflowRequest request,
         CancellationToken cancellationToken) =>
-        ConfirmWorkflowAsync(organizationId, workflowId, applicationUserId, request, cancellationToken);
+        StartAsync(organizationId, workflowId, applicationUserId, request, cancellationToken);
+
+    public async Task<AgentHireOperationResponse?> StartAsync(
+        Guid organizationId,
+        Guid workflowId,
+        Guid applicationUserId,
+        ConfirmHiringWorkflowRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var owner = await RequireOwnerAsync(organizationId, applicationUserId, cancellationToken);
+        var existing = await db.AgentHireOperations.SingleOrDefaultAsync(
+            x => x.WorkflowId == workflowId && x.OrganizationId == organizationId,
+            cancellationToken);
+        if (existing is not null && existing.Status is not (AgentHireOperationStatus.AwaitingConfirmation or AgentHireOperationStatus.Failed))
+            return await ToOperationAsync(existing, cancellationToken);
+
+        try
+        {
+            var completed = await ConfirmWorkflowAsync(
+                organizationId, workflowId, applicationUserId, request, cancellationToken);
+            if (completed is null) return null;
+            var operation = existing ?? NewOperation(workflowId, organizationId, owner.Id);
+            operation.InitiatedByOrganizationUserId = owner.Id;
+            operation.Status = completed.ResultAgentRequiresSetup
+                ? AgentHireOperationStatus.NeedsSetup
+                : AgentHireOperationStatus.Succeeded;
+            operation.CompletedAt = DateTimeOffset.UtcNow;
+            operation.UpdatedAt = operation.CompletedAt.Value;
+            operation.Error = null;
+            if (existing is null) db.AgentHireOperations.Add(operation);
+            QueueOperationChanged(operation);
+            await db.SaveChangesAsync(cancellationToken);
+            return await ToOperationAsync(operation, cancellationToken);
+        }
+        catch (AgentDefinitionBuildPendingException pending)
+        {
+            var workflow = await db.StaffingActionProposals.SingleAsync(
+                x => x.Id == workflowId && x.OrganizationId == organizationId,
+                cancellationToken);
+            workflow.ApprovedByOrganizationUserId = owner.Id;
+            var operation = existing ?? NewOperation(workflowId, organizationId, owner.Id);
+            operation.InitiatedByOrganizationUserId = owner.Id;
+            operation.AgentDefinitionId = pending.DefinitionId;
+            operation.Status = AgentHireOperationStatus.Building;
+            operation.Error = null;
+            operation.DismissedAt = null;
+            operation.UpdatedAt = DateTimeOffset.UtcNow;
+            if (existing is null) db.AgentHireOperations.Add(operation);
+            QueueOperationChanged(operation);
+            await db.SaveChangesAsync(cancellationToken);
+            return await ToOperationAsync(operation, cancellationToken);
+        }
+    }
+
+    public async Task<IReadOnlyList<AgentHireOperationResponse>> ListForUserAsync(
+        Guid applicationUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var ownerIds = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.ApplicationUserId == applicationUserId && x.IsActive &&
+                        x.PermissionLevel == OrganizationPermissionLevel.Owner)
+            .Select(x => new { x.Id, x.OrganizationId })
+            .ToListAsync(cancellationToken);
+        if (ownerIds.Count == 0) return [];
+
+        await ReconcileInterruptedMarketplaceHiresAsync(ownerIds.Select(x => x.OrganizationId).ToHashSet(), cancellationToken);
+        var organizationIds = ownerIds.Select(x => x.OrganizationId).ToHashSet();
+        var actorIds = ownerIds.Select(x => x.Id).ToHashSet();
+        var operations = await db.AgentHireOperations.AsNoTracking()
+            .Where(x => organizationIds.Contains(x.OrganizationId) && x.DismissedAt == null &&
+                        (!x.InitiatedByOrganizationUserId.HasValue || actorIds.Contains(x.InitiatedByOrganizationUserId.Value)))
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var responses = new List<AgentHireOperationResponse>(operations.Count);
+        foreach (var operation in operations)
+            responses.Add(await ToOperationAsync(operation, cancellationToken));
+        return responses;
+    }
+
+    public async Task<AgentHireOperationResponse?> GetForUserAsync(
+        Guid operationId,
+        Guid applicationUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var operation = await AuthorizedOperationAsync(operationId, applicationUserId, cancellationToken);
+        return operation is null ? null : await ToOperationAsync(operation, cancellationToken);
+    }
+
+    public async Task<AgentHireOperationResponse?> RetryAsync(
+        Guid operationId,
+        Guid applicationUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var operation = await AuthorizedOperationAsync(operationId, applicationUserId, cancellationToken);
+        if (operation is null) return null;
+        if (operation.Status is not (AgentHireOperationStatus.Failed or AgentHireOperationStatus.AwaitingConfirmation))
+            throw new InvalidOperationException("Only failed or interrupted agent hires can be retried.");
+
+        var owner = await RequireOwnerAsync(operation.OrganizationId, applicationUserId, cancellationToken);
+        operation.InitiatedByOrganizationUserId = owner.Id;
+        operation.RetryCount++;
+        operation.Error = null;
+        operation.DismissedAt = null;
+        operation.CompletedAt = null;
+        operation.UpdatedAt = DateTimeOffset.UtcNow;
+        if (operation.AgentDefinitionId.HasValue && agentDefinitions is not null)
+        {
+            var definition = await agentDefinitions.GetAsync(operation.AgentDefinitionId.Value, cancellationToken);
+            if (definition?.Build?.Status is "Failed" or "Cancelled")
+                definition = await agentDefinitions.RetryBuildAsync(operation.AgentDefinitionId.Value, cancellationToken);
+            operation.Status = definition?.IsAvailableForHire == true
+                ? AgentHireOperationStatus.Queued
+                : AgentHireOperationStatus.Building;
+        }
+        else
+        {
+            operation.Status = AgentHireOperationStatus.Queued;
+        }
+        QueueOperationChanged(operation);
+        await db.SaveChangesAsync(cancellationToken);
+        return await ToOperationAsync(operation, cancellationToken);
+    }
+
+    public async Task<AgentHireOperationResponse?> DismissAsync(
+        Guid operationId,
+        Guid applicationUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var operation = await AuthorizedOperationAsync(operationId, applicationUserId, cancellationToken);
+        if (operation is null) return null;
+        if (operation.Status is not (AgentHireOperationStatus.Succeeded or AgentHireOperationStatus.NeedsSetup or AgentHireOperationStatus.Failed))
+            throw new InvalidOperationException("An active agent hire cannot be dismissed.");
+        operation.DismissedAt = DateTimeOffset.UtcNow;
+        operation.UpdatedAt = operation.DismissedAt.Value;
+        QueueOperationChanged(operation);
+        await db.SaveChangesAsync(cancellationToken);
+        return await ToOperationAsync(operation, cancellationToken);
+    }
+
+    public async Task<bool> ProcessNextAsync(string leaseOwner, CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var candidateId = await db.AgentHireOperations.AsNoTracking()
+            .Where(x => x.DismissedAt == null &&
+                        (x.Status == AgentHireOperationStatus.Queued ||
+                         x.Status == AgentHireOperationStatus.Building ||
+                         x.Status == AgentHireOperationStatus.CompletingHire) &&
+                        (!x.LeaseUntil.HasValue || x.LeaseUntil < now))
+            .OrderBy(x => x.CreatedAt)
+            .Select(x => (Guid?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (!candidateId.HasValue) return false;
+
+        AgentHireOperation? operation;
+        if (db.Database.IsRelational())
+        {
+            var claimed = await db.AgentHireOperations
+                .Where(x => x.Id == candidateId.Value && (!x.LeaseUntil.HasValue || x.LeaseUntil < now))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.LeaseOwner, leaseOwner)
+                    .SetProperty(x => x.LeaseUntil, now.AddMinutes(2)), cancellationToken);
+            if (claimed == 0) return true;
+            operation = await db.AgentHireOperations.SingleAsync(x => x.Id == candidateId.Value, cancellationToken);
+        }
+        else
+        {
+            operation = await db.AgentHireOperations.SingleAsync(x => x.Id == candidateId.Value, cancellationToken);
+            operation.LeaseOwner = leaseOwner;
+            operation.LeaseUntil = now.AddMinutes(2);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        var completedAtomically = false;
+        var originalStatus = operation.Status;
+        var originalError = operation.Error;
+        try
+        {
+            if (!operation.AgentDefinitionId.HasValue || agentDefinitions is null)
+                throw new InvalidOperationException("The imported agent definition could not be found.");
+            var definition = await agentDefinitions.GetAsync(operation.AgentDefinitionId.Value, cancellationToken)
+                ?? throw new InvalidOperationException("The imported agent definition could not be found.");
+            if (definition.Build?.Status is "Failed" or "Cancelled" || definition.Status == AgentDefinitionStatus.BuildFailed.ToString())
+            {
+                operation.Status = AgentHireOperationStatus.Failed;
+                operation.Error = BuildFailure(definition);
+                operation.CompletedAt = DateTimeOffset.UtcNow;
+            }
+            else if (!definition.IsAvailableForHire &&
+                     (definition.Build?.Status == "Succeeded" ||
+                      definition.Status == AgentDefinitionStatus.NeedsConfiguration.ToString()))
+            {
+                operation.Status = AgentHireOperationStatus.Failed;
+                operation.Error = $"The {definition.AgentName} build completed, but its required defaults are incomplete.";
+                operation.CompletedAt = DateTimeOffset.UtcNow;
+            }
+            else if (!definition.IsAvailableForHire)
+            {
+                operation.Status = AgentHireOperationStatus.Building;
+            }
+            else
+            {
+                await using var transaction = db.Database.IsRelational()
+                    ? await db.Database.BeginTransactionAsync(cancellationToken)
+                    : null;
+                operation.Status = AgentHireOperationStatus.CompletingHire;
+                operation.UpdatedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+                var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(
+                    x => x.Id == operation.InitiatedByOrganizationUserId && x.ApplicationUserId.HasValue,
+                    cancellationToken);
+                var completed = await ConfirmWorkflowAsync(
+                    operation.OrganizationId,
+                    operation.WorkflowId,
+                    owner.ApplicationUserId!.Value,
+                    new ConfirmHiringWorkflowRequest($"agent-hire-worker:{operation.Id:D}"),
+                    cancellationToken) ?? throw new InvalidOperationException("The hiring workflow no longer exists.");
+                operation.Status = completed.ResultAgentRequiresSetup
+                    ? AgentHireOperationStatus.NeedsSetup
+                    : AgentHireOperationStatus.Succeeded;
+                operation.Error = null;
+                operation.CompletedAt = DateTimeOffset.UtcNow;
+                operation.LeaseOwner = null;
+                operation.LeaseUntil = null;
+                operation.UpdatedAt = operation.CompletedAt.Value;
+                QueueOperationChanged(operation);
+                await db.SaveChangesAsync(cancellationToken);
+                if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+                completedAtomically = true;
+            }
+        }
+        catch (AgentDefinitionBuildPendingException pending)
+        {
+            operation.AgentDefinitionId = pending.DefinitionId;
+            operation.Status = AgentHireOperationStatus.Building;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            operation.Status = AgentHireOperationStatus.Failed;
+            operation.Error = Truncate(exception.Message, 2048);
+            operation.CompletedAt = DateTimeOffset.UtcNow;
+        }
+        finally
+        {
+            if (!completedAtomically)
+            {
+                operation.LeaseOwner = null;
+                operation.LeaseUntil = null;
+                operation.UpdatedAt = DateTimeOffset.UtcNow;
+                if (operation.Status != originalStatus || !string.Equals(operation.Error, originalError, StringComparison.Ordinal))
+                    QueueOperationChanged(operation);
+                await db.SaveChangesAsync(CancellationToken.None);
+            }
+        }
+        return true;
+    }
 
     public Task<HiringWorkflowResponse?> ConfirmWorkflowAsync(
         Guid organizationId,
@@ -927,6 +1183,11 @@ CompleteWorkflow:
         Guid applicationUserId,
         CancellationToken cancellationToken = default)
     {
+        if (await db.AgentHireOperations.AsNoTracking().AnyAsync(
+                x => x.WorkflowId == workflowId && x.OrganizationId == organizationId &&
+                     x.Status != AgentHireOperationStatus.AwaitingConfirmation,
+                cancellationToken))
+            throw new InvalidOperationException("An approved agent hire continues in the background and cannot be cancelled as a preview.");
         var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.ApplicationUserId == applicationUserId && x.IsActive,
             cancellationToken);
@@ -943,6 +1204,14 @@ CompleteWorkflow:
             workflow.DecidedByOrganizationUserId = owner.Id;
             workflow.DecisionComment = "Marketplace review cancelled.";
             workflow.DecidedAt = DateTimeOffset.UtcNow;
+            var interrupted = await db.AgentHireOperations.SingleOrDefaultAsync(
+                x => x.WorkflowId == workflowId && x.Status == AgentHireOperationStatus.AwaitingConfirmation,
+                cancellationToken);
+            if (interrupted is not null)
+            {
+                interrupted.DismissedAt = DateTimeOffset.UtcNow;
+                interrupted.UpdatedAt = interrupted.DismissedAt.Value;
+            }
             await db.SaveChangesAsync(cancellationToken);
         }
         return ToWorkflow(workflow);
@@ -1487,6 +1756,165 @@ CompleteWorkflow:
         if (requiredGrants.Except(preview.RequestedCapabilities, StringComparer.Ordinal).Any())
             throw new InvalidOperationException("The requested grant list contains capabilities not declared by the catalog agent.");
     }
+    private async Task<OrganizationUser> RequireOwnerAsync(
+        Guid organizationId,
+        Guid applicationUserId,
+        CancellationToken cancellationToken)
+    {
+        var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.ApplicationUserId == applicationUserId && x.IsActive,
+            cancellationToken);
+        if (owner?.PermissionLevel != OrganizationPermissionLevel.Owner)
+            throw new UnauthorizedAccessException("Only an organization owner may manage an agent hire.");
+        return owner;
+    }
+
+    private async Task<AgentHireOperation?> AuthorizedOperationAsync(
+        Guid operationId,
+        Guid applicationUserId,
+        CancellationToken cancellationToken)
+    {
+        var operation = await db.AgentHireOperations.SingleOrDefaultAsync(x => x.Id == operationId, cancellationToken);
+        if (operation is null) return null;
+        var owner = await RequireOwnerAsync(operation.OrganizationId, applicationUserId, cancellationToken);
+        if (operation.InitiatedByOrganizationUserId.HasValue && operation.InitiatedByOrganizationUserId != owner.Id)
+            throw new UnauthorizedAccessException("This agent hire belongs to a different organization owner.");
+        return operation;
+    }
+
+    private static AgentHireOperation NewOperation(Guid workflowId, Guid organizationId, Guid ownerId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new AgentHireOperation
+        {
+            Id = Guid.NewGuid(), WorkflowId = workflowId, OrganizationId = organizationId,
+            InitiatedByOrganizationUserId = ownerId, Status = AgentHireOperationStatus.Starting,
+            CreatedAt = now, UpdatedAt = now
+        };
+    }
+
+    private async Task<AgentHireOperationResponse> ToOperationAsync(
+        AgentHireOperation operation,
+        CancellationToken cancellationToken)
+    {
+        var workflow = await db.StaffingActionProposals.AsNoTracking()
+            .SingleAsync(x => x.Id == operation.WorkflowId, cancellationToken);
+        var snapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions);
+        AgentDefinitionResponse? definition = null;
+        if (operation.AgentDefinitionId.HasValue && agentDefinitions is not null)
+            definition = await agentDefinitions.GetAsync(operation.AgentDefinitionId.Value, cancellationToken);
+        var candidateName = "Agent";
+        var candidateGuid = ParseCandidateReference(workflow.CandidateId);
+        candidateName = await db.WorkforceCandidates.AsNoTracking()
+            .Where(x => x.Id == candidateGuid)
+            .Select(x => x.DisplayName)
+            .FirstOrDefaultAsync(cancellationToken) ?? candidateName;
+        var agentName = definition?.AgentName ?? candidateName;
+        var employeeName = snapshot is null ? agentName : ResolveEmployeeDisplayName(snapshot, agentName);
+        var steps = definition?.Build?.Steps ?? [];
+        var completedSteps = steps.Count(x => x.Status == AgentBuildStepStatuses.Succeeded);
+        var activeStep = steps.FirstOrDefault(x => x.Status == AgentBuildStepStatuses.InProgress);
+        var phase = operation.Status switch
+        {
+            AgentHireOperationStatus.Starting => "Starting hire",
+            AgentHireOperationStatus.Queued => "Hire queued",
+            AgentHireOperationStatus.Building => "Building agent",
+            AgentHireOperationStatus.CompletingHire => "Completing hire",
+            AgentHireOperationStatus.Succeeded => "Hire complete",
+            AgentHireOperationStatus.NeedsSetup => "Setup required",
+            AgentHireOperationStatus.Failed => "Hire failed",
+            _ => "Hire interrupted"
+        };
+        var detail = operation.Status switch
+        {
+            AgentHireOperationStatus.Building when activeStep is not null =>
+                string.IsNullOrWhiteSpace(activeStep.Detail) ? activeStep.Label : $"{activeStep.Label}: {activeStep.Detail}",
+            AgentHireOperationStatus.Building => definition?.Build?.Status switch
+            {
+                "Queued" => $"{agentName} build queued…",
+                "Cloning" => $"Preparing {agentName} source…",
+                _ => $"Building {agentName}…"
+            },
+            AgentHireOperationStatus.CompletingHire => $"Adding {employeeName} to the team…",
+            AgentHireOperationStatus.Succeeded => $"{employeeName} joined the team.",
+            AgentHireOperationStatus.NeedsSetup => $"{employeeName} joined the team and needs setup.",
+            AgentHireOperationStatus.Failed => operation.Error ?? "The agent hire could not be completed.",
+            AgentHireOperationStatus.AwaitingConfirmation => $"The previous {employeeName} hire was interrupted. Review it before continuing.",
+            _ => $"Preparing {employeeName}…"
+        };
+        var needsSetup = snapshot?.EmbeddedAgent?.NeedsSetup == true;
+        var installationId = snapshot?.EmbeddedAgent?.InstallationId;
+        var actionUri = operation.Status switch
+        {
+            AgentHireOperationStatus.NeedsSetup when installationId.HasValue =>
+                $"/organizations/{operation.OrganizationId:D}/plugin-setup/{installationId:D}",
+            AgentHireOperationStatus.Succeeded => $"/organizations/{operation.OrganizationId:D}/employees",
+            _ when operation.AgentDefinitionId.HasValue => $"/settings/agents?definitionId={operation.AgentDefinitionId:D}",
+            _ => $"/organizations/{operation.OrganizationId:D}/employees"
+        };
+        return new AgentHireOperationResponse(
+            operation.Id, operation.WorkflowId, operation.OrganizationId, operation.AgentDefinitionId,
+            agentName, employeeName, operation.Status.ToString(), phase, detail,
+            completedSteps, steps.Count, workflow.ResultOrganizationUserId, installationId,
+            needsSetup, actionUri, operation.Error, operation.UpdatedAt);
+    }
+
+    private async Task ReconcileInterruptedMarketplaceHiresAsync(
+        IReadOnlySet<Guid> organizationIds,
+        CancellationToken cancellationToken)
+    {
+        var existingWorkflowIds = await db.AgentHireOperations.AsNoTracking()
+            .Select(x => x.WorkflowId).ToHashSetAsync(cancellationToken);
+        var candidates = await db.StaffingActionProposals
+            .Where(x => organizationIds.Contains(x.OrganizationId) &&
+                        x.ActionType == "marketplace-install-and-hire" &&
+                        x.Status == ProposalStatus.Pending &&
+                        !existingWorkflowIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var workflow in candidates)
+        {
+            var snapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions);
+            if (snapshot?.EmbeddedAgent?.DefinitionId is not Guid definitionId) continue;
+            db.AgentHireOperations.Add(new AgentHireOperation
+            {
+                Id = Guid.NewGuid(), WorkflowId = workflow.Id, OrganizationId = workflow.OrganizationId,
+                AgentDefinitionId = definitionId, Status = AgentHireOperationStatus.AwaitingConfirmation,
+                CreatedAt = now, UpdatedAt = now
+            });
+        }
+        if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private void QueueOperationChanged(AgentHireOperation operation)
+    {
+        if (!operation.InitiatedByOrganizationUserId.HasValue) return;
+        var now = DateTimeOffset.UtcNow;
+        db.ApplicationRealtimeOutbox.Add(new ApplicationRealtimeOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = operation.OrganizationId,
+            RecipientOrganizationUserId = operation.InitiatedByOrganizationUserId,
+            EventType = AppRealtimeEvents.AgentHireOperationChanged,
+            Subject = $"organizations/{operation.OrganizationId:D}/agent-hires/{operation.Id:D}",
+            DataJson = JsonSerializer.Serialize(
+                new AgentHireOperationChangedEvent(operation.Id, operation.OrganizationId, operation.Status.ToString()),
+                JsonOptions),
+            Status = ApplicationRealtimeOutboxStatus.Pending,
+            NextAttemptAt = now, OccurredAt = now
+        });
+    }
+
+    private static string BuildFailure(AgentDefinitionResponse definition)
+    {
+        var failedStep = definition.Build?.Steps?.FirstOrDefault(x =>
+            x.Status is AgentBuildStepStatuses.Failed or AgentBuildStepStatuses.Cancelled ||
+            !string.IsNullOrWhiteSpace(x.Error));
+        return failedStep?.Error ?? definition.Build?.FailureMessage ?? $"The {definition.AgentName} build did not complete.";
+    }
+
+    private static string Truncate(string value, int maximum) =>
+        value.Length <= maximum ? value : value[..maximum];
+
     private static string Required(string? value, int maximum, string name)
     {
         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException($"{name} is required.");

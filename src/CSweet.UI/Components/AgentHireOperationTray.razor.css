@@ -1,0 +1,44 @@
+.agent-hire-tray {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    z-index: 1400;
+    display: grid;
+    width: min(25rem, calc(100vw - 2rem));
+    gap: .75rem;
+}
+
+.agent-hire-toast {
+    display: grid;
+    gap: .65rem;
+    padding: 1rem;
+    border: 1px solid var(--mud-palette-lines-default);
+}
+
+.agent-hire-toast-success {
+    animation: agent-hire-success-fade 8s ease-in forwards;
+}
+
+@keyframes agent-hire-success-fade {
+    0%, 92% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(.5rem); }
+}
+
+.agent-hire-toast-header {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+}
+
+.agent-hire-toast-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: .5rem;
+}
+
+@media (max-width: 600px) {
+    .agent-hire-tray {
+        right: 1rem;
+        bottom: 1rem;
+    }
+}

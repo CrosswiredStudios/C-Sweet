@@ -26,3 +26,4 @@ docker/volumes/
 /.tmp
 /artifacts
 /.artifacts
+/.artifacts

@@ -264,6 +264,36 @@ public sealed class StaffingActionProposal
     public DateTimeOffset? DecidedAt { get; set; }
 }
 
+public enum AgentHireOperationStatus
+{
+    Starting,
+    Queued,
+    Building,
+    CompletingHire,
+    Succeeded,
+    NeedsSetup,
+    Failed,
+    AwaitingConfirmation
+}
+
+public sealed class AgentHireOperation
+{
+    public Guid Id { get; set; }
+    public Guid WorkflowId { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid? InitiatedByOrganizationUserId { get; set; }
+    public Guid? AgentDefinitionId { get; set; }
+    public AgentHireOperationStatus Status { get; set; } = AgentHireOperationStatus.Starting;
+    public string? Error { get; set; }
+    public int RetryCount { get; set; }
+    public string? LeaseOwner { get; set; }
+    public DateTimeOffset? LeaseUntil { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+    public DateTimeOffset? DismissedAt { get; set; }
+}
+
 public sealed class Responsibility
 {
     public Guid Id { get; set; }

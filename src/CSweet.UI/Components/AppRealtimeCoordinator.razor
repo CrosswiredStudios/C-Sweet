@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject AppRealtimeState Realtime
 @inject CommunicationUnreadState Unread
+@inject AgentHireOperationState AgentHires
 @inject IBusinessContext Businesses
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
@@ -26,6 +27,7 @@
         _started = true;
         await Businesses.InitializeAsync();
         await Unread.InitializeAsync();
+        await AgentHires.InitializeAsync();
         if (!_disposeToken.IsCancellationRequested)
         {
             _ = ConnectWithRetryAsync(_disposeToken);

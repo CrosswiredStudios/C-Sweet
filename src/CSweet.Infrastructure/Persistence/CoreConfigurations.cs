@@ -2,6 +2,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Communications;
 using CSweet.Infrastructure.Auth;
 using CSweet.Domain.Notifications;
+using CSweet.Domain.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -291,6 +292,20 @@ internal static class CoreConfigurations
             entity.Property(x => x.PayloadJson).HasColumnType("jsonb"); entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
             entity.Property(x => x.DecisionComment).HasMaxLength(2048);
             entity.HasIndex(x => x.ConversationMessageId).IsUnique().HasFilter("\"ConversationMessageId\" IS NOT NULL");
+        });
+        modelBuilder.Entity<AgentHireOperation>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.WorkflowId).IsUnique();
+            entity.HasIndex(x => new { x.Status, x.LeaseUntil });
+            entity.HasIndex(x => new { x.InitiatedByOrganizationUserId, x.DismissedAt });
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Error).HasMaxLength(2048);
+            entity.Property(x => x.LeaseOwner).HasMaxLength(160);
+            entity.HasOne<StaffingActionProposal>().WithOne().HasForeignKey<AgentHireOperation>(x => x.WorkflowId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<AgentDefinition>().WithMany().HasForeignKey(x => x.AgentDefinitionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
         modelBuilder.Entity<Responsibility>(entity =>
         {

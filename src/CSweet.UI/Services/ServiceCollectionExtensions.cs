@@ -21,6 +21,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuthenticationApiClient, AuthenticationApiClient>();
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<CommunicationUnreadState>();
+        services.AddScoped<AgentHireOperationState>();
 
         return services;
     }

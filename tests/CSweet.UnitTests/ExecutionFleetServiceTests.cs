@@ -411,6 +411,60 @@ public sealed class ExecutionFleetServiceTests
     }
 
     [Fact]
+    public async Task AssistedLocalSetup_RemovalFailureBecomesRetryableAndRehydratesLegacyFailedSession()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["CSweet:ExecutionGateway:PublicUrl"] = "https://office.example.test/",
+                ["CSweet:ExecutionGateway:PublicCertificateSha256"] = new string('a', 64)
+            }).Build();
+        var capacity = LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 100L << 30, true);
+        var fleet = CreateFleet(db, clock, configuration, capacityProbe: new FixedCapacityProbe(capacity));
+        var selected = capacity.Presets.Single(x => x.Key == "balanced");
+        var userId = Guid.NewGuid();
+        var created = await fleet.CreateLocalSetupSessionAsync(
+            new("balanced", selected.CpuCount, selected.MemoryMb, selected.DiskMb), userId);
+        var initialUri = new Uri(Assert.IsType<string>(created.Session?.LaunchUri));
+        var initialHandoff = Uri.UnescapeDataString(initialUri.Fragment["#handoff=".Length..]);
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            .ToString().ToLowerInvariant();
+        await fleet.PreflightLocalSetupSessionAsync(new(initialHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0", "active"));
+        var removal = await fleet.SelectLocalSetupRecoveryAsync(created.Session!.Id, userId, new("remove"));
+        var removalUri = new Uri(Assert.IsType<string>(removal.Session?.LaunchUri));
+        var removalHandoff = Uri.UnescapeDataString(removalUri.Fragment["#handoff=".Length..]);
+        var removalPreflight = await fleet.PreflightLocalSetupSessionAsync(new(removalHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0", "active"));
+
+        Assert.True(await fleet.ReportLocalSetupResultAsync(new(created.Session.Id,
+            Assert.IsType<string>(removalPreflight.SetupReceipt), "office_removal_failed",
+            Environment.MachineName, "windows", architecture)));
+        var persisted = await db.LocalOfficeSetupSessions.SingleAsync();
+        Assert.Equal(LocalOfficeSetupSessionStatus.RecoveryRequired, persisted.Status);
+        Assert.Equal("none", persisted.RecoveryAction);
+        Assert.False(persisted.RecoveryCanReconnect);
+        Assert.Null(persisted.SetupReceiptHash);
+
+        // Sessions written by the launcher version that produced the original dead end are upgraded on read.
+        persisted.Status = LocalOfficeSetupSessionStatus.Failed;
+        await db.SaveChangesAsync();
+        var restored = await fleet.GetActiveLocalSetupSessionAsync(userId);
+        Assert.Equal("recoveryrequired", restored.Session?.State);
+        Assert.Equal("office_removal_failed", restored.Session?.ErrorCode);
+        Assert.False(restored.Session?.RecoveryCanReconnect);
+
+        var retry = await fleet.SelectLocalSetupRecoveryAsync(created.Session.Id, userId, new("remove"));
+        Assert.True(retry.Succeeded);
+        var retryUri = new Uri(Assert.IsType<string>(retry.Session?.LaunchUri));
+        var retryHandoff = Uri.UnescapeDataString(retryUri.Fragment["#handoff=".Length..]);
+        Assert.NotEqual(removalHandoff, retryHandoff);
+    }
+
+    [Fact]
     public async Task AssistedLocalSetup_AlreadyRemovedOfficeContinuesDirectlyIntoInstallation()
     {
         await using var db = CreateDb();

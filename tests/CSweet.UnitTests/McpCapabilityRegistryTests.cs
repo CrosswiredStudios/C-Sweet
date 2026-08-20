@@ -133,6 +133,37 @@ public sealed class McpCapabilityRegistryTests
     }
 
     [Fact]
+    public void CreateWorkItemSchema_AcceptsTypedProvisionalPlanningRequest()
+    {
+        var registry = new McpToolCatalog([]);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([WorkItemCapabilities.Create], StringComparer.Ordinal)));
+        var request = new CreateWorkItemRequest(
+            Guid.NewGuid(),
+            "Implement the core driving loop",
+            "A provisional story with no dates, estimates, repository, or assignment.",
+            WorkItemKinds.Story,
+            WorkPriorities.High,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            null,
+            "provisional-driving-loop")
+        {
+            Planning = new WorkItemPlanningSpecification(
+                ["The player can accelerate, brake, and steer."],
+                ["Input changes vehicle motion within one rendered frame."],
+                ["Keep the input pipeline deterministic."])
+            {
+                DependencyItemIds = [Guid.NewGuid()]
+            }
+        };
+
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            tool.InputSchema);
+    }
+
+    [Fact]
     public void ListWorkBoardsSchema_AcceptsTypedArrayResponse()
     {
         var registry = new McpToolCatalog([]);

@@ -446,14 +446,45 @@ public sealed class ExecutionFleetService(
             .Where(x => x.CreatedByUserId == createdByUserId &&
                 (x.Status == LocalOfficeSetupSessionStatus.Created ||
                  x.Status == LocalOfficeSetupSessionStatus.Redeemed ||
-                 x.Status == LocalOfficeSetupSessionStatus.Connected ||
-                 x.Status == LocalOfficeSetupSessionStatus.RecoveryRequired ||
-                 x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress ||
-                 x.Status == LocalOfficeSetupSessionStatus.Ready))
+                  x.Status == LocalOfficeSetupSessionStatus.Connected ||
+                  x.Status == LocalOfficeSetupSessionStatus.RecoveryRequired ||
+                  x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress ||
+                  x.Status == LocalOfficeSetupSessionStatus.Ready ||
+                  x.Status == LocalOfficeSetupSessionStatus.Failed &&
+                  x.ErrorCode == "office_removal_failed"))
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
+        if (session is { Status: LocalOfficeSetupSessionStatus.Failed, ErrorCode: "office_removal_failed" })
+        {
+            // Older launchers persisted removal failures as terminal. Rehydrate those sessions so an
+            // administrator can safely retry the idempotent removal without clearing Headquarters again.
+            session.Status = LocalOfficeSetupSessionStatus.RecoveryRequired;
+            session.RecoveryAction = "none";
+            session.RecoveryCanReconnect = false;
+            session.ExpiresAt = now.Add(AssistedRecoveryLifetime);
+            session.UpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
         var mapped = session is null ? null : Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
             DevelopmentLauncherConfigured ? "server" : "protocol");
+        if (session is not null && mapped?.State == "recoveryrequired" &&
+            session.Status != LocalOfficeSetupSessionStatus.RecoveryRequired)
+        {
+            // The local progress file can reach Headquarters even when its result callback cannot.
+            // Persist the recovery state before returning it so the recovery action endpoint agrees with the UI.
+            session.Status = LocalOfficeSetupSessionStatus.RecoveryRequired;
+            session.RecoveryAction = "none";
+            session.RecoveryCanReconnect = mapped.RecoveryCanReconnect;
+            session.SetupReceiptHash = null;
+            session.ExecutionNodeEnrollmentId = null;
+            session.ErrorCode = mapped.ErrorCode;
+            session.ErrorMessage = mapped.ErrorMessage ?? mapped.Message;
+            session.ExpiresAt = now.Add(AssistedRecoveryLifetime);
+            session.UpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            mapped = Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
+                DevelopmentLauncherConfigured ? "server" : "protocol");
+        }
         if (session is not null && mapped?.State == "failed")
         {
             session.Status = LocalOfficeSetupSessionStatus.Failed;
@@ -712,7 +743,8 @@ public sealed class ExecutionFleetService(
         session.ErrorCode = resultCode;
         session.ErrorMessage = RecoveryMessage(resultCode);
         session.UpdatedAt = now;
-        if (resultCode is "existing_office_detected" or "existing_office_active" or "reconnect_unsafe")
+        if (resultCode is "existing_office_detected" or "existing_office_active" or "reconnect_unsafe" or
+            "office_removal_failed")
         {
             session.Status = LocalOfficeSetupSessionStatus.RecoveryRequired;
             session.RecoveryAction = "none";
@@ -1606,7 +1638,8 @@ public sealed class ExecutionFleetService(
         var effectiveErrorMessage = session.ErrorMessage;
         var effectiveRecoveryCanReconnect = session.RecoveryCanReconnect;
         var windowsProgress = ReadWindowsSetupProgress(session.Id);
-        if (windowsProgress is { } progress && status != LocalOfficeSetupSessionStatus.Ready)
+        if (windowsProgress is { } progress && status != LocalOfficeSetupSessionStatus.Ready &&
+            progress.ObservedAt >= session.UpdatedAt)
         {
             phaseKey = progress.PhaseKey;
             phaseName = progress.PhaseDisplayName;
@@ -1621,11 +1654,14 @@ public sealed class ExecutionFleetService(
                 if (effectiveErrorCode is "existing_office_detected" or "existing_office_active" or
                     "reconnect_unsafe" or "office_removal_failed" or "office_setup_failed")
                     effectiveErrorMessage = RecoveryMessage(effectiveErrorCode);
-                if (effectiveErrorCode is "existing_office_detected" or "existing_office_active" or "reconnect_unsafe")
+                if (effectiveErrorCode is "existing_office_detected" or "existing_office_active" or
+                    "reconnect_unsafe" or "office_removal_failed")
                 {
                     status = LocalOfficeSetupSessionStatus.RecoveryRequired;
                     phaseKey = "recovery";
-                    phaseName = "Existing Office found";
+                    phaseName = effectiveErrorCode == "office_removal_failed"
+                        ? "Office removal needs attention"
+                        : "Existing Office found";
                     effectiveRecoveryCanReconnect = effectiveErrorCode == "existing_office_detected";
                 }
                 else

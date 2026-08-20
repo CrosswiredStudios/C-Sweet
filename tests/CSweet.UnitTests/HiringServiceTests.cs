@@ -488,27 +488,29 @@ public sealed class HiringServiceTests
                 ChatTurnId = origin.ChatTurnId
             });
 
-        var pending = await Assert.ThrowsAsync<AgentDefinitionBuildPendingException>(() => service.ConfirmWorkflowAsync(
+        var pending = await service.StartAsync(
             organizationId,
             workflow.Id,
             applicationUserId,
-            new("approve-product-manager")));
-        Assert.Equal(definitions.DefinitionId, pending.DefinitionId);
+            new("approve-product-manager"));
+        Assert.Equal(AgentHireOperationStatuses.Building, pending?.Status);
+        Assert.Equal(definitions.DefinitionId, pending?.AgentDefinitionId);
         Assert.Equal(0, organizationUsers.CreateCount);
+        Assert.Single(await service.ListForUserAsync(applicationUserId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.DismissAsync(pending!.Id, applicationUserId));
 
         definitions.CompleteBuild();
-        var approved = await service.ConfirmWorkflowAsync(
-            organizationId,
-            workflow.Id,
-            applicationUserId,
-            new("approve-product-manager-after-build"));
-        var duplicate = await service.ConfirmWorkflowAsync(
+        Assert.True(await service.ProcessNextAsync("unit-test-worker"));
+        Assert.False(await service.ProcessNextAsync("competing-unit-test-worker"));
+        var approved = await service.GetForUserAsync(pending!.Id, applicationUserId);
+        var duplicate = await service.StartAsync(
             organizationId,
             workflow.Id,
             applicationUserId,
             new("approve-product-manager-retry"));
 
-        Assert.Equal("Approved", approved?.Status);
+        Assert.Equal(AgentHireOperationStatuses.Succeeded, approved?.Status);
         Assert.Equal(approved, duplicate);
         Assert.Equal(3, preview.Requests.Count);
         Assert.Equal(repositoryUrl, preview.Requests[0].RepositoryUrl);
@@ -520,6 +522,9 @@ public sealed class HiringServiceTests
         Assert.Equal(definitions.DefinitionId, organizationUsers.CreatedRequest?.AgentDefinitionId);
         Assert.Equal(0, installations.InstallCount);
         Assert.Equal("C-Sweet Product Manager", organizationUsers.CreatedRequest?.DisplayName);
+        Assert.Equal(1, organizationUsers.CreateCount);
+        await service.DismissAsync(approved!.Id, applicationUserId);
+        Assert.Empty(await service.ListForUserAsync(applicationUserId));
     }
 
     [Fact]
@@ -803,10 +808,9 @@ public sealed class HiringServiceTests
             new("marketplace-confirm-retry"));
 
         Assert.Equal("Pending", preview.Status);
-        Assert.Equal("Approved", confirmed?.Status);
+        Assert.Equal(AgentHireOperationStatuses.Succeeded, confirmed?.Status);
         Assert.Equal(confirmed, duplicate);
-        Assert.Equal(Guid.Empty, confirmed?.RecommendationId);
-        Assert.False(confirmed?.ResultAgentRequiresSetup);
+        Assert.False(confirmed?.RequiresSetup);
         Assert.Equal(2, import.Requests.Count);
         Assert.Equal(3, preview.ConfigurationFields.Count);
         var tone = preview.ConfigurationFields.Single(field => field.Key == "responseTone");
@@ -920,7 +924,7 @@ public sealed class HiringServiceTests
 
         Assert.Equal("C-Sweet Product Manager", preview.AgentName);
         Assert.Equal("Riley", preview.EmployeeDisplayName);
-        Assert.Equal("Approved", confirmed?.Status);
+        Assert.Equal(AgentHireOperationStatuses.Succeeded, confirmed?.Status);
         Assert.Equal(confirmed, duplicate);
         Assert.Equal("Riley", organizationUsers.CreatedRequest?.DisplayName);
         Assert.Equal(installationId, organizationUsers.CreatedRequest?.AgentInstallationId);

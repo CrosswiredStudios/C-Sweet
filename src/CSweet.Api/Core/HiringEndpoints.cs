@@ -108,7 +108,11 @@ public static class HiringEndpoints
             {
                 var result = await service.ConfirmAsync(organizationId, workflowId,
                     applicationUserId.Value, request, cancellationToken);
-                return result is null ? Results.NotFound() : Results.Ok(result);
+                if (result is null) return Results.NotFound();
+                return AgentHireOperationStatuses.IsActive(result.Status) ||
+                       result.Status == AgentHireOperationStatuses.AwaitingConfirmation
+                    ? Results.Accepted($"/api/core/hiring/operations/{result.Id:D}", result)
+                    : Results.Ok(result);
             }
             catch (UnauthorizedAccessException exception)
             {
@@ -191,6 +195,90 @@ public static class HiringEndpoints
             {
                 return Results.Json(new { error = "owner_required", message = exception.Message },
                     statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "hire_already_started", message = exception.Message });
+            }
+        });
+
+        endpoints.MapGet("/api/core/hiring/operations", async (
+            HttpContext http,
+            IAgentHireOperationService service,
+            CancellationToken cancellationToken) =>
+        {
+            var applicationUserId = http.User.GetApplicationUserId();
+            return applicationUserId.HasValue
+                ? Results.Ok(await service.ListForUserAsync(applicationUserId.Value, cancellationToken))
+                : Results.Forbid();
+        });
+
+        endpoints.MapGet("/api/core/hiring/operations/{operationId:guid}", async (
+            Guid operationId,
+            HttpContext http,
+            IAgentHireOperationService service,
+            CancellationToken cancellationToken) =>
+        {
+            var applicationUserId = http.User.GetApplicationUserId();
+            if (!applicationUserId.HasValue) return Results.Forbid();
+            try
+            {
+                var operation = await service.GetForUserAsync(operationId, applicationUserId.Value, cancellationToken);
+                return operation is null ? Results.NotFound() : Results.Ok(operation);
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                return Results.Json(new { error = "owner_required", message = exception.Message },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+        });
+
+        endpoints.MapPost("/api/core/hiring/operations/{operationId:guid}/retry", async (
+            Guid operationId,
+            HttpContext http,
+            IAgentHireOperationService service,
+            CancellationToken cancellationToken) =>
+        {
+            var applicationUserId = http.User.GetApplicationUserId();
+            if (!applicationUserId.HasValue) return Results.Forbid();
+            try
+            {
+                var operation = await service.RetryAsync(operationId, applicationUserId.Value, cancellationToken);
+                return operation is null ? Results.NotFound() : Results.Accepted(
+                    $"/api/core/hiring/operations/{operation.Id:D}", operation);
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                return Results.Json(new { error = "owner_required", message = exception.Message },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "operation_not_retryable", message = exception.Message });
+            }
+        });
+
+        endpoints.MapPost("/api/core/hiring/operations/{operationId:guid}/dismiss", async (
+            Guid operationId,
+            HttpContext http,
+            IAgentHireOperationService service,
+            CancellationToken cancellationToken) =>
+        {
+            var applicationUserId = http.User.GetApplicationUserId();
+            if (!applicationUserId.HasValue) return Results.Forbid();
+            try
+            {
+                var operation = await service.DismissAsync(operationId, applicationUserId.Value, cancellationToken);
+                return operation is null ? Results.NotFound() : Results.Ok(operation);
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                return Results.Json(new { error = "owner_required", message = exception.Message },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "operation_active", message = exception.Message });
             }
         });
         return endpoints;
