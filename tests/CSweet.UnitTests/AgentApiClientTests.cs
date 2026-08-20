@@ -9,6 +9,64 @@ namespace CSweet.UnitTests;
 public sealed class AgentApiClientTests
 {
     [Fact]
+    public async Task CheckDefinitionUpdatesAsync_UsesTheGlobalDefinitionRoute()
+    {
+        HttpRequestMessage? captured = null;
+        var handler = new StubHandler(request =>
+        {
+            captured = request;
+            return JsonResponse(Array.Empty<AgentDefinitionUpdateAvailabilityResponse>());
+        });
+        var client = new AgentApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://csweet.test/") });
+
+        await client.CheckDefinitionUpdatesAsync();
+
+        Assert.Equal(HttpMethod.Post, captured?.Method);
+        Assert.Equal("/api/agents/definitions/check-updates", captured?.RequestUri?.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task UpdateDefinitionAsync_UsesTheGlobalDefinitionRoute()
+    {
+        var definitionId = Guid.NewGuid();
+        HttpRequestMessage? captured = null;
+        var response = DefinitionResponse(definitionId, "1.1.0");
+        var handler = new StubHandler(request =>
+        {
+            captured = request;
+            return JsonResponse(response);
+        });
+        var client = new AgentApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://csweet.test/") });
+
+        var result = await client.UpdateDefinitionAsync(
+            definitionId, new UpdateAgentDefinitionRequest(response.PackageVersionId));
+
+        Assert.Equal(HttpMethod.Post, captured?.Method);
+        Assert.Equal($"/api/agents/definitions/{definitionId}/update", captured?.RequestUri?.AbsolutePath);
+        Assert.Equal("1.1.0", result.AgentVersion);
+        Assert.Equal("Global", result.InstallationScope);
+    }
+
+    [Fact]
+    public async Task RemoveDefinitionAsync_UsesTheGlobalDefinitionRoute()
+    {
+        var definitionId = Guid.NewGuid();
+        HttpRequestMessage? captured = null;
+        var handler = new StubHandler(request =>
+        {
+            captured = request;
+            return JsonResponse(new RemoveAgentDefinitionResponse(definitionId, true, true, 0));
+        });
+        var client = new AgentApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://csweet.test/") });
+
+        var result = await client.RemoveDefinitionAsync(definitionId);
+
+        Assert.Equal(HttpMethod.Delete, captured?.Method);
+        Assert.Equal($"/api/agents/definitions/{definitionId}", captured?.RequestUri?.AbsolutePath);
+        Assert.Equal(definitionId, result.DefinitionId);
+    }
+
+    [Fact]
     public async Task RetryDefinitionBuildAsync_UsesTheDefinitionRetryRoute()
     {
         var definitionId = Guid.NewGuid();
@@ -108,6 +166,21 @@ public sealed class AgentApiClientTests
         {
             BaseAddress = new Uri("https://csweet.test/")
         });
+    }
+
+    private static HttpResponseMessage JsonResponse<T>(T value) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json")
+    };
+
+    private static AgentDefinitionResponse DefinitionResponse(Guid definitionId, string version)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new AgentDefinitionResponse(
+            definitionId, Guid.NewGuid(), "com.example.agent", "Example", version, "Example",
+            new string('a', 40), "Building", false, "OnDemand", 3600, "Skip", 600, 512, 50,
+            1, now, now, new AgentBuildSummaryResponse(Guid.NewGuid(), "Queued", 1, now,
+                null, null, false, null));
     }
 
     private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler

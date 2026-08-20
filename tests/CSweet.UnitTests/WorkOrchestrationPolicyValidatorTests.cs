@@ -1,5 +1,6 @@
 using CSweet.Infrastructure.WorkManagement;
 using CSweet.WorkManagement.Contracts;
+using CSweet.Domain.Core;
 using CSweet.Domain.WorkManagement;
 
 namespace CSweet.UnitTests;
@@ -146,6 +147,30 @@ public sealed class WorkOrchestrationPolicyValidatorTests
         Assert.Equal(humanId, Assert.Single(humanItem.Stages).OrganizationUserId);
         Assert.Equal(WorkStageExecutionStatus.Pending, Assert.Single(agentItem.Stages).Status);
         Assert.Equal(installationId, Assert.Single(agentItem.Stages).AgentInstallationId);
+    }
+
+    [Fact]
+    public void FutureStaffStageWithoutAssignment_BlocksWithExplicitStaffingReason()
+    {
+        var workTask = new WorkTask { Id = Guid.NewGuid() };
+        var item = new WorkItemExecution { Id = Guid.NewGuid(), WorkItem = workTask };
+        var stage = new WorkOrchestrationStage
+        {
+            Id = Guid.NewGuid(),
+            Key = "quality",
+            Name = "Quality",
+            Type = WorkOrchestrationStageType.AgentExecution
+        };
+
+        WorkOrchestrationService.CreateStageExecution(
+            item, stage, [], Guid.NewGuid(), DateTimeOffset.UtcNow);
+
+        var execution = Assert.Single(item.Stages);
+        Assert.Equal(WorkStageExecutionStatus.Blocked, execution.Status);
+        Assert.Equal(WorkOrchestrationPrincipalKind.Unassigned, execution.PrincipalKind);
+        Assert.Equal("staffing.assignment_missing", execution.LastError);
+        Assert.Equal("staffing.assignment_missing", item.BlockedReason);
+        Assert.Equal(WorkTaskStatus.Blocked, workTask.Status);
     }
 
     private static WorkOrchestrationStageDefinition Stage(

@@ -35,4 +35,17 @@ public sealed class AgentRuntimeSettingsApiClient : IAgentRuntimeSettingsApiClie
 
         return result;
     }
+
+    public async Task<AgentRuntimeSettingsActionResponse> RecoverAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            "/api/agent-runtime/settings/recover",
+            content: null,
+            cancellationToken);
+        if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.BadRequest)
+            response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<AgentRuntimeSettingsActionResponse>(cancellationToken)
+            ?? throw new InvalidOperationException("Failed to deserialize agent runtime recovery response.");
+    }
 }

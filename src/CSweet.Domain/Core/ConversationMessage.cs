@@ -57,6 +57,8 @@ public sealed class SuggestedUserAction
     public string NavigationUri { get; set; } = string.Empty;
     public string IdempotencyKey { get; set; } = string.Empty;
     public string Status { get; set; } = "Pending";
+    public Guid? ResultOrganizationUserId { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 }
 

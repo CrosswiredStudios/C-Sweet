@@ -16,6 +16,19 @@ namespace CSweet.IntegrationTests;
 public class BusinessOnboardingEndpointTests
 {
     [Fact]
+    public async Task GetBriefingSettings_WithoutActiveChief_ReturnsNoContent()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync(
+            $"/api/core/organizations/{Guid.NewGuid():D}/executive-briefings/settings");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task CompleteOnboarding_IsBlockedUntilFirstRunSetupIsComplete()
     {
         await using var factory = CreateFactory();

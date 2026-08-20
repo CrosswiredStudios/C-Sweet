@@ -521,7 +521,6 @@ public sealed class ExecutionFleetService(
         if (action == "reconnect" && !session.RecoveryCanReconnect)
             return await LocalFailureAsync("reconnect_not_safe",
                 "Reconnect is unavailable while the existing Office has active or untrusted local state.", cancellationToken);
-
         var handoff = Base64Url(RandomNumberGenerator.GetBytes(32));
         session.HandoffSecretHash = Hash(handoff);
         session.RecoveryAction = action;
@@ -539,7 +538,7 @@ public sealed class ExecutionFleetService(
                 : "Authorized destructive removal of an existing local Office installation.",
             cancellationToken: cancellationToken);
         return new LocalOfficeSetupActionResponse(true, null,
-            action == "reconnect" ? "Office reconnect is ready." : "Office removal is ready.",
+            action == "reconnect" ? "Office reassignment is ready." : "Office removal is ready.",
             Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl,
                 LocalSetupLaunchUri(session, handoff), DevelopmentLauncherConfigured ? "server" : "protocol"),
             await GetOnboardingStatusAsync(cancellationToken));
@@ -570,20 +569,37 @@ public sealed class ExecutionFleetService(
 
         if (session.RecoveryAction == "remove")
         {
+            if (observed == "none")
+            {
+                session.RecoveryAction = "none";
+                session.SetupReceiptHash = null;
+                session.UpdatedAt = now;
+                session.ExpiresAt = now.Add(AssistedSetupLifetime);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                return new(true, null, "Office removal is complete. Fresh installation can continue.",
+                    session.Id, "none", true);
+            }
             var setupReceipt = Base64Url(RandomNumberGenerator.GetBytes(32));
-            session.Status = observed == "none"
-                ? LocalOfficeSetupSessionStatus.Removed
-                : LocalOfficeSetupSessionStatus.RemovalInProgress;
-            session.SetupReceiptHash = observed == "none" ? null : Hash(setupReceipt);
-            session.CompletedAt = observed == "none" ? now : null;
+            session.Status = LocalOfficeSetupSessionStatus.RemovalInProgress;
+            session.SetupReceiptHash = Hash(setupReceipt);
+            session.CompletedAt = null;
             session.UpdatedAt = now;
             await dbContext.SaveChangesAsync(cancellationToken);
-            return new(true, null, observed == "none" ? "Office is already removed." : "Office removal is authorized.",
-                session.Id, "remove", false, observed == "none" ? null : setupReceipt);
+            return new(true, null, "Office removal is authorized.",
+                session.Id, "remove", false, setupReceipt);
         }
 
         if (observed == "none" || observed == "clean" && session.RecoveryAction == "reconnect")
-            return new(true, null, "Office preflight completed.", session.Id, session.RecoveryAction, true);
+        {
+            var recoveryAction = session.RecoveryAction == "removed" ? "none" : session.RecoveryAction;
+            if (session.RecoveryAction == "removed")
+            {
+                session.RecoveryAction = recoveryAction;
+                session.UpdatedAt = now;
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+            return new(true, null, "Office preflight completed.", session.Id, recoveryAction, true);
+        }
 
         var code = observed switch
         {
@@ -724,13 +740,19 @@ public sealed class ExecutionFleetService(
         var session = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(
             x => x.HandoffSecretHash == Hash(request.HandoffSecret), cancellationToken);
         if (session is null ||
-            session.Status is not (LocalOfficeSetupSessionStatus.RemovalInProgress or LocalOfficeSetupSessionStatus.Removed) ||
+            session.Status is not (LocalOfficeSetupSessionStatus.RemovalInProgress or LocalOfficeSetupSessionStatus.Removed or
+                LocalOfficeSetupSessionStatus.Created) ||
             !MachineMatches(session, request.MachineName, request.OperatingSystem, request.Architecture)) return false;
-        if (session.Status == LocalOfficeSetupSessionStatus.Removed) return true;
+        if (session.Status == LocalOfficeSetupSessionStatus.Removed ||
+            session.Status == LocalOfficeSetupSessionStatus.Created && session.RecoveryAction == "removed") return true;
+        if (session.Status != LocalOfficeSetupSessionStatus.RemovalInProgress) return false;
         var now = timeProvider.GetUtcNow();
-        session.Status = LocalOfficeSetupSessionStatus.Removed;
-        session.CompletedAt = now;
+        session.Status = LocalOfficeSetupSessionStatus.Created;
+        session.RecoveryAction = "removed";
+        session.CompletedAt = null;
         session.UpdatedAt = now;
+        session.ExpiresAt = now.Add(AssistedSetupLifetime);
+        session.SetupReceiptHash = null;
         session.ErrorCode = null;
         session.ErrorMessage = null;
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -1428,11 +1450,11 @@ public sealed class ExecutionFleetService(
     private static string RecoveryMessage(string code) => code switch
     {
         "existing_office_detected" =>
-            "An existing C-Sweet Office is installed, but this Headquarters database does not recognize its old identity.",
+            "An existing C-Sweet Office is installed, but this Headquarters database does not recognize its old identity. Reassign it to this Headquarters to continue.",
         "existing_office_active" =>
-            "The existing Office still has active assignment or virtual-machine state. Reconnect is blocked; remove it only if orphaned work may be destroyed.",
+            "The existing Office still has assignment, authorized workload, or virtual-machine state from the previous Headquarters. Safe reassignment is blocked; remove it only if orphaned work may be destroyed.",
         "reconnect_unsafe" =>
-            "The existing Office installation could not be validated for safe reconnect. Remove it before installing a fresh Office.",
+            "The existing Office installation could not be validated for safe reassignment. Remove it before installing a fresh Office.",
         "office_removal_failed" => "Windows could not completely remove the existing Office.",
         _ => "The Office setup did not complete."
     };
@@ -1664,12 +1686,23 @@ public sealed class ExecutionFleetService(
             effectiveRecoveryCanReconnect);
     }
 
-    private static string LocalSetupLaunchUri(LocalOfficeSetupSession session, string handoff)
+    private string LocalSetupLaunchUri(LocalOfficeSetupSession session, string handoff)
     {
         var certificateParameter = string.IsNullOrWhiteSpace(session.ControlPlaneCertificateSha256)
             ? string.Empty
             : $"&certificate={session.ControlPlaneCertificateSha256}";
-        return $"csweet-office://enroll/v1?session={session.Id:D}&origin={Uri.EscapeDataString(session.ControlPlaneOrigin)}{certificateParameter}#handoff={handoff}";
+        var bootstrapOrigin = LocalSetupBootstrapOrigin(session.ControlPlaneOrigin);
+        return $"csweet-office://enroll/v1?session={session.Id:D}&origin={Uri.EscapeDataString(bootstrapOrigin)}{certificateParameter}#handoff={handoff}";
+    }
+
+    private string LocalSetupBootstrapOrigin(string fallback)
+    {
+        var configured = appConfiguration?["CSweet:ExecutionGateway:BootstrapUrl"]?.Trim().TrimEnd('/');
+        return DevelopmentLauncherConfigured &&
+            Uri.TryCreate(configured, UriKind.Absolute, out var uri) && uri.IsLoopback &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                ? uri.AbsoluteUri.TrimEnd('/')
+                : fallback;
     }
 
     private bool DevelopmentLauncherConfigured => OperatingSystem.IsWindows() &&
@@ -1678,7 +1711,7 @@ public sealed class ExecutionFleetService(
         Path.IsPathFullyQualified(launcher) && Path.IsPathFullyQualified(bootstrap) &&
         File.Exists(launcher) && File.Exists(bootstrap);
 
-    private static bool TryReadLaunchHandoff(
+    private bool TryReadLaunchHandoff(
         string value,
         LocalOfficeSetupSession session,
         out string handoff)
@@ -1690,7 +1723,8 @@ public sealed class ExecutionFleetService(
             !string.Equals(uri.AbsolutePath, "/v1", StringComparison.Ordinal) ||
             !Guid.TryParse(QueryValue(uri, "session"), out var requestedSessionId) ||
             requestedSessionId != session.Id ||
-            !string.Equals(QueryValue(uri, "origin"), session.ControlPlaneOrigin, StringComparison.Ordinal) ||
+            !string.Equals(QueryValue(uri, "origin"), LocalSetupBootstrapOrigin(session.ControlPlaneOrigin),
+                StringComparison.Ordinal) ||
             !uri.Fragment.StartsWith("#handoff=", StringComparison.Ordinal))
             return false;
         handoff = Uri.UnescapeDataString(uri.Fragment["#handoff=".Length..]);

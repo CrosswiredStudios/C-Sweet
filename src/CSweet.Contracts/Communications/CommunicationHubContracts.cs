@@ -164,7 +164,12 @@ public sealed record SuggestedUserActionResponse(
     string? Description,
     string NavigationUri,
     string Status,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt)
+{
+    public Guid? ResultOrganizationUserId { get; init; }
+    public string? ResultOrganizationUserDisplayName { get; init; }
+    public DateTimeOffset? CompletedAt { get; init; }
+}
 
 public sealed record ExecutiveDecisionOptionResponse(
     string Id,

@@ -10,10 +10,12 @@
 @code {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly CancellationTokenSource _disposeCts = new();
+    private CancellationToken _disposeToken;
     private bool _started;
 
     protected override void OnInitialized()
     {
+        _disposeToken = _disposeCts.Token;
         Realtime.EventReceived += OnEvent;
         Realtime.Disconnected += OnDisconnected;
     }
@@ -24,10 +26,19 @@
         _started = true;
         await Businesses.InitializeAsync();
         await Unread.InitializeAsync();
-        _ = ConnectWithRetryAsync(_disposeCts.Token);
+        if (!_disposeToken.IsCancellationRequested)
+        {
+            _ = ConnectWithRetryAsync(_disposeToken);
+        }
     }
 
-    private void OnDisconnected() => _ = ConnectWithRetryAsync(_disposeCts.Token);
+    private void OnDisconnected()
+    {
+        if (!_disposeToken.IsCancellationRequested)
+        {
+            _ = ConnectWithRetryAsync(_disposeToken);
+        }
+    }
 
     private async Task ConnectWithRetryAsync(CancellationToken cancellationToken)
     {

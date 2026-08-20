@@ -16,6 +16,7 @@ public enum WorkOrchestrationStageType
 
 public enum WorkOrchestrationPrincipalKind
 {
+    Unassigned,
     Human,
     AgentInstallation,
     BoardManager,

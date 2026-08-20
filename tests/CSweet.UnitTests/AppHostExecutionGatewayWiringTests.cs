@@ -22,6 +22,38 @@ public sealed class AppHostExecutionGatewayWiringTests
     }
 
     [Fact]
+    public void ExecutionGateway_UsesAppHostOwnedCertificateAndPublishesItsPin()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src/CSweet.AppHost/Program.cs"));
+
+        Assert.Contains(
+            ".WithEnvironment(\"ASPNETCORE_Kestrel__Certificates__Default__Path\", executionGatewayCertificate.Path)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".WithEnvironment(\"CSweet__ExecutionGateway__PublicCertificateSha256\", executionGatewayCertificate.Sha256)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".WithEnvironment(\"CSweet__ExecutionGateway__BootstrapUrl\", executionGatewayBootstrapEndpoint)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("development-execution-gateway.pfx", source, StringComparison.Ordinal);
+        Assert.Contains("existing.HasPrivateKey", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExecutionGateway_DevelopmentPortsAvoidTheWindowsEphemeralRange()
+    {
+        var launchSettings = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "src/CSweet.ExecutionGateway/Properties/launchSettings.json"));
+
+        Assert.Contains("https://localhost:47082;http://localhost:47083", launchSettings, StringComparison.Ordinal);
+        Assert.DoesNotContain("54782", launchSettings, StringComparison.Ordinal);
+        Assert.DoesNotContain("54783", launchSettings, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LocalOfficeSetup_UsesCurrentOfficeBootstrap()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src/CSweet.AppHost/Program.cs"));

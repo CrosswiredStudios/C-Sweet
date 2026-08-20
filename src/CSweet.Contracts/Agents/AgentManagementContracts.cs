@@ -30,6 +30,27 @@ public sealed record AgentDefinitionResponse(
     DateTimeOffset UpdatedAt,
     AgentBuildSummaryResponse? Build = null);
 
+public sealed record AgentDefinitionUpdateAvailabilityResponse(
+    Guid DefinitionId,
+    string AgentId,
+    string AgentName,
+    string CurrentVersion,
+    string CurrentCommitSha,
+    bool UpdateAvailable,
+    Guid? AvailablePackageVersionId,
+    string? AvailableVersion,
+    string? AvailableCommitSha,
+    DateTimeOffset CheckedAt,
+    string? Error = null);
+
+public sealed record UpdateAgentDefinitionRequest(Guid PackageVersionId);
+
+public sealed record RemoveAgentDefinitionResponse(
+    Guid DefinitionId,
+    bool PackageRemoved,
+    bool SourceRemoved,
+    int CleanupWarnings);
+
 public sealed record AgentConfigurationView(
     string AgentId,
     string AgentVersion,

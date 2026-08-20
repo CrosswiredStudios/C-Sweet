@@ -23,7 +23,10 @@ public static class ExecutiveBriefingEndpoints
                 ? await next(context) : Results.Forbid();
         });
         group.MapGet("/settings", async (Guid organizationId, IExecutiveBriefingService service, CancellationToken token) =>
-            await service.GetSettingsAsync(organizationId, token) is { } settings ? Results.Ok(settings) : Results.NotFound());
+        {
+            var settings = await service.GetSettingsAsync(organizationId, token);
+            return settings is null ? Results.NoContent() : Results.Ok(settings);
+        });
         var updateSettings = group.MapPut("/settings", async (Guid organizationId, UpdateExecutiveBriefingSettingsRequest request,
             IExecutiveBriefingService service, CancellationToken token) =>
         {

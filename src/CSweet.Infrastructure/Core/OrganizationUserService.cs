@@ -58,6 +58,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
             .Include(x => x.AgentInstallation!)
                 .ThenInclude(x => x.Grant)
             .Include(x => x.AgentInstallation!)
+                .ThenInclude(x => x.Schedule)
+            .Include(x => x.AgentInstallation!)
                 .ThenInclude(x => x.PackageVersion)
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
 
@@ -413,6 +415,17 @@ public sealed class OrganizationUserService : IOrganizationUserService
                   x.SubjectId == installationId.Value)))
             .ToListAsync(cancellationToken);
         foreach (var grant in teamScopedGrants) grant.RevokedAt = now;
+        if (user.AgentInstallation is { } installation)
+        {
+            installation.IsEnabled = false;
+            installation.UpdatedAt = now;
+            if (installation.Schedule is { } schedule)
+            {
+                schedule.IsEnabled = false;
+                schedule.NextTickAt = null;
+                schedule.RunRequestedAt = null;
+            }
+        }
         user.IsActive = false;
         user.ArchivedAt = now;
         user.AgentInstallationId = null;

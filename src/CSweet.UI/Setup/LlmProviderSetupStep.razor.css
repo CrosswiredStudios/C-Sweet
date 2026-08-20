@@ -268,7 +268,8 @@
 .provider-close-button:focus-visible,
 .provider-mode-switch button:focus-visible,
 .provider-choice:focus-visible,
-.custom-provider-choice:focus-visible {
+.custom-provider-choice:focus-visible,
+.provider-install-choice:focus-visible {
     outline: 3px solid rgba(155, 231, 194, .72);
     outline-offset: 2px;
 }
@@ -276,7 +277,7 @@
 .provider-mode-switch {
     position: relative;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: .35rem;
     padding: .3rem;
     margin-bottom: .85rem;
@@ -350,6 +351,7 @@
 }
 
 .provider-choice,
+.provider-install-choice,
 .custom-provider-choice {
     display: grid;
     align-items: center;
@@ -369,8 +371,22 @@
     padding: .85rem;
 }
 
+.provider-install-grid {
+    display: grid;
+    gap: .7rem;
+}
+
+.provider-install-choice {
+    min-height: 5.75rem;
+    grid-template-columns: 2.45rem minmax(0, 1fr) 1.1rem;
+    gap: .75rem;
+    padding: .85rem;
+    text-decoration: none;
+}
+
 .provider-choice:hover,
 .provider-choice.selected,
+.provider-install-choice:hover,
 .custom-provider-choice:hover,
 .custom-provider-choice.selected {
     transform: translateY(-2px);
@@ -387,17 +403,21 @@
 
 .provider-choice strong,
 .provider-choice small,
+.provider-install-choice strong,
+.provider-install-choice small,
 .custom-provider-choice strong,
 .custom-provider-choice small {
     display: block;
 }
 
 .provider-choice strong,
+.provider-install-choice strong,
 .custom-provider-choice strong {
     font-size: .8rem;
 }
 
 .provider-choice small,
+.provider-install-choice small,
 .custom-provider-choice small {
     margin-top: .18rem;
     color: var(--cs-muted);
@@ -406,6 +426,7 @@
 }
 
 .provider-choice ::deep .mud-icon-root,
+.provider-install-choice ::deep .mud-icon-root,
 .custom-provider-choice ::deep .mud-icon-root {
     color: #8da0ae;
     font-size: .95rem;
@@ -413,6 +434,7 @@
 }
 
 .provider-choice:hover ::deep .mud-icon-root,
+.provider-install-choice:hover ::deep .mud-icon-root,
 .custom-provider-choice:hover ::deep .mud-icon-root {
     transform: translateX(2px);
 }

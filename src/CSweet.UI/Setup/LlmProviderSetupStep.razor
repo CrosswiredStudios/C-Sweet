@@ -15,17 +15,10 @@
         </div>
     </header>
 
-    @if (_isDiscoveringLocalProviders)
+    @if (!string.IsNullOrWhiteSpace(_localDiscoveryMessage))
     {
-        <div class="provider-feedback checking provider-discovery-feedback" role="status">
-            <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
-            <span>Looking for LM Studio, Unsloth Studio, Ollama, and vLLM on this machine...</span>
-        </div>
-    }
-    else if (!string.IsNullOrWhiteSpace(_localDiscoveryMessage))
-    {
-        <div class="provider-feedback @_localDiscoveryFeedbackClass provider-discovery-feedback" role="status">
-            <MudIcon Icon="@(_localDiscoveryFailed ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.CheckCircle)" />
+        <div class="provider-feedback error provider-discovery-feedback" role="status">
+            <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" />
             <span>@_localDiscoveryMessage</span>
         </div>
     }
@@ -96,9 +89,9 @@
             <div class="provider-section-heading">
                 <div>
                     <span class="provider-section-kicker">Add another</span>
-                    <h2 id="add-provider-title">@(_showHosted ? "Choose a hosted provider" : "Choose a local runtime")</h2>
+                    <h2 id="add-provider-title">@ProviderPickerTitle</h2>
                 </div>
-                @if (!_showHosted)
+                @if (_providerMode == ProviderMode.Local)
                 {
                     <MudButton Variant="Variant.Text"
                                Color="Color.Primary"
@@ -113,10 +106,10 @@
 
             <div class="provider-mode-switch" role="group" aria-label="Provider location">
                 <button type="button"
-                        class="@(!_showHosted ? "selected" : null)"
-                        aria-pressed="@(!_showHosted)"
+                        class="@(_providerMode == ProviderMode.Local ? "selected" : null)"
+                        aria-pressed="@(_providerMode == ProviderMode.Local)"
                         disabled="@_isBusy"
-                        @onclick="() => SetProviderMode(false)">
+                        @onclick="() => SetProviderMode(ProviderMode.Local)">
                     <MudIcon Icon="@Icons.Material.Outlined.Computer" />
                     <span>
                         <strong>Local</strong>
@@ -124,57 +117,99 @@
                     </span>
                 </button>
                 <button type="button"
-                        class="@(_showHosted ? "selected" : null)"
-                        aria-pressed="@_showHosted"
+                        class="@(_providerMode == ProviderMode.Hosted ? "selected" : null)"
+                        aria-pressed="@(_providerMode == ProviderMode.Hosted)"
                         disabled="@_isBusy"
-                        @onclick="() => SetProviderMode(true)">
+                        @onclick="() => SetProviderMode(ProviderMode.Hosted)">
                     <MudIcon Icon="@Icons.Material.Outlined.CloudQueue" />
                     <span>
                         <strong>Hosted</strong>
                         <small>Connect with an API key</small>
                     </span>
                 </button>
+                <button type="button"
+                        class="@(_providerMode == ProviderMode.Install ? "selected" : null)"
+                        aria-pressed="@(_providerMode == ProviderMode.Install)"
+                        disabled="@_isBusy"
+                        @onclick="() => SetProviderMode(ProviderMode.Install)">
+                    <MudIcon Icon="@Icons.Material.Outlined.Download" />
+                    <span>
+                        <strong>Install</strong>
+                        <small>Get a local runtime</small>
+                    </span>
+                </button>
             </div>
 
-            <div class="provider-choice-grid">
-                @foreach (var preset in ActivePresets)
-                {
-                    <button type="button"
-                            class="provider-choice @(IsActivePreset(preset) ? "selected" : null)"
-                            aria-pressed="@IsActivePreset(preset)"
-                            @onclick="() => SelectPresetAsync(preset)">
-                        <span class="provider-choice-mark">
-                            @if (ProviderIconPath(preset.ProviderType) is { } iconPath)
-                            {
-                                <img src="@iconPath" alt="" aria-hidden="true" />
-                            }
-                            else
-                            {
-                                @preset.Mark
-                            }
-                        </span>
-                        <span>
-                            <strong>@preset.DisplayName</strong>
-                            <small>@preset.Description</small>
-                        </span>
-                        <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
-                    </button>
-                }
-            </div>
+            @if (_providerMode == ProviderMode.Install)
+            {
+                <div class="provider-install-grid">
+                    @foreach (var option in InstallOptions)
+                    {
+                        <a class="provider-install-choice"
+                           href="@option.Url"
+                           target="_blank"
+                           rel="noopener noreferrer">
+                            <span class="provider-choice-mark">
+                                @if (ProviderIconPath(option.ProviderType) is { } iconPath)
+                                {
+                                    <img src="@iconPath" alt="" aria-hidden="true" />
+                                }
+                                else
+                                {
+                                    @ProviderMark(option.ProviderType)
+                                }
+                            </span>
+                            <span>
+                                <strong>@option.Name</strong>
+                                <small>@option.Description</small>
+                            </span>
+                            <MudIcon Icon="@Icons.Material.Outlined.OpenInNew" />
+                        </a>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="provider-choice-grid">
+                    @foreach (var preset in ActivePresets)
+                    {
+                        <button type="button"
+                                class="provider-choice @(IsActivePreset(preset) ? "selected" : null)"
+                                aria-pressed="@IsActivePreset(preset)"
+                                @onclick="() => SelectPresetAsync(preset)">
+                            <span class="provider-choice-mark">
+                                @if (ProviderIconPath(preset.ProviderType) is { } iconPath)
+                                {
+                                    <img src="@iconPath" alt="" aria-hidden="true" />
+                                }
+                                else
+                                {
+                                    @preset.Mark
+                                }
+                            </span>
+                            <span>
+                                <strong>@preset.DisplayName</strong>
+                                <small>@preset.Description</small>
+                            </span>
+                            <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+                        </button>
+                    }
+                </div>
 
-            <button type="button"
-                    class="custom-provider-choice @(IsActivePreset(ActiveCustomPreset) ? "selected" : null)"
-                    aria-pressed="@IsActivePreset(ActiveCustomPreset)"
-                    @onclick="() => SelectPresetAsync(ActiveCustomPreset)">
-                <span class="provider-choice-mark">API</span>
-                <span>
-                    <strong>Custom OpenAI-compatible endpoint</strong>
-                    <small>@(_showHosted
-                        ? "Bring another hosted service and configure its connection yourself."
-                        : "Configure the URL, credentials, and compatibility settings yourself.")</small>
-                </span>
-                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
-            </button>
+                <button type="button"
+                        class="custom-provider-choice @(IsActivePreset(ActiveCustomPreset) ? "selected" : null)"
+                        aria-pressed="@IsActivePreset(ActiveCustomPreset)"
+                        @onclick="() => SelectPresetAsync(ActiveCustomPreset)">
+                    <span class="provider-choice-mark">API</span>
+                    <span>
+                        <strong>Custom OpenAI-compatible endpoint</strong>
+                        <small>@(_providerMode == ProviderMode.Hosted
+                            ? "Bring another hosted service and configure its connection yourself."
+                            : "Configure the URL, credentials, and compatibility settings yourself.")</small>
+                    </span>
+                    <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+                </button>
+            }
         </section>
     </div>
 
@@ -342,6 +377,12 @@
     private static readonly IReadOnlyList<LlmProviderSetupPreset> LocalPresets = SetupWizardState.LocalProviderPresets();
     private static readonly IReadOnlyList<LlmProviderSetupPreset> HostedPresets = SetupWizardState.HostedProviderPresets();
     private static readonly LlmProviderSetupPreset CustomPreset = SetupWizardState.CustomProviderPreset();
+    private static readonly IReadOnlyList<ProviderInstallOption> InstallOptions =
+    [
+        new(LlmProviderType.LmStudio, "LM Studio", "Download the desktop app for Windows, macOS, or Linux.", "https://lmstudio.ai/download"),
+        new(LlmProviderType.Ollama, "Ollama", "Install a lightweight local model runner and API.", "https://ollama.com/download"),
+        new(LlmProviderType.UnslothStudio, "Unsloth Studio", "Install the local interface for running and training models.", "https://unsloth.ai/docs")
+    ];
     private readonly DialogOptions _editorDialogOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
     private readonly DialogOptions _deleteDialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
 
@@ -374,13 +415,11 @@
     private bool _deleteDialogOpen;
     private LlmProviderProfileResponse? _providerPendingDelete;
     private string? _deleteMessage;
-    private bool _showHosted;
+    private ProviderMode _providerMode = ProviderMode.Local;
     private bool _isBusy;
     private bool _isDiscovering;
     private bool _isDiscoveringLocalProviders;
-    private bool _localDiscoveryFailed;
     private string? _localDiscoveryMessage;
-    private string _localDiscoveryFeedbackClass = "checking";
     private bool? _catalogSucceeded;
     private string? _catalogMessage;
     private bool? _formSucceeded;
@@ -413,11 +452,19 @@
     private bool RequiresApiKeyInput =>
         _activePreset?.RequiresApiKey == true && string.IsNullOrWhiteSpace(_apiKey);
 
-    private IReadOnlyList<LlmProviderSetupPreset> ActivePresets => _showHosted ? HostedPresets : LocalPresets;
+    private string ProviderPickerTitle => _providerMode switch
+    {
+        ProviderMode.Hosted => "Choose a hosted provider",
+        ProviderMode.Install => "Install a local runtime",
+        _ => "Choose a local runtime"
+    };
+
+    private IReadOnlyList<LlmProviderSetupPreset> ActivePresets =>
+        _providerMode == ProviderMode.Hosted ? HostedPresets : LocalPresets;
 
     private LlmProviderSetupPreset ActiveCustomPreset => CustomPreset with
     {
-        IsHosted = _showHosted
+        IsHosted = _providerMode == ProviderMode.Hosted
     };
 
     private bool CanSaveProvider =>
@@ -454,9 +501,7 @@
         }
 
         _isDiscoveringLocalProviders = true;
-        _localDiscoveryFailed = false;
         _localDiscoveryMessage = null;
-        _localDiscoveryFeedbackClass = "checking";
         await InvokeAsync(StateHasChanged);
 
         try
@@ -476,31 +521,10 @@
 
             await ProfilesChanged.InvokeAsync(_profiles);
 
-            var added = discovery.Results
-                .Where(result => result.Status == LocalLlmProviderDiscoveryStatuses.Added)
-                .Select(result => ProviderTypeLabel(result.ProviderType))
-                .ToList();
-            var configuredCount = discovery.Results.Count(result =>
-                result.Status == LocalLlmProviderDiscoveryStatuses.AlreadyConfigured);
-
-            if (added.Count > 0)
-            {
-                _localDiscoveryFeedbackClass = "success";
-                _localDiscoveryMessage = $"Connected {FormatProviderNames(added)} automatically.";
-            }
-            else if (configuredCount > 0)
-            {
-                _localDiscoveryMessage = "No new local providers found. Detected runtimes are already connected.";
-            }
-            else
-            {
-                _localDiscoveryMessage = "No local model runtimes found. Start one and scan again, or add an endpoint manually.";
-            }
+            _localDiscoveryMessage = null;
         }
         catch
         {
-            _localDiscoveryFailed = true;
-            _localDiscoveryFeedbackClass = "error";
             _localDiscoveryMessage = "C-Sweet could not scan for local providers. You can scan again or add one manually.";
         }
         finally
@@ -510,28 +534,17 @@
         }
     }
 
-    private static string FormatProviderNames(IReadOnlyList<string> names)
-    {
-        return names.Count switch
-        {
-            0 => "local providers",
-            1 => names[0],
-            2 => $"{names[0]} and {names[1]}",
-            _ => $"{string.Join(", ", names.Take(names.Count - 1))}, and {names[^1]}"
-        };
-    }
-
     private bool IsActivePreset(LlmProviderSetupPreset preset) =>
         _editorOpen && _activePreset?.ProviderType == preset.ProviderType;
 
-    private void SetProviderMode(bool showHosted)
+    private void SetProviderMode(ProviderMode providerMode)
     {
-        if (_isBusy || _showHosted == showHosted)
+        if (_isBusy || _providerMode == providerMode)
         {
             return;
         }
 
-        _showHosted = showHosted;
+        _providerMode = providerMode;
         CloseEditor();
     }
 
@@ -564,7 +577,7 @@
 
     private void EditProvider(LlmProviderProfileResponse profile)
     {
-        _showHosted = profile.ProviderType.IsHostedProvider();
+        _providerMode = profile.ProviderType.IsHostedProvider() ? ProviderMode.Hosted : ProviderMode.Local;
         _activePreset = LocalPresets
             .Concat(HostedPresets)
             .FirstOrDefault(x => x.ProviderType == profile.ProviderType) ?? ActiveCustomPreset;
@@ -917,4 +930,17 @@
             ? uri.Host
             : profile.BaseUrl;
     }
+
+    private enum ProviderMode
+    {
+        Local,
+        Hosted,
+        Install
+    }
+
+    private sealed record ProviderInstallOption(
+        LlmProviderType ProviderType,
+        string Name,
+        string Description,
+        string Url);
 }

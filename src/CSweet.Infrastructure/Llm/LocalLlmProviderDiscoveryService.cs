@@ -10,6 +10,7 @@ public sealed class LocalLlmProviderDiscoveryService : ILocalLlmProviderDiscover
 {
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(2);
     private const string Localhost = "localhost";
+    private const string LoopbackAddress = "127.0.0.1";
     private const string DockerHost = "host.docker.internal";
 
     private readonly OpenAiCompatibleProviderClient _providerClient;
@@ -187,13 +188,13 @@ public sealed class LocalLlmProviderDiscoveryService : ILocalLlmProviderDiscover
 
     private static IReadOnlyList<string> CandidateBaseUrls(LlmProviderPreset preset)
     {
-        var preferredHost = IsRunningInContainer() ? DockerHost : Localhost;
-        var secondaryHost = preferredHost == DockerHost ? Localhost : DockerHost;
-        return
-        [
-            ReplaceHost(preset.BaseUrl, preferredHost),
-            ReplaceHost(preset.BaseUrl, secondaryHost)
-        ];
+        var hosts = IsRunningInContainer()
+            ? new[] { DockerHost, Localhost, LoopbackAddress }
+            : new[] { Localhost, LoopbackAddress, DockerHost };
+
+        return hosts
+            .Select(host => ReplaceHost(preset.BaseUrl, host))
+            .ToList();
     }
 
     private static bool IsRunningInContainer()

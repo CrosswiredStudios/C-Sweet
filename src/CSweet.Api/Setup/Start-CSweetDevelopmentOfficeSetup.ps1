@@ -50,6 +50,14 @@ if (-not (Test-Path -LiteralPath $OfficeBootstrapScript -PathType Leaf)) {
 }
 
 $tokenPath = $null
+$progressPath = $null
+$progressHelperLoaded = $false
+$sessionId = [guid]::Empty
+$origin = $null
+$architecture = $null
+$redemption = $null
+$certificatePinInstalled = $false
+$previousCertificateValidationCallback = [Net.ServicePointManager]::ServerCertificateValidationCallback
 try {
     $handoff = [IO.File]::ReadAllText($HandoffInputPath, [Text.Encoding]::UTF8).Trim()
     Remove-TransientFile $HandoffInputPath
@@ -65,7 +73,9 @@ try {
         throw 'The C-Sweet Office setup handoff has no one-use authorization.'
     }
     $handoffSecret = [Uri]::UnescapeDataString($fragment.Substring('handoff='.Length))
-    if ([String]::IsNullOrWhiteSpace($origin) -or -not $origin.StartsWith('https://', [StringComparison]::OrdinalIgnoreCase) -or
+    $originUri = $null
+    if (-not [Uri]::TryCreate($origin, [UriKind]::Absolute, [ref]$originUri) -or
+        -not ($originUri.Scheme -ceq 'https' -or ($originUri.Scheme -ceq 'http' -and $originUri.IsLoopback)) -or
         [String]::IsNullOrWhiteSpace($handoffSecret) -or $handoffSecret.Length -gt 256) {
         throw 'The C-Sweet Office setup handoff is incomplete.'
     }
@@ -81,8 +91,32 @@ try {
     $officeScriptRoot = Split-Path -Parent $OfficeBootstrapScript
     $progressHelper = Join-Path $officeScriptRoot 'CSweet.WindowsSetupProgress.ps1'
     . $progressHelper
+    $progressHelperLoaded = $true
     $progressPath = Initialize-CSweetSetupProgress -Path $progressPath -JobId $sessionId `
         -ControlPlaneUserSid $identity.User.Value
+    Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+        -State running -PhaseKey connect-control-plane -PhaseDisplayName 'Connecting to C-Sweet' `
+        -Message 'Administrator approval was received. Windows setup is connecting securely to C-Sweet.' `
+        -PercentComplete 0 -EstimatedRemainingMinimumSeconds 5 -EstimatedRemainingMaximumSeconds 45
+
+    if ($originUri.Scheme -ceq 'https' -and -not [String]::IsNullOrWhiteSpace($handoffCertificateSha256)) {
+        $expectedCertificateSha256 = $handoffCertificateSha256.Trim().Replace(':', '').Replace('-', '').ToLowerInvariant()
+        if ($expectedCertificateSha256 -notmatch '^[0-9a-f]{64}$') {
+            throw 'The C-Sweet Office setup handoff contains an invalid certificate fingerprint.'
+        }
+        [Net.ServicePointManager]::ServerCertificateValidationCallback = {
+            param($sender, $certificate, $chain, $errors)
+            if ($null -eq $certificate) { return $false }
+            $sha256 = [Security.Cryptography.SHA256]::Create()
+            try {
+                $actual = [BitConverter]::ToString(
+                    $sha256.ComputeHash($certificate.GetRawCertData())).Replace('-', '').ToLowerInvariant()
+                return $actual -ceq $expectedCertificateSha256
+            }
+            finally { $sha256.Dispose() }
+        }.GetNewClosure()
+        $certificatePinInstalled = $true
+    }
 
     $recoveryProbe = Join-Path $officeScriptRoot 'Get-CSweetOfficeRecoveryState.ps1'
     $existingInstallationState = if (Test-Path -LiteralPath $recoveryProbe -PathType Leaf) {
@@ -115,9 +149,15 @@ try {
     }
     if ([string]$preflight.existingInstallationAction -ceq 'remove') {
         $uninstaller = Join-Path $officeScriptRoot 'Uninstall-CSweetOffice.ps1'
+        $removalCompleted = $false
         try {
             if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw 'The Office uninstaller is unavailable.' }
-            & $uninstaller -Force -Elevated
+            Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+                -State running -PhaseKey remove-preflight -PhaseDisplayName 'Preparing Office removal' `
+                -Message 'Windows is preparing to remove the existing Office services, data, and virtual machines.' `
+                -PercentComplete 1 -EstimatedRemainingMinimumSeconds 10 -EstimatedRemainingMaximumSeconds 180
+            & $uninstaller -Force -Elevated -ProgressPath $progressPath -ProgressJobId $sessionId `
+                -ProgressWorkflow 'developer-bootstrap'
             if ($LASTEXITCODE -ne 0) { throw "Office removal exited with code $LASTEXITCODE." }
             $removalRequest = @{
                 handoffSecret = $handoffSecret
@@ -127,12 +167,36 @@ try {
             } | ConvertTo-Json -Compress
             Invoke-RestMethod -Method Post -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/removal-complete') `
                 -ContentType 'application/json' -Body $removalRequest -TimeoutSec 30 -UseBasicParsing | Out-Null
+            $removalCompleted = $true
             Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
-                -State completed -PhaseKey office-removed -PhaseDisplayName 'Office removed' `
-                -Message 'The stale Office was removed. Return to C-Sweet to install a new Office.' -PercentComplete 100
-            return
+                -State running -PhaseKey removal-complete -PhaseDisplayName 'Starting your fresh Office' `
+                -Message 'The old Office was removed. C-Sweet is continuing automatically with the capacity you selected.' `
+                -PercentComplete 1 -EstimatedRemainingMinimumSeconds 1200 -EstimatedRemainingMaximumSeconds 3000
+
+            $preflightRequest = @{
+                handoffSecret = $handoffSecret
+                machineName = [Environment]::MachineName
+                operatingSystem = 'windows'
+                architecture = $architecture
+                officeVersion = '0.3.0'
+                existingInstallationState = 'none'
+            } | ConvertTo-Json -Compress
+            $preflight = Invoke-RestMethod -Method Post `
+                -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/preflight') `
+                -ContentType 'application/json' -Body $preflightRequest -TimeoutSec 30 -UseBasicParsing
+            if (-not [bool]$preflight.proceedToRedemption) {
+                throw 'C-Sweet could not continue fresh Office installation after removal.'
+            }
         }
         catch {
+            if ($removalCompleted) {
+                Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+                    -State failed -PhaseKey fresh-install-start-failed `
+                    -PhaseDisplayName 'Fresh Office installation needs attention' `
+                    -Message 'The old Office was removed, but C-Sweet could not start the fresh installation.' `
+                    -PercentComplete 0 -ErrorCode 'office_setup_failed' -ErrorMessage $_.Exception.Message
+                throw
+            }
             $removalReceipt = [string](Get-OptionalObjectProperty $preflight 'setupReceipt')
             if (-not [String]::IsNullOrWhiteSpace($removalReceipt)) {
                 $removalFailure = @{
@@ -244,8 +308,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Office installation exited with code $LASTEXITCODE." }
     }
     catch {
+        $failureMessage = $_.Exception.Message
         $reportedCode = 'office_setup_failed'
-        if (Test-Path -LiteralPath $progressPath -PathType Leaf) {
+        if (-not [String]::IsNullOrWhiteSpace($progressPath) -and
+            (Test-Path -LiteralPath $progressPath -PathType Leaf)) {
             try {
                 $reportedProgress = Get-Content -LiteralPath $progressPath -Raw | ConvertFrom-Json
                 if ([string]$reportedProgress.errorCode -in @('existing_office_detected', 'existing_office_active', 'reconnect_unsafe')) {
@@ -268,14 +334,56 @@ try {
                     -ContentType 'application/json' -Body $resultRequest -TimeoutSec 30 -UseBasicParsing | Out-Null
             } catch { }
         }
-        Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
-            -State failed -PhaseKey setup-paused -PhaseDisplayName 'Secure runtime preparation stopped' `
-            -Message 'Windows setup stopped before the secure VM runtime was ready.' -PercentComplete 0 `
-            -ErrorCode $reportedCode -ErrorMessage $_.Exception.Message
+        if ($progressHelperLoaded -and $sessionId -ne [guid]::Empty -and
+            -not [String]::IsNullOrWhiteSpace($progressPath)) {
+            try {
+                $failurePhaseName = 'Windows setup could not continue'
+                $failureUserMessage = 'Windows setup started, but could not continue. Review the error below and try again.'
+                if ($failureMessage -match 'connect|credential|SSL|TLS|secure channel|remote server') {
+                    $failurePhaseName = 'Secure connection to C-Sweet failed'
+                    $failureUserMessage = 'Windows could not establish the certificate-pinned connection to the local Execution Gateway. Restart C-Sweet and try again.'
+                }
+                Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+                    -State failed -PhaseKey setup-paused -PhaseDisplayName $failurePhaseName `
+                    -Message $failureUserMessage `
+                    -PercentComplete 0 -ErrorCode $reportedCode -ErrorMessage $failureMessage
+            } catch { }
+        }
         throw
     }
 }
+catch {
+    $failureMessage = $_.Exception.Message
+    if ($progressHelperLoaded -and $sessionId -ne [guid]::Empty -and
+        -not [String]::IsNullOrWhiteSpace($progressPath)) {
+        try {
+            $failureAlreadyReported = $false
+            if (Test-Path -LiteralPath $progressPath -PathType Leaf) {
+                try {
+                    $existingProgress = Get-Content -LiteralPath $progressPath -Raw | ConvertFrom-Json
+                    $failureAlreadyReported = [string]$existingProgress.state -ceq 'failed'
+                } catch { }
+            }
+            if (-not $failureAlreadyReported) {
+                $failurePhaseName = 'Windows setup could not continue'
+                $failureUserMessage = 'Windows setup started, but could not continue. Review the error below and try again.'
+                if ($failureMessage -match 'connect|credential|SSL|TLS|secure channel|trust relationship|remote server') {
+                    $failurePhaseName = 'Secure connection to C-Sweet failed'
+                    $failureUserMessage = 'Windows could not establish the certificate-pinned connection to the local Execution Gateway. Restart C-Sweet and try again.'
+                }
+                Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+                    -State failed -PhaseKey setup-paused -PhaseDisplayName $failurePhaseName `
+                    -Message $failureUserMessage -PercentComplete 0 `
+                    -ErrorCode 'office_setup_failed' -ErrorMessage $failureMessage
+            }
+        } catch { }
+    }
+    throw
+}
 finally {
+    if ($certificatePinInstalled) {
+        [Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCertificateValidationCallback
+    }
     Remove-TransientFile $HandoffInputPath
     Remove-TransientFile $tokenPath
 }

@@ -686,6 +686,7 @@ internal static class CoreConfigurations
         entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         entity.HasOne<ConversationMessage>().WithMany().HasForeignKey(x => x.ConversationMessageId).OnDelete(DeleteBehavior.Cascade);
         entity.HasOne<ChatTurn>().WithMany().HasForeignKey(x => x.ChatTurnId).OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.ResultOrganizationUserId).OnDelete(DeleteBehavior.SetNull);
     }
 
     static void ConfigureAgentPlatformEventOutbox(EntityTypeBuilder<AgentPlatformEventOutboxItem> entity)

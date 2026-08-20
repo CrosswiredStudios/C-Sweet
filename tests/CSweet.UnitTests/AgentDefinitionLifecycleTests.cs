@@ -77,6 +77,77 @@ public sealed class AgentDefinitionLifecycleTests
         Assert.Empty(await db.AgentInstallations.ToListAsync());
     }
 
+    [Fact]
+    public async Task Update_SwitchesTheGlobalDefinitionAndLeavesExistingHiresPinned()
+    {
+        await using var db = CreateDb();
+        var current = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        current.PackageDigest = $"sha256:{new string('a', 64)}";
+        current.ArtifactSignature = "current-signature";
+        var definition = SeedDefinition(db, current, ActivationMode.OnDemand);
+        var hire = RuntimeInstallation(current, Guid.NewGuid().ToString("D"));
+        hire.AgentDefinitionId = definition.Id;
+        definition.Installations.Add(hire);
+        db.AgentInstallations.Add(hire);
+        var update = CreateUpdatePackage(current, "1.1.0");
+        db.AgentPackageVersions.Add(update);
+        await db.SaveChangesAsync();
+        var builds = new RecordingBuildService(db);
+        var service = new AgentDefinitionService(db, new TestAuditEventWriter(), builds);
+
+        var result = await service.UpdateAsync(definition.Id, new UpdateAgentDefinitionRequest(update.Id));
+
+        Assert.Equal(update.Id, result.PackageVersionId);
+        Assert.Equal("1.1.0", result.AgentVersion);
+        Assert.Equal(AgentDefinitionStatus.Building.ToString(), result.Status);
+        Assert.Equal(update.Id, builds.QueuedPackageVersionId);
+        Assert.Equal(current.Id, (await db.AgentInstallations.SingleAsync()).PackageVersionId);
+    }
+
+    [Fact]
+    public async Task Remove_RejectsDefinitionsUsedByAgentEmployees()
+    {
+        await using var db = CreateDb();
+        var package = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        var definition = SeedDefinition(db, package, ActivationMode.OnDemand);
+        var organization = new Organization { Id = Guid.NewGuid(), Name = "Example", CreatedAt = DateTimeOffset.UtcNow };
+        var hire = RuntimeInstallation(package, organization.Id.ToString("D"));
+        hire.AgentDefinitionId = definition.Id;
+        definition.Installations.Add(hire);
+        var employee = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, Organization = organization,
+            DisplayName = "Researcher", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Contributor, IsActive = true,
+            AgentInstallationId = hire.Id, AgentInstallation = hire, CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.AddRange(organization, hire, employee);
+        await db.SaveChangesAsync();
+        var service = new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db));
+
+        var exception = await Assert.ThrowsAsync<AgentInstallationException>(() => service.RemoveAsync(definition.Id));
+
+        Assert.Contains("Researcher", exception.Message);
+        Assert.NotNull(await db.AgentDefinitions.FindAsync(definition.Id));
+    }
+
+    [Fact]
+    public async Task Remove_DeletesAnUnusedGlobalDefinition()
+    {
+        await using var db = CreateDb();
+        var package = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        var definition = SeedDefinition(db, package, ActivationMode.OnDemand);
+        await db.SaveChangesAsync();
+        var service = new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db));
+
+        var result = await service.RemoveAsync(definition.Id);
+
+        Assert.Equal(definition.Id, result.DefinitionId);
+        Assert.Empty(await db.AgentDefinitions.ToListAsync());
+        Assert.Empty(await db.AgentPackageVersions.ToListAsync());
+        Assert.Empty(await db.AgentPackageSources.ToListAsync());
+    }
+
     [Theory]
     [InlineData(ActivationMode.AlwaysOn, 1)]
     [InlineData(ActivationMode.Scheduled, 0)]
@@ -205,6 +276,22 @@ public sealed class AgentDefinitionLifecycleTests
         };
         db.AgentDefinitions.Add(definition);
         return definition;
+    }
+
+    private static AgentPackageVersion CreateUpdatePackage(AgentPackageVersion current, string version)
+    {
+        var values = JsonSerializer.Deserialize<Dictionary<string, object?>>(current.ManifestJson)!;
+        values["version"] = version;
+        return new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(), PackageSourceId = current.PackageSourceId,
+            AgentId = current.AgentId, AgentName = current.AgentName, Version = version,
+            PublisherId = current.PublisherId, PublisherName = current.PublisherName,
+            RuntimeType = current.RuntimeType, ProjectPath = current.ProjectPath,
+            TargetFramework = current.TargetFramework, CommitSha = new string('e', 40),
+            ManifestDigest = new string('f', 64), ManifestJson = JsonSerializer.Serialize(values),
+            Status = AgentPackageVersionStatus.Previewed, ImportedAt = DateTimeOffset.UtcNow
+        };
     }
 
     private static AgentInstallation RuntimeInstallation(AgentPackageVersion package, string businessId)

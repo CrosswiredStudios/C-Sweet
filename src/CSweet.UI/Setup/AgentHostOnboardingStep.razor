@@ -119,6 +119,7 @@
     private DateTimeOffset? _localLaunchAttemptedAt;
     private int _localLaunchAttempts;
     private bool _localApprovalRequested;
+    private bool _removedOfficeRestartInFlight;
     private bool _loading = true;
     private bool _busy;
     private bool _automaticEnrollmentInFlight;
@@ -265,6 +266,12 @@
                 "Remove C-Sweet Office from this computer? This permanently destroys Office services, cached artifacts, mutable runtime data, and Office-owned virtual machines. Orphaned work cannot be recovered.");
             if (!confirmed) return;
         }
+        else if (action == "reconnect")
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                "Reassign this Office to the new Headquarters? Windows has verified that no assignments or Office-owned virtual machines remain. The installed Office will be retained, while its old Headquarters identity and disposable caches are cleared.");
+            if (!confirmed) return;
+        }
 
         BeginStatusMutation();
         _busy = true;
@@ -282,7 +289,7 @@
         {
             SetAction(false, action == "remove"
                 ? "C-Sweet could not authorize Office removal. Try again."
-                : "C-Sweet could not authorize Office reconnect. Try again.");
+                : "C-Sweet could not authorize Office reassignment. Try again.");
         }
         finally
         {
@@ -358,6 +365,39 @@
         _localApprovalRequested = false;
         _actionMessage = null;
         return Task.CompletedTask;
+    }
+
+    private async Task ContinueAfterRemovedOfficeAsync()
+    {
+        if (_busy || _removedOfficeRestartInFlight || _localSession is not { State: "removed" } removed) return;
+        _removedOfficeRestartInFlight = true;
+        BeginStatusMutation();
+        _busy = true;
+        _actionMessage = null;
+        var launch = false;
+        try
+        {
+            var result = await SetupApi.CreateLocalOfficeSetupSessionAsync(new(
+                "custom", removed.AllocatableCpuCount, removed.AllocatableMemoryMb, removed.AllocatableDiskMb));
+            _status = result.Status;
+            if (result.Session is not null) AdoptLocalSession(result.Session);
+            if (_localSession is { State: "created", LaunchUri: null,
+                    AdministratorApprovalRequestedAt: null })
+                await RefreshLocalHandoffAsync();
+            SetAction(result.Succeeded, result.Message);
+            launch = result.Succeeded && _localSession?.LaunchUri is { Length: > 0 };
+        }
+        catch
+        {
+            SetAction(false, "The old Office was removed, but the fresh installation could not be started. Try again.");
+        }
+        finally
+        {
+            _busy = false;
+            _removedOfficeRestartInFlight = false;
+            EndStatusMutation();
+        }
+        if (launch) await RequestAdministratorApprovalAsync();
     }
 
     private async Task EnsureRemoteEnrollmentAsync()
@@ -579,16 +619,18 @@
                         <div>
                             <strong>Existing Office found</strong>
                             <p>@_localSession.Message</p>
-                            <small>Reconnect creates a fresh Office identity and clears old trust, caches, and mutable workload data. Signed runtime files and certified base images are retained.</small>
+                            <small>Reassignment keeps the installed Office, creates a fresh Headquarters identity, and clears old trust and disposable caches. It proceeds only after Windows verifies that no assignments, authorized workloads, or Office-owned virtual machines remain.</small>
                         </div>
                     </div>
                     <div class="local-install-actions">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                   StartIcon="@Icons.Material.Outlined.Sync"
-                                   Disabled="@(_busy || !_localSession.RecoveryCanReconnect)"
-                                   OnClick="ReconnectLocalOfficeAsync">
-                            @(_busy ? "Preparing…" : "Reconnect this Office")
-                        </MudButton>
+                        @if (_localSession.RecoveryCanReconnect)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Outlined.Sync"
+                                       Disabled="@_busy" OnClick="ReconnectLocalOfficeAsync">
+                                @(_busy ? "Preparing…" : "Reassign this Office")
+                            </MudButton>
+                        }
                         <MudButton Variant="Variant.Outlined" Color="Color.Error"
                                    StartIcon="@Icons.Material.Outlined.DeleteForever"
                                    Disabled="@_busy" OnClick="RemoveLocalOfficeAsync">
@@ -599,7 +641,7 @@
                     {
                         <div class="host-inline-notice warning">
                             <MudIcon Icon="@Icons.Material.Outlined.WarningAmber" />
-                            <span>Reconnect is blocked because active or untrusted local state remains. Removal permanently destroys orphaned work and Office-owned virtual machines.</span>
+                            <span>Reassignment is blocked because active or untrusted local state remains. Removal permanently destroys orphaned work and Office-owned virtual machines.</span>
                         </div>
                     }
                 }
@@ -610,7 +652,7 @@
                 {
                     <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
                 }
-                else if (LocalLaunchStalled)
+                else if (LocalSetupStartStalled)
                 {
                     <span class="host-error-icon"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" /></span>
                 }
@@ -639,7 +681,7 @@
                         }
                     </div>
                 }
-                @if (_localSession.State is "failed" or "expired" or "revoked" or "removed")
+                @if (_localSession.State is "failed" or "expired" or "revoked")
                 {
                     <div class="local-install-actions">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
@@ -650,7 +692,7 @@
                 {
                     <div class="local-install-actions">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AdminPanelSettings"
-                                   OnClick="RetryLocalSetupAsync">Try Windows approval again</MudButton>
+                                   OnClick="RetryLocalSetupAsync">Try Windows setup again</MudButton>
                     </div>
                 }
                 }
@@ -902,6 +944,8 @@
                                     WindowsPackageUrl = refreshed.WindowsPackageUrl ?? _localSession.WindowsPackageUrl
                                 };
                                 _status = localResult.Status;
+                                if (_localSession.State == "removed")
+                                    await ContinueAfterRemovedOfficeAsync();
                             }
                         }
                         StateHasChanged();
@@ -954,20 +998,20 @@
 
     private string LocalProgressTitle => _localSession?.State == "ready"
         ? "Your Office is ready"
-        : LocalLaunchStalled
-            ? "Administrator prompt didn't open"
+        : LocalSetupStartStalled
+            ? "Windows setup needs attention"
             : AwaitingBootstrapAfterApproval
-                ? "Starting secure runtime preparation"
+                ? "Waiting for Windows setup"
                 : ActiveLocalProvisioning?.PhaseDisplayName
                   ?? _localSession?.PhaseDisplayName
                   ?? "Preparing your Office";
 
     private string LocalProgressMessage => _localSession?.State == "ready"
         ? "This Office is connected and healthy."
-        : LocalLaunchStalled
-            ? "C-Sweet could not start Windows setup. Try again to request administrator approval."
+        : LocalSetupStartStalled
+            ? "The administrator request opened, but Windows setup has not reported progress. If you approved it and this message persists, try again."
             : AwaitingBootstrapAfterApproval
-                ? "Administrator approval was received. C-Sweet is starting the Windows and Hyper-V checks."
+                ? "Complete the Windows administrator prompt if it is still open. Setup continues automatically after approval."
                 : ActiveLocalProvisioning?.Message
                   ?? _localSession?.Message
                   ?? "C-Sweet is preparing this machine.";
@@ -981,15 +1025,17 @@
         : Eta(_localSession?.EstimatedRemainingMinimumSeconds,
             _localSession?.EstimatedRemainingMaximumSeconds);
 
-    private bool LocalLaunchStalled => _localSession?.State == "created" &&
+    private bool LocalSetupStartStalled => _localSession?.State == "created" &&
         (_localSession.LaunchMethod == "server" || _localSession.LaunchUri is { Length: > 0 }) &&
         _localLaunchAttempts > 0 &&
-        DateTimeOffset.UtcNow - _localLaunchAttemptedAt.GetValueOrDefault() >= TimeSpan.FromSeconds(8);
+        _localSession.PhaseKey == "install" &&
+        ActiveLocalProvisioning is null &&
+        DateTimeOffset.UtcNow - _localLaunchAttemptedAt.GetValueOrDefault() >= TimeSpan.FromSeconds(45);
 
     private bool AwaitingBootstrapAfterApproval => _localSession?.State == "created" &&
-        _localApprovalRequested && !LocalLaunchStalled;
+        _localApprovalRequested && ActiveLocalProvisioning is null && !LocalSetupStartStalled;
 
-    private bool ShowLocalLaunchRetry => LocalLaunchStalled;
+    private bool ShowLocalLaunchRetry => LocalSetupStartStalled;
 
     private bool LocalSetupLocksLocation => _localSession is not null;
 

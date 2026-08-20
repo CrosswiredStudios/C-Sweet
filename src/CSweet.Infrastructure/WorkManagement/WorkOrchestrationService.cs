@@ -376,10 +376,7 @@ public sealed class WorkOrchestrationService(
         foreach (var dependency in dependencies.Where(x => !sprintIds.Contains(x.DependsOnWorkItemId) &&
                      (!statuses.TryGetValue(x.DependsOnWorkItemId, out var status) || status != WorkTaskStatus.Completed)))
             errors.Add(new("item.dependency", "A dependency must be completed or included in the sprint.", dependency.WorkItemId));
-        var required = policy.Stages.Where(x => x.Type is WorkOrchestrationStageType.AgentExecution or
-                WorkOrchestrationStageType.ManualWork or WorkOrchestrationStageType.MemberExecution or
-                WorkOrchestrationStageType.ManagerApproval or
-                WorkOrchestrationStageType.TrustedPlatformAction).Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+        var initialStage = policy.Stages.Single(x => x.Key == policy.InitialStageKey);
         foreach (var item in items)
         {
             if (string.IsNullOrWhiteSpace(item.DeliverySpecificationJson))
@@ -394,8 +391,14 @@ public sealed class WorkOrchestrationService(
                          x.Id == item.AccountableOrganizationUserId &&
                          x.OrganizationId == organizationId && x.IsActive, cancellationToken))
                 errors.Add(new("item.accountable_owner", "The accountable owner is no longer active.", item.Id));
-            if (!required.SetEquals(item.StageAssignments.Select(x => x.StageKey)))
-                errors.Add(new("item.assignments", "Item does not have exactly one assignment for every work stage.", item.Id));
+            if (item.StageAssignments.Select(x => x.StageKey).Distinct(StringComparer.Ordinal).Count() !=
+                item.StageAssignments.Count)
+                errors.Add(new("item.assignments", "A stage may have only one assignment.", item.Id));
+            if (IsStaffable(initialStage.Type) &&
+                item.StageAssignments.All(x => x.StageKey != initialStage.Key))
+                errors.Add(new("item.initial_assignment",
+                    $"Initial stage '{initialStage.Key}' requires an assignment before the sprint can start.",
+                    item.Id, initialStage.Key));
             foreach (var assignment in item.StageAssignments)
             {
                 var stage = policy.Stages.SingleOrDefault(x => x.Key == assignment.StageKey);
@@ -494,16 +497,21 @@ public sealed class WorkOrchestrationService(
         IEnumerable<WorkItemStageAssignment> assignments, Guid managerId, DateTimeOffset now)
     {
         var assignment = assignments.SingleOrDefault(x => x.StageKey == stage.Key);
+        var isMissingStaffAssignment = assignment is null && IsStaffable(stage.Type);
         var isHumanMemberStage = stage.Type == WorkOrchestrationStageType.MemberExecution &&
                                  assignment?.PrincipalKind == WorkOrchestrationPrincipalKind.Human;
-        var status = stage.Type switch
+        var status = isMissingStaffAssignment
+            ? WorkStageExecutionStatus.Blocked
+            : stage.Type switch
         {
             WorkOrchestrationStageType.ManualWork => WorkStageExecutionStatus.WaitingForHuman,
             WorkOrchestrationStageType.MemberExecution when isHumanMemberStage => WorkStageExecutionStatus.WaitingForHuman,
             WorkOrchestrationStageType.ManagerApproval => WorkStageExecutionStatus.WaitingForApproval,
             _ => WorkStageExecutionStatus.Pending
         };
-        var principal = stage.Type switch
+        var principal = isMissingStaffAssignment
+            ? WorkOrchestrationPrincipalKind.Unassigned
+            : stage.Type switch
         {
             WorkOrchestrationStageType.Queue or WorkOrchestrationStageType.Terminal => WorkOrchestrationPrincipalKind.PlatformAction,
             WorkOrchestrationStageType.ManagerApproval => WorkOrchestrationPrincipalKind.BoardManager,
@@ -517,18 +525,29 @@ public sealed class WorkOrchestrationService(
             OrganizationUserId = stage.Type == WorkOrchestrationStageType.ManagerApproval ? managerId : assignment?.OrganizationUserId,
             AgentInstallationId = assignment?.AgentInstallationId,
             PlatformAction = assignment?.PlatformAction ?? stage.PlatformAction,
+            LastError = isMissingStaffAssignment ? "staffing.assignment_missing" : null,
             CreatedAt = now, UpdatedAt = now
         };
         item.Stages.Add(execution);
         item.CurrentStageKey = stage.Key;
-        item.Status = stage.Type switch
+        item.Status = isMissingStaffAssignment
+            ? WorkItemExecutionStatus.Blocked
+            : stage.Type switch
         {
             WorkOrchestrationStageType.ManualWork => WorkItemExecutionStatus.WaitingForHuman,
             WorkOrchestrationStageType.MemberExecution when isHumanMemberStage => WorkItemExecutionStatus.WaitingForHuman,
             WorkOrchestrationStageType.ManagerApproval => WorkItemExecutionStatus.WaitingForApproval,
             _ => WorkItemExecutionStatus.Pending
         };
+        item.BlockedReason = isMissingStaffAssignment ? "staffing.assignment_missing" : null;
+        if (isMissingStaffAssignment && item.WorkItem is not null)
+            item.WorkItem.Status = WorkTaskStatus.Blocked;
     }
+
+    private static bool IsStaffable(WorkOrchestrationStageType type) =>
+        type is WorkOrchestrationStageType.AgentExecution or
+            WorkOrchestrationStageType.ManualWork or
+            WorkOrchestrationStageType.MemberExecution;
 
     private async Task<OrganizationUser> RequireManagerAsync(
         Guid organizationId, Guid boardId, Guid applicationUserId, CancellationToken cancellationToken)

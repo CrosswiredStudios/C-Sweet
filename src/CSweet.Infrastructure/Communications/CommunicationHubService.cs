@@ -192,7 +192,7 @@ public sealed class CommunicationHubService(
             ? new Dictionary<Guid, ExecutiveDecisionCardResponse>()
             : await decisions.ListForMessagesAsync(organizationId, chatId, cancellationToken);
         var actions = await db.SuggestedUserActions.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId && x.ConversationId == chatId && x.Status == "Pending")
+            .Where(x => x.OrganizationId == organizationId && x.ConversationId == chatId)
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         var resourceChangeCards = resourceChanges is null
@@ -211,7 +211,7 @@ public sealed class CommunicationHubService(
                 action.ConversationMessageId == x.Id ||
                 (x.Role == ConversationRole.Assistant &&
                  x.ChatTurnId.HasValue &&
-                 action.ChatTurnId == x.ChatTurnId)).Select(ToAction).ToList(),
+                 action.ChatTurnId == x.ChatTurnId)).Select(action => ToAction(action, users)).ToList(),
             x.CorrelationId != Guid.Empty && resourceChangeCards.TryGetValue(x.CorrelationId, out var resourceChange)
                 ? resourceChange
                 : null,
@@ -1039,9 +1039,19 @@ public sealed class CommunicationHubService(
         string DisplayText,
         bool RecipientWasParticipant);
 
-    private static SuggestedUserActionResponse ToAction(SuggestedUserAction action) =>
+    private static SuggestedUserActionResponse ToAction(
+        SuggestedUserAction action,
+        IReadOnlyDictionary<Guid, OrganizationUser> users) =>
         new(action.Id, action.WorkflowType, action.Label, action.Description, action.NavigationUri,
-            action.Status, action.CreatedAt);
+            action.Status, action.CreatedAt)
+        {
+            ResultOrganizationUserId = action.ResultOrganizationUserId,
+            ResultOrganizationUserDisplayName = action.ResultOrganizationUserId.HasValue &&
+                                                users.TryGetValue(action.ResultOrganizationUserId.Value, out var result)
+                ? result.DisplayName
+                : null,
+            CompletedAt = action.CompletedAt
+        };
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static CommunicationHubActionResponse Success(string message, CommunicationChatResponse? chat = null) => new(true, null, message, chat);

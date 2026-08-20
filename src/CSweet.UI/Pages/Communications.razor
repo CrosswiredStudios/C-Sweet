@@ -335,20 +335,37 @@
                                                                          CanDecide="@(!_hub.IsReadOnlyPerspective && hiringWorkflow.Status == "Pending")"
                                                                          DecisionCompleted="@(() => LoadMessagesAsync(markRead: false))" />
                                  }
-                                 @if (!_hub.IsReadOnlyPerspective && message.Actions is { Count: > 0 })
+                                 @if (message.Actions is { Count: > 0 })
                                 {
                                     <div class="hub-message-actions" aria-label="Suggested actions">
                                         @foreach (var action in message.Actions)
                                         {
-                                            <MudButton Href="@action.NavigationUri"
-                                                       Variant="Variant.Filled"
-                                                       Color="Color.Primary"
-                                                       StartIcon="@Icons.Material.Outlined.RocketLaunch">
-                                                @action.Label
-                                            </MudButton>
-                                            @if (!string.IsNullOrWhiteSpace(action.Description))
+                                            @if (action.Status == "Pending" && !_hub.IsReadOnlyPerspective)
                                             {
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@action.Description</MudText>
+                                                <MudButton Href="@action.NavigationUri"
+                                                           Variant="Variant.Filled"
+                                                           Color="Color.Primary"
+                                                           StartIcon="@Icons.Material.Outlined.RocketLaunch">
+                                                    @action.Label
+                                                </MudButton>
+                                                @if (!string.IsNullOrWhiteSpace(action.Description))
+                                                {
+                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@action.Description</MudText>
+                                                }
+                                            }
+                                            else if (action.Status == "Completed")
+                                            {
+                                                <MudChip T="string" Color="Color.Success" Variant="Variant.Outlined"
+                                                         Icon="@Icons.Material.Outlined.CheckCircle">
+                                                    Completed
+                                                </MudChip>
+                                                @if (action.ResultOrganizationUserId is Guid resultUserId)
+                                                {
+                                                    <MudLink Href="@($"/organizations/{OrganizationId:D}/employees/{resultUserId:D}")"
+                                                             Typo="Typo.body2">
+                                                        Hired @(action.ResultOrganizationUserDisplayName ?? "agent")
+                                                    </MudLink>
+                                                }
                                             }
                                         }
                                     </div>

@@ -430,12 +430,17 @@ public sealed class WorkBoardService(
         if (executable && !published.HasValue)
             throw new InvalidOperationException(
                 "Publish an orchestration policy before creating executable work items.");
+        var policyRevision = published.HasValue
+            ? await db.WorkOrchestrationPolicyRevisions.AsNoTracking()
+                .SingleAsync(x => x.Id == published.Value, cancellationToken)
+            : null;
         var policyStages = published.HasValue
             ? await db.WorkOrchestrationStages.AsNoTracking()
                 .Where(x => x.PolicyRevisionId == published.Value)
                 .ToListAsync(cancellationToken)
             : [];
-        ValidateStageAssignments(executable, policyStages, request.StageAssignments);
+        ValidateStageAssignments(
+            executable, policyRevision?.InitialStageKey, policyStages, request.StageAssignments);
 
         var normalized = await WorkItemMentionCodec.NormalizeAndValidateAsync(
             db, organizationId, request.Title, request.Description, request.Mentions,
@@ -672,6 +677,7 @@ public sealed class WorkBoardService(
 
     private static void ValidateStageAssignments(
         bool executable,
+        string? initialStageKey,
         IReadOnlyList<WorkOrchestrationStage> stages,
         IReadOnlyList<CSweet.WorkManagement.Contracts.WorkStageAssignment> assignments)
     {
@@ -684,6 +690,8 @@ public sealed class WorkBoardService(
                 throw new ArgumentException($"Stage '{assignment.StageKey}' is not in the published policy.");
             var kind = ParseEnum<WorkOrchestrationPrincipalKind>(
                 assignment.PrincipalKind, "stage assignment principal kind");
+            if (kind == WorkOrchestrationPrincipalKind.Unassigned)
+                throw new ArgumentException($"Stage '{assignment.StageKey}' must be omitted until it has an assignee.");
             if (stage.Type == WorkOrchestrationStageType.AgentExecution &&
                 (kind != WorkOrchestrationPrincipalKind.AgentInstallation || !assignment.AgentInstallationId.HasValue))
                 throw new ArgumentException($"Agent stage '{stage.Key}' requires an exact agent installation.");
@@ -702,15 +710,13 @@ public sealed class WorkBoardService(
                 throw new ArgumentException($"Platform stage '{stage.Key}' requires a registered platform action.");
         }
         if (!executable) return;
-        var required = stages.Where(x => x.Type is
-                WorkOrchestrationStageType.AgentExecution or
-                WorkOrchestrationStageType.ManualWork or
-                WorkOrchestrationStageType.MemberExecution or
-                WorkOrchestrationStageType.ManagerApproval or
-                WorkOrchestrationStageType.TrustedPlatformAction)
-            .Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
-        if (!required.SetEquals(assignments.Select(x => x.StageKey)))
-            throw new ArgumentException("Executable work items require one assignment for every work and approval stage.");
+        var initialStage = stages.SingleOrDefault(x => x.Key == initialStageKey)
+            ?? throw new ArgumentException("The published work policy does not have a valid initial work stage.");
+        if ((initialStage.Type is WorkOrchestrationStageType.AgentExecution or
+                WorkOrchestrationStageType.ManualWork or WorkOrchestrationStageType.MemberExecution) &&
+            assignments.All(x => !x.StageKey.Equals(initialStage.Key, StringComparison.Ordinal)))
+            throw new ArgumentException(
+                $"Initial stage '{initialStage.Key}' requires an exact assignment before work is executable.");
     }
 
     private async Task ValidateManagerAsync(

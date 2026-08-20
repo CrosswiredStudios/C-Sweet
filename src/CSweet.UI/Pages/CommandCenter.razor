@@ -304,9 +304,12 @@
     private async Task<ExecutiveBriefingSettingsResponse?> LoadBriefingSettingsAsync()
     {
         var response = await Http.GetAsync($"api/core/organizations/{OrganizationId}/executive-briefings/settings");
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<ExecutiveBriefingSettingsResponse>()
-            : null;
+        if (!response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NoContent)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<ExecutiveBriefingSettingsResponse>();
     }
 
     private async Task<ApprovalDashboardResponse?> LoadApprovalsAsync()

@@ -182,12 +182,32 @@ public sealed class AgentRuntimeManager(
         var queued = 0;
         foreach (var installationId in installationIds)
         {
-            if (await EnsureRuntimeQueuedAsync(
-                    installationId,
-                    "Queued by always-on runtime reconciliation.",
-                    cancellationToken: cancellationToken))
+            try
             {
-                queued++;
+                if (await EnsureRuntimeQueuedAsync(
+                        installationId,
+                        "Queued by always-on runtime reconciliation.",
+                        cancellationToken: cancellationToken))
+                {
+                    queued++;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (AgentInstallationException exception)
+            {
+                logger.LogDebug(exception,
+                    "Always-on installation {InstallationId} is not currently eligible to run.",
+                    installationId);
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception,
+                    "Could not reconcile always-on installation {InstallationId}; later installations will still be processed.",
+                    installationId);
+                dbContext.ChangeTracker.Clear();
             }
         }
 
@@ -302,111 +322,155 @@ public sealed class AgentRuntimeManager(
         foreach (var installation in stoppedRestartIds)
             installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.PendingNextStart;
         if (stoppedRestartIds.Count > 0) await dbContext.SaveChangesAsync(cancellationToken);
-        var instances = await dbContext.AgentRuntimeInstances
-            .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
-            .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Grant)
-            .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.PackageVersion)!.ThenInclude(x => x!.BuildJobs)
-            .Include(x => x.Events)
+        var instanceIds = await dbContext.AgentRuntimeInstances.AsNoTracking()
             .Where(x => x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status))
-            .OrderBy(x => x.QueuedAt).ToListAsync(cancellationToken);
+            .OrderBy(x => x.QueuedAt)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
 
-        foreach (var instance in instances)
+        foreach (var instanceId in instanceIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var runtimeEligibility = await EvaluateEligibilityAsync(instance.AgentInstallationId, cancellationToken);
-            if (!runtimeEligibility.IsEligible)
+            try
             {
-                await StopAndFinishAsync(instance, AgentRuntimeStatus.PolicyDenied,
-                    runtimeEligibility.Reason ?? "Runtime eligibility was revoked.", now, cancellationToken);
-                changed++;
-                continue;
-            }
-            if (instance.Status == AgentRuntimeStatus.Stopping)
-            {
-                var settings = await SettingsAsync(cancellationToken);
-                var stoppingAt = instance.Events
-                    .Where(x => x.Status == AgentRuntimeStatus.Stopping)
-                    .MaxBy(x => x.OccurredAt)?.OccurredAt ?? instance.StartedAt ?? instance.QueuedAt;
-                if (stoppingAt.AddSeconds(settings.WorkloadStopGraceSeconds + 5) <= now)
+                var instance = await dbContext.AgentRuntimeInstances
+                    .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
+                    .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Grant)
+                    .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.PackageVersion)!.ThenInclude(x => x!.BuildJobs)
+                    .Include(x => x.Events)
+                    .SingleOrDefaultAsync(x => x.Id == instanceId &&
+                        (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)),
+                        cancellationToken);
+                if (instance is null) continue;
+
+                // A runtime that already entered Stopping must finish recovery before any
+                // eligibility decision. Re-running StopAndFinishAsync for an interrupted stop
+                // continually refreshed its stopping event and could starve every newer runtime.
+                if (instance.Status == AgentRuntimeStatus.Stopping)
                 {
-                    await RecoverInterruptedStopAsync(instance, settings, now, cancellationToken);
-                    changed++;
+                    var settings = await SettingsAsync(cancellationToken);
+                    var stoppingAt = instance.Events
+                        .Where(x => x.Status == AgentRuntimeStatus.Stopping)
+                        .MinBy(x => x.OccurredAt)?.OccurredAt ?? instance.StartedAt ?? instance.QueuedAt;
+                    if (stoppingAt.AddSeconds(settings.WorkloadStopGraceSeconds + 5) <= now)
+                    {
+                        await RecoverInterruptedStopAsync(instance, settings, now, cancellationToken);
+                        changed++;
+                    }
+                    continue;
                 }
-                continue;
-            }
-            if (instance.Status == AgentRuntimeStatus.Starting)
-            {
-                var settings = await SettingsAsync(cancellationToken);
-                var startingAt = instance.Events
-                    .Where(x => x.Status == AgentRuntimeStatus.Starting)
-                    .MaxBy(x => x.OccurredAt)?.OccurredAt ?? instance.StartedAt ?? instance.QueuedAt;
-                if (startingAt.AddSeconds(settings.WorkloadStartTimeoutSeconds + 5) <= now)
+
+                var runtimeEligibility = await EvaluateEligibilityAsync(instance.AgentInstallationId, cancellationToken);
+                if (!runtimeEligibility.IsEligible)
                 {
-                    await RecoverInterruptedStartAsync(instance, settings, now, cancellationToken);
-                    changed++;
-                }
-                continue;
-            }
-            if (instance.Status == AgentRuntimeStatus.Queued)
-            {
-                if (await TryStartAsync(instance, now, cancellationToken)) changed++;
-                continue;
-            }
-            if (instance.Status == AgentRuntimeStatus.CompletionReported)
-            {
-                await StopAndFinishAsync(instance, AgentRuntimeStatus.Completed, "Agent completion processed.", now, cancellationToken);
-                changed++;
-                continue;
-            }
-            if (instance.Status != AgentRuntimeStatus.Queued &&
-                (instance.AgentInstallation?.IsEnabled != true || instance.AgentInstallation.Schedule?.IsEnabled != true))
-            {
-                await StopAndFinishAsync(instance, AgentRuntimeStatus.Cancelled, "Installation or schedule was disabled.", now, cancellationToken);
-                changed++;
-                continue;
-            }
-            if (instance.Status == AgentRuntimeStatus.WaitingForMcpSession)
-            {
-                var settings = await SettingsAsync(cancellationToken);
-                var waitingAt = instance.McpSessionWaitingAt ?? instance.Events
-                    .Where(x => x.Status == AgentRuntimeStatus.WaitingForMcpSession)
-                    .MaxBy(x => x.OccurredAt)?.OccurredAt;
-                if (waitingAt?.AddSeconds(settings.McpSessionTimeoutSeconds) <= now)
-                {
-                    await StopAndFinishAsync(instance, AgentRuntimeStatus.McpSessionTimedOut, "MCP session establishment timed out.", now, cancellationToken);
+                    await StopAndFinishAsync(instance, AgentRuntimeStatus.PolicyDenied,
+                        runtimeEligibility.Reason ?? "Runtime eligibility was revoked.", now, cancellationToken);
                     changed++;
                     continue;
                 }
-            }
-            if (instance.Status == AgentRuntimeStatus.Running && instance.RuntimeDeadlineAt <= now)
-            {
-                await StopAndFinishAsync(instance, AgentRuntimeStatus.RuntimeTimedOut, "Maximum runtime elapsed.", now, cancellationToken);
-                changed++;
-                continue;
-            }
-            if (instance.Status == AgentRuntimeStatus.Running &&
-                instance.IdleDeadlineAt is { } idleDeadline &&
-                idleDeadline <= now &&
-                instance.AgentInstallation?.Schedule?.ActivationMode != ActivationMode.AlwaysOn)
-            {
-                await StopAndFinishAsync(
-                    instance,
-                    AgentRuntimeStatus.Cancelled,
-                    "Interactive runtime idle timeout elapsed.",
-                    now,
-                    cancellationToken);
-                changed++;
-                continue;
-            }
-            if (TryGetHandle(instance) is { } handle && instance.Status is AgentRuntimeStatus.WaitingForMcpSession or AgentRuntimeStatus.Running)
-            {
-                var status = await workloads.InspectAsync(handle, cancellationToken);
-                if (status is null || status.State is IsolationWorkloadState.Stopped or IsolationWorkloadState.Destroyed or IsolationWorkloadState.Failed)
+                if (instance.Status == AgentRuntimeStatus.Starting)
                 {
-                    var terminal = status?.ExitCode is 0 ? AgentRuntimeStatus.ExitedWithoutCompletion : AgentRuntimeStatus.Failed;
-                    await StopAndFinishAsync(instance, terminal, status?.SanitizedError ?? "Isolated workload exited without a completion event.", now, cancellationToken);
-                    changed++;
+                    var settings = await SettingsAsync(cancellationToken);
+                    var startingAt = instance.Events
+                        .Where(x => x.Status == AgentRuntimeStatus.Starting)
+                        .MaxBy(x => x.OccurredAt)?.OccurredAt ?? instance.StartedAt ?? instance.QueuedAt;
+                    if (startingAt.AddSeconds(settings.WorkloadStartTimeoutSeconds + 5) <= now)
+                    {
+                        await RecoverInterruptedStartAsync(instance, settings, now, cancellationToken);
+                        changed++;
+                    }
+                    continue;
                 }
+                if (instance.Status == AgentRuntimeStatus.Queued)
+                {
+                    if (await TryStartAsync(instance, now, cancellationToken)) changed++;
+                    continue;
+                }
+                if (instance.Status == AgentRuntimeStatus.CompletionReported)
+                {
+                    await StopAndFinishAsync(instance, AgentRuntimeStatus.Completed, "Agent completion processed.", now, cancellationToken);
+                    changed++;
+                    continue;
+                }
+                if (instance.Status != AgentRuntimeStatus.Queued &&
+                    (instance.AgentInstallation?.IsEnabled != true || instance.AgentInstallation.Schedule?.IsEnabled != true))
+                {
+                    await StopAndFinishAsync(instance, AgentRuntimeStatus.Cancelled, "Installation or schedule was disabled.", now, cancellationToken);
+                    changed++;
+                    continue;
+                }
+                if (instance.Status == AgentRuntimeStatus.WaitingForMcpSession)
+                {
+                    var settings = await SettingsAsync(cancellationToken);
+                    var waitingAt = instance.McpSessionWaitingAt ?? instance.Events
+                        .Where(x => x.Status == AgentRuntimeStatus.WaitingForMcpSession)
+                        .MaxBy(x => x.OccurredAt)?.OccurredAt;
+                    if (waitingAt?.AddSeconds(settings.McpSessionTimeoutSeconds) <= now)
+                    {
+                        await StopAndFinishAsync(instance, AgentRuntimeStatus.McpSessionTimedOut, "MCP session establishment timed out.", now, cancellationToken);
+                        changed++;
+                        continue;
+                    }
+                }
+                if (instance.Status == AgentRuntimeStatus.Running && instance.RuntimeDeadlineAt <= now)
+                {
+                    await StopAndFinishAsync(instance, AgentRuntimeStatus.RuntimeTimedOut, "Maximum runtime elapsed.", now, cancellationToken);
+                    changed++;
+                    continue;
+                }
+                if (instance.Status == AgentRuntimeStatus.Running &&
+                    instance.IdleDeadlineAt is { } idleDeadline &&
+                    idleDeadline <= now &&
+                    instance.AgentInstallation?.Schedule?.ActivationMode != ActivationMode.AlwaysOn)
+                {
+                    await StopAndFinishAsync(
+                        instance,
+                        AgentRuntimeStatus.Cancelled,
+                        "Interactive runtime idle timeout elapsed.",
+                        now,
+                        cancellationToken);
+                    changed++;
+                    continue;
+                }
+                if (instance.Status == AgentRuntimeStatus.Running &&
+                    !await AgentRuntimeSessionHealth.HasLiveSessionAsync(
+                        dbContext,
+                        instance,
+                        now,
+                        cancellationToken))
+                {
+                    await StopAndFinishAsync(
+                        instance,
+                        AgentRuntimeStatus.Failed,
+                        "The authenticated MCP session expired or was revoked; the runtime will be replaced.",
+                        now,
+                        cancellationToken);
+                    changed++;
+                    continue;
+                }
+                if (TryGetHandle(instance) is { } handle && instance.Status is AgentRuntimeStatus.WaitingForMcpSession or AgentRuntimeStatus.Running)
+                {
+                    var status = await workloads.InspectAsync(handle, cancellationToken);
+                    if (status is null || status.State is IsolationWorkloadState.Stopped or IsolationWorkloadState.Destroyed or IsolationWorkloadState.Failed)
+                    {
+                        var terminal = status?.ExitCode is 0 ? AgentRuntimeStatus.ExitedWithoutCompletion : AgentRuntimeStatus.Failed;
+                        await StopAndFinishAsync(instance, terminal, status?.SanitizedError ?? "Isolated workload exited without a completion event.", now, cancellationToken);
+                        changed++;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception,
+                    "Runtime reconciliation failed for {RuntimeInstanceId}; later runtimes will still be processed.",
+                    instanceId);
+                // A failed SaveChanges can leave tracked state unusable. Clear it before loading
+                // the next runtime so one malformed record cannot poison the rest of the queue.
+                dbContext.ChangeTracker.Clear();
             }
         }
         return changed;

@@ -423,7 +423,9 @@ public sealed partial class WorkOrchestrator(
         WorkOrchestrationService.CreateStageExecution(
             item, next, assignments, execution.StartedByOrganizationUserId, now);
         if (next.ColumnId.HasValue) item.WorkItem!.BoardColumnId = next.ColumnId;
-        item.WorkItem!.Status = next.Type switch
+        item.WorkItem!.Status = item.Status == WorkItemExecutionStatus.Blocked
+            ? WorkTaskStatus.Blocked
+            : next.Type switch
         {
             WorkOrchestrationStageType.ManagerApproval => WorkTaskStatus.WaitingForApproval,
             WorkOrchestrationStageType.Terminal when next.IsSuccessfulTerminal => WorkTaskStatus.Completed,

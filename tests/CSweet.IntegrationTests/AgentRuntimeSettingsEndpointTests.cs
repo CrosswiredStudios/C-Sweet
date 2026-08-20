@@ -76,6 +76,22 @@ public class AgentRuntimeSettingsEndpointTests
         Assert.Contains("Default tick frequency", result.Message);
     }
 
+    [Fact]
+    public async Task Recover_RunsImmediateRuntimeReconciliation()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        await PrepareDatabaseAsync(factory, client);
+
+        var response = await client.PostAsync("/api/agent-runtime/settings/recover", null);
+        var result = await response.Content.ReadFromJsonAsync<AgentRuntimeSettingsActionResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(result);
+        Assert.True(result.Succeeded);
+        Assert.Contains("reconciliation completed", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static async Task PrepareDatabaseAsync(
         WebApplicationFactory<Program> factory,
         HttpClient client)

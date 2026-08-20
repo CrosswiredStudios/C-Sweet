@@ -145,6 +145,14 @@
                                     }
                                 </MudText>
                             }
+                            @if (node.Status == "offline")
+                            {
+                                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                                    This Office is not sending heartbeats. Start the C-Sweet Office services on
+                                    <strong>@node.MachineName</strong>. This page checks for reconnection automatically.
+                                </MudAlert>
+                                <MudProgressLinear Indeterminate="true" Color="Color.Warning" Class="mt-2" />
+                            }
                             <MudTextField Label="Office labels" HelperText="key=value, comma separated"
                                           @bind-Value="_nodeLabelEdits[node.Id]" Class="mt-2" />
                         </div>
@@ -155,7 +163,7 @@
                             {
                                 <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>Drain</MudButton>
                             }
-                            else if (node.Status == "draining" || node.Status == "offline")
+                            else if (node.Status == "draining")
                             {
                                 <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>Resume</MudButton>
                             }
@@ -314,8 +322,18 @@
         try
         {
             using var response = await Http.PostAsync($"api/execution-fleet/nodes/{id:D}/{action}", null);
-            response.EnsureSuccessStatusCode();
-            await LoadAsync();
+            ExecutionFleetMutationResponse? result = null;
+            if (response.Content.Headers.ContentLength is not 0)
+            {
+                try { result = await response.Content.ReadFromJsonAsync<ExecutionFleetMutationResponse>(); }
+                catch (System.Text.Json.JsonException) { }
+            }
+
+            _messageSucceeded = response.IsSuccessStatusCode && result?.Succeeded != false;
+            _message = result?.Message ?? (response.IsSuccessStatusCode
+                ? action == "drain" ? "The Office is draining and will stop receiving new work." : "The Office resumed."
+                : "The Office action failed. Refresh its status and try again.");
+            if (_messageSucceeded) await LoadAsync();
         }
         finally { _busy = false; }
     }

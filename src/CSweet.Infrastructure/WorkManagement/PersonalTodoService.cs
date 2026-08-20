@@ -19,6 +19,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
     private const int SoftOpenItemLimit = 100;
     private const int HardOpenItemLimit = 250;
+    private const int BlockedNotificationTitleExcerptLength = 96;
+    private const int BlockedNotificationReasonExcerptLength = 120;
     private static readonly Meter Meter = new("CSweet.Application.PersonalWork");
     private static readonly Counter<long> SoftLimitWarnings = Meter.CreateCounter<long>("csweet.personal_work.soft_limit_warnings");
     private static readonly Counter<long> HardLimitRejections = Meter.CreateCounter<long>("csweet.personal_work.hard_limit_rejections");
@@ -816,12 +818,21 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             {
                 Id = Guid.NewGuid(), OrganizationId = item.OrganizationId,
                 RecipientOrganizationUserId = recipient, Severity = NotificationSeverity.Important,
-                Category = "PersonalTodoBlocked", Title = $"Personal task blocked: {item.Title}",
-                Body = reason.Length <= 500 ? reason : reason[..500],
-                ActionUri = $"/organizations/{item.OrganizationId:D}/work/boards/{board.Id:D}",
+                Category = "PersonalTodoBlocked", Title = "Personal task blocked",
+                Body = $"{NotificationExcerpt(item.Title, BlockedNotificationTitleExcerptLength)} — " +
+                    NotificationExcerpt(reason, BlockedNotificationReasonExcerptLength),
+                ActionUri = $"/organizations/{item.OrganizationId:D}/employees/{board.OwnerOrganizationUserId!.Value:D}",
                 DeduplicationKey = $"personal-todo-blocked:{item.Id:N}:{item.Revision + 1}", CreatedAt = now
             });
         }
+    }
+
+    private static string NotificationExcerpt(string value, int maximumLength)
+    {
+        var normalized = string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Length <= maximumLength
+            ? normalized
+            : $"{normalized[..(maximumLength - 1)].TrimEnd()}…";
     }
 
     private async Task<Wire.PersonalTodoBoard> MapBoardAsync(WorkBoard board, bool includeArchived,

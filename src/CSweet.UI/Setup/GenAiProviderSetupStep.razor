@@ -15,17 +15,10 @@
         </div>
     </header>
 
-    @if (_isDiscoveringLocalProviders)
+    @if (!string.IsNullOrWhiteSpace(_localDiscoveryMessage))
     {
-        <div class="provider-feedback checking provider-discovery-feedback" role="status">
-            <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
-            <span>Looking for ComfyUI on this machine...</span>
-        </div>
-    }
-    else if (!string.IsNullOrWhiteSpace(_localDiscoveryMessage))
-    {
-        <div class="provider-feedback @_localDiscoveryFeedbackClass provider-discovery-feedback" role="status">
-            <MudIcon Icon="@(_localDiscoveryFailed ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.CheckCircle)" />
+        <div class="provider-feedback error provider-discovery-feedback" role="status">
+            <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" />
             <span>@_localDiscoveryMessage</span>
         </div>
     }
@@ -444,9 +437,7 @@
     private bool _isBusy;
     private bool _isTesting;
     private bool _isDiscoveringLocalProviders;
-    private bool _localDiscoveryFailed;
     private string? _localDiscoveryMessage;
-    private string _localDiscoveryFeedbackClass = "checking";
     private bool _editorError;
     private string? _editorMessage;
     private bool? _formSucceeded;
@@ -518,36 +509,17 @@
         }
 
         _isDiscoveringLocalProviders = true;
-        _localDiscoveryFailed = false;
         _localDiscoveryMessage = null;
-        _localDiscoveryFeedbackClass = "checking";
         await InvokeAsync(StateHasChanged);
 
         try
         {
             var discovery = await Api.DiscoverLocalAsync();
             _profiles = discovery.Profiles.ToList();
-            var added = discovery.Results.Any(x => x.Status == LocalGenAiProviderDiscoveryStatuses.Added);
-            var configured = discovery.Results.Any(x => x.Status == LocalGenAiProviderDiscoveryStatuses.AlreadyConfigured);
-            if (added)
-            {
-                _localDiscoveryFeedbackClass = "success";
-                _localDiscoveryMessage = "Connected ComfyUI automatically.";
-            }
-            else if (configured)
-            {
-                _localDiscoveryFeedbackClass = "success";
-                _localDiscoveryMessage = "No new local providers found. ComfyUI is already connected.";
-            }
-            else
-            {
-                _localDiscoveryMessage = "No local ComfyUI runtime found. Start it and scan again, or add the endpoint manually.";
-            }
+            _localDiscoveryMessage = null;
         }
         catch
         {
-            _localDiscoveryFailed = true;
-            _localDiscoveryFeedbackClass = "error";
             _localDiscoveryMessage = "C-Sweet could not scan for local GenAI providers. You can scan again or add one manually.";
         }
         finally

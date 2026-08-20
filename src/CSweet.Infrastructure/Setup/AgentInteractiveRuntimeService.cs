@@ -38,6 +38,18 @@ public sealed class AgentInteractiveRuntimeService(
         }
 
         var status = await GetStatusAsync(installationId, cancellationToken);
+        if (!status.IsReady &&
+            string.Equals(
+                status.RuntimeStatus,
+                AgentRuntimeStatus.Running.ToString(),
+                StringComparison.Ordinal))
+        {
+            // A persisted Running status is not sufficient once its authenticated broker
+            // session has expired. Reconcile synchronously so the interactive request can
+            // replace the stale runtime without waiting for the background scheduler.
+            await runtimeManager.ReconcileAsync(cancellationToken);
+            status = await GetStatusAsync(installationId, cancellationToken);
+        }
         if (!status.IsTerminal &&
             !string.Equals(status.Stage, AgentRuntimeReadinessStages.Offline, StringComparison.Ordinal))
         {
@@ -96,12 +108,19 @@ public sealed class AgentInteractiveRuntimeService(
                 null, null, null, IsReady: false, IsTerminal: false);
         }
 
+        var hasLiveSession = runtime.Status != AgentRuntimeStatus.Running ||
+            await AgentRuntimeSessionHealth.HasLiveSessionAsync(
+                dbContext,
+                runtime,
+                DateTimeOffset.UtcNow,
+                cancellationToken);
         var stage = runtime.Status switch
         {
             AgentRuntimeStatus.Queued => AgentRuntimeReadinessStages.Queued,
             AgentRuntimeStatus.Starting => AgentRuntimeReadinessStages.StartingWorkload,
             AgentRuntimeStatus.WaitingForMcpSession => AgentRuntimeReadinessStages.WaitingForMcpSession,
-            AgentRuntimeStatus.Running => AgentRuntimeReadinessStages.Ready,
+            AgentRuntimeStatus.Running when hasLiveSession => AgentRuntimeReadinessStages.Ready,
+            AgentRuntimeStatus.Running => AgentRuntimeReadinessStages.WaitingForMcpSession,
             AgentRuntimeStatus.CompletionReported => AgentRuntimeReadinessStages.Stopping,
             AgentRuntimeStatus.Stopping => AgentRuntimeReadinessStages.Stopping,
             AgentRuntimeStatus.Completed or AgentRuntimeStatus.Cancelled or AgentRuntimeStatus.Skipped =>
@@ -114,11 +133,13 @@ public sealed class AgentInteractiveRuntimeService(
             runtime.Id,
             stage,
             runtime.Status.ToString(),
-            runtime.Reason,
+            runtime.Status == AgentRuntimeStatus.Running && !hasLiveSession
+                ? "The agent runtime lost its authenticated broker session and is being recovered."
+                : runtime.Reason,
             runtime.QueuedAt,
             runtime.StartedAt,
             runtime.McpSessionEstablishedAt,
-            IsReady: runtime.Status == AgentRuntimeStatus.Running,
+            IsReady: runtime.Status == AgentRuntimeStatus.Running && hasLiveSession,
             IsTerminal: AgentRuntimeInstance.IsTerminal(runtime.Status));
     }
 }

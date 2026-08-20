@@ -23,6 +23,18 @@ public interface IAgentApiClient
         Guid definitionId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse>> CheckDefinitionUpdatesAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<AgentInstallationResponse> UpdateDefinitionAsync(
+        Guid definitionId,
+        UpdateAgentDefinitionRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<RemoveAgentDefinitionResponse> RemoveDefinitionAsync(
+        Guid definitionId,
+        CancellationToken cancellationToken = default);
+
     Task<AgentInstallationResponse> RetryDefinitionBuildAsync(
         Guid definitionId,
         CancellationToken cancellationToken = default);

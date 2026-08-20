@@ -24,8 +24,12 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await RefreshAsync(_lifetime.Token);
-        _ = PollAsync(_lifetime.Token);
+        var lifetimeToken = _lifetime.Token;
+        await RefreshAsync(lifetimeToken);
+        if (!lifetimeToken.IsCancellationRequested)
+        {
+            _ = PollAsync(lifetimeToken);
+        }
     }
 
     private async Task PollAsync(CancellationToken cancellationToken)

@@ -36,10 +36,12 @@
                     {
                         var isActive = step.Key == _activeStepKey;
                         var isComplete = IsStepComplete(step.Key);
-                        <li class="@($"{(isActive ? "active" : null)} {(isComplete ? "complete" : null)}")">
+                        var canSelect = CanSelectStep(step.Key);
+                        <li class="@($"{(isActive ? "active" : null)} {(isComplete ? "complete" : null)} {(!canSelect ? "locked" : null)}")">
                             <button type="button"
+                                    disabled="@(!canSelect)"
                                     aria-current="@(isActive ? "step" : null)"
-                                    aria-label="@($"Step {step.Number}: {step.Title}{(isComplete ? ", complete" : string.Empty)}")"
+                                    aria-label="@($"Step {step.Number}: {step.Title}{(isComplete ? ", complete" : !canSelect ? ", locked until the current step is complete" : string.Empty)}")"
                                     @onclick="() => SelectStep(step.Key)">
                                 <span class="setup-progress-node">
                                     @if (isComplete)
@@ -266,8 +268,21 @@
 
     private void SelectStep(string key)
     {
+        if (!CanSelectStep(key))
+        {
+            return;
+        }
+
         _activeStepKey = key;
         _stepMessage = null;
+    }
+
+    private bool CanSelectStep(string key)
+    {
+        return _status is not null && SetupWizardState.CanNavigateToStep(
+            SetupSteps.Select(step => step.Key).ToList(),
+            _status,
+            key);
     }
 
     private bool IsStepComplete(string key)

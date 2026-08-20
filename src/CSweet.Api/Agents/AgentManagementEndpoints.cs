@@ -63,6 +63,33 @@ public static class AgentManagementEndpoints
             await definitions.GetAsync(definitionId, cancellationToken) is { } definition
                 ? Results.Ok(definition) : Results.NotFound());
 
+        group.MapPost("/definitions/check-updates", async (
+            IAgentUpdateService updateService,
+            CancellationToken cancellationToken) =>
+            Results.Ok(await updateService.CheckDefinitionsAsync(cancellationToken)))
+            .RequireRateLimiting(AgentRateLimiting.ImportPolicy);
+
+        group.MapPost("/definitions/{definitionId:guid}/update", async (
+            Guid definitionId,
+            UpdateAgentDefinitionRequest request,
+            IAgentDefinitionService definitions,
+            CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await definitions.UpdateAsync(definitionId, request, cancellationToken)); }
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        })
+            .RequireAuthorization("PluginAdministration")
+            .RequireRateLimiting(AgentRateLimiting.BuildPolicy);
+
+        group.MapDelete("/definitions/{definitionId:guid}", async (
+            Guid definitionId,
+            IAgentDefinitionService definitions,
+            CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await definitions.RemoveAsync(definitionId, cancellationToken)); }
+            catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        }).RequireAuthorization("PluginAdministration");
+
         group.MapPost("/definitions/{definitionId:guid}/retry-build", async (
             Guid definitionId,
             IAgentDefinitionService definitions,

@@ -60,8 +60,9 @@ public sealed class PersonalTodoServiceTests
 
         var first = await service.AddAsync(setup.Organization.Id, manager,
             Add("First", "first", setup.Agent.Id));
+        var longTitle = new string('T', 200);
         var second = await service.AddAsync(setup.Organization.Id, manager,
-            Add("Second", "second", setup.Agent.Id));
+            Add(longTitle, "second", setup.Agent.Id));
         Assert.True(first.Rank < second.Rank);
 
         second = await service.ReorderAsync(setup.Organization.Id, manager,
@@ -81,13 +82,22 @@ public sealed class PersonalTodoServiceTests
         claimed.Revision++;
         await db.SaveChangesAsync();
 
+        var fullBlockReason = "The requested authority is not granted.\n\n" + new string('R', 300);
         var blocked = await service.BlockAsync(setup.Organization.Id, owner,
             new Wire.BlockPersonalTodoItemRequest(second.Id, claimEventId, claimed.Revision,
-                "The requested authority is not granted.", "block"));
+                fullBlockReason, "block"));
         Assert.Equal(WorkTaskStatus.Blocked.ToString(), blocked.Status);
-        Assert.Equal("The requested authority is not granted.", blocked.BlockReason);
-        Assert.Contains(await db.UserNotifications.ToListAsync(), x =>
-            x.RecipientOrganizationUserId == setup.FirstManager.Id && x.Category == "PersonalTodoBlocked");
+        Assert.Equal(fullBlockReason, blocked.BlockReason);
+        var notification = Assert.Single(await db.UserNotifications.Where(x =>
+            x.RecipientOrganizationUserId == setup.FirstManager.Id &&
+            x.Category == "PersonalTodoBlocked").ToListAsync());
+        Assert.Equal("Personal task blocked", notification.Title);
+        Assert.True(notification.Body.Length <= 219);
+        Assert.StartsWith(new string('T', 40), notification.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain('\n', notification.Body);
+        Assert.Equal(
+            $"/organizations/{setup.Organization.Id:D}/employees/{setup.Agent.Id:D}",
+            notification.ActionUri);
 
         var requeued = await service.RequeueAsync(setup.Organization.Id, manager,
             new Wire.RequeuePersonalTodoItemRequest(blocked.Id, blocked.Revision, "requeue"));

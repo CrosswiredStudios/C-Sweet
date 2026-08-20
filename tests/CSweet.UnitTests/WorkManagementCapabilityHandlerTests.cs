@@ -35,6 +35,7 @@ public sealed class WorkManagementCapabilityHandlerTests
             platformAgentActions.Order(StringComparer.Ordinal));
         Assert.Equal(WorkBoardActions.Read, CSweet.Agent.SDK.WorkBoardCapabilities.Read);
         Assert.Equal(WorkBoardActions.Create, CSweet.Agent.SDK.WorkBoardCapabilities.Create);
+        Assert.Equal(WorkBoardActions.Configure, CSweet.Agent.SDK.WorkBoardCapabilities.Configure);
         Assert.Equal(WorkItemActions.Read, CSweet.Agent.SDK.WorkItemCapabilities.Read);
         Assert.Equal(WorkItemActions.Create, CSweet.Agent.SDK.WorkItemCapabilities.Create);
         Assert.Equal(WorkItemActions.Comment, CSweet.Agent.SDK.WorkItemCapabilities.Comment);
@@ -186,6 +187,14 @@ public sealed class WorkManagementCapabilityHandlerTests
             expectedRevision = itemRevision,
             idempotencyKey = "finalize-ticket-1"
         };
+        var parsedFinalizePayload = JsonSerializer.Deserialize<
+            CSweet.WorkManagement.Contracts.FinalizeWorkItemDeliveryRequest>(
+            JsonSerializer.SerializeToUtf8Bytes(finalizePayload, JsonOptions), JsonOptions);
+        var parsedDevelopmentAssignment = Assert.Single(
+            Assert.IsType<CSweet.WorkManagement.Contracts.FinalizeWorkItemDeliveryRequest>(
+                parsedFinalizePayload).StageAssignments);
+        Assert.Equal("AgentInstallation", parsedDevelopmentAssignment.PrincipalKind);
+        Assert.Equal(setup.InstallationId, parsedDevelopmentAssignment.AgentInstallationId);
         var finalized = await InvokeAsync(
             handler, session, WorkItemActions.FinalizeDelivery, finalizePayload);
         var replay = await InvokeAsync(

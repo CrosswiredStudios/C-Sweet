@@ -63,7 +63,7 @@ public sealed class AgentRuntimeInstance
             (AgentRuntimeStatus.WaitingForMcpSession, AgentRuntimeStatus.Running or AgentRuntimeStatus.Stopping or AgentRuntimeStatus.McpSessionTimedOut or AgentRuntimeStatus.StartFailed or AgentRuntimeStatus.Cancelled) => true,
             (AgentRuntimeStatus.Running, AgentRuntimeStatus.CompletionReported or AgentRuntimeStatus.Stopping or AgentRuntimeStatus.RuntimeTimedOut or AgentRuntimeStatus.ExitedWithoutCompletion or AgentRuntimeStatus.Failed or AgentRuntimeStatus.Cancelled) => true,
             (AgentRuntimeStatus.CompletionReported, AgentRuntimeStatus.Stopping or AgentRuntimeStatus.Completed or AgentRuntimeStatus.Failed) => true,
-            (AgentRuntimeStatus.Stopping, AgentRuntimeStatus.Completed or AgentRuntimeStatus.McpSessionTimedOut or AgentRuntimeStatus.RuntimeTimedOut or AgentRuntimeStatus.ExitedWithoutCompletion or AgentRuntimeStatus.Failed or AgentRuntimeStatus.Cancelled) => true,
+            (AgentRuntimeStatus.Stopping, AgentRuntimeStatus.Completed or AgentRuntimeStatus.McpSessionTimedOut or AgentRuntimeStatus.RuntimeTimedOut or AgentRuntimeStatus.ExitedWithoutCompletion or AgentRuntimeStatus.Failed or AgentRuntimeStatus.PolicyDenied or AgentRuntimeStatus.Cancelled) => true,
             _ => false
         };
 }

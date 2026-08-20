@@ -138,7 +138,11 @@ public sealed class UserActionService(
 
     private static SuggestedUserActionResponse ToResponse(SuggestedUserAction action) =>
         new(action.Id, action.WorkflowType, action.Label, action.Description, action.NavigationUri,
-            action.Status, action.CreatedAt);
+            action.Status, action.CreatedAt)
+        {
+            ResultOrganizationUserId = action.ResultOrganizationUserId,
+            CompletedAt = action.CompletedAt
+        };
 
     private static string Required(string? value, int maximum, string name)
     {

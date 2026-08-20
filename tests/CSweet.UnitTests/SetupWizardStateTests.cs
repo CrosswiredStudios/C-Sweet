@@ -50,6 +50,44 @@ public class SetupWizardStateTests
     }
 
     [Fact]
+    public void WizardBlocksStepsAfterFirstIncompleteStep()
+    {
+        var status = Status(
+            defaultChatProviderId: null,
+            ("welcome", true),
+            ("agent-execution", false),
+            ("llm-provider", false),
+            ("communications", false));
+        string[] steps = ["welcome", "agent-execution", "llm-provider", "communications"];
+
+        Assert.True(SetupWizardState.CanNavigateToStep(steps, status, "welcome"));
+        Assert.True(SetupWizardState.CanNavigateToStep(steps, status, "agent-execution"));
+        Assert.False(SetupWizardState.CanNavigateToStep(steps, status, "llm-provider"));
+        Assert.False(SetupWizardState.CanNavigateToStep(steps, status, "communications"));
+    }
+
+    [Fact]
+    public void WizardUnlocksNextStepAfterCurrentStepCompletes()
+    {
+        var status = Status(
+            defaultChatProviderId: null,
+            ("welcome", true),
+            ("agent-execution", true),
+            ("llm-provider", false));
+        string[] steps = ["welcome", "agent-execution", "llm-provider"];
+
+        Assert.True(SetupWizardState.CanNavigateToStep(steps, status, "llm-provider"));
+    }
+
+    [Fact]
+    public void WizardRejectsUnknownStep()
+    {
+        var status = Status(defaultChatProviderId: null, ("welcome", false));
+
+        Assert.False(SetupWizardState.CanNavigateToStep(["welcome"], status, "unknown"));
+    }
+
+    [Fact]
     public void LocalProviderPresetsIncludeSupportedRuntimes()
     {
         var presets = SetupWizardState.LocalProviderPresets();

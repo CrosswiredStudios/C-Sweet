@@ -1241,6 +1241,12 @@ CompleteWorkflow:
             .ToListAsync(cancellationToken);
         if (!resultIds.Contains(resultOrganizationUserId))
             resultIds.Add(resultOrganizationUserId);
+        await CompleteSuggestedHiringActionsAsync(
+            plan.OrganizationId,
+            plan.Id,
+            resultOrganizationUserId,
+            occurredAt,
+            cancellationToken);
         var fulfilledEvent = new HiringRecommendationFulfilledEvent(
             plan.OrganizationId,
             plan.Id,
@@ -1266,6 +1272,45 @@ CompleteWorkflow:
             OccurredAt = occurredAt
         });
         return true;
+    }
+
+    private async Task CompleteSuggestedHiringActionsAsync(
+        Guid organizationId,
+        Guid recommendationId,
+        Guid resultOrganizationUserId,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken)
+    {
+        var pendingActions = await db.SuggestedUserActions
+            .Where(action =>
+                action.OrganizationId == organizationId &&
+                action.WorkflowType == CSweet.Contracts.Communications.SuggestedUserActionWorkflows.BrowseHiringMarketplace &&
+                action.Status == "Pending")
+            .ToListAsync(cancellationToken);
+        foreach (var action in pendingActions.Where(action =>
+                     ReadSuggestedActionRecommendationId(action.ParametersJson) == recommendationId))
+        {
+            action.Status = "Completed";
+            action.ResultOrganizationUserId = resultOrganizationUserId;
+            action.CompletedAt = completedAt;
+        }
+    }
+
+    private static Guid? ReadSuggestedActionRecommendationId(string parametersJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(parametersJson);
+            return document.RootElement.TryGetProperty("recommendationId", out var recommendation) &&
+                   recommendation.ValueKind == JsonValueKind.String &&
+                   recommendation.TryGetGuid(out var recommendationId)
+                ? recommendationId
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static HiringRecommendationResponse ToRecommendation(

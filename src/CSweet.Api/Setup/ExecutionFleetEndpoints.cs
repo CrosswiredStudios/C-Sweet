@@ -45,15 +45,21 @@ public static class ExecutionFleetEndpoints
         {
             var node = await db.ExecutionNodes.SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
             if (node is null) return Results.NotFound();
-            if (node.Status is not (ExecutionNodeStatus.Draining or ExecutionNodeStatus.Offline) ||
-                node.ApprovedAt is null || node.RevokedAt is not null)
-                return Results.BadRequest();
+            if (node.Status == ExecutionNodeStatus.Offline)
+                return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_offline",
+                    $"{node.Name} is offline and cannot be started remotely. Start the C-Sweet Office services on {node.MachineName}; it will reconnect automatically."));
+            if (node.Status != ExecutionNodeStatus.Draining || node.ApprovedAt is null || node.RevokedAt is not null)
+                return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_not_draining",
+                    "Only an approved, deliberately drained Office can be resumed."));
             node.DrainingAt = null;
             node.Status = node.LastHeartbeatAt >= clock.GetUtcNow().AddSeconds(-30)
                 ? ExecutionNodeStatus.Ready : ExecutionNodeStatus.Offline;
             node.UpdatedAt = clock.GetUtcNow();
             await db.SaveChangesAsync(cancellationToken);
-            return Results.NoContent();
+            var message = node.Status == ExecutionNodeStatus.Ready
+                ? $"{node.Name} resumed and is ready for work."
+                : $"{node.Name} is no longer drained, but it is offline. Start the C-Sweet Office services on {node.MachineName}; it will reconnect automatically.";
+            return Results.Ok(new ExecutionFleetMutationResponse(true, null, message));
         });
         group.MapDelete("/nodes/{nodeId:guid}", async (
             Guid nodeId, CSweetDbContext db, TimeProvider clock, CancellationToken cancellationToken) =>

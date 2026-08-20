@@ -7,7 +7,7 @@ public static class WorkBoardActions
 {
     public const string Read = WorkManagementCapabilityNames.BoardRead;
     public const string Create = WorkManagementCapabilityNames.BoardCreate;
-    public const string Configure = "work.board.configure";
+    public const string Configure = WorkManagementCapabilityNames.BoardConfigure;
     public const string ConfigureColumns = WorkManagementCapabilityNames.BoardConfigureColumns;
     public const string ManageGrants = "work.board.grants.manage";
     public const string Archive = "work.board.archive";

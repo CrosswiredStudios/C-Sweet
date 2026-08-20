@@ -147,6 +147,177 @@ public sealed class AgentDefinitionService(
         return definition is null ? null : ToResponse(definition, definition.PackageVersion!);
     }
 
+    public async Task<AgentDefinitionResponse> UpdateAsync(
+        Guid definitionId,
+        UpdateAgentDefinitionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = await db.AgentDefinitions
+            .Include(x => x.Configuration)
+            .Include(x => x.PackageVersion)
+            .SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken)
+            ?? throw new AgentInstallationException("The agent definition was not found.");
+        var currentPackage = definition.PackageVersion
+            ?? throw new AgentInstallationException("The agent definition package was not found.");
+        var nextPackage = await db.AgentPackageVersions
+            .Include(x => x.BuildJobs)
+            .SingleOrDefaultAsync(x => x.Id == request.PackageVersionId, cancellationToken)
+            ?? throw new AgentInstallationException("The selected agent update is no longer available.");
+
+        if (nextPackage.PackageSourceId != definition.PackageSourceId ||
+            !string.Equals(nextPackage.AgentId, definition.AgentId, StringComparison.Ordinal))
+        {
+            throw new AgentInstallationException("The selected package is not an update for this agent definition.");
+        }
+
+        if (SemanticVersionComparer.Compare(nextPackage.Version, currentPackage.Version) <= 0)
+            throw new AgentInstallationException("The selected package version is not newer than the installed definition.");
+
+        if (nextPackage.Status is not (
+                AgentPackageVersionStatus.Previewed or
+                AgentPackageVersionStatus.Approved or
+                AgentPackageVersionStatus.Built or
+                AgentPackageVersionStatus.Failed))
+        {
+            throw new AgentInstallationException("The selected agent update is not available for installation.");
+        }
+
+        var manifest = AgentConfigurationRules.DeserializeManifest(nextPackage.ManifestJson);
+        var settings = AgentConfigurationRules.GetManifestDefaults(manifest);
+        var compatibleKeys = manifest.Configuration
+            .Where(x => !x.Secret)
+            .Select(x => x.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var pair in DeserializeSettings(definition.Configuration?.SettingsJson ?? "{}")
+                     .Where(x => compatibleKeys.Contains(x.Key)))
+        {
+            settings[pair.Key] = pair.Value.Clone();
+        }
+        await AgentConfigurationRules.ValidateAsync(db, manifest, settings, requireRequired: false,
+            cancellationToken, modelCatalog, validateSupportedModels: true);
+
+        var provided = manifest.Provides.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
+        var required = AgentImportPreviewService.GrantRequiredCapabilities(manifest).ToHashSet(StringComparer.Ordinal);
+        var subscriptions = manifest.Events.Subscribes.ToHashSet(StringComparer.Ordinal);
+        var networkAccess = AgentImportPreviewService.WebGrantTokens(manifest).ToHashSet(StringComparer.Ordinal);
+
+        if (nextPackage.Status != AgentPackageVersionStatus.Built)
+        {
+            nextPackage.Status = AgentPackageVersionStatus.Approved;
+            await db.SaveChangesAsync(cancellationToken);
+            await buildService.QueueAsync(nextPackage.Id, cancellationToken);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        definition.PackageVersionId = nextPackage.Id;
+        definition.PackageVersion = nextPackage;
+        definition.UpdatedAt = now;
+        definition.DefaultProvidedCapabilitiesJson = KeepGranted(definition.DefaultProvidedCapabilitiesJson, provided);
+        definition.DefaultRequiredCapabilitiesJson = KeepGranted(definition.DefaultRequiredCapabilitiesJson, required);
+        definition.DefaultEventSubscriptionsJson = KeepGranted(definition.DefaultEventSubscriptionsJson, subscriptions);
+        definition.DefaultNetworkAccessJson = KeepGranted(definition.DefaultNetworkAccessJson, networkAccess);
+        definition.DefaultCapabilityBindingsJson = KeepBindings(definition.DefaultCapabilityBindingsJson, required);
+        if (definition.Configuration is null)
+        {
+            definition.Configuration = new AgentDefinitionConfiguration
+            {
+                Id = Guid.NewGuid(), AgentDefinitionId = definition.Id, SchemaVersion = "1",
+                Revision = 1, CreatedAt = now
+            };
+        }
+        else
+        {
+            definition.Configuration.Revision++;
+        }
+        definition.Configuration.SettingsJson = JsonSerializer.Serialize(settings, JsonOptions);
+        definition.Configuration.UpdatedAt = now;
+
+        var configurationComplete = AgentConfigurationRules.HasAllRequired(manifest, settings);
+        var builtAndSigned = nextPackage.Status == AgentPackageVersionStatus.Built &&
+                             !string.IsNullOrWhiteSpace(nextPackage.PackageDigest) &&
+                             !string.IsNullOrWhiteSpace(nextPackage.ArtifactSignature);
+        definition.IsAvailableForHire = builtAndSigned && configurationComplete;
+        definition.Status = builtAndSigned
+            ? configurationComplete ? AgentDefinitionStatus.Available : AgentDefinitionStatus.NeedsConfiguration
+            : AgentDefinitionStatus.Building;
+
+        await db.SaveChangesAsync(cancellationToken);
+        await auditWriter.WriteAsync(
+            "agent-definition.update-requested",
+            nameof(AgentDefinition),
+            definition.Id,
+            $"Updated global definition {definition.AgentId} from {currentPackage.Version} to {nextPackage.Version}; existing hires remain pinned to their approved package revision.",
+            cancellationToken: cancellationToken);
+        return ToResponse(definition, nextPackage);
+    }
+
+    public async Task<RemoveAgentDefinitionResponse> RemoveAsync(
+        Guid definitionId,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = await db.AgentDefinitions
+            .Include(x => x.Configuration)
+            .Include(x => x.PackageVersion)!.ThenInclude(x => x!.BuildJobs)
+            .SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken)
+            ?? throw new AgentInstallationException("The agent definition was not found.");
+        var package = definition.PackageVersion
+            ?? throw new AgentInstallationException("The agent definition package was not found.");
+        var assignedEmployees = await db.CoreOrganizationUsers
+            .AsNoTracking()
+            .Where(x => x.AgentInstallation != null && x.AgentInstallation.AgentDefinitionId == definition.Id)
+            .OrderBy(x => x.DisplayName)
+            .Select(x => x.DisplayName)
+            .ToListAsync(cancellationToken);
+        if (assignedEmployees.Count > 0)
+        {
+            var names = string.Join(", ", assignedEmployees.Take(3));
+            var remainder = assignedEmployees.Count > 3 ? $" and {assignedEmployees.Count - 3} more" : string.Empty;
+            throw new AgentInstallationException(
+                $"This agent definition is used by {assignedEmployees.Count} employee(s): {names}{remainder}. " +
+                "Remove those employees from the Employees page before removing the agent definition.");
+        }
+
+        if (await db.AgentInstallations.AnyAsync(x => x.AgentDefinitionId == definition.Id, cancellationToken))
+        {
+            throw new AgentInstallationException(
+                "This agent definition is still used by an installation. Remove the related agent employee before removing the definition.");
+        }
+
+        if (package.BuildJobs.Any(x => x.Status is AgentBuildStatus.Cloning or AgentBuildStatus.Building))
+            throw new AgentInstallationException("The agent is currently building. Wait for the build to finish before removing it.");
+
+        var removePackage = !await db.AgentInstallations.AnyAsync(
+                                x => x.PackageVersionId == package.Id, cancellationToken) &&
+                            !await db.AgentDefinitions.AnyAsync(
+                                x => x.Id != definition.Id && x.PackageVersionId == package.Id, cancellationToken);
+        var sourceId = package.PackageSourceId;
+        var removeSource = removePackage && !await db.AgentPackageVersions.AnyAsync(
+            x => x.PackageSourceId == sourceId && x.Id != package.Id, cancellationToken);
+
+        foreach (var queuedJob in package.BuildJobs.Where(x => x.Status == AgentBuildStatus.Queued))
+            queuedJob.TransitionTo(AgentBuildStatus.Cancelled, DateTimeOffset.UtcNow);
+
+        db.AgentDefinitions.Remove(definition);
+        if (removePackage)
+            db.AgentPackageVersions.Remove(package);
+        if (removeSource)
+        {
+            var source = await db.AgentPackageSources.SingleOrDefaultAsync(x => x.Id == sourceId, cancellationToken);
+            if (source is not null)
+                db.AgentPackageSources.Remove(source);
+        }
+        await db.SaveChangesAsync(cancellationToken);
+
+        const int cleanupWarnings = 0;
+        await auditWriter.WriteAsync(
+            "agent-definition.removed",
+            nameof(AgentDefinition),
+            definition.Id,
+            $"Removed global definition {package.AgentId} {package.Version}. Package removed: {removePackage}; source removed: {removeSource}.",
+            cancellationToken: cancellationToken);
+        return new RemoveAgentDefinitionResponse(definition.Id, removePackage, removeSource, cleanupWarnings);
+    }
+
     public async Task<AgentDefinitionResponse> RetryBuildAsync(
         Guid definitionId,
         CancellationToken cancellationToken = default)
@@ -208,6 +379,18 @@ public sealed class AgentDefinitionService(
 
     private static string Serialize(IEnumerable<string> values) =>
         JsonSerializer.Serialize(values.Distinct(StringComparer.Ordinal).ToArray(), JsonOptions);
+
+    private static string KeepGranted(string json, IReadOnlySet<string> allowed) =>
+        Serialize((JsonSerializer.Deserialize<string[]>(json, JsonOptions) ?? []).Where(allowed.Contains));
+
+    private static string KeepBindings(string json, IReadOnlySet<string> allowed)
+    {
+        var bindings = JsonSerializer.Deserialize<Dictionary<string, Guid>>(json, JsonOptions)
+                       ?? new Dictionary<string, Guid>(StringComparer.Ordinal);
+        return JsonSerializer.Serialize(
+            bindings.Where(x => allowed.Contains(x.Key)).ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal),
+            JsonOptions);
+    }
 
     private static string NormalizeSchemaVersion(string value) =>
         string.IsNullOrWhiteSpace(value) || value.Length > 64

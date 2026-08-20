@@ -434,6 +434,25 @@ public class CoreServiceTests
             PermissionLevel = OrganizationPermissionLevel.Viewer,
             CreatedAt = DateTimeOffset.UtcNow
         };
+        var installation = new AgentInstallation
+        {
+            Id = Guid.NewGuid(),
+            PackageVersionId = Guid.NewGuid(),
+            BusinessId = organization.Id.ToString("D"),
+            IsEnabled = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Schedule = new AgentSchedule
+            {
+                Id = Guid.NewGuid(),
+                ActivationMode = ActivationMode.AlwaysOn,
+                IsEnabled = true,
+                TickFrequencySeconds = 3600,
+                MaxRuntimeSeconds = 600
+            }
+        };
+        manager.AgentInstallationId = installation.Id;
+        manager.AgentInstallation = installation;
         var report = new OrganizationUser
         {
             Id = Guid.NewGuid(),
@@ -466,6 +485,9 @@ public class CoreServiceTests
         var archivedManager = await dbContext.CoreOrganizationUsers.SingleAsync(x => x.Id == manager.Id);
         Assert.False(archivedManager.IsActive);
         Assert.NotNull(archivedManager.ArchivedAt);
+        Assert.False(installation.IsEnabled);
+        Assert.False(installation.Schedule!.IsEnabled);
+        Assert.Null(installation.Schedule.NextTickAt);
         Assert.True(await dbContext.CoreConversations.AnyAsync(x => x.Id == conversation.Id));
     }
 

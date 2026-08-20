@@ -131,6 +131,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Read a granted board or one assigned work item when itemId is provided."),
         Write(WorkBoardActions.Create, "create_work_board",
             "Create an operational board with default To Do and Done columns."),
+        Write(WorkBoardActions.Configure, "configure_work_board",
+            "Configure a managed board's name and description using optimistic concurrency."),
         Write(WorkBoardActions.ConfigureColumns, "configure_work_board_columns",
             "Configure an exact ordered workflow on a granted board using optimistic concurrency."),
         Write(WorkItemActions.Create, "create_work_item",
@@ -444,6 +446,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         WorkBoardActions.Create => Schema("""
             {"type":"object","required":["name","idempotencyKey"],"properties":{"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"teamId":{"type":["string","null"],"format":"uuid"},"key":{"type":["string","null"],"minLength":2,"maxLength":12},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkBoardActions.Configure => Schema("""
+            {"type":"object","required":["boardId","expectedRevision","name","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkBoardActions.ConfigureColumns => Schema("""
             {"type":"object","required":["boardId","expectedRevision","columns","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"columns":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","required":["name","category","wipPolicy"],"properties":{"id":{"type":["string","null"],"format":"uuid"},"name":{"type":"string","minLength":1,"maxLength":160},"category":{"type":"string","enum":["ToDo","InProgress","Done","Cancelled"]},"wipPolicy":{"type":"string","enum":["Disabled","Warning","HardLimit"]},"wipLimit":{"type":["integer","null"],"minimum":1}},"additionalProperties":false}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

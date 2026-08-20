@@ -6,6 +6,27 @@ namespace CSweet.UI.Setup;
 
 public static class SetupWizardState
 {
+    public static bool CanNavigateToStep(
+        IReadOnlyList<string> orderedStepKeys,
+        SetupStatusResponse status,
+        string targetStepKey)
+    {
+        var targetIndex = IndexOf(orderedStepKeys, targetStepKey);
+        if (targetIndex < 0)
+        {
+            return false;
+        }
+
+        var firstIncompleteIndex = orderedStepKeys
+            .Select((key, index) => new { Key = key, Index = index })
+            .Where(item => !status.Steps.Any(step => step.Key == item.Key && step.IsComplete))
+            .Select(item => item.Index)
+            .DefaultIfEmpty(orderedStepKeys.Count - 1)
+            .First();
+
+        return targetIndex <= firstIncompleteIndex;
+    }
+
     public static string FirstIncompleteStepKey(
         IReadOnlyList<string> orderedStepKeys,
         SetupStatusResponse status)
@@ -14,6 +35,19 @@ public static class SetupWizardState
             !status.Steps.Any(step => step.Key == key && step.IsComplete))
             ?? orderedStepKeys.LastOrDefault()
             ?? "welcome";
+    }
+
+    private static int IndexOf(IReadOnlyList<string> values, string value)
+    {
+        for (var index = 0; index < values.Count; index++)
+        {
+            if (string.Equals(values[index], value, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     public static LlmProviderSetupDefaults LmStudioDefaults()

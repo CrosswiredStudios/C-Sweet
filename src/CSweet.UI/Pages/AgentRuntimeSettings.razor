@@ -136,6 +136,10 @@
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_isBusy" OnClick="SaveAsync">
                     @(_isBusy ? "Saving..." : "Save runtime settings")
                 </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="_isBusy"
+                           StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RecoverRuntimesAsync">
+                    @(_isBusy ? "Working..." : "Recover stuck runtimes")
+                </MudButton>
             </MudStack>
         </MudPaper>
     }
@@ -218,6 +222,23 @@
             if (result.Settings is not null) Hydrate(result.Settings);
         }
         catch { _actionSucceeded = false; _actionMessage = "Runtime settings could not be saved. Try again."; }
+        finally { _isBusy = false; }
+    }
+
+    private async Task RecoverRuntimesAsync()
+    {
+        _isBusy = true; _actionMessage = null; _actionSucceeded = null;
+        try
+        {
+            var result = await AgentRuntimeSettingsApi.RecoverAsync();
+            _actionSucceeded = result.Succeeded;
+            _actionMessage = result.Message ?? "Runtime reconciliation completed.";
+        }
+        catch
+        {
+            _actionSucceeded = false;
+            _actionMessage = "Runtime recovery could not be completed. Review the runtime logs and try again.";
+        }
         finally { _isBusy = false; }
     }
 }

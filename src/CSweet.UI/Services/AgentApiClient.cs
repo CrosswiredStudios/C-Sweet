@@ -71,6 +71,33 @@ public sealed class AgentApiClient : IAgentApiClient
         return ToLegacyDefinition(definition);
     }
 
+    public async Task<IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse>> CheckDefinitionUpdatesAsync(
+        CancellationToken cancellationToken = default) =>
+        await SendAsync<IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse>>(
+            HttpMethod.Post,
+            "api/agents/definitions/check-updates",
+            null,
+            cancellationToken);
+
+    public async Task<AgentInstallationResponse> UpdateDefinitionAsync(
+        Guid definitionId,
+        UpdateAgentDefinitionRequest request,
+        CancellationToken cancellationToken = default) =>
+        ToLegacyDefinition(await SendAsync<AgentDefinitionResponse>(
+            HttpMethod.Post,
+            $"api/agents/definitions/{definitionId}/update",
+            request,
+            cancellationToken));
+
+    public Task<RemoveAgentDefinitionResponse> RemoveDefinitionAsync(
+        Guid definitionId,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<RemoveAgentDefinitionResponse>(
+            HttpMethod.Delete,
+            $"api/agents/definitions/{definitionId}",
+            null,
+            cancellationToken);
+
     public async Task<AgentInstallationResponse> RetryDefinitionBuildAsync(
         Guid definitionId,
         CancellationToken cancellationToken = default) =>
@@ -353,6 +380,7 @@ public sealed class AgentApiClient : IAgentApiClient
         definition.UpdatedAt,
         definition.Build)
     {
+        InstallationScope = "Global",
         SetupState = definition.Status
     };
 }

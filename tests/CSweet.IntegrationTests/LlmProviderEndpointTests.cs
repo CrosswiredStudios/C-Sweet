@@ -195,8 +195,9 @@ public class LlmProviderEndpointTests
         Assert.Contains(first.Results, result =>
             result.ProviderType == LlmProviderType.Vllm &&
             result.Status == LocalLlmProviderDiscoveryStatuses.NotFound);
-        Assert.Equal(8, handler.Requests.Count);
+        Assert.Equal(12, handler.Requests.Count);
         Assert.Contains(handler.Requests, uri => uri.Host == "localhost" && uri.Port == 1234);
+        Assert.Contains(handler.Requests, uri => uri.Host == "127.0.0.1" && uri.Port == 1234);
         Assert.Contains(handler.Requests, uri => uri.Host == "host.docker.internal" && uri.Port == 1234);
 
         var secondResponse = await client.PostAsync("/api/llm-provider-profiles/discover-local", content: null);

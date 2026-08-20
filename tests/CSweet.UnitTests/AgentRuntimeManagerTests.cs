@@ -152,6 +152,34 @@ public sealed class AgentRuntimeManagerTests
     }
 
     [Fact]
+    public async Task InteractiveStatus_DoesNotReportRunningRuntimeWithExpiredSessionAsReady()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
+        var runtime = RunningInstance(installation.Id, DateTimeOffset.UtcNow.AddMinutes(-1));
+        db.AgentRuntimeInstances.Add(runtime);
+        db.McpAgentSessions.Add(SessionFor(runtime, installation, DateTimeOffset.UtcNow.AddSeconds(-1)));
+        await db.SaveChangesAsync();
+
+        var containers = new FakeRunner();
+        var interactive = new AgentInteractiveRuntimeService(db, CreateManager(db, containers));
+        var readiness = await interactive.GetStatusAsync(installation.Id);
+
+        Assert.False(readiness.IsReady);
+        Assert.Equal(AgentRuntimeReadinessStages.WaitingForMcpSession, readiness.Stage);
+        Assert.Contains("lost its authenticated broker session", readiness.Reason);
+
+        var recovered = await interactive.EnsureReadyAsync(installation.Id);
+
+        Assert.Equal(AgentRuntimeStatus.Failed, runtime.Status);
+        Assert.NotEqual(runtime.Id, recovered.RuntimeInstanceId);
+        Assert.Equal(AgentRuntimeReadinessStages.WaitingForMcpSession, recovered.Stage);
+        Assert.Single(containers.Starts);
+    }
+
+    [Fact]
     public async Task AlwaysOnReconciliation_StartsOneMissingRuntime()
     {
         await using var db = CreateDb();
@@ -168,6 +196,30 @@ public sealed class AgentRuntimeManagerTests
 
         Assert.Single(containers.Starts);
         Assert.Single(await db.AgentRuntimeInstances.ToListAsync());
+    }
+
+    [Fact]
+    public async Task AlwaysOnReconciliation_IneligibleInstallationDoesNotBlockEligibleInstallation()
+    {
+        await using var db = CreateDb();
+        var orphaned = await SeedAsync(db, "orphaned-business", due: false);
+        orphaned.Schedule!.ActivationMode = ActivationMode.AlwaysOn;
+        orphaned.Schedule.NextTickAt = null;
+        var healthy = await SeedAsync(db, "healthy-business", due: false);
+        healthy.Schedule!.ActivationMode = ActivationMode.AlwaysOn;
+        healthy.Schedule.NextTickAt = null;
+        await db.SaveChangesAsync();
+        var eligibility = new DelegateRuntimeEligibility(id =>
+            id == orphaned.Id
+                ? new AgentRuntimeEligibility(false, "Agent runtimes require an active hired employee.")
+                : new AgentRuntimeEligibility(true, null));
+
+        var queued = await CreateManager(db, new FakeRunner(), eligibility)
+            .EnsureAlwaysOnRuntimesAsync();
+
+        Assert.Equal(1, queued);
+        Assert.False(await db.AgentRuntimeInstances.AnyAsync(x => x.AgentInstallationId == orphaned.Id));
+        Assert.True(await db.AgentRuntimeInstances.AnyAsync(x => x.AgentInstallationId == healthy.Id));
     }
 
     [Fact]
@@ -592,6 +644,33 @@ public sealed class AgentRuntimeManagerTests
     }
 
     [Fact]
+    public async Task ExpiredMcpSession_StopsRunningRuntimeAndReleasesInstallationSlot()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
+        var runtime = RunningInstance(installation.Id, DateTimeOffset.UtcNow.AddMinutes(-1));
+        runtime.ProviderInstanceId = "expired-session-vm";
+        db.AgentRuntimeInstances.Add(runtime);
+        db.McpAgentSessions.Add(SessionFor(runtime, installation, DateTimeOffset.UtcNow.AddSeconds(-1)));
+        await db.SaveChangesAsync();
+        var containers = new FakeRunner();
+        var manager = CreateManager(db, containers);
+
+        Assert.Equal(1, await manager.ReconcileAsync());
+
+        Assert.Equal(AgentRuntimeStatus.Failed, runtime.Status);
+        Assert.Contains("session expired", runtime.Reason);
+        Assert.Single(containers.Stops);
+        Assert.True(await manager.EnsureRuntimeQueuedAsync(
+            installation.Id,
+            "Retry after an expired MCP session.",
+            interactive: true));
+        Assert.Equal(2, await db.AgentRuntimeInstances.CountAsync());
+    }
+
+    [Fact]
     public async Task SlowVmBoot_DoesNotConsumeMcpSessionEstablishmentWindow()
     {
         await using var db = CreateDb();
@@ -712,6 +791,109 @@ public sealed class AgentRuntimeManagerTests
         Assert.Null(runtime.ProviderInstanceId);
         Assert.Contains("fresh attempt", runtime.Reason);
         Assert.True(await manager.EnsureRuntimeQueuedAsync(installation.Id, "Retry chat.", interactive: true));
+    }
+
+    [Fact]
+    public async Task Reconcile_IneligibleInterruptedStop_DoesNotBlockNewerQueuedRuntime()
+    {
+        await using var db = CreateDb();
+        var firedInstallation = await SeedAsync(db, "fired-business", due: false);
+        firedInstallation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        firedInstallation.Schedule.NextTickAt = null;
+        var stoppedAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var stale = RunningInstance(firedInstallation.Id);
+        stale.QueuedAt = stoppedAt.AddMinutes(-1);
+        stale.ProviderInstanceId = "stale-vm";
+        stale.TransitionTo(AgentRuntimeStatus.Stopping, stoppedAt,
+            "Agent runtimes require an active hired employee.");
+        stale.Events.Add(new AgentRuntimeEvent
+        {
+            Id = Guid.NewGuid(),
+            AgentRuntimeInstanceId = stale.Id,
+            Status = AgentRuntimeStatus.Stopping,
+            Reason = stale.Reason,
+            OccurredAt = stoppedAt
+        });
+
+        var activeInstallation = await SeedAsync(db, "active-business", due: false);
+        activeInstallation.Schedule!.ActivationMode = ActivationMode.AlwaysOn;
+        activeInstallation.Schedule.NextTickAt = null;
+        var queued = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(),
+            TickId = Guid.NewGuid(),
+            AgentInstallationId = activeInstallation.Id,
+            QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        };
+        db.AgentRuntimeInstances.AddRange(stale, queued);
+        await db.SaveChangesAsync();
+        var runner = new FakeRunner { InspectStatus = null };
+        var eligibility = new DelegateRuntimeEligibility(id =>
+            id == firedInstallation.Id
+                ? new AgentRuntimeEligibility(false, "Agent runtimes require an active hired employee.")
+                : new AgentRuntimeEligibility(true, null));
+
+        Assert.Equal(2, await CreateManager(db, runner, eligibility).ReconcileAsync());
+
+        Assert.Equal(AgentRuntimeStatus.Failed, stale.Status);
+        Assert.Equal(AgentRuntimeStatus.WaitingForMcpSession, queued.Status);
+        Assert.Single(runner.Starts);
+        Assert.Single(stale.Events, x => x.Status == AgentRuntimeStatus.Stopping);
+    }
+
+    [Fact]
+    public async Task Reconcile_RunningRuntimeThatLosesEligibility_EndsAsPolicyDenied()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
+        var runtime = RunningInstance(installation.Id);
+        runtime.ProviderInstanceId = "revoked-vm";
+        db.AgentRuntimeInstances.Add(runtime);
+        await db.SaveChangesAsync();
+        var runner = new FakeRunner();
+        var eligibility = new DelegateRuntimeEligibility(_ =>
+            new AgentRuntimeEligibility(false, "The employee is no longer active."));
+
+        Assert.Equal(1, await CreateManager(db, runner, eligibility).ReconcileAsync());
+
+        Assert.Equal(AgentRuntimeStatus.PolicyDenied, runtime.Status);
+        Assert.NotNull(runtime.CompletedAt);
+        Assert.Equal("revoked-vm", Assert.Single(runner.Stops));
+    }
+
+    [Fact]
+    public async Task Reconcile_RuntimeFailure_DoesNotStarveLaterRuntime()
+    {
+        await using var db = CreateDb();
+        var brokenInstallation = await SeedAsync(db, "broken-business", due: false);
+        var healthyInstallation = await SeedAsync(db, "healthy-business", due: false);
+        var broken = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = brokenInstallation.Id,
+            QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-2)
+        };
+        var healthy = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = healthyInstallation.Id,
+            QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        };
+        db.AgentRuntimeInstances.AddRange(broken, healthy);
+        await db.SaveChangesAsync();
+        var runner = new FakeRunner();
+        var eligibility = new DelegateRuntimeEligibility(id =>
+            id == brokenInstallation.Id
+                ? throw new InvalidOperationException("Malformed historical runtime.")
+                : new AgentRuntimeEligibility(true, null));
+
+        Assert.Equal(1, await CreateManager(db, runner, eligibility).ReconcileAsync());
+
+        Assert.Equal(AgentRuntimeStatus.Queued,
+            await db.AgentRuntimeInstances.Where(x => x.Id == broken.Id).Select(x => x.Status).SingleAsync());
+        Assert.Equal(AgentRuntimeStatus.WaitingForMcpSession,
+            await db.AgentRuntimeInstances.Where(x => x.Id == healthy.Id).Select(x => x.Status).SingleAsync());
+        Assert.Single(runner.Starts);
     }
 
     [Fact]
@@ -890,14 +1072,17 @@ public sealed class AgentRuntimeManagerTests
         Assert.Contains("'Stopping'", index.GetFilter());
     }
 
-    private static AgentRuntimeManager CreateManager(CSweetDbContext db, FakeRunner runner)
+    private static AgentRuntimeManager CreateManager(
+        CSweetDbContext db,
+        FakeRunner runner,
+        IAgentRuntimeEligibilityService? eligibility = null)
     {
         runner.Db = db;
         return new(db, runner, new StaticGuestImageRegistry(), new TestAuditEventWriter(), Options.Create(new AgentRuntimeManagerOptions
         {
             RuntimeGuestImageVersion = "1.0",
             RuntimeGuestImageDigest = "sha256:" + new string('d', 64)
-        }), NullLogger<AgentRuntimeManager>.Instance, new AllowAllRuntimeEligibility());
+        }), NullLogger<AgentRuntimeManager>.Instance, eligibility ?? new AllowAllRuntimeEligibility());
     }
 
     private sealed class AllowAllRuntimeEligibility : IAgentRuntimeEligibilityService
@@ -905,6 +1090,14 @@ public sealed class AgentRuntimeManagerTests
         public Task<AgentRuntimeEligibility> EvaluateAsync(
             Guid installationId, CancellationToken cancellationToken = default) =>
             Task.FromResult(new AgentRuntimeEligibility(true, null));
+    }
+
+    private sealed class DelegateRuntimeEligibility(
+        Func<Guid, AgentRuntimeEligibility> evaluate) : IAgentRuntimeEligibilityService
+    {
+        public Task<AgentRuntimeEligibility> EvaluateAsync(
+            Guid installationId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(evaluate(installationId));
     }
 
     private sealed class StaticGuestImageRegistry : IGuestImageRegistry
@@ -936,14 +1129,36 @@ public sealed class AgentRuntimeManagerTests
         return installation;
     }
 
-    private static AgentRuntimeInstance RunningInstance(Guid installationId)
+    private static AgentRuntimeInstance RunningInstance(
+        Guid installationId,
+        DateTimeOffset? establishedAt = null)
     {
+        var sessionEstablishedAt = establishedAt ?? DateTimeOffset.UtcNow;
         var instance = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = installationId, QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-1), BrokerTokenHash = new string('0', 64), RuntimeDeadlineAt = DateTimeOffset.UtcNow.AddMinutes(5), IsolationProviderId = "test-vm" };
         instance.TransitionTo(AgentRuntimeStatus.Starting, DateTimeOffset.UtcNow.AddMinutes(-1));
         instance.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow.AddMinutes(-1));
-        instance.TransitionTo(AgentRuntimeStatus.Running, DateTimeOffset.UtcNow.AddMinutes(-1));
+        instance.TransitionTo(AgentRuntimeStatus.Running, sessionEstablishedAt);
         return instance;
     }
+
+    private static McpAgentSession SessionFor(
+        AgentRuntimeInstance runtime,
+        AgentInstallation installation,
+        DateTimeOffset expiresAt) => new()
+    {
+        Id = Guid.NewGuid(),
+        RuntimeInstanceId = runtime.Id,
+        TickId = runtime.TickId,
+        AgentInstallationId = installation.Id,
+        OrganizationId = installation.BusinessId,
+        PackageVersionId = installation.PackageVersionId,
+        PackageDigest = installation.PackageVersion!.PackageDigest!,
+        GrantRevision = 1,
+        AccessTokenHash = new string('d', 64),
+        EstablishedAt = expiresAt.AddMinutes(-10),
+        LastRenewedAt = expiresAt.AddMinutes(-10),
+        ExpiresAt = expiresAt
+    };
 
     private sealed record StartedWorkload(
         RuntimeWorkloadSpecification Workload,

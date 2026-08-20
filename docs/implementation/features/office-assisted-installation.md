@@ -247,7 +247,7 @@ created -> preflight
   none -----------------------------> redeem -> install
   clean/active/unsafe --------------> recovery-required
   recovery-required + reconnect ----> fresh handoff -> preflight -> redeem -> reconnect
-  recovery-required + remove -------> fresh handoff -> removal-in-progress -> removed -> new install session
+  recovery-required + remove -------> fresh handoff -> staged removal -> redeem -> install
 ```
 
 **Reconnect this Office** is available only for a complete, recognized installation with no active
@@ -260,8 +260,9 @@ resurrect a deleted Headquarters identity.
 
 **Remove Office** requires a separate destructive confirmation. The staged removal helper prefers the
 registered MSI force-removal path and falls back to the validated development uninstaller. It removes
-services, privileges, URI registration, data, caches, and owned Hyper-V resources, reports completion,
-and leaves installation as an explicit next action. Removal is retry-safe. Ordinary upgrades do not
+services, privileges, URI registration, data, caches, and owned Hyper-V resources, reports each
+destructive stage, and continues directly into a fresh installation with the capacity
+already selected for the session. Removal is retry-safe. Ordinary upgrades do not
 use this recovery path: they still require a drained node and preserve the existing identity only when
 active assignments have reached zero.
 

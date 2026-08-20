@@ -36,6 +36,7 @@ var localStateDirectory = string.IsNullOrWhiteSpace(localAppData)
     ? Path.Combine(repositoryRoot, ".csweet")
     : Path.Combine(localAppData, "CSweet");
 Directory.CreateDirectory(localStateDirectory);
+var executionGatewayCertificate = EnsureDevelopmentExecutionGatewayCertificate(localStateDirectory);
 var appLaunchProfile = builder.Configuration["CSweet:App:LaunchProfile"]
     ?? "http-no-wasm-debug";
 var marketplaceEnabled = builder.Configuration["CSweet:Marketplace:Enabled"] ?? "false";
@@ -105,6 +106,7 @@ if (OperatingSystem.IsWindows())
 
 var executionGateway = builder.AddProject<Projects.CSweet_ExecutionGateway>("executiongateway")
     .WithHttpsEndpoint(name: "https")
+    .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", executionGatewayCertificate.Path)
     .WithReference(postgres)
     .WithReference(agentHostEndpoint)
     .WithEnvironment("CSweet__AgentRuntime__AgentHostBroker__BaseUrl", agentHostEndpoint)
@@ -115,8 +117,11 @@ executionGateway
     .WithEnvironment("CSweet__ExecutionFleet__PublicLaunchEnabled", "true")
     .WithEnvironment("CSweet__ExecutionFleet__AllowUnpinnedDevelopmentImages", "true");
 var executionGatewayEndpoint = executionGateway.GetEndpoint("https");
+var executionGatewayBootstrapEndpoint = executionGateway.GetEndpoint("http");
 api.WithReference(executionGateway)
     .WithEnvironment("CSweet__ExecutionGateway__PublicUrl", executionGatewayEndpoint)
+    .WithEnvironment("CSweet__ExecutionGateway__BootstrapUrl", executionGatewayBootstrapEndpoint)
+    .WithEnvironment("CSweet__ExecutionGateway__PublicCertificateSha256", executionGatewayCertificate.Sha256)
     .WithEnvironment("CSweet__ExecutionFleet__PublicLaunchEnabled", "true")
     .WithEnvironment("CSweet__ExecutionFleet__AllowUnpinnedDevelopmentImages", "true")
     .WaitFor(executionGateway);
@@ -215,6 +220,66 @@ static string EnsureTrustedServiceKey(string? configured)
         // Generate an ephemeral per-AppHost key below.
     }
     return Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+}
+
+static (string Path, string Sha256) EnsureDevelopmentExecutionGatewayCertificate(string stateDirectory)
+{
+    var certificatePath = Path.Combine(stateDirectory, "development-execution-gateway.pfx");
+    if (File.Exists(certificatePath))
+    {
+        try
+        {
+            using var existing = System.Security.Cryptography.X509Certificates.X509CertificateLoader
+                .LoadPkcs12FromFile(
+                    certificatePath,
+                    password: null,
+                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.EphemeralKeySet);
+            if (existing.HasPrivateKey &&
+                existing.NotBefore.ToUniversalTime() <= DateTime.UtcNow &&
+                existing.NotAfter.ToUniversalTime() > DateTime.UtcNow.AddDays(30))
+                return (certificatePath, existing.GetCertHashString(
+                    System.Security.Cryptography.HashAlgorithmName.SHA256).ToLowerInvariant());
+        }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            // Replace a corrupt or incomplete AppHost-owned certificate below.
+        }
+    }
+
+    using var key = System.Security.Cryptography.RSA.Create(2048);
+    var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+        "CN=localhost",
+        key,
+        System.Security.Cryptography.HashAlgorithmName.SHA256,
+        System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+    request.CertificateExtensions.Add(
+        new System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(false, false, 0, true));
+    request.CertificateExtensions.Add(
+        new System.Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+            System.Security.Cryptography.X509Certificates.X509KeyUsageFlags.DigitalSignature |
+            System.Security.Cryptography.X509Certificates.X509KeyUsageFlags.KeyEncipherment,
+            true));
+    request.CertificateExtensions.Add(
+        new System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+            new System.Security.Cryptography.OidCollection
+            {
+                new("1.3.6.1.5.5.7.3.1")
+            },
+            true));
+    var subjectAlternativeName =
+        new System.Security.Cryptography.X509Certificates.SubjectAlternativeNameBuilder();
+    subjectAlternativeName.AddDnsName("localhost");
+    subjectAlternativeName.AddIpAddress(System.Net.IPAddress.Loopback);
+    subjectAlternativeName.AddIpAddress(System.Net.IPAddress.IPv6Loopback);
+    request.CertificateExtensions.Add(subjectAlternativeName.Build());
+
+    using var generated = request.CreateSelfSigned(
+        DateTimeOffset.UtcNow.AddMinutes(-5),
+        DateTimeOffset.UtcNow.AddYears(2));
+    File.WriteAllBytes(certificatePath, generated.Export(
+        System.Security.Cryptography.X509Certificates.X509ContentType.Pfx));
+    return (certificatePath, generated.GetCertHashString(
+        System.Security.Cryptography.HashAlgorithmName.SHA256).ToLowerInvariant());
 }
 
 static string? DeriveScopedKey(string? rootKeyBase64, string purpose)

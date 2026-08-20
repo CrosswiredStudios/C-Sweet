@@ -9,4 +9,7 @@ public interface IAgentRuntimeSettingsApiClient
     Task<AgentRuntimeSettingsActionResponse> UpdateAsync(
         UpdateAgentRuntimeSettingsRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<AgentRuntimeSettingsActionResponse> RecoverAsync(
+        CancellationToken cancellationToken = default);
 }

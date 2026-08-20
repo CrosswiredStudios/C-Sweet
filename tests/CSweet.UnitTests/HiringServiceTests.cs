@@ -338,6 +338,23 @@ public sealed class HiringServiceTests
         var recommendation = await service.UpsertRecommendationAsync(organizationId, installationId,
             new("Operations lead", "Own reliable delivery", null, [$"candidate:{candidate.Id:N}"], $"candidate:{candidate.Id:N}", "rec-1"));
         var origin = await AddHiringOriginAsync(db, organizationId, owner, installationId);
+        var suggestedAction = new SuggestedUserAction
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            OriginatingInstallationId = installationId,
+            ConversationId = origin.ConversationId,
+            ChatTurnId = origin.ChatTurnId,
+            WorkflowType = CSweet.Contracts.Communications.SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+            Label = "Browse candidates",
+            ParametersJson = JsonSerializer.Serialize(new { recommendationId = recommendation.Id }),
+            NavigationUri = $"/organizations/{organizationId:D}/marketplace?role=Operations%20Lead&recommendationId={recommendation.Id:D}",
+            IdempotencyKey = "operations-lead-action",
+            Status = "Pending",
+            CreatedAt = now
+        };
+        db.SuggestedUserActions.Add(suggestedAction);
+        await db.SaveChangesAsync();
         var workflow = await service.StageWorkflowAsync(organizationId, installationId,
             new(recommendation.Id, recommendation.RecommendedCandidateReference!, "Operations Lead", null, [], "workflow-1")
             {
@@ -369,6 +386,10 @@ public sealed class HiringServiceTests
         Assert.Equal("Approved", approved?.Status);
         var updated = await db.CoreOrganizationUsers.SingleAsync(x => x.Id == employee.Id);
         Assert.Equal("Operations Lead", (await db.CoreRoles.SingleAsync(x => x.Id == updated.RoleId)).Name);
+        var completedAction = await db.SuggestedUserActions.SingleAsync(x => x.Id == suggestedAction.Id);
+        Assert.Equal("Completed", completedAction.Status);
+        Assert.Equal(employee.Id, completedAction.ResultOrganizationUserId);
+        Assert.NotNull(completedAction.CompletedAt);
     }
 
     [Fact]
@@ -1146,6 +1167,15 @@ public sealed class HiringServiceTests
             Task.FromResult<AgentDefinitionResponse?>(definitionId == DefinitionId && Request is not null
                 ? Response()
                 : null);
+
+        public Task<AgentDefinitionResponse> UpdateAsync(
+            Guid definitionId, UpdateAgentDefinitionRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<RemoveAgentDefinitionResponse> RemoveAsync(
+            Guid definitionId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
 
         public Task<AgentDefinitionResponse> RetryBuildAsync(
             Guid definitionId,

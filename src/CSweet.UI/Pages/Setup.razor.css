@@ -105,6 +105,20 @@
     border-color: var(--cs-navy);
 }
 
+.setup-progress button:disabled {
+    cursor: not-allowed;
+}
+
+.setup-progress button:disabled:hover .setup-progress-node {
+    transform: none;
+    border-color: #cbd3da;
+}
+
+.setup-progress li.locked .setup-progress-node {
+    background: #f5f6f7;
+    color: #aeb6bf;
+}
+
 .setup-progress button:focus-visible {
     outline: 0;
 }

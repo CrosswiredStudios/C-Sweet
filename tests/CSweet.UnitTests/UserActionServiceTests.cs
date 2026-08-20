@@ -138,6 +138,18 @@ public sealed class UserActionServiceTests
         Assert.Equal("System", systemResponse.SenderEmployeeType);
         Assert.Equal(action.Id, Assert.Single(systemResponse.Actions!).Id);
 
+        persistedAction.Status = "Completed";
+        persistedAction.ResultOrganizationUserId = other.Id;
+        persistedAction.CompletedAt = now.AddMinutes(1);
+        await db.SaveChangesAsync();
+        responses = await hub.ListMessagesAsync(organization.Id, conversation.Id, other.Id);
+        var completedResponse = Assert.Single(
+            Assert.Single(responses!, x => x.MessageType == CommunicationMessageTypes.SystemAction).Actions!);
+        Assert.Equal("Completed", completedResponse.Status);
+        Assert.Equal(other.Id, completedResponse.ResultOrganizationUserId);
+        Assert.Equal(other.DisplayName, completedResponse.ResultOrganizationUserDisplayName);
+        Assert.Equal(persistedAction.CompletedAt, completedResponse.CompletedAt);
+
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.SuggestAsync(
             organization.Id,
             installationId,

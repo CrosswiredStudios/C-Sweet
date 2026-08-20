@@ -8,5 +8,9 @@ public interface IAgentDefinitionService
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AgentDefinitionResponse>> ListAsync(CancellationToken cancellationToken = default);
     Task<AgentDefinitionResponse?> GetAsync(Guid definitionId, CancellationToken cancellationToken = default);
+    Task<AgentDefinitionResponse> UpdateAsync(Guid definitionId, UpdateAgentDefinitionRequest request,
+        CancellationToken cancellationToken = default);
+    Task<RemoveAgentDefinitionResponse> RemoveAsync(Guid definitionId,
+        CancellationToken cancellationToken = default);
     Task<AgentDefinitionResponse> RetryBuildAsync(Guid definitionId, CancellationToken cancellationToken = default);
 }

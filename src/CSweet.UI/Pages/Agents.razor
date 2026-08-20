@@ -266,8 +266,19 @@
                                 </div>
                             }
                             <MudStack Row="true" Class="setup-actions">
+                                @if (availableUpdate is not null)
+                                {
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt"
+                                               Disabled="@_isManagingInstallation" OnClick="@(() => OpenUpdateDialog(installation, availableUpdate))">
+                                        Update
+                                    </MudButton>
+                                }
                                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Settings" Disabled="@_isBusy" OnClick="@(() => SelectAgentAsync(installation))">
                                     Configure global defaults
+                                </MudButton>
+                                <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteForever"
+                                           Disabled="@_isManagingInstallation" OnClick="@(() => OpenRemoveDialog(installation))">
+                                    Remove
                                 </MudButton>
                             </MudStack>
                         </MudPaper>
@@ -840,17 +851,16 @@
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
             <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Color="Color.Error" />
-            <MudText Typo="Typo.h6">Remove imported agent?</MudText>
+            <MudText Typo="Typo.h6">Remove agent definition?</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
             <MudText>
-                This permanently removes <strong>@_removeInstallation?.AgentName</strong> from
-                <strong>@_removeInstallation?.BusinessId</strong>.
+                This permanently removes the global <strong>@_removeInstallation?.AgentName</strong> definition.
             </MudText>
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                Grants, schedule, run history, isolated workloads, and cached build artifacts that are not shared by another installation will be deleted. You will need to import and approve the agent again.
+                The definition can only be removed when no employees use it. Global defaults and unshared cached package records will be deleted. You will need to import and approve the agent again.
             </MudAlert>
             @if (!string.IsNullOrWhiteSpace(_removeError))
             {
@@ -870,24 +880,23 @@
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
             <MudIcon Icon="@Icons.Material.Filled.SystemUpdateAlt" Color="Color.Primary" />
-            <MudText Typo="Typo.h6">Update imported agent?</MudText>
+            <MudText Typo="Typo.h6">Update agent definition?</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
             <MudText>
-                Update <strong>@_updateInstallation?.AgentName</strong> for
-                <strong>@_updateInstallation?.BusinessId</strong> from
+                Update the global <strong>@_updateInstallation?.AgentName</strong> definition from
                 <strong>@_selectedUpdate?.CurrentVersion</strong> to
                 <strong>@_selectedUpdate?.AvailableVersion</strong>?
             </MudText>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                The new GitHub commit will be built before it runs. Schedule and configuration are preserved. Grants removed from the new manifest are revoked automatically; newly requested access remains denied.
+                The new GitHub commit will be verified and built for future hires. Compatible global defaults are preserved, removed grants are revoked, and newly requested access remains denied. Existing employees stay pinned to their approved package revision.
             </MudAlert>
             @if (_isManagingInstallation)
             {
                 <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                <MudText Typo="Typo.body2" Color="Color.Secondary">Stopping the current runtime and queuing the new package...</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Queuing the new definition package...</MudText>
             }
             @if (!string.IsNullOrWhiteSpace(_updateError))
             {
@@ -929,7 +938,7 @@
          string.Equals(installation.BusinessId, ChiefSetupBusinessId.Value.ToString("D"), StringComparison.OrdinalIgnoreCase));
 
     private IReadOnlyList<AgentInstallationResponse> _installations = [];
-    private IReadOnlyList<AgentUpdateAvailabilityResponse> _updates = [];
+    private IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse> _updates = [];
     private IReadOnlyList<LlmProviderProfileResponse> _providerProfiles = [];
     private readonly Dictionary<Guid, IReadOnlyList<string>> _providerModels = [];
     private readonly HashSet<Guid> _loadingProviderModels = [];
@@ -1004,7 +1013,7 @@
     private readonly DialogOptions _updateDialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = false };
     private bool _updateDialogOpen;
     private AgentInstallationResponse? _updateInstallation;
-    private AgentUpdateAvailabilityResponse? _selectedUpdate;
+    private AgentDefinitionUpdateAvailabilityResponse? _selectedUpdate;
     private string? _updateError;
     private readonly CancellationTokenSource _disposeCts = new();
     private Task? _updateCheckTask;
@@ -1039,7 +1048,7 @@
           _importPreview.RequestedNetworkAccess.Count;
     private AgentTokenUsageResponse? SelectedAgentUsage =>
         _selectedAgent is null ? null : AgentUsage(_selectedAgent.AgentId);
-    private IReadOnlyList<AgentUpdateAvailabilityResponse> AvailableUpdates =>
+    private IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse> AvailableUpdates =>
         _updates.Where(update => update.UpdateAvailable).ToList();
 
     protected override async Task OnInitializedAsync()
@@ -1123,7 +1132,7 @@
 
         if (loaded)
         {
-            _updates = [];
+            StartUpdateCheck();
             ResumeDefinitionBuildTracking();
         }
     }
@@ -1145,7 +1154,7 @@
 
         try
         {
-            _updates = await AgentApi.CheckUpdatesAsync(cancellationToken);
+            _updates = await AgentApi.CheckDefinitionUpdatesAsync(cancellationToken);
             _updateCheckError = _updates.FirstOrDefault(update => !string.IsNullOrWhiteSpace(update.Error))?.Error;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1467,12 +1476,12 @@
         _scheduleDialogOpen = true;
     }
 
-    private AgentUpdateAvailabilityResponse? UpdateFor(Guid installationId) =>
-        _updates.FirstOrDefault(update => update.InstallationId == installationId && update.UpdateAvailable);
+    private AgentDefinitionUpdateAvailabilityResponse? UpdateFor(Guid definitionId) =>
+        _updates.FirstOrDefault(update => update.DefinitionId == definitionId && update.UpdateAvailable);
 
     private void OpenUpdateDialog(
         AgentInstallationResponse installation,
-        AgentUpdateAvailabilityResponse update)
+        AgentDefinitionUpdateAvailabilityResponse update)
     {
         _updateInstallation = installation;
         _selectedUpdate = update;
@@ -1500,15 +1509,15 @@
         var progressKey = InstallationProgressKey(_updateInstallation);
         _isManagingInstallation = true;
         _updateError = null;
-        SetBuildProgress(progressKey, "Preparing update", "Stopping the current runtime and queuing the new package.");
+        SetBuildProgress(progressKey, "Preparing update", "Queuing the new definition package.");
         try
         {
-            var updated = await AgentApi.UpdateAsync(
+            var updated = await AgentApi.UpdateDefinitionAsync(
                 installationId,
-                new UpdateAgentInstallationRequest(packageVersionId),
+                new UpdateAgentDefinitionRequest(packageVersionId),
                 _disposeCts.Token);
             ReplaceInstallation(updated);
-            _updates = _updates.Where(update => update.InstallationId != installationId).ToList();
+            _updates = _updates.Where(update => update.DefinitionId != installationId).ToList();
             _updateDialogOpen = false;
             _updateInstallation = null;
             _selectedUpdate = null;
@@ -1794,14 +1803,15 @@
         _removeError = null;
         try
         {
-            var result = await AgentApi.RemoveAsync(_removeInstallation.Id);
-            _installations = _installations.Where(x => x.Id != result.InstallationId).ToList();
+            var result = await AgentApi.RemoveDefinitionAsync(_removeInstallation.Id);
+            _installations = _installations.Where(x => x.Id != result.DefinitionId).ToList();
+            _updates = _updates.Where(x => x.DefinitionId != result.DefinitionId).ToList();
             _removeDialogOpen = false;
             _removeInstallation = null;
             SetInstallationMessage(
                 result.CleanupWarnings == 0
-                    ? "Imported agent removed. You can now import it again from scratch."
-                    : $"Imported agent removed, but {result.CleanupWarnings} cached artifact(s) could not be deleted. See application logs for details.",
+                    ? "Agent definition removed. You can now import it again from scratch."
+                    : $"Agent definition removed, but {result.CleanupWarnings} cached artifact(s) could not be deleted. See application logs for details.",
                 true);
         }
         catch (Exception exception)

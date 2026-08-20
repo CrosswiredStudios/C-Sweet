@@ -300,6 +300,54 @@ public sealed class ExecutionFleetServiceTests
     }
 
     [Fact]
+    public async Task AssistedLocalSetup_DevelopmentLauncherUsesLoopbackBootstrapOriginButKeepsHttpsOfficeOrigin()
+    {
+        var scriptRoot = Path.Combine(Path.GetTempPath(), $"csweet-local-setup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(scriptRoot);
+        var launcher = Path.Combine(scriptRoot, "launcher.ps1");
+        var bootstrap = Path.Combine(scriptRoot, "bootstrap.ps1");
+        await File.WriteAllTextAsync(launcher, "# launcher");
+        await File.WriteAllTextAsync(bootstrap, "# bootstrap");
+        try
+        {
+            await using var db = CreateDb();
+            var clock = new MutableTimeProvider(Now);
+            await new SetupService(db).EnsureSeededAsync();
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["CSweet:ExecutionGateway:PublicUrl"] = "https://localhost:47082/",
+                    ["CSweet:ExecutionGateway:BootstrapUrl"] = "http://localhost:47083/",
+                    ["CSweet:ExecutionGateway:PublicCertificateSha256"] = new string('a', 64)
+                }).Build();
+            var capacity = LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 100L << 30, true);
+            var options = new ExecutionFleetOptions
+            {
+                PublicLaunchEnabled = true,
+                WindowsDevelopmentLauncherScript = launcher,
+                WindowsDevelopmentOfficeBootstrapScript = bootstrap
+            };
+            var fleet = CreateFleet(db, clock, configuration, capacityProbe: new FixedCapacityProbe(capacity),
+                fleetOptions: options);
+            var selected = capacity.Presets.Single(x => x.Key == "balanced");
+
+            var created = await fleet.CreateLocalSetupSessionAsync(
+                new("balanced", selected.CpuCount, selected.MemoryMb, selected.DiskMb), Guid.NewGuid());
+
+            Assert.True(created.Succeeded);
+            Assert.Equal("server", created.Session?.LaunchMethod);
+            Assert.Contains(Uri.EscapeDataString("http://localhost:47083"), created.Session?.LaunchUri,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(Uri.EscapeDataString("https://localhost:47082"), created.Session?.LaunchUri,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(scriptRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task AssistedLocalSetup_ActiveExistingOfficeBlocksReconnectButAllowsConfirmedRemoval()
     {
         await using var db = CreateDb();
@@ -341,8 +389,67 @@ public sealed class ExecutionFleetServiceTests
             Environment.MachineName, "windows", architecture)));
         Assert.True(await fleet.CompleteLocalOfficeRemovalAsync(new(removeHandoff,
             Environment.MachineName, "windows", architecture)));
-        Assert.Equal(LocalOfficeSetupSessionStatus.Removed,
-            (await db.LocalOfficeSetupSessions.SingleAsync()).Status);
+        var removalCompleted = await db.LocalOfficeSetupSessions.SingleAsync();
+        Assert.Equal(LocalOfficeSetupSessionStatus.Created, removalCompleted.Status);
+        Assert.Equal("removed", removalCompleted.RecoveryAction);
+        Assert.Equal(selected.CpuCount, removalCompleted.AllocatableCpuCount);
+        Assert.Equal(selected.MemoryMb, removalCompleted.AllocatableMemoryMb);
+        Assert.Equal(selected.DiskMb, removalCompleted.AllocatableDiskMb);
+
+        var installPreflight = await fleet.PreflightLocalSetupSessionAsync(new(removeHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0", "none"));
+        Assert.True(installPreflight.ProceedToRedemption);
+        Assert.Equal("none", installPreflight.ExistingInstallationAction);
+        Assert.Equal("none", (await db.LocalOfficeSetupSessions.SingleAsync()).RecoveryAction);
+
+        var redeemed = await fleet.RedeemLocalSetupSessionAsync(new(removeHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0"));
+        Assert.True(redeemed.Succeeded);
+        Assert.Equal(selected.CpuCount, redeemed.AllocatableCpuCount);
+        Assert.Equal(selected.MemoryMb, redeemed.AllocatableMemoryMb);
+        Assert.Equal(selected.DiskMb, redeemed.AllocatableDiskMb);
+    }
+
+    [Fact]
+    public async Task AssistedLocalSetup_AlreadyRemovedOfficeContinuesDirectlyIntoInstallation()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["CSweet:ExecutionGateway:PublicUrl"] = "https://office.example.test/",
+                ["CSweet:ExecutionGateway:PublicCertificateSha256"] = new string('a', 64)
+            }).Build();
+        var capacity = LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 100L << 30, true);
+        var fleet = CreateFleet(db, clock, configuration, capacityProbe: new FixedCapacityProbe(capacity));
+        var selected = capacity.Presets.Single(x => x.Key == "balanced");
+        var userId = Guid.NewGuid();
+        var created = await fleet.CreateLocalSetupSessionAsync(
+            new("balanced", selected.CpuCount, selected.MemoryMb, selected.DiskMb), userId);
+        var originalUri = new Uri(Assert.IsType<string>(created.Session?.LaunchUri));
+        var originalHandoff = Uri.UnescapeDataString(originalUri.Fragment["#handoff=".Length..]);
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            .ToString().ToLowerInvariant();
+        await fleet.PreflightLocalSetupSessionAsync(new(originalHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0", "active"));
+        var removal = await fleet.SelectLocalSetupRecoveryAsync(created.Session!.Id, userId, new("remove"));
+        var removalUri = new Uri(Assert.IsType<string>(removal.Session?.LaunchUri));
+        var removalHandoff = Uri.UnescapeDataString(removalUri.Fragment["#handoff=".Length..]);
+
+        var preflight = await fleet.PreflightLocalSetupSessionAsync(new(removalHandoff,
+            Environment.MachineName, "windows", architecture, "0.3.0", "none"));
+
+        Assert.True(preflight.Succeeded);
+        Assert.True(preflight.ProceedToRedemption);
+        Assert.Equal("none", preflight.ExistingInstallationAction);
+        var persisted = await db.LocalOfficeSetupSessions.SingleAsync();
+        Assert.Equal(LocalOfficeSetupSessionStatus.Created, persisted.Status);
+        Assert.Equal("none", persisted.RecoveryAction);
+        Assert.Equal(selected.CpuCount, persisted.AllocatableCpuCount);
+        Assert.Equal(selected.MemoryMb, persisted.AllocatableMemoryMb);
+        Assert.Equal(selected.DiskMb, persisted.AllocatableDiskMb);
     }
 
     [Fact]
@@ -876,9 +983,10 @@ public sealed class ExecutionFleetServiceTests
         IConfiguration? configuration = null,
         IExecutionNodeCertificateAuthority? certificateAuthority = null,
         ILocalOfficeCapacityProbe? capacityProbe = null,
-        string? windowsPackageUrl = "https://downloads.example.test/csweet-office.msi") =>
+        string? windowsPackageUrl = "https://downloads.example.test/csweet-office.msi",
+        ExecutionFleetOptions? fleetOptions = null) =>
         new(db, new TestAuditEventWriter(), clock,
-            Options.Create(new ExecutionFleetOptions
+            Options.Create(fleetOptions ?? new ExecutionFleetOptions
             {
                 PublicLaunchEnabled = true,
                 WindowsPackageOverrideUrl = windowsPackageUrl

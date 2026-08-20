@@ -70,11 +70,11 @@ public sealed class OfficeSchemaRepairTests
         Assert.DoesNotContain("C-Sweet Office allocation", razor, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Download installer", razor, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Open C-Sweet Office", razor, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Try Windows approval again", razor, StringComparison.Ordinal);
+        Assert.Contains("Try Windows setup again", razor, StringComparison.Ordinal);
         Assert.Contains("Why administrator approval is needed", razor, StringComparison.Ordinal);
         Assert.Contains("Continue to Windows approval", razor, StringComparison.Ordinal);
         Assert.Contains("RequestAdministratorApprovalAsync", razor, StringComparison.Ordinal);
-        Assert.Contains("Administrator approval was received", razor, StringComparison.Ordinal);
+        Assert.Contains("Complete the Windows administrator prompt if it is still open", razor, StringComparison.Ordinal);
         Assert.Contains("GetActiveLocalOfficeSetupSessionAsync", razor, StringComparison.Ordinal);
         Assert.Contains("disabled=\"@(_busy || LocalSetupLocksLocation)\"", razor, StringComparison.Ordinal);
         Assert.Contains("if (target == \"remote\" && LocalSetupLocksLocation) return;", razor, StringComparison.Ordinal);
@@ -85,7 +85,10 @@ public sealed class OfficeSchemaRepairTests
         Assert.Contains("_ => 2", razor, StringComparison.Ordinal);
         Assert.DoesNotContain("saveLocalOfficeSetup", razor, StringComparison.Ordinal);
         Assert.Contains("LocalProgressEta", razor, StringComparison.Ordinal);
-        Assert.Contains("Administrator prompt didn't open", razor, StringComparison.Ordinal);
+        Assert.Contains("Windows setup needs attention", razor, StringComparison.Ordinal);
+        Assert.Contains("TimeSpan.FromSeconds(45)", razor, StringComparison.Ordinal);
+        Assert.Contains("ActiveLocalProvisioning is null", razor, StringComparison.Ordinal);
+        Assert.Contains("_localSession.PhaseKey == \"install\"", razor, StringComparison.Ordinal);
         Assert.DoesNotContain("No download or command is required", razor, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("@media (max-width:", css, StringComparison.Ordinal);
     }
@@ -97,11 +100,22 @@ public sealed class OfficeSchemaRepairTests
             RepositoryRoot(), "src", "CSweet.UI", "Setup", "AgentHostOnboardingStep.razor"));
 
         Assert.Contains("_localSession.State == \"recoveryrequired\"", razor, StringComparison.Ordinal);
-        Assert.Contains("Reconnect this Office", razor, StringComparison.Ordinal);
+        Assert.Contains("Reassign this Office", razor, StringComparison.Ordinal);
         Assert.Contains("RecoveryCanReconnect", razor, StringComparison.Ordinal);
+        Assert.Contains("no assignments or Office-owned virtual machines remain", razor, StringComparison.Ordinal);
         Assert.Contains("Remove Office", razor, StringComparison.Ordinal);
         Assert.Contains("cannot be recovered", razor, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("SelectLocalOfficeRecoveryAsync", razor, StringComparison.Ordinal);
+        var fleet = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.Infrastructure", "Setup", "ExecutionFleetService.cs"));
+        Assert.Contains("CSweet:ExecutionGateway:BootstrapUrl", fleet, StringComparison.Ordinal);
+        Assert.Contains("uri.IsLoopback", fleet, StringComparison.Ordinal);
+        Assert.Contains("Office reassignment is ready.", fleet, StringComparison.Ordinal);
+        Assert.Contains("ContinueAfterRemovedOfficeAsync", razor, StringComparison.Ordinal);
+        Assert.Contains("removed.AllocatableCpuCount", razor, StringComparison.Ordinal);
+        Assert.Contains("removed.AllocatableMemoryMb", razor, StringComparison.Ordinal);
+        Assert.Contains("removed.AllocatableDiskMb", razor, StringComparison.Ordinal);
+        Assert.DoesNotContain("or \"removed\")", razor, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -114,10 +128,26 @@ public sealed class OfficeSchemaRepairTests
         Assert.Contains("Get-OptionalObjectProperty $redemption 'controlPlaneCertificateSha256'", launcher, StringComparison.Ordinal);
         Assert.Contains("-ControlPlaneCertificateSha256 $controlPlaneCertificateSha256", launcher, StringComparison.Ordinal);
         Assert.Contains("local-sessions/preflight", launcher, StringComparison.Ordinal);
+        Assert.Contains("PhaseKey connect-control-plane", launcher, StringComparison.Ordinal);
+        Assert.Contains("$progressHelperLoaded = $false", launcher, StringComparison.Ordinal);
+        Assert.Contains("$redemption = $null", launcher, StringComparison.Ordinal);
+        Assert.Contains("ServerCertificateValidationCallback", launcher, StringComparison.Ordinal);
+        Assert.Contains("$expectedCertificateSha256", launcher, StringComparison.Ordinal);
+        Assert.Contains("GetRawCertData()", launcher, StringComparison.Ordinal);
+        Assert.Contains("$failureAlreadyReported", launcher, StringComparison.Ordinal);
+        Assert.Contains("Windows setup started, but could not continue", launcher, StringComparison.Ordinal);
+        Assert.Contains("Secure connection to C-Sweet failed", launcher, StringComparison.Ordinal);
+        Assert.Contains("certificate-pinned connection", launcher, StringComparison.Ordinal);
+        Assert.Contains("$originUri.IsLoopback", launcher, StringComparison.Ordinal);
         Assert.True(launcher.IndexOf("local-sessions/preflight", StringComparison.Ordinal) <
             launcher.IndexOf("local-sessions/redeem", StringComparison.Ordinal));
         Assert.Contains("existingInstallationAction", launcher, StringComparison.Ordinal);
         Assert.Contains("setupReceipt", launcher, StringComparison.Ordinal);
+        Assert.Contains("-ProgressWorkflow 'developer-bootstrap'", launcher, StringComparison.Ordinal);
+        Assert.Contains("Starting your fresh Office", launcher, StringComparison.Ordinal);
+        Assert.Contains("The old Office was removed, but C-Sweet could not start the fresh installation.", launcher, StringComparison.Ordinal);
+        Assert.Contains("existingInstallationState = 'none'", launcher, StringComparison.Ordinal);
+        Assert.DoesNotContain("Return to C-Sweet to install a new Office", launcher, StringComparison.Ordinal);
     }
 
     [Fact]
