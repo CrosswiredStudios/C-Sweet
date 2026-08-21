@@ -631,6 +631,7 @@ public sealed class WorkManagementCapabilityHandlerTests
             OrganizationId = setup.OrganizationId,
             TeamId = team.Id,
             ManagerOrganizationUserId = leadId,
+            Key = "SOFTWARE",
             Name = "Software",
             Description = "",
             CreatedAt = DateTimeOffset.UtcNow,
@@ -796,7 +797,11 @@ public sealed class WorkManagementCapabilityHandlerTests
         Assert.False(crossTeamMove.Succeeded);
         Assert.Equal(ready.Id, (await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id)).BoardColumnId);
         using var boardsJson = JsonDocument.Parse(listed.Payload.ToByteArray());
-        Assert.Equal(board.Id, Assert.Single(boardsJson.RootElement.EnumerateArray()).GetProperty("id").GetGuid());
+        var listedBoard = Assert.Single(boardsJson.RootElement.EnumerateArray());
+        Assert.Equal(board.Id, listedBoard.GetProperty("id").GetGuid());
+        Assert.Equal(team.Id, listedBoard.GetProperty("teamId").GetGuid());
+        Assert.Equal(leadId, listedBoard.GetProperty("managerOrganizationUserId").GetGuid());
+        Assert.Equal("SOFTWARE", listedBoard.GetProperty("key").GetString());
     }
 
     private static WorkManagementCapabilityHandler CreateHandler(

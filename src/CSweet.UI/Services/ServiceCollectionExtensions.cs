@@ -22,6 +22,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<CommunicationUnreadState>();
         services.AddScoped<AgentHireOperationState>();
+        services.AddScoped<BusinessOnboardingOperationState>();
 
         return services;
     }

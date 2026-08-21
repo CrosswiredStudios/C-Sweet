@@ -1,5 +1,6 @@
 using CSweet.Api.Agents;
 using CSweet.Api.BusinessOnboarding;
+using CSweet.Infrastructure.BusinessOnboarding;
 using CSweet.Api.Auth;
 using CSweet.Api.Chat;
 using CSweet.Api.Communications;
@@ -135,6 +136,7 @@ builder.Services.AddSingleton<IApplicationRealtimePublisher, SignalRApplicationR
 builder.Services.AddHostedService<ApplicationRealtimeOutboxWorker>();
 builder.Services.AddHostedService<WorkOrchestrationWorker>();
 builder.Services.AddHostedService<AgentHireOperationWorker>();
+builder.Services.AddHostedService<BusinessOnboardingOperationWorker>();
 
 var app = builder.Build();
 app.UseForwardedHeaders();

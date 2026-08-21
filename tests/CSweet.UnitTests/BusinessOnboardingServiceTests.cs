@@ -8,12 +8,86 @@ using CSweet.Infrastructure.BusinessOnboarding;
 using CSweet.Infrastructure.Auth;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
 public class BusinessOnboardingServiceTests
 {
+    [Fact]
+    public async Task DurableOperation_ContinuesAfterHandoffAndCreatesOneBusiness()
+    {
+        await using var dbContext = CreateDbContext();
+        var auditWriter = new TestAuditEventWriter();
+        var roleService = new RoleService(dbContext, auditWriter);
+        var definitionService = new AgentDefinitionService(
+            dbContext, auditWriter, new NoOpAgentBuildService());
+        var service = new BusinessOnboardingService(
+            new CoreOrganizationService(dbContext, auditWriter, roleService),
+            roleService,
+            new StrategicObjectiveService(dbContext, auditWriter),
+            new WorkerService(dbContext, auditWriter),
+            auditWriter,
+            new ExecutiveBriefingService(dbContext, auditWriter, TimeProvider.System),
+            dbContext,
+            agentDefinitions: definitionService);
+        var applicationUser = new ApplicationUser
+        {
+            Id = Guid.NewGuid(),
+            DisplayName = "Durable Owner",
+            UserName = "durable@example.com",
+            NormalizedUserName = "DURABLE@EXAMPLE.COM",
+            Email = "durable@example.com",
+            NormalizedEmail = "DURABLE@EXAMPLE.COM",
+            EmailConfirmed = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(),
+            PackageSourceId = Guid.NewGuid(),
+            AgentId = "example.durable-chief",
+            AgentName = "Durable Chief",
+            Version = "1.0.0",
+            PluginKind = PluginKind.Agent,
+            ManifestJson = """{"kind":"agent","provides":[{"name":"assistant.converse.v1"},{"name":"assistant.plan-work.v1"},{"name":"management.check-in.v1"}]}""",
+            Status = AgentPackageVersionStatus.Built,
+            PackageDigest = new string('f', 64),
+            ArtifactSignature = "test-signature",
+            ImportedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(applicationUser);
+        dbContext.AgentPackageVersions.Add(package);
+        await dbContext.SaveChangesAsync();
+        var installRequest = new CSweet.Contracts.Agents.InstallAgentRequest(
+            "default", "OnDemand", 3600, "Skip",
+            ["assistant.converse.v1", "assistant.plan-work.v1", "management.check-in.v1"],
+            [], [], [], [], 600, 512, 50);
+        var request = new StartBusinessOnboardingRequest(
+            "Async Example Co", "Software", "Build asynchronously.", package.Id, "Avery",
+            "durable-business-onboarding", installRequest);
+
+        var started = await service.StartAsync(request, applicationUser.Id);
+        var replayed = await service.StartAsync(request, applicationUser.Id);
+
+        Assert.Equal(BusinessOnboardingOperationStatuses.Starting, started.Status);
+        Assert.Equal(started.Id, replayed.Id);
+        Assert.True(await service.ProcessNextAsync("test-worker"));
+
+        var completed = await service.GetForUserAsync(started.Id, applicationUser.Id);
+        Assert.NotNull(completed);
+        Assert.Equal(BusinessOnboardingOperationStatuses.Succeeded, completed.Status);
+        Assert.NotNull(completed.OrganizationId);
+        Assert.Single(await dbContext.CoreOrganizations.ToListAsync());
+        Assert.Single(await dbContext.BusinessOnboardingOperations.ToListAsync());
+        Assert.Single(await dbContext.CoreOrganizationUsers
+            .Where(x => x.EmployeeType == EmployeeType.Agent).ToListAsync());
+
+        await service.DismissAsync(started.Id, applicationUser.Id);
+        Assert.Empty(await service.ListForUserAsync(applicationUser.Id));
+    }
+
     [Fact]
     public async Task CompleteAsync_AssignsAnyEnabledAgentAsChiefAndActivatesOrganizationWithWarnings()
     {
@@ -315,5 +389,14 @@ public class BusinessOnboardingServiceTests
             ReconcileCount++;
             return Task.FromResult(0);
         }
+    }
+
+    private sealed class NoOpAgentBuildService : IAgentBuildService
+    {
+        public Task<Guid> QueueAsync(Guid packageVersionId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Guid.NewGuid());
+
+        public Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
     }
 }

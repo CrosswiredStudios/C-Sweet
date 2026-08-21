@@ -7,14 +7,13 @@
 @using CSweet.Contracts.Setup
 @using Microsoft.JSInterop
 @inject IOrganizationApiClient OrganizationApi
-@inject IBusinessOnboardingApiClient BusinessOnboardingApi
+@inject BusinessOnboardingOperationState BusinessOnboardingOperations
 @inject IAgentApiClient AgentApi
 @inject ILlmProviderApiClient LlmProviderApi
 @inject IAgentRuntimeSettingsApiClient AgentRuntimeSettingsApi
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject IBusinessContext BusinessContext
-@implements IAsyncDisposable
 
 <div class="setup-shell">
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="page-header">
@@ -321,19 +320,6 @@
                 }
             </div>
 
-            @if (_saving && _installedChief?.Build is { } chiefBuild)
-            {
-                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
-                        <div>
-                            <strong>@ChiefBuildStatusLabel(chiefBuild)</strong>
-                            <div>@ChiefBuildStatusDetail(chiefBuild)</div>
-                        </div>
-                    </MudStack>
-                </MudAlert>
-            }
-
             @if (!string.IsNullOrWhiteSpace(_formError))
             {
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_formError</MudAlert>
@@ -373,11 +359,9 @@
     private const string RecommendedChiefRepository = "https://github.com/CrosswiredStudios/CSweet.Agent.ChiefOfStaff";
     private static readonly string[] ChiefCapabilities = ["assistant.converse.v1", "assistant.plan-work.v1", "management.check-in.v1"];
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
-    private static readonly TimeSpan ChiefBuildTimeout = TimeSpan.FromMinutes(30);
     private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
     private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _secretValues = new(StringComparer.Ordinal);
-    private readonly CancellationTokenSource _disposeCts = new();
 
     [Parameter] public bool CreateRequested { get; set; }
 
@@ -385,7 +369,6 @@
     private IReadOnlyList<LlmProviderProfileResponse> _llmProviders = [];
     private AgentRuntimeSettingsResponse? _runtimeSettings;
     private AgentImportPreviewResponse? _agentPreview;
-    private AgentInstallationResponse? _installedChief;
     private OrganizationResponse? _editingOrg;
     private bool _loading = true;
     private bool _showForm;
@@ -429,11 +412,7 @@
     private string ModelSelectHelperText => _loadingModels
         ? "Loading available models…"
         : _modelCatalogMessage ?? "Choose a model available from the selected provider.";
-    private string BusinessCreationStatus => _saving && _installedChief is not null
-        ? _installedChief.IsEnabled
-            ? "Chief of Staff is ready. Activating your business…"
-            : ChiefBuildStatusLabel(_installedChief.Build)
-        : _agentPreview is null
+    private string BusinessCreationStatus => _agentPreview is null
             ? "Review an agent to continue"
             : CanCreateBusiness
                 ? "Ready to create and activate"
@@ -492,7 +471,7 @@
         _wizardStep = 0; _formName = string.Empty; _formIndustry = string.Empty; _formMission = string.Empty;
         _chiefDisplayName = string.Empty;
         _agentRepositoryUrl = RecommendedChiefRepository; _agentRef = string.Empty; _customAgent = false;
-        _agentPreview = null; _installedChief = null; _agentApproved = false; _allPublicWebApproved = false;
+        _agentPreview = null; _agentApproved = false; _allPublicWebApproved = false;
         _runtimeApproved = false; _agentDetailsExpanded = false; _loadingModels = false;
         _formError = null; _modelCatalogMessage = null; _availableModels = []; _modelCatalogProviderId = null;
         _configurationValues.Clear(); _secretValues.Clear();
@@ -529,7 +508,7 @@
     private void OnRefChanged(string value) { _agentRef = value; InvalidatePreview(); }
     private void InvalidatePreview()
     {
-        _agentPreview = null; _installedChief = null; _agentApproved = false; _allPublicWebApproved = false;
+        _agentPreview = null; _agentApproved = false; _allPublicWebApproved = false;
         _chiefDisplayName = string.Empty;
         _runtimeApproved = false; _agentDetailsExpanded = false; _loadingModels = false;
         _formError = null; _modelCatalogMessage = null; _availableModels = []; _modelCatalogProviderId = null;
@@ -640,7 +619,7 @@
 
     private async Task CreateBusinessAsync()
     {
-        if (_agentPreview is null || !CanCreateBusiness) return;
+        if (_saving || _agentPreview is null || !CanCreateBusiness) return;
         _saving = true;
         _formError = null;
         try
@@ -655,14 +634,7 @@
                 _runtimeSettings = settingsResult.Settings ?? _runtimeSettings;
             }
 
-            var definitions = await AgentApi.ListDefinitionsAsync();
-            _installedChief = definitions.FirstOrDefault(x =>
-                x.PackageVersionId == _agentPreview.ImportId ||
-                string.Equals(x.AgentId, _agentPreview.AgentId, StringComparison.Ordinal));
-
-            _installedChief ??= await AgentApi.InstallAsync(
-                _agentPreview.ImportId,
-                new InstallAgentRequest(
+            var installRequest = new InstallAgentRequest(
                     "default",
                     ActivationMode,
                     _runtimeSettings?.DefaultTickFrequencySeconds ?? 3600,
@@ -684,69 +656,24 @@
                             pair => pair.Key,
                             pair => JsonSerializer.SerializeToElement(pair.Value, SerializerOptions),
                             StringComparer.Ordinal)
-                });
+                };
 
-            if (BusinessOnboardingAgentInstallationSelector.RequiresBuildRetry(_installedChief))
-            {
-                _installedChief = await AgentApi.RetryDefinitionBuildAsync(_installedChief.Id, _disposeCts.Token);
-            }
-
-            _installedChief = await WaitForChiefDefinitionAsync(_installedChief, _disposeCts.Token);
-
-            var onboarding = await BusinessOnboardingApi.CompleteAsync(new CompleteBusinessOnboardingRequest(
-                _formName.Trim(), TrimOrNull(_formIndustry), TrimOrNull(_formMission), _installedChief.Id, _chiefDisplayName.Trim()),
-                _disposeCts.Token);
-
+            BusinessOnboardingOperations.Start(new StartBusinessOnboardingRequest(
+                _formName.Trim(),
+                TrimOrNull(_formIndustry),
+                TrimOrNull(_formMission),
+                _agentPreview.ImportId,
+                _chiefDisplayName.Trim(),
+                Guid.NewGuid().ToString("N"),
+                installRequest));
             _showForm = false;
-            await LoadAsync();
-            await BusinessContext.RefreshAsync();
-            Navigation.NavigateTo(onboarding.NextRoute);
-        }
-        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
-        {
+            if (CreateRequested) Navigation.NavigateTo("/", replace: true);
         }
         catch (Exception exception)
         {
-            _formError = _installedChief is null
-                ? exception.Message
-                : $"The Chief agent definition was imported, but business creation did not finish. You can safely retry: {exception.Message}";
+            _formError = exception.Message;
         }
         finally { _saving = false; }
-    }
-
-    private async Task<AgentInstallationResponse> WaitForChiefDefinitionAsync(
-        AgentInstallationResponse definition,
-        CancellationToken cancellationToken)
-    {
-        var deadline = DateTimeOffset.UtcNow.Add(ChiefBuildTimeout);
-        while (!definition.IsEnabled)
-        {
-            if (definition.Build?.Status is "Failed" or "Cancelled")
-            {
-                var failedStep = definition.Build.Steps?.FirstOrDefault(step =>
-                    step.Status is "Failed" or "Cancelled" || !string.IsNullOrWhiteSpace(step.Error));
-                throw new InvalidOperationException(failedStep?.Error ?? definition.Build.FailureMessage ??
-                    "The Chief of Staff build did not complete.");
-            }
-
-            if (definition.Build?.Status == "Succeeded")
-                throw new InvalidOperationException(
-                    $"The Chief of Staff build completed, but the definition is {definition.SetupState}. Complete its required defaults and try again.");
-
-            if (DateTimeOffset.UtcNow >= deadline)
-                throw new TimeoutException(
-                    "The Chief of Staff build is still running. It will continue in the background; reopen business setup to resume automatically.");
-
-            _installedChief = definition;
-            await InvokeAsync(StateHasChanged);
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
-            definition = await AgentApi.GetDefinitionAsync(definition.Id, cancellationToken)
-                ?? throw new InvalidOperationException("The imported Chief of Staff definition could not be found.");
-        }
-
-        _installedChief = definition;
-        await InvokeAsync(StateHasChanged);
-        return definition;
     }
 
     private async Task SaveEditAsync()
@@ -817,30 +744,6 @@
     private static bool IsProviderField(PluginConfigurationField field) => field.Type.Equals("provider", StringComparison.OrdinalIgnoreCase) || field.Type.Equals("llmProvider", StringComparison.OrdinalIgnoreCase);
     private static bool IsModelField(PluginConfigurationField field) => field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) || field.Type.Equals("llmModel", StringComparison.OrdinalIgnoreCase);
     private static string RequiredLabel(string label, bool required) => required ? $"{label} (required)" : label;
-    private static string ChiefBuildStatusLabel(AgentBuildSummaryResponse? build) => build?.Status switch
-    {
-        "Queued" => "Chief of Staff build queued",
-        "Cloning" => "Preparing Chief of Staff source",
-        "Building" => "Building Chief of Staff",
-        "Succeeded" => "Chief of Staff build complete",
-        "Failed" => "Chief of Staff build failed",
-        "Cancelled" => "Chief of Staff build cancelled",
-        _ => "Preparing Chief of Staff"
-    };
-    private static string ChiefBuildStatusDetail(AgentBuildSummaryResponse build)
-    {
-        var active = build.Steps?.FirstOrDefault(step => step.Status == "InProgress");
-        if (active is not null)
-            return $"{active.Label}: {active.Detail}";
-        var failed = build.Steps?.FirstOrDefault(step =>
-            step.Status is "Failed" or "Cancelled" || !string.IsNullOrWhiteSpace(step.Error));
-        if (failed is not null)
-            return failed.Error ?? $"{failed.Label} did not complete.";
-        var pending = build.Steps?.FirstOrDefault(step => step.Status == "Pending");
-        return pending is not null
-            ? $"Waiting to begin {pending.Label.ToLowerInvariant()}: {pending.Detail}"
-            : build.FailureMessage ?? "C-Sweet is finalizing the selected agent build.";
-    }
     private static string ShortHash(string value) => value.Length <= 9 ? value : value[..9];
     private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);
     private static RenderFragment AccessGroup(string label, IReadOnlyList<string> values) => @<div class="agent-access-group">
@@ -849,10 +752,4 @@
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string Truncate(string value, int maxLength) => value.Length <= maxLength ? value : value[..maxLength] + "...";
 
-    public ValueTask DisposeAsync()
-    {
-        _disposeCts.Cancel();
-        _disposeCts.Dispose();
-        return ValueTask.CompletedTask;
-    }
 }

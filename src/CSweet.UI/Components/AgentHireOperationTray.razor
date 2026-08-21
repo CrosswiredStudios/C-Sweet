@@ -1,11 +1,13 @@
 @using CSweet.Contracts.Core
+@using CSweet.Contracts.BusinessOnboarding
 @implements IDisposable
 @inject AgentHireOperationState HireOperations
+@inject BusinessOnboardingOperationState BusinessOnboardingOperations
 @inject NavigationManager Navigation
 
-@if (HireOperations.Operations.Count > 0)
+@if (HireOperations.Operations.Count > 0 || BusinessOnboardingOperations.Operations.Count > 0)
 {
-    <aside class="agent-hire-tray" aria-live="polite" aria-label="Agent hiring progress">
+    <aside class="agent-hire-tray" aria-live="polite" aria-label="Background operation progress">
         @foreach (var operation in HireOperations.Operations)
         {
             <MudPaper Class="@ToastClass(operation)" Elevation="0">
@@ -77,17 +79,97 @@
                 </div>
             </MudPaper>
         }
+        @foreach (var operation in BusinessOnboardingOperations.Operations)
+        {
+            <MudPaper Class="@BusinessToastClass(operation)" Elevation="0">
+                <div class="agent-hire-toast-icon" aria-hidden="true">
+                    <MudIcon Icon="@BusinessStatusIcon(operation.Status)" />
+                </div>
+                <div class="agent-hire-toast-content">
+                    <header class="agent-hire-toast-header">
+                        <div>
+                            <span class="agent-hire-toast-eyebrow">@BusinessStatusLabel(operation.Status)</span>
+                            <strong>@operation.Phase</strong>
+                            <small>@operation.BusinessName</small>
+                        </div>
+                        @if (CanDismissBusiness(operation.Status))
+                        {
+                            <MudIconButton Class="agent-hire-toast-dismiss"
+                                           Icon="@Icons.Material.Filled.Close"
+                                           Size="Size.Small"
+                                           aria-label="Dismiss onboarding notification"
+                                           OnClick="@(() => DismissBusinessAsync(operation))" />
+                        }
+                    </header>
+                    <p class="agent-hire-toast-detail">@operation.Detail</p>
+                    @if (BusinessOnboardingOperationStatuses.IsActive(operation.Status))
+                    {
+                        <div class="agent-hire-toast-progress-label">
+                            <span>@BusinessProgressLabel(operation)</span>
+                            @if (operation.TotalBuildSteps > 0)
+                            {
+                                <strong>@($"{BusinessProgress(operation):0}%")</strong>
+                            }
+                        </div>
+                        <MudProgressLinear Class="agent-hire-toast-progress"
+                                           Color="Color.Primary"
+                                           Rounded="true"
+                                           Indeterminate="@BusinessProgressIndeterminate(operation)"
+                                           Value="@BusinessProgress(operation)" />
+                    }
+                    <div class="agent-hire-toast-actions">
+                        @if (operation.Status == BusinessOnboardingOperationStatuses.Succeeded)
+                        {
+                            <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
+                                       EndIcon="@Icons.Material.Outlined.ArrowForward"
+                                       OnClick="@(() => OpenBusiness(operation))">Open business</MudButton>
+                        }
+                        else if (operation.Status == BusinessOnboardingOperationStatuses.NeedsSetup)
+                        {
+                            <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
+                                       EndIcon="@Icons.Material.Outlined.ArrowForward"
+                                       OnClick="@(() => OpenBusiness(operation))">Finish setup</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Text"
+                                       OnClick="@(() => RetryBusinessAsync(operation))">Retry</MudButton>
+                        }
+                        else if (operation.Status == BusinessOnboardingOperationStatuses.Failed)
+                        {
+                            <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
+                                       OnClick="@(() => RetryBusinessAsync(operation))">Retry</MudButton>
+                            @if (!string.IsNullOrWhiteSpace(operation.ActionUri))
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => OpenBusiness(operation))">View details</MudButton>
+                            }
+                        }
+                    </div>
+                </div>
+            </MudPaper>
+        }
     </aside>
 }
 
 @code {
-    protected override void OnInitialized() => HireOperations.Changed += OnChanged;
+    protected override void OnInitialized()
+    {
+        HireOperations.Changed += OnChanged;
+        BusinessOnboardingOperations.Changed += OnChanged;
+    }
 
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
     private Task RetryAsync(AgentHireOperationResponse operation) => HireOperations.RetryAsync(operation);
     private Task DismissAsync(AgentHireOperationResponse operation) => HireOperations.DismissAsync(operation);
     private Task CancelAsync(AgentHireOperationResponse operation) => HireOperations.CancelInterruptedAsync(operation);
+    private Task RetryBusinessAsync(BusinessOnboardingOperationResponse operation) =>
+        BusinessOnboardingOperations.RetryAsync(operation);
+    private Task DismissBusinessAsync(BusinessOnboardingOperationResponse operation) =>
+        BusinessOnboardingOperations.DismissAsync(operation);
     private void Open(AgentHireOperationResponse operation)
+    {
+        if (!string.IsNullOrWhiteSpace(operation.ActionUri)) Navigation.NavigateTo(operation.ActionUri);
+    }
+
+    private void OpenBusiness(BusinessOnboardingOperationResponse operation)
     {
         if (!string.IsNullOrWhiteSpace(operation.ActionUri)) Navigation.NavigateTo(operation.ActionUri);
     }
@@ -124,5 +206,67 @@
         _ => Icons.Material.Filled.PersonAdd
     };
 
-    public void Dispose() => HireOperations.Changed -= OnChanged;
+    private static double BusinessProgress(BusinessOnboardingOperationResponse operation) =>
+        operation.Status switch
+        {
+            BusinessOnboardingOperationStatuses.Starting => 3,
+            BusinessOnboardingOperationStatuses.InstallingAgent => 10,
+            BusinessOnboardingOperationStatuses.CreatingBusiness => 92,
+            _ when operation.TotalBuildSteps > 0 =>
+                15d + 70d * operation.CompletedBuildSteps / operation.TotalBuildSteps,
+            _ => 0
+        };
+
+    private static bool BusinessProgressIndeterminate(BusinessOnboardingOperationResponse operation) =>
+        operation.TotalBuildSteps == 0 &&
+        operation.Status != BusinessOnboardingOperationStatuses.CreatingBusiness;
+
+    private static string BusinessProgressLabel(BusinessOnboardingOperationResponse operation) =>
+        operation.Status == BusinessOnboardingOperationStatuses.CreatingBusiness
+            ? "Creating the initial operating structure"
+            : operation.Status == BusinessOnboardingOperationStatuses.InstallingAgent
+                ? "Importing the Chief of Staff definition"
+            : operation.TotalBuildSteps > 0
+            ? $"{operation.CompletedBuildSteps} of {operation.TotalBuildSteps} build steps complete"
+            : "Preparing business onboarding";
+
+    private static string BusinessToastClass(BusinessOnboardingOperationResponse operation)
+    {
+        var statusClass = operation.Status switch
+        {
+            BusinessOnboardingOperationStatuses.Succeeded => "agent-hire-toast-succeeded",
+            BusinessOnboardingOperationStatuses.Failed => "agent-hire-toast-failed",
+            BusinessOnboardingOperationStatuses.NeedsSetup => "agent-hire-toast-needssetup",
+            _ => $"business-onboarding-toast-{operation.Status.ToLowerInvariant()}"
+        };
+        return $"agent-hire-toast {statusClass}";
+    }
+
+    private static bool CanDismissBusiness(string status) => status is
+        BusinessOnboardingOperationStatuses.Succeeded or
+        BusinessOnboardingOperationStatuses.NeedsSetup or
+        BusinessOnboardingOperationStatuses.Failed;
+
+    private static string BusinessStatusLabel(string status) => status switch
+    {
+        BusinessOnboardingOperationStatuses.Succeeded => "BUSINESS READY",
+        BusinessOnboardingOperationStatuses.Failed => "ONBOARDING INTERRUPTED",
+        BusinessOnboardingOperationStatuses.NeedsSetup => "SETUP REQUIRED",
+        _ => "BUSINESS ONBOARDING"
+    };
+
+    private static string BusinessStatusIcon(string status) => status switch
+    {
+        BusinessOnboardingOperationStatuses.Succeeded => Icons.Material.Filled.CheckCircle,
+        BusinessOnboardingOperationStatuses.Failed => Icons.Material.Filled.Error,
+        BusinessOnboardingOperationStatuses.NeedsSetup => Icons.Material.Filled.Settings,
+        BusinessOnboardingOperationStatuses.CreatingBusiness => Icons.Material.Filled.AddBusiness,
+        _ => Icons.Material.Filled.RocketLaunch
+    };
+
+    public void Dispose()
+    {
+        HireOperations.Changed -= OnChanged;
+        BusinessOnboardingOperations.Changed -= OnChanged;
+    }
 }

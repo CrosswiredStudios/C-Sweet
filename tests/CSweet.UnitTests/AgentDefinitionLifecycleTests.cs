@@ -140,6 +140,12 @@ public sealed class AgentDefinitionLifecycleTests
         };
 
         var update = CreateUpdatePackage(current, "1.1.0");
+        var updateManifest = JsonSerializer.Deserialize<Dictionary<string, object?>>(update.ManifestJson)!;
+        updateManifest["requires"] = new[]
+        {
+            new { name = "work.sprint.read", scope = "team", purpose = "Verify planned sprint state." }
+        };
+        update.ManifestJson = JsonSerializer.Serialize(updateManifest);
         update.Status = AgentPackageVersionStatus.Built;
         update.PackageDigest = $"sha256:{new string('b', 64)}";
         update.ArtifactSignature = "updated-signature";
@@ -156,6 +162,10 @@ public sealed class AgentDefinitionLifecycleTests
         Assert.Equal(2, installations.Count);
         Assert.All(installations, installation => Assert.Equal(update.Id, installation.PackageVersionId));
         Assert.All(installations, installation => Assert.Equal(2, installation.RevisionNumber));
+        Assert.All(installations, installation => Assert.Contains(
+            "work.sprint.read",
+            JsonSerializer.Deserialize<string[]>(installation.Grant!.RequiredCapabilitiesJson)!));
+        Assert.All(installations, installation => Assert.True(installation.Grant!.GrantRevision > 0));
         Assert.Equal(AgentConfigurationSyncStatus.Restarting,
             installations.Single(x => x.Id == firstHire.Id).ConfigurationSyncStatus);
         Assert.Equal(AgentConfigurationSyncStatus.PendingNextStart,
@@ -193,6 +203,82 @@ public sealed class AgentDefinitionLifecycleTests
             (await db.AgentInstallations.SingleAsync()).ConfigurationSyncStatus);
         Assert.Equal(0, await new AgentDefinitionInstallationSynchronizer(
             db, new TestAuditEventWriter()).SynchronizeAsync());
+    }
+
+    [Fact]
+    public async Task SequentialRequesterAndProviderUpdates_MigrateVersionedCapabilityBinding()
+    {
+        await using var db = CreateDb();
+        const string designV1 = "software-architecture.design.v1";
+        const string designV2 = "software-architecture.design.v2";
+
+        var requesterCurrent = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        requesterCurrent.AgentId = "com.example.product-manager";
+        requesterCurrent.PackageDigest = $"sha256:{new string('a', 64)}";
+        requesterCurrent.ArtifactSignature = "pm-current";
+        SetManifestCapabilities(requesterCurrent, required: designV1);
+        var requesterDefinition = SeedDefinition(db, requesterCurrent, ActivationMode.AlwaysOn);
+        requesterDefinition.DefaultRequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { designV1 });
+        var requester = RuntimeInstallation(requesterCurrent, Guid.NewGuid().ToString("D"));
+        requester.AgentDefinitionId = requesterDefinition.Id;
+        requester.Grant!.RequiredCapabilitiesJson = requesterDefinition.DefaultRequiredCapabilitiesJson;
+        requesterDefinition.Installations.Add(requester);
+
+        var providerCurrent = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        providerCurrent.AgentId = "com.example.architect";
+        providerCurrent.PackageDigest = $"sha256:{new string('b', 64)}";
+        providerCurrent.ArtifactSignature = "architect-current";
+        SetManifestCapabilities(providerCurrent, provided: designV1);
+        var providerDefinition = SeedDefinition(db, providerCurrent, ActivationMode.AlwaysOn);
+        providerDefinition.DefaultProvidedCapabilitiesJson = JsonSerializer.Serialize(new[] { designV1 });
+        var provider = RuntimeInstallation(providerCurrent, requester.BusinessId);
+        provider.AgentDefinitionId = providerDefinition.Id;
+        provider.Grant!.ProvidedCapabilitiesJson = providerDefinition.DefaultProvidedCapabilitiesJson;
+        providerDefinition.Installations.Add(provider);
+
+        var binding = new AgentCapabilityBinding
+        {
+            Id = Guid.NewGuid(), OrganizationId = requester.BusinessId,
+            RequesterInstallationId = requester.Id, RequesterInstallation = requester,
+            Capability = designV1,
+            ProviderInstallationId = provider.Id, ProviderInstallation = provider,
+            GrantRevision = requester.Grant.GrantRevision,
+            ApprovedAt = DateTimeOffset.UtcNow
+        };
+        var requesterUpdate = CreateUpdatePackage(requesterCurrent, "2.0.0");
+        requesterUpdate.Status = AgentPackageVersionStatus.Built;
+        requesterUpdate.PackageDigest = $"sha256:{new string('c', 64)}";
+        requesterUpdate.ArtifactSignature = "pm-updated";
+        SetManifestCapabilities(requesterUpdate, required: designV2);
+        var providerUpdate = CreateUpdatePackage(providerCurrent, "2.0.0");
+        providerUpdate.Status = AgentPackageVersionStatus.Built;
+        providerUpdate.PackageDigest = $"sha256:{new string('d', 64)}";
+        providerUpdate.ArtifactSignature = "architect-updated";
+        SetManifestCapabilities(providerUpdate, provided: designV2);
+        db.AddRange(requester, provider, binding, requesterUpdate, providerUpdate);
+        await db.SaveChangesAsync();
+
+        var service = new AgentDefinitionService(
+            db, new TestAuditEventWriter(), new RecordingBuildService(db));
+        _ = await service.UpdateAsync(
+            requesterDefinition.Id, new UpdateAgentDefinitionRequest(requesterUpdate.Id));
+
+        var migrationHint = await db.AgentCapabilityBindings.SingleAsync();
+        Assert.Equal(designV1, migrationHint.Capability);
+        Assert.Null(migrationHint.RevokedAt);
+        Assert.DoesNotContain(designV1,
+            JsonSerializer.Deserialize<string[]>(requester.Grant.RequiredCapabilitiesJson)!);
+
+        _ = await service.UpdateAsync(
+            providerDefinition.Id, new UpdateAgentDefinitionRequest(providerUpdate.Id));
+
+        var bindings = await db.AgentCapabilityBindings.OrderBy(x => x.ApprovedAt).ToListAsync();
+        Assert.Equal(2, bindings.Count);
+        Assert.NotNull(bindings.Single(x => x.Capability == designV1).RevokedAt);
+        var active = bindings.Single(x => x.Capability == designV2);
+        Assert.Null(active.RevokedAt);
+        Assert.Equal(provider.Id, active.ProviderInstallationId);
+        Assert.Equal(requester.Grant.GrantRevision, active.GrantRevision);
     }
 
     [Fact]
@@ -383,6 +469,34 @@ public sealed class AgentDefinitionLifecycleTests
             ManifestDigest = new string('f', 64), ManifestJson = JsonSerializer.Serialize(values),
             Status = AgentPackageVersionStatus.Previewed, ImportedAt = DateTimeOffset.UtcNow
         };
+    }
+
+    private static void SetManifestCapabilities(
+        AgentPackageVersion package,
+        string? provided = null,
+        string? required = null)
+    {
+        var manifest = JsonSerializer.Deserialize<Dictionary<string, object?>>(package.ManifestJson)!;
+        manifest["id"] = package.AgentId;
+        manifest["version"] = package.Version;
+        manifest["provides"] = provided is null
+            ? Array.Empty<object>()
+            :
+            [
+                new
+                {
+                    name = provided,
+                    description = "Provide a versioned test capability.",
+                    inputSchema = new { type = "object", additionalProperties = true },
+                    outputSchema = new { type = "object", additionalProperties = true },
+                    executionTimeoutSeconds = 30,
+                    idempotency = "caller-key"
+                }
+            ];
+        manifest["requires"] = required is null
+            ? Array.Empty<object>()
+            : [new { name = required, scope = "team", purpose = "Use the bound versioned test capability." }];
+        package.ManifestJson = JsonSerializer.Serialize(manifest);
     }
 
     private static AgentInstallation RuntimeInstallation(AgentPackageVersion package, string businessId)

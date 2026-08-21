@@ -414,7 +414,9 @@ public sealed class WorkManagementCapabilityHandler(
                 board.Id, board.Name, board.Description, board.IsDefault,
                 board.ArchivedAt.HasValue, board.Revision, allowed)
             {
-                TeamId = board.TeamId
+                TeamId = board.TeamId,
+                ManagerOrganizationUserId = board.ManagerOrganizationUserId,
+                Key = board.Key
             };
         }).ToList();
         await WriteAuditAsync(

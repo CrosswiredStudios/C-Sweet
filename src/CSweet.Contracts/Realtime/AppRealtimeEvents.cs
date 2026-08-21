@@ -8,9 +8,12 @@ public static class AppRealtimeEvents
     public const string NotificationUpdated = "com.csweet.app.notification.updated.v1";
     public const string WorkBoardChanged = "com.csweet.app.work-board.changed.v1";
     public const string AgentHireOperationChanged = "com.csweet.app.agent-hire-operation.changed.v1";
+    public const string BusinessOnboardingOperationChanged = "com.csweet.app.business-onboarding-operation.changed.v1";
 }
 
 public sealed record AgentHireOperationChangedEvent(Guid OperationId, Guid OrganizationId, string Status);
+
+public sealed record BusinessOnboardingOperationChangedEvent(Guid OperationId, Guid OrganizationId, string Status);
 
 public sealed record AppRealtimeEventEnvelope(
     Guid EventId,

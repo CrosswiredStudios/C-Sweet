@@ -75,7 +75,11 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             .Where(x => installationIds.Contains(x.AgentInstallationId) && x.RevokedAt == null)
             .ToListAsync(cancellationToken);
         var bindings = await db.AgentCapabilityBindings
-            .Where(x => installationIds.Contains(x.RequesterInstallationId) && x.RevokedAt == null)
+            .Include(x => x.RequesterInstallation)!.ThenInclude(x => x!.Grant)
+            .Include(x => x.ProviderInstallation)!.ThenInclude(x => x!.PackageVersion)
+            .Where(x => (installationIds.Contains(x.RequesterInstallationId) ||
+                         installationIds.Contains(x.ProviderInstallationId)) &&
+                        x.RevokedAt == null)
             .ToListAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var auditEntries = new List<(Guid InstallationId, string AgentId, string FromVersion, string ToVersion, string BusinessId)>();
@@ -147,17 +151,74 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                 session.RevocationReason = "The global agent definition selected a new package version.";
             }
 
-            var requiredCapabilities = DeserializeGrant(definition.DefaultRequiredCapabilitiesJson);
-            foreach (var binding in bindings.Where(x => x.RequesterInstallationId == installation.Id))
-            {
-                if (!requiredCapabilities.Contains(binding.Capability))
-                    binding.RevokedAt = now;
-                else
-                    binding.GrantRevision = grant.GrantRevision;
-            }
-
             auditEntries.Add((installation.Id, definition.AgentId, previousVersion,
                 definition.PackageVersion!.Version, installation.BusinessId));
+        }
+
+        var deploymentByInstallation = deployments.ToDictionary(x => x.Installation.Id);
+        var affectedRequesters = deployments.Select(x => x.Installation)
+            .Concat(bindings
+                .Where(x => installationIds.Contains(x.ProviderInstallationId))
+                .Select(x => x.RequesterInstallation)
+                .Where(x => x is not null)
+                .Select(x => x!))
+            .DistinctBy(x => x.Id)
+            .ToList();
+        foreach (var requester in affectedRequesters)
+        {
+            var requiredCapabilities = DeserializeGrant(
+                requester.Grant?.RequiredCapabilitiesJson ?? "[]");
+            var requesterBindings = bindings
+                .Where(x => x.RequesterInstallationId == requester.Id && x.RevokedAt == null)
+                .ToList();
+            var resolvedCapabilities = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var capability in requiredCapabilities)
+            {
+                var exact = requesterBindings.FirstOrDefault(x =>
+                    string.Equals(x.Capability, capability, StringComparison.Ordinal));
+                if (exact is not null)
+                {
+                    exact.GrantRevision = requester.Grant!.GrantRevision;
+                    resolvedCapabilities.Add(capability);
+                    continue;
+                }
+
+                var predecessor = requesterBindings.FirstOrDefault(x =>
+                    string.Equals(CapabilityFamily(x.Capability), CapabilityFamily(capability),
+                        StringComparison.Ordinal) &&
+                    ProviderOffers(x.ProviderInstallationId, capability));
+                if (predecessor is null)
+                    continue;
+                db.AgentCapabilityBindings.Add(new AgentCapabilityBinding
+                {
+                    Id = Guid.NewGuid(),
+                    OrganizationId = predecessor.OrganizationId,
+                    RequesterInstallationId = requester.Id,
+                    Capability = capability,
+                    ProviderInstallationId = predecessor.ProviderInstallationId,
+                    GrantRevision = requester.Grant!.GrantRevision,
+                    ApprovedAt = now
+                });
+                resolvedCapabilities.Add(capability);
+            }
+
+            foreach (var binding in requesterBindings.Where(x =>
+                         !requiredCapabilities.Contains(x.Capability)))
+            {
+                var successor = requiredCapabilities.FirstOrDefault(x =>
+                    string.Equals(CapabilityFamily(x), CapabilityFamily(binding.Capability),
+                        StringComparison.Ordinal));
+                if (successor is not null && !resolvedCapabilities.Contains(successor))
+                {
+                    // Keep the prior version as an inert migration hint when the requester is
+                    // upgraded before its provider. It is no longer in the requester's grant and
+                    // cannot be invoked. A later provider upgrade replaces and revokes it.
+                    binding.GrantRevision = requester.Grant!.GrantRevision;
+                    continue;
+                }
+
+                binding.RevokedAt = now;
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -172,6 +233,19 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
         }
 
         return deployments.Count;
+
+        bool ProviderOffers(Guid providerInstallationId, string capability)
+        {
+            string? manifestJson;
+            if (deploymentByInstallation.TryGetValue(providerInstallationId, out var deployment))
+                manifestJson = deployment.Definition.PackageVersion?.ManifestJson;
+            else
+                manifestJson = bindings.FirstOrDefault(x =>
+                    x.ProviderInstallationId == providerInstallationId)?.ProviderInstallation?.PackageVersion?.ManifestJson;
+            return manifestJson is not null && AgentConfigurationRules
+                .DeserializeManifest(manifestJson)
+                .Provides.Any(x => string.Equals(x.Name, capability, StringComparison.Ordinal));
+        }
     }
 
     private static Dictionary<string, JsonElement> DeserializeSettings(string json) =>
@@ -181,4 +255,12 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
     private static HashSet<string> DeserializeGrant(string json) =>
         (JsonSerializer.Deserialize<string[]>(json, JsonOptions) ?? [])
         .ToHashSet(StringComparer.Ordinal);
+
+    private static string CapabilityFamily(string capability)
+    {
+        var marker = capability.LastIndexOf(".v", StringComparison.Ordinal);
+        return marker > 0 && int.TryParse(capability[(marker + 2)..], out _)
+            ? capability[..marker]
+            : capability;
+    }
 }

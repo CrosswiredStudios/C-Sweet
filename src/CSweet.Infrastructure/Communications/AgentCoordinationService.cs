@@ -376,6 +376,9 @@ public sealed class AgentCoordinationService(
 
     private void AppendSourceSummary(DomainSession session, string summary)
     {
+        if (session.SourceConversationId == session.ConversationId)
+            return;
+
         db.CoreConversationMessages.Add(new ConversationMessage
         {
             Id = Guid.NewGuid(), ConversationId = session.SourceConversationId,

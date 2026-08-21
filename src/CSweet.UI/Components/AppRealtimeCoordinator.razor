@@ -4,6 +4,7 @@
 @inject AppRealtimeState Realtime
 @inject CommunicationUnreadState Unread
 @inject AgentHireOperationState AgentHires
+@inject BusinessOnboardingOperationState BusinessOnboardingOperations
 @inject IBusinessContext Businesses
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
@@ -28,6 +29,7 @@
         await Businesses.InitializeAsync();
         await Unread.InitializeAsync();
         await AgentHires.InitializeAsync();
+        await BusinessOnboardingOperations.InitializeAsync();
         if (!_disposeToken.IsCancellationRequested)
         {
             _ = ConnectWithRetryAsync(_disposeToken);

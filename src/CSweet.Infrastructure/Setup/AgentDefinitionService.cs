@@ -214,11 +214,16 @@ public sealed class AgentDefinitionService(
         definition.PackageVersionId = nextPackage.Id;
         definition.PackageVersion = nextPackage;
         definition.UpdatedAt = now;
-        definition.DefaultProvidedCapabilitiesJson = KeepGranted(definition.DefaultProvidedCapabilitiesJson, provided);
-        definition.DefaultRequiredCapabilitiesJson = KeepGranted(definition.DefaultRequiredCapabilitiesJson, required);
-        definition.DefaultEventSubscriptionsJson = KeepGranted(definition.DefaultEventSubscriptionsJson, subscriptions);
+        // Selecting a new global agent definition is the approval boundary for that version's
+        // declared capability and subscription contract. Existing scope and network policy remain
+        // bounded separately; keeping only the old intersection would activate code whose required
+        // contract can never run (for example a newly declared sprint-read capability).
+        definition.DefaultProvidedCapabilitiesJson = Serialize(provided);
+        definition.DefaultRequiredCapabilitiesJson = Serialize(required);
+        definition.DefaultEventSubscriptionsJson = Serialize(subscriptions);
         definition.DefaultNetworkAccessJson = KeepGranted(definition.DefaultNetworkAccessJson, networkAccess);
-        definition.DefaultCapabilityBindingsJson = KeepBindings(definition.DefaultCapabilityBindingsJson, required);
+        definition.DefaultCapabilityBindingsJson = MigrateBindings(
+            definition.DefaultCapabilityBindingsJson, required);
         if (definition.Configuration is null)
         {
             definition.Configuration = new AgentDefinitionConfiguration
@@ -401,13 +406,29 @@ public sealed class AgentDefinitionService(
     private static string KeepGranted(string json, IReadOnlySet<string> allowed) =>
         Serialize((JsonSerializer.Deserialize<string[]>(json, JsonOptions) ?? []).Where(allowed.Contains));
 
-    private static string KeepBindings(string json, IReadOnlySet<string> allowed)
+    private static string MigrateBindings(string json, IReadOnlySet<string> allowed)
     {
         var bindings = JsonSerializer.Deserialize<Dictionary<string, Guid>>(json, JsonOptions)
                        ?? new Dictionary<string, Guid>(StringComparer.Ordinal);
-        return JsonSerializer.Serialize(
-            bindings.Where(x => allowed.Contains(x.Key)).ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal),
-            JsonOptions);
+        var migrated = bindings
+            .Where(x => allowed.Contains(x.Key))
+            .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+        foreach (var capability in allowed.Where(x => !migrated.ContainsKey(x)))
+        {
+            var predecessor = bindings.FirstOrDefault(x =>
+                string.Equals(CapabilityFamily(x.Key), CapabilityFamily(capability), StringComparison.Ordinal));
+            if (!predecessor.Equals(default(KeyValuePair<string, Guid>)))
+                migrated[capability] = predecessor.Value;
+        }
+        return JsonSerializer.Serialize(migrated, JsonOptions);
+    }
+
+    private static string CapabilityFamily(string capability)
+    {
+        var marker = capability.LastIndexOf(".v", StringComparison.Ordinal);
+        return marker > 0 && int.TryParse(capability[(marker + 2)..], out _)
+            ? capability[..marker]
+            : capability;
     }
 
     private static string NormalizeSchemaVersion(string value) =>

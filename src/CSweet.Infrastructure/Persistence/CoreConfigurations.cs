@@ -178,6 +178,27 @@ internal static class CoreConfigurations
             entity.Property(x => x.RoutingPreference).HasMaxLength(40).IsRequired(); entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasOne(x => x.Organization).WithOne().HasForeignKey<FinancialOperatingProfile>(x => x.OrganizationId).OnDelete(DeleteBehavior.Cascade);
         });
+        modelBuilder.Entity<BusinessOnboardingOperation>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.BusinessName).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Industry).HasMaxLength(160);
+            entity.Property(x => x.MissionStatement).HasMaxLength(4096);
+            entity.Property(x => x.ChiefDisplayName).HasMaxLength(160);
+            entity.Property(x => x.ChiefAgentInstallRequestJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ResultActionUri).HasMaxLength(2048);
+            entity.Property(x => x.Error).HasMaxLength(2048);
+            entity.Property(x => x.LeaseOwner).HasMaxLength(256);
+            entity.HasIndex(x => new { x.InitiatedByApplicationUserId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => new { x.Status, x.LeaseUntil });
+            entity.HasIndex(x => new { x.InitiatedByApplicationUserId, x.DismissedAt, x.UpdatedAt });
+            entity.HasOne<AgentDefinition>().WithMany().HasForeignKey(x => x.ChiefAgentDefinitionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.ResultOrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<BusinessDiscoveryAssessment>(entity =>
         {
             entity.HasKey(x => x.Id); entity.HasIndex(x => x.OrganizationId).IsUnique(); entity.Property(x => x.ConfirmedFactsJson).HasColumnType("jsonb");

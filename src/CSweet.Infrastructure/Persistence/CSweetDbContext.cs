@@ -143,6 +143,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<ResourceNeed> ResourceNeeds => Set<ResourceNeed>();
     public DbSet<StaffingActionProposal> StaffingActionProposals => Set<StaffingActionProposal>();
     public DbSet<AgentHireOperation> AgentHireOperations => Set<AgentHireOperation>();
+    public DbSet<BusinessOnboardingOperation> BusinessOnboardingOperations => Set<BusinessOnboardingOperation>();
     public DbSet<Responsibility> Responsibilities => Set<Responsibility>();
     public DbSet<ManagementCheckInRequestRecord> ManagementCheckInRequests => Set<ManagementCheckInRequestRecord>();
     public DbSet<ManagementStatusReportRecord> ManagementStatusReports => Set<ManagementStatusReportRecord>();

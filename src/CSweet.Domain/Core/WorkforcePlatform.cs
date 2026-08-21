@@ -294,6 +294,42 @@ public sealed class AgentHireOperation
     public DateTimeOffset? DismissedAt { get; set; }
 }
 
+public enum BusinessOnboardingOperationStatus
+{
+    Starting,
+    InstallingAgent,
+    BuildingAgent,
+    CreatingBusiness,
+    Succeeded,
+    NeedsSetup,
+    Failed
+}
+
+public sealed class BusinessOnboardingOperation
+{
+    public Guid Id { get; set; }
+    public Guid InitiatedByApplicationUserId { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public string BusinessName { get; set; } = string.Empty;
+    public string? Industry { get; set; }
+    public string? MissionStatement { get; set; }
+    public string? ChiefDisplayName { get; set; }
+    public Guid ChiefAgentPackageVersionId { get; set; }
+    public Guid? ChiefAgentDefinitionId { get; set; }
+    public string ChiefAgentInstallRequestJson { get; set; } = "{}";
+    public BusinessOnboardingOperationStatus Status { get; set; } = BusinessOnboardingOperationStatus.Starting;
+    public Guid? ResultOrganizationId { get; set; }
+    public string? ResultActionUri { get; set; }
+    public string? Error { get; set; }
+    public int RetryCount { get; set; }
+    public string? LeaseOwner { get; set; }
+    public DateTimeOffset? LeaseUntil { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+    public DateTimeOffset? DismissedAt { get; set; }
+}
+
 public sealed class Responsibility
 {
     public Guid Id { get; set; }

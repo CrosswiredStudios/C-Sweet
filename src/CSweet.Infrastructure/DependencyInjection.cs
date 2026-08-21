@@ -288,6 +288,8 @@ public static class DependencyInjection
 
         // Core business domain services
         builder.Services.AddScoped<IBusinessOnboardingService, BusinessOnboardingService>();
+        builder.Services.AddScoped<IBusinessOnboardingOperationService>(services =>
+            (BusinessOnboardingService)services.GetRequiredService<IBusinessOnboardingService>());
         builder.Services.AddScoped<ICoreOrganizationService, CoreOrganizationService>();
         builder.Services.AddScoped<IRoleService, RoleService>();
         builder.Services.AddScoped<IStrategicObjectiveService, StrategicObjectiveService>();

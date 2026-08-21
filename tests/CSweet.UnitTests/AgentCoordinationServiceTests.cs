@@ -70,7 +70,6 @@ public sealed class AgentCoordinationServiceTests
         Assert.Equal(AgentCoordinationStatuses.Completed, finalized.Status);
         Assert.Null(finalized.CurrentOrganizationUserId);
         Assert.Equal(5, finalized.Turns.Count);
-
         var sourceSummaries = await fixture.Db.CoreConversationMessages
             .Where(x => x.ConversationId == fixture.SourceConversationId &&
                         x.CoordinationSessionId == fixture.SessionId)
@@ -78,6 +77,27 @@ public sealed class AgentCoordinationServiceTests
         Assert.Single(sourceSummaries);
         Assert.Contains("decision-ready", sourceSummaries[0].Content,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Finalization_DoesNotDuplicateSummaryWhenSourceAndSessionUseSameChat()
+    {
+        await using var fixture = await Fixture.CreateAsync(useSourceConversationForSession: true);
+        var completed = await fixture.Service.RespondAsync(
+            fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId,
+            new RespondToAgentCoordinationRequest(
+                fixture.SessionId, 1, 1, AgentCoordinationDispositions.Completed,
+                "The backlog is published.", "target-complete"));
+        var finalized = await fixture.Service.RespondAsync(
+            fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId,
+            new RespondToAgentCoordinationRequest(
+                fixture.SessionId, 2, 2, AgentCoordinationDispositions.Completed,
+                "Planning completed.", "initiator-final"));
+
+        Assert.Equal(AgentCoordinationStatuses.Completed, finalized.Status);
+        Assert.Equal(2, await fixture.Db.CoreConversationMessages.CountAsync(x =>
+            x.ConversationId == fixture.SourceConversationId &&
+            x.CoordinationSessionId == fixture.SessionId));
     }
 
     [Fact]
@@ -195,7 +215,7 @@ public sealed class AgentCoordinationServiceTests
         public Guid SessionId { get; init; }
         public Guid SourceConversationId { get; init; }
 
-        public static async Task<Fixture> CreateAsync()
+        public static async Task<Fixture> CreateAsync(bool useSourceConversationForSession = false)
         {
             var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -209,8 +229,10 @@ public sealed class AgentCoordinationServiceTests
             var initiatorInstallationId = Guid.NewGuid();
             var targetInstallationId = Guid.NewGuid();
             var sessionId = Guid.NewGuid();
-            var collaborationConversationId = Guid.NewGuid();
             var sourceConversationId = Guid.NewGuid();
+            var collaborationConversationId = useSourceConversationForSession
+                ? sourceConversationId
+                : Guid.NewGuid();
             var sourceTurnId = Guid.NewGuid();
             var sourceMessageId = Guid.NewGuid();
 
@@ -236,7 +258,9 @@ public sealed class AgentCoordinationServiceTests
                     Title = "Agent collaboration", Kind = ConversationKind.AgentChannel,
                     InitiatedByOrganizationUserId = initiatorId, IsPrivate = true,
                     CreatedAt = now, UpdatedAt = now
-                },
+                });
+            if (sourceConversationId != collaborationConversationId)
+                db.Add(
                 new Conversation
                 {
                     Id = sourceConversationId, OrganizationId = organizationId,
