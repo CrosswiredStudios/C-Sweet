@@ -61,6 +61,7 @@ public sealed record PluginRuntime
     public string? ProjectPath { get; init; }
     public string? TargetFramework { get; init; }
     public string DefaultActivationMode { get; init; } = "OnDemand";
+    public int? DefaultTickFrequencySeconds { get; init; }
     public bool SupportsMultipleInstallations { get; init; }
     public int MaximumConcurrentJobs { get; init; } = 1;
     public string? EnvironmentProfile { get; init; }

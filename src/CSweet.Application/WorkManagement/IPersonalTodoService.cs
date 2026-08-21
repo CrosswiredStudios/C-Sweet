@@ -35,6 +35,8 @@ public interface IPersonalTodoService
         BlockPersonalTodoItemRequest request, CancellationToken cancellationToken = default);
     Task<PersonalTodoItem> ReleaseAsync(Guid organizationId, PersonalTodoActor actor,
         ReleasePersonalTodoItemRequest request, CancellationToken cancellationToken = default);
+    Task<PersonalTodoItem> DeferAsync(Guid organizationId, PersonalTodoActor actor,
+        DeferPersonalTodoItemRequest request, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

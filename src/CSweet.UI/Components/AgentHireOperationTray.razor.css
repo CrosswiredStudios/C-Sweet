@@ -1,22 +1,94 @@
 .agent-hire-tray {
     position: fixed;
-    right: 1.25rem;
-    bottom: 1.25rem;
+    right: 1.5rem;
+    bottom: 1.5rem;
     z-index: 1400;
     display: grid;
-    width: min(25rem, calc(100vw - 2rem));
-    gap: .75rem;
+    width: min(28rem, calc(100vw - 2rem));
+    gap: .85rem;
 }
 
 .agent-hire-toast {
     display: grid;
-    gap: .65rem;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: .8rem;
     padding: 1rem;
-    border: 1px solid var(--mud-palette-lines-default);
+    overflow: hidden;
+    border: 1px solid #dcd6f8;
+    border-radius: 13px;
+    color: #201a3b;
+    background: linear-gradient(135deg, #faf9ff, #f4f1ff);
+    box-shadow: 0 10px 32px rgba(63, 48, 135, .14);
 }
 
-.agent-hire-toast-success {
+.agent-hire-toast-icon {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border-radius: 11px;
+    color: #fff;
+    background: linear-gradient(145deg, #806de4, #5140b3);
+    box-shadow: 0 5px 12px rgba(63, 48, 135, .22);
+}
+
+.agent-hire-toast-icon ::deep .mud-icon-root {
+    font-size: 21px;
+}
+
+.agent-hire-toast-content {
+    min-width: 0;
+    display: grid;
+    gap: .55rem;
+}
+
+.agent-hire-toast-succeeded {
     animation: agent-hire-success-fade 8s ease-in forwards;
+}
+
+.agent-hire-toast-succeeded {
+    border-color: #b8dfcd;
+    background: linear-gradient(135deg, #fbfffd, #f0faf5);
+}
+
+.agent-hire-toast-succeeded .agent-hire-toast-icon {
+    background: linear-gradient(145deg, #39a978, #237b58);
+    box-shadow: 0 5px 12px rgba(35, 123, 88, .2);
+}
+
+.agent-hire-toast-succeeded .agent-hire-toast-eyebrow {
+    color: #237b58;
+}
+
+.agent-hire-toast-failed {
+    border-color: #efc8c8;
+    background: linear-gradient(135deg, #fffafa, #fff3f3);
+}
+
+.agent-hire-toast-failed .agent-hire-toast-icon {
+    background: linear-gradient(145deg, #d95d64, #a93641);
+    box-shadow: 0 5px 12px rgba(169, 54, 65, .2);
+}
+
+.agent-hire-toast-failed .agent-hire-toast-eyebrow {
+    color: #a93641;
+}
+
+.agent-hire-toast-needssetup,
+.agent-hire-toast-awaitingconfirmation {
+    border-color: #ead8a8;
+    background: linear-gradient(135deg, #fffdf8, #fff8e9);
+}
+
+.agent-hire-toast-needssetup .agent-hire-toast-icon,
+.agent-hire-toast-awaitingconfirmation .agent-hire-toast-icon {
+    background: linear-gradient(145deg, #d9a52d, #a97413);
+    box-shadow: 0 5px 12px rgba(169, 116, 19, .2);
+}
+
+.agent-hire-toast-needssetup .agent-hire-toast-eyebrow,
+.agent-hire-toast-awaitingconfirmation .agent-hire-toast-eyebrow {
+    color: #96650c;
 }
 
 @keyframes agent-hire-success-fade {
@@ -26,19 +98,131 @@
 
 .agent-hire-toast-header {
     display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: .5rem;
+}
+
+.agent-hire-toast-header > div:first-child {
+    min-width: 0;
+    display: grid;
+    gap: .1rem;
+}
+
+.agent-hire-toast-eyebrow {
+    color: #6750d8;
+    font-size: .64rem;
+    font-weight: 850;
+    letter-spacing: .1em;
+}
+
+.agent-hire-toast-header strong {
+    overflow: hidden;
+    color: #201a3b;
+    font-size: .96rem;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-hire-toast-header small {
+    overflow: hidden;
+    color: #756d8b;
+    font-size: .73rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-hire-toast-dismiss {
+    flex: 0 0 auto;
+    margin: -.45rem -.45rem 0 0;
+}
+
+.agent-hire-toast-dismiss ::deep .mud-icon-root {
+    color: #766d8d;
+    font-size: 18px;
+}
+
+.agent-hire-toast-detail {
+    margin: 0;
+    color: #5f5873;
+    font-size: .8rem;
+    line-height: 1.42;
+    overflow-wrap: anywhere;
+}
+
+.agent-hire-toast-progress-label {
+    display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: .75rem;
+    margin-top: .05rem;
+    color: #756d8b;
+    font-size: .68rem;
+}
+
+.agent-hire-toast-progress-label strong {
+    flex: 0 0 auto;
+    color: #5140b3;
+    font-size: .68rem;
+}
+
+.agent-hire-toast-progress {
+    margin-top: -.25rem;
+}
+
+.agent-hire-toast-content ::deep .agent-hire-toast-progress {
+    height: 5px;
+    background-color: #ded8f2;
+}
+
+.agent-hire-toast-content ::deep .agent-hire-toast-progress .mud-progress-linear-bar {
+    background: linear-gradient(90deg, #806de4, #5140b3);
 }
 
 .agent-hire-toast-actions {
     display: flex;
-    justify-content: flex-end;
+    flex-wrap: wrap;
+    justify-content: flex-start;
     gap: .5rem;
+}
+
+.agent-hire-toast-actions:empty {
+    display: none;
+}
+
+.agent-hire-toast-actions ::deep .mud-button-root {
+    min-height: 2.2rem;
+    border-radius: 8px;
+    font-size: .75rem;
+    font-weight: 750;
+    text-transform: none;
+}
+
+.agent-hire-toast-actions ::deep .agent-hire-primary-action {
+    color: #fff;
+    background: #202942;
+    box-shadow: 0 5px 12px rgba(24, 35, 63, .18);
+}
+
+.agent-hire-toast-actions ::deep .agent-hire-primary-action:hover {
+    background: #2d3857;
 }
 
 @media (max-width: 600px) {
     .agent-hire-tray {
         right: 1rem;
         bottom: 1rem;
+    }
+
+    .agent-hire-toast {
+        padding: .9rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .agent-hire-toast-succeeded {
+        animation: none;
     }
 }

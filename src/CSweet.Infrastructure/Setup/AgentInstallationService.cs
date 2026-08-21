@@ -298,6 +298,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var now = DateTimeOffset.UtcNow;
         installation.Schedule!.ActivationMode = activationMode;
         installation.Schedule.TickFrequencySeconds = request.TickFrequencySeconds;
+        installation.Schedule.NextAttentionReviewAt = request.IsEnabled
+            ? now.AddSeconds(request.TickFrequencySeconds)
+            : null;
         installation.Schedule.OverlapPolicy = overlapPolicy;
         installation.Schedule.MaxRuntimeSeconds = maxRuntimeSeconds;
         installation.Schedule.IsEnabled = request.IsEnabled;
@@ -1389,6 +1392,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException(
                 $"Tick frequency must be at least {settings.MinimumTickFrequencySeconds} seconds.");
         }
+        if (tickFrequencySeconds > 86_400)
+        {
+            throw new AgentInstallationException("Think frequency cannot exceed 86400 seconds.");
+        }
 
         if (maxRuntimeSeconds <= 0)
         {
@@ -1414,7 +1421,6 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException(
                 $"C-Sweet agents require at least {FirstPartyMinimumRuntimeMemoryMb} MB of runtime memory.");
         }
-
         if (memoryMb <= 0 || memoryMb > settings.MaximumWorkloadMemoryMb)
         {
             throw new AgentInstallationException(

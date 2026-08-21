@@ -224,6 +224,11 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             {
                 errors.Add("runtime.maximumConcurrentJobs must be at least one.");
             }
+            if (manifest.Runtime.DefaultTickFrequencySeconds is { } frequency &&
+                frequency is < 60 or > 86_400)
+            {
+                errors.Add("runtime.defaultTickFrequencySeconds must be between 60 and 86400.");
+            }
 
             if (manifest.Runtime.EnvironmentProfile is not null &&
                 !System.Text.RegularExpressions.Regex.IsMatch(
@@ -367,7 +372,8 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             ConfigurationFields = manifest.Configuration,
             CredentialBindings = manifest.Credentials,
             Connections = manifest.Connections,
-            Setup = manifest.Setup
+            Setup = manifest.Setup,
+            DefaultTickFrequencySeconds = manifest.Runtime.DefaultTickFrequencySeconds
         };
 
     public static IReadOnlyList<string> WebGrantTokens(PluginManifest manifest) => manifest.WebAccess.Mode switch

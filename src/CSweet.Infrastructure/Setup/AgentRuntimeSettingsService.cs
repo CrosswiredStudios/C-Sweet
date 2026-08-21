@@ -92,6 +92,10 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         {
             errors.Add("Minimum tick frequency must be at least 60 seconds.");
         }
+        if (minimumTickFrequencySeconds > 86_400 || defaultTickFrequencySeconds > 86_400)
+        {
+            errors.Add("Think frequency cannot exceed 86400 seconds.");
+        }
 
         if (defaultTickFrequencySeconds < minimumTickFrequencySeconds)
         {

@@ -705,7 +705,7 @@
                                     <MudSelectItem T="string" Value="@("OnDemand")">On demand</MudSelectItem>
                                     <MudSelectItem T="string" Value="@("Scheduled")">Scheduled</MudSelectItem>
                                 </MudSelect>
-                                <MudNumericField T="int" Label="Tick frequency (seconds)" @bind-Value="_installTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudNumericField T="int" Label="Think every (seconds)" @bind-Value="_installTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Max="86400" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
                                 <MudSelect T="string" Label="Overlap policy" @bind-Value="_installOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
                                     <MudSelectItem T="string" Value="@("Skip")">Skip</MudSelectItem>
                                     <MudSelectItem T="string" Value="@("Queue")">Queue</MudSelectItem>
@@ -761,7 +761,7 @@
                 <MudSelectItem T="string" Value="@("OnDemand")">On demand</MudSelectItem>
                 <MudSelectItem T="string" Value="@("Scheduled")">Scheduled</MudSelectItem>
             </MudSelect>
-            <MudNumericField T="int" Label="Tick frequency (seconds)" @bind-Value="_scheduleTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Variant="Variant.Outlined" Disabled="@_isManagingInstallation" />
+            <MudNumericField T="int" Label="Think every (seconds)" @bind-Value="_scheduleTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Max="86400" Variant="Variant.Outlined" Disabled="@_isManagingInstallation" />
             <MudSelect T="string" Label="Overlap policy" @bind-Value="_scheduleOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isManagingInstallation">
                 <MudSelectItem T="string" Value="@("Skip")">Skip</MudSelectItem>
                 <MudSelectItem T="string" Value="@("Queue")">Queue</MudSelectItem>
@@ -1247,7 +1247,8 @@
         _importTabIndex = preview.ConfigurationFields.Any(field => !field.Secret) ? 2 : 0;
         _installBusinessId = "default";
         _installActivationMode = preview.DefaultActivationMode ?? _runtimeSettings?.DefaultActivationMode ?? "OnDemand";
-        _installTickFrequencySeconds = _runtimeSettings?.DefaultTickFrequencySeconds ?? 3600;
+        _installTickFrequencySeconds = preview.DefaultTickFrequencySeconds ??
+            _runtimeSettings?.DefaultTickFrequencySeconds ?? 3600;
         _installOverlapPolicy = _runtimeSettings?.DefaultOverlapPolicy ?? "Skip";
         _installMaxRuntimeSeconds = _runtimeSettings?.DefaultMaxRuntimeSeconds ?? 600;
         _installMemoryMb = _runtimeSettings?.DefaultWorkloadMemoryMb ?? 1024;

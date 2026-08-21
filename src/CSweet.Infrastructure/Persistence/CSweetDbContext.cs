@@ -991,6 +991,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.ActivationMode).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.Property(x => x.OverlapPolicy).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.Property(x => x.NextTickAt).IsConcurrencyToken();
+            entity.Property(x => x.NextAttentionReviewAt).IsConcurrencyToken();
             entity.HasIndex(x => x.AgentInstallationId).IsUnique();
             entity.HasOne(x => x.AgentInstallation)
                 .WithOne(x => x.Schedule)
@@ -1079,6 +1080,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
             entity.Property(x => x.FinalSummary).HasMaxLength(32768);
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.LastResumeIdempotencyKey).HasMaxLength(160);
             entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.ConversationId, x.Status });

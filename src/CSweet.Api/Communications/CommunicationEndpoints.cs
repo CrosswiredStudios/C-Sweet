@@ -135,7 +135,7 @@ public static class CommunicationEndpoints
         {
             var actorId = await ResolveActorAsync(organizationId, http, hub, cancellationToken);
             if (actorId is null) return Results.Forbid();
-            var sessions = await coordination.ListForChatAsync(
+            var sessions = await coordination.ListAsync(
                 organizationId, actorId.Value, chatId, activeOnly ?? false, cancellationToken);
             return Results.Ok(sessions.Select(MapCoordination).ToList());
         });

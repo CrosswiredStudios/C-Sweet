@@ -17,6 +17,8 @@ public sealed class AgentCoordinationCapabilityHandler(
         CommunicationCapabilities.CoordinationStart or
         CommunicationCapabilities.CoordinationRespond or
         CommunicationCapabilities.CoordinationRead or
+        CommunicationCapabilities.CoordinationList or
+        CommunicationCapabilities.CoordinationResume or
         CommunicationCapabilities.CoordinationCancel;
 
     public async IAsyncEnumerable<CapabilityResult> HandleAsync(
@@ -56,6 +58,12 @@ public sealed class AgentCoordinationCapabilityHandler(
                 CommunicationCapabilities.CoordinationRead => await coordination.ReadAsync(
                     organizationId, actorId.Value,
                     Read<ReadAgentCoordinationRequest>(request).SessionId, cancellationToken),
+                CommunicationCapabilities.CoordinationList => await ListAsync(
+                    organizationId, actorId.Value,
+                    Read<ListAgentCoordinationRequest>(request), cancellationToken),
+                CommunicationCapabilities.CoordinationResume => await coordination.ResumeAsync(
+                    organizationId, actorId.Value, installationId,
+                    Read<ResumeAgentCoordinationRequest>(request), cancellationToken),
                 CommunicationCapabilities.CoordinationCancel => await coordination.CancelAsync(
                     organizationId, actorId.Value, false,
                     Read<CancelAgentCoordinationRequest>(request), cancellationToken),
@@ -88,6 +96,14 @@ public sealed class AgentCoordinationCapabilityHandler(
             return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict, exception.Message);
         }
     }
+
+    private async Task<AgentCoordinationSessions> ListAsync(
+        Guid organizationId,
+        Guid actorId,
+        ListAgentCoordinationRequest request,
+        CancellationToken cancellationToken) =>
+        new(await coordination.ListAsync(
+            organizationId, actorId, request.ChatId, request.ActiveOnly, cancellationToken));
 
     private static T Read<T>(RequestCapability request) =>
         JsonSerializer.Deserialize<T>(request.Payload.Span, JsonOptions)

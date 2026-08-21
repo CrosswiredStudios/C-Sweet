@@ -217,26 +217,74 @@ public sealed class AgentCoordinationService(
         return session is null ? null : await MapAsync(session, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<AgentCoordinationSession>> ListForChatAsync(
-        Guid organizationId, Guid actorOrganizationUserId, Guid chatId, bool activeOnly,
+    public async Task<IReadOnlyList<AgentCoordinationSession>> ListAsync(
+        Guid organizationId, Guid actorOrganizationUserId, Guid? chatId, bool activeOnly,
         CancellationToken cancellationToken = default)
     {
-        var visible = await db.ConversationParticipants.AsNoTracking().AnyAsync(x =>
-            x.ConversationId == chatId && x.OrganizationUserId == actorOrganizationUserId && x.LeftAt == null,
+        var actorIsActive = await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+            x.Id == actorOrganizationUserId && x.OrganizationId == organizationId && x.IsActive,
             cancellationToken);
-        if (!visible)
-            visible = await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
-                x.Id == actorOrganizationUserId && x.OrganizationId == organizationId && x.IsActive &&
-                x.PermissionLevel >= OrganizationPermissionLevel.Manager, cancellationToken);
-        if (!visible) return [];
+        if (!actorIsActive) return [];
         var query = QuerySession().Where(x => x.OrganizationId == organizationId &&
-            (x.ConversationId == chatId || x.SourceConversationId == chatId));
+            (x.InitiatorOrganizationUserId == actorOrganizationUserId ||
+             x.TargetOrganizationUserId == actorOrganizationUserId));
+        if (chatId.HasValue)
+            query = query.Where(x => x.ConversationId == chatId || x.SourceConversationId == chatId);
         if (activeOnly)
             query = query.Where(x => x.Status == DomainStatus.Active || x.Status == DomainStatus.Summarizing);
         var sessions = await query.OrderByDescending(x => x.UpdatedAt).ToListAsync(cancellationToken);
         var mapped = new List<AgentCoordinationSession>(sessions.Count);
         foreach (var session in sessions) mapped.Add(await MapAsync(session, cancellationToken));
         return mapped;
+    }
+
+    public async Task<AgentCoordinationSession> ResumeAsync(
+        Guid organizationId,
+        Guid actorOrganizationUserId,
+        Guid actorInstallationId,
+        ResumeAgentCoordinationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.SessionId == Guid.Empty || string.IsNullOrWhiteSpace(request.Reason) ||
+            string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            throw new ArgumentException("Coordination session, recovery reason, and idempotency key are required.");
+        if (request.Reason.Length > 2048 || request.IdempotencyKey.Length > 160)
+            throw new ArgumentException("The coordination recovery payload is too long.");
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var session = await QuerySession().SingleOrDefaultAsync(x =>
+            x.Id == request.SessionId && x.OrganizationId == organizationId,
+            cancellationToken) ?? throw new KeyNotFoundException("The coordination session was not found.");
+        if (string.Equals(session.LastResumeIdempotencyKey, request.IdempotencyKey, StringComparison.Ordinal))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return await MapAsync(session, cancellationToken);
+        }
+        if (session.InitiatorOrganizationUserId != actorOrganizationUserId ||
+            session.InitiatorInstallationId != actorInstallationId)
+            throw new UnauthorizedAccessException("Only the initiating agent may resume this coordination session.");
+        if (session.Revision != request.ExpectedRevision)
+            throw new InvalidOperationException("The coordination session changed before it could be resumed.");
+        if (session.Status is not (DomainStatus.Failed or DomainStatus.Blocked))
+            throw new InvalidOperationException($"The coordination session is {session.Status} and cannot be resumed.");
+
+        var now = DateTimeOffset.UtcNow;
+        session.Status = DomainStatus.Active;
+        session.Revision++;
+        session.IsFinalization = false;
+        session.CurrentOrganizationUserId = session.InitiatorOrganizationUserId;
+        session.CurrentAgentWorkItemId = null;
+        session.CompletedAt = null;
+        session.FinalSummary = null;
+        session.LastResumeIdempotencyKey = request.IdempotencyKey.Trim();
+        session.UpdatedAt = now;
+        await db.SaveChangesAsync(cancellationToken);
+        session.CurrentAgentWorkItemId = await EnqueueTurnAsync(
+            session, session.InitiatorInstallationId,
+            session.InitiatorOrganizationUserId, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return await MapAsync(session, cancellationToken);
     }
 
     public async Task<AgentCoordinationSession> CancelAsync(

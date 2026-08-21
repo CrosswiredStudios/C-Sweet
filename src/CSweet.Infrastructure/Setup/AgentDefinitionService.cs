@@ -5,6 +5,7 @@ using CSweet.Contracts.Agents;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CSweet.Infrastructure.Setup;
 
@@ -12,7 +13,8 @@ public sealed class AgentDefinitionService(
     CSweetDbContext db,
     IAuditEventWriter auditWriter,
     IAgentBuildService buildService,
-    IModelCatalogClient? modelCatalog = null) : IAgentDefinitionService
+    IModelCatalogClient? modelCatalog = null,
+    ILogger<AgentDefinitionService>? logger = null) : IAgentDefinitionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -40,7 +42,7 @@ public sealed class AgentDefinitionService(
 
         var activationMode = ParseEnum<ActivationMode>(request.ActivationMode, "activation mode");
         var overlapPolicy = ParseEnum<OverlapPolicy>(request.OverlapPolicy, "overlap policy");
-        if (request.TickFrequencySeconds <= 0 || request.MaxRuntimeSeconds <= 0 ||
+        if (request.TickFrequencySeconds is <= 0 or > 86_400 || request.MaxRuntimeSeconds <= 0 ||
             request.MemoryMb <= 0 || request.CpuPercent is <= 0 or > 100)
             throw new AgentInstallationException("Schedule and resource defaults must be positive and CPU cannot exceed 100 percent.");
 
@@ -242,11 +244,27 @@ public sealed class AgentDefinitionService(
             : AgentDefinitionStatus.Building;
 
         await db.SaveChangesAsync(cancellationToken);
+        if (definition.Status == AgentDefinitionStatus.Available && definition.IsAvailableForHire)
+        {
+            try
+            {
+                await new AgentDefinitionInstallationSynchronizer(db, auditWriter)
+                    .SynchronizeAsync(definition.Id, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                // The definition is the durable desired state. Runtime reconciliation retries every
+                // hired installation, including those hosted by an Office that is currently offline.
+                logger?.LogError(exception,
+                    "Global definition {AgentDefinitionId} was updated, but existing hire deployment will be retried by runtime reconciliation.",
+                    definition.Id);
+            }
+        }
         await auditWriter.WriteAsync(
             "agent-definition.update-requested",
             nameof(AgentDefinition),
             definition.Id,
-            $"Updated global definition {definition.AgentId} from {currentPackage.Version} to {nextPackage.Version}; existing hires remain pinned to their approved package revision.",
+            $"Updated global definition {definition.AgentId} from {currentPackage.Version} to {nextPackage.Version}; existing hires converge through durable deployment reconciliation.",
             cancellationToken: cancellationToken);
         return ToResponse(definition, nextPackage);
     }

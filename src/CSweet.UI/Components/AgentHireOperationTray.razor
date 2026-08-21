@@ -8,59 +8,72 @@
     <aside class="agent-hire-tray" aria-live="polite" aria-label="Agent hiring progress">
         @foreach (var operation in HireOperations.Operations)
         {
-            <MudPaper Class="@ToastClass(operation)" Elevation="8">
-                <div class="agent-hire-toast-header">
-                    <MudIcon Icon="@StatusIcon(operation.Status)" Color="@StatusColor(operation.Status)" />
-                    <div>
-                        <MudText Typo="Typo.subtitle1">@operation.Phase</MudText>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">@operation.EmployeeDisplayName</MudText>
-                    </div>
-                    <MudSpacer />
-                    @if (CanDismiss(operation.Status))
-                    {
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
-                                       aria-label="Dismiss" OnClick="@(() => DismissAsync(operation))" />
-                    }
+            <MudPaper Class="@ToastClass(operation)" Elevation="0">
+                <div class="agent-hire-toast-icon" aria-hidden="true">
+                    <MudIcon Icon="@StatusIcon(operation.Status)" />
                 </div>
-                <MudText Typo="Typo.body2">@operation.Detail</MudText>
-                @if (AgentHireOperationStatuses.IsActive(operation.Status))
-                {
-                    <MudProgressLinear Class="mt-2" Color="Color.Primary"
-                                       Indeterminate="@(operation.TotalBuildSteps == 0)"
-                                       Value="@Progress(operation)" />
-                    @if (operation.TotalBuildSteps > 0)
-                    {
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">
-                            @operation.CompletedBuildSteps of @operation.TotalBuildSteps build steps complete
-                        </MudText>
-                    }
-                }
-                <div class="agent-hire-toast-actions">
-                    @if (operation.Status == AgentHireOperationStatuses.Succeeded)
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => Open(operation))">View team</MudButton>
-                    }
-                    else if (operation.Status == AgentHireOperationStatuses.NeedsSetup)
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
-                                   OnClick="@(() => Open(operation))">Finish setup</MudButton>
-                    }
-                    else if (operation.Status == AgentHireOperationStatuses.Failed)
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
-                                   OnClick="@(() => RetryAsync(operation))">Retry</MudButton>
-                        @if (!string.IsNullOrWhiteSpace(operation.ActionUri))
+                <div class="agent-hire-toast-content">
+                    <header class="agent-hire-toast-header">
+                        <div>
+                            <span class="agent-hire-toast-eyebrow">@StatusLabel(operation.Status)</span>
+                            <strong>@operation.Phase</strong>
+                            <small>@operation.EmployeeDisplayName</small>
+                        </div>
+                        @if (CanDismiss(operation.Status))
                         {
-                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => Open(operation))">View details</MudButton>
+                            <MudIconButton Class="agent-hire-toast-dismiss"
+                                           Icon="@Icons.Material.Filled.Close"
+                                           Size="Size.Small"
+                                           aria-label="Dismiss hiring notification"
+                                           OnClick="@(() => DismissAsync(operation))" />
                         }
-                    }
-                    else if (operation.Status == AgentHireOperationStatuses.AwaitingConfirmation)
+                    </header>
+                    <p class="agent-hire-toast-detail">@operation.Detail</p>
+                    @if (AgentHireOperationStatuses.IsActive(operation.Status))
                     {
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
-                                   OnClick="@(() => RetryAsync(operation))">Resume hire</MudButton>
-                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
-                                   OnClick="@(() => CancelAsync(operation))">Cancel</MudButton>
+                        <div class="agent-hire-toast-progress-label">
+                            <span>@ProgressLabel(operation)</span>
+                            @if (operation.TotalBuildSteps > 0)
+                            {
+                                <strong>@($"{Progress(operation):0}%")</strong>
+                            }
+                        </div>
+                        <MudProgressLinear Class="agent-hire-toast-progress"
+                                           Color="Color.Primary"
+                                           Rounded="true"
+                                           Indeterminate="@(operation.TotalBuildSteps == 0)"
+                                           Value="@Progress(operation)" />
                     }
+                    <div class="agent-hire-toast-actions">
+                        @if (operation.Status == AgentHireOperationStatuses.Succeeded)
+                        {
+                            <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
+                                       EndIcon="@Icons.Material.Outlined.ArrowForward"
+                                       OnClick="@(() => Open(operation))">View team</MudButton>
+                        }
+                        else if (operation.Status == AgentHireOperationStatuses.NeedsSetup)
+                        {
+                            <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
+                                       EndIcon="@Icons.Material.Outlined.ArrowForward"
+                                       OnClick="@(() => Open(operation))">Finish setup</MudButton>
+                        }
+                        else if (operation.Status == AgentHireOperationStatuses.Failed)
+                        {
+                            <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
+                                       OnClick="@(() => RetryAsync(operation))">Retry</MudButton>
+                            @if (!string.IsNullOrWhiteSpace(operation.ActionUri))
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => Open(operation))">View details</MudButton>
+                            }
+                        }
+                        else if (operation.Status == AgentHireOperationStatuses.AwaitingConfirmation)
+                        {
+                            <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
+                                       OnClick="@(() => RetryAsync(operation))">Resume hire</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
+                                       OnClick="@(() => CancelAsync(operation))">Cancel</MudButton>
+                        }
+                    </div>
                 </div>
             </MudPaper>
         }
@@ -82,20 +95,24 @@
     private static double Progress(AgentHireOperationResponse operation) =>
         operation.TotalBuildSteps == 0 ? 0 : 100d * operation.CompletedBuildSteps / operation.TotalBuildSteps;
 
+    private static string ProgressLabel(AgentHireOperationResponse operation) =>
+        operation.TotalBuildSteps > 0
+            ? $"{operation.CompletedBuildSteps} of {operation.TotalBuildSteps} build steps complete"
+            : "Preparing the build environment";
+
     private static string ToastClass(AgentHireOperationResponse operation) =>
-        operation.Status == AgentHireOperationStatuses.Succeeded
-            ? "agent-hire-toast agent-hire-toast-success"
-            : "agent-hire-toast";
+        $"agent-hire-toast agent-hire-toast-{operation.Status.ToLowerInvariant()}";
 
     private static bool CanDismiss(string status) =>
         status is AgentHireOperationStatuses.Succeeded or AgentHireOperationStatuses.NeedsSetup or AgentHireOperationStatuses.Failed;
 
-    private static Color StatusColor(string status) => status switch
+    private static string StatusLabel(string status) => status switch
     {
-        AgentHireOperationStatuses.Succeeded => Color.Success,
-        AgentHireOperationStatuses.Failed => Color.Error,
-        AgentHireOperationStatuses.NeedsSetup or AgentHireOperationStatuses.AwaitingConfirmation => Color.Warning,
-        _ => Color.Primary
+        AgentHireOperationStatuses.Succeeded => "AGENT HIRED",
+        AgentHireOperationStatuses.Failed => "HIRING INTERRUPTED",
+        AgentHireOperationStatuses.NeedsSetup => "SETUP REQUIRED",
+        AgentHireOperationStatuses.AwaitingConfirmation => "ACTION REQUIRED",
+        _ => "AGENT HIRING"
     };
 
     private static string StatusIcon(string status) => status switch

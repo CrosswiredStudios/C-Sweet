@@ -69,6 +69,8 @@ public sealed class PersonalTodoCapabilityHandler(
                     Read<Wire.BlockPersonalTodoItemRequest>(request), token),
                 PersonalTodoActions.Release => await service.ReleaseAsync(organizationId, actor,
                     Read<Wire.ReleasePersonalTodoItemRequest>(request), token),
+                PersonalTodoActions.Defer => await service.DeferAsync(organizationId, actor,
+                    Read<Wire.DeferPersonalTodoItemRequest>(request), token),
                 _ => throw new KeyNotFoundException("The personal to-do capability is not implemented.")
             };
             return Success(request.RequestId, result);

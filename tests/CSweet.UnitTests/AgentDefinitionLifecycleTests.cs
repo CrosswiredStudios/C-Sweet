@@ -78,7 +78,7 @@ public sealed class AgentDefinitionLifecycleTests
     }
 
     [Fact]
-    public async Task Update_SwitchesTheGlobalDefinitionAndLeavesExistingHiresPinned()
+    public async Task Update_UnbuiltDefinitionLeavesExistingHiresPinnedUntilThePackageIsVerified()
     {
         await using var db = CreateDb();
         var current = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
@@ -102,6 +102,97 @@ public sealed class AgentDefinitionLifecycleTests
         Assert.Equal(AgentDefinitionStatus.Building.ToString(), result.Status);
         Assert.Equal(update.Id, builds.QueuedPackageVersionId);
         Assert.Equal(current.Id, (await db.AgentInstallations.SingleAsync()).PackageVersionId);
+    }
+
+    [Fact]
+    public async Task Update_BuiltDefinitionDeploysToEveryHireAndRevokesOldRuntimeSessions()
+    {
+        await using var db = CreateDb();
+        var current = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        current.PackageDigest = $"sha256:{new string('a', 64)}";
+        current.ArtifactSignature = "current-signature";
+        var definition = SeedDefinition(db, current, ActivationMode.AlwaysOn);
+        var firstHire = RuntimeInstallation(current, Guid.NewGuid().ToString("D"));
+        var secondHire = RuntimeInstallation(current, Guid.NewGuid().ToString("D"));
+        firstHire.AgentDefinitionId = definition.Id;
+        secondHire.AgentDefinitionId = definition.Id;
+        definition.Installations.Add(firstHire);
+        definition.Installations.Add(secondHire);
+
+        var now = DateTimeOffset.UtcNow;
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = firstHire.Id,
+            AgentInstallation = firstHire, QueuedAt = now
+        };
+        runtime.TransitionTo(AgentRuntimeStatus.Starting, now);
+        runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, now);
+        runtime.TransitionTo(AgentRuntimeStatus.Running, now);
+        firstHire.RuntimeInstances.Add(runtime);
+        var session = new McpAgentSession
+        {
+            Id = Guid.NewGuid(), RuntimeInstanceId = runtime.Id, RuntimeInstance = runtime,
+            TickId = runtime.TickId, AgentInstallationId = firstHire.Id,
+            AgentInstallation = firstHire, OrganizationId = firstHire.BusinessId,
+            PackageVersionId = current.Id, PackageDigest = current.PackageDigest,
+            GrantRevision = firstHire.Grant!.GrantRevision, AccessTokenHash = Guid.NewGuid().ToString("N"),
+            EstablishedAt = now, LastRenewedAt = now, ExpiresAt = now.AddHours(1)
+        };
+
+        var update = CreateUpdatePackage(current, "1.1.0");
+        update.Status = AgentPackageVersionStatus.Built;
+        update.PackageDigest = $"sha256:{new string('b', 64)}";
+        update.ArtifactSignature = "updated-signature";
+        db.AddRange(firstHire, secondHire, runtime, session, update);
+        await db.SaveChangesAsync();
+        var service = new AgentDefinitionService(
+            db, new TestAuditEventWriter(), new RecordingBuildService(db));
+
+        var result = await service.UpdateAsync(
+            definition.Id, new UpdateAgentDefinitionRequest(update.Id));
+
+        Assert.Equal("1.1.0", result.AgentVersion);
+        var installations = await db.AgentInstallations.OrderBy(x => x.BusinessId).ToListAsync();
+        Assert.Equal(2, installations.Count);
+        Assert.All(installations, installation => Assert.Equal(update.Id, installation.PackageVersionId));
+        Assert.All(installations, installation => Assert.Equal(2, installation.RevisionNumber));
+        Assert.Equal(AgentConfigurationSyncStatus.Restarting,
+            installations.Single(x => x.Id == firstHire.Id).ConfigurationSyncStatus);
+        Assert.Equal(AgentConfigurationSyncStatus.PendingNextStart,
+            installations.Single(x => x.Id == secondHire.Id).ConfigurationSyncStatus);
+        Assert.NotNull((await db.McpAgentSessions.SingleAsync()).RevokedAt);
+        Assert.Contains("global agent definition",
+            (await db.McpAgentSessions.SingleAsync()).RevocationReason,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Reconciliation_RepairsDefinitionDriftThatWasPersistedWhileAnOfficeWasOffline()
+    {
+        await using var db = CreateDb();
+        var oldPackage = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        oldPackage.PackageDigest = $"sha256:{new string('a', 64)}";
+        oldPackage.ArtifactSignature = "old-signature";
+        var newPackage = CreateUpdatePackage(oldPackage, "1.1.0");
+        newPackage.Status = AgentPackageVersionStatus.Built;
+        newPackage.PackageDigest = $"sha256:{new string('b', 64)}";
+        newPackage.ArtifactSignature = "new-signature";
+        var definition = SeedDefinition(db, newPackage, ActivationMode.AlwaysOn);
+        var offlineHire = RuntimeInstallation(oldPackage, Guid.NewGuid().ToString("D"));
+        offlineHire.AgentDefinitionId = definition.Id;
+        definition.Installations.Add(offlineHire);
+        db.AddRange(newPackage, offlineHire);
+        await db.SaveChangesAsync();
+
+        var changed = await new AgentDefinitionInstallationSynchronizer(
+            db, new TestAuditEventWriter()).SynchronizeAsync();
+
+        Assert.Equal(1, changed);
+        Assert.Equal(newPackage.Id, (await db.AgentInstallations.SingleAsync()).PackageVersionId);
+        Assert.Equal(AgentConfigurationSyncStatus.PendingNextStart,
+            (await db.AgentInstallations.SingleAsync()).ConfigurationSyncStatus);
+        Assert.Equal(0, await new AgentDefinitionInstallationSynchronizer(
+            db, new TestAuditEventWriter()).SynchronizeAsync());
     }
 
     [Fact]

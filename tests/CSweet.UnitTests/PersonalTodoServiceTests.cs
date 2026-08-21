@@ -161,6 +161,53 @@ public sealed class PersonalTodoServiceTests
     }
 
     [Fact]
+    public async Task AgentCanDeferClaimedWorkAndReconciliationWakesItOnceWhenDue()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var owner = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+        var item = await service.AddAsync(setup.Organization.Id, owner,
+            Add("Await architecture", "await-architecture", null));
+        var eventId = Guid.NewGuid();
+        var stored = await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id);
+        var doing = await db.WorkBoardColumns.SingleAsync(x =>
+            x.BoardId == stored.BoardId && x.Category == WorkBoardColumnCategory.InProgress);
+        stored.Status = WorkTaskStatus.Running;
+        stored.BoardColumnId = doing.Id;
+        stored.ClaimEventId = eventId;
+        stored.ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
+        stored.Revision++;
+        await db.SaveChangesAsync();
+
+        var deferred = await service.DeferAsync(setup.Organization.Id, owner,
+            new Wire.DeferPersonalTodoItemRequest(
+                item.Id, eventId, stored.Revision,
+                DateTimeOffset.UtcNow.AddMinutes(30),
+                "Waiting for the Architect's next turn.",
+                setup.FirstManager.Id,
+                "defer-architecture"));
+
+        Assert.Equal(Wire.PersonalTodoStatuses.Running, deferred.Status);
+        Assert.NotNull(deferred.Wait);
+        Assert.Equal(setup.FirstManager.Id, deferred.Wait!.WaitingOnOrganizationUserId);
+        stored = await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id);
+        stored.NextReviewAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await db.SaveChangesAsync();
+
+        await service.ReconcileAsync();
+
+        var ready = await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id);
+        Assert.Equal(WorkTaskStatus.Ready, ready.Status);
+        Assert.Null(ready.NextReviewAt);
+        Assert.Null(ready.WaitingReason);
+        Assert.Null(ready.WaitingOnOrganizationUserId);
+        Assert.Equal(2, await db.AgentPlatformEventOutbox.CountAsync(x =>
+            x.EventType == Wire.PersonalTodoEvents.Available));
+    }
+
+    [Fact]
     public async Task AddInfersTheOwningAgentAndIsIdempotent()
     {
         await using var db = CreateDb();

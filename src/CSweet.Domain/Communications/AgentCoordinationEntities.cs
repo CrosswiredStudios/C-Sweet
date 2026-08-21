@@ -33,6 +33,7 @@ public sealed class AgentCoordinationSession
     public bool IsFinalization { get; set; }
     public string? FinalSummary { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
+    public string? LastResumeIdempotencyKey { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }

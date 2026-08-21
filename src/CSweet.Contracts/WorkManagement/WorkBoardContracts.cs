@@ -72,12 +72,13 @@ public static class PersonalTodoActions
     public const string Complete = WorkManagementCapabilityNames.PersonalTodoComplete;
     public const string Block = WorkManagementCapabilityNames.PersonalTodoBlock;
     public const string Release = WorkManagementCapabilityNames.PersonalTodoRelease;
+    public const string Defer = WorkManagementCapabilityNames.PersonalTodoDefer;
     public const string Update = WorkManagementCapabilityNames.PersonalTodoUpdate;
     public const string Archive = WorkManagementCapabilityNames.PersonalTodoArchive;
     public const string Restore = WorkManagementCapabilityNames.PersonalTodoRestore;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Add, Reorder, Requeue, Activate, Claim, Complete, Block, Release, Update, Archive, Restore];
+        [Read, Add, Reorder, Requeue, Activate, Claim, Complete, Block, Release, Defer, Update, Archive, Restore];
 }
 
 public sealed record EmployeeDetailsPermissions(

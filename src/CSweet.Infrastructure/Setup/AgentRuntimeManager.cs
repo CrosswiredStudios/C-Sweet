@@ -277,7 +277,8 @@ public sealed class AgentRuntimeManager(
 
     public async Task<int> ReconcileAsync(CancellationToken cancellationToken = default)
     {
-        var changed = 0;
+        var changed = await new AgentDefinitionInstallationSynchronizer(dbContext, auditWriter)
+            .SynchronizeAsync(cancellationToken: cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var strandedRefreshes = await dbContext.AgentInstallations
             .Where(x =>

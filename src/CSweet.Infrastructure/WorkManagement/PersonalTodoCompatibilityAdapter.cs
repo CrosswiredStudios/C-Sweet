@@ -30,4 +30,5 @@ public sealed class PersonalTodoService : IPersonalTodoService
     public Task<Wire.PersonalTodoItem> CompleteAsync(Guid organizationId, PersonalTodoActor actor, Wire.CompletePersonalTodoItemRequest request, CancellationToken cancellationToken = default) => _engine.CompleteAsync(organizationId, actor, request, cancellationToken);
     public Task<Wire.PersonalTodoItem> BlockAsync(Guid organizationId, PersonalTodoActor actor, Wire.BlockPersonalTodoItemRequest request, CancellationToken cancellationToken = default) => _engine.BlockAsync(organizationId, actor, request, cancellationToken);
     public Task<Wire.PersonalTodoItem> ReleaseAsync(Guid organizationId, PersonalTodoActor actor, Wire.ReleasePersonalTodoItemRequest request, CancellationToken cancellationToken = default) => _engine.ReleaseAsync(organizationId, actor, request, cancellationToken);
+    public Task<Wire.PersonalTodoItem> DeferAsync(Guid organizationId, PersonalTodoActor actor, Wire.DeferPersonalTodoItemRequest request, CancellationToken cancellationToken = default) => _engine.DeferAsync(organizationId, actor, request, cancellationToken);
 }

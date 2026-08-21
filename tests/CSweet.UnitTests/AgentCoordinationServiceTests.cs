@@ -144,6 +144,43 @@ public sealed class AgentCoordinationServiceTests
             x.CoordinationSessionId == fixture.SessionId).ToListAsync());
     }
 
+    [Fact]
+    public async Task InitiatorCanListAndIdempotentlyResumeItsFailedSession()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var stored = await fixture.Db.AgentCoordinationSessions.SingleAsync(x =>
+            x.Id == fixture.SessionId);
+        stored.Status = AgentCoordinationStatus.Failed;
+        stored.CurrentOrganizationUserId = null;
+        stored.CompletedAt = stored.UpdatedAt = DateTimeOffset.UtcNow;
+        stored.FinalSummary = "A runtime transport failed.";
+        stored.Revision = 2;
+        await fixture.Db.SaveChangesAsync();
+
+        var visible = await fixture.Service.ListAsync(
+            fixture.OrganizationId, fixture.InitiatorId, null, activeOnly: false);
+        Assert.Single(visible);
+        Assert.Empty(await fixture.Service.ListAsync(
+            fixture.OrganizationId, fixture.ManagerId, null, activeOnly: false));
+
+        var request = new ResumeAgentCoordinationRequest(
+            fixture.SessionId, 2, "Retry the failed runtime turn.", "resume-session-1");
+        var resumed = await fixture.Service.ResumeAsync(
+            fixture.OrganizationId, fixture.InitiatorId,
+            fixture.InitiatorInstallationId, request);
+        var replay = await fixture.Service.ResumeAsync(
+            fixture.OrganizationId, fixture.InitiatorId,
+            fixture.InitiatorInstallationId, request);
+
+        Assert.Equal(AgentCoordinationStatuses.Active, resumed.Status);
+        Assert.Equal(fixture.InitiatorId, resumed.CurrentOrganizationUserId);
+        Assert.Equal(resumed.Revision, replay.Revision);
+        Assert.Equal(3, resumed.Revision);
+        Assert.Single(await fixture.Db.AgentWorkItems.Where(x =>
+            x.CorrelationId == fixture.SessionId.ToString("D") &&
+            x.Status == AgentWorkStatus.Pending).ToListAsync());
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public required CSweetDbContext Db { get; init; }

@@ -24,11 +24,18 @@ public interface IAgentCoordinationService
         Guid sessionId,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<AgentCoordinationSession>> ListForChatAsync(
+    Task<IReadOnlyList<AgentCoordinationSession>> ListAsync(
         Guid organizationId,
         Guid actorOrganizationUserId,
-        Guid chatId,
+        Guid? chatId,
         bool activeOnly,
+        CancellationToken cancellationToken = default);
+
+    Task<AgentCoordinationSession> ResumeAsync(
+        Guid organizationId,
+        Guid actorOrganizationUserId,
+        Guid actorInstallationId,
+        ResumeAgentCoordinationRequest request,
         CancellationToken cancellationToken = default);
 
     Task<AgentCoordinationSession> CancelAsync(

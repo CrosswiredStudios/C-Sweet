@@ -208,6 +208,20 @@ public sealed class AgentBuildService : IAgentBuildService
             package.Status = AgentPackageVersionStatus.Built;
             await UpdateDefinitionBuildStateAsync(package, buildSucceeded: true, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await new AgentDefinitionInstallationSynchronizer(_dbContext, _auditWriter)
+                    .SynchronizeAsync(cancellationToken: cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                // The immutable package build succeeded. Deployment reconciliation is durable and
+                // retried by AgentRuntimeManager, so a temporarily unavailable Office/control-plane
+                // path must not relabel the package as a failed build.
+                _logger.LogError(exception,
+                    "Agent package {PackageVersionId} built successfully, but existing hire deployment will be retried by runtime reconciliation.",
+                    package.Id);
+            }
             await WriteAuditAsync(
                 job,
                 "agent-build.succeeded",

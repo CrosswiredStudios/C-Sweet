@@ -28,13 +28,13 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder, PersonalTodoActions.Requeue,
          PersonalTodoActions.Activate,
          PersonalTodoActions.Claim, PersonalTodoActions.Complete, PersonalTodoActions.Block,
-         PersonalTodoActions.Release, PersonalTodoActions.Update,
+         PersonalTodoActions.Release, PersonalTodoActions.Defer, PersonalTodoActions.Update,
          PersonalTodoActions.Archive, PersonalTodoActions.Restore], StringComparer.Ordinal);
     private static readonly IReadOnlySet<string> HumanOwnerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
          PersonalTodoActions.Activate,
          PersonalTodoActions.Requeue, PersonalTodoActions.Complete, PersonalTodoActions.Block,
-         PersonalTodoActions.Release, PersonalTodoActions.Update,
+         PersonalTodoActions.Release, PersonalTodoActions.Defer, PersonalTodoActions.Update,
          PersonalTodoActions.Archive, PersonalTodoActions.Restore], StringComparer.Ordinal);
     private static readonly IReadOnlySet<string> ManagerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
@@ -58,6 +58,33 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
         var now = clock.GetUtcNow();
+        var dueReviews = await db.CoreWorkTasks
+            .Include(x => x.Board)
+            .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
+                x.Status == WorkTaskStatus.Running && x.NextReviewAt != null &&
+                x.NextReviewAt <= now)
+            .ToListAsync(cancellationToken);
+        var replacementWakeItemIds = new HashSet<Guid>();
+        foreach (var item in dueReviews)
+        {
+            var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
+                x.Id == item.Board!.OwnerOrganizationUserId && x.IsActive &&
+                x.AgentInstallationId != null, cancellationToken);
+            if (owner is null) continue;
+            var todoColumnId = await db.WorkBoardColumns.AsNoTracking()
+                .Where(x => x.BoardId == item.BoardId && x.Category == WorkBoardColumnCategory.ToDo)
+                .Select(x => x.Id).SingleAsync(cancellationToken);
+            item.Status = WorkTaskStatus.Ready;
+            item.BoardColumnId = todoColumnId;
+            item.NextReviewAt = null;
+            item.WaitingReason = null;
+            item.WaitingOnOrganizationUserId = null;
+            item.Revision++;
+            item.UpdatedAt = now;
+            QueueAvailable(item.OrganizationId, owner, item.BoardId!.Value, item.Id, now);
+            replacementWakeItemIds.Add(item.Id);
+        }
+
         if (inactiveBoardIds.Count > 0)
         {
             var inactiveGrants = await db.ScopedActionGrants.Where(x =>
@@ -75,9 +102,9 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         var expired = await db.CoreWorkTasks
             .Include(x => x.Board)
             .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
-                x.Status == WorkTaskStatus.Running && x.ClaimExpiresAt < now)
+                x.Status == WorkTaskStatus.Running && x.ClaimExpiresAt != null &&
+                x.ClaimExpiresAt < now)
             .ToListAsync(cancellationToken);
-        var replacementWakeItemIds = new HashSet<Guid>();
         foreach (var item in expired)
         {
             var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
@@ -92,6 +119,9 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             item.BoardColumnId = todoColumnId;
             item.ClaimEventId = null;
             item.ClaimExpiresAt = null;
+            item.NextReviewAt = null;
+            item.WaitingReason = null;
+            item.WaitingOnOrganizationUserId = null;
             item.Revision++;
             item.UpdatedAt = now;
             QueueAvailable(item.OrganizationId, owner, item.BoardId!.Value, item.Id, now);
@@ -338,7 +368,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.Status = WorkTaskStatus.Ready;
         item.BoardColumnId = board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo).Id;
         item.BlockReason = null; item.ClaimEventId = null;
-        item.ClaimExpiresAt = null; item.Revision++; item.UpdatedAt = clock.GetUtcNow();
+        item.ClaimExpiresAt = null; item.NextReviewAt = null; item.WaitingReason = null;
+        item.WaitingOnOrganizationUserId = null; item.Revision++; item.UpdatedAt = clock.GetUtcNow();
         var owner = await OwnerAsync(board, cancellationToken);
         QueueAvailable(organizationId, owner, board.Id, item.Id, item.UpdatedAt);
         await db.SaveChangesAsync(cancellationToken);
@@ -497,6 +528,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         {
             stale.Status = WorkTaskStatus.Ready; stale.BoardColumnId = columns[WorkBoardColumnCategory.ToDo].Id;
             stale.ClaimEventId = null; stale.ClaimExpiresAt = null;
+            stale.NextReviewAt = null; stale.WaitingReason = null;
+            stale.WaitingOnOrganizationUserId = null;
             stale.Revision++; stale.UpdatedAt = now;
         }
         if (expired.Count > 0)
@@ -554,6 +587,41 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             request.KeepInProgress ? WorkTaskStatus.Running : WorkTaskStatus.Ready,
             null, null, PersonalTodoActions.Release, cancellationToken);
 
+    public async Task<Wire.PersonalTodoItem> DeferAsync(
+        Guid organizationId,
+        PersonalTodoActor actor,
+        Wire.DeferPersonalTodoItemRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!actor.AgentInstallationId.HasValue)
+            throw new UnauthorizedAccessException("Only the owning installation may defer claimed personal work.");
+        if (request.NextReviewAt <= clock.GetUtcNow() ||
+            request.NextReviewAt > clock.GetUtcNow().AddDays(30))
+            throw new ArgumentException("The next personal-work review must be within the next 30 days.");
+        if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length > 2048)
+            throw new ArgumentException("A waiting reason between 1 and 2048 characters is required.");
+        var item = await LoadPersonalItemAsync(organizationId, request.ItemId, cancellationToken);
+        await RequireGrantAsync(organizationId, item.BoardId!.Value,
+            actor, PersonalTodoActions.Defer, cancellationToken);
+        if (item.Status != WorkTaskStatus.Running || item.ClaimEventId != request.EventId)
+            throw new InvalidOperationException("The personal work item is not claimed by this event.");
+        RequireRevision(item, request.ExpectedRevision);
+        if (request.WaitingOnOrganizationUserId.HasValue &&
+            !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.Id == request.WaitingOnOrganizationUserId &&
+                x.OrganizationId == organizationId && x.IsActive, cancellationToken))
+            throw new ArgumentException("The waiting-on employee is not active in this organization.");
+        item.ClaimEventId = null;
+        item.ClaimExpiresAt = null;
+        item.NextReviewAt = request.NextReviewAt;
+        item.WaitingReason = request.Reason.Trim();
+        item.WaitingOnOrganizationUserId = request.WaitingOnOrganizationUserId;
+        item.Revision++;
+        item.UpdatedAt = clock.GetUtcNow();
+        await db.SaveChangesAsync(cancellationToken);
+        return await MapItemAsync(item, cancellationToken);
+    }
+
     private async Task<Wire.PersonalTodoItem> FinishAsync(
         Guid organizationId, PersonalTodoActor actor, Guid itemId, Guid eventId, long expectedRevision,
         WorkTaskStatus status, string? summary, string? reason, string action,
@@ -570,7 +638,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         var now = clock.GetUtcNow();
         item.Status = status; item.ResultSummary = summary?.Trim();
         item.BlockReason = reason?.Trim(); item.ClaimEventId = null;
-        item.ClaimExpiresAt = null; item.Revision++; item.UpdatedAt = now;
+        item.ClaimExpiresAt = null; item.NextReviewAt = null; item.WaitingReason = null;
+        item.WaitingOnOrganizationUserId = null; item.Revision++; item.UpdatedAt = now;
         item.BoardColumnId = ColumnForStatus(board, status).Id;
         if (status == WorkTaskStatus.Blocked)
             await AddBlockedNotificationsAsync(item, board, reason!, now, cancellationToken);
@@ -880,7 +949,11 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             item.ResultSummary, item.BlockReason, item.CreatedAt, item.UpdatedAt, item.ArchivedAt)
         {
             MentionSpans = mentionSpans,
-            CorrelationId = item.CorrelationId
+            CorrelationId = item.CorrelationId,
+            Wait = item.NextReviewAt.HasValue && !string.IsNullOrWhiteSpace(item.WaitingReason)
+                ? new Wire.PersonalTodoWaitState(
+                    item.NextReviewAt.Value, item.WaitingReason, item.WaitingOnOrganizationUserId)
+                : null
         };
     }
 

@@ -26,6 +26,9 @@ public sealed class WorkTask
     public string? BlockReason { get; set; }
     public Guid? ClaimEventId { get; set; }
     public DateTimeOffset? ClaimExpiresAt { get; set; }
+    public DateTimeOffset? NextReviewAt { get; set; }
+    public string? WaitingReason { get; set; }
+    public Guid? WaitingOnOrganizationUserId { get; set; }
     public string? CreationIdempotencyKey { get; set; }
     public string? CorrelationId { get; set; }
     public string? CausationId { get; set; }

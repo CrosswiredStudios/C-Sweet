@@ -105,6 +105,10 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Continue, complete, or block the current durable coordination turn."),
         HiddenRead(CommunicationCapabilities.CoordinationRead, "read_agent_coordination",
             "Read a coordination session visible to the calling participant."),
+        HiddenRead(CommunicationCapabilities.CoordinationList, "list_agent_coordination",
+            "List coordination sessions in which the calling agent is a participant."),
+        HiddenWrite(CommunicationCapabilities.CoordinationResume, "resume_agent_coordination",
+            "Resume the calling initiator's failed or blocked coordination session."),
         HiddenWrite(CommunicationCapabilities.CoordinationCancel, "cancel_agent_coordination",
             "Cancel a coordination session when separately authorized."),
         Write(SuggestedUserActionCapabilities.Suggest, "suggest_user_action",
@@ -177,6 +181,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Block SDK-managed personal work with a durable reason."),
         HiddenWrite(PersonalTodoActions.Release, "release_personal_todo",
             "Release SDK-managed personal work after a retryable callback failure."),
+        HiddenWrite(PersonalTodoActions.Defer, "defer_personal_todo",
+            "Defer SDK-managed personal work until a platform-scheduled review."),
         Write(GitWorkspaceCapabilities.Prepare, "prepare_git_workspace",
             "Materialize the assigned repository as a credential-free snapshot; Core derives its repository and ref."),
         Write(GitWorkspaceCapabilities.Refresh, "refresh_git_workspace",
@@ -390,6 +396,12 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         CommunicationCapabilities.CoordinationRead => Schema("""
             {"type":"object","required":["sessionId"],"properties":{"sessionId":{"type":"string","format":"uuid"}},"additionalProperties":false}
             """),
+        CommunicationCapabilities.CoordinationList => Schema("""
+            {"type":"object","properties":{"chatId":{"type":["string","null"],"format":"uuid"},"activeOnly":{"type":"boolean"}},"additionalProperties":false}
+            """),
+        CommunicationCapabilities.CoordinationResume => Schema("""
+            {"type":"object","required":["sessionId","expectedRevision","reason","idempotencyKey"],"properties":{"sessionId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"reason":{"type":"string","minLength":1,"maxLength":2048},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
         CommunicationCapabilities.CoordinationCancel => Schema("""
             {"type":"object","required":["sessionId","expectedRevision","reason","idempotencyKey"],"properties":{"sessionId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"reason":{"type":"string","minLength":1,"maxLength":2048},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
@@ -501,6 +513,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         PersonalTodoActions.Release => Schema("""
             {"type":"object","required":["itemId","eventId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"eventId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.Defer => Schema("""
+            {"type":"object","required":["itemId","eventId","expectedRevision","nextReviewAt","reason","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"eventId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"nextReviewAt":{"type":"string","format":"date-time"},"reason":{"type":"string","minLength":1,"maxLength":2048},"waitingOnOrganizationUserId":{"type":["string","null"],"format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Prepare => Schema("""
             {"type":"object","required":["workItemId","assignmentRevision","idempotencyKey"],"properties":{"workItemId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

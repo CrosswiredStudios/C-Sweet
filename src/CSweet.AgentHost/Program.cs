@@ -32,6 +32,7 @@ builder.Services
     .ValidateDataAnnotations()
     .ValidateOnStart();
 builder.Services.AddHostedService<ManagementReviewScheduler>();
+builder.Services.AddHostedService<AgentAttentionScheduler>();
 builder.Services.AddHostedService<AgentOnboardingEventDispatcher>();
 builder.Services.AddHostedService<AgentPlatformEventDispatcher>();
 builder.Services.AddHostedService<PersonalTodoReconciliationWorker>();
