@@ -1,4 +1,5 @@
 using CSweet.Application.Security;
+using CSweet.Contracts.Realtime;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
@@ -96,7 +97,8 @@ public sealed class WorkSprintServiceTests
         Assert.Single(db.WorkSprints);
         Assert.Equal(4, db.WorkSprintMutationReceipts.Count());
         Assert.Single(db.WorkItemActivities);
-        Assert.Equal(4, db.ApplicationRealtimeOutbox.Count());
+        Assert.Equal(4, db.ApplicationRealtimeOutbox.Count(
+            x => x.EventType == AppRealtimeEvents.WorkBoardChanged));
         Assert.Contains(audit.Events, x => x.EventType == WorkSprintActions.Start);
     }
 

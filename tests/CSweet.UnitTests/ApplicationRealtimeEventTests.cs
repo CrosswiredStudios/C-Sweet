@@ -13,6 +13,8 @@ namespace CSweet.UnitTests;
 
 public sealed class ApplicationRealtimeEventTests
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public async Task CommunicationAndNotificationChanges_AreCapturedAndTenantRouted()
     {
@@ -82,6 +84,74 @@ public sealed class ApplicationRealtimeEventTests
         var message = await db.ApplicationRealtimeOutbox.OrderByDescending(x => x.Sequence)
             .FirstAsync(x => x.EventType == CommunicationEvents.MessageCreated);
         Assert.DoesNotContain(user.Id, JsonSerializer.Deserialize<List<Guid>>(message.RecipientOrganizationUserIdsJson)!);
+    }
+
+    [Fact]
+    public async Task EmployeeDirectoryChanges_AreCapturedAndScopedToActiveOrganizationMembers()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var member = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, ApplicationUserId = Guid.NewGuid(),
+            DisplayName = "Owner", EmployeeType = EmployeeType.Human, IsActive = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        var otherOrganizationMember = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = Guid.NewGuid(), ApplicationUserId = Guid.NewGuid(),
+            DisplayName = "Other Owner", EmployeeType = EmployeeType.Human, IsActive = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.AddRange(member, otherOrganizationMember);
+        await db.SaveChangesAsync();
+        await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(new RecordingPublisher());
+
+        var hire = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, DisplayName = "New Hire",
+            EmployeeType = EmployeeType.Agent, IsActive = true, CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.CoreOrganizationUsers.Add(hire);
+        await db.SaveChangesAsync();
+        var publisher = new RecordingPublisher();
+        await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
+
+        var created = Assert.Single(publisher.Publications,
+            x => x.Envelope.EventType == AppRealtimeEvents.EmployeeDirectoryChanged);
+        var createdData = created.Envelope.Data.Deserialize<EmployeeDirectoryChangedEvent>(JsonOptions);
+        Assert.NotNull(createdData);
+        Assert.Equal(organizationId, createdData.OrganizationId);
+        Assert.Equal(hire.Id, createdData.OrganizationUserId);
+        Assert.Equal("Created", createdData.ChangeKind);
+        Assert.Contains(member.Id, created.RecipientOrganizationUserIds);
+        Assert.Contains(hire.Id, created.RecipientOrganizationUserIds);
+        Assert.DoesNotContain(otherOrganizationMember.Id, created.RecipientOrganizationUserIds);
+
+        hire.DisplayName = "Renamed Hire";
+        hire.RoleId = Guid.NewGuid();
+        await db.SaveChangesAsync();
+        publisher = new RecordingPublisher();
+        await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
+        Assert.Equal("Updated", Assert.Single(publisher.Publications)
+            .Envelope.Data.Deserialize<EmployeeDirectoryChangedEvent>(JsonOptions)!.ChangeKind);
+
+        hire.IsActive = false;
+        await db.SaveChangesAsync();
+        publisher = new RecordingPublisher();
+        await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
+        var deactivated = Assert.Single(publisher.Publications);
+        Assert.Equal("Deactivated", deactivated.Envelope.Data.Deserialize<EmployeeDirectoryChangedEvent>(JsonOptions)!.ChangeKind);
+        Assert.Contains(member.Id, deactivated.RecipientOrganizationUserIds);
+        Assert.DoesNotContain(hire.Id, deactivated.RecipientOrganizationUserIds);
+
+        hire.IsActive = true;
+        await db.SaveChangesAsync();
+        publisher = new RecordingPublisher();
+        await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
+        var activated = Assert.Single(publisher.Publications);
+        Assert.Equal("Activated", activated.Envelope.Data.Deserialize<EmployeeDirectoryChangedEvent>(JsonOptions)!.ChangeKind);
+        Assert.Contains(hire.Id, activated.RecipientOrganizationUserIds);
     }
 
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()

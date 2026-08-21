@@ -6,6 +6,7 @@
 @using CSweet.Contracts.Plugins
 @using CSweet.Contracts.Setup
 @using Microsoft.JSInterop
+@implements IDisposable
 @inject IOrganizationApiClient OrganizationApi
 @inject BusinessOnboardingOperationState BusinessOnboardingOperations
 @inject IAgentApiClient AgentApi
@@ -52,6 +53,11 @@
                             @if (!string.IsNullOrEmpty(org.Stage))
                             {
                                 <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Outlined">@org.Stage</MudChip>
+                            }
+                            @if (IsChiefOnboarding(org.Id))
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined"
+                                         Icon="@Icons.Material.Filled.PersonAdd">Chief of Staff installing</MudChip>
                             }
                             @if (!string.IsNullOrEmpty(org.Mission))
                             {
@@ -380,6 +386,7 @@
     private bool _runtimeApproved;
     private bool _agentDetailsExpanded;
     private bool _loadingModels;
+    private bool _refreshingOnboardingOrganizations;
     private int _wizardStep;
     private string _formName = string.Empty;
     private string _formIndustry = string.Empty;
@@ -420,6 +427,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        BusinessOnboardingOperations.Changed += OnBusinessOnboardingChanged;
         await LoadAsync();
         if (CreateRequested) ShowCreateForm();
     }
@@ -447,6 +455,32 @@
             _formError = $"Unable to load business onboarding: {exception.Message}";
         }
         finally { _loading = false; }
+    }
+
+    private void OnBusinessOnboardingChanged()
+    {
+        var needsRefresh = BusinessOnboardingOperations.Operations.Any(operation =>
+            operation.OrganizationId is { } organizationId &&
+            (!_organizations.Any(organization => organization.Id == organizationId) ||
+             operation.Status == BusinessOnboardingOperationStatuses.Succeeded &&
+             _organizations.Any(organization => organization.Id == organizationId && organization.NeedsChiefSetup)));
+        if (needsRefresh)
+            _ = InvokeAsync(RefreshOrganizationsForOnboardingAsync);
+    }
+
+    private async Task RefreshOrganizationsForOnboardingAsync()
+    {
+        if (_refreshingOnboardingOrganizations) return;
+        _refreshingOnboardingOrganizations = true;
+        try
+        {
+            _organizations = await OrganizationApi.ListAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            _refreshingOnboardingOrganizations = false;
+        }
     }
 
     private void ShowCreateForm()
@@ -714,6 +748,8 @@
     }
 
     private void NavigateToCommandCenter(Guid organizationId) => Navigation.NavigateTo($"/organizations/{organizationId}/command-center");
+    private bool IsChiefOnboarding(Guid organizationId) => BusinessOnboardingOperations.Operations.Any(operation =>
+        operation.OrganizationId == organizationId && BusinessOnboardingOperationStatuses.IsActive(operation.Status));
     private string StepClass(int step) => _wizardStep == step ? "active" : _wizardStep > step ? "complete" : string.Empty;
     private string StepGlyph(int step) => _wizardStep > step ? "✓" : (step + 1).ToString();
     private string ConfigurationString(string key) => _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
@@ -751,5 +787,7 @@
     </div>;
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string Truncate(string value, int maxLength) => value.Length <= maxLength ? value : value[..maxLength] + "...";
+
+    public void Dispose() => BusinessOnboardingOperations.Changed -= OnBusinessOnboardingChanged;
 
 }

@@ -97,25 +97,39 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         var mission = TrimOrNull(request.MissionStatement);
         var initialObjectiveTitle = mission ?? "Establish the first operating plan";
 
-        var organizationResult = await _organizationService.CreateAsync(
-            new CreateOrganizationRequest(
-                request.BusinessName,
-                TrimOrNull(request.Industry),
-                mission,
-                null,
-                null,
-                null),
-            cancellationToken,
-            applicationUserId);
-
-        if (!organizationResult.Succeeded || organizationResult.Organization is null)
+        Organization organization;
+        if (durableOperation?.ResultOrganizationId is { } existingOrganizationId)
         {
-            return Failure(organizationResult.ErrorCode ?? "organization_create_failed", organizationResult.Message ?? "Organization could not be created.");
+            organization = await _dbContext.CoreOrganizations.SingleOrDefaultAsync(
+                x => x.Id == existingOrganizationId,
+                cancellationToken) ?? throw new InvalidOperationException("The business created for this onboarding operation could not be found.");
+        }
+        else
+        {
+            var organizationResult = await _organizationService.CreateAsync(
+                new CreateOrganizationRequest(
+                    request.BusinessName,
+                    TrimOrNull(request.Industry),
+                    mission,
+                    null,
+                    null,
+                    null),
+                cancellationToken,
+                applicationUserId);
+
+            if (!organizationResult.Succeeded || organizationResult.Organization is null)
+            {
+                return Failure(organizationResult.ErrorCode ?? "organization_create_failed", organizationResult.Message ?? "Organization could not be created.");
+            }
+
+            organization = await _dbContext.CoreOrganizations.SingleAsync(
+                x => x.Id == organizationResult.Organization.Id,
+                cancellationToken);
         }
 
-        var organizationId = organizationResult.Organization.Id;
-        var organization = await _dbContext.CoreOrganizations.SingleAsync(x => x.Id == organizationId, cancellationToken);
-        organization.Status = OrganizationStatus.Draft;
+        var organizationId = organization.Id;
+        organization.Status = OrganizationStatus.Active;
+        organization.UpdatedAt = DateTimeOffset.UtcNow;
 
         _dbContext.BusinessProfiles.Add(new BusinessProfile
         {
@@ -216,7 +230,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             "business_onboarding.completed",
             "Organization",
             organizationId,
-            $"Business onboarding completed for '{organizationResult.Organization.Name}'.",
+            $"Business onboarding completed for '{organization.Name}'.",
             cancellationToken: cancellationToken);
 
         var nextRoute = $"/organizations/{organizationId}/communications/{assignment.ConversationId:D}";
@@ -291,37 +305,71 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         if (existing is not null)
             return await ToOperationAsync(existing, cancellationToken);
 
-        var now = DateTimeOffset.UtcNow;
-        var operation = new BusinessOnboardingOperation
-        {
-            Id = Guid.NewGuid(),
-            InitiatedByApplicationUserId = applicationUserId,
-            IdempotencyKey = idempotencyKey,
-            BusinessName = request.BusinessName.Trim(),
-            Industry = TrimOrNull(request.Industry),
-            MissionStatement = TrimOrNull(request.MissionStatement),
-            ChiefDisplayName = TrimOrNull(request.ChiefDisplayName),
-            ChiefAgentPackageVersionId = request.ChiefAgentPackageVersionId,
-            ChiefAgentInstallRequestJson = JsonSerializer.Serialize(request.ChiefAgentInstallRequest, JsonOptions),
-            Status = BusinessOnboardingOperationStatus.Starting,
-            CreatedAt = now,
-            UpdatedAt = now
-        };
-        _dbContext.BusinessOnboardingOperations.Add(operation);
+        await using var transaction = _dbContext.Database.IsRelational()
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
         try
         {
+            var organizationResult = await _organizationService.CreateAsync(
+                new CreateOrganizationRequest(
+                    request.BusinessName,
+                    TrimOrNull(request.Industry),
+                    TrimOrNull(request.MissionStatement),
+                    null,
+                    null,
+                    null),
+                cancellationToken,
+                applicationUserId);
+            if (!organizationResult.Succeeded || organizationResult.Organization is null)
+                throw new InvalidOperationException(
+                    organizationResult.Message ?? "The business could not be created.");
+
+            var organization = await _dbContext.CoreOrganizations.SingleAsync(
+                x => x.Id == organizationResult.Organization.Id,
+                cancellationToken);
+            organization.Status = OrganizationStatus.Active;
+            organization.UpdatedAt = DateTimeOffset.UtcNow;
+
+            var now = DateTimeOffset.UtcNow;
+            var operation = new BusinessOnboardingOperation
+            {
+                Id = Guid.NewGuid(),
+                InitiatedByApplicationUserId = applicationUserId,
+                IdempotencyKey = idempotencyKey,
+                BusinessName = request.BusinessName.Trim(),
+                Industry = TrimOrNull(request.Industry),
+                MissionStatement = TrimOrNull(request.MissionStatement),
+                ChiefDisplayName = TrimOrNull(request.ChiefDisplayName),
+                ChiefAgentPackageVersionId = request.ChiefAgentPackageVersionId,
+                ChiefAgentInstallRequestJson = JsonSerializer.Serialize(request.ChiefAgentInstallRequest, JsonOptions),
+                Status = BusinessOnboardingOperationStatus.Starting,
+                ResultOrganizationId = organization.Id,
+                ResultActionUri = $"/organizations/{organization.Id:D}/command-center",
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _dbContext.BusinessOnboardingOperations.Add(operation);
+            await QueueOperationChangedAsync(operation, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null)
+                await transaction.CommitAsync(cancellationToken);
+            return await ToOperationAsync(operation, cancellationToken);
         }
         catch (DbUpdateException)
         {
-            _dbContext.Entry(operation).State = EntityState.Detached;
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                await transaction.DisposeAsync();
+            }
+            _dbContext.ChangeTracker.Clear();
             existing = await _dbContext.BusinessOnboardingOperations.SingleOrDefaultAsync(
                 x => x.InitiatedByApplicationUserId == applicationUserId && x.IdempotencyKey == idempotencyKey,
                 cancellationToken);
             if (existing is null) throw;
             return await ToOperationAsync(existing, cancellationToken);
         }
-        return await ToOperationAsync(operation, cancellationToken);
     }
 
     public async Task<IReadOnlyList<BusinessOnboardingOperationResponse>> ListForUserAsync(
@@ -766,14 +814,14 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             BusinessOnboardingOperationStatus.Starting => "Starting onboarding",
             BusinessOnboardingOperationStatus.InstallingAgent => "Preparing Chief of Staff",
             BusinessOnboardingOperationStatus.BuildingAgent => "Building Chief of Staff",
-            BusinessOnboardingOperationStatus.CreatingBusiness => "Creating business",
+            BusinessOnboardingOperationStatus.CreatingBusiness => "Finishing business setup",
             BusinessOnboardingOperationStatus.Succeeded => "Business ready",
             BusinessOnboardingOperationStatus.NeedsSetup => "Chief setup required",
             _ => "Onboarding interrupted"
         };
         var detail = operation.Status switch
         {
-            BusinessOnboardingOperationStatus.Starting => $"Saving the onboarding plan for {operation.BusinessName}…",
+            BusinessOnboardingOperationStatus.Starting => $"{operation.BusinessName} is active. Preparing its Chief of Staff…",
             BusinessOnboardingOperationStatus.InstallingAgent => $"Importing and configuring {agentName}…",
             BusinessOnboardingOperationStatus.BuildingAgent when activeStep is not null =>
                 string.IsNullOrWhiteSpace(activeStep.Detail) ? activeStep.Label : $"{activeStep.Label}: {activeStep.Detail}",
@@ -781,7 +829,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
                 ? $"{agentName} build queued…"
                 : $"Building {agentName}…",
             BusinessOnboardingOperationStatus.CreatingBusiness =>
-                $"Creating {operation.BusinessName}, its operating structure, and Chief assignment…",
+                $"Completing {operation.BusinessName}'s operating structure and Chief assignment…",
             BusinessOnboardingOperationStatus.Succeeded => $"{operation.BusinessName} is ready.",
             BusinessOnboardingOperationStatus.NeedsSetup =>
                 operation.Error ?? $"Finish configuring {agentName} to continue.",
@@ -790,8 +838,12 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         var actionUri = operation.Status switch
         {
             BusinessOnboardingOperationStatus.Succeeded => operation.ResultActionUri,
+            _ when BusinessOnboardingOperationStatuses.IsActive(operation.Status.ToString()) && operation.ResultOrganizationId.HasValue =>
+                operation.ResultActionUri ?? $"/organizations/{operation.ResultOrganizationId:D}/command-center",
             _ when operation.ChiefAgentDefinitionId.HasValue =>
                 $"/settings/agents?definitionId={operation.ChiefAgentDefinitionId:D}",
+            _ when operation.ResultOrganizationId.HasValue =>
+                operation.ResultActionUri ?? $"/organizations/{operation.ResultOrganizationId:D}/command-center",
             _ => null
         };
         return new BusinessOnboardingOperationResponse(

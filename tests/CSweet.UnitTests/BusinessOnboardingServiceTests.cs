@@ -73,6 +73,13 @@ public class BusinessOnboardingServiceTests
 
         Assert.Equal(BusinessOnboardingOperationStatuses.Starting, started.Status);
         Assert.Equal(started.Id, replayed.Id);
+        Assert.NotNull(started.OrganizationId);
+        Assert.Equal($"/organizations/{started.OrganizationId:D}/command-center", started.ActionUri);
+        var activeBusiness = Assert.Single(await dbContext.CoreOrganizations.ToListAsync());
+        Assert.Equal(OrganizationStatus.Active, activeBusiness.Status);
+        var owner = Assert.Single(await dbContext.CoreOrganizationUsers.ToListAsync());
+        Assert.Equal(applicationUser.Id, owner.ApplicationUserId);
+        Assert.Equal(EmployeeType.Human, owner.EmployeeType);
         Assert.True(await service.ProcessNextAsync("test-worker"));
 
         var completed = await service.GetForUserAsync(started.Id, applicationUser.Id);

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CSweet.AgentHost.Broker;
 using CSweet.Application.Security;
+using CSweet.Contracts.Realtime;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
@@ -381,7 +382,8 @@ public sealed class WorkManagementCapabilityHandlerTests
         Assert.Single(db.WorkItemComments);
         Assert.Equal(2, db.WorkItemActivities.Count());
         Assert.Equal(2, db.WorkItemMutationReceipts.Count());
-        Assert.Equal(3, db.ApplicationRealtimeOutbox.Count());
+        Assert.Equal(3, db.ApplicationRealtimeOutbox.Count(
+            x => x.EventType == AppRealtimeEvents.WorkBoardChanged));
     }
 
     [Fact(Skip = "Direct sprint state transitions were removed in favor of manager orchestration.")]

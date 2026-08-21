@@ -23,9 +23,15 @@ public sealed class SignalRApplicationRealtimePublisher(
             .Select(x => x.ApplicationUserId!.Value).Distinct().ToList();
         var applicationBackedOrganizationUserIds = identities.Where(x => x.ApplicationUserId.HasValue)
             .Select(x => x.Id).ToHashSet();
+        var perspectiveGroups = publication.Envelope.OrganizationId is Guid organizationId &&
+                                publication.Envelope.EventType.StartsWith(
+                                    "com.csweet.communication.", StringComparison.Ordinal)
+            ? identities.Select(x => AppEventGroups.CommunicationPerspective(organizationId, x.Id))
+            : [];
         var groups = applicationUserIds.Select(AppEventGroups.ApplicationUser)
             .Concat(recipientIds.Where(x => !applicationBackedOrganizationUserIds.Contains(x))
                 .Select(AppEventGroups.OrganizationUser))
+            .Concat(perspectiveGroups)
             .Distinct(StringComparer.Ordinal)
             .ToList();
         if (groups.Count > 0)

@@ -1,4 +1,5 @@
 using CSweet.Application.Security;
+using CSweet.Contracts.Realtime;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
@@ -36,7 +37,8 @@ public sealed class WorkItemCollaborationServiceTests
         Assert.Equal(first, replay);
         Assert.Single(await db.WorkItemComments.ToListAsync());
         Assert.Single(await db.WorkItemActivities.ToListAsync());
-        Assert.Single(await db.ApplicationRealtimeOutbox.ToListAsync());
+        Assert.Single(await db.ApplicationRealtimeOutbox.ToListAsync(),
+            x => x.EventType == AppRealtimeEvents.WorkBoardChanged);
         Assert.Contains(audit.Events, x => x.EventType == WorkItemActions.Comment);
         var collaboration = await service.GetAsync(
             setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId);
@@ -73,7 +75,8 @@ public sealed class WorkItemCollaborationServiceTests
         Assert.Equal(target.Columns.Single().Id, persisted.BoardColumnId);
         Assert.Null(persisted.SprintId);
         Assert.Single(await db.WorkItemActivities.ToListAsync());
-        Assert.Equal(2, await db.ApplicationRealtimeOutbox.CountAsync());
+        Assert.Equal(2, await db.ApplicationRealtimeOutbox.CountAsync(
+            x => x.EventType == AppRealtimeEvents.WorkBoardChanged));
     }
 
     [Fact]

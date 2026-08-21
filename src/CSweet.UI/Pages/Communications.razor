@@ -87,16 +87,20 @@
                 }
 
                 <div class="hub-section-title direct"><span>Direct messages</span></div>
-                @foreach (var chat in FilteredChats.Where(x => x.IsDirect))
+                @foreach (var entry in DirectMessages)
                 {
-                    var person = chat.Participants.FirstOrDefault(x => x.OrganizationUserId != _hub.ViewedOrganizationUserId);
-                    <button class="hub-nav-item @(chat.Id == _selected?.Id ? "active" : null) @(ChatUnread(chat) > 0 ? "unread" : null)" @onclick="@(() => SelectChatAsync(chat))">
-                        <span class="presence-dot @PresenceClass(person?.PresenceStatus)"
-                              title="@PresenceTitle(person?.DisplayName, person?.PresenceStatus, person?.PresenceDetail)"
-                              aria-label="@PresenceTitle(person?.DisplayName, person?.PresenceStatus, person?.PresenceDetail)"></span><span>@chat.Title</span>
-                        @if (ChatUnread(chat) > 0) { <span class="hub-unread-dot" aria-label="@($"{ChatUnread(chat)} unread messages")"></span> }
-                        @if (person?.EmployeeType == "Agent") { <span class="agent-mark">AI</span> }
+                    <button class="hub-nav-item @(entry.Chat?.Id == _selected?.Id ? "active" : null) @(entry.Chat is not null && ChatUnread(entry.Chat) > 0 ? "unread" : null)"
+                            @onclick="@(() => OpenDirectEntryAsync(entry))">
+                        <span class="presence-dot @PresenceClass(entry.Person.PresenceStatus)"
+                              title="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"
+                              aria-label="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"></span><span>@entry.Title</span>
+                        @if (entry.Chat is not null && ChatUnread(entry.Chat) > 0) { <span class="hub-unread-dot" aria-label="@($"{ChatUnread(entry.Chat)} unread messages")"></span> }
+                        @if (entry.Person.EmployeeType == "Agent") { <span class="agent-mark">AI</span> }
                     </button>
+                }
+                @if (!DirectMessages.Any())
+                {
+                    <p class="hub-nav-empty">No direct messages yet</p>
                 }
                 @if (!_hub.IsReadOnlyPerspective)
                 {
@@ -697,6 +701,7 @@
     private string PersonName(Guid organizationUserId, string fallback) => _hub?.People
         .FirstOrDefault(x => x.Id == organizationUserId)?.DisplayName ?? fallback;
     private IEnumerable<CommunicationChatResponse> FilteredChats => (_hub?.Chats ?? []).Where(x => string.IsNullOrWhiteSpace(_search) || x.Title.Contains(_search, StringComparison.OrdinalIgnoreCase));
+    private IEnumerable<DirectMessageEntry> DirectMessages => BuildDirectMessages();
     private IEnumerable<CommunicationPersonResponse> VisiblePeople => _selected is null || !_showMembers
         ? (_hub?.People ?? [])
         : _hub!.People.Where(x => _selected.Participants.Any(p => p.OrganizationUserId == x.Id));
@@ -751,6 +756,10 @@
         _loading = true; _error = null;
         try
         {
+            await Realtime.SetCommunicationPerspectiveAsync(
+                PerspectiveAgentId.HasValue ? OrganizationId : null,
+                PerspectiveAgentId,
+                _disposeCts.Token);
             _hub = await Http.GetFromJsonAsync<CommunicationHubResponse>(HubReadPath, _disposeCts.Token);
             await LoadNotificationsAsync();
             _selected = ChatId.HasValue
@@ -801,6 +810,44 @@
         Navigation.NavigateTo(ChatHref(chat.Id));
         return Task.CompletedTask;
     }
+
+    private Task OpenDirectEntryAsync(DirectMessageEntry entry) =>
+        entry.Chat is not null ? SelectChatAsync(entry.Chat) : StartDirectAsync(entry.Person);
+
+    private IEnumerable<DirectMessageEntry> BuildDirectMessages()
+    {
+        if (_hub is null) yield break;
+
+        var representedPeople = new HashSet<Guid>();
+        foreach (var chat in _hub.Chats.Where(x => x.IsDirect))
+        {
+            var participant = chat.Participants.FirstOrDefault(x =>
+                x.OrganizationUserId != _hub.ViewedOrganizationUserId);
+            if (participant is null) continue;
+            representedPeople.Add(participant.OrganizationUserId);
+            var person = _hub.People.FirstOrDefault(x => x.Id == participant.OrganizationUserId)
+                ?? new CommunicationPersonResponse(
+                    participant.OrganizationUserId,
+                    participant.DisplayName,
+                    participant.EmployeeType,
+                    null,
+                    participant.Role,
+                    participant.PresenceStatus,
+                    participant.PresenceDetail);
+            if (MatchesSearch(chat.Title) || MatchesSearch(person.DisplayName))
+                yield return new DirectMessageEntry(chat, person, chat.Title);
+        }
+
+        if (_hub.IsReadOnlyPerspective) yield break;
+        foreach (var person in _hub.People
+                     .Where(x => x.Id != _hub.ViewedOrganizationUserId && !representedPeople.Contains(x.Id))
+                     .Where(x => MatchesSearch(x.DisplayName))
+                     .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase))
+            yield return new DirectMessageEntry(null, person, person.DisplayName);
+    }
+
+    private bool MatchesSearch(string value) =>
+        string.IsNullOrWhiteSpace(_search) || value.Contains(_search, StringComparison.OrdinalIgnoreCase);
 
     private async Task LoadNotificationsAsync()
     {
@@ -1463,7 +1510,8 @@
     {
         if (envelope.OrganizationId != OrganizationId ||
             (!envelope.EventType.StartsWith("com.csweet.communication.", StringComparison.Ordinal) &&
-             !envelope.EventType.StartsWith("com.csweet.app.notification.", StringComparison.Ordinal))) return;
+             !envelope.EventType.StartsWith("com.csweet.app.notification.", StringComparison.Ordinal) &&
+             envelope.EventType != CSweet.Contracts.Realtime.AppRealtimeEvents.EmployeeDirectoryChanged)) return;
         _realtimeRefreshPending = true;
         _ = InvokeAsync(RefreshFromRealtimeAsync);
     }
@@ -1588,11 +1636,18 @@
         int Length,
         string DisplayText);
 
+    private sealed record DirectMessageEntry(
+        CommunicationChatResponse? Chat,
+        CommunicationPersonResponse Person,
+        string Title);
+
     public async ValueTask DisposeAsync()
     {
         Realtime.EventReceived -= OnRealtimeEvent;
         Realtime.Connected -= OnRealtimeConnectionReady;
         Realtime.Reconnected -= OnRealtimeConnectionReady;
+        try { await Realtime.SetCommunicationPerspectiveAsync(null, null); }
+        catch (InvalidOperationException) { }
         _chatCts?.Cancel();
         _chatCts?.Dispose();
         _disposeCts.Cancel();

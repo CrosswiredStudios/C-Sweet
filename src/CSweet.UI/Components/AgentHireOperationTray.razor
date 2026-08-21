@@ -118,7 +118,15 @@
                                            Value="@BusinessProgress(operation)" />
                     }
                     <div class="agent-hire-toast-actions">
-                        @if (operation.Status == BusinessOnboardingOperationStatuses.Succeeded)
+                        @if (BusinessOnboardingOperationStatuses.IsActive(operation.Status) &&
+                             operation.OrganizationId.HasValue &&
+                             !string.IsNullOrWhiteSpace(operation.ActionUri))
+                        {
+                            <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
+                                       EndIcon="@Icons.Material.Outlined.ArrowForward"
+                                       OnClick="@(() => OpenBusiness(operation))">Open business</MudButton>
+                        }
+                        else if (operation.Status == BusinessOnboardingOperationStatuses.Succeeded)
                         {
                             <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
                                        EndIcon="@Icons.Material.Outlined.ArrowForward"

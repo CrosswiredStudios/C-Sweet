@@ -189,6 +189,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         EnforceAppendOnlyAuditLedger();
         AssignInMemoryMessageSequences();
         CaptureCommunicationEvents();
+        CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
@@ -198,6 +199,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         EnforceAppendOnlyAuditLedger();
         AssignInMemoryMessageSequences();
         CaptureCommunicationEvents();
+        CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
@@ -355,6 +357,68 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 $"organizations/{item.OrganizationId:D}/notifications/{item.Id:D}",
                 JsonSerializer.Serialize(data, EventJsonOptions), DateTimeOffset.UtcNow);
         }
+    }
+
+    private void CaptureEmployeeDirectoryEvents()
+    {
+        ChangeTracker.DetectChanges();
+        var entries = ChangeTracker.Entries<OrganizationUser>()
+            .Where(entry => IsEmployeeDirectoryChange(entry))
+            .ToList();
+
+        foreach (var entry in entries)
+        {
+            var employee = entry.Entity;
+            if (entry.State == EntityState.Added && !employee.IsActive) continue;
+
+            var changeKind = entry.State switch
+            {
+                EntityState.Added => "Created",
+                EntityState.Deleted => "Deactivated",
+                EntityState.Modified when entry.Property(x => x.IsActive).IsModified && employee.IsActive
+                    => "Activated",
+                EntityState.Modified when entry.Property(x => x.IsActive).IsModified
+                    => "Deactivated",
+                _ => "Updated"
+            };
+            var occurredAt = DateTimeOffset.UtcNow;
+            var data = new EmployeeDirectoryChangedEvent(employee.OrganizationId, employee.Id, changeKind);
+            QueueApplicationRealtimeEvent(
+                employee.OrganizationId,
+                null,
+                null,
+                AppRealtimeEvents.EmployeeDirectoryChanged,
+                $"organizations/{employee.OrganizationId:D}/employees/{employee.Id:D}",
+                JsonSerializer.Serialize(data, EventJsonOptions),
+                occurredAt,
+                ResolveActiveOrganizationRecipients(employee.OrganizationId));
+        }
+    }
+
+    private static bool IsEmployeeDirectoryChange(
+        Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<OrganizationUser> entry) =>
+        entry.State is EntityState.Added or EntityState.Deleted ||
+        entry.State == EntityState.Modified &&
+        (entry.Property(x => x.IsActive).IsModified ||
+         entry.Property(x => x.DisplayName).IsModified ||
+         entry.Property(x => x.EmployeeType).IsModified ||
+         entry.Property(x => x.RoleId).IsModified);
+
+    private IReadOnlyCollection<Guid> ResolveActiveOrganizationRecipients(Guid organizationId)
+    {
+        var recipients = CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.IsActive)
+            .Select(x => x.Id)
+            .ToHashSet();
+        foreach (var entry in ChangeTracker.Entries<OrganizationUser>()
+                     .Where(x => x.Entity.OrganizationId == organizationId))
+        {
+            if (entry.State == EntityState.Deleted || !entry.Entity.IsActive)
+                recipients.Remove(entry.Entity.Id);
+            else if (entry.State is EntityState.Added or EntityState.Modified)
+                recipients.Add(entry.Entity.Id);
+        }
+        return recipients;
     }
 
     private void QueueApplicationRealtimeEvent(Guid? organizationId, Guid? recipientOrganizationUserId,

@@ -52,10 +52,10 @@ public sealed class ApplicationRealtimeOutboxDispatcher(CSweetDbContext db) : IA
         CancellationToken cancellationToken)
     {
         if (item.RecipientOrganizationUserId.HasValue) return [item.RecipientOrganizationUserId.Value];
+        var snapshot = DeserializeRecipients(item.RecipientOrganizationUserIdsJson);
+        if (snapshot.Count > 0) return snapshot;
         if (item.ChatId.HasValue)
         {
-            var snapshot = DeserializeRecipients(item.RecipientOrganizationUserIdsJson);
-            if (snapshot.Count > 0) return snapshot;
             return await db.ConversationParticipants.AsNoTracking()
                 .Where(x => x.ConversationId == item.ChatId && x.LeftAt == null)
                 .Select(x => x.OrganizationUserId).Distinct().ToListAsync(cancellationToken);

@@ -78,7 +78,7 @@ public sealed class BusinessOnboardingOperationState(
                 .ToList();
             Changed?.Invoke();
             StartPollingIfNeeded();
-            ScheduleSuccessActions();
+            ScheduleOperationActions();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -154,12 +154,16 @@ public sealed class BusinessOnboardingOperationState(
         }
     }
 
-    private void ScheduleSuccessActions()
+    private void ScheduleOperationActions()
     {
-        foreach (var operation in Operations.Where(x => x.Status == BusinessOnboardingOperationStatuses.Succeeded))
+        foreach (var operation in Operations.Where(x => x.OrganizationId.HasValue))
         {
             if (_businessContextRefreshed.Add(operation.Id))
                 _ = businessContext.RefreshAsync();
+        }
+
+        foreach (var operation in Operations.Where(x => x.Status == BusinessOnboardingOperationStatuses.Succeeded))
+        {
             if (_autoDismissScheduled.Add(operation.Id))
                 _ = AutoDismissAsync(operation, _disposeCts.Token);
         }
@@ -179,7 +183,7 @@ public sealed class BusinessOnboardingOperationState(
             .Append(operation).OrderBy(x => x.UpdatedAt).ToList();
         Changed?.Invoke();
         StartPollingIfNeeded();
-        ScheduleSuccessActions();
+        ScheduleOperationActions();
     }
 
     private void Remove(Guid operationId)
