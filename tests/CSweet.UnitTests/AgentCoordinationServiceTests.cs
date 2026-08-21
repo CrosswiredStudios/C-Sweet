@@ -127,7 +127,7 @@ public sealed class AgentCoordinationServiceTests
     }
 
     [Fact]
-    public async Task DeadLetteredTurn_ProducesTerminalFailedSummary()
+    public async Task DeadLetteredTurn_StoresOperationalFailureWithoutImpersonatingInitiator()
     {
         await using var fixture = await Fixture.CreateAsync();
         var work = await fixture.Inbox.EnqueueAsync(
@@ -159,7 +159,7 @@ public sealed class AgentCoordinationServiceTests
         Assert.Equal(AgentCoordinationStatus.Failed, session.Status);
         Assert.Contains("runtime failure", session.FinalSummary,
             StringComparison.OrdinalIgnoreCase);
-        Assert.Single(await fixture.Db.CoreConversationMessages.Where(x =>
+        Assert.Empty(await fixture.Db.CoreConversationMessages.Where(x =>
             x.ConversationId == fixture.SourceConversationId &&
             x.CoordinationSessionId == fixture.SessionId).ToListAsync());
     }

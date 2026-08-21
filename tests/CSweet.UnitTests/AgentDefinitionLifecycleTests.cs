@@ -279,6 +279,66 @@ public sealed class AgentDefinitionLifecycleTests
         Assert.Null(active.RevokedAt);
         Assert.Equal(provider.Id, active.ProviderInstallationId);
         Assert.Equal(requester.Grant.GrantRevision, active.GrantRevision);
+        Assert.Equal(AgentCapabilityBindingOrigins.VersionMigration, active.Origin);
+    }
+
+    [Fact]
+    public async Task Reconciliation_BindsAnExistingRequesterWhenItsSoleProviderIsHiredLater()
+    {
+        await using var db = CreateDb();
+        const string capability = "software-architecture.design.v2";
+        var requesterPackage = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        requesterPackage.AgentId = "com.example.pm";
+        SetManifestCapabilities(requesterPackage, required: capability);
+        var requester = RuntimeInstallation(requesterPackage, Guid.NewGuid().ToString("D"));
+        requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { capability });
+        var providerPackage = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        providerPackage.AgentId = "com.example.architect";
+        SetManifestCapabilities(providerPackage, provided: capability);
+        var provider = RuntimeInstallation(providerPackage, requester.BusinessId);
+        provider.Grant!.ProvidedCapabilitiesJson = JsonSerializer.Serialize(new[] { capability });
+        db.AddRange(requester, provider);
+        await db.SaveChangesAsync();
+
+        var changed = await new AgentCapabilityBindingReconciler(db, new TestAuditEventWriter())
+            .ReconcileAsync(requester.BusinessId);
+
+        Assert.Equal(1, changed);
+        var binding = await db.AgentCapabilityBindings.SingleAsync();
+        Assert.Equal(requester.Id, binding.RequesterInstallationId);
+        Assert.Equal(provider.Id, binding.ProviderInstallationId);
+        Assert.Equal(capability, binding.Capability);
+        Assert.Equal(AgentCapabilityBindingOrigins.AutomaticUnique, binding.Origin);
+        Assert.NotNull(requester.Schedule!.NextAttentionReviewAt);
+        Assert.Equal(0, await new AgentCapabilityBindingReconciler(db, new TestAuditEventWriter())
+            .ReconcileAsync(requester.BusinessId));
+    }
+
+    [Fact]
+    public async Task Reconciliation_DoesNotGuessWhenMultipleProvidersAreEligible()
+    {
+        await using var db = CreateDb();
+        const string capability = "software-architecture.design.v2";
+        var requesterPackage = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        SetManifestCapabilities(requesterPackage, required: capability);
+        var requester = RuntimeInstallation(requesterPackage, Guid.NewGuid().ToString("D"));
+        requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { capability });
+        var firstPackage = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        var secondPackage = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        SetManifestCapabilities(firstPackage, provided: capability);
+        SetManifestCapabilities(secondPackage, provided: capability);
+        var first = RuntimeInstallation(firstPackage, requester.BusinessId);
+        var second = RuntimeInstallation(secondPackage, requester.BusinessId);
+        first.Grant!.ProvidedCapabilitiesJson = JsonSerializer.Serialize(new[] { capability });
+        second.Grant!.ProvidedCapabilitiesJson = JsonSerializer.Serialize(new[] { capability });
+        db.AddRange(requester, first, second);
+        await db.SaveChangesAsync();
+
+        var changed = await new AgentCapabilityBindingReconciler(db, new TestAuditEventWriter())
+            .ReconcileAsync(requester.BusinessId);
+
+        Assert.Equal(0, changed);
+        Assert.Empty(await db.AgentCapabilityBindings.ToListAsync());
     }
 
     [Fact]

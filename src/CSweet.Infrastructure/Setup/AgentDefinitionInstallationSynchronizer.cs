@@ -49,7 +49,8 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             .Distinct()
             .ToArrayAsync(cancellationToken);
         if (driftDefinitionIds.Length == 0)
-            return 0;
+            return await new AgentCapabilityBindingReconciler(db, auditWriter)
+                .ReconcileAsync(cancellationToken: cancellationToken);
 
         var definitions = await db.AgentDefinitions
             .Include(x => x.PackageVersion)
@@ -68,7 +69,8 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                 .Select(installation => (Definition: definition, Installation: installation)))
             .ToList();
         if (deployments.Count == 0)
-            return 0;
+            return await new AgentCapabilityBindingReconciler(db, auditWriter)
+                .ReconcileAsync(cancellationToken: cancellationToken);
 
         var installationIds = deployments.Select(x => x.Installation.Id).ToArray();
         var sessions = await db.McpAgentSessions
@@ -197,6 +199,7 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                     Capability = capability,
                     ProviderInstallationId = predecessor.ProviderInstallationId,
                     GrantRevision = requester.Grant!.GrantRevision,
+                    Origin = AgentCapabilityBindingOrigins.VersionMigration,
                     ApprovedAt = now
                 });
                 resolvedCapabilities.Add(capability);
@@ -232,7 +235,9 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                 cancellationToken: cancellationToken);
         }
 
-        return deployments.Count;
+        var repairedBindings = await new AgentCapabilityBindingReconciler(db, auditWriter)
+            .ReconcileAsync(cancellationToken: cancellationToken);
+        return deployments.Count + repairedBindings;
 
         bool ProviderOffers(Guid providerInstallationId, string capability)
         {

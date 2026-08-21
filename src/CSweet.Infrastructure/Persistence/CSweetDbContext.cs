@@ -1243,6 +1243,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasKey(x => x.Id);
             entity.Property(x => x.OrganizationId).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Capability).HasMaxLength(300).IsRequired();
+            entity.Property(x => x.Origin).HasMaxLength(32).IsRequired();
             entity.HasIndex(x => new { x.RequesterInstallationId, x.Capability })
                 .IsUnique().HasFilter("\"RevokedAt\" IS NULL");
             entity.HasOne(x => x.RequesterInstallation).WithMany()

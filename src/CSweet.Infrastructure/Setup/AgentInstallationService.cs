@@ -223,6 +223,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             now,
             cancellationToken));
         await _dbContext.SaveChangesAsync(cancellationToken);
+        _ = await new AgentCapabilityBindingReconciler(_dbContext, _auditWriter)
+            .ReconcileAsync(businessId, cancellationToken);
 
         await _auditWriter.WriteAsync(
             "agent-installation.approved",
@@ -582,6 +584,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             now,
             cancellationToken));
         await _dbContext.SaveChangesAsync(cancellationToken);
+        _ = await new AgentCapabilityBindingReconciler(_dbContext, _auditWriter)
+            .ReconcileAsync(staged.BusinessId, cancellationToken);
         await _auditWriter.WriteAsync("plugin-update.approved", nameof(AgentInstallation), staged.Id,
             $"Activated plugin revision {staged.RevisionNumber} after complete grant reapproval.", null, cancellationToken);
         return ToResponse(staged);
@@ -645,6 +649,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 Capability = capability,
                 ProviderInstallationId = provider.Id,
                 GrantRevision = grantRevision,
+                Origin = selections.ContainsKey(capability)
+                    ? AgentCapabilityBindingOrigins.Explicit
+                    : AgentCapabilityBindingOrigins.AutomaticUnique,
                 ApprovedAt = approvedAt
             });
         }

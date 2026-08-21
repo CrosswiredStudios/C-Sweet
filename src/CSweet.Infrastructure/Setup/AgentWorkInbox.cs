@@ -537,25 +537,10 @@ public sealed class AgentWorkInbox(
         session.CurrentAgentWorkItemId = null;
         session.CompletedAt = session.UpdatedAt = now;
         session.FinalSummary = $"Collaboration failed because an agent turn could not continue: {detail}";
-        var summaryKey = $"coordination:{session.Id:N}:summary";
-        if (!await db.CoreConversationMessages.AnyAsync(x =>
-                x.ConversationId == session.SourceConversationId &&
-                x.IdempotencyKey == summaryKey, cancellationToken))
-        {
-            db.CoreConversationMessages.Add(new ConversationMessage
-            {
-                Id = Guid.NewGuid(), ConversationId = session.SourceConversationId,
-                CoordinationSessionId = session.Id,
-                SenderOrganizationUserId = session.InitiatorOrganizationUserId,
-                Role = ConversationRole.Assistant,
-                Content = session.FinalSummary,
-                CorrelationId = session.Id,
-                DeliveryIntent = CommunicationDeliveryIntent.Response,
-                SourceProvider = "InApp",
-                IdempotencyKey = summaryKey,
-                CreatedAt = now
-            });
-        }
+        // Operational failures belong to durable work/session state. Rendering them as an
+        // initiator-authored chat message makes infrastructure look like coworker speech and can
+        // provoke semantic follow-ups for a transport problem. Attention-driven owners inspect
+        // the failed session and resume it without adding conversation noise.
     }
 
     private async Task<AgentWorkAttempt> GetActiveAttemptAsync(
