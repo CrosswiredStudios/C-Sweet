@@ -104,7 +104,17 @@ public sealed record AgentCoordinationTurnResponse(
     Guid SpeakerOrganizationUserId,
     string Disposition,
     string Content,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    AgentCoordinationArtifactResponse? Artifact = null);
+
+public sealed record AgentCoordinationArtifactResponse(
+    string Type,
+    string SchemaVersion,
+    string Key,
+    int PageOrdinal,
+    bool IsFinalPage,
+    System.Text.Json.JsonElement Payload,
+    string Digest);
 
 public sealed record AgentCoordinationSessionResponse(
     Guid Id,

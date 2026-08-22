@@ -40,6 +40,8 @@ public sealed class CapabilityResult
     public string ContentType { get; set; } = "application/json";
     public JsonPayload Payload { get; set; } = JsonPayload.Empty;
     public string? Error { get; set; }
+    public string? FailureCode { get; set; }
+    public bool? Retryable { get; set; }
     public bool HasMore { get; set; }
     public int Sequence { get; set; }
 }

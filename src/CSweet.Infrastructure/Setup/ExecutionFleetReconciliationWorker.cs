@@ -24,15 +24,22 @@ public sealed class ExecutionFleetReconciliationWorker(
                 var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
                 var now = timeProvider.GetUtcNow();
                 var staleAt = now.AddSeconds(-30);
-                var stale = await db.ExecutionNodes
-                    .Where(x => x.Status == ExecutionNodeStatus.Ready && x.LastHeartbeatAt < staleAt)
+                var candidates = await db.ExecutionNodes
+                    .Where(x =>
+                        (x.Status == ExecutionNodeStatus.Ready && x.LastHeartbeatAt < staleAt) ||
+                        (x.Status == ExecutionNodeStatus.Offline &&
+                         x.ApprovedAt != null &&
+                         x.DrainingAt == null &&
+                         x.RevokedAt == null &&
+                         x.LastHeartbeatAt >= staleAt))
                     .ToListAsync(stoppingToken);
-                foreach (var node in stale)
+
+                var changed = 0;
+                foreach (var node in candidates)
                 {
-                    node.Status = ExecutionNodeStatus.Offline;
-                    node.UpdatedAt = now;
+                    if (ReconcileAvailability(node, now, staleAt)) changed++;
                 }
-                if (stale.Count > 0) await db.SaveChangesAsync(stoppingToken);
+                if (changed > 0) await db.SaveChangesAsync(stoppingToken);
 
                 var orchestrator = scope.ServiceProvider.GetRequiredService<IExecutionWorkloadOrchestrator>();
                 await orchestrator.FenceExpiredAsync(stoppingToken);
@@ -47,5 +54,30 @@ public sealed class ExecutionFleetReconciliationWorker(
                 logger.LogError(exception, "Execution-fleet reconciliation failed.");
             }
         }
+    }
+
+    internal static bool ReconcileAvailability(
+        ExecutionNode node,
+        DateTimeOffset now,
+        DateTimeOffset staleAt)
+    {
+        var nextStatus = node.Status switch
+        {
+            ExecutionNodeStatus.Ready when node.LastHeartbeatAt < staleAt =>
+                ExecutionNodeStatus.Offline,
+            ExecutionNodeStatus.Offline when
+                node.ApprovedAt is not null &&
+                node.DrainingAt is null &&
+                node.RevokedAt is null &&
+                node.LastHeartbeatAt >= staleAt =>
+                ExecutionNodeStatus.Ready,
+            _ => node.Status
+        };
+
+        if (nextStatus == node.Status) return false;
+
+        node.Status = nextStatus;
+        node.UpdatedAt = now;
+        return true;
     }
 }

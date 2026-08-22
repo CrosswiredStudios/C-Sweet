@@ -257,16 +257,30 @@ public static class McpGatewayEndpoints
                 sourceType: "AgentInstallation",
                 sourceId: session.InstallationId,
                 cancellationToken: cancellationToken);
-            var providerValue = await inbox.WaitForResultAsync<JsonElement>(
-                work.Id,
-                TimeSpan.FromMilliseconds(250),
-                cancellationToken);
-            terminal = new CapabilityResult
+            try
             {
-                RequestId = request.RequestId,
-                Succeeded = true,
-                Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(providerValue, JsonOptions))
-            };
+                var providerValue = await inbox.WaitForResultAsync<JsonElement>(
+                    work.Id,
+                    TimeSpan.FromMilliseconds(250),
+                    cancellationToken);
+                terminal = new CapabilityResult
+                {
+                    RequestId = request.RequestId,
+                    Succeeded = true,
+                    Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(providerValue, JsonOptions))
+                };
+            }
+            catch (AgentWorkReportedFailureException exception)
+            {
+                terminal = new CapabilityResult
+                {
+                    RequestId = request.RequestId,
+                    Succeeded = false,
+                    Error = exception.Message,
+                    FailureCode = exception.FailureCode ?? "provider.rejected",
+                    Retryable = exception.Retryable
+                };
+            }
         }
         else
         {
@@ -306,7 +320,15 @@ public static class McpGatewayEndpoints
         {
             content = new[] { new { type = "text", text = GetToolResponseText(terminal) } },
             structuredContent = structured,
-            isError = !terminal.Succeeded
+            isError = !terminal.Succeeded,
+            _meta = terminal.Succeeded ? null : new
+            {
+                csweet = new
+                {
+                    failureCode = terminal.FailureCode ?? "capability.failed",
+                    retryable = terminal.Retryable == true
+                }
+            }
         }));
     }
 
@@ -459,6 +481,13 @@ public static class McpGatewayEndpoints
         var attempt = p.GetProperty("attempt").GetInt32();
         var succeeded = result.GetProperty("succeeded").GetBoolean();
         var errorMessage = result.TryGetProperty("error", out var error) ? error.GetString() : null;
+        var failureCode = result.TryGetProperty("failureCode", out var code) && code.ValueKind == JsonValueKind.String
+            ? code.GetString()
+            : null;
+        var retryable = result.TryGetProperty("retryable", out var retry) &&
+            retry.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? retry.GetBoolean()
+                : (bool?)null;
         await inbox.CompleteAsync(
             ToPersistedSession(session),
             workId,
@@ -467,7 +496,9 @@ public static class McpGatewayEndpoints
             new AgentWorkCompletion(
                 succeeded,
                 result.TryGetProperty("value", out var value) ? value.Clone() : null,
-                errorMessage),
+                errorMessage,
+                failureCode,
+                retryable),
             cancellationToken);
         await audit.AppendAsync(new AuditEventWriteRequest(
             succeeded ? "agent.work.completed" : "agent.work.failed",

@@ -535,6 +535,71 @@ public sealed class AgentInstallationServiceTests
     }
 
     [Fact]
+    public async Task UpdateAndApprove_NormalizesLegacyOutputBudgetToSignedDefault()
+    {
+        await using var dbContext = CreateDbContext();
+        var current = await SeedAsync(dbContext, requiresConfiguration: true);
+        var currentManifest = JsonNode.Parse(current.ManifestJson)!.AsObject();
+        var currentFields = currentManifest["configuration"]!.AsArray();
+        currentFields.Add(new JsonObject
+        {
+            ["key"] = "maxContextWindowTokens", ["type"] = "number", ["label"] = "Context",
+            ["required"] = true, ["secret"] = false, ["defaultValue"] = 128000
+        });
+        currentFields.Add(new JsonObject
+        {
+            ["key"] = "maxOutputTokens", ["type"] = "number", ["label"] = "Output",
+            ["required"] = true, ["secret"] = false, ["defaultValue"] = 128000
+        });
+        current.ManifestJson = currentManifest.ToJsonString();
+        await dbContext.SaveChangesAsync();
+
+        var providerId = await dbContext.LlmProviderProfiles.Select(x => x.Id).SingleAsync();
+        var oldSettings = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        {
+            ["llmProviderId"] = JsonSerializer.SerializeToElement(providerId.ToString("D")),
+            ["llmModel"] = JsonSerializer.SerializeToElement("test-model"),
+            ["maxContextWindowTokens"] = JsonSerializer.SerializeToElement(128000),
+            ["maxOutputTokens"] = JsonSerializer.SerializeToElement(128000)
+        };
+        var service = CreateService(dbContext);
+        var installed = await service.InstallAsync(current.Id, ValidRequest() with
+        {
+            ConfigurationSettings = oldSettings
+        });
+        current.Status = AgentPackageVersionStatus.Built;
+
+        var updateManifest = JsonNode.Parse(current.ManifestJson)!.AsObject();
+        updateManifest["version"] = "2.0.0";
+        var updateFields = updateManifest["configuration"]!.AsArray();
+        updateFields.Single(x => x!["key"]!.GetValue<string>() == "maxContextWindowTokens")!["defaultValue"] = 32000;
+        var outputField = updateFields.Single(x => x!["key"]!.GetValue<string>() == "maxOutputTokens")!;
+        outputField["defaultValue"] = 8000;
+        outputField["lessThanFieldKey"] = "maxContextWindowTokens";
+        var update = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(), PackageSourceId = current.PackageSourceId,
+            CommitSha = new string('3', 40), ManifestDigest = new string('d', 64),
+            ManifestJson = updateManifest.ToJsonString(), ManifestFileName = "csweet-plugin.json",
+            AgentId = current.AgentId, AgentName = current.AgentName, Version = "2.0.0",
+            PublisherId = current.PublisherId, PublisherName = current.PublisherName,
+            RuntimeType = current.RuntimeType, Status = AgentPackageVersionStatus.Built,
+            ImportedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.AgentPackageVersions.Add(update);
+        await dbContext.SaveChangesAsync();
+
+        var staged = await service.UpdateAsync(installed.Id, new UpdateAgentInstallationRequest(update.Id));
+        var approved = await service.ApproveUpdateAsync(staged.Id, ValidRequest());
+        var configuration = await dbContext.AgentInstallationConfigurations
+            .SingleAsync(x => x.AgentInstallationId == approved.Id);
+        var normalized = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(configuration.SettingsJson)!;
+
+        Assert.Equal(128000, normalized["maxContextWindowTokens"].GetInt32());
+        Assert.Equal(8000, normalized["maxOutputTokens"].GetInt32());
+    }
+
+    [Fact]
     public async Task RemoveAsync_AssignedEmployeeRejectsBeforeDisablingInstallation()
     {
         await using var dbContext = CreateDbContext();

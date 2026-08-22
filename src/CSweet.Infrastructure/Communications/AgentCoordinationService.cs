@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using CSweet.Agent.SDK;
 using CSweet.Application.Communications;
 using CSweet.Contracts.Communications;
@@ -95,6 +97,7 @@ public sealed class AgentCoordinationService(
             Content = request.InitialMessage.Trim(),
             IdempotencyKey = $"coordination:{session.Id:N}:initial", CreatedAt = now
         };
+        ApplyArtifact(initialTurn, request.Artifact);
         session.Turns.Add(initialTurn);
         db.AgentCoordinationSessions.Add(session);
         await db.SaveChangesAsync(cancellationToken);
@@ -152,6 +155,7 @@ public sealed class AgentCoordinationService(
             IdempotencyKey = request.IdempotencyKey.Trim(),
             CreatedAt = now
         };
+        ApplyArtifact(responseTurn, request.Artifact);
         session.Turns.Add(responseTurn);
         db.AgentCoordinationTurns.Add(responseTurn);
         session.Revision++;
@@ -439,7 +443,8 @@ public sealed class AgentCoordinationService(
             session.CurrentOrganizationUserId, session.IsFinalization, session.FinalSummary,
             session.CreatedAt, session.UpdatedAt,
             session.Turns.OrderBy(x => x.Ordinal).Select(x => new AgentCoordinationTurn(
-                x.Id, x.Ordinal, x.SpeakerOrganizationUserId, x.Disposition, x.Content, x.CreatedAt)).ToList());
+                x.Id, x.Ordinal, x.SpeakerOrganizationUserId, x.Disposition, x.Content, x.CreatedAt,
+                MapArtifact(x))).ToList());
     }
 
     private IQueryable<DomainSession> QuerySession() =>
@@ -463,6 +468,7 @@ public sealed class AgentCoordinationService(
             throw new ArgumentException("Coordination subject, objective, initial message, and idempotency key are required.");
         if (request.SuccessCriteria.Count == 0 || request.SuccessCriteria.Any(string.IsNullOrWhiteSpace))
             throw new ArgumentException("At least one success criterion is required.");
+        ValidateArtifact(request.Artifact);
     }
 
     private static void ValidateResponse(RespondToAgentCoordinationRequest request)
@@ -473,5 +479,42 @@ public sealed class AgentCoordinationService(
         if (request.Disposition is not (AgentCoordinationDispositions.Continue or
             AgentCoordinationDispositions.Completed or AgentCoordinationDispositions.Blocked))
             throw new ArgumentException("Disposition must be Continue, Completed, or Blocked.");
+        ValidateArtifact(request.Artifact);
+    }
+
+    private static void ApplyArtifact(DomainTurn turn, AgentCoordinationArtifactSubmission? artifact)
+    {
+        if (artifact is null) return;
+        ValidateArtifact(artifact);
+        var payload = artifact.Payload.GetRawText();
+        turn.ArtifactType = artifact.Type.Trim();
+        turn.ArtifactSchemaVersion = artifact.SchemaVersion.Trim();
+        turn.ArtifactKey = artifact.Key.Trim();
+        turn.ArtifactPageOrdinal = artifact.PageOrdinal;
+        turn.ArtifactIsFinalPage = artifact.IsFinalPage;
+        turn.ArtifactPayloadJson = payload;
+        turn.ArtifactDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
+    private static AgentCoordinationArtifact? MapArtifact(DomainTurn turn) =>
+        turn.ArtifactType is null || turn.ArtifactSchemaVersion is null || turn.ArtifactKey is null ||
+        turn.ArtifactPageOrdinal is null || turn.ArtifactIsFinalPage is null ||
+        turn.ArtifactPayloadJson is null || turn.ArtifactDigest is null
+            ? null
+            : new AgentCoordinationArtifact(
+                turn.ArtifactType, turn.ArtifactSchemaVersion, turn.ArtifactKey,
+                turn.ArtifactPageOrdinal.Value, turn.ArtifactIsFinalPage.Value,
+                JsonDocument.Parse(turn.ArtifactPayloadJson).RootElement.Clone(), turn.ArtifactDigest);
+
+    private static void ValidateArtifact(AgentCoordinationArtifactSubmission? artifact)
+    {
+        if (artifact is null) return;
+        if (string.IsNullOrWhiteSpace(artifact.Type) || artifact.Type.Length > 200 ||
+            string.IsNullOrWhiteSpace(artifact.SchemaVersion) || artifact.SchemaVersion.Length > 50 ||
+            string.IsNullOrWhiteSpace(artifact.Key) || artifact.Key.Length > 500 ||
+            artifact.PageOrdinal < 0 || artifact.Payload.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            throw new ArgumentException("The coordination artifact metadata is invalid.");
+        if (Encoding.UTF8.GetByteCount(artifact.Payload.GetRawText()) > 256 * 1024)
+            throw new ArgumentException("A coordination artifact cannot exceed 256 KiB.");
     }
 }

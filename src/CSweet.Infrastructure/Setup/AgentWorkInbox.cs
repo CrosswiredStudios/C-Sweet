@@ -25,9 +25,23 @@ public sealed record ClaimedAgentWork(
     Guid? EventId,
     string CorrelationId);
 
-public sealed record AgentWorkCompletion(bool Succeeded, JsonElement? Value, string? Error);
+public sealed record AgentWorkCompletion(
+    bool Succeeded,
+    JsonElement? Value,
+    string? Error,
+    string? FailureCode = null,
+    bool? Retryable = null);
 public sealed record AgentWorkProgressValue(long Sequence, JsonElement Value);
 public sealed record AgentWorkState(AgentWorkStatus Status, AgentWorkCompletion? Completion, string? Error);
+
+public sealed class AgentWorkReportedFailureException(
+    string message,
+    string? failureCode,
+    bool retryable) : Exception(message)
+{
+    public string? FailureCode { get; } = failureCode;
+    public bool Retryable { get; } = retryable;
+}
 
 public sealed class AgentWorkInbox(
     CSweetDbContext db,
@@ -410,7 +424,10 @@ public sealed class AgentWorkInbox(
                     _protector.Unprotect(item.ProtectedResult))
                     ?? throw new InvalidOperationException("The agent work result could not be decoded.");
                 if (!completion.Succeeded)
-                    throw new InvalidOperationException(completion.Error ?? "Agent work failed.");
+                    throw new AgentWorkReportedFailureException(
+                        completion.Error ?? "Agent work failed.",
+                        completion.FailureCode,
+                        completion.Retryable == true);
                 if (completion.Value is not { } value)
                     throw new InvalidOperationException("The agent work result was empty.");
                 var result = value.Deserialize<T>();

@@ -1179,7 +1179,14 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Disposition).HasMaxLength(24).IsRequired();
             entity.Property(x => x.Content).HasMaxLength(32768).IsRequired();
+            entity.Property(x => x.ArtifactType).HasMaxLength(200);
+            entity.Property(x => x.ArtifactSchemaVersion).HasMaxLength(50);
+            entity.Property(x => x.ArtifactKey).HasMaxLength(500);
+            entity.Property(x => x.ArtifactPayloadJson);
+            entity.Property(x => x.ArtifactDigest).HasMaxLength(64);
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.HasIndex(x => new { x.SessionId, x.ArtifactType, x.ArtifactKey, x.ArtifactPageOrdinal })
+                .IsUnique();
             entity.HasIndex(x => new { x.SessionId, x.Ordinal }).IsUnique();
             entity.HasIndex(x => new { x.SessionId, x.IdempotencyKey }).IsUnique();
             entity.HasIndex(x => x.EventId).IsUnique();

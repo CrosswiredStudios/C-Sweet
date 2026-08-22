@@ -158,7 +158,8 @@
 
     private static readonly string[] Priorities = ["Low", "Medium", "High", "Critical"];
     private static readonly (string Label, string Status)[] Columns =
-        [("To Do", Wire.PersonalTodoStatuses.Ready), ("Doing", Wire.PersonalTodoStatuses.Running),
+        [("Backlog", Wire.PersonalTodoStatuses.Backlog),
+         ("To Do", Wire.PersonalTodoStatuses.Ready), ("Doing", Wire.PersonalTodoStatuses.Running),
          ("Blocked", Wire.PersonalTodoStatuses.Blocked), ("Done", Wire.PersonalTodoStatuses.Completed)];
     private string _title = string.Empty;
     private string? _description;

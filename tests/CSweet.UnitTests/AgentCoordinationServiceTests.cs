@@ -17,6 +17,39 @@ namespace CSweet.UnitTests;
 public sealed class AgentCoordinationServiceTests
 {
     [Fact]
+    public async Task StructuredArtifact_IsPersistedWithPlatformDigestAndReturnedOnReplay()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            planKey = "team-1",
+            epicKey = "EPIC-01",
+            stories = new[] { new { key = "EPIC-01-STORY-01" } }
+        });
+        var request = new RespondToAgentCoordinationRequest(
+            fixture.SessionId, 1, 1, AgentCoordinationDispositions.Continue,
+            "Story proposal attached.", "artifact-turn-1",
+            new AgentCoordinationArtifactSubmission(
+                "software-architecture.story-proposal.v1", "1.0",
+                "team-1:EPIC-01:stories", 0, true, payload));
+
+        var first = await fixture.Service.RespondAsync(
+            fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId, request);
+        var replay = await fixture.Service.RespondAsync(
+            fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId, request);
+
+        var artifact = first.Turns.Single(x => x.Ordinal == 1).Artifact;
+        Assert.NotNull(artifact);
+        Assert.Equal("software-architecture.story-proposal.v1", artifact.Type);
+        Assert.Equal("team-1:EPIC-01:stories", artifact.Key);
+        Assert.Equal(64, artifact.Digest.Length);
+        Assert.Equal(artifact.Digest, replay.Turns.Single(x => x.Ordinal == 1).Artifact?.Digest);
+        var stored = await fixture.Db.AgentCoordinationTurns.SingleAsync(x =>
+            x.SessionId == fixture.SessionId && x.Ordinal == 1);
+        Assert.Equal(artifact.Digest, stored.ArtifactDigest);
+    }
+
+    [Fact]
     public async Task MultiTurnSequence_AlternatesAndFinalizesOnceInTheSourceChat()
     {
         await using var fixture = await Fixture.CreateAsync();

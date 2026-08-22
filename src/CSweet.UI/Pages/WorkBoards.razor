@@ -174,28 +174,30 @@
             <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Color="Color.Primary"
                            OnClick="LoadPersonalTodosAsync" aria-label="Refresh personal boards" />
         </MudStack>
-        <MudExpansionPanels Class="mt-4" MultiExpansion="true">
+        <MudStack Class="mt-4" Spacing="2">
             @foreach (var board in _personalTodos.Boards)
             {
-                <MudExpansionPanel>
-                    <TitleContent>
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                        <div>
                             <MudText Typo="Typo.h6">@board.OwnerDisplayName</MudText>
-                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
-                                @board.Items.Count item(s)
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Personal operational work queue</MudText>
+                        </div>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     Color="@(ActivePersonalTodoCount(board) > 0 ? Color.Primary : Color.Default)">
+                                @ActivePersonalTodoCount(board) active
                             </MudChip>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Outlined.OpenInFull"
+                                       OnClick="@(() => OpenPersonalBoard(board))">
+                                View board
+                            </MudButton>
                         </MudStack>
-                    </TitleContent>
-                    <ChildContent>
-                        <EmployeePersonalBoard OrganizationId="OrganizationId"
-                            EmployeeId="board.OwnerOrganizationUserId" Board="board"
-                            CanAdd="true"
-                            CanExecute="@(_personalTodos.CurrentOrganizationUserId == board.OwnerOrganizationUserId)"
-                            RefreshRequested="LoadPersonalTodosAsync" />
-                    </ChildContent>
-                </MudExpansionPanel>
+                    </MudStack>
+                </MudPaper>
             }
-        </MudExpansionPanels>
+        </MudStack>
         @if (!string.IsNullOrWhiteSpace(_personalTodoError))
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
@@ -205,6 +207,43 @@
     </MudPaper>
 }
 }
+
+<MudDialog @bind-Visible="_personalBoardOpen"
+           Options="@(new DialogOptions { FullScreen = true, FullWidth = true })">
+    <TitleContent>
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+            <div>
+                <MudText Typo="Typo.overline" Color="Color.Primary">Protected work</MudText>
+                <MudText Typo="Typo.h5">@(_selectedPersonalBoard?.OwnerDisplayName ?? "Personal board")</MudText>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="ClosePersonalBoard"
+                           aria-label="Close personal board" />
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        @if (_personalBoardLoading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (!string.IsNullOrWhiteSpace(_personalBoardDialogError))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+                @_personalBoardDialogError
+            </MudAlert>
+        }
+        else if (_selectedPersonalBoard is not null)
+        {
+            <EmployeePersonalBoard OrganizationId="OrganizationId"
+                EmployeeId="_selectedPersonalBoard.OwnerOrganizationUserId"
+                Board="_selectedPersonalBoard"
+                CanAdd="true"
+                CanExecute="@(_personalTodos?.CurrentOrganizationUserId == _selectedPersonalBoard.OwnerOrganizationUserId)"
+                IncludeArchived="_personalBoardIncludeArchived"
+                IncludeArchivedChanged="SetPersonalBoardIncludeArchivedAsync"
+                RefreshRequested="RefreshPersonalBoardDialogAsync" />
+        }
+    </DialogContent>
+</MudDialog>
 
 <MudDialog @bind-Visible="_editorOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
@@ -1432,7 +1471,10 @@
 
     private WorkBoardDirectoryResponse? _directory;
     private PersonalTodoDirectory? _personalTodos;
+    private PersonalTodoBoard? _selectedPersonalBoard;
+    private Guid? _selectedPersonalBoardOwnerId;
     private string? _personalTodoError;
+    private string? _personalBoardDialogError;
     private WorkBoardSummaryResponse? _editingBoard;
     private WorkBoardSummaryResponse? _detailBoard;
     private WorkBoardDetailResponse? _detail;
@@ -1450,6 +1492,9 @@
     private bool _saving;
     private bool _forbidden;
     private bool _editorOpen;
+    private bool _personalBoardOpen;
+    private bool _personalBoardLoading;
+    private bool _personalBoardIncludeArchived;
     private bool _editorDefault;
     private bool _detailLoading;
     private bool _itemCreatorOpen;
@@ -1639,11 +1684,80 @@
             }
             response.EnsureSuccessStatusCode();
             _personalTodos = await response.Content.ReadFromJsonAsync<PersonalTodoDirectory>();
+            if (_selectedPersonalBoardOwnerId.HasValue && !_personalBoardIncludeArchived)
+            {
+                _selectedPersonalBoard = _personalTodos?.Boards.SingleOrDefault(x =>
+                    x.OwnerOrganizationUserId == _selectedPersonalBoardOwnerId.Value);
+            }
             _personalTodoError = null;
         }
         catch (Exception exception)
         {
             _personalTodoError = exception.Message;
+        }
+    }
+
+    private static int ActivePersonalTodoCount(PersonalTodoBoard board) => board.Items.Count(x =>
+        x.ArchivedAt is null && x.Status != CSweet.WorkManagement.Contracts.PersonalTodoStatuses.Completed);
+
+    private void OpenPersonalBoard(PersonalTodoBoard board)
+    {
+        _selectedPersonalBoardOwnerId = board.OwnerOrganizationUserId;
+        _selectedPersonalBoard = board;
+        _personalBoardIncludeArchived = false;
+        _personalBoardDialogError = null;
+        _personalBoardOpen = true;
+    }
+
+    private void ClosePersonalBoard()
+    {
+        _personalBoardOpen = false;
+        _personalBoardIncludeArchived = false;
+        _personalBoardDialogError = null;
+    }
+
+    private async Task SetPersonalBoardIncludeArchivedAsync(bool value)
+    {
+        _personalBoardIncludeArchived = value;
+        if (value)
+        {
+            await LoadSelectedPersonalBoardAsync(includeArchived: true);
+            return;
+        }
+
+        await LoadPersonalTodosAsync();
+    }
+
+    private async Task RefreshPersonalBoardDialogAsync()
+    {
+        await LoadPersonalTodosAsync();
+        if (_personalBoardIncludeArchived)
+            await LoadSelectedPersonalBoardAsync(includeArchived: true);
+    }
+
+    private async Task LoadSelectedPersonalBoardAsync(bool includeArchived)
+    {
+        if (!_selectedPersonalBoardOwnerId.HasValue) return;
+
+        _personalBoardLoading = true;
+        _personalBoardDialogError = null;
+        try
+        {
+            var response = await Http.GetAsync(
+                $"api/organizations/{OrganizationId:D}/work/personal-todos?includeArchived={includeArchived.ToString().ToLowerInvariant()}");
+            response.EnsureSuccessStatusCode();
+            var directory = await response.Content.ReadFromJsonAsync<PersonalTodoDirectory>();
+            _selectedPersonalBoard = directory?.Boards.SingleOrDefault(x =>
+                x.OwnerOrganizationUserId == _selectedPersonalBoardOwnerId.Value)
+                ?? throw new InvalidOperationException("The personal board is no longer available.");
+        }
+        catch (Exception exception)
+        {
+            _personalBoardDialogError = exception.Message;
+        }
+        finally
+        {
+            _personalBoardLoading = false;
         }
     }
 

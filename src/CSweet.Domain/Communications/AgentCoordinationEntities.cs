@@ -51,6 +51,13 @@ public sealed class AgentCoordinationTurn
     public int Ordinal { get; set; }
     public string Disposition { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public string? ArtifactType { get; set; }
+    public string? ArtifactSchemaVersion { get; set; }
+    public string? ArtifactKey { get; set; }
+    public int? ArtifactPageOrdinal { get; set; }
+    public bool? ArtifactIsFinalPage { get; set; }
+    public string? ArtifactPayloadJson { get; set; }
+    public string? ArtifactDigest { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; }
     public AgentCoordinationSession? Session { get; set; }

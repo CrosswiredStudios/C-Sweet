@@ -81,6 +81,70 @@ public sealed class JsonSchemaValidatorTests
         Assert.Contains("unsupported keyword", exception.Message);
     }
 
+    [Fact]
+    public void Validate_SupportsBoundedLocalDefinitionsUsedByProviderCapabilities()
+    {
+        var schema = Json("""
+            {
+              "type":"object",
+              "required":["planHash","assignments","estimate"],
+              "properties":{
+                "planHash":{"type":"string","pattern":"^[a-f0-9]{4}$"},
+                "assignments":{"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/assignment"}},
+                "estimate":{"type":"number","exclusiveMinimum":0,"maximum":100}
+              },
+              "$defs":{
+                "assignment":{
+                  "type":"object",
+                  "required":["id"],
+                  "properties":{"id":{"type":"string","format":"uuid"}},
+                  "additionalProperties":false
+                }
+              },
+              "additionalProperties":false
+            }
+            """);
+        var valid = Json("""
+            {"planHash":"a1f0","assignments":[{"id":"11111111-1111-1111-1111-111111111111"}],"estimate":1}
+            """);
+
+        JsonSchemaValidator.ValidateSchema(schema);
+        JsonSchemaValidator.Validate(valid, schema);
+    }
+
+    [Theory]
+    [InlineData("""{"planHash":"INVALID","assignments":[],"estimate":1}""")]
+    [InlineData("""{"planHash":"a1f0","assignments":[],"estimate":0}""")]
+    [InlineData("""{"planHash":"a1f0","assignments":[{"id":"11111111-1111-1111-1111-111111111111"},{"id":"11111111-1111-1111-1111-111111111111"}],"estimate":1}""")]
+    public void Validate_EnforcesProviderCapabilityDefinitionConstraints(string input)
+    {
+        var schema = Json("""
+            {
+              "type":"object",
+              "required":["planHash","assignments","estimate"],
+              "properties":{
+                "planHash":{"type":"string","pattern":"^[a-f0-9]{4}$"},
+                "assignments":{"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/assignment"}},
+                "estimate":{"type":"number","exclusiveMinimum":0}
+              },
+              "$defs":{"assignment":{"type":"object","required":["id"],"properties":{"id":{"type":"string","format":"uuid"}},"additionalProperties":false}},
+              "additionalProperties":false
+            }
+            """);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            JsonSchemaValidator.Validate(Json(input), schema));
+    }
+
+    [Theory]
+    [InlineData("""{"$ref":"https://example.com/schema"}""")]
+    [InlineData("""{"$ref":"#/$defs/missing","$defs":{}}""")]
+    public void ValidateSchema_RejectsExternalOrMissingReferences(string schemaText)
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            JsonSchemaValidator.ValidateSchema(Json(schemaText)));
+    }
+
     private static JsonElement Json(string value) =>
         JsonDocument.Parse(value, new JsonDocumentOptions { MaxDepth = 128 }).RootElement.Clone();
 }

@@ -115,6 +115,7 @@ public sealed record PluginConfigurationField
     public decimal? Maximum { get; init; }
     public decimal? Step { get; init; }
     public string? DependsOnFieldKey { get; init; }
+    public string? LessThanFieldKey { get; init; }
 }
 
 public sealed record PluginConfigurationOption(string Value, string Label);

@@ -513,9 +513,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 .Concat(request.ConfigurationSettings)
                 .GroupBy(pair => pair.Key, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.Last().Value, StringComparer.Ordinal);
+        var normalized = NormalizeRelationalConfiguration(manifest, requestedSettings);
         var configurationSettings = await ValidateConfigurationAsync(
             manifest,
-            requestedSettings,
+            normalized.Settings,
             allowUnknownSettings: true,
             cancellationToken);
 
@@ -588,6 +589,14 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .ReconcileAsync(staged.BusinessId, cancellationToken);
         await _auditWriter.WriteAsync("plugin-update.approved", nameof(AgentInstallation), staged.Id,
             $"Activated plugin revision {staged.RevisionNumber} after complete grant reapproval.", null, cancellationToken);
+        if (normalized.Keys.Count > 0)
+            await _auditWriter.WriteAsync(
+                "agent-installation.configuration.version-normalized",
+                nameof(AgentInstallation),
+                staged.Id,
+                $"Normalized configuration field(s) {string.Join(", ", normalized.Keys)} to the new version's signed defaults.",
+                null,
+                cancellationToken);
         return ToResponse(staged);
     }
 
@@ -1200,9 +1209,51 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             ValidateCapabilitySchemaConstraints(manifest, field, value);
         }
 
+        foreach (var field in publicFields.Values.Where(x => !string.IsNullOrWhiteSpace(x.LessThanFieldKey)))
+        {
+            if (!publicFields.TryGetValue(field.LessThanFieldKey!, out var target) ||
+                !settings.TryGetValue(field.Key, out var value) ||
+                !settings.TryGetValue(target.Key, out var limitValue) ||
+                value.ValueKind != JsonValueKind.Number || limitValue.ValueKind != JsonValueKind.Number ||
+                !value.TryGetDecimal(out var number) || !limitValue.TryGetDecimal(out var limit))
+                throw new AgentInstallationException(
+                    $"'{field.Label}' declares an invalid less-than configuration relationship.");
+            if (number >= limit)
+                throw new AgentInstallationException(
+                    $"'{field.Label}' must be less than '{target.Label}'.");
+        }
+
         return settings
             .Where(pair => publicFields.ContainsKey(pair.Key))
             .ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal);
+    }
+
+    private static (IReadOnlyDictionary<string, JsonElement> Settings, IReadOnlyList<string> Keys)
+        NormalizeRelationalConfiguration(
+            PluginManifest manifest,
+            IReadOnlyDictionary<string, JsonElement> settings)
+    {
+        var normalized = settings.ToDictionary(x => x.Key, x => x.Value.Clone(), StringComparer.Ordinal);
+        var fields = manifest.Configuration.ToDictionary(x => x.Key, StringComparer.Ordinal);
+        var changed = new List<string>();
+        foreach (var field in manifest.Configuration.Where(x => !string.IsNullOrWhiteSpace(x.LessThanFieldKey)))
+        {
+            if (!fields.TryGetValue(field.LessThanFieldKey!, out var target) ||
+                !normalized.TryGetValue(field.Key, out var value) ||
+                !normalized.TryGetValue(target.Key, out var limitValue) ||
+                value.ValueKind != JsonValueKind.Number || limitValue.ValueKind != JsonValueKind.Number ||
+                !value.TryGetDecimal(out var number) || !limitValue.TryGetDecimal(out var limit) ||
+                number < limit)
+                continue;
+            if (field.DefaultValue is not { } defaultValue ||
+                defaultValue.ValueKind != JsonValueKind.Number ||
+                !defaultValue.TryGetDecimal(out var defaultNumber) || defaultNumber >= limit)
+                throw new AgentInstallationException(
+                    $"'{field.Label}' violates its less-than constraint and the new version does not provide a valid default.");
+            normalized[field.Key] = defaultValue.Clone();
+            changed.Add(field.Key);
+        }
+        return (normalized, changed);
     }
 
     private static void ValidateCapabilitySchemaConstraints(

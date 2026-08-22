@@ -313,5 +313,9 @@ public static class CommunicationEndpoints
         session.UpdatedAt,
         session.Turns.Select(x => new AgentCoordinationTurnResponse(
             x.Id, x.Ordinal, x.SpeakerOrganizationUserId,
-            x.Disposition, x.Content, x.CreatedAt)).ToList());
+            x.Disposition, x.Content, x.CreatedAt,
+            x.Artifact is null ? null : new AgentCoordinationArtifactResponse(
+                x.Artifact.Type, x.Artifact.SchemaVersion, x.Artifact.Key,
+                x.Artifact.PageOrdinal, x.Artifact.IsFinalPage,
+                x.Artifact.Payload, x.Artifact.Digest))).ToList());
 }
