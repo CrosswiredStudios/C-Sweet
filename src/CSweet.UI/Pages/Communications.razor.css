@@ -129,6 +129,12 @@
 .hub-message ::deep .chat-markdown { margin-top: 5px; color: #333c47; font-size: .88rem; line-height: 1.45; overflow-wrap: anywhere; }
 .hub-message-pending { margin-top: 4px; background: #faf9ff; border: 1px solid #ece9fb; }
 .hub-turn-running { display: grid; gap: 7px; margin-top: 9px; color: var(--hub-muted); font-size: .76rem; }
+.hub-turn-reasoning, .hub-turn-activity { margin: 8px 0; color: var(--hub-muted); font-size: .78rem; }
+.hub-turn-reasoning summary, .hub-turn-activity summary { cursor: pointer; font-weight: 700; }
+.hub-turn-reasoning-text { margin-top: 6px; white-space: pre-wrap; font-style: italic; color: #7b8190; }
+.hub-turn-activity > div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.hub-turn-activity small { text-transform: uppercase; opacity: .72; }
+.hub-turn-draft-label { display: inline-flex; margin: 4px 0 2px; padding: 2px 6px; border-radius: 999px; background: #ece9fb; color: #6256a8; font-size: .64rem; font-weight: 800; letter-spacing: .08em; }
 .hub-composer { grid-row: 4; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; padding: 12px 19px 17px; border-top: 1px solid #f0f1f4; }
 .hub-composer ::deep .mud-input-control { margin: 0; }
 .hub-composer-input { position: relative; min-width: 0; }

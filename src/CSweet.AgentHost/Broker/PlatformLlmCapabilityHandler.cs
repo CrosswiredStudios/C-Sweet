@@ -156,14 +156,20 @@ public sealed class PlatformLlmCapabilityHandler
                     tool.Name,
                     tool.Description,
                     tool.JsonSchema))
-                .ToList()
+                .ToList(),
+            Reasoning = input.ReasoningOutput.HasValue || input.ReasoningEffort.HasValue
+                ? new ReasoningOptions
+                {
+                    Output = input.ReasoningOutput,
+                    Effort = input.ReasoningEffort
+                }
+                : null
         };
         runLog.PromptInstructionCharacters = options.Instructions?.Length ?? 0;
         var responseText = new StringBuilder();
-        var responseContents = new List<PlatformChatContent>();
         long? inputTokenCount = null;
         long? outputTokenCount = null;
-        string? responseRole = null;
+        var streamSequence = 0;
 
         IAsyncEnumerator<ChatResponseUpdate>? updates = null;
         string? providerError = null;
@@ -306,11 +312,24 @@ public sealed class PlatformLlmCapabilityHandler
                 }
                 if (!string.IsNullOrEmpty(update.Text))
                     responseText.Append(update.Text);
-                if (update.Role is not null)
-                    responseRole = update.Role.ToString();
-                responseContents.AddRange(update.Contents
-                    .Where(content => content is TextContent or FunctionCallContent or FunctionResultContent)
-                    .Select(ToPlatformContent));
+                var contents = update.Contents
+                    .Where(content => content is TextContent or TextReasoningContent or FunctionCallContent or FunctionResultContent)
+                    .Select(ToPlatformContent)
+                    .ToList();
+                if (contents.Count > 0 || usage is not null || update.Role is not null)
+                {
+                    yield return Success(
+                        request.RequestId,
+                        new PlatformChatChunk(
+                            update.Text,
+                            usage?.InputTokenCount,
+                            usage?.OutputTokenCount,
+                            update.Role?.ToString(),
+                            contents,
+                            usage is null ? null : ToAdditionalUsage(usage.AdditionalCounts)),
+                        streamSequence++,
+                        hasMore: true);
+                }
             }
         }
 
@@ -324,19 +343,16 @@ public sealed class PlatformLlmCapabilityHandler
             failureMessage: null);
         await TryPersistRunLogAsync(runLog, CancellationToken.None);
 
-        // MCP tools/call has a single result. Aggregate provider updates here so the
-        // gateway does not discard every content chunk in favor of an empty terminal
-        // marker. The SDK still exposes this through its streaming authoring surface.
         yield return Success(
             request.RequestId,
             new PlatformChatChunk(
-                responseText.Length == 0 ? null : responseText.ToString(),
+                null,
                 inputTokenCount,
                 outputTokenCount,
-                responseRole,
-                responseContents,
+                null,
+                null,
                 ReadAdditionalUsage(runLog.UsageAdditionalCountsJson)),
-            sequence: 0,
+            sequence: streamSequence,
             hasMore: false);
     }
 
@@ -547,6 +563,10 @@ public sealed class PlatformLlmCapabilityHandler
     private static AIContent ToAiContent(PlatformChatContent content) => content.Kind switch
     {
         "text" => new TextContent(content.Text ?? string.Empty),
+        "reasoning" => new TextReasoningContent(content.Text ?? string.Empty)
+        {
+            ProtectedData = content.ProtectedData
+        },
         "function_call" when !string.IsNullOrWhiteSpace(content.CallId) &&
             !string.IsNullOrWhiteSpace(content.Name) => new FunctionCallContent(
                 content.CallId,
@@ -564,6 +584,10 @@ public sealed class PlatformLlmCapabilityHandler
     private static PlatformChatContent ToPlatformContent(AIContent content) => content switch
     {
         TextContent text => new PlatformChatContent("text", Text: text.Text),
+        TextReasoningContent reasoning => new PlatformChatContent(
+            "reasoning",
+            Text: reasoning.Text,
+            ProtectedData: reasoning.ProtectedData),
         FunctionCallContent call => new PlatformChatContent(
             "function_call",
             CallId: call.CallId,
@@ -579,6 +603,10 @@ public sealed class PlatformLlmCapabilityHandler
         _ => throw new NotSupportedException(
             $"Platform LLM responses do not support {content.GetType().Name} content.")
     };
+
+    private static IReadOnlyDictionary<string, long>? ToAdditionalUsage(
+        AdditionalPropertiesDictionary<long>? counts) =>
+        counts is null ? null : counts.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
 
     private static JsonElement SerializeElement(object? value) =>
         value is JsonElement element

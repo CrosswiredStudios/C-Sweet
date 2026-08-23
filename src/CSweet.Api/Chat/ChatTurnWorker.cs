@@ -33,6 +33,10 @@ public sealed class ChatTurnWorker(
     private static readonly Meter Meter = new("CSweet.Application.ChatTurns");
     private static readonly Counter<long> TurnCompletions = Meter.CreateCounter<long>("csweet.chat.turns.completed");
     private static readonly Counter<long> TurnFailures = Meter.CreateCounter<long>("csweet.chat.turns.failed");
+    private static readonly Counter<long> DraftResets = Meter.CreateCounter<long>("csweet.chat.turn.stream.draft_resets");
+    private static readonly Counter<long> StreamCommits = Meter.CreateCounter<long>("csweet.chat.turn.stream.commits");
+    private static readonly Counter<long> StreamFailures = Meter.CreateCounter<long>("csweet.chat.turn.stream.failures");
+    private static readonly Counter<long> TraceRedactions = Meter.CreateCounter<long>("csweet.chat.turn.stream.redactions");
     private static readonly Histogram<double> TurnDuration = Meter.CreateHistogram<double>("csweet.chat.turn.duration", "ms");
     private static readonly Histogram<double> FirstOutputLatency = Meter.CreateHistogram<double>("csweet.chat.turn.first_output", "ms");
     private readonly string _leaseOwner = $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
@@ -274,6 +278,63 @@ public sealed class ChatTurnWorker(
                         if (chunk.IsFinal) break;
                         continue;
                     }
+                    if (chunk.Kind == AgentTurnStreamKinds.ReasoningDelta)
+                    {
+                        await PublishTraceAsync(turns, turnId, "reasoning", chunk.Kind, "running", "Agent reasoning",
+                            ChatTraceSanitizer.SanitizeText(chunk.Delta),
+                            sensitivity: NormalizeSensitivity(chunk.Sensitivity),
+                            cancellationToken: hardTimeout.Token);
+                        continue;
+                    }
+                    if (chunk.Kind == AgentTurnStreamKinds.ReasoningCompleted)
+                    {
+                        await PublishTraceAsync(turns, turnId, "reasoning", chunk.Kind, "completed", "Reasoning complete",
+                            sensitivity: NormalizeSensitivity(chunk.Sensitivity),
+                            cancellationToken: hardTimeout.Token);
+                        continue;
+                    }
+                    if (chunk.Kind is AgentTurnStreamKinds.ActivityStarted or
+                        AgentTurnStreamKinds.ActivityCompleted or AgentTurnStreamKinds.ActivityFailed)
+                    {
+                        var activityStatus = chunk.Kind == AgentTurnStreamKinds.ActivityStarted ? "running" :
+                            chunk.Kind == AgentTurnStreamKinds.ActivityCompleted ? "completed" : "failed";
+                        var activityDuration = chunk.Metadata is not null &&
+                            chunk.Metadata.TryGetValue("durationMs", out var durationValue) &&
+                            long.TryParse(durationValue, out var parsedDuration)
+                                ? parsedDuration
+                                : (long?)null;
+                        await PublishTraceAsync(turns, turnId, "activity", chunk.Kind, activityStatus,
+                            ChatTraceSanitizer.SanitizeText(chunk.Delta),
+                            details: ChatTraceSanitizer.SanitizeMetadata(chunk.Metadata),
+                            sensitivity: NormalizeSensitivity(chunk.Sensitivity),
+                            durationMs: activityDuration,
+                            cancellationToken: hardTimeout.Token);
+                        continue;
+                    }
+                    if (chunk.Kind is AgentTurnStreamKinds.DraftDelta or AgentTurnStreamKinds.DraftReset)
+                    {
+                        if (chunk.Kind == AgentTurnStreamKinds.DraftReset) DraftResets.Add(1);
+                        await PublishTraceAsync(turns, turnId, "draft", chunk.Kind, "running",
+                            chunk.Kind == AgentTurnStreamKinds.DraftReset ? "Draft restarted" : "Answer draft",
+                            ChatTraceSanitizer.SanitizeText(chunk.Delta),
+                            sensitivity: NormalizeSensitivity(chunk.Sensitivity),
+                            cancellationToken: hardTimeout.Token);
+                        continue;
+                    }
+                    if (chunk.Kind == AgentTurnStreamKinds.FinalCommit)
+                    {
+                        StreamCommits.Add(1);
+                        output.Clear();
+                        output.Append(chunk.Delta);
+                        pendingOutput.Clear();
+                        await turns.ReplaceOutputAsync(turnId, chunk.Delta, hardTimeout.Token);
+                        await PublishTraceAsync(turns, turnId, "output", chunk.Kind, "completed", "Answer committed",
+                            ChatTraceSanitizer.SanitizeText(chunk.Delta),
+                            new { answer = ChatTraceSanitizer.SanitizeText(chunk.Delta) },
+                            sensitivity: NormalizeSensitivity(chunk.Sensitivity),
+                            cancellationToken: hardTimeout.Token);
+                        break;
+                    }
                     if (!chunk.IsFinal && chunk.Delta.Length > 0)
                     {
                         output.Append(chunk.Delta);
@@ -285,7 +346,7 @@ public sealed class ChatTurnWorker(
                             outputFlush.Restart();
                             await turns.AppendOutputAsync(turnId, delta, hardTimeout.Token);
                             await PublishTraceAsync(turns, turnId, "output", "output.delta", "running", "Assistant output",
-                                delta, cancellationToken: hardTimeout.Token);
+                                ChatTraceSanitizer.SanitizeText(delta), cancellationToken: hardTimeout.Token);
                         }
                     }
                     if (chunk.IsFinal) break;
@@ -295,7 +356,7 @@ public sealed class ChatTurnWorker(
                     var delta = pendingOutput.ToString();
                     await turns.AppendOutputAsync(turnId, delta, hardTimeout.Token);
                     await PublishTraceAsync(turns, turnId, "output", "output.delta", "running", "Assistant output",
-                        delta, cancellationToken: hardTimeout.Token);
+                        ChatTraceSanitizer.SanitizeText(delta), cancellationToken: hardTimeout.Token);
                 }
                 if (output.Length == 0 && terminalResourceChangeRequestId is null)
                     throw new InvalidOperationException("The model provider returned an empty response.");
@@ -469,6 +530,7 @@ public sealed class ChatTurnWorker(
 
     private async Task FailAsync(IChatTurnService turns, Guid turnId, string code, string message, CancellationToken cancellationToken)
     {
+        StreamFailures.Add(1, new KeyValuePair<string, object?>("code", code));
         await PublishTraceAsync(turns, turnId, "system", "turn.failed", "failed", "Turn failed", message,
             new { code }, cancellationToken: cancellationToken);
         await turns.SetStatusAsync(turnId, ChatTurnStatus.Failed.ToString(), code, message, cancellationToken);
@@ -502,7 +564,8 @@ public sealed class ChatTurnWorker(
                         chunk.Error,
                         chunk.Kind,
                         chunk.Metadata,
-                        chunk.Attempt == 0 ? attempt : chunk.Attempt));
+                        chunk.Attempt == 0 ? attempt : chunk.Attempt,
+                        chunk.Sensitivity));
             }
 
             var state = await inbox.ReadStateAsync(workId, cancellationToken);
@@ -620,10 +683,41 @@ public sealed class ChatTurnWorker(
         string? summary = null, object? details = null, string sensitivity = "Internal", long? durationMs = null,
         CancellationToken cancellationToken = default)
     {
-        var traceEvent = await turns.TraceAsync(turnId, category, eventType, status, title, summary, details, sensitivity, durationMs, cancellationToken);
+        var sanitizedTitle = Truncate(SanitizeTraceText(title), 256);
+        var sanitizedSummary = summary is null ? null : Truncate(SanitizeTraceText(summary), 8_192);
+        var sanitizedDetails = ChatTraceSanitizer.SanitizeDetails(details);
+        var traceEvent = await turns.TraceAsync(
+            turnId,
+            category,
+            eventType,
+            status,
+            sanitizedTitle,
+            sanitizedSummary,
+            sanitizedDetails,
+            sensitivity,
+            durationMs,
+            cancellationToken);
         eventRouter.Publish(traceEvent);
         return traceEvent;
     }
+
+    private static string SanitizeTraceText(string value)
+    {
+        var sanitized = ChatTraceSanitizer.SanitizeText(value);
+        if (!string.Equals(value, sanitized, StringComparison.Ordinal)) TraceRedactions.Add(1);
+        return sanitized;
+    }
+
+    private static string Truncate(string value, int maximumLength) =>
+        value.Length <= maximumLength ? value : value[..(maximumLength - 1)] + "…";
+
+    private static string NormalizeSensitivity(string? sensitivity) => sensitivity switch
+    {
+        "Public" => "Public",
+        "Confidential" => "Confidential",
+        "Restricted" => "Restricted",
+        _ => "Internal"
+    };
 
     private static Guid? GetConfiguredProviderId(AgentInstallationConfigurationSnapshot? configuration) =>
         configuration?.Settings.TryGetValue("llmProviderId", out var value) == true && value.ValueKind == JsonValueKind.String && Guid.TryParse(value.GetString(), out var id)

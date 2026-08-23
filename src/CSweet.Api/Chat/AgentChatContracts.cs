@@ -56,4 +56,5 @@ internal sealed record AssistantResponseChunk(
     Guid TurnId = default,
     string Kind = "output",
     IReadOnlyDictionary<string, string>? Metadata = null,
-    int Attempt = 0);
+    int Attempt = 0,
+    string Sensitivity = "Internal");

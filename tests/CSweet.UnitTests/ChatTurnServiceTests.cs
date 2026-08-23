@@ -34,11 +34,12 @@ public sealed class ChatTurnServiceTests
         var second = await service.TraceAsync(started.Turn.Id, "model", "model.dispatched", "running", "Model started");
         await service.AppendOutputAsync(started.Turn.Id, "Launch ");
         await service.AppendOutputAsync(started.Turn.Id, "Friday");
+        await service.ReplaceOutputAsync(started.Turn.Id, "Validated launch Friday");
 
         var assistant = new ConversationMessage
         {
             Id = Guid.NewGuid(), ConversationId = conversation.Id, ChatTurnId = started.Turn.Id,
-            Role = ConversationRole.Assistant, Content = "Launch Friday", CreatedAt = DateTimeOffset.UtcNow
+            Role = ConversationRole.Assistant, Content = "Validated launch Friday", CreatedAt = DateTimeOffset.UtcNow
         };
         db.CoreConversationMessages.Add(assistant);
         await db.SaveChangesAsync();
@@ -47,7 +48,7 @@ public sealed class ChatTurnServiceTests
         var completed = await service.GetAsync(organizationId, started.Turn.Id);
         var trace = await service.ListEventsAsync(organizationId, started.Turn.Id);
         Assert.Equal("Completed", completed!.Status);
-        Assert.Equal("Launch Friday", completed.PartialResponse);
+        Assert.Equal("Validated launch Friday", completed.PartialResponse);
         Assert.Equal([0L, 1L], trace.Select(x => x.Sequence));
         Assert.Equal(0, first.Sequence);
         Assert.Equal(1, second.Sequence);

@@ -449,7 +449,31 @@
                                     <time>@pending.Turn.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</time>
                                     @ThinkingButton(pending)
                                 </div>
-                                @if (string.IsNullOrWhiteSpace(pending.StreamingText))
+                                @if (!string.IsNullOrWhiteSpace(pending.ReasoningText))
+                                {
+                                    <details class="hub-turn-reasoning" open="@(!pending.ReasoningComplete)">
+                                        <summary>@(pending.ReasoningComplete ? "Reasoning" : "Reasoning…")</summary>
+                                        <div class="hub-turn-reasoning-text">@pending.ReasoningText</div>
+                                    </details>
+                                }
+                                @if (pending.ActivityEvents.Count > 0)
+                                {
+                                    <details class="hub-turn-activity" open="@(!pending.ReasoningComplete)">
+                                        <summary>Activity · @pending.ActivityEvents.Count event@(pending.ActivityEvents.Count == 1 ? null : "s")</summary>
+                                        @foreach (var activity in pending.ActivityEvents.TakeLast(6))
+                                        {
+                                            <div><span>@activity.Title</span><small>@activity.Status</small></div>
+                                        }
+                                    </details>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(pending.DraftText))
+                                {
+                                    <div role="status" aria-live="polite" aria-atomic="false">
+                                        <div class="hub-turn-draft-label">DRAFT</div>
+                                        <ChatMarkdown Content="@pending.DraftText" />
+                                    </div>
+                                }
+                                else if (string.IsNullOrWhiteSpace(pending.StreamingText))
                                 {
                                     <div class="hub-turn-running"><MudProgressLinear Indeterminate="true" Color="Color.Primary" /><span>The agent turn is running.</span></div>
                                 }
@@ -1376,6 +1400,20 @@
                         if (traceEvent.EventType == "turn.restarted") view.StreamingText = string.Empty;
                         if (traceEvent.EventType == "output.delta" && !string.IsNullOrEmpty(traceEvent.Summary))
                             view.StreamingText += traceEvent.Summary;
+                        if (traceEvent.EventType == "reasoning.delta" && !string.IsNullOrEmpty(traceEvent.Summary))
+                            view.ReasoningText += traceEvent.Summary;
+                        if (traceEvent.EventType == "reasoning.completed")
+                            view.ReasoningComplete = true;
+                        if (traceEvent.EventType == "draft.delta" && !string.IsNullOrEmpty(traceEvent.Summary))
+                            view.DraftText += traceEvent.Summary;
+                        if (traceEvent.EventType == "draft.reset")
+                            view.DraftText = string.Empty;
+                        if (traceEvent.EventType == "final.commit" && !string.IsNullOrEmpty(traceEvent.Summary))
+                        {
+                            view.StreamingText = traceEvent.Summary;
+                            view.DraftText = string.Empty;
+                            view.ReasoningComplete = true;
+                        }
                         await InvokeAsync(StateHasChanged);
                     }
                 }
@@ -1628,6 +1666,13 @@
         public ChatTurnResponse Turn { get; set; } = turn;
         public List<ChatTurnTraceEventResponse> Events { get; } = [];
         public string StreamingText { get; set; } = string.Empty;
+        public string ReasoningText { get; set; } = string.Empty;
+        public bool ReasoningComplete { get; set; }
+        public string DraftText { get; set; } = string.Empty;
+        public List<ChatTurnTraceEventResponse> ActivityEvents => Events
+            .Where(x => x.Category == "activity")
+            .OrderBy(x => x.Sequence)
+            .ToList();
     }
 
     private sealed record DraftMention(

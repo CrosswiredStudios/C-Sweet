@@ -6,6 +6,7 @@ using CSweet.Application.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -86,6 +87,17 @@ public static class McpGatewayEndpoints
                         db,
                         dispatcher,
                         inbox,
+                        audit,
+                        loggerFactory.CreateLogger("CSweet.AgentHost.Broker.McpGateway"),
+                        cancellationToken),
+                    "csweet/tools/call-stream" => await StreamToolAsync(
+                        id,
+                        root,
+                        http,
+                        session,
+                        catalog,
+                        db,
+                        dispatcher,
                         audit,
                         loggerFactory.CreateLogger("CSweet.AgentHost.Broker.McpGateway"),
                         cancellationToken),
@@ -285,8 +297,15 @@ public static class McpGatewayEndpoints
         else
         {
             terminal = null;
+            var streamed = new List<CapabilityResult>();
             await foreach (var result in dispatcher.InvokeAsync(session, request, cancellationToken))
+            {
                 terminal = result;
+                streamed.Add(result);
+            }
+            if (streamed.Count > 1 &&
+                string.Equals(tool.Capability, CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream, StringComparison.Ordinal))
+                terminal = AggregateLlmStream(request.RequestId, streamed);
         }
         if (terminal is null)
             throw new InvalidOperationException("The platform capability returned no result.");
@@ -332,6 +351,91 @@ public static class McpGatewayEndpoints
         }));
     }
 
+    private static async Task<IResult> StreamToolAsync(
+        JsonElement? id,
+        JsonElement root,
+        HttpContext http,
+        AgentSession session,
+        McpToolCatalog catalog,
+        CSweetDbContext db,
+        IPlatformCapabilityDispatcher dispatcher,
+        IAuditEventWriter audit,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var parameters = RequiredParameters(root);
+        var name = parameters.GetProperty("name").GetString()
+            ?? throw new JsonException();
+        var tool = await catalog.FindAsync(name, session, db, cancellationToken)
+            ?? throw new UnauthorizedAccessException("The tool is not in the current installation grant.");
+        if (tool.ProviderInstallationId.HasValue)
+            throw new InvalidOperationException("Provider-bound tools do not support the private streaming call.");
+
+        var arguments = parameters.TryGetProperty("arguments", out var value)
+            ? value
+            : JsonDocument.Parse("{}").RootElement.Clone();
+        JsonSchemaValidator.Validate(arguments, tool.InputSchema);
+        var request = new RequestCapability
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            Capability = tool.Capability,
+            Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(arguments, JsonOptions))
+        };
+
+        http.Response.ContentType = "text/event-stream";
+        http.Response.Headers.CacheControl = "no-cache, no-transform";
+        http.Response.Headers["X-Accel-Buffering"] = "no";
+        http.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+        await http.Response.StartAsync(cancellationToken);
+
+        CapabilityResult? terminal = null;
+        var expectedSequence = 0;
+        await foreach (var result in dispatcher.InvokeAsync(session, request, cancellationToken))
+        {
+            if (result.Sequence != expectedSequence)
+                throw new InvalidOperationException("The platform capability returned an out-of-order stream.");
+            expectedSequence++;
+            terminal = result;
+            await WriteStreamFrameAsync(http, result, cancellationToken);
+        }
+
+        if (terminal is null)
+            throw new InvalidOperationException("The platform capability returned no result.");
+        if (terminal.HasMore)
+            throw new InvalidOperationException("The platform capability stream ended without a terminal frame.");
+        if (!terminal.Succeeded)
+        {
+            logger.LogWarning(
+                "Streaming platform capability {Capability} ({ToolName}) failed for agent {AgentId}, installation {InstallationId}, request {RequestId}: {Error}",
+                tool.Capability, tool.Name, session.AgentId, session.InstallationId, request.RequestId,
+                terminal.Error ?? "No failure reason was supplied by the capability handler.");
+        }
+        await WriteCapabilityAuditAsync(audit, session, tool, request, terminal, cancellationToken);
+        return Results.Empty;
+    }
+
+    private static async Task WriteStreamFrameAsync(
+        HttpContext http,
+        CapabilityResult result,
+        CancellationToken cancellationToken)
+    {
+        JsonNode? structured = null;
+        if (!result.Payload.IsEmpty)
+            structured = JsonNode.Parse(result.Payload.Span);
+        var frame = JsonSerializer.Serialize(new
+        {
+            sequence = result.Sequence,
+            hasMore = result.HasMore,
+            structuredContent = structured,
+            isError = !result.Succeeded,
+            error = result.Error,
+            failureCode = result.FailureCode,
+            retryable = result.Retryable
+        }, JsonOptions);
+        await http.Response.WriteAsync($"id: {result.Sequence}\nevent: capability\ndata: {frame}\n\n", cancellationToken);
+        await http.Response.Body.FlushAsync(cancellationToken);
+    }
+
     internal static string GetToolResponseText(CapabilityResult result)
     {
         if (!result.Payload.IsEmpty)
@@ -341,6 +445,43 @@ public static class McpGatewayEndpoints
         return result.Succeeded
             ? string.Empty
             : "The platform capability failed without an error message.";
+    }
+
+    private static CapabilityResult AggregateLlmStream(
+        string requestId,
+        IReadOnlyList<CapabilityResult> results)
+    {
+        var chunks = results
+            .Where(x => x.Succeeded && !x.Payload.IsEmpty)
+            .Select(x => JsonSerializer.Deserialize<CSweet.Agent.SDK.PlatformChatChunk>(x.Payload.Span, JsonOptions))
+            .Where(x => x is not null)
+            .Cast<CSweet.Agent.SDK.PlatformChatChunk>()
+            .ToList();
+        var failure = results.LastOrDefault(x => !x.Succeeded);
+        if (failure is not null)
+            return failure;
+        var contents = chunks.SelectMany(x => x.Contents ?? []).ToList();
+        var text = string.Concat(chunks.Select(x => x.Text));
+        var inputTokens = chunks.Select(x => x.InputTokenCount).LastOrDefault(x => x.HasValue);
+        var outputTokens = chunks.Select(x => x.OutputTokenCount).LastOrDefault(x => x.HasValue);
+        var role = chunks.Select(x => x.Role).LastOrDefault(x => !string.IsNullOrWhiteSpace(x));
+        var additional = chunks.Select(x => x.AdditionalUsageCounts).LastOrDefault(x => x is not null);
+        var aggregate = new CSweet.Agent.SDK.PlatformChatChunk(
+            string.IsNullOrEmpty(text) ? null : text,
+            inputTokens,
+            outputTokens,
+            role,
+            contents,
+            additional);
+        return new CapabilityResult
+        {
+            RequestId = requestId,
+            Succeeded = true,
+            ContentType = "application/json",
+            Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(aggregate, JsonOptions)),
+            Sequence = 0,
+            HasMore = false
+        };
     }
 
     private static async Task<IResult> RenewAsync(

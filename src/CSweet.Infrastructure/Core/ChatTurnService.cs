@@ -206,6 +206,19 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task ReplaceOutputAsync(Guid turnId, string content, CancellationToken cancellationToken = default)
+    {
+        var turn = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
+        if (TerminalStatuses.Contains(turn.Status))
+            return;
+        turn.PartialResponse = content;
+        var now = DateTimeOffset.UtcNow;
+        if (!string.IsNullOrEmpty(content)) turn.FirstOutputAt ??= now;
+        turn.LastActivityAt = turn.UpdatedAt = now;
+        turn.LeaseUntil = now.AddMinutes(1);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task CompleteAsync(Guid turnId, Guid assistantMessageId, bool memoryWarning, CancellationToken cancellationToken = default)
     {
         var turn = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);

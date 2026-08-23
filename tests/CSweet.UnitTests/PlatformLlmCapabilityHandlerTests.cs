@@ -20,7 +20,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [Fact]
-    public async Task StreamAsync_AggregatesProviderUpdatesIntoSingleMcpToolResult()
+    public async Task StreamAsync_ForwardsInterleavedProviderUpdatesInExactOrder()
     {
         await using var db = new CSweetDbContext(
             new DbContextOptionsBuilder<CSweetDbContext>()
@@ -107,17 +107,28 @@ public sealed class PlatformLlmCapabilityHandlerTests
         await foreach (var streamedResult in handler.StreamAsync(session, request, CancellationToken.None))
             results.Add(streamedResult);
 
-        var result = Assert.Single(results);
-        Assert.True(result.Succeeded, result.Error);
-        Assert.False(result.HasMore);
-        using var payload = JsonDocument.Parse(result.Payload.ToByteArray());
-        Assert.Equal("Hello world", payload.RootElement.GetProperty("text").GetString());
+        Assert.Equal(7, results.Count);
+        Assert.Equal(Enumerable.Range(0, results.Count), results.Select(result => result.Sequence));
+        Assert.All(results, result => Assert.True(result.Succeeded, result.Error));
+        Assert.All(results.Take(results.Count - 1), result => Assert.True(result.HasMore));
+        Assert.False(results[^1].HasMore);
+        var chunks = results.Select(result =>
+        {
+            using var document = JsonDocument.Parse(result.Payload.ToByteArray());
+            return document.RootElement.Clone();
+        }).ToList();
         Assert.Equal(
-            ["Hello ", "world"],
-            payload.RootElement.GetProperty("contents")
-                .EnumerateArray()
-                .Select(x => x.GetProperty("text").GetString()!)
-                .ToArray());
+            ["reasoning", "text", "function_call", "function_result", "text"],
+            chunks.SelectMany(chunk => chunk.TryGetProperty("contents", out var contents) && contents.ValueKind == JsonValueKind.Array
+                    ? contents.EnumerateArray().ToArray()
+                    : [])
+                .Select(content => content.GetProperty("kind").GetString()));
+        Assert.Equal("Considering the lookup. ", chunks[0].GetProperty("contents")[0].GetProperty("text").GetString());
+        Assert.Equal("encrypted-roundtrip-only", chunks[0].GetProperty("contents")[0].GetProperty("protectedData").GetString());
+        Assert.Equal("Hello world", string.Concat(chunks.Select(chunk =>
+            chunk.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String ? text.GetString() : null)));
+        Assert.Equal(12, chunks[^2].GetProperty("inputTokenCount").GetInt64());
+        Assert.Equal(34, chunks[^2].GetProperty("outputTokenCount").GetInt64());
 
         var runLog = Assert.Single(await db.AgentRunLogs.AsNoTracking().ToListAsync());
         Assert.Equal(organizationId, runLog.OrganizationId);
@@ -161,7 +172,11 @@ public sealed class PlatformLlmCapabilityHandlerTests
 
         var results = await ReadAsync(handler, providerId);
 
-        Assert.False(Assert.Single(results).Succeeded);
+        Assert.Equal(2, results.Count);
+        Assert.True(results[0].Succeeded);
+        Assert.True(results[0].HasMore);
+        Assert.False(results[1].Succeeded);
+        Assert.False(results[1].HasMore);
         var log = Assert.Single(await db.AgentRunLogs.AsNoTracking().ToListAsync());
         Assert.Equal("Failed", log.Status);
         Assert.Equal(8, log.TokenInputCount);
@@ -188,7 +203,9 @@ public sealed class PlatformLlmCapabilityHandlerTests
 
         var results = await ReadAsync(handler, providerId);
 
-        Assert.True(Assert.Single(results).Succeeded);
+        Assert.Equal(7, results.Count);
+        Assert.All(results, result => Assert.True(result.Succeeded));
+        Assert.False(results[^1].HasMore);
         Assert.Empty(await db.AgentRunLogs.AsNoTracking().ToListAsync());
     }
 
@@ -273,7 +290,13 @@ public sealed class PlatformLlmCapabilityHandlerTests
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await Task.Yield();
+            yield return new ChatResponseUpdate(ChatRole.Assistant,
+                [new TextReasoningContent("Considering the lookup. ") { ProtectedData = "encrypted-roundtrip-only" }]);
             yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("Hello ")]);
+            yield return new ChatResponseUpdate(ChatRole.Assistant,
+                [new FunctionCallContent("call-1", "lookup", new Dictionary<string, object?> { ["key"] = "value" })]);
+            yield return new ChatResponseUpdate(ChatRole.Tool,
+                [new FunctionResultContent("call-1", JsonSerializer.SerializeToElement(new { value = 42 }))]);
             yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("world")]);
             yield return new ChatResponseUpdate(ChatRole.Assistant,
                 [new UsageContent(new UsageDetails
