@@ -69,26 +69,37 @@ public sealed class AgentAttentionScheduler(
                 establishedAt > schedule.LastAttentionReviewAt;
             var periodic = schedule.NextAttentionReviewAt is null ||
                 schedule.NextAttentionReviewAt <= now;
-            if (!reconnected && !periodic)
+            var invalidated = !string.IsNullOrWhiteSpace(schedule.PendingAttentionReason);
+            if (!reconnected && !periodic && !invalidated)
                 continue;
 
-            var reason = schedule.LastAttentionReviewAt is null
+            var reason = invalidated
+                ? schedule.PendingAttentionReason!
+                : schedule.LastAttentionReviewAt is null
                 ? AgentAttentionReasons.Startup
                 : reconnected
                     ? AgentAttentionReasons.Recovered
                     : AgentAttentionReasons.Periodic;
-            var occurrence = reconnected
+            var occurrence = invalidated
+                ? schedule.AttentionInvalidatedAt ?? now
+                : reconnected
                 ? DateTimeOffset.FromUnixTimeSeconds(now.ToUnixTimeSeconds())
                 : DateTimeOffset.FromUnixTimeSeconds(
                     now.ToUnixTimeSeconds() / schedule.TickFrequencySeconds * schedule.TickFrequencySeconds);
             var nextReviewAt = occurrence.AddSeconds(schedule.TickFrequencySeconds);
             if (nextReviewAt <= now)
                 nextReviewAt = now.AddSeconds(schedule.TickFrequencySeconds);
-            var key = reconnected
+            var key = invalidated
+                ? $"agent-attention:{schedule.AgentInstallationId:N}:state:{schedule.PendingAttentionCorrelationId?.ToString("N") ?? occurrence.ToUnixTimeMilliseconds().ToString()}"
+                : reconnected
                 ? $"agent-attention:{schedule.AgentInstallationId:N}:runtime:{establishedAt.Value.UtcTicks}"
                 : $"agent-attention:{schedule.AgentInstallationId:N}:period:{occurrence.ToUnixTimeSeconds()}";
             var eventId = DeterministicEventId(key);
-            var review = new AgentAttentionReviewDueEvent(eventId, occurrence, nextReviewAt, reason);
+            var review = new AgentAttentionReviewDueEvent(eventId, occurrence, nextReviewAt, reason)
+            {
+                TriggerCategory = schedule.PendingAttentionTriggerCategory,
+                CorrelationId = schedule.PendingAttentionCorrelationId
+            };
             var delivered = await router.EnqueueEventAsync(
                 schedule.AgentInstallation.BusinessId,
                 AgentAttentionEvents.ReviewDue,
@@ -105,6 +116,10 @@ public sealed class AgentAttentionScheduler(
             // Advance from now; missed intervals never accumulate while an Office is offline.
             schedule.LastAttentionReviewAt = now;
             schedule.NextAttentionReviewAt = nextReviewAt;
+            schedule.PendingAttentionReason = null;
+            schedule.PendingAttentionTriggerCategory = null;
+            schedule.PendingAttentionCorrelationId = null;
+            schedule.AttentionInvalidatedAt = null;
             await db.SaveChangesAsync(cancellationToken);
             logger.LogDebug(
                 "Queued {Reason} attention review for installation {InstallationId}; next review is {NextReviewAt}.",

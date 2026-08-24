@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -94,6 +95,7 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
         var team = memberships[0].Team!;
         var members = await db.TeamMemberships.AsNoTracking()
             .Include(x => x.OrganizationUser).ThenInclude(x => x!.Role)
+            .Include(x => x.OrganizationUser).ThenInclude(x => x!.Worker)
             .Include(x => x.TeamRole)
             .Where(x =>
                 x.OrganizationId == organizationId &&
@@ -116,6 +118,13 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
             .ThenBy(x => x.TeamRole?.Name ?? x.OrganizationUser?.Role?.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.OrganizationUser!.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var installationIds = members.Select(x => x.OrganizationUser!.AgentInstallationId)
+            .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+        var installationStates = await db.AgentInstallations.AsNoTracking()
+            .Include(x => x.Grant)
+            .Include(x => x.Schedule)
+            .Where(x => installationIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
         var pageMembers = ordered
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -131,14 +140,36 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
                             : member.ReportsToOrganizationUserId == caller.Id
                                 ? "DirectReport"
                                 : "Teammate";
-                return new AgentTeammate(
+                var teammate = new AgentTeammate(
                     member.Id.ToString("D"),
                     Bound(member.DisplayName, 160),
                     member.EmployeeType.ToString(),
                     EmptyToNull(Bound(member.Role?.Name, 160)),
                     EmptyToNull(Bound(x.TeamRole?.Name, 160)),
                     relationship,
-                    "Active");
+                    "Active")
+                {
+                    AgentInstallationId = member.AgentInstallationId
+                };
+                if (!member.AgentInstallationId.HasValue)
+                    return teammate with
+                    {
+                        EffectiveCapabilities = ReadCapabilities(member.Worker?.CapabilitiesJson),
+                        RuntimeEligibility = "NotApplicable",
+                        IsAvailable = member.Worker?.IsEnabled ?? true
+                    };
+                if (!installationStates.TryGetValue(member.AgentInstallationId.Value, out var installation))
+                    return teammate with { RuntimeEligibility = "Unavailable", IsAvailable = false };
+                var capabilities = ReadCapabilities(installation.Grant?.RequiredCapabilitiesJson);
+                var eligible = installation.IsEnabled &&
+                    installation.RevisionStatus == PluginRevisionStatus.Active &&
+                    installation.Schedule?.IsEnabled == true;
+                return teammate with
+                {
+                    EffectiveCapabilities = capabilities,
+                    RuntimeEligibility = eligible ? "Eligible" : "Unavailable",
+                    IsAvailable = eligible
+                };
             })
             .ToList();
         return new TeamRosterResponse(new AgentTeamContext(
@@ -152,6 +183,19 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
             coverage,
             members.Count,
             page * pageSize < ordered.Count));
+    }
+
+    private static IReadOnlyList<string> ReadCapabilities(string? json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(json ?? "[]")?
+                .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToList() ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     public static string ApplyToInstructions(

@@ -16,7 +16,8 @@ namespace CSweet.Infrastructure.WorkManagement;
 public sealed class WorkSprintService(
     CSweetDbContext db,
     IScopedActionAuthorizationService authorization,
-    IAuditEventWriter audit) : IWorkSprintService
+    IAuditEventWriter audit,
+    IAgentAttentionInvalidationService? attention = null) : IWorkSprintService
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);
@@ -121,6 +122,8 @@ public sealed class WorkSprintService(
             organizationId, boardId, "sprint.created",
             cancellationToken, sprint.Id);
         await db.SaveChangesAsync(cancellationToken);
+        await InvalidateBoardManagersAsync(
+            organizationId, boardId, "work.sprint-transition", sprint.Id, cancellationToken);
         await WriteAuditAsync(
             organizationId, boardId, sprint.Id, "WorkSprint", member,
             WorkSprintActions.Create, decision,
@@ -216,6 +219,8 @@ public sealed class WorkSprintService(
             organizationId, boardId, EventTypeFor(action),
             cancellationToken, sprint.Id);
         await db.SaveChangesAsync(cancellationToken);
+        await InvalidateBoardManagersAsync(
+            organizationId, boardId, "work.sprint-transition", sprint.Id, cancellationToken);
         await WriteAuditAsync(
             organizationId, boardId, sprint.Id, "WorkSprint", member,
             action, decision,
@@ -788,6 +793,38 @@ public sealed class WorkSprintService(
                 "Human", true, member.ApplicationUserId, member.Id,
                 member.DisplayName)),
             cancellationToken);
+
+    private async Task InvalidateBoardManagersAsync(
+        Guid organizationId,
+        Guid boardId,
+        string triggerCategory,
+        Guid correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (attention is null) return;
+        var board = await db.WorkBoards.AsNoTracking()
+            .Where(x => x.Id == boardId && x.OrganizationId == organizationId)
+            .Select(x => new { x.ManagerOrganizationUserId, x.TeamId })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (board is null) return;
+        var managerIds = new List<Guid>();
+        if (board.ManagerOrganizationUserId.HasValue)
+            managerIds.Add(board.ManagerOrganizationUserId.Value);
+        if (board.TeamId.HasValue)
+        {
+            var teamLeadId = await db.OrganizationTeams.AsNoTracking()
+                .Where(x => x.Id == board.TeamId.Value && x.OrganizationId == organizationId && x.ArchivedAt == null)
+                .Select(x => (Guid?)x.LeadOrganizationUserId)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (teamLeadId.HasValue) managerIds.Add(teamLeadId.Value);
+        }
+        var installations = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => managerIds.Contains(x.Id) && x.IsActive && x.AgentInstallationId.HasValue)
+            .Select(x => x.AgentInstallationId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        await attention.InvalidateAsync(installations, triggerCategory, correlationId, cancellationToken);
+    }
 
     private static void ValidateIdempotencyKey(string value)
     {

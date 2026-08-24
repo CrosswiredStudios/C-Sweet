@@ -67,6 +67,10 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Read current staff, roles, reporting lines, objectives, workstreams, workers, and operating signals."),
         Read(PlatformCapabilities.TeamRosterRead, "read_team_roster",
             "Read only this agent employee's active team roster, with bounded teammate identity and role facts."),
+        HiddenRead(PlatformCapabilities.AgentOperatingStateRead, "read_agent_operating_state",
+            "Read this installation's revision-controlled operating assessment checkpoint."),
+        HiddenWrite(PlatformCapabilities.AgentOperatingStateWrite, "write_agent_operating_state",
+            "Write this installation's bounded operating assessment checkpoint with optimistic concurrency."),
         Read(PlatformCapabilities.BusinessPatternSearch, "search_business_patterns",
             "Find stage-appropriate operating patterns from broker-approved sources."),
         Approval(PlatformCapabilities.WorkstreamPlanPropose, "propose_workstream_plan",
@@ -127,6 +131,12 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Read resource-change requests visible to this requester, assigned manager, or active Chief of Staff."),
         Write(ResourceChangeCapabilities.Decide, "decide_resource_change",
             "Approve, request revision of, or reject a resource-change request when this agent is the current manager."),
+        HiddenWrite(StaffingReplenishmentCapabilities.Propose, "propose_staffing_replenishment",
+            "Submit one deduplicated replacement hiring plan against an approved desired-team baseline."),
+        HiddenRead(StaffingReplenishmentCapabilities.Read, "read_staffing_replenishments",
+            "Read staffing-replenishment requests visible to this requester or manager."),
+        HiddenWrite(StaffingReplenishmentCapabilities.Decide, "decide_staffing_replenishment",
+            "Approve, request revision of, or reject a direct report's replacement hiring plan."),
         Approval(HiringCapabilities.StageWorkflow, "stage_hiring_workflow",
             "Stage a combined install-and-hire proposal for explicit organization-owner approval. This does not install or hire directly."),
         Read(WorkBoardActions.Read, "list_work_boards",
@@ -275,8 +285,24 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         CSweetDbContext db,
         CancellationToken cancellationToken)
     {
-        var tools = List(session.Grant.RequiredCapabilities).ToList();
         var requesterId = Guid.Parse(session.InstallationId);
+        var requesterManifestJson = await db.AgentInstallations.AsNoTracking()
+            .Where(x => x.Id == requesterId)
+            .Select(x => x.PackageVersion!.ManifestJson)
+            .SingleAsync(cancellationToken);
+        var requesterManifest = JsonSerializer.Deserialize<PluginManifest>(
+            requesterManifestJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var requirements = (requesterManifest?.Requires ?? [])
+            .GroupBy(x => x.Name, StringComparer.Ordinal)
+            .ToDictionary(x => x.Key, x => x.Single(), StringComparer.Ordinal);
+        var tools = List(session.Grant.RequiredCapabilities)
+            .Select(tool => tool with
+            {
+                ModelVisible = tool.ModelVisible &&
+                    requirements.TryGetValue(tool.Capability, out var requirement) &&
+                    requirement.ModelVisible
+            })
+            .ToList();
         var bindings = await db.AgentCapabilityBindings.AsNoTracking()
             .Where(x => x.RequesterInstallationId == requesterId &&
                         x.OrganizationId == session.BusinessId &&
@@ -311,6 +337,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
                 declaration.InputSchema,
                 declaration.OutputSchema,
                 McpToolExecutionPolicy.AdvisoryWrite,
+                ModelVisible: requirements.TryGetValue(binding.Capability, out var requesterRequirement) &&
+                              requesterRequirement.ModelVisible,
                 ProviderInstallationId: binding.ProviderInstallationId,
                 ExecutionTimeoutSeconds: declaration.ExecutionTimeoutSeconds,
                 RiskClass: declaration.RiskClass,
@@ -444,8 +472,23 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         ResourceChangeCapabilities.Decide => Schema("""
             {"type":"object","required":["requestId","decision","idempotencyKey"],"properties":{"requestId":{"type":"string","format":"uuid"},"decision":{"type":"string","enum":["Approve","RequestRevision","Reject"]},"comment":{"type":["string","null"],"maxLength":4000},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
+        StaffingReplenishmentCapabilities.Propose => Schema("""
+            {"type":"object","required":["sourceResourceChangeRequestId","teamId","conversationId","gaps","operationalImpact","interimControls","decisionFingerprint","idempotencyKey"],"properties":{"sourceResourceChangeRequestId":{"type":"string","format":"uuid"},"teamId":{"type":"string","format":"uuid"},"conversationId":{"type":"string","format":"uuid"},"gaps":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","required":["roleKey","roleTitle","desiredHeadcount","effectiveHeadcount","missingHeadcount","eligibilityEvidence"],"properties":{"roleKey":{"type":"string","minLength":1,"maxLength":160},"roleTitle":{"type":"string","minLength":1,"maxLength":256},"desiredHeadcount":{"type":"integer","minimum":1},"effectiveHeadcount":{"type":"integer","minimum":0},"missingHeadcount":{"type":"integer","minimum":1},"eligibilityEvidence":{"type":"array","maxItems":20,"items":{"type":"string","minLength":1,"maxLength":1024}}},"additionalProperties":false}},"operationalImpact":{"type":"string","minLength":1,"maxLength":4096},"interimControls":{"type":"array","maxItems":20,"items":{"type":"string","minLength":1,"maxLength":1024}},"decisionFingerprint":{"type":"string","minLength":1,"maxLength":128},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        StaffingReplenishmentCapabilities.Read => Schema("""
+            {"type":"object","properties":{"requestId":{"type":["string","null"],"format":"uuid"},"sourceResourceChangeRequestId":{"type":["string","null"],"format":"uuid"},"statuses":{"type":["array","null"],"items":{"type":"string"}}},"additionalProperties":false}
+            """),
+        StaffingReplenishmentCapabilities.Decide => Schema("""
+            {"type":"object","required":["requestId","decision","idempotencyKey"],"properties":{"requestId":{"type":"string","format":"uuid"},"decision":{"type":"string","enum":["Approve","RequestRevision","Reject"]},"comment":{"type":["string","null"],"maxLength":4000},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
         PlatformCapabilities.TeamRosterRead => Schema("""
             {"type":"object","properties":{"page":{"type":"integer","minimum":1,"maximum":10000},"pageSize":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}
+            """),
+        PlatformCapabilities.AgentOperatingStateRead => Schema("""
+            {"type":"object","required":["stateKey"],"properties":{"stateKey":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[A-Za-z0-9._/:\\-]+$"}},"additionalProperties":false}
+            """),
+        PlatformCapabilities.AgentOperatingStateWrite => Schema("""
+            {"type":"object","required":["stateKey","schemaId","schemaVersion","status","sourceRevisions","conditionCodes","decisionFingerprint","openCommitmentCorrelations","attentionReviewId","payload","idempotencyKey"],"properties":{"stateKey":{"type":"string","minLength":1,"maxLength":160},"schemaId":{"type":"string","minLength":1,"maxLength":160},"schemaVersion":{"type":"integer","minimum":1},"status":{"type":"string","minLength":1,"maxLength":80},"sourceRevisions":{"type":"object","maxProperties":32,"additionalProperties":true},"conditionCodes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":80}},"decisionFingerprint":{"type":"string","minLength":1,"maxLength":128},"openCommitmentCorrelations":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":200}},"attentionReviewId":{"type":"string","format":"uuid"},"payload":{"type":"object"},"expectedRevision":{"type":["integer","null"],"minimum":0},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         HiringCapabilities.StageWorkflow => Schema("""
             {"type":"object","required":["recommendationId","candidateReference","roleTitle","conversationId","chatTurnId","idempotencyKey"],"properties":{"recommendationId":{"type":"string","format":"uuid"},"candidateReference":{"type":"string"},"roleTitle":{"type":"string","minLength":1,"maxLength":160},"reportsToOrganizationUserId":{"type":["string","null"],"format":"uuid"},"requiredGrants":{"type":["array","null"],"items":{"type":"string"}},"conversationId":{"type":"string","format":"uuid"},"chatTurnId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

@@ -405,6 +405,24 @@ internal static class CoreConfigurations
             entity.HasOne<OrganizationTeam>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(x => x.Request).WithMany(x => x.Roles).HasForeignKey(x => x.ResourceChangeRequestId).OnDelete(DeleteBehavior.Cascade);
         });
+        modelBuilder.Entity<StaffingReplenishmentRequestRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.OrganizationId, x.RequesterInstallationId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.ManagerOrganizationUserId, x.Status });
+            entity.HasIndex(x => new { x.SourceResourceChangeRequestId, x.DecisionFingerprint });
+            entity.Property(x => x.GapsJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.OperationalImpact).HasMaxLength(4096).IsRequired();
+            entity.Property(x => x.InterimControlsJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.DecisionFingerprint).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.DecisionComment).HasMaxLength(4000);
+            entity.Property(x => x.DecisionIdempotencyKey).HasMaxLength(160);
+            entity.HasOne<ResourceChangeRequestRecord>().WithMany().HasForeignKey(x => x.SourceResourceChangeRequestId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<OrganizationTeam>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Restrict);
+        });
     }
 
     static void ConfigureRole(EntityTypeBuilder<Role> entity)

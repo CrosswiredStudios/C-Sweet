@@ -12,6 +12,7 @@ public sealed record PluginManifest
     public string Version { get; init; } = string.Empty;
     public PluginPublisher Publisher { get; init; } = new();
     public PluginRuntime Runtime { get; init; } = new();
+    public PluginRolePolicy? RolePolicy { get; init; }
     public PluginProtocol Protocol { get; init; } = new();
     public IReadOnlyList<PluginCapabilityDeclaration> Provides { get; init; } = [];
     public IReadOnlyList<PluginCapabilityRequirement> Requires { get; init; } = [];
@@ -23,6 +24,12 @@ public sealed record PluginManifest
     public PluginWebAccess WebAccess { get; init; } = new();
     public IReadOnlyList<PluginUiContribution> Ui { get; init; } = [];
     public PluginCatalogMetadata Catalog { get; init; } = new();
+}
+
+public sealed record PluginRolePolicy
+{
+    public string Profile { get; init; } = string.Empty;
+    public IReadOnlyList<string> DeclaredRoleKeys { get; init; } = [];
 }
 
 public sealed record PluginCatalogMetadata
@@ -93,6 +100,7 @@ public sealed record PluginCapabilityRequirement
     public string Name { get; init; } = string.Empty;
     public string Scope { get; init; } = "organization";
     public string? Purpose { get; init; }
+    public bool ModelVisible { get; init; } = true;
 }
 
 public sealed record PluginEventDeclarations

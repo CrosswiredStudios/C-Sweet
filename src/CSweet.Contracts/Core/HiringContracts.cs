@@ -19,6 +19,11 @@ public static class HiringEvents
     public const string RecommendationFulfilled = "com.csweet.hiring-recommendation.fulfilled.v1";
 }
 
+public static class WorkforceEvents
+{
+    public const string Changed = "com.csweet.workforce.changed.v1";
+}
+
 public sealed record HiringCandidateResponse(
     string CandidateReference,
     string Source,
@@ -98,6 +103,15 @@ public sealed record EmployeeHiredEvent(
     Guid? ReportsToOrganizationUserId,
     Guid? HiringOrganizationUserId,
     string Source,
+    DateTimeOffset OccurredAt);
+
+public sealed record WorkforceChangedEvent(
+    Guid OrganizationId,
+    Guid OrganizationUserId,
+    string ChangeKind,
+    IReadOnlyList<Guid> AffectedTeamIds,
+    Guid? PreviousManagerOrganizationUserId,
+    Guid? CurrentManagerOrganizationUserId,
     DateTimeOffset OccurredAt);
 
 public sealed record HiringRecommendationFulfilledEvent(

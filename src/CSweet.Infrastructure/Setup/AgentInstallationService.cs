@@ -27,6 +27,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     private readonly IAgentWorkloadRunner _workloads;
     private readonly AgentRuntimeManagerOptions _runtimeOptions;
     private readonly ILogger<AgentInstallationService> _logger;
+    private readonly IAgentAttentionInvalidationService? _attention;
 
     public AgentInstallationService(
         CSweetDbContext dbContext,
@@ -34,7 +35,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         IAgentBuildService buildService,
         IAgentWorkloadRunner workloads,
         IOptions<AgentRuntimeManagerOptions> runtimeOptions,
-        ILogger<AgentInstallationService> logger)
+        ILogger<AgentInstallationService> logger,
+        IAgentAttentionInvalidationService? attention = null)
     {
         _dbContext = dbContext;
         _auditWriter = auditWriter;
@@ -42,6 +44,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         _workloads = workloads;
         _runtimeOptions = runtimeOptions.Value;
         _logger = logger;
+        _attention = attention;
     }
 
     public async Task<AgentInstallationResponse> InstallAsync(
@@ -587,6 +590,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         await _dbContext.SaveChangesAsync(cancellationToken);
         _ = await new AgentCapabilityBindingReconciler(_dbContext, _auditWriter)
             .ReconcileAsync(staged.BusinessId, cancellationToken);
+        await InvalidateAffectedManagersAsync(
+            previous.Id, "installation.capability-grant-changed", cancellationToken);
+        await InvalidateAffectedManagersAsync(
+            staged.Id, "installation.capability-grant-changed", cancellationToken);
         await _auditWriter.WriteAsync("plugin-update.approved", nameof(AgentInstallation), staged.Id,
             $"Activated plugin revision {staged.RevisionNumber} after complete grant reapproval.", null, cancellationToken);
         if (normalized.Keys.Count > 0)
@@ -782,6 +789,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             installation.UpdatedAt,
             cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await InvalidateAffectedManagersAsync(installation.Id, "installation.disabled", cancellationToken);
         await WriteScheduleAuditAsync(installation, "agent-installation.disabled", cancellationToken);
         return ToResponse(installation);
     }
@@ -810,6 +818,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             now);
         installation.UpdatedAt = now;
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await InvalidateAffectedManagersAsync(installation.Id, "installation.enabled", cancellationToken);
         await WriteScheduleAuditAsync(installation, "agent-installation.enabled", cancellationToken);
         return ToResponse(installation);
     }
@@ -992,6 +1001,35 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var bytes = new byte[length];
         var read = await stream.ReadAtLeastAsync(bytes, length, throwOnEndOfStream: false, cancellationToken: cancellationToken);
         return new AgentBuildLogResponse(job.Id, job.Status.ToString(), System.Text.Encoding.UTF8.GetString(bytes, 0, read), stream.Length > maximumBytes);
+    }
+
+    private async Task InvalidateAffectedManagersAsync(
+        Guid installationId,
+        string category,
+        CancellationToken cancellationToken)
+    {
+        if (_attention is null)
+            return;
+        var employee = await _dbContext.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.AgentInstallationId == installationId)
+            .Select(x => new { x.Id, x.ReportsToOrganizationUserId })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (employee is null)
+            return;
+        var managerIds = new List<Guid>();
+        if (employee.ReportsToOrganizationUserId.HasValue)
+            managerIds.Add(employee.ReportsToOrganizationUserId.Value);
+        managerIds.AddRange(await _dbContext.TeamMemberships.AsNoTracking()
+            .Where(x => x.OrganizationUserId == employee.Id && x.EndedAt == null)
+            .Select(x => x.Team!.LeadOrganizationUserId)
+            .ToListAsync(cancellationToken));
+        var targets = await _dbContext.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => managerIds.Contains(x.Id) && x.IsActive && x.AgentInstallationId.HasValue)
+            .Select(x => x.AgentInstallationId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        if (targets.Count > 0)
+            await _attention.InvalidateAsync(targets, category, Guid.NewGuid(), cancellationToken);
     }
 
     private static string FormatPersistedBuildDiagnostics(AgentBuildJob job)

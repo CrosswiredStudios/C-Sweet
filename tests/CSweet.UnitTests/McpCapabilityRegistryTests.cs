@@ -2,12 +2,59 @@ using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
 using CSweet.Contracts.Communications;
 using CSweet.WorkManagement.Contracts;
+using CSweet.Domain.Setup;
+using CSweet.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
 namespace CSweet.UnitTests;
 
 public sealed class McpCapabilityRegistryTests
 {
+    [Fact]
+    public async Task ModelDiscoveryUsesApprovedManifestVisibilityWithoutNameFiltering()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
+        var organizationId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(), PackageSourceId = Guid.NewGuid(), CommitSha = "abc",
+            ManifestDigest = "digest", CapabilityDescriptorsDigest = "descriptors",
+            AgentId = "test.agent", AgentName = "Test", Version = "1.0.0",
+            PublisherId = "test", PublisherName = "Test", RuntimeType = "dotnet-project",
+            ManifestJson = JsonSerializer.Serialize(new
+            {
+                requires = new object[]
+                {
+                    new { name = PlatformCapabilities.BusinessProfileRead, scope = "organization", purpose = "Read business.", modelVisible = true },
+                    new { name = PlatformCapabilities.OrganizationSnapshotRead, scope = "organization", purpose = "Deterministic reconciliation only.", modelVisible = false }
+                }
+            })
+        };
+        var installation = new AgentInstallation
+        {
+            Id = installationId, InstallationKey = Guid.NewGuid(), PackageVersionId = package.Id,
+            PackageVersion = package, BusinessId = organizationId.ToString("D"), IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active
+        };
+        db.AddRange(package, installation);
+        await db.SaveChangesAsync();
+        var grants = new HashSet<string>([
+            PlatformCapabilities.BusinessProfileRead,
+            PlatformCapabilities.OrganizationSnapshotRead
+        ], StringComparer.Ordinal);
+        var session = new AgentSession("session", "test.agent", installationId.ToString("D"),
+            organizationId.ToString("D"), Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), grants, 1));
+
+        var descriptors = await new McpToolCatalog([]).ListAsync(session, db, CancellationToken.None);
+
+        Assert.True(descriptors.Single(x => x.Capability == PlatformCapabilities.BusinessProfileRead).ModelVisible);
+        Assert.False(descriptors.Single(x => x.Capability == PlatformCapabilities.OrganizationSnapshotRead).ModelVisible);
+    }
+
     [Fact]
     public void CoordinationTools_HaveStrictSchemasAndStayHiddenFromModelDiscovery()
     {

@@ -7,6 +7,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using CSweet.Agent.SDK;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
@@ -24,6 +25,8 @@ public sealed class PluginOperationsCapabilityHandler(
     public const string EngagementInbox = "platform.engagement-inbox.upsert.v1";
     public const string MetricSnapshot = "platform.metric-snapshot.write.v1";
     public const string SyncCheckpoint = "platform.synchronization-checkpoint.v1";
+    public const string AgentOperatingStateRead = "platform.agent-operating-state.read.v1";
+    public const string AgentOperatingStateWrite = "platform.agent-operating-state.write.v1";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly IReadOnlySet<string> ServerHardGateActions = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -31,7 +34,8 @@ public sealed class PluginOperationsCapabilityHandler(
         "content-id-claim", "content-id-policy", "ownership-change", "monetization-change", "ad-change"
     };
     private static readonly IReadOnlySet<string> Capabilities = new HashSet<string>(StringComparer.Ordinal)
-        { ManagedAction, ManagedActionDecide, EngagementInbox, MetricSnapshot, SyncCheckpoint };
+        { ManagedAction, ManagedActionDecide, EngagementInbox, MetricSnapshot, SyncCheckpoint,
+            AgentOperatingStateRead, AgentOperatingStateWrite };
 
     public bool CanHandle(string capability) => Capabilities.Contains(capability);
 
@@ -47,8 +51,12 @@ public sealed class PluginOperationsCapabilityHandler(
         CapabilityResult result;
         try
         {
-            result = request.Capability == ManagedAction
-                ? await HandleManagedActionAsync(request, organizationId, installationId, cancellationToken)
+            result = request.Capability == AgentOperatingStateRead
+                ? await ReadOperatingStateAsync(request, organizationId, installationId, cancellationToken)
+                : request.Capability == AgentOperatingStateWrite
+                    ? await WriteOperatingStateAsync(request, organizationId, installationId, cancellationToken)
+                : request.Capability == ManagedAction
+                    ? await HandleManagedActionAsync(request, organizationId, installationId, cancellationToken)
                 : request.Capability == ManagedActionDecide
                     ? await HandleManagedActionDecisionAsync(request, organizationId, installationId, cancellationToken)
                 : request.Capability == EngagementInbox
@@ -60,6 +68,121 @@ public sealed class PluginOperationsCapabilityHandler(
             result = Failure(request.RequestId, exception.Message);
         }
         yield return result;
+    }
+
+    private async Task<CapabilityResult> ReadOperatingStateAsync(
+        RequestCapability request,
+        Guid organizationId,
+        Guid installationId,
+        CancellationToken cancellationToken)
+    {
+        var input = JsonSerializer.Deserialize<AgentOperatingStateReadRequest>(request.Payload.Span, JsonOptions)
+            ?? throw new JsonException("The operating-state read payload is empty.");
+        ValidateStateKey(input.StateKey);
+        var state = await db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.AgentInstallationId == installationId &&
+            x.Kind == "agent-operating-state" && x.ExternalKey == input.StateKey, cancellationToken);
+        return Success(request.RequestId, new AgentOperatingStateReadResponse(
+            state is null ? null : ToOperatingStateResponse(state)));
+    }
+
+    private async Task<CapabilityResult> WriteOperatingStateAsync(
+        RequestCapability request,
+        Guid organizationId,
+        Guid installationId,
+        CancellationToken cancellationToken)
+    {
+        var input = JsonSerializer.Deserialize<AgentOperatingStateWriteRequest>(request.Payload.Span, JsonOptions)
+            ?? throw new JsonException("The operating-state write payload is empty.");
+        ValidateOperatingState(input);
+        var state = await db.PluginOperationalStates.SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.AgentInstallationId == installationId &&
+            x.Kind == "agent-operating-state" && x.ExternalKey == input.StateKey, cancellationToken);
+        if (state is not null)
+        {
+            var stored = JsonSerializer.Deserialize<StoredAgentOperatingState>(state.PayloadJson, JsonOptions);
+            if (stored is not null && string.Equals(stored.IdempotencyKey, input.IdempotencyKey, StringComparison.Ordinal))
+                return Success(request.RequestId, ToOperatingStateResponse(state));
+            if (input.ExpectedRevision != state.Revision)
+                return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict,
+                    $"Expected operating-state revision {input.ExpectedRevision?.ToString() ?? "none"}; current revision is {state.Revision}.");
+        }
+        else if (input.ExpectedRevision is not null and not 0)
+        {
+            return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict,
+                "The operating-state record does not exist at the expected revision.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (state is null)
+        {
+            state = new PluginOperationalState
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, AgentInstallationId = installationId,
+                Kind = "agent-operating-state", ExternalKey = input.StateKey, CreatedAt = now
+            };
+            db.PluginOperationalStates.Add(state);
+        }
+        state.Revision++;
+        state.PayloadJson = JsonSerializer.Serialize(new StoredAgentOperatingState(
+            input.SchemaId, input.SchemaVersion, input.Status, input.SourceRevisions,
+            input.ConditionCodes, input.DecisionFingerprint, input.OpenCommitmentCorrelations,
+            input.AttentionReviewId, input.Payload.Clone(), input.IdempotencyKey), JsonOptions);
+        state.UpdatedAt = now;
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict,
+                "The operating-state record changed during this review. Reread authoritative state and reassess.");
+        }
+        catch (DbUpdateException)
+        {
+            // Concurrent first writers can race on the scoped unique key. Treat that
+            // the same as a compare-and-swap conflict instead of leaking persistence details.
+            return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict,
+                "The operating-state record was created by another review. Reread authoritative state and reassess.");
+        }
+        await audit.WriteAsync("agent.operating-state.updated", nameof(PluginOperationalState), state.Id,
+            $"Updated operating state '{state.ExternalKey}' to revision {state.Revision}.", cancellationToken: cancellationToken);
+        return Success(request.RequestId, ToOperatingStateResponse(state));
+    }
+
+    private static AgentOperatingStateResponse ToOperatingStateResponse(PluginOperationalState state)
+    {
+        var stored = JsonSerializer.Deserialize<StoredAgentOperatingState>(state.PayloadJson, JsonOptions)
+            ?? throw new InvalidOperationException("The persisted operating state is invalid.");
+        return new AgentOperatingStateResponse(
+            state.Id, state.ExternalKey, stored.SchemaId, stored.SchemaVersion, stored.Status,
+            stored.SourceRevisions, stored.ConditionCodes, stored.DecisionFingerprint,
+            stored.OpenCommitmentCorrelations, stored.AttentionReviewId, stored.Payload,
+            state.Revision, state.CreatedAt, state.UpdatedAt);
+    }
+
+    private static void ValidateOperatingState(AgentOperatingStateWriteRequest input)
+    {
+        ValidateStateKey(input.StateKey);
+        if (string.IsNullOrWhiteSpace(input.SchemaId) || input.SchemaId.Length > 160 || input.SchemaVersion < 1)
+            throw new InvalidOperationException("Operating state requires a bounded schema ID and positive schema version.");
+        if (string.IsNullOrWhiteSpace(input.Status) || input.Status.Length > 80 ||
+            string.IsNullOrWhiteSpace(input.DecisionFingerprint) || input.DecisionFingerprint.Length > 128 ||
+            string.IsNullOrWhiteSpace(input.IdempotencyKey) || input.IdempotencyKey.Length > 160)
+            throw new InvalidOperationException("Operating-state status, fingerprint, and idempotency key are required and bounded.");
+        if (input.SourceRevisions.Count > 32 || input.SourceRevisions.Any(x =>
+                string.IsNullOrWhiteSpace(x.Key) || x.Key.Length > 80 || x.Value.Length > 160) ||
+            input.ConditionCodes.Count > 32 || input.ConditionCodes.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 80) ||
+            input.OpenCommitmentCorrelations.Count > 32 || input.OpenCommitmentCorrelations.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 200) ||
+            input.Payload.GetRawText().Length > 65_536)
+            throw new InvalidOperationException("Operating-state revisions, conditions, commitments, or payload exceed platform bounds.");
+    }
+
+    private static void ValidateStateKey(string stateKey)
+    {
+        if (string.IsNullOrWhiteSpace(stateKey) || stateKey.Length > 160 ||
+            stateKey.Any(x => !(char.IsLetterOrDigit(x) || x is '.' or '-' or '_' or '/' or ':')))
+            throw new InvalidOperationException("Operating-state key is invalid.");
     }
 
     private async Task<CapabilityResult> HandleManagedActionAsync(RequestCapability request, Guid organizationId,
@@ -388,6 +511,22 @@ public sealed class PluginOperationsCapabilityHandler(
         RequestId = requestId, Succeeded = false, ContentType = "application/json", Error = error,
         Payload = JsonPayload.FromUtf8("{\"isError\":true}")
     };
+    private static CapabilityResult Failure(string requestId, PlatformCapabilityErrorCode code, string error) => new()
+    {
+        RequestId = requestId, Succeeded = false, ContentType = "application/json", Error = error,
+        FailureCode = code.ToString(), Payload = JsonPayload.FromUtf8("{\"isError\":true}")
+    };
+    private sealed record StoredAgentOperatingState(
+        string SchemaId,
+        int SchemaVersion,
+        string Status,
+        IReadOnlyDictionary<string, string> SourceRevisions,
+        IReadOnlyList<string> ConditionCodes,
+        string DecisionFingerprint,
+        IReadOnlyList<string> OpenCommitmentCorrelations,
+        Guid AttentionReviewId,
+        JsonElement Payload,
+        string IdempotencyKey);
     private sealed record ManagedActionInput(string InstallationId, string ChannelId, string ActionType,
         JsonElement Payload, string PayloadHash, string IdempotencyKey, string? ApprovalId,
         long? ExpectedRevision, bool AlwaysRequiresApproval, string? ResourceId = null);

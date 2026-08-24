@@ -11,11 +11,16 @@ public sealed class StrategicObjectiveService : IStrategicObjectiveService
 {
     private readonly CSweetDbContext _dbContext;
     private readonly IAuditEventWriter _auditEventWriter;
+    private readonly IAgentAttentionInvalidationService? _attention;
 
-    public StrategicObjectiveService(CSweetDbContext dbContext, IAuditEventWriter auditEventWriter)
+    public StrategicObjectiveService(
+        CSweetDbContext dbContext,
+        IAuditEventWriter auditEventWriter,
+        IAgentAttentionInvalidationService? attention = null)
     {
         _dbContext = dbContext;
         _auditEventWriter = auditEventWriter;
+        _attention = attention;
     }
 
     public async Task<IReadOnlyList<StrategicObjectiveResponse>> ListByOrganizationAsync(Guid organizationId, CancellationToken cancellationToken = default)
@@ -62,6 +67,9 @@ public sealed class StrategicObjectiveService : IStrategicObjectiveService
 
         _dbContext.CoreStrategicObjectives.Add(obj);
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (_attention is not null)
+            await _attention.InvalidateManagersAsync(
+                organizationId, "objective.created", obj.Id, cancellationToken);
 
         await _auditEventWriter.WriteAsync(
             "strategic_objective.created",
@@ -94,6 +102,9 @@ public sealed class StrategicObjectiveService : IStrategicObjectiveService
 
         obj.UpdatedAt = DateTimeOffset.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (_attention is not null)
+            await _attention.InvalidateManagersAsync(
+                obj.OrganizationId, "objective.revised", obj.Id, cancellationToken);
 
         await _auditEventWriter.WriteAsync(
             "strategic_objective.updated",
@@ -116,8 +127,12 @@ public sealed class StrategicObjectiveService : IStrategicObjectiveService
         }
 
         var title = obj.Title;
+        var organizationId = obj.OrganizationId;
         _dbContext.CoreStrategicObjectives.Remove(obj);
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (_attention is not null)
+            await _attention.InvalidateManagersAsync(
+                organizationId, "objective.deleted", obj.Id, cancellationToken);
 
         await _auditEventWriter.WriteAsync(
             "strategic_objective.deleted",

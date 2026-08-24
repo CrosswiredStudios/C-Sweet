@@ -11,6 +11,10 @@ public sealed class AgentSchedule
     public DateTimeOffset? LastCompletedAt { get; set; }
     public DateTimeOffset? LastAttentionReviewAt { get; set; }
     public DateTimeOffset? NextAttentionReviewAt { get; set; }
+    public string? PendingAttentionReason { get; set; }
+    public string? PendingAttentionTriggerCategory { get; set; }
+    public Guid? PendingAttentionCorrelationId { get; set; }
+    public DateTimeOffset? AttentionInvalidatedAt { get; set; }
     public DateTimeOffset? RunRequestedAt { get; set; }
     public int MaxRuntimeSeconds { get; set; }
     public int MaxRetriesPerTick { get; set; }

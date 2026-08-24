@@ -149,6 +149,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<ManagementStatusReportRecord> ManagementStatusReports => Set<ManagementStatusReportRecord>();
     public DbSet<ResourceNeedReportRecord> ResourceNeedReports => Set<ResourceNeedReportRecord>();
     public DbSet<ResourceChangeRequestRecord> ResourceChangeRequests => Set<ResourceChangeRequestRecord>();
+    public DbSet<StaffingReplenishmentRequestRecord> StaffingReplenishmentRequests => Set<StaffingReplenishmentRequestRecord>();
     public DbSet<ResourceChangeRoleRecord> ResourceChangeRoles => Set<ResourceChangeRoleRecord>();
     public DbSet<ExecutiveBriefingDeliveryRecord> ExecutiveBriefingDeliveries => Set<ExecutiveBriefingDeliveryRecord>();
 
@@ -1033,6 +1034,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.Kind).HasMaxLength(80).IsRequired();
             entity.Property(x => x.ExternalKey).HasMaxLength(256).IsRequired();
             entity.Property(x => x.PayloadJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasIndex(x => new { x.AgentInstallationId, x.Kind, x.ExternalKey }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Kind, x.UpdatedAt });
         });
@@ -1057,6 +1059,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.OverlapPolicy).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.Property(x => x.NextTickAt).IsConcurrencyToken();
             entity.Property(x => x.NextAttentionReviewAt).IsConcurrencyToken();
+            entity.Property(x => x.PendingAttentionReason).HasMaxLength(32);
+            entity.Property(x => x.PendingAttentionTriggerCategory).HasMaxLength(80);
             entity.HasIndex(x => x.AgentInstallationId).IsUnique();
             entity.HasOne(x => x.AgentInstallation)
                 .WithOne(x => x.Schedule)

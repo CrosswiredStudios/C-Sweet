@@ -246,6 +246,15 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
 
         if (!string.Equals(manifest.ManifestVersion, "2.0", StringComparison.Ordinal))
             errors.Add("Executable plugins must use manifestVersion 2.0.");
+        if (manifest.RolePolicy is { } rolePolicy)
+        {
+            if (!CSweet.Agent.SDK.AgentRolePolicyProfiles.All.Contains(rolePolicy.Profile))
+                errors.Add("rolePolicy.profile must name a supported platform policy profile.");
+            if (rolePolicy.DeclaredRoleKeys.Count == 0 ||
+                rolePolicy.DeclaredRoleKeys.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 200) ||
+                rolePolicy.DeclaredRoleKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != rolePolicy.DeclaredRoleKeys.Count)
+                errors.Add("rolePolicy.declaredRoleKeys must contain unique non-empty role keys of at most 200 characters.");
+        }
         if (manifest.Protocol is null ||
             string.IsNullOrWhiteSpace(manifest.Protocol.MinimumVersion) ||
             string.IsNullOrWhiteSpace(manifest.Protocol.MaximumVersion))

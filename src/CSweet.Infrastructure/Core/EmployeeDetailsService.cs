@@ -1,15 +1,20 @@
 using CSweet.Application.Core;
+using CSweet.Application.Setup;
+using CSweet.Contracts.Core;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace CSweet.Infrastructure.Core;
 
 public sealed class EmployeeDetailsService(
     CSweetDbContext db,
     IEmployeeHierarchyAccessService hierarchy,
-    ITeamService teams) : IEmployeeDetailsService
+    ITeamService teams,
+    IAgentAttentionInvalidationService? attention = null) : IEmployeeDetailsService
 {
     public async Task<EmployeeDetailsResponse> GetAsync(Guid organizationId, Guid employeeId,
         Guid applicationUserId, CancellationToken cancellationToken = default)
@@ -86,6 +91,8 @@ public sealed class EmployeeDetailsService(
         {
             throw new UnauthorizedAccessException("Only an organization owner may move an employee outside the reporting tree.");
         }
+        var previousManagerId = employee.ReportsToOrganizationUserId;
+        var previousRoleId = employee.RoleId;
         employee.DisplayName = request.DisplayName.Trim();
         employee.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
         if (canManage)
@@ -94,7 +101,35 @@ public sealed class EmployeeDetailsService(
             employee.ReportsToOrganizationUserId = request.ReportsToOrganizationUserId;
         }
         employee.Revision++;
+        var materialWorkforceChange = previousManagerId != employee.ReportsToOrganizationUserId ||
+                                      previousRoleId != employee.RoleId;
+        var managerTargets = materialWorkforceChange
+            ? await db.CoreOrganizationUsers.AsNoTracking()
+                .Where(x => x.IsActive && x.AgentInstallationId.HasValue &&
+                    ((previousManagerId.HasValue && x.Id == previousManagerId.Value) ||
+                     (employee.ReportsToOrganizationUserId.HasValue && x.Id == employee.ReportsToOrganizationUserId.Value)))
+                .Select(x => x.AgentInstallationId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken)
+            : [];
+        var workforceEventId = Guid.NewGuid();
+        foreach (var target in managerTargets)
+        {
+            db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, EventType = WorkforceEvents.Changed,
+                DataJson = JsonSerializer.Serialize(new WorkforceChangedEvent(
+                    organizationId, employee.Id,
+                    previousManagerId != employee.ReportsToOrganizationUserId ? "ReportingLineChanged" : "RoleChanged",
+                    [], previousManagerId, employee.ReportsToOrganizationUserId, DateTimeOffset.UtcNow)),
+                IdempotencyKey = $"workforce-changed:{employee.Id:N}:profile:{employee.Revision}:{target:N}",
+                TargetInstallationId = target, Status = AgentPlatformEventOutboxStatus.Pending,
+                NextAttemptAt = DateTimeOffset.UtcNow, OccurredAt = DateTimeOffset.UtcNow
+            });
+        }
         await db.SaveChangesAsync(cancellationToken);
+        if (attention is not null && managerTargets.Count > 0)
+            await attention.InvalidateAsync(managerTargets, "workforce.profile-changed", workforceEventId, cancellationToken);
         return await GetAsync(organizationId, employeeId, applicationUserId, cancellationToken);
     }
 

@@ -24,12 +24,14 @@ public sealed class OrganizationUserService : IOrganizationUserService
     private readonly IAgentRuntimeManager? _agentRuntimeManager;
     private readonly ILogger<OrganizationUserService>? _logger;
     private readonly IPersonalTodoService _personalTodo;
+    private readonly IAgentAttentionInvalidationService? _attention;
 
     public OrganizationUserService(CSweetDbContext dbContext, IAuditEventWriter auditEventWriter,
         IAgentCommunicationOnboardingService? agentOnboarding = null,
         IAgentRuntimeManager? agentRuntimeManager = null,
         ILogger<OrganizationUserService>? logger = null,
-        IPersonalTodoService? personalTodo = null)
+        IPersonalTodoService? personalTodo = null,
+        IAgentAttentionInvalidationService? attention = null)
     {
         _dbContext = dbContext;
         _auditEventWriter = auditEventWriter;
@@ -37,6 +39,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
         _agentRuntimeManager = agentRuntimeManager;
         _logger = logger;
         _personalTodo = personalTodo ?? new PersonalTodoService(dbContext, TimeProvider.System);
+        _attention = attention;
     }
 
     public async Task<IReadOnlyList<OrganizationUserResponse>> ListByOrganizationAsync(Guid organizationId, CancellationToken cancellationToken = default)
@@ -96,6 +99,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
         }
 
         AgentInstallation? hiredInstallation = null;
+        string? hiredManifestJson = null;
         if (request.AgentDefinitionId.HasValue)
         {
             var definition = await _dbContext.AgentDefinitions
@@ -112,6 +116,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
             }
 
             hiredInstallation = CreateHiredInstallation(definition, organizationId, DateTimeOffset.UtcNow);
+            hiredManifestJson = definition.PackageVersion.ManifestJson;
             _dbContext.AgentInstallations.Add(hiredInstallation);
             request = request with { AgentInstallationId = hiredInstallation.Id };
         }
@@ -267,6 +272,28 @@ public sealed class OrganizationUserService : IOrganizationUserService
                 .Select(x => x.Name)
                 .SingleOrDefaultAsync(cancellationToken)
             : null;
+        string? declaredRoleMismatch = null;
+        if (user.AgentInstallationId.HasValue && !string.IsNullOrWhiteSpace(roleTitle))
+        {
+            var manifestJson = hiredManifestJson ??
+                await _dbContext.AgentInstallations.AsNoTracking()
+                    .Where(x => x.Id == user.AgentInstallationId.Value)
+                    .Select(x => x.PackageVersion!.ManifestJson)
+                    .SingleAsync(cancellationToken);
+            var policy = AgentConfigurationRules.DeserializeManifest(manifestJson).RolePolicy;
+            if (policy is not null && !policy.DeclaredRoleKeys.Any(x =>
+                    NormalizeRoleIdentity(x) == NormalizeRoleIdentity(roleTitle)))
+            {
+                declaredRoleMismatch =
+                    $"Assigned role '{roleTitle}' does not match declared package roles: {string.Join(", ", policy.DeclaredRoleKeys)}.";
+            }
+        }
+        var managerInstallationId = user.ReportsToOrganizationUserId.HasValue
+            ? await _dbContext.CoreOrganizationUsers.AsNoTracking()
+                .Where(x => x.Id == user.ReportsToOrganizationUserId.Value && x.IsActive)
+                .Select(x => x.AgentInstallationId)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
         var hiredEventId = Guid.NewGuid();
         var hiredEvent = new EmployeeHiredEvent(
             organizationId,
@@ -291,7 +318,23 @@ public sealed class OrganizationUserService : IOrganizationUserService
             NextAttemptAt = now,
             OccurredAt = now
         });
+        if (managerInstallationId.HasValue)
+        {
+            var workforceEventId = Guid.NewGuid();
+            _dbContext.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+            {
+                Id = workforceEventId, OrganizationId = organizationId,
+                EventType = WorkforceEvents.Changed,
+                DataJson = JsonSerializer.Serialize(new WorkforceChangedEvent(
+                    organizationId, user.Id, "Hired", [], null, user.ReportsToOrganizationUserId, now)),
+                IdempotencyKey = $"workforce-changed:{user.Id:D}:hired",
+                TargetInstallationId = managerInstallationId,
+                Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
+            });
+        }
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (managerInstallationId.HasValue && _attention is not null)
+            await _attention.InvalidateAsync([managerInstallationId.Value], "workforce.hired", hiredEventId, cancellationToken);
         await _personalTodo.EnsureBoardAsync(organizationId, user.Id, cancellationToken);
         if (transaction is not null)
             await transaction.CommitAsync(cancellationToken);
@@ -343,6 +386,25 @@ public sealed class OrganizationUserService : IOrganizationUserService
             user.Id,
             $"User '{user.DisplayName}' added to organization {organizationId}.",
             cancellationToken: cancellationToken);
+        if (declaredRoleMismatch is not null)
+        {
+            _logger?.LogWarning(
+                "Agent role mismatch allowed for organization {OrganizationId}, employee {OrganizationUserId}: {Warning}",
+                organizationId, user.Id, declaredRoleMismatch);
+            await _auditEventWriter.WriteAsync(
+                "organization_user.agent_role_mismatch",
+                "OrganizationUser",
+                user.Id,
+                declaredRoleMismatch,
+                JsonSerializer.Serialize(new
+                {
+                    organizationId,
+                    organizationUserId = user.Id,
+                    user.AgentInstallationId,
+                    assignedRole = roleTitle
+                }),
+                cancellationToken);
+        }
 
         return new CoreActionResponse(
             true,
@@ -370,6 +432,13 @@ public sealed class OrganizationUserService : IOrganizationUserService
 
         var name = user.DisplayName;
         var installationId = user.AgentInstallationId;
+        var previousManagerId = user.ReportsToOrganizationUserId;
+        var previousManagerInstallationId = previousManagerId.HasValue
+            ? await _dbContext.CoreOrganizationUsers.AsNoTracking()
+                .Where(x => x.Id == previousManagerId.Value && x.IsActive)
+                .Select(x => x.AgentInstallationId)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
         if (await _dbContext.OrganizationTeams.AnyAsync(x =>
                 x.OrganizationId == user.OrganizationId &&
                 x.LeadOrganizationUserId == user.Id &&
@@ -404,6 +473,14 @@ public sealed class OrganizationUserService : IOrganizationUserService
             team.Revision++;
             team.UpdatedAt = now;
         }
+        var teamLeadIds = membershipTeams.Select(x => x.LeadOrganizationUserId).Distinct().ToList();
+        var affectedManagerInstallations = await _dbContext.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => teamLeadIds.Contains(x.Id) && x.IsActive && x.AgentInstallationId != null)
+            .Select(x => x.AgentInstallationId!.Value)
+            .ToListAsync(cancellationToken);
+        if (previousManagerInstallationId.HasValue)
+            affectedManagerInstallations.Add(previousManagerInstallationId.Value);
+        affectedManagerInstallations = affectedManagerInstallations.Distinct().ToList();
         var teamScopedGrants = await _dbContext.ScopedActionGrants.Where(x =>
                 x.OrganizationId == user.OrganizationId &&
                 x.ScopeKind == CSweet.Domain.Security.GrantScopeKind.Team &&
@@ -429,6 +506,21 @@ public sealed class OrganizationUserService : IOrganizationUserService
         user.IsActive = false;
         user.ArchivedAt = now;
         user.AgentInstallationId = null;
+        var workforceEventId = Guid.NewGuid();
+        foreach (var targetInstallationId in affectedManagerInstallations)
+        {
+            _dbContext.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+            {
+                Id = Guid.NewGuid(), OrganizationId = user.OrganizationId,
+                EventType = WorkforceEvents.Changed,
+                DataJson = JsonSerializer.Serialize(new WorkforceChangedEvent(
+                    user.OrganizationId, user.Id, "Deactivated", membershipTeamIds,
+                    previousManagerId, null, now)),
+                IdempotencyKey = $"workforce-changed:{user.Id:D}:deactivated:{targetInstallationId:D}",
+                TargetInstallationId = targetInstallationId,
+                Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
+            });
+        }
         if (user.EmployeeType == EmployeeType.Agent)
         {
             var protectedChats = await _dbContext.CoreConversations
@@ -444,6 +536,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
                 CreateEmployeeDelivery(user, connectionId, CommunicationDeliveryKind.ArchiveEmployee, now)));
         }
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (affectedManagerInstallations.Count > 0 && _attention is not null)
+            await _attention.InvalidateAsync(affectedManagerInstallations, "workforce.deactivated", workforceEventId, cancellationToken);
 
         if (user.EmployeeType == EmployeeType.Agent)
         {
@@ -485,7 +579,30 @@ public sealed class OrganizationUserService : IOrganizationUserService
         }
 
         user.RoleId = request.RoleId;
+        var managerInstallationId = user.ReportsToOrganizationUserId.HasValue
+            ? await _dbContext.CoreOrganizationUsers.AsNoTracking()
+                .Where(x => x.Id == user.ReportsToOrganizationUserId.Value && x.IsActive)
+                .Select(x => x.AgentInstallationId)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+        var workforceEventId = Guid.NewGuid();
+        if (managerInstallationId.HasValue)
+        {
+            _dbContext.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+            {
+                Id = workforceEventId, OrganizationId = organizationId, EventType = WorkforceEvents.Changed,
+                DataJson = JsonSerializer.Serialize(new WorkforceChangedEvent(
+                    organizationId, user.Id, "RoleChanged", [], user.ReportsToOrganizationUserId,
+                    user.ReportsToOrganizationUserId, DateTimeOffset.UtcNow)),
+                IdempotencyKey = $"workforce-changed:{user.Id:D}:role:{request.RoleId?.ToString("D") ?? "none"}",
+                TargetInstallationId = managerInstallationId,
+                Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = DateTimeOffset.UtcNow,
+                OccurredAt = DateTimeOffset.UtcNow
+            });
+        }
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (managerInstallationId.HasValue && _attention is not null)
+            await _attention.InvalidateAsync([managerInstallationId.Value], "workforce.role-changed", workforceEventId, cancellationToken);
         await _auditEventWriter.WriteAsync(
             "organization_user.role_updated",
             "OrganizationUser",
@@ -495,6 +612,9 @@ public sealed class OrganizationUserService : IOrganizationUserService
 
         return new CoreActionResponse(true, null, "Role updated successfully.", OrganizationUser: user.ToResponse());
     }
+
+    private static string NormalizeRoleIdentity(string value) =>
+        new(value.Trim().ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
 
     internal static AgentInstallation CreateHiredInstallation(
         AgentDefinition definition,

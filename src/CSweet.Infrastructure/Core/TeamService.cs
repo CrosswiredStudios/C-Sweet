@@ -3,16 +3,19 @@ using CSweet.Application.Setup;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using System.Text.Json;
 
 namespace CSweet.Infrastructure.Core;
 
 public sealed class TeamService(
     CSweetDbContext db,
     IAuditEventWriter audit,
-    TimeProvider timeProvider) : ITeamService
+    TimeProvider timeProvider,
+    IAgentAttentionInvalidationService? attention = null) : ITeamService
 {
     private const int MaximumInitialMembers = 100;
 
@@ -285,6 +288,7 @@ public sealed class TeamService(
         Touch(team, timeProvider.GetUtcNow());
         await SaveWithConcurrencyAsync(cancellationToken);
         await CommitAsync(transaction, cancellationToken);
+        await NotifyTeamChangedAsync(team, employee.Id, "TeamMembershipChanged", cancellationToken);
         await audit.WriteAsync(
             "organization_team.member-upserted",
             nameof(TeamMembership),
@@ -325,6 +329,7 @@ public sealed class TeamService(
                     membership.EndedAt.Value, cancellationToken);
             Touch(team, membership.EndedAt.Value);
             await SaveWithConcurrencyAsync(cancellationToken);
+            await NotifyTeamChangedAsync(team, organizationUserId, "TeamMembershipRemoved", cancellationToken);
         }
         await audit.WriteAsync(
             "organization_team.member-removed",
@@ -656,6 +661,35 @@ public sealed class TeamService(
             throw new InvalidOperationException(
                 "The team change conflicted with another team or membership update.", exception);
         }
+    }
+
+    private async Task NotifyTeamChangedAsync(
+        OrganizationTeam team,
+        Guid organizationUserId,
+        string changeKind,
+        CancellationToken cancellationToken)
+    {
+        var leadInstallationId = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.Id == team.LeadOrganizationUserId && x.IsActive)
+            .Select(x => x.AgentInstallationId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (!leadInstallationId.HasValue)
+            return;
+        var eventId = Guid.NewGuid();
+        var now = timeProvider.GetUtcNow();
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = eventId, OrganizationId = team.OrganizationId, EventType = WorkforceEvents.Changed,
+            DataJson = JsonSerializer.Serialize(new WorkforceChangedEvent(
+                team.OrganizationId, organizationUserId, changeKind, [team.Id],
+                team.LeadOrganizationUserId, team.LeadOrganizationUserId, now)),
+            IdempotencyKey = $"workforce-changed:{team.Id:N}:{organizationUserId:N}:{team.Revision}:{changeKind}",
+            TargetInstallationId = leadInstallationId, Status = AgentPlatformEventOutboxStatus.Pending,
+            NextAttemptAt = now, OccurredAt = now
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        if (attention is not null)
+            await attention.InvalidateAsync([leadInstallationId.Value], "workforce.team-membership-changed", eventId, cancellationToken);
     }
 
     private async Task<IDbContextTransaction?> BeginMutationTransactionAsync(

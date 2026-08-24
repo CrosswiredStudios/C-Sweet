@@ -121,11 +121,12 @@ public sealed class AgentEmployeeIdentityResolverTests
         Assert.NotNull(identity?.TeamContext);
         Assert.Equal("Delivery A", identity.TeamContext.Name);
         Assert.Equal(2, identity.TeamContext.TotalMemberCount);
-        Assert.Contains(identity.TeamContext.Members, x => x.EmployeeId == caller.Id.ToString("D") && x.RelationshipToCaller == "Self");
-        Assert.Contains(identity.TeamContext.Members, x => x.EmployeeId == qa.Id.ToString("D") && x.RelationshipToCaller == "TeamLead");
+        Assert.Contains(identity.TeamContext.Members, x => x.EmployeeId == caller.Id.ToString("D") &&
+            x.RelationshipToCaller == "Self" && x.AgentInstallationId == installationId);
+        Assert.Contains(identity.TeamContext.Members, x => x.EmployeeId == qa.Id.ToString("D") &&
+            x.RelationshipToCaller == "TeamLead" && x.AgentInstallationId is null);
         Assert.DoesNotContain(identity.TeamContext.Members, x => x.EmployeeId == unrelated.Id.ToString("D"));
         var serialized = System.Text.Json.JsonSerializer.Serialize(identity.TeamContext);
-        Assert.DoesNotContain("Installation", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Email", serialized, StringComparison.OrdinalIgnoreCase);
     }
 

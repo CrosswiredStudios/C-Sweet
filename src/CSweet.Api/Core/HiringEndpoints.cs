@@ -62,6 +62,48 @@ public static class HiringEndpoints
             }
         });
 
+        group.MapGet("/staffing-replenishments", async (
+            Guid organizationId,
+            HttpContext http,
+            IStaffingReplenishmentService service,
+            CancellationToken cancellationToken) =>
+        {
+            if (!http.User.GetApplicationUserId().HasValue) return Results.Forbid();
+            return Results.Ok(await service.ListForDashboardAsync(organizationId, cancellationToken));
+        });
+
+        group.MapPost("/staffing-replenishments/{requestId:guid}/decide", async (
+            Guid organizationId,
+            Guid requestId,
+            StaffingReplenishmentDecisionRequest request,
+            HttpContext http,
+            IStaffingReplenishmentService service,
+            CancellationToken cancellationToken) =>
+        {
+            var applicationUserId = http.User.GetApplicationUserId();
+            if (!applicationUserId.HasValue) return Results.Forbid();
+            if (request.RequestId != requestId)
+                return Results.BadRequest(new { error = "request_mismatch", message = "The route and payload request IDs must match." });
+            try
+            {
+                return Results.Ok(await service.DecideForUserAsync(
+                    organizationId, applicationUserId.Value, request, cancellationToken));
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                return Results.Json(new { error = "manager_required", message = exception.Message },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_decision", message = exception.Message });
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "decision_conflict", message = exception.Message });
+            }
+        });
+
         group.MapPost("/marketplace/preview", async (
             Guid organizationId,
             PreviewMarketplaceHireRequest request,

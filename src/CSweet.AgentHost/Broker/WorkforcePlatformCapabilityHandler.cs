@@ -19,6 +19,7 @@ public sealed class WorkforcePlatformCapabilityHandler(
     IEnumerable<IBusinessPatternProvider> businessPatternProviders,
     IHiringService? hiring = null,
     IResourceChangeService? resourceChanges = null,
+    IStaffingReplenishmentService? staffingReplenishments = null,
     IAgentCatalogService? agentCatalog = null,
     AgentEmployeeIdentityResolver? identityResolver = null) : IPlatformCapabilityHandler
 {
@@ -46,6 +47,9 @@ public sealed class WorkforcePlatformCapabilityHandler(
         ResourceChangeCapabilities.Propose,
         ResourceChangeCapabilities.Read,
         ResourceChangeCapabilities.Decide,
+        StaffingReplenishmentCapabilities.Propose,
+        StaffingReplenishmentCapabilities.Read,
+        StaffingReplenishmentCapabilities.Decide,
         HiringCapabilities.StageWorkflow
         ,
         PlatformCapabilities.TeamRosterRead
@@ -128,6 +132,18 @@ public sealed class WorkforcePlatformCapabilityHandler(
                     await (resourceChanges ?? throw new InvalidOperationException("The resource-change service is unavailable.")).DecideForInstallationAsync(
                         organizationId, installationId,
                         Read<CSweet.Contracts.Core.ResourceChangeDecisionRequest>(request), token)),
+                StaffingReplenishmentCapabilities.Propose => Success(request.RequestId,
+                    await (staffingReplenishments ?? throw new InvalidOperationException("The staffing-replenishment service is unavailable.")).ProposeAsync(
+                        organizationId, installationId,
+                        Read<CSweet.Contracts.Core.StaffingReplenishmentProposalRequest>(request), token)),
+                StaffingReplenishmentCapabilities.Read => Success(request.RequestId,
+                    await (staffingReplenishments ?? throw new InvalidOperationException("The staffing-replenishment service is unavailable.")).ReadForInstallationAsync(
+                        organizationId, installationId,
+                        Read<CSweet.Contracts.Core.StaffingReplenishmentReadRequest>(request), token)),
+                StaffingReplenishmentCapabilities.Decide => Success(request.RequestId,
+                    await (staffingReplenishments ?? throw new InvalidOperationException("The staffing-replenishment service is unavailable.")).DecideForInstallationAsync(
+                        organizationId, installationId,
+                        Read<CSweet.Contracts.Core.StaffingReplenishmentDecisionRequest>(request), token)),
                 HiringCapabilities.StageWorkflow => Success(request.RequestId,
                     await (hiring ?? throw new InvalidOperationException("The hiring service is unavailable.")).StageWorkflowAsync(organizationId, installationId,
                         Read<CSweet.Contracts.Core.StageHiringWorkflowRequest>(request), token)),

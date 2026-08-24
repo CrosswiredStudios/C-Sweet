@@ -192,6 +192,41 @@ public class AgentImportPreviewServiceTests
     }
 
     [Fact]
+    public async Task PreviewAsync_AcceptsSupportedRolePolicyProfile()
+    {
+        await using var dbContext = CreateDbContext();
+        var manifest = ValidManifest().Replace(
+            "\"kind\": \"agent\",",
+            "\"kind\": \"agent\", \"rolePolicy\": { \"profile\": \"manager.v1\", \"declaredRoleKeys\": [\"research-manager\"] },",
+            StringComparison.Ordinal);
+        var service = new AgentImportPreviewService(
+            dbContext, new FakeGitHubAgentRepositoryClient(manifest), new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest(
+            "https://github.com/example/research-agent"));
+
+        Assert.Equal("Previewed", result.Status);
+    }
+
+    [Theory]
+    [InlineData("manager.v2", "research-manager")]
+    [InlineData("manager.v1", "")]
+    public async Task PreviewAsync_RejectsInvalidRolePolicy(string profile, string roleKey)
+    {
+        await using var dbContext = CreateDbContext();
+        var manifest = ValidManifest().Replace(
+            "\"kind\": \"agent\",",
+            $"\"kind\": \"agent\", \"rolePolicy\": {{ \"profile\": \"{profile}\", \"declaredRoleKeys\": [\"{roleKey}\"] }},",
+            StringComparison.Ordinal);
+        var service = new AgentImportPreviewService(
+            dbContext, new FakeGitHubAgentRepositoryClient(manifest), new TestAuditEventWriter());
+
+        await Assert.ThrowsAsync<AgentImportPreviewException>(() =>
+            service.PreviewAsync(new PreviewAgentImportRequest(
+                "https://github.com/example/research-agent")));
+    }
+
+    [Fact]
     public async Task PreviewAsync_RejectsProjectPathTraversalWithoutPersisting()
     {
         await using var dbContext = CreateDbContext();
