@@ -145,7 +145,7 @@ public sealed class WorkOrchestrationService(
         return await PreflightCoreAsync(organizationId, boardId, sprintId, member.Id, cancellationToken);
     }
 
-    public async Task<WorkSprintExecutionResponse> StartAsync(
+    public async Task<Shared.WorkSprintExecutionResponse> StartAsync(
         Guid organizationId, Guid boardId, Guid sprintId, Guid applicationUserId,
         WorkOrchestrationControlRequest request,
         CancellationToken cancellationToken = default)
@@ -211,7 +211,7 @@ public sealed class WorkOrchestrationService(
         return ToResponse(execution);
     }
 
-    public async Task<WorkSprintExecutionResponse?> ControlAsync(
+    public async Task<Shared.WorkSprintExecutionResponse?> ControlAsync(
         Guid organizationId, Guid boardId, Guid sprintId, Guid applicationUserId,
         string action, WorkOrchestrationControlRequest request,
         CancellationToken cancellationToken = default)
@@ -270,7 +270,7 @@ public sealed class WorkOrchestrationService(
         return ToResponse(execution);
     }
 
-    public async Task<WorkSprintExecutionResponse?> GetExecutionAsync(
+    public async Task<Shared.WorkSprintExecutionResponse?> GetExecutionAsync(
         Guid organizationId, Guid boardId, Guid sprintId, Guid applicationUserId,
         CancellationToken cancellationToken = default)
     {
@@ -279,29 +279,71 @@ public sealed class WorkOrchestrationService(
         return execution is null ? null : ToResponse(execution);
     }
 
-    public async Task<WorkStageExecutionResponse> RetryAsync(
+    public async Task<Shared.WorkStageExecutionResponse> RetryAsync(
         Guid organizationId, Guid boardId, Guid stageExecutionId, Guid applicationUserId,
         WorkOrchestrationControlRequest request,
         CancellationToken cancellationToken = default)
     {
         ValidateIdempotencyKey(request.IdempotencyKey);
-        var member = await RequireManagerAsync(organizationId, boardId, applicationUserId, cancellationToken);
+        var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
         var stage = await LoadStageAsync(organizationId, boardId, stageExecutionId, cancellationToken);
-        if (stage.ItemExecution!.SprintExecution!.Revision != request.ExpectedRevision)
-            throw new DbUpdateConcurrencyException("The sprint execution changed since it was loaded.");
+        var board = await db.WorkBoards.AsNoTracking().SingleAsync(x =>
+            x.Id == boardId && x.OrganizationId == organizationId, cancellationToken);
+        var isManager = board.ManagerOrganizationUserId == member.Id;
+        var isAssigned = stage.PrincipalKind switch
+        {
+            WorkOrchestrationPrincipalKind.AgentInstallation =>
+                stage.AgentInstallationId == member.AgentInstallationId,
+            WorkOrchestrationPrincipalKind.Human => stage.OrganizationUserId == member.Id,
+            _ => false
+        };
+        if (!isManager && !isAssigned)
+            throw new UnauthorizedAccessException(
+                "Only the exact stage assignee or accountable board manager may request a retry.");
+        var replay = await db.WorkOrchestrationEvents.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.EventType == "stage.retry.requested" &&
+            x.IdempotencyKey == request.IdempotencyKey, cancellationToken);
+        if (replay is not null)
+        {
+            if (replay.StageExecutionId != stageExecutionId)
+                throw new InvalidOperationException(
+                    "The retry idempotency key is already bound to a different stage execution.");
+            return ToResponse(stage);
+        }
+        var workItem = stage.ItemExecution!.WorkItem!;
+        if (workItem.AssignmentRevision != request.ExpectedRevision)
+            throw new DbUpdateConcurrencyException("The work assignment changed since the blocker was observed.");
         if (stage.Status is not (WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed))
             throw new InvalidOperationException("Only blocked or failed stages may be retried.");
+        var policyStage = await db.WorkOrchestrationStages.AsNoTracking().SingleAsync(x =>
+            x.PolicyRevisionId == stage.ItemExecution.SprintExecution!.PolicyRevisionId &&
+            x.Key == stage.StageKey, cancellationToken);
+        if (stage.Attempts.Count >= policyStage.MaximumAttempts)
+            throw new InvalidOperationException("The stage attempt budget is exhausted.");
+        if (board.TeamId is { } teamId)
+        {
+            var viableRoles = await db.TeamMemberships.AsNoTracking().Where(x =>
+                    x.TeamId == teamId && x.OrganizationId == organizationId && x.EndedAt == null &&
+                    x.OrganizationUser!.IsActive)
+                .Select(x => x.OrganizationUser!.Role!.Name).ToListAsync(cancellationToken);
+            if (!viableRoles.Any(x => x.Contains("Architect", StringComparison.OrdinalIgnoreCase)) ||
+                !viableRoles.Any(x => x.Contains("Developer", StringComparison.OrdinalIgnoreCase)) ||
+                !viableRoles.Any(x => x.Contains("Quality", StringComparison.OrdinalIgnoreCase) ||
+                                      x.Contains("QA", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException(
+                    "The current software team is not viable for a governed stage retry.");
+        }
         var now = timeProvider.GetUtcNow();
         stage.Status = WorkStageExecutionStatus.Pending; stage.LastError = null; stage.RetryAt = now; stage.UpdatedAt = now;
         stage.ItemExecution!.Status = WorkItemExecutionStatus.Pending;
         stage.ItemExecution.BlockedReason = null; stage.ItemExecution.UpdatedAt = now;
         AddEvent(organizationId, boardId, stage.ItemExecution.SprintExecutionId, stage.ItemExecutionId, stage.Id, null,
-            "stage.retry.requested", new { member.Id, request.Reason, request.IdempotencyKey });
+            "stage.retry.requested", new { member.Id, request.Reason, request.IdempotencyKey }, request.IdempotencyKey);
         await db.SaveChangesAsync(cancellationToken);
         return ToResponse(stage);
     }
 
-    public async Task<WorkStageExecutionResponse> CompleteManualAsync(
+    public async Task<Shared.WorkStageExecutionResponse> CompleteManualAsync(
         Guid organizationId, Guid boardId, Guid stageExecutionId, Guid applicationUserId,
         Shared.CompleteManualWorkStageRequest request,
         CancellationToken cancellationToken = default)
@@ -319,7 +361,7 @@ public sealed class WorkOrchestrationService(
         return ToResponse(stage);
     }
 
-    public async Task<WorkStageExecutionResponse> DecideApprovalAsync(
+    public async Task<Shared.WorkStageExecutionResponse> DecideApprovalAsync(
         Guid organizationId, Guid boardId, Guid stageExecutionId, Guid applicationUserId,
         Shared.DecideWorkApprovalStageRequest request,
         CancellationToken cancellationToken = default)
@@ -650,18 +692,18 @@ public sealed class WorkOrchestrationService(
         new(policy.Id, policy.BoardId, policy.PublishedRevisionId,
             policy.Revisions.OrderByDescending(x => x.Revision).Select(ToContract).ToList());
 
-    private static WorkSprintExecutionResponse ToResponse(WorkSprintExecution execution) => new(
+    private static Shared.WorkSprintExecutionResponse ToResponse(WorkSprintExecution execution) => new(
         execution.Id, execution.BoardId, execution.SprintId, execution.PolicyRevisionId,
         execution.StartedByOrganizationUserId, execution.Status.ToString(), execution.Revision,
         execution.StartedAt, execution.UpdatedAt, execution.CompletedAt,
         execution.Items.OrderBy(x => x.ItemIdentifier, StringComparer.Ordinal).Select(ToResponse).ToList());
 
-    private static WorkItemExecutionResponse ToResponse(WorkItemExecution item) => new(
+    private static Shared.WorkItemExecutionResponse ToResponse(WorkItemExecution item) => new(
         item.Id, item.WorkItemId, item.ItemIdentifier, item.CurrentStageKey, item.Traversal,
         item.Status.ToString(), item.BlockedReason,
         item.Stages.OrderBy(x => x.CreatedAt).Select(ToResponse).ToList(), item.UpdatedAt);
 
-    private static WorkStageExecutionResponse ToResponse(WorkStageExecution stage) => new(
+    private static Shared.WorkStageExecutionResponse ToResponse(WorkStageExecution stage) => new(
         stage.Id, stage.StageKey, stage.StageType.ToString(), stage.Traversal, stage.Status.ToString(),
         stage.PrincipalKind.ToString(), stage.OrganizationUserId, stage.AgentInstallationId,
         stage.PlatformAction, stage.Attempts.Count, stage.LastOutcomeCode, stage.LastSummary,
@@ -670,11 +712,13 @@ public sealed class WorkOrchestrationService(
     private void AddEvent(
         Guid organizationId, Guid boardId, Guid sprintExecutionId,
         Guid? itemExecutionId, Guid? stageExecutionId, Guid? attemptId,
-        string eventType, object data) => db.WorkOrchestrationEvents.Add(new WorkOrchestrationEvent
+        string eventType, object data, string? idempotencyKey = null) =>
+        db.WorkOrchestrationEvents.Add(new WorkOrchestrationEvent
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, BoardId = boardId,
             SprintExecutionId = sprintExecutionId, ItemExecutionId = itemExecutionId,
             StageExecutionId = stageExecutionId, AttemptId = attemptId, EventType = eventType,
+            IdempotencyKey = idempotencyKey,
             DataJson = JsonSerializer.Serialize(data, JsonOptions), OccurredAt = timeProvider.GetUtcNow()
         });
 

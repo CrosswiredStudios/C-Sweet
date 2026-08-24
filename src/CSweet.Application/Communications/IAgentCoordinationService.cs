@@ -11,6 +11,13 @@ public interface IAgentCoordinationService
         StartAgentCoordinationRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<AgentCoordinationSession> StartWorkAsync(
+        Guid organizationId,
+        Guid initiatorOrganizationUserId,
+        Guid initiatorInstallationId,
+        StartWorkItemCoordinationRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<AgentCoordinationSession> RespondAsync(
         Guid organizationId,
         Guid actorOrganizationUserId,

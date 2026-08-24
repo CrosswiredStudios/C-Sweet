@@ -234,6 +234,30 @@ public sealed class AgentCoordinationServiceTests
             x.Status == AgentWorkStatus.Pending).ToListAsync());
     }
 
+    [Fact]
+    public async Task TechnicalSupportSession_RejectsContinuationAtItsTurnLimit()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var stored = await fixture.Db.AgentCoordinationSessions.SingleAsync(x =>
+            x.Id == fixture.SessionId);
+        stored.SourceKind = "WorkItem";
+        stored.MaximumTurns = 2;
+        await fixture.Db.SaveChangesAsync();
+
+        var first = await fixture.Service.RespondAsync(
+            fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId,
+            new RespondToAgentCoordinationRequest(
+                fixture.SessionId, 1, 1, AgentCoordinationDispositions.Continue,
+                "Inspect the failed invariant before retrying.", "support-turn-1"));
+
+        Assert.Equal(2, first.NextTurnOrdinal);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.RespondAsync(
+            fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId,
+            new RespondToAgentCoordinationRequest(
+                fixture.SessionId, 2, 2, AgentCoordinationDispositions.Continue,
+                "Continue investigating without a terminal outcome.", "support-turn-2")));
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public required CSweetDbContext Db { get; init; }

@@ -6,6 +6,8 @@ using CSweet.Application.Communications;
 using CSweet.Contracts.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Domain.Security;
+using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
@@ -109,6 +111,136 @@ public sealed class AgentCoordinationService(
         return await MapAsync(session, cancellationToken);
     }
 
+    public async Task<AgentCoordinationSession> StartWorkAsync(
+        Guid organizationId,
+        Guid initiatorOrganizationUserId,
+        Guid initiatorInstallationId,
+        StartWorkItemCoordinationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateWorkStart(request);
+        var existing = await QuerySession().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey,
+            cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.SourceKind != "WorkItem" ||
+                existing.InitiatorOrganizationUserId != initiatorOrganizationUserId ||
+                existing.InitiatorInstallationId != initiatorInstallationId ||
+                existing.TargetOrganizationUserId != request.TargetOrganizationUserId ||
+                existing.SourceBoardId != request.BoardId ||
+                existing.SourceWorkItemId != request.ItemId ||
+                existing.SourceSprintExecutionId != request.SprintExecutionId ||
+                existing.SourceStageExecutionId != request.StageExecutionId ||
+                existing.SourceAssignmentRevision != request.AssignmentRevision)
+                throw new InvalidOperationException(
+                    "The work coordination idempotency key is already bound to a different assignment snapshot.");
+            return await MapAsync(existing, cancellationToken);
+        }
+
+        var stage = await db.WorkStageExecutions.AsNoTracking()
+            .Include(x => x.ItemExecution)!.ThenInclude(x => x!.WorkItem)
+            .Include(x => x.ItemExecution)!.ThenInclude(x => x!.SprintExecution)
+            .SingleOrDefaultAsync(x =>
+                x.Id == request.StageExecutionId &&
+                x.ItemExecution!.SprintExecutionId == request.SprintExecutionId &&
+                x.ItemExecution.WorkItemId == request.ItemId &&
+                x.ItemExecution.SprintExecution!.OrganizationId == organizationId &&
+                x.ItemExecution.SprintExecution.BoardId == request.BoardId,
+                cancellationToken)
+            ?? throw new InvalidOperationException("The work coordination source is stale or invalid.");
+        var workItem = stage.ItemExecution!.WorkItem!;
+        if (workItem.AssignmentRevision != request.AssignmentRevision)
+            throw new InvalidOperationException("The work assignment changed before support could start.");
+        if (stage.Status is not (WorkStageExecutionStatus.Running or WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed))
+            throw new InvalidOperationException("Technical support requires the exact executing, blocked, or failed stage.");
+
+        var board = await db.WorkBoards.AsNoTracking().SingleAsync(x =>
+            x.Id == request.BoardId && x.OrganizationId == organizationId, cancellationToken);
+        if (!board.TeamId.HasValue)
+            throw new InvalidOperationException("Work-sourced coordination requires a team board.");
+        var participants = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.IsActive &&
+                (x.Id == initiatorOrganizationUserId || x.Id == request.TargetOrganizationUserId))
+            .Include(x => x.Role)
+            .Select(x => new
+            {
+                x.Id, x.AgentInstallationId,
+                Role = x.Role == null ? string.Empty : x.Role.Name,
+                InTeam = db.TeamMemberships.Any(m => m.OrganizationId == organizationId &&
+                    m.TeamId == board.TeamId && m.OrganizationUserId == x.Id && m.EndedAt == null)
+            }).ToListAsync(cancellationToken);
+        if (participants.Count != 2 || participants.Any(x => !x.InTeam || !x.AgentInstallationId.HasValue))
+            throw new UnauthorizedAccessException("Both support participants must be active agents on the work item's team.");
+        var initiator = participants.Single(x => x.Id == initiatorOrganizationUserId);
+        var target = participants.Single(x => x.Id == request.TargetOrganizationUserId);
+        if (initiator.AgentInstallationId != initiatorInstallationId)
+            throw new UnauthorizedAccessException("The initiating installation does not match the employee identity.");
+        var initiatorIsDeveloper = RoleContains(initiator.Role, "Developer") &&
+            stage.AgentInstallationId == initiatorInstallationId;
+        var targetIsDeveloper = RoleContains(target.Role, "Developer") &&
+            stage.AgentInstallationId == target.AgentInstallationId;
+        var initiatorIsArchitect = RoleContains(initiator.Role, "Architect");
+        var targetIsArchitect = RoleContains(target.Role, "Architect");
+        if (!((initiatorIsDeveloper && targetIsArchitect) ||
+              (initiatorIsArchitect && targetIsDeveloper)))
+            throw new UnauthorizedAccessException(
+                "Work support is limited to the exact assigned Developer and a designated team Architect.");
+
+        var targetInstallationId = await ResolveParticipantsAsync(
+            organizationId, initiatorOrganizationUserId, initiatorInstallationId,
+            request.TargetOrganizationUserId, cancellationToken);
+        var chatAction = await hub.CreateAsync(
+            organizationId, initiatorOrganizationUserId,
+            new CreateCommunicationChatRequest(
+                null, $"Work support: {request.Subject.Trim()}", true, true,
+                [request.TargetOrganizationUserId]), cancellationToken);
+        var chat = chatAction.Chat ?? throw new InvalidOperationException(chatAction.Message);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var session = new DomainSession
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, ConversationId = chat.Id,
+            SourceKind = "WorkItem", SourceBoardId = request.BoardId,
+            SourceWorkItemId = request.ItemId, SourceSprintExecutionId = request.SprintExecutionId,
+            SourceStageExecutionId = request.StageExecutionId,
+            SourceAssignmentRevision = request.AssignmentRevision, MaximumTurns = 6,
+            InitiatorOrganizationUserId = initiatorOrganizationUserId,
+            InitiatorInstallationId = initiatorInstallationId,
+            TargetOrganizationUserId = request.TargetOrganizationUserId,
+            TargetInstallationId = targetInstallationId,
+            CurrentOrganizationUserId = request.TargetOrganizationUserId,
+            Subject = request.Subject.Trim(), Objective = request.Objective.Trim(),
+            SuccessCriteriaJson = JsonSerializer.Serialize(
+                request.SuccessCriteria.Select(x => x.Trim()).ToArray(), JsonOptions),
+            Status = DomainStatus.Active, Revision = 1, NextTurnOrdinal = 1,
+            IdempotencyKey = request.IdempotencyKey.Trim(), CreatedAt = now, UpdatedAt = now
+        };
+        var initialMessage = AppendMessage(session, initiatorOrganizationUserId,
+            request.InitialMessage.Trim(), $"coordination:{session.Id:N}:initial");
+        var initialTurn = new DomainTurn
+        {
+            Id = Guid.NewGuid(), SessionId = session.Id, EventId = Guid.NewGuid(),
+            SpeakerOrganizationUserId = initiatorOrganizationUserId,
+            ConversationMessageId = initialMessage.Id, Ordinal = 0,
+            Disposition = AgentCoordinationDispositions.Continue,
+            Content = request.InitialMessage.Trim(),
+            IdempotencyKey = $"coordination:{session.Id:N}:initial", CreatedAt = now
+        };
+        ApplyArtifact(initialTurn, request.Artifact);
+        session.Turns.Add(initialTurn);
+        db.AgentCoordinationSessions.Add(session);
+        AppendWorkComment(session, "ArchitectureSupportRequested", request.InitialMessage.Trim(), initialTurn.ArtifactDigest);
+        await db.SaveChangesAsync(cancellationToken);
+        session.CurrentAgentWorkItemId = await EnqueueTurnAsync(
+            session, targetInstallationId, request.TargetOrganizationUserId, cancellationToken);
+        initialTurn.AgentWorkItemId = session.CurrentAgentWorkItemId;
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return await MapAsync(session, cancellationToken);
+    }
+
     public async Task<AgentCoordinationSession> RespondAsync(
         Guid organizationId,
         Guid actorOrganizationUserId,
@@ -137,6 +269,9 @@ public sealed class AgentCoordinationService(
             throw new UnauthorizedAccessException("This agent does not own the current coordination turn.");
         if (request.Disposition == AgentCoordinationDispositions.Continue && session.IsFinalization)
             throw new InvalidOperationException("A finalization turn cannot continue the session.");
+        if (request.Disposition == AgentCoordinationDispositions.Continue &&
+            session.MaximumTurns.HasValue && request.ExpectedTurnOrdinal >= session.MaximumTurns.Value)
+            throw new InvalidOperationException("The technical-support coordination turn limit was reached.");
         if (request.Disposition == AgentCoordinationDispositions.Continue && session.Turns.Any(x =>
                 string.Equals(x.Content.Trim(), request.Content.Trim(), StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("A coordination turn cannot repeat an earlier message exactly.");
@@ -173,6 +308,7 @@ public sealed class AgentCoordinationService(
             session.CurrentOrganizationUserId = null;
             session.CompletedAt = now;
             AppendSourceSummary(session, request.Content.Trim());
+            AppendWorkCompletionComment(session, request.Content.Trim());
         }
         else if (request.Disposition == AgentCoordinationDispositions.Continue)
         {
@@ -192,6 +328,7 @@ public sealed class AgentCoordinationService(
             session.CurrentOrganizationUserId = null;
             session.CompletedAt = now;
             AppendSourceSummary(session, request.Content.Trim());
+            AppendWorkCompletionComment(session, request.Content.Trim());
         }
         else
         {
@@ -359,7 +496,12 @@ public sealed class AgentCoordinationService(
         return new AgentCoordinationTurnRequest(
             session.Id, session.Revision, session.NextTurnOrdinal,
             session.Subject, session.Objective, mapped.SuccessCriteria,
-            self, other, session.IsFinalization, mapped.Turns);
+            self, other, session.IsFinalization, mapped.Turns)
+        {
+            SourceKind = mapped.SourceKind,
+            WorkSource = mapped.WorkSource,
+            MaximumTurns = mapped.MaximumTurns
+        };
     }
 
     private ConversationMessage AppendMessage(
@@ -380,12 +522,12 @@ public sealed class AgentCoordinationService(
 
     private void AppendSourceSummary(DomainSession session, string summary)
     {
-        if (session.SourceConversationId == session.ConversationId)
+        if (!session.SourceConversationId.HasValue || session.SourceConversationId == session.ConversationId)
             return;
 
         db.CoreConversationMessages.Add(new ConversationMessage
         {
-            Id = Guid.NewGuid(), ConversationId = session.SourceConversationId,
+            Id = Guid.NewGuid(), ConversationId = session.SourceConversationId.Value,
             CoordinationSessionId = session.Id,
             SenderOrganizationUserId = session.InitiatorOrganizationUserId,
             Role = ConversationRole.Assistant, Content = summary,
@@ -433,8 +575,8 @@ public sealed class AgentCoordinationService(
             return new(userId, installationId, user.DisplayName, user.Role?.Name ?? "Agent");
         }
         return new AgentCoordinationSession(
-            session.Id, session.ConversationId, session.SourceConversationId,
-            session.SourceChatTurnId, session.SourceMessageId,
+            session.Id, session.ConversationId, session.SourceConversationId ?? Guid.Empty,
+            session.SourceChatTurnId ?? Guid.Empty, session.SourceMessageId ?? Guid.Empty,
             Participant(session.InitiatorOrganizationUserId, session.InitiatorInstallationId),
             Participant(session.TargetOrganizationUserId, session.TargetInstallationId),
             session.Subject, session.Objective,
@@ -444,7 +586,20 @@ public sealed class AgentCoordinationService(
             session.CreatedAt, session.UpdatedAt,
             session.Turns.OrderBy(x => x.Ordinal).Select(x => new AgentCoordinationTurn(
                 x.Id, x.Ordinal, x.SpeakerOrganizationUserId, x.Disposition, x.Content, x.CreatedAt,
-                MapArtifact(x))).ToList());
+                MapArtifact(x))).ToList())
+        {
+            SourceKind = session.SourceKind,
+            WorkSource = session.SourceKind == "WorkItem" &&
+                session.SourceBoardId.HasValue && session.SourceWorkItemId.HasValue &&
+                session.SourceSprintExecutionId.HasValue && session.SourceStageExecutionId.HasValue &&
+                session.SourceAssignmentRevision.HasValue
+                ? new AgentCoordinationWorkSource(
+                    session.SourceBoardId.Value, session.SourceWorkItemId.Value,
+                    session.SourceSprintExecutionId.Value, session.SourceStageExecutionId.Value,
+                    session.SourceAssignmentRevision.Value)
+                : null,
+            MaximumTurns = session.MaximumTurns
+        };
     }
 
     private IQueryable<DomainSession> QuerySession() =>
@@ -470,6 +625,48 @@ public sealed class AgentCoordinationService(
             throw new ArgumentException("At least one success criterion is required.");
         ValidateArtifact(request.Artifact);
     }
+
+    private static void ValidateWorkStart(StartWorkItemCoordinationRequest request)
+    {
+        if (request.TargetOrganizationUserId == Guid.Empty || request.BoardId == Guid.Empty ||
+            request.ItemId == Guid.Empty || request.SprintExecutionId == Guid.Empty ||
+            request.StageExecutionId == Guid.Empty || request.AssignmentRevision <= 0)
+            throw new ArgumentException("Work coordination target and source identities are required.");
+        if (string.IsNullOrWhiteSpace(request.Subject) || string.IsNullOrWhiteSpace(request.Objective) ||
+            string.IsNullOrWhiteSpace(request.InitialMessage) || string.IsNullOrWhiteSpace(request.IdempotencyKey) ||
+            request.SuccessCriteria.Count == 0 || request.SuccessCriteria.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("Work coordination content and success criteria are required.");
+        ValidateArtifact(request.Artifact);
+    }
+
+    private void AppendWorkCompletionComment(DomainSession session, string summary)
+    {
+        if (session.SourceKind != "WorkItem" || !session.SourceWorkItemId.HasValue)
+            return;
+        var digest = session.Turns.OrderByDescending(x => x.Ordinal)
+            .Select(x => x.ArtifactDigest).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+        AppendWorkComment(session, "ArchitectureSupportCompleted", summary, digest);
+    }
+
+    private void AppendWorkComment(DomainSession session, string kind, string body, string? artifactDigest)
+    {
+        if (!session.SourceWorkItemId.HasValue)
+            return;
+        db.WorkItemComments.Add(new WorkItemComment
+        {
+            Id = Guid.NewGuid(), OrganizationId = session.OrganizationId,
+            WorkItemId = session.SourceWorkItemId.Value,
+            AuthorKind = GrantSubjectKind.AutomationIdentity,
+            AuthorSubjectId = session.Id, AuthorDisplayName = "C-Sweet coordination",
+            Body = body.Length <= 8192 ? body : body[..8192], Kind = kind,
+            CoordinationSessionId = session.Id, CausationId = session.Id.ToString("D"),
+            ArtifactDigest = artifactDigest,
+            IdempotencyKey = $"coordination:{session.Id:N}:{kind}", CreatedAt = DateTimeOffset.UtcNow
+        });
+    }
+
+    private static bool RoleContains(string role, string value) =>
+        role.Contains(value, StringComparison.OrdinalIgnoreCase);
 
     private static void ValidateResponse(RespondToAgentCoordinationRequest request)
     {

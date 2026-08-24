@@ -1,4 +1,6 @@
+using System.Text.Json;
 using CSweet.AI.Providers;
+using CSweet.Application.Setup;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
@@ -51,7 +53,7 @@ public sealed class AgentMemoryServiceTests
                 Name = "Test provider",
                 ProviderType = LlmProviderType.LmStudio,
                 BaseUrl = "http://test-provider/v1",
-                DefaultChatModel = "test-model",
+                DefaultChatModel = string.Empty,
                 IsEnabled = true,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
@@ -59,7 +61,10 @@ public sealed class AgentMemoryServiceTests
             db.MemoryCaptureOutbox.Add(new MemoryCaptureOutboxItem { Id = Guid.NewGuid(), ConversationMessageId = message.Id, Status = MemoryCaptureStatus.Pending, CreatedAt = DateTimeOffset.UtcNow, NextAttemptAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
 
-            var service = new AgentMemoryService(db, store, new UsageProviderFactory(), NullLogger<AgentMemoryService>.Instance);
+            var providerFactory = new UsageProviderFactory();
+            var configurations = new StaticInstallationConfigurationService(installationId, providerId, "test-model");
+            var service = new AgentMemoryService(db, store, providerFactory, configurations,
+                NullLogger<AgentMemoryService>.Instance);
             await service.CaptureMessageAsync(message.Id);
 
             var recalled = await service.RecallForConversationAsync(second.Id, "What is my name?");
@@ -88,6 +93,8 @@ public sealed class AgentMemoryServiceTests
             Assert.Equal(23, enrichmentRun.TokenInputCount);
             Assert.Equal(7, enrichmentRun.TokenOutputCount);
             Assert.True(enrichmentRun.PromptMessageCharacters > message.Content.Length);
+            Assert.Equal(providerId, providerFactory.SelectedProviderId);
+            Assert.Equal("test-model", providerFactory.SelectedModel);
         }
         finally
         {
@@ -98,8 +105,53 @@ public sealed class AgentMemoryServiceTests
 
     private sealed class UsageProviderFactory : ILlmProviderFactory
     {
-        public Task<IChatClient> CreateChatClientAsync(Guid providerProfileId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IChatClient>(new UsageChatClient());
+        public Guid? SelectedProviderId { get; private set; }
+        public string? SelectedModel { get; private set; }
+
+        public Task<IChatClient> CreateChatClientAsync(
+            Guid providerProfileId,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Memory enrichment must select the provider's configured chat model.");
+
+        public Task<IChatClient> CreateChatClientAsync(
+            Guid providerProfileId,
+            string? model,
+            CancellationToken cancellationToken = default)
+        {
+            SelectedProviderId = providerProfileId;
+            SelectedModel = model;
+            return Task.FromResult<IChatClient>(new UsageChatClient());
+        }
+    }
+
+    private sealed class StaticInstallationConfigurationService(
+        Guid installationId,
+        Guid providerId,
+        string model) : IAgentInstallationConfigurationService
+    {
+        private readonly AgentInstallationConfigurationSnapshot _configuration = new(
+            installationId,
+            "1",
+            new Dictionary<string, JsonElement>
+            {
+                ["llmProviderId"] = JsonSerializer.SerializeToElement(providerId.ToString("D")),
+                ["llmModel"] = JsonSerializer.SerializeToElement(model)
+            },
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow);
+
+        public Task<AgentInstallationConfigurationSnapshot?> GetAsync(
+            Guid requestedInstallationId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<AgentInstallationConfigurationSnapshot?>(
+                requestedInstallationId == installationId ? _configuration : null);
+
+        public Task<AgentInstallationConfigurationSnapshot> SaveAsync(
+            Guid requestedInstallationId,
+            string schemaVersion,
+            IReadOnlyDictionary<string, JsonElement> settings,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class UsageChatClient : IChatClient

@@ -50,7 +50,7 @@ public sealed class AgentWorkInbox(
     IAuditEventWriter? audit = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    public static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(60);
+    public static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(3);
     private const int MaximumPayloadBytes = 256 * 1024;
     private const int MaximumProgressBytes = 64 * 1024;
     private const int MaximumResultBytes = 1024 * 1024;
@@ -280,6 +280,7 @@ public sealed class AgentWorkInbox(
             throw new InvalidOperationException(
                 $"Work items may not emit more than {MaximumProgressRecordsPerWork} progress records.");
         attempt.LastProgressSequence = sequence;
+        attempt.LeaseExpiresAt = timeProvider.GetUtcNow().Add(LeaseDuration);
         db.AgentWorkProgress.Add(new AgentWorkProgress
         {
             Id = Guid.NewGuid(),

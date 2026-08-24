@@ -34,6 +34,7 @@ public sealed class WorkManagementCapabilityHandler(
         WorkItemActions.Read,
         WorkItemActions.Create,
         WorkItemActions.Comment,
+        WorkItemActions.ReadComments,
         WorkItemActions.Estimate,
         WorkItemActions.Move,
         WorkItemActions.Transfer,
@@ -44,10 +45,12 @@ public sealed class WorkManagementCapabilityHandler(
         WorkSprintActions.CarryOver,
         WorkSprintActions.ReadReports,
         WorkOrchestrationActions.Preflight,
+        WorkOrchestrationActions.Read,
         WorkOrchestrationActions.Start,
         WorkOrchestrationActions.Pause,
         WorkOrchestrationActions.Resume,
         WorkOrchestrationActions.Cancel,
+        WorkOrchestrationActions.Retry,
         WorkOrchestrationActions.ConfigureSoftwareTemplate,
     ];
 
@@ -131,6 +134,11 @@ public sealed class WorkManagementCapabilityHandler(
                     await CommentItemAsync(
                         session, organizationId, installation,
                         Read<Wire.CommentOnWorkItemRequest>(request), cancellationToken)),
+                WorkItemActions.ReadComments => Success(
+                    request.RequestId,
+                    await ReadCommentsAsync(
+                        organizationId, installation,
+                        Read<Wire.ReadWorkItemCommentsRequest>(request), cancellationToken)),
                 WorkItemActions.Estimate => Success(
                     request.RequestId,
                     await EstimateItemAsync(
@@ -181,6 +189,11 @@ public sealed class WorkManagementCapabilityHandler(
                     await PreflightOrchestrationAsync(
                         organizationId, installation.Id,
                         Read<Wire.StartWorkSprintExecutionRequest>(request), cancellationToken)),
+                WorkOrchestrationActions.Read => Success(
+                    request.RequestId,
+                    await ReadOrchestrationAsync(
+                        organizationId, installation.Id,
+                        Read<Wire.ReadWorkOrchestrationRequest>(request), cancellationToken)),
                 WorkOrchestrationActions.Start => Success(
                     request.RequestId,
                     await StartOrchestrationAsync(
@@ -191,6 +204,11 @@ public sealed class WorkManagementCapabilityHandler(
                     await ControlOrchestrationAsync(
                         organizationId, installation.Id, request.Capability,
                         Read<Wire.ControlWorkSprintExecutionRequest>(request), cancellationToken)),
+                WorkOrchestrationActions.Retry => Success(
+                    request.RequestId,
+                    await RetryOrchestrationAsync(
+                        organizationId, installation.Id,
+                        Read<Wire.RetryWorkStageExecutionRequest>(request), cancellationToken)),
                 WorkOrchestrationActions.ConfigureSoftwareTemplate => Success(
                     request.RequestId,
                     await ConfigureSoftwareTemplateAsync(
@@ -233,7 +251,96 @@ public sealed class WorkManagementCapabilityHandler(
         orchestration.PreflightAsync(
             organizationId, input.BoardId, input.SprintId, installationId, cancellationToken);
 
-    private Task<WorkSprintExecutionResponse> StartOrchestrationAsync(
+    private async Task<Wire.WorkSprintExecutionResponse?> ReadOrchestrationAsync(
+        Guid organizationId, Guid installationId, Wire.ReadWorkOrchestrationRequest input,
+        CancellationToken cancellationToken)
+    {
+        if (input.BoardId == Guid.Empty || (!input.SprintId.HasValue && !input.SprintExecutionId.HasValue))
+            throw new ArgumentException("Board and sprint or sprint-execution identity are required.");
+        if (input.SprintId.HasValue && input.SprintExecutionId.HasValue &&
+            !await db.WorkSprintExecutions.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.BoardId == input.BoardId &&
+                x.Id == input.SprintExecutionId && x.SprintId == input.SprintId,
+                cancellationToken))
+            throw new InvalidOperationException(
+                "The sprint and sprint-execution identities do not reference the same execution.");
+        var sprintId = input.SprintId;
+        if (!sprintId.HasValue)
+            sprintId = await db.WorkSprintExecutions.AsNoTracking().Where(x =>
+                    x.OrganizationId == organizationId && x.BoardId == input.BoardId &&
+                    x.Id == input.SprintExecutionId)
+                .Select(x => (Guid?)x.SprintId).SingleOrDefaultAsync(cancellationToken);
+        if (!sprintId.HasValue)
+            return null;
+        var execution = await orchestration.GetExecutionAsync(
+            organizationId, input.BoardId, sprintId.Value, installationId, cancellationToken);
+        return execution is null ? null : await ToWireExecutionAsync(execution, cancellationToken);
+    }
+
+    private async Task<Wire.WorkStageExecutionResponse> RetryOrchestrationAsync(
+        Guid organizationId, Guid installationId, Wire.RetryWorkStageExecutionRequest input,
+        CancellationToken cancellationToken)
+    {
+        if (input.ExpectedAssignmentRevision <= 0)
+            throw new ArgumentException("Expected assignment revision is required.");
+        var stage = await orchestration.RetryAsync(
+            organizationId, input.BoardId, input.StageExecutionId, installationId,
+            new WorkOrchestrationControlRequest(
+                input.ExpectedAssignmentRevision, input.IdempotencyKey, input.Reason), cancellationToken);
+        var stageSource = await db.WorkStageExecutions.AsNoTracking()
+            .Where(x => x.Id == input.StageExecutionId)
+            .Select(x => new
+            {
+                x.ItemExecution!.WorkItemId,
+                x.ItemExecution.SprintExecution!.PolicyRevisionId
+            }).SingleAsync(cancellationToken);
+        var workItem = await db.CoreWorkTasks.AsNoTracking()
+            .SingleAsync(x => x.Id == stageSource.WorkItemId, cancellationToken);
+        var maximumAttempts = await db.WorkOrchestrationStages.AsNoTracking()
+            .Where(x => x.PolicyRevisionId == stageSource.PolicyRevisionId && x.Key == stage.StageKey)
+            .Select(x => x.MaximumAttempts).SingleAsync(cancellationToken);
+        return new Wire.WorkStageExecutionResponse(
+            stage.Id, stage.StageKey, stage.StageType, stage.Traversal, stage.Status,
+            stage.PrincipalKind, stage.OrganizationUserId, stage.AgentInstallationId,
+            stage.PlatformAction, stage.AttemptCount, stage.LastOutcomeCode, stage.LastSummary,
+            stage.LastError, stage.RetryAt, stage.UpdatedAt)
+        {
+            AssignmentRevision = workItem.AssignmentRevision,
+            MaximumAttempts = maximumAttempts
+        };
+    }
+
+    private async Task<Wire.WorkSprintExecutionResponse> ToWireExecutionAsync(
+        Wire.WorkSprintExecutionResponse execution,
+        CancellationToken cancellationToken)
+    {
+        var revisions = await db.CoreWorkTasks.AsNoTracking()
+            .Where(x => execution.Items.Select(i => i.WorkItemId).Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.AssignmentRevision, cancellationToken);
+        var maximumAttempts = await db.WorkOrchestrationStages.AsNoTracking()
+            .Where(x => x.PolicyRevisionId == execution.PolicyRevisionId)
+            .ToDictionaryAsync(x => x.Key, x => x.MaximumAttempts, StringComparer.Ordinal,
+                cancellationToken);
+        return new Wire.WorkSprintExecutionResponse(
+            execution.Id, execution.BoardId, execution.SprintId, execution.PolicyRevisionId,
+            execution.StartedByOrganizationUserId, execution.Status, execution.Revision,
+            execution.StartedAt, execution.UpdatedAt, execution.CompletedAt,
+            execution.Items.Select(item => new Wire.WorkItemExecutionResponse(
+                item.Id, item.WorkItemId, item.ItemIdentifier, item.CurrentStageKey, item.Traversal,
+                item.Status, item.BlockedReason,
+                item.Stages.Select(stage => new Wire.WorkStageExecutionResponse(
+                    stage.Id, stage.StageKey, stage.StageType, stage.Traversal, stage.Status,
+                    stage.PrincipalKind, stage.OrganizationUserId, stage.AgentInstallationId,
+                    stage.PlatformAction, stage.AttemptCount, stage.LastOutcomeCode, stage.LastSummary,
+                    stage.LastError, stage.RetryAt, stage.UpdatedAt)
+                {
+                    AssignmentRevision = revisions.GetValueOrDefault(item.WorkItemId),
+                    MaximumAttempts = maximumAttempts.GetValueOrDefault(stage.StageKey)
+                }).ToList(),
+                item.UpdatedAt)).ToList());
+    }
+
+    private Task<Wire.WorkSprintExecutionResponse> StartOrchestrationAsync(
         Guid organizationId, Guid installationId, Wire.StartWorkSprintExecutionRequest input,
         CancellationToken cancellationToken) =>
         orchestration.StartAsync(
@@ -241,7 +348,7 @@ public sealed class WorkManagementCapabilityHandler(
             new WorkOrchestrationControlRequest(
                 input.ExpectedSprintRevision, input.IdempotencyKey), cancellationToken);
 
-    private async Task<WorkSprintExecutionResponse> ControlOrchestrationAsync(
+    private async Task<Wire.WorkSprintExecutionResponse> ControlOrchestrationAsync(
         Guid organizationId, Guid installationId, string capability,
         Wire.ControlWorkSprintExecutionRequest input, CancellationToken cancellationToken)
     {
@@ -1686,13 +1793,23 @@ public sealed class WorkManagementCapabilityHandler(
                 ? "Agent"
                 : session.AgentId,
             Body = input.Body.Trim(),
+            Kind = input.Kind?.Trim(),
+            CoordinationSessionId = input.CoordinationSessionId,
+            CausationId = input.CausationId?.Trim(),
+            ArtifactDigest = input.ArtifactDigest?.Trim(),
             IdempotencyKey = input.IdempotencyKey,
             CreatedAt = now
         };
         var result = new Wire.WorkItemComment(
             comment.Id, comment.WorkItemId, comment.AuthorKind.ToString(),
             comment.AuthorSubjectId, comment.AuthorDisplayName, comment.Body,
-            comment.Revision, comment.CreatedAt, comment.EditedAt);
+            comment.Revision, comment.CreatedAt, comment.EditedAt)
+        {
+            Kind = comment.Kind,
+            CoordinationSessionId = comment.CoordinationSessionId,
+            CausationId = comment.CausationId,
+            ArtifactDigest = comment.ArtifactDigest
+        };
         db.WorkItemComments.Add(comment);
         AddActivity(
             organizationId, input.BoardId, item.Id, installation.Id,
@@ -1710,6 +1827,39 @@ public sealed class WorkManagementCapabilityHandler(
             grant, new { itemId = item.Id, commentId = comment.Id, input.IdempotencyKey },
             cancellationToken, session);
         return result;
+    }
+
+    private async Task<Wire.WorkItemCommentPage> ReadCommentsAsync(
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.ReadWorkItemCommentsRequest input,
+        CancellationToken cancellationToken)
+    {
+        await RequireForItemAsync(
+            organizationId, installation.Id, WorkItemActions.ReadComments,
+            input.BoardId, input.ItemId, cancellationToken);
+        if (input.Page < 1 || input.PageSize is < 1 or > 200)
+            throw new ArgumentException("Comment page and page size are out of range.");
+        var query = db.WorkItemComments.AsNoTracking().Where(x =>
+            x.OrganizationId == organizationId && x.WorkItemId == input.ItemId && x.DeletedAt == null);
+        if (!string.IsNullOrWhiteSpace(input.Kind))
+            query = query.Where(x => x.Kind == input.Kind);
+        var total = await query.CountAsync(cancellationToken);
+        var comments = await query.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id)
+            .Skip((input.Page - 1) * input.PageSize).Take(input.PageSize)
+            .Select(x => new Wire.WorkItemComment(
+                x.Id, x.WorkItemId, x.AuthorKind.ToString(), x.AuthorSubjectId,
+                x.AuthorDisplayName, x.Body, x.Revision, x.CreatedAt, x.EditedAt)
+            {
+                Kind = x.Kind,
+                CoordinationSessionId = x.CoordinationSessionId,
+                CausationId = x.CausationId,
+                ArtifactDigest = x.ArtifactDigest
+            }).ToListAsync(cancellationToken);
+        return new Wire.WorkItemCommentPage(
+            comments, input.Page, input.PageSize,
+            input.Page * input.PageSize < total,
+            comments.Count == 0 ? 0 : comments.Max(x => x.Revision));
     }
 
     private async Task<Wire.WorkItem> EstimateItemAsync(

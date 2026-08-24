@@ -18,6 +18,7 @@ namespace CSweet.Infrastructure.WorkManagement;
 public sealed partial class WorkOrchestrator(
     CSweetDbContext db,
     AgentWorkInbox inbox,
+    IAgentAttentionInvalidationService attention,
     IAgentRuntimeManager runtimes,
     IEnumerable<ITrustedWorkActionExecutor> trustedActions,
     TimeProvider timeProvider,
@@ -110,6 +111,39 @@ public sealed partial class WorkOrchestrator(
             await DispatchAsync(execution, policy, stage, now, cancellationToken);
         }
         await db.SaveChangesAsync(cancellationToken);
+        foreach (var stage in execution.Items.SelectMany(x => x.Stages).Where(x =>
+                     x.UpdatedAt == now &&
+                     x.StageKey.Contains("development", StringComparison.OrdinalIgnoreCase) &&
+                     x.Status is WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed))
+            await InvalidateArchitectsAsync(
+                execution, "work.development-blocked", stage.Id, cancellationToken);
+        foreach (var item in execution.Items.Where(x =>
+                     x.Stages.Count(s => s.StageKey.Contains("quality", StringComparison.OrdinalIgnoreCase)) >= 2 &&
+                     x.Stages.Any(s => s.CreatedAt == now &&
+                         s.StageKey.Contains("quality", StringComparison.OrdinalIgnoreCase))))
+            await InvalidateArchitectsAsync(
+                execution, "work.qa-rework-repeated", item.Id, cancellationToken);
+    }
+
+    private async Task InvalidateArchitectsAsync(
+        WorkSprintExecution execution,
+        string category,
+        Guid correlationId,
+        CancellationToken cancellationToken)
+    {
+        var teamId = await db.WorkBoards.AsNoTracking().Where(x =>
+                x.Id == execution.BoardId && x.OrganizationId == execution.OrganizationId)
+            .Select(x => x.TeamId).SingleOrDefaultAsync(cancellationToken);
+        if (!teamId.HasValue)
+            return;
+        var installations = await db.TeamMemberships.AsNoTracking().Where(x =>
+                x.OrganizationId == execution.OrganizationId && x.TeamId == teamId && x.EndedAt == null &&
+                x.OrganizationUser!.IsActive && x.OrganizationUser.AgentInstallationId != null &&
+                x.OrganizationUser.Role != null && x.OrganizationUser.Role.Name.Contains("Architect"))
+            .Select(x => x.OrganizationUser!.AgentInstallationId!.Value)
+            .Distinct().ToListAsync(cancellationToken);
+        if (installations.Count > 0)
+            await attention.InvalidateAsync(installations, category, correlationId, cancellationToken);
     }
 
     private async Task ReconcileAttemptAsync(

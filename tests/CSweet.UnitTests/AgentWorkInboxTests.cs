@@ -206,7 +206,7 @@ public sealed class AgentWorkInboxTests
     }
 
     [Fact]
-    public async Task Lease_ExpiresAfterSixtySeconds()
+    public async Task Lease_ExpiresAfterThreeMinutes()
     {
         var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
         await using var db = CreateDb();
@@ -235,10 +235,48 @@ public sealed class AgentWorkInboxTests
         Assert.Equal(eventId, claimed.EventId);
         Assert.NotEqual(claimed.WorkId, claimed.EventId);
 
-        clock.Advance(TimeSpan.FromSeconds(61));
+        clock.Advance(TimeSpan.FromMinutes(3).Add(TimeSpan.FromSeconds(1)));
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => inbox.RenewAsync(
             session, claimed!.WorkId, claimed.Attempt, claimed.LeaseToken, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Progress_ExtendsTheActiveLease()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        await using var db = CreateDb();
+        var installation = Installation(clock.GetUtcNow());
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(), TickId = Guid.NewGuid(),
+            AgentInstallationId = installation.Id,
+            QueuedAt = clock.GetUtcNow()
+        };
+        db.AddRange(installation, runtime);
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        var session = new McpAgentSession
+        {
+            Id = Guid.NewGuid(), RuntimeInstanceId = runtime.Id, TickId = runtime.TickId,
+            AgentInstallationId = installation.Id, OrganizationId = installation.BusinessId
+        };
+        await inbox.EnqueueAsync(
+            installation.BusinessId, installation.Id, AgentWorkKind.Event, "example.event.v1",
+            Json("{}"), "progress-renewal-test", clock.GetUtcNow().AddMinutes(10),
+            sourceId: Guid.NewGuid().ToString("D"));
+        var claimed = Assert.IsType<ClaimedAgentWork>(
+            await inbox.ClaimAsync(session, CancellationToken.None));
+
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await inbox.AppendProgressAsync(
+            session, claimed.WorkId, claimed.Attempt, claimed.LeaseToken, 1,
+            Json("""{"stage":"working"}"""), CancellationToken.None);
+        clock.Advance(TimeSpan.FromMinutes(2));
+
+        var renewedUntil = await inbox.RenewAsync(
+            session, claimed.WorkId, claimed.Attempt, claimed.LeaseToken, CancellationToken.None);
+        Assert.Equal(clock.GetUtcNow().Add(AgentWorkInbox.LeaseDuration), renewedUntil);
     }
 
     [Fact]

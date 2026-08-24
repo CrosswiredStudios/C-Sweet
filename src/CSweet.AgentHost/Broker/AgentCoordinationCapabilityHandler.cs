@@ -15,6 +15,7 @@ public sealed class AgentCoordinationCapabilityHandler(
 
     public bool CanHandle(string capability) => capability is
         CommunicationCapabilities.CoordinationStart or
+        CommunicationCapabilities.CoordinationStartWork or
         CommunicationCapabilities.CoordinationRespond or
         CommunicationCapabilities.CoordinationRead or
         CommunicationCapabilities.CoordinationList or
@@ -52,6 +53,9 @@ public sealed class AgentCoordinationCapabilityHandler(
                 CommunicationCapabilities.CoordinationStart => await coordination.StartAsync(
                     organizationId, actorId.Value, installationId,
                     Read<StartAgentCoordinationRequest>(request), cancellationToken),
+                CommunicationCapabilities.CoordinationStartWork => await coordination.StartWorkAsync(
+                    organizationId, actorId.Value, installationId,
+                    Read<StartWorkItemCoordinationRequest>(request), cancellationToken),
                 CommunicationCapabilities.CoordinationRespond => await coordination.RespondAsync(
                     organizationId, actorId.Value, installationId,
                     Read<RespondToAgentCoordinationRequest>(request), cancellationToken),

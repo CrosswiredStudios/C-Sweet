@@ -15,9 +15,16 @@ public sealed class AgentCoordinationSession
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid ConversationId { get; set; }
-    public Guid SourceConversationId { get; set; }
-    public Guid SourceChatTurnId { get; set; }
-    public Guid SourceMessageId { get; set; }
+    public Guid? SourceConversationId { get; set; }
+    public Guid? SourceChatTurnId { get; set; }
+    public Guid? SourceMessageId { get; set; }
+    public string SourceKind { get; set; } = "Chat";
+    public Guid? SourceBoardId { get; set; }
+    public Guid? SourceWorkItemId { get; set; }
+    public Guid? SourceSprintExecutionId { get; set; }
+    public Guid? SourceStageExecutionId { get; set; }
+    public long? SourceAssignmentRevision { get; set; }
+    public int? MaximumTurns { get; set; }
     public Guid InitiatorOrganizationUserId { get; set; }
     public Guid InitiatorInstallationId { get; set; }
     public Guid TargetOrganizationUserId { get; set; }

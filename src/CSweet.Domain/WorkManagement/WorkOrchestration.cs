@@ -248,6 +248,7 @@ public sealed class WorkOrchestrationEvent
     public Guid? StageExecutionId { get; set; }
     public Guid? AttemptId { get; set; }
     public string EventType { get; set; } = string.Empty;
+    public string? IdempotencyKey { get; set; }
     public string DataJson { get; set; } = "{}";
     public DateTimeOffset OccurredAt { get; set; }
 }

@@ -1146,6 +1146,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.Subject).HasMaxLength(256).IsRequired();
             entity.Property(x => x.Objective).HasMaxLength(4096).IsRequired();
             entity.Property(x => x.SuccessCriteriaJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.SourceKind).HasMaxLength(24).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
             entity.Property(x => x.FinalSummary).HasMaxLength(32768);
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
@@ -1154,16 +1155,17 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.ConversationId, x.Status });
             entity.HasIndex(x => new { x.OrganizationId, x.SourceConversationId, x.Status });
+            entity.HasIndex(x => new { x.OrganizationId, x.SourceWorkItemId, x.Status });
             entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.SourceConversationId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Restrict).IsRequired(false);
             entity.HasOne<ChatTurn>().WithMany().HasForeignKey(x => x.SourceChatTurnId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Restrict).IsRequired(false);
             entity.HasOne<ConversationMessage>().WithMany().HasForeignKey(x => x.SourceMessageId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Restrict).IsRequired(false);
             entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.InitiatorOrganizationUserId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.TargetOrganizationUserId)

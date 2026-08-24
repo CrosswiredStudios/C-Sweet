@@ -195,6 +195,10 @@ public sealed class WorkItemComment
     public Guid AuthorSubjectId { get; set; }
     public string AuthorDisplayName { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
+    public string? Kind { get; set; }
+    public Guid? CoordinationSessionId { get; set; }
+    public string? CausationId { get; set; }
+    public string? ArtifactDigest { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
     public long Revision { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; }

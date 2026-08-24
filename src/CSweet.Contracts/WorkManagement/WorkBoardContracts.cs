@@ -30,11 +30,12 @@ public static class WorkItemActions
     public const string Reopen = WorkManagementCapabilityNames.ItemReopen;
     public const string Transfer = WorkManagementCapabilityNames.ItemTransfer;
     public const string Comment = WorkManagementCapabilityNames.ItemComment;
+    public const string ReadComments = WorkManagementCapabilityNames.ItemCommentsRead;
     public const string Estimate = WorkManagementCapabilityNames.ItemEstimate;
     public const string QualitySubmit = WorkManagementCapabilityNames.ItemQualitySubmit;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Create, FinalizeDelivery, Update, Move, Transfer, Comment, Estimate];
+        [Read, Create, FinalizeDelivery, Update, Move, Transfer, Comment, ReadComments, Estimate];
 }
 
 public static class WorkSprintActions

@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Diagnostics;
 using System.Text.Json;
 using CSweet.Application.Core;
+using CSweet.Application.Setup;
 using CSweet.Contracts.Memory;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -19,6 +20,7 @@ public sealed class AgentMemoryService(
     CSweetDbContext db,
     IMemoryStore store,
     ILlmProviderFactory providerFactory,
+    IAgentInstallationConfigurationService configurations,
     ILogger<AgentMemoryService> logger) : IAgentMemoryService
 {
     private const string ApplicationId = "csweet";
@@ -362,14 +364,33 @@ public sealed class AgentMemoryService(
 
     private async Task EnrichEpisodeAsync(MemoryEpisode episode, CancellationToken cancellationToken)
     {
-        var provider = await db.LlmProviderProfiles
-            .Where(x => x.IsEnabled)
-            .OrderBy(x => x.CreatedAt)
-            .Select(x => new { x.Id, x.DefaultChatModel })
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new InvalidOperationException("No enabled LLM provider is available for memory enrichment.");
+        var installationId = await db.CoreConversationMessages.AsNoTracking()
+            .Where(x => x.Id == episode.Id)
+            .Select(x => x.Conversation!.AgentOrganizationUser!.AgentInstallationId)
+            .SingleOrDefaultAsync(cancellationToken);
+        var effectiveConfiguration = installationId.HasValue
+            ? await configurations.GetAsync(installationId.Value, cancellationToken)
+            : null;
+        var configuredProviderId = ReadConfiguredProviderId(effectiveConfiguration?.Settings);
+        var configuredModel = ReadConfiguredModel(effectiveConfiguration?.Settings);
+        var providers = db.LlmProviderProfiles.Where(x => x.IsEnabled);
+        var provider = configuredProviderId.HasValue
+            ? await providers.Where(x => x.Id == configuredProviderId.Value)
+                .Select(x => new { x.Id, x.DefaultChatModel })
+                .SingleOrDefaultAsync(cancellationToken)
+            : await providers.OrderBy(x => x.CreatedAt)
+                .Select(x => new { x.Id, x.DefaultChatModel })
+                .FirstOrDefaultAsync(cancellationToken);
+        if (provider is null)
+            throw new InvalidOperationException(configuredProviderId.HasValue
+                ? "The configured LLM provider is not enabled or no longer exists."
+                : "No enabled LLM provider is available for memory enrichment.");
+        var model = configuredModel ?? provider.DefaultChatModel;
+        if (string.IsNullOrWhiteSpace(model))
+            throw new InvalidOperationException("No chat model is configured for memory enrichment.");
+
         var (enrichment, extractorVersion) = await EnrichWithTelemetryAsync(
-            episode, provider.Id, provider.DefaultChatModel, cancellationToken);
+            episode, provider.Id, model, cancellationToken);
         var entities = new Dictionary<string, MemoryEntity>(StringComparer.OrdinalIgnoreCase);
         foreach (var extracted in enrichment.Entities)
         {
@@ -420,6 +441,22 @@ public sealed class AgentMemoryService(
         }
     }
 
+    private static Guid? ReadConfiguredProviderId(IReadOnlyDictionary<string, JsonElement>? settings) =>
+        settings is not null &&
+        settings.TryGetValue("llmProviderId", out var provider) &&
+        provider.ValueKind == JsonValueKind.String &&
+        Guid.TryParse(provider.GetString(), out var providerId)
+            ? providerId
+            : null;
+
+    private static string? ReadConfiguredModel(IReadOnlyDictionary<string, JsonElement>? settings) =>
+        settings is not null &&
+        settings.TryGetValue("llmModel", out var model) &&
+        model.ValueKind == JsonValueKind.String &&
+        !string.IsNullOrWhiteSpace(model.GetString())
+            ? model.GetString()!.Trim()
+            : null;
+
     private async Task<(MemoryEnrichment Enrichment, string ExtractorVersion)> EnrichWithTelemetryAsync(
         MemoryEpisode episode,
         Guid providerId,
@@ -440,7 +477,8 @@ public sealed class AgentMemoryService(
             .SingleOrDefaultAsync(cancellationToken);
         var startedAt = DateTimeOffset.UtcNow;
         var stopwatch = Stopwatch.StartNew();
-        using var chatClient = await providerFactory.CreateChatClientAsync(providerId, cancellationToken);
+        using var chatClient = await providerFactory.CreateChatClientAsync(
+            providerId, model, cancellationToken);
         var capturingClient = new UsageCapturingChatClient(chatClient);
         var enricher = new MicrosoftExtensionsAIMemoryEnricher(capturingClient);
         try

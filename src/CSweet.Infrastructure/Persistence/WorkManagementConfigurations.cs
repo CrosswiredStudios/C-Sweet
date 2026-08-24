@@ -267,6 +267,9 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.AuthorKind).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.AuthorDisplayName).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Body).HasMaxLength(8192).IsRequired();
+            entity.Property(x => x.Kind).HasMaxLength(80);
+            entity.Property(x => x.CausationId).HasMaxLength(160);
+            entity.Property(x => x.ArtifactDigest).HasMaxLength(128);
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
             entity.HasIndex(x => new
             {
@@ -276,6 +279,7 @@ internal static class WorkManagementConfigurations
                 x.IdempotencyKey
             }).IsUnique();
             entity.HasIndex(x => new { x.WorkItemId, x.CreatedAt });
+            entity.HasIndex(x => new { x.CoordinationSessionId, x.Kind });
             entity.HasOne<Organization>()
                 .WithMany()
                 .HasForeignKey(x => x.OrganizationId)
@@ -457,9 +461,12 @@ internal static class WorkManagementConfigurations
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.EventType).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(160);
             entity.Property(x => x.DataJson).HasColumnType("jsonb").IsRequired();
             entity.HasIndex(x => new { x.SprintExecutionId, x.OccurredAt });
             entity.HasIndex(x => new { x.BoardId, x.OccurredAt });
+            entity.HasIndex(x => new { x.OrganizationId, x.EventType, x.IdempotencyKey })
+                .IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
         });
     }
 }
