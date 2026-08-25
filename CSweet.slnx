@@ -13,6 +13,7 @@
     <Project Path="src/CSweet.ExecutionGateway/CSweet.ExecutionGateway.csproj" />
     <Project Path="src/CSweet.GitHost/CSweet.GitHost.csproj" />
     <Project Path="src/CSweet.Infrastructure/CSweet.Infrastructure.csproj" />
+    <Project Path="src/CSweet.Migrator/CSweet.Migrator.csproj" />
     <Project Path="src/CSweet.Maui/CSweet.Maui.csproj" />
     <Project Path="src/CSweet.Plugin.SDK/CSweet.Plugin.SDK.csproj" />
     <Project Path="src/CSweet.UI/CSweet.UI.csproj" />

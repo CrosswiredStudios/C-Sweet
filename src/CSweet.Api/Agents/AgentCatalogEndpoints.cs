@@ -19,11 +19,13 @@ public static class AgentCatalogEndpoints
             string? currency,
             string? sort,
             int? limit,
+            string? roleCategory,
+            string? specializations,
             IAgentCatalogService catalog,
             CancellationToken cancellationToken) =>
             catalog.GetAvailableAgentsAsync(
                 null,
-                Query(role, q, capabilities, category, maxPrice, currency, sort, limit),
+                Query(role, q, capabilities, category, maxPrice, currency, sort, limit, roleCategory, specializations),
                 cancellationToken));
 
         endpoints.MapGet("/api/core/organizations/{organizationId:guid}/agents/available", async (
@@ -36,6 +38,8 @@ public static class AgentCatalogEndpoints
             string? currency,
             string? sort,
             int? limit,
+            string? roleCategory,
+            string? specializations,
             HttpContext http,
             CSweetDbContext db,
             IAgentCatalogService catalog,
@@ -51,7 +55,7 @@ public static class AgentCatalogEndpoints
             if (!member) return Results.Forbid();
             var result = await catalog.GetAvailableAgentsAsync(
                 organizationId,
-                Query(role, q, capabilities, category, maxPrice, currency, sort, limit),
+                Query(role, q, capabilities, category, maxPrice, currency, sort, limit, roleCategory, specializations),
                 cancellationToken);
             return Results.Ok(result);
         });
@@ -67,7 +71,9 @@ public static class AgentCatalogEndpoints
         decimal? maximumPrice,
         string? currency,
         string? sort,
-        int? limit) =>
+        int? limit,
+        string? roleCategory,
+        string? specializations) =>
         new(
             role,
             search,
@@ -78,5 +84,9 @@ public static class AgentCatalogEndpoints
             maximumPrice,
             currency,
             sort,
-            Math.Clamp(limit ?? 25, 1, 100));
+            Math.Clamp(limit ?? 25, 1, 100),
+            roleCategory,
+            string.IsNullOrWhiteSpace(specializations)
+                ? []
+                : specializations.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 }

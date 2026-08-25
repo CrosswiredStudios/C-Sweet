@@ -123,6 +123,7 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
         var installationStates = await db.AgentInstallations.AsNoTracking()
             .Include(x => x.Grant)
             .Include(x => x.Schedule)
+            .Include(x => x.PackageVersion)
             .Where(x => installationIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
         var pageMembers = ordered
@@ -161,12 +162,15 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
                 if (!installationStates.TryGetValue(member.AgentInstallationId.Value, out var installation))
                     return teammate with { RuntimeEligibility = "Unavailable", IsAvailable = false };
                 var capabilities = ReadCapabilities(installation.Grant?.RequiredCapabilitiesJson);
+                var rolePolicy = ReadRolePolicy(installation.PackageVersion?.ManifestJson);
                 var eligible = installation.IsEnabled &&
                     installation.RevisionStatus == PluginRevisionStatus.Active &&
                     installation.Schedule?.IsEnabled == true;
                 return teammate with
                 {
                     EffectiveCapabilities = capabilities,
+                    DeclaredRoleKeys = rolePolicy.DeclaredRoleKeys,
+                    SpecializationKeys = rolePolicy.SpecializationKeys,
                     RuntimeEligibility = eligible ? "Eligible" : "Unavailable",
                     IsAvailable = eligible
                 };
@@ -197,6 +201,29 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
             return [];
         }
     }
+
+    private static (IReadOnlyList<string> DeclaredRoleKeys, IReadOnlyList<string> SpecializationKeys)
+        ReadRolePolicy(string? manifestJson)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(manifestJson)) return ([], []);
+            using var document = JsonDocument.Parse(manifestJson);
+            if (!document.RootElement.TryGetProperty("rolePolicy", out var policy)) return ([], []);
+            return (ReadArray(policy, "declaredRoleKeys"), ReadArray(policy, "specializationKeys"));
+        }
+        catch (JsonException)
+        {
+            return ([], []);
+        }
+    }
+
+    private static IReadOnlyList<string> ReadArray(JsonElement parent, string propertyName) =>
+        parent.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => x.GetString()!).Where(CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey)
+                .Distinct(StringComparer.Ordinal).Take(32).ToArray()
+            : [];
 
     public static string ApplyToInstructions(
         AgentSession session,

@@ -394,6 +394,8 @@ internal static class CoreConfigurations
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.ResourceChangeRequestId, x.RoleKey }).IsUnique();
             entity.Property(x => x.RoleKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.RoleCategoryKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.PreferredSpecializationKeysJson).HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.Team).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Title).HasMaxLength(256).IsRequired();
             entity.Property(x => x.Purpose).HasMaxLength(2048).IsRequired();

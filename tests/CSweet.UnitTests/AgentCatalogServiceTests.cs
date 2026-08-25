@@ -70,6 +70,44 @@ public sealed class AgentCatalogServiceTests
     }
 
     [Fact]
+    public async Task RoleCategory_IsRequiredWhileSpecializationOnlyImprovesRanking()
+    {
+        var gameSpecialist = Agent("first-party:game", AgentCatalogSource.FirstPartyCatalog) with
+        {
+            Name = "Software Architect with game experience",
+            AgentId = "com.example.game-architect",
+            RoleCategoryKeys = ["software-architect"],
+            SpecializationKeys = ["game-development"]
+        };
+        var generalArchitect = Agent("first-party:general", AgentCatalogSource.FirstPartyCatalog) with
+        {
+            Name = "Software Architect",
+            AgentId = "com.example.general-architect",
+            RoleCategoryKeys = ["software-architect"],
+            SpecializationKeys = ["distributed-systems"]
+        };
+        var gameDeveloper = Agent("first-party:developer", AgentCatalogSource.FirstPartyCatalog) with
+        {
+            Name = "Game Developer",
+            AgentId = "com.example.game-developer",
+            RoleCategoryKeys = ["software-developer"],
+            SpecializationKeys = ["game-development"]
+        };
+        var service = new AgentCatalogService(
+            [new StubProvider(AgentCatalogSource.FirstPartyCatalog, generalArchitect, gameDeveloper, gameSpecialist)],
+            NullLogger<AgentCatalogService>.Instance);
+
+        var result = await service.GetAvailableAgentsAsync(null, new(
+            RoleCategoryKey: "software-architect",
+            PreferredSpecializationKeys: ["game-development"]));
+
+        Assert.Equal(2, result.Agents.Count);
+        Assert.Equal(gameSpecialist.Name, result.Agents[0].Name);
+        Assert.Contains(result.Agents, x => x.Name == generalArchitect.Name);
+        Assert.DoesNotContain(result.Agents, x => x.Name == gameDeveloper.Name);
+    }
+
+    [Fact]
     public async Task LocalDirectory_DiscoversManifestWithoutExposingPathOrExecutingSource()
     {
         var root = Path.Combine(Path.GetTempPath(), $"csweet-agent-catalog-{Guid.NewGuid():N}");
@@ -221,6 +259,7 @@ public sealed class AgentCatalogServiceTests
     {
       "manifestVersion": "2.0",
       "kind": "agent",
+      "rolePolicy": { "profile": "manager.v1", "declaredRoleKeys": ["software-product-manager"], "specializationKeys": ["software-delivery"] },
       "id": "com.csweet.product-manager",
       "name": "{{name}}",
       "version": "1.0.0",

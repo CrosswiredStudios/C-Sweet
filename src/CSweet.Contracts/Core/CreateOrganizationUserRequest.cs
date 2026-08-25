@@ -12,4 +12,8 @@ public sealed record CreateOrganizationUserRequest(
     Guid? ReportsToOrganizationUserId = null,
     IReadOnlyList<Guid>? ManagedOrganizationUserIds = null,
     Guid? AgentInstallationId = null,
-    Guid? AgentDefinitionId = null);
+    Guid? AgentDefinitionId = null)
+{
+    /// <summary>Canonical high-level role category expected by a governed hiring workflow.</summary>
+    public string? RoleCategoryKey { get; init; }
+}

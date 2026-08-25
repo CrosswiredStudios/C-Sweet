@@ -192,7 +192,9 @@ public sealed class McpCapabilityRegistryTests
                     null,
                     null)
                 {
-                    TeamId = null
+                    TeamId = null,
+                    RoleCategoryKey = "software-developer",
+                    PreferredSpecializationKeys = ["game-development"]
                 }
             ],
             [],

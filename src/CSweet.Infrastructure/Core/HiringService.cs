@@ -991,7 +991,8 @@ public sealed class HiringService(
                 null,
                 (int)OrganizationPermissionLevel.Contributor,
                 (int)EmployeeType.Agent,
-                role.Id, null, snapshot.ReportsToOrganizationUserId, AgentInstallationId: installationId),
+                role.Id, null, snapshot.ReportsToOrganizationUserId, AgentInstallationId: installationId)
+                { RoleCategoryKey = snapshot.RoleCategoryKey },
                 cancellationToken, applicationUserId,
                 workflow.ActionType == "marketplace-install-and-hire" ? "Marketplace" : "HiringWorkflow");
             if (!result.Succeeded || result.OrganizationUser is null)
@@ -1069,7 +1070,8 @@ public sealed class HiringService(
                     role.Id,
                     null,
                     snapshot.ReportsToOrganizationUserId,
-                    AgentDefinitionId: definition.Id),
+                    AgentDefinitionId: definition.Id)
+                { RoleCategoryKey = snapshot.RoleCategoryKey },
                 cancellationToken,
                 applicationUserId,
                 workflow.ActionType == "marketplace-install-and-hire" ? "Marketplace" : "HiringWorkflow");
@@ -1262,6 +1264,8 @@ CompleteWorkflow:
             .Distinct(StringComparer.Ordinal)
             .ToList();
         EmbeddedAgentInstallSnapshot? embeddedAgent = null;
+        string? roleCategoryKey = null;
+        IReadOnlyList<string> preferredSpecializationKeys = [];
         if (candidate.Source == "InstalledPlugin" && Guid.TryParse(candidate.ExternalCandidateId, out var installationId))
         {
             var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).Include(x => x.Grant)
@@ -1336,11 +1340,23 @@ CompleteWorkflow:
             workstreamId = plan.WorkstreamId;
             teamId = plan.TeamId;
             objective = plan.Objective;
+            if (plan.SourceResourceChangeRequestId is { } resourceChangeId &&
+                !string.IsNullOrWhiteSpace(plan.RoleKey))
+            {
+                var approvedRole = await db.ResourceChangeRoles.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.ResourceChangeRequestId == resourceChangeId &&
+                    x.RoleKey == plan.RoleKey &&
+                    x.IsDesired,
+                    token);
+                roleCategoryKey = approvedRole?.RoleCategoryKey;
+                preferredSpecializationKeys = ReadStrings(approvedRole?.PreferredSpecializationKeysJson);
+            }
         }
         if (string.IsNullOrWhiteSpace(objective))
             throw new InvalidOperationException("The hiring workflow objective is missing.");
         return new(roleTitle, reportsTo, workstreamId, teamId, objective, candidate.EstimatedCost, candidate.Currency,
-            digest, approvedRequiredGrants, currentGrants, embeddedAgent, employeeDisplayName);
+            digest, approvedRequiredGrants, currentGrants, embeddedAgent, employeeDisplayName,
+            roleCategoryKey, preferredSpecializationKeys);
     }
 
     private async Task<Guid?> ResolveApprovedReportsToAsync(
@@ -1933,7 +1949,9 @@ CompleteWorkflow:
         string Objective, decimal? Price, string? Currency, string? PackageDigest,
         IReadOnlyList<string> RequiredGrants, IReadOnlyList<string> ApprovedGrants,
         EmbeddedAgentInstallSnapshot? EmbeddedAgent = null,
-        string? EmployeeDisplayName = null);
+        string? EmployeeDisplayName = null,
+        string? RoleCategoryKey = null,
+        IReadOnlyList<string>? PreferredSpecializationKeys = null);
     private sealed record EmbeddedAgentInstallSnapshot(
         Guid ImportId,
         string RepositoryUrl,

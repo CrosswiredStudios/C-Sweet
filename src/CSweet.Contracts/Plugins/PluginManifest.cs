@@ -30,6 +30,7 @@ public sealed record PluginRolePolicy
 {
     public string Profile { get; init; } = string.Empty;
     public IReadOnlyList<string> DeclaredRoleKeys { get; init; } = [];
+    public IReadOnlyList<string> SpecializationKeys { get; init; } = [];
 }
 
 public sealed record PluginCatalogMetadata

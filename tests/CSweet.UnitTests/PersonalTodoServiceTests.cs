@@ -3,6 +3,7 @@ using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
+using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.WorkManagement;
@@ -103,7 +104,7 @@ public sealed class PersonalTodoServiceTests
             new Wire.RequeuePersonalTodoItemRequest(blocked.Id, blocked.Revision, "requeue"));
         Assert.Equal(WorkTaskStatus.Ready.ToString(), requeued.Status);
         Assert.Null(requeued.BlockReason);
-        Assert.Equal(3, await db.AgentPlatformEventOutbox.CountAsync(x =>
+        Assert.Equal(2, await db.AgentPlatformEventOutbox.CountAsync(x =>
             x.EventType == Wire.PersonalTodoEvents.Available));
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.AddAsync(
@@ -192,6 +193,9 @@ public sealed class PersonalTodoServiceTests
         Assert.Equal(Wire.PersonalTodoStatuses.Running, deferred.Status);
         Assert.NotNull(deferred.Wait);
         Assert.Equal(setup.FirstManager.Id, deferred.Wait!.WaitingOnOrganizationUserId);
+        var originalWake = await db.AgentPlatformEventOutbox.SingleAsync();
+        originalWake.Status = AgentPlatformEventOutboxStatus.Published;
+        originalWake.PublishedAt = DateTimeOffset.UtcNow;
         stored = await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id);
         stored.NextReviewAt = DateTimeOffset.UtcNow.AddSeconds(-1);
         await db.SaveChangesAsync();
@@ -277,6 +281,75 @@ public sealed class PersonalTodoServiceTests
     }
 
     [Fact]
+    public async Task ReleaseDoesNotQueueAnotherWakeWhileTheCurrentDeliveryIsActive()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var owner = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+        var item = await service.AddAsync(setup.Organization.Id, owner,
+            Add("Complete planning", "planning", null));
+        var original = await db.AgentPlatformEventOutbox.SingleAsync();
+        original.Status = AgentPlatformEventOutboxStatus.Published;
+        db.AgentWorkItems.Add(new AgentWorkItem
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.Organization.Id.ToString("D"),
+            AgentInstallationId = setup.Agent.AgentInstallationId!.Value,
+            Kind = AgentWorkKind.Event,
+            Name = Wire.PersonalTodoEvents.Available,
+            ProtectedPayload = [1],
+            PayloadHash = "payload",
+            CorrelationId = "planning",
+            IdempotencyKey = $"personal-todo-available:{item.Id:N}:{original.Id:N}:{setup.Agent.AgentInstallationId:D}",
+            Status = AgentWorkStatus.Leased,
+            AvailableAt = DateTimeOffset.UtcNow,
+            DeadlineAt = DateTimeOffset.MaxValue,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        var eventId = Guid.NewGuid();
+        var stored = await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id);
+        var doing = await db.WorkBoardColumns.SingleAsync(x =>
+            x.BoardId == stored.BoardId && x.Category == WorkBoardColumnCategory.InProgress);
+        stored.Status = WorkTaskStatus.Running;
+        stored.BoardColumnId = doing.Id;
+        stored.ClaimEventId = eventId;
+        stored.ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
+        stored.Revision++;
+        await db.SaveChangesAsync();
+
+        var released = await service.ReleaseAsync(setup.Organization.Id, owner,
+            new Wire.ReleasePersonalTodoItemRequest(item.Id, eventId, stored.Revision, "transient-failure"));
+
+        Assert.Equal(Wire.PersonalTodoStatuses.Ready, released.Status);
+        Assert.Single(await db.AgentPlatformEventOutbox.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ReconcileCancelsPendingDuplicateDeliveriesBehindAnActiveLease()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var item = await service.AddAsync(setup.Organization.Id,
+            new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId),
+            Add("Complete planning", "planning-coalesce", null));
+        var prefix = $"personal-todo-available:{item.Id:N}:";
+        var leased = Delivery(prefix, setup, AgentWorkStatus.Leased, DateTimeOffset.UtcNow.AddMinutes(-2));
+        var pending = Delivery(prefix, setup, AgentWorkStatus.Pending, DateTimeOffset.UtcNow.AddMinutes(-1));
+        db.AgentWorkItems.AddRange(leased, pending);
+        await db.SaveChangesAsync();
+
+        await service.ReconcileAsync();
+
+        Assert.Equal(AgentWorkStatus.Leased, leased.Status);
+        Assert.Equal(AgentWorkStatus.Cancelled, pending.Status);
+        Assert.NotNull(pending.CompletedAt);
+    }
+
+    [Fact]
     public async Task TicketMentionsAreValidatedPersistedAndReturnedAsAuthoritativeIdentities()
     {
         await using var db = CreateDb();
@@ -349,6 +422,27 @@ public sealed class PersonalTodoServiceTests
 
     private static Wire.AddPersonalTodoItemRequest Add(string title, string key, Guid? target) =>
         new(title, null, Wire.WorkPriorities.Medium, null, key, target);
+
+    private static AgentWorkItem Delivery(
+        string prefix,
+        Setup setup,
+        AgentWorkStatus status,
+        DateTimeOffset createdAt) => new()
+    {
+        Id = Guid.NewGuid(),
+        OrganizationId = setup.Organization.Id.ToString("D"),
+        AgentInstallationId = setup.Agent.AgentInstallationId!.Value,
+        Kind = AgentWorkKind.Event,
+        Name = Wire.PersonalTodoEvents.Available,
+        ProtectedPayload = [1],
+        PayloadHash = "payload",
+        CorrelationId = "planning",
+        IdempotencyKey = $"{prefix}{Guid.NewGuid():N}:{setup.Agent.AgentInstallationId:D}",
+        Status = status,
+        AvailableAt = createdAt,
+        DeadlineAt = DateTimeOffset.MaxValue,
+        CreatedAt = createdAt
+    };
 
     private static IQueryable<ScopedActionGrant> ActiveGrants(
         CSweetDbContext db, Guid boardId, GrantSubjectKind kind, Guid subjectId) =>

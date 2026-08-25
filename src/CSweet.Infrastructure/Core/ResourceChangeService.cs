@@ -456,16 +456,28 @@ public sealed class ResourceChangeService(
     private static List<ResourceChangeRole> ValidateRoles(IReadOnlyList<ResourceChangeRole> roles, Guid requesterId)
     {
         if (roles.Count is < 1 or > 20) throw new ArgumentException("A resource-change request requires between 1 and 20 roles.");
-        var normalized = roles.Select(role => role with
+        var normalized = roles.Select(role =>
         {
-            RoleKey = Required(role.RoleKey, 160, "role.roleKey").ToLowerInvariant(),
-            Team = Required(role.Team, 160, "role.team"),
-            Title = Required(role.Title, 256, "role.title"),
-            Purpose = Required(role.Purpose, 2048, "role.purpose"),
-            Timing = Required(role.Timing, 32, "role.timing"),
-            ReportsToOrganizationUserId = role.ReportsToOrganizationUserId ?? (role.ReportsToRoleKey is null ? requesterId : null),
-            ReportsToRoleKey = Clean(role.ReportsToRoleKey, 160)?.ToLowerInvariant(),
-            RequiredCapabilities = CleanList(role.RequiredCapabilities, 25, 256)
+            var requestedCapabilities = CleanList(role.RequiredCapabilities, 25, 256);
+            var specializationKeys = requestedCapabilities
+                .Where(IsSpecializationKey)
+                .Select(value => CanonicalRoleKey(value, "role.requiredCapabilities"));
+            return role with
+            {
+                RoleKey = Required(role.RoleKey, 160, "role.roleKey").ToLowerInvariant(),
+                RoleCategoryKey = CanonicalRoleKey(role.RoleCategoryKey, "role.roleCategoryKey"),
+                PreferredSpecializationKeys = CleanCanonicalKeys(
+                    (role.PreferredSpecializationKeys ?? []).Concat(specializationKeys).ToList(),
+                    20,
+                    "role.preferredSpecializationKeys"),
+                Team = Required(role.Team, 160, "role.team"),
+                Title = Required(role.Title, 256, "role.title"),
+                Purpose = Required(role.Purpose, 2048, "role.purpose"),
+                Timing = Required(role.Timing, 32, "role.timing"),
+                ReportsToOrganizationUserId = role.ReportsToOrganizationUserId ?? (role.ReportsToRoleKey is null ? requesterId : null),
+                ReportsToRoleKey = Clean(role.ReportsToRoleKey, 160)?.ToLowerInvariant(),
+                RequiredCapabilities = requestedCapabilities.Where(IsEnforceableCapability).ToList()
+            };
         }).ToList();
         if (normalized.Select(x => x.RoleKey).Distinct(StringComparer.Ordinal).Count() != normalized.Count)
             throw new ArgumentException("Role keys must be unique.");
@@ -473,7 +485,6 @@ public sealed class ResourceChangeService(
         {
             if (role.Headcount is < 1 or > 100) throw new ArgumentException("Role headcount must be between 1 and 100.");
             if (role.Priority is < 1 or > 100) throw new ArgumentException("Role priority must be between 1 and 100.");
-            if (role.RequiredCapabilities.Count == 0) throw new ArgumentException($"Role '{role.Title}' requires at least one capability.");
             if (role.ReportsToOrganizationUserId.HasValue == (role.ReportsToRoleKey is not null))
                 throw new ArgumentException($"Role '{role.Title}' must have exactly one reporting target.");
             if (role.ReportsToOrganizationUserId.HasValue && role.ReportsToOrganizationUserId != requesterId)
@@ -532,6 +543,8 @@ public sealed class ResourceChangeService(
         Id = Guid.NewGuid(),
         ResourceChangeRequestId = requestId,
         RoleKey = delta.Role.RoleKey,
+        RoleCategoryKey = delta.Role.RoleCategoryKey,
+        PreferredSpecializationKeysJson = JsonSerializer.Serialize(delta.Role.PreferredSpecializationKeys, JsonOptions),
         Team = delta.Role.Team,
         Title = delta.Role.Title,
         Purpose = delta.Role.Purpose,
@@ -578,8 +591,34 @@ public sealed class ResourceChangeService(
         ReadStrings(role.RequiredCapabilitiesJson), role.HumanRequired,
         role.ReportsToOrganizationUserId, role.ReportsToRoleKey)
     {
-        TeamId = role.TeamId
+        TeamId = role.TeamId,
+        RoleCategoryKey = role.RoleCategoryKey,
+        PreferredSpecializationKeys = ReadStrings(role.PreferredSpecializationKeysJson)
     };
+
+    private static string CanonicalRoleKey(string value, string name)
+    {
+        var result = Required(value, 160, name);
+        if (!CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(result))
+            throw new ArgumentException($"{name} must be a lowercase kebab-case key.");
+        return result;
+    }
+
+    private static IReadOnlyList<string> CleanCanonicalKeys(
+        IReadOnlyList<string>? values,
+        int maximumCount,
+        string name)
+    {
+        var result = (values ?? []).Select(value => CanonicalRoleKey(value, name))
+            .Distinct(StringComparer.Ordinal).ToList();
+        if (result.Count > maximumCount)
+            throw new ArgumentException($"{name} may contain at most {maximumCount} values.");
+        return result;
+    }
+
+    private static bool IsEnforceableCapability(string value) => value.Contains('.', StringComparison.Ordinal);
+
+    private static bool IsSpecializationKey(string value) => !IsEnforceableCapability(value);
 
     private static AgentPlatformEventOutboxItem NewEvent(
         Guid organizationId,

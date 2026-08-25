@@ -86,6 +86,14 @@ builder.Services.AddScoped<IAgentMemoryIdentityResolver, AgentMemoryIdentityReso
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = (context, _) =>
+    {
+        // The session limiter replenishes in ten-second sliding-window segments. Give SDK
+        // clients an authoritative delay so they back off instead of reconnecting and
+        // immediately consuming another session's allowance.
+        context.HttpContext.Response.Headers.RetryAfter = "10";
+        return ValueTask.CompletedTask;
+    };
     options.AddPolicy("mcp-session", httpContext =>
         RateLimitPartition.GetSlidingWindowLimiter(
             httpContext.Request.Headers["Mcp-Session-Id"].FirstOrDefault()

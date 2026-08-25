@@ -1,6 +1,7 @@
 using CSweet.AgentHost.Broker;
 using CSweet.Agent.SDK;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -112,6 +113,48 @@ public sealed class AgentEmployeeIdentityResolverTests
         db.TeamMemberships.AddRange(
             Membership(organizationId, team.Id, caller.Id, caller.Id),
             Membership(organizationId, team.Id, qa.Id, null));
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(),
+            PackageSourceId = Guid.NewGuid(),
+            AgentId = "com.example.software-developer",
+            AgentName = "Software Developer",
+            Version = "1.0.0",
+            PublisherId = "com.example",
+            PublisherName = "Example",
+            RuntimeType = "dotnet-project",
+            ManifestJson = """
+                {"rolePolicy":{"profile":"individual-contributor.v1","declaredRoleKeys":["software-developer"],"specializationKeys":["game-development"]}}
+                """,
+            CommitSha = new('a', 40),
+            ManifestDigest = new('b', 64),
+            ImportedAt = DateTimeOffset.UtcNow
+        };
+        db.AgentInstallations.Add(new AgentInstallation
+        {
+            Id = installationId,
+            InstallationKey = Guid.NewGuid(),
+            PackageVersionId = package.Id,
+            PackageVersion = package,
+            BusinessId = organizationId.ToString("D"),
+            IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Schedule = new AgentSchedule
+            {
+                Id = Guid.NewGuid(),
+                AgentInstallationId = installationId,
+                IsEnabled = true
+            },
+            Grant = new AgentInstallationGrant
+            {
+                Id = Guid.NewGuid(),
+                AgentInstallationId = installationId,
+                RequiredCapabilitiesJson = "[\"work.item.read\"]",
+                ApprovedAt = DateTimeOffset.UtcNow
+            }
+        });
         await db.SaveChangesAsync();
 
         var resolver = new AgentEmployeeIdentityResolver(db);
@@ -121,8 +164,11 @@ public sealed class AgentEmployeeIdentityResolverTests
         Assert.NotNull(identity?.TeamContext);
         Assert.Equal("Delivery A", identity.TeamContext.Name);
         Assert.Equal(2, identity.TeamContext.TotalMemberCount);
-        Assert.Contains(identity.TeamContext.Members, x => x.EmployeeId == caller.Id.ToString("D") &&
-            x.RelationshipToCaller == "Self" && x.AgentInstallationId == installationId);
+        var self = Assert.Single(identity.TeamContext.Members, x => x.EmployeeId == caller.Id.ToString("D"));
+        Assert.Equal("Self", self.RelationshipToCaller);
+        Assert.Equal(installationId, self.AgentInstallationId);
+        Assert.Equal(["software-developer"], self.DeclaredRoleKeys);
+        Assert.Equal(["game-development"], self.SpecializationKeys);
         Assert.Contains(identity.TeamContext.Members, x => x.EmployeeId == qa.Id.ToString("D") &&
             x.RelationshipToCaller == "TeamLead" && x.AgentInstallationId is null);
         Assert.DoesNotContain(identity.TeamContext.Members, x => x.EmployeeId == unrelated.Id.ToString("D"));

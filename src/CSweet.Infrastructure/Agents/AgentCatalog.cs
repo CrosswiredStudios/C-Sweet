@@ -41,6 +41,7 @@ public sealed class AgentCatalogService(
         var normalized = query with
         {
             RequiredCapabilities = query.RequiredCapabilities ?? [],
+            PreferredSpecializationKeys = query.PreferredSpecializationKeys ?? [],
             Limit = Math.Clamp(query.Limit, 1, 100)
         };
         var agents = new List<AvailableAgent>();
@@ -98,6 +99,9 @@ public sealed class AgentCatalogService(
         if (query.RequiredCapabilities is { Count: > 0 } &&
             query.RequiredCapabilities.Except(agent.Capabilities, StringComparer.OrdinalIgnoreCase).Any())
             return false;
+        if (!string.IsNullOrWhiteSpace(query.RoleCategoryKey) &&
+            !(agent.RoleCategoryKeys ?? []).Contains(query.RoleCategoryKey.Trim(), StringComparer.Ordinal))
+            return false;
         if (!string.IsNullOrWhiteSpace(query.Category) &&
             !string.Equals(query.Category.Trim(), agent.Category, StringComparison.OrdinalIgnoreCase))
             return false;
@@ -125,7 +129,9 @@ public sealed class AgentCatalogService(
         agent.Category.Contains(value, StringComparison.OrdinalIgnoreCase) ||
         agent.RoleAliases.Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase)) ||
         agent.Keywords.Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase)) ||
-        agent.Capabilities.Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase));
+        agent.Capabilities.Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase)) ||
+        (agent.RoleCategoryKeys ?? []).Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase)) ||
+        (agent.SpecializationKeys ?? []).Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase));
 
     private static decimal Score(AvailableAgent agent, AvailableAgentSearchQuery query)
     {
@@ -142,6 +148,13 @@ public sealed class AgentCatalogService(
         }
         if (!string.IsNullOrWhiteSpace(query.SearchString)) score += 0.10m;
         if (query.RequiredCapabilities is { Count: > 0 }) score += 0.05m;
+        if (!string.IsNullOrWhiteSpace(query.RoleCategoryKey)) score += 0.15m;
+        if (query.PreferredSpecializationKeys is { Count: > 0 })
+        {
+            var requested = query.PreferredSpecializationKeys.ToHashSet(StringComparer.Ordinal);
+            var matches = (agent.SpecializationKeys ?? []).Count(requested.Contains);
+            score += Math.Min(matches * 0.04m, 0.12m);
+        }
         score += agent.Source switch
         {
             AgentCatalogSource.Installed => 0.05m,
@@ -173,6 +186,8 @@ public sealed class AgentCatalogService(
             RoleName = ordered.Select(x => x.RoleName).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
             RoleAliases = ordered.SelectMany(x => x.RoleAliases).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             Keywords = ordered.SelectMany(x => x.Keywords).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            RoleCategoryKeys = ordered.SelectMany(x => x.RoleCategoryKeys ?? []).Distinct(StringComparer.Ordinal).ToArray(),
+            SpecializationKeys = ordered.SelectMany(x => x.SpecializationKeys ?? []).Distinct(StringComparer.Ordinal).ToArray(),
             LicenseSpdxId = ordered.Select(x => x.LicenseSpdxId).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
             LicenseUrl = ordered.Select(x => x.LicenseUrl).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
             IconUrls = ordered.SelectMany(x => x.IconUrls ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
@@ -275,7 +290,9 @@ public sealed class InstalledAgentCatalogProvider(CSweetDbContext db) : IAgentCa
             manifest.Catalog.Role?.Name,
             manifest.Catalog.License?.SpdxId,
             manifest.Catalog.License?.Url,
-            manifest.Catalog.IconUrls);
+            manifest.Catalog.IconUrls,
+            manifest.RolePolicy?.DeclaredRoleKeys ?? [],
+            manifest.RolePolicy?.SpecializationKeys ?? []);
     }
 
     private static IReadOnlyList<string> ReadList(string? json)
@@ -350,7 +367,9 @@ public sealed class FirstPartyAgentCatalogProvider(IOptions<MarketplaceOptions> 
         NullIfWhiteSpace(item.RoleName),
         NullIfWhiteSpace(item.LicenseSpdxId),
         NullIfWhiteSpace(item.LicenseUrl),
-        item.IconUrls);
+        item.IconUrls,
+        string.IsNullOrWhiteSpace(item.RoleKey) ? [] : [item.RoleKey],
+        []);
 
     private static string? NullIfWhiteSpace(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
     private static bool TryGuid(string reference, string prefix, out Guid id)
@@ -419,7 +438,9 @@ public sealed class MarketplaceAgentCatalogProvider(IMarketplaceDiscoveryService
         item.RoleName,
         item.LicenseSpdxId,
         item.LicenseUrl,
-        item.IconUrls);
+        item.IconUrls,
+        string.IsNullOrWhiteSpace(item.RoleKey) ? [] : [item.RoleKey],
+        []);
 
     private static bool TryGuid(string reference, string prefix, out Guid id)
     {
@@ -576,7 +597,9 @@ public sealed class LocalDirectoryAgentCatalogProvider(
             manifest.Catalog.Role?.Name,
             manifest.Catalog.License?.SpdxId,
             manifest.Catalog.License?.Url,
-            manifest.Catalog.IconUrls);
+            manifest.Catalog.IconUrls,
+            manifest.RolePolicy?.DeclaredRoleKeys ?? [],
+            manifest.RolePolicy?.SpecializationKeys ?? []);
     }
 
     private async Task<string> DigestAsync(string directory, CancellationToken token)

@@ -26,6 +26,15 @@ public sealed class ResourceChangeServiceTests
         Assert.Equal(first.Id, retry.Id);
         Assert.All(first.Deltas, x => Assert.Equal("Add", x.ChangeKind));
         Assert.Equal(2, first.Roles.Count);
+        var design = Assert.Single(first.Roles, x => x.RoleKey == "product-design");
+        Assert.Equal("product-designer", design.RoleCategoryKey);
+        Assert.Equal(
+            ["game-interface-design", "customer-research", "interaction-design"],
+            design.PreferredSpecializationKeys);
+        Assert.Empty(design.RequiredCapabilities);
+        var quality = Assert.Single(first.Roles, x => x.RoleKey == "quality");
+        Assert.Equal(["quality-engineering"], quality.PreferredSpecializationKeys);
+        Assert.Empty(quality.RequiredCapabilities);
         Assert.Single(await db.ResourceChangeRequests.ToListAsync());
         var approvalMessage = Assert.Single(await db.CoreConversationMessages.Where(x =>
             x.SourceProvider == ResourceChangeService.MessageSource).ToListAsync());
@@ -432,7 +441,11 @@ public sealed class ResourceChangeServiceTests
                     ["customer-research", "interaction-design"],
                     false,
                     setup.RequesterId,
-                    null),
+                    null)
+                {
+                    RoleCategoryKey = "product-designer",
+                    PreferredSpecializationKeys = ["game-interface-design"]
+                },
                 new ResourceChangeRole(
                     "quality",
                     "Product",
@@ -444,7 +457,7 @@ public sealed class ResourceChangeServiceTests
                     ["quality-engineering"],
                     false,
                     setup.RequesterId,
-                    null)
+                    null) { RoleCategoryKey = "software-qa" }
             ],
             ["The initial customer segment is known."],
             ["No approved workforce budget is implied."],

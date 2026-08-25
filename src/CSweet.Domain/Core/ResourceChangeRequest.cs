@@ -47,6 +47,8 @@ public sealed class ResourceChangeRoleRecord
     public Guid Id { get; set; }
     public Guid ResourceChangeRequestId { get; set; }
     public string RoleKey { get; set; } = string.Empty;
+    public string RoleCategoryKey { get; set; } = string.Empty;
+    public string PreferredSpecializationKeysJson { get; set; } = "[]";
     public string Team { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Purpose { get; set; } = string.Empty;

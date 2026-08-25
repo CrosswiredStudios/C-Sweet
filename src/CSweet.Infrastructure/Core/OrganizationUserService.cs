@@ -273,7 +273,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
                 .SingleOrDefaultAsync(cancellationToken)
             : null;
         string? declaredRoleMismatch = null;
-        if (user.AgentInstallationId.HasValue && !string.IsNullOrWhiteSpace(roleTitle))
+        if (user.AgentInstallationId.HasValue &&
+            CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(request.RoleCategoryKey))
         {
             var manifestJson = hiredManifestJson ??
                 await _dbContext.AgentInstallations.AsNoTracking()
@@ -281,11 +282,11 @@ public sealed class OrganizationUserService : IOrganizationUserService
                     .Select(x => x.PackageVersion!.ManifestJson)
                     .SingleAsync(cancellationToken);
             var policy = AgentConfigurationRules.DeserializeManifest(manifestJson).RolePolicy;
-            if (policy is not null && !policy.DeclaredRoleKeys.Any(x =>
-                    NormalizeRoleIdentity(x) == NormalizeRoleIdentity(roleTitle)))
+            if (policy is not null && !policy.DeclaredRoleKeys.Contains(
+                    request.RoleCategoryKey!, StringComparer.Ordinal))
             {
                 declaredRoleMismatch =
-                    $"Assigned role '{roleTitle}' does not match declared package roles: {string.Join(", ", policy.DeclaredRoleKeys)}.";
+                    $"Assigned role category '{request.RoleCategoryKey}' does not match declared package roles: {string.Join(", ", policy.DeclaredRoleKeys)}.";
             }
         }
         var managerInstallationId = user.ReportsToOrganizationUserId.HasValue
@@ -612,9 +613,6 @@ public sealed class OrganizationUserService : IOrganizationUserService
 
         return new CoreActionResponse(true, null, "Role updated successfully.", OrganizationUser: user.ToResponse());
     }
-
-    private static string NormalizeRoleIdentity(string value) =>
-        new(value.Trim().ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
 
     internal static AgentInstallation CreateHiredInstallation(
         AgentDefinition definition,

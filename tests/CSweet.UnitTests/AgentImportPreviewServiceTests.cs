@@ -196,8 +196,8 @@ public class AgentImportPreviewServiceTests
     {
         await using var dbContext = CreateDbContext();
         var manifest = ValidManifest().Replace(
-            "\"kind\": \"agent\",",
-            "\"kind\": \"agent\", \"rolePolicy\": { \"profile\": \"manager.v1\", \"declaredRoleKeys\": [\"research-manager\"] },",
+            "\"rolePolicy\": { \"profile\": \"individual-contributor.v1\", \"declaredRoleKeys\": [\"researcher\"], \"specializationKeys\": [\"business-research\"] },",
+            "\"rolePolicy\": { \"profile\": \"manager.v1\", \"declaredRoleKeys\": [\"research-manager\"] },",
             StringComparison.Ordinal);
         var service = new AgentImportPreviewService(
             dbContext, new FakeGitHubAgentRepositoryClient(manifest), new TestAuditEventWriter());
@@ -215,8 +215,8 @@ public class AgentImportPreviewServiceTests
     {
         await using var dbContext = CreateDbContext();
         var manifest = ValidManifest().Replace(
-            "\"kind\": \"agent\",",
-            $"\"kind\": \"agent\", \"rolePolicy\": {{ \"profile\": \"{profile}\", \"declaredRoleKeys\": [\"{roleKey}\"] }},",
+            "\"rolePolicy\": { \"profile\": \"individual-contributor.v1\", \"declaredRoleKeys\": [\"researcher\"], \"specializationKeys\": [\"business-research\"] },",
+            $"\"rolePolicy\": {{ \"profile\": \"{profile}\", \"declaredRoleKeys\": [\"{roleKey}\"] }},",
             StringComparison.Ordinal);
         var service = new AgentImportPreviewService(
             dbContext, new FakeGitHubAgentRepositoryClient(manifest), new TestAuditEventWriter());
@@ -330,6 +330,7 @@ public class AgentImportPreviewServiceTests
         {
           "manifestVersion": "2.0",
           "kind": "agent",
+          "rolePolicy": { "profile": "individual-contributor.v1", "declaredRoleKeys": ["researcher"], "specializationKeys": ["business-research"] },
           "id": "com.example.research-agent",
           "name": "Research Agent",
           "version": "1.2.3",
@@ -370,7 +371,7 @@ public class AgentImportPreviewServiceTests
 
     private static string ConnectedManifest(string firstStepKind) => $$"""
         {
-          "manifestVersion":"2.0","kind":"agent","id":"com.example.connected","name":"Connected","version":"1.0.0",
+          "manifestVersion":"2.0","kind":"agent","rolePolicy":{"profile":"individual-contributor.v1","declaredRoleKeys":["connected-agent"],"specializationKeys":[]},"id":"com.example.connected","name":"Connected","version":"1.0.0",
           "publisher":{"id":"com.example","name":"Example"},
           "runtime":{"type":"dotnet-project","projectPath":"src/Connected/Connected.csproj","targetFramework":"net10.0","defaultActivationMode":"OnDemand","supportsMultipleInstallations":true,"maximumConcurrentJobs":1,"workspaceAccess":"None"},
           "protocol":{"minimumVersion":"2.0","maximumVersion":"2.x"},

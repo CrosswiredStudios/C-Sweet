@@ -58,6 +58,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
         var now = clock.GetUtcNow();
+        await CoalesceAvailableDeliveriesAsync(now, cancellationToken);
         var dueReviews = await db.CoreWorkTasks
             .Include(x => x.Board)
             .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
@@ -81,7 +82,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             item.WaitingOnOrganizationUserId = null;
             item.Revision++;
             item.UpdatedAt = now;
-            QueueAvailable(item.OrganizationId, owner, item.BoardId!.Value, item.Id, now);
+            await QueueAvailableAsync(item.OrganizationId, owner, item.BoardId!.Value, item.Id, now,
+                cancellationToken);
             replacementWakeItemIds.Add(item.Id);
         }
 
@@ -124,7 +126,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             item.WaitingOnOrganizationUserId = null;
             item.Revision++;
             item.UpdatedAt = now;
-            QueueAvailable(item.OrganizationId, owner, item.BoardId!.Value, item.Id, now);
+            await QueueAvailableAsync(item.OrganizationId, owner, item.BoardId!.Value, item.Id, now,
+                cancellationToken);
             replacementWakeItemIds.Add(item.Id);
         }
 
@@ -159,10 +162,53 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
                     x.IdempotencyKey.StartsWith(prefix))
                 .MaxAsync(x => (DateTimeOffset?)x.OccurredAt, cancellationToken);
             if (lastWake.HasValue && lastWake.Value > now.AddMinutes(-1)) continue;
-            QueueAvailable(ready.OrganizationId, owner, ready.BoardId!.Value, ready.Id, now);
+            await QueueAvailableAsync(ready.OrganizationId, owner, ready.BoardId!.Value, ready.Id, now,
+                cancellationToken);
         }
         if (db.ChangeTracker.HasChanges())
             await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task CoalesceAvailableDeliveriesAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var active = await db.AgentWorkItems
+            .Where(x => x.Kind == AgentWorkKind.Event &&
+                x.Name == Wire.PersonalTodoEvents.Available &&
+                (x.Status == AgentWorkStatus.Pending || x.Status == AgentWorkStatus.Leased) &&
+                x.IdempotencyKey.StartsWith("personal-todo-available:"))
+            .OrderBy(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+        var deliveries = active
+            .Select(x => new { Work = x, ItemId = ReadAvailableItemId(x.IdempotencyKey) })
+            .Where(x => x.ItemId.HasValue)
+            .GroupBy(x => new { x.Work.AgentInstallationId, ItemId = x.ItemId!.Value });
+        foreach (var delivery in deliveries)
+        {
+            var hasLeasedDelivery = delivery.Any(x => x.Work.Status == AgentWorkStatus.Leased);
+            var pending = delivery.Where(x => x.Work.Status == AgentWorkStatus.Pending).ToList();
+            var redundant = hasLeasedDelivery ? pending : pending.Skip(1);
+            foreach (var duplicate in redundant)
+            {
+                duplicate.Work.Status = AgentWorkStatus.Cancelled;
+                duplicate.Work.CompletedAt = now;
+                duplicate.Work.LastError = "Superseded by another active personal-work availability delivery.";
+            }
+        }
+    }
+
+    private static Guid? ReadAvailableItemId(string idempotencyKey)
+    {
+        const string prefix = "personal-todo-available:";
+        if (!idempotencyKey.StartsWith(prefix, StringComparison.Ordinal))
+            return null;
+        var end = idempotencyKey.IndexOf(':', prefix.Length);
+        var value = end < 0
+            ? idempotencyKey[prefix.Length..]
+            : idempotencyKey[prefix.Length..end];
+        return Guid.TryParseExact(value, "N", out var itemId) ? itemId : null;
     }
 
     public async Task EnsureBoardAsync(Guid organizationId, Guid ownerOrganizationUserId,
@@ -323,7 +369,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         };
         db.CoreWorkTasks.Add(item);
         if (item.Status == WorkTaskStatus.Ready)
-            QueueAvailable(organizationId, owner, board.Id, item.Id, now);
+            await QueueAvailableAsync(organizationId, owner, board.Id, item.Id, now, cancellationToken);
         await AddManagerCreatedNotificationAsync(actorUser, owner, item, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
@@ -371,7 +417,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.ClaimExpiresAt = null; item.NextReviewAt = null; item.WaitingReason = null;
         item.WaitingOnOrganizationUserId = null; item.Revision++; item.UpdatedAt = clock.GetUtcNow();
         var owner = await OwnerAsync(board, cancellationToken);
-        QueueAvailable(organizationId, owner, board.Id, item.Id, item.UpdatedAt);
+        await QueueAvailableAsync(organizationId, owner, board.Id, item.Id, item.UpdatedAt,
+            cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
@@ -396,8 +443,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             x.Category == WorkBoardColumnCategory.ToDo).Id;
         item.Revision++;
         item.UpdatedAt = clock.GetUtcNow();
-        QueueAvailable(organizationId, await OwnerAsync(board, cancellationToken),
-            board.Id, item.Id, item.UpdatedAt);
+        await QueueAvailableAsync(organizationId, await OwnerAsync(board, cancellationToken),
+            board.Id, item.Id, item.UpdatedAt, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
@@ -644,7 +691,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         if (status == WorkTaskStatus.Blocked)
             await AddBlockedNotificationsAsync(item, board, reason!, now, cancellationToken);
         if (status == WorkTaskStatus.Ready)
-            QueueAvailable(organizationId, await OwnerAsync(board, cancellationToken), board.Id, item.Id, now);
+            await QueueAvailableAsync(organizationId, await OwnerAsync(board, cancellationToken),
+                board.Id, item.Id, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
@@ -801,10 +849,41 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             throw new ArgumentException("The personal task priority is invalid.");
     }
 
-    private void QueueAvailable(Guid organizationId, OrganizationUser owner, Guid boardId, Guid itemId, DateTimeOffset now)
+    private async Task QueueAvailableAsync(
+        Guid organizationId,
+        OrganizationUser owner,
+        Guid boardId,
+        Guid itemId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
         if (!owner.AgentInstallationId.HasValue)
             return;
+        var prefix = $"personal-todo-available:{itemId:N}:";
+        var hasTrackedWake = db.AgentPlatformEventOutbox.Local.Any(x =>
+            x.OrganizationId == organizationId &&
+            x.TargetInstallationId == owner.AgentInstallationId &&
+            x.EventType == Wire.PersonalTodoEvents.Available &&
+            x.Status == AgentPlatformEventOutboxStatus.Pending &&
+            x.IdempotencyKey.StartsWith(prefix, StringComparison.Ordinal));
+        if (hasTrackedWake)
+            return;
+        var hasPendingWake = await db.AgentPlatformEventOutbox.AsNoTracking().AnyAsync(x =>
+            x.OrganizationId == organizationId &&
+            x.TargetInstallationId == owner.AgentInstallationId &&
+            x.EventType == Wire.PersonalTodoEvents.Available &&
+            x.Status == AgentPlatformEventOutboxStatus.Pending &&
+            x.IdempotencyKey.StartsWith(prefix), cancellationToken);
+        if (hasPendingWake)
+            return;
+        var hasActiveDelivery = await db.AgentWorkItems.AsNoTracking().AnyAsync(x =>
+            x.AgentInstallationId == owner.AgentInstallationId &&
+            x.Name == Wire.PersonalTodoEvents.Available &&
+            (x.Status == AgentWorkStatus.Pending || x.Status == AgentWorkStatus.Leased) &&
+            x.IdempotencyKey.StartsWith(prefix), cancellationToken);
+        if (hasActiveDelivery)
+            return;
+
         var eventId = Guid.NewGuid();
         db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
         {

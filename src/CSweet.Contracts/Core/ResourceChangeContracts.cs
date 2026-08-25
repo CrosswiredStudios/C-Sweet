@@ -36,6 +36,8 @@ public sealed record ResourceChangeRole(
     [property: MaxLength(160)] string? ReportsToRoleKey)
 {
     public Guid? TeamId { get; init; }
+    public string RoleCategoryKey { get; init; } = string.Empty;
+    public IReadOnlyList<string> PreferredSpecializationKeys { get; init; } = [];
 }
 
 public sealed record ResourceChangeProposalRequest(

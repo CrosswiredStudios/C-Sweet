@@ -251,9 +251,13 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             if (!CSweet.Agent.SDK.AgentRolePolicyProfiles.All.Contains(rolePolicy.Profile))
                 errors.Add("rolePolicy.profile must name a supported platform policy profile.");
             if (rolePolicy.DeclaredRoleKeys.Count == 0 ||
-                rolePolicy.DeclaredRoleKeys.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 200) ||
-                rolePolicy.DeclaredRoleKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != rolePolicy.DeclaredRoleKeys.Count)
-                errors.Add("rolePolicy.declaredRoleKeys must contain unique non-empty role keys of at most 200 characters.");
+                rolePolicy.DeclaredRoleKeys.Any(x => !CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(x)) ||
+                rolePolicy.DeclaredRoleKeys.Distinct(StringComparer.Ordinal).Count() != rolePolicy.DeclaredRoleKeys.Count)
+                errors.Add("rolePolicy.declaredRoleKeys must contain unique lowercase kebab-case role categories.");
+            if (rolePolicy.SpecializationKeys.Count > 32 ||
+                rolePolicy.SpecializationKeys.Any(x => !CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(x)) ||
+                rolePolicy.SpecializationKeys.Distinct(StringComparer.Ordinal).Count() != rolePolicy.SpecializationKeys.Count)
+                errors.Add("rolePolicy.specializationKeys must contain up to 32 unique lowercase kebab-case keys.");
         }
         if (manifest.Protocol is null ||
             string.IsNullOrWhiteSpace(manifest.Protocol.MinimumVersion) ||
