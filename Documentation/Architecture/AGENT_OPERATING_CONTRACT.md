@@ -50,6 +50,16 @@ Independent review must remain independent. For the software reference workflow,
 
 Every coordination has explicit sender and recipient authority, correlation and causation IDs, an idempotency key, a current turn owner, a bounded response expectation, and a terminal outcome. Use direct manager conversations for approvals, bounded coordination sessions for specialist collaboration, and team delivery conversations for material delivery notices.
 
+Manager-led work follows one reusable sequence: **directive → deliverable or clarification → decision plus next directive**. The manager's directive is a typed artifact containing the approved outcome, constraints, acceptance criteria, source revisions, and requested stage. The specialist analyzes and obliges within its authority. If required product information is absent, the specialist returns one typed batch of specific questions; it does not ask the manager to reconstruct transport metadata or resend context already present in the transcript. The manager answers decisions within its mandate and reissues the directive, linked to the question digest. A specialist deliverable is followed by a manager decision that embeds the next bounded directive, allowing the specialist to continue immediately without a separate conversational prompt.
+
+Every nonterminal turn carries a recognized typed artifact. Human-readable message text summarizes the action for the communications UI but never controls the workflow. On restart or a malformed text-only turn, both participants derive the next missing stage from persisted artifact digests and authoritative board state. Duplicate questions, decisions, and deliverables are suppressed by stable artifact keys and source digests.
+
+For model-backed interaction, the harness composes the stable role prompt with one authenticated
+mode: `lead.v1`, `supporting-specialist.v1`, `peer.v1`, `independent-reviewer.v1`, or `advisor.v1`.
+The mode comes from authoritative organization and workflow context, never conversation text. It
+controls who advances the conversation, while grants, approvals, specialist truth, and orchestration
+authority remain unchanged.
+
 Send a message only for a new material condition, a decision, or required action. Do not create autonomous acknowledgement loops. An event is usually a wake signal; verify its claim from the authoritative source before acting.
 
 ## Staffing recovery pattern
@@ -68,6 +78,8 @@ The PM maintains a versioned charter checkpoint: owned outcome, target customers
 
 Initial discovery and team design may use the configured model. Unchanged health, deterministic gap recovery, replay, assignment reconciliation, and no-op cycles do not. Planning remains incremental and bounded with the Architect. Readiness selects an authorized repository, finalizes Task requirements and acceptance criteria, binds the PM as accountable owner, assigns exact Development and independent QA principals, moves eligible items to Ready, runs preflight, and starts only the earliest planned sprint.
 
+In PM–Architect planning, the PM is the interaction leader. It issues `product-management.architecture-brief.v2`; the Architect either produces the requested design/Story/Task artifact or returns `software-architecture.question.v2`. The PM resolves those product decisions and reissues the same stage. Architecture approval is tied to the exact design digest and includes the next Story directive. This keeps both agents independently recoverable while making normal collaboration flow without acknowledgement turns.
+
 ## Failure-mode checklist
 
 - Missing or widened grant: deny; never substitute a similarly named tool.
@@ -79,6 +91,8 @@ Initial discovery and team design may use the configured model. Unchanged health
 - Runtime unavailable or capability lost: treat headcount as ineffective and wake the affected manager.
 - Active-role loss: preserve executing snapshots; block new starts and unsafe transitions.
 - Stalled coordination: resume within bounds, then create one focused escalation.
+- Text-only or unknown coordination turn: reconstruct and reissue the next typed manager directive from persisted artifacts.
+- Specialist asks for existing context: recover it from the transcript; do not make the manager repair protocol metadata.
 - Memory disagrees with platform: use the platform fact.
 - Unchanged healthy cycle: record telemetry/checkpoint without messaging or model use.
 - Unchanged degraded cycle: preserve the existing commitment without duplicate requests or escalation.

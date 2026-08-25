@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Data;
 using System.Security.Cryptography;
 using System.Text;
@@ -49,6 +50,9 @@ public sealed class AgentWorkInbox(
     TimeProvider timeProvider,
     IAuditEventWriter? audit = null)
 {
+    // The in-process gate protects concurrent request scopes; PostgreSQL's advisory lock below
+    // provides the same per-installation guarantee across AgentHost replicas.
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> ClaimLocks = new();
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(3);
     private const int MaximumPayloadBytes = 256 * 1024;
@@ -150,10 +154,39 @@ public sealed class AgentWorkInbox(
         McpAgentSession session,
         CancellationToken cancellationToken)
     {
+        var claimLock = ClaimLocks.GetOrAdd(
+            session.AgentInstallationId,
+            static _ => new SemaphoreSlim(1, 1));
+        await claimLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await ClaimCoreAsync(session, cancellationToken);
+        }
+        finally
+        {
+            claimLock.Release();
+        }
+    }
+
+    private async Task<ClaimedAgentWork?> ClaimCoreAsync(
+        McpAgentSession session,
+        CancellationToken cancellationToken)
+    {
         var now = timeProvider.GetUtcNow();
+        var isolationLevel = db.Database.IsNpgsql()
+            ? IsolationLevel.ReadCommitted
+            : IsolationLevel.Serializable;
         await using var transaction = await db.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
+            isolationLevel,
             cancellationToken);
+
+        if (db.Database.IsNpgsql())
+        {
+            var lockKey = $"agent-work-claim:{session.OrganizationId}:{session.AgentInstallationId:D}";
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0))",
+                cancellationToken);
+        }
 
         var expiredPending = await db.AgentWorkItems
             .Where(x =>
@@ -174,6 +207,8 @@ public sealed class AgentWorkInbox(
             .Include(x => x.AgentWorkItem)
             .Where(x => x.FinishedAt == null &&
                         x.LeaseExpiresAt <= now &&
+                        x.AgentWorkItem!.OrganizationId == session.OrganizationId &&
+                        x.AgentWorkItem.AgentInstallationId == session.AgentInstallationId &&
                         x.AgentWorkItem!.Status == AgentWorkStatus.Leased)
             .ToListAsync(cancellationToken);
         foreach (var expiredAttempt in expired)

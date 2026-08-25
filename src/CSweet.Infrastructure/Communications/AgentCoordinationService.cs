@@ -39,13 +39,24 @@ public sealed class AgentCoordinationService(
         if (existing is not null)
             return await MapAsync(existing, cancellationToken);
 
-        var source = await db.ChatTurns.AsNoTracking().SingleOrDefaultAsync(x =>
+        var source = await db.ChatTurns.SingleOrDefaultAsync(x =>
             x.Id == request.SourceChatTurnId && x.OrganizationId == organizationId &&
             x.ConversationId == request.SourceConversationId &&
-            x.UserMessageId == request.SourceMessageId &&
-            x.TargetAgentOrganizationUserId == initiatorOrganizationUserId,
+            x.UserMessageId == request.SourceMessageId,
             cancellationToken) ?? throw new InvalidOperationException(
-            "The source chat turn does not belong to the initiating agent.");
+            "The source chat turn does not belong to this organization and conversation.");
+        var sourceMessage = await db.CoreConversationMessages.SingleOrDefaultAsync(x =>
+            x.Id == request.SourceMessageId &&
+            x.ConversationId == request.SourceConversationId,
+            cancellationToken) ?? throw new InvalidOperationException(
+            "The source coordination message is unavailable.");
+        var isInboundSource = source.TargetAgentOrganizationUserId == initiatorOrganizationUserId;
+        var isOutboundTargetedSource =
+            source.TargetAgentOrganizationUserId == request.TargetOrganizationUserId &&
+            sourceMessage.SenderOrganizationUserId == initiatorOrganizationUserId;
+        if (!isInboundSource && !isOutboundTargetedSource)
+            throw new InvalidOperationException(
+                "The source chat turn does not belong to the initiating agent or target the requested collaborator.");
 
         var targetInstallationId = await ResolveParticipantsAsync(
             organizationId, initiatorOrganizationUserId, initiatorInstallationId,
@@ -88,6 +99,19 @@ public sealed class AgentCoordinationService(
             CreatedAt = now,
             UpdatedAt = now
         };
+        // Link an outbound kickoff before its ordinary message work is handled. The target agent
+        // can then recognize that the message is the source of governed coordination instead of
+        // producing a second, free-form acknowledgement alongside the structured turn.
+        sourceMessage.CoordinationSessionId = session.Id;
+        if (source.Status == ChatTurnStatus.Queued)
+        {
+            // Governed coordination is now the only response path for this request. Completing the
+            // ordinary chat turn prevents a second dispatch through the free-form chat handler.
+            source.Status = ChatTurnStatus.Completed;
+            source.ResponseReadyAt = source.CompletedAt = source.UpdatedAt = now;
+            source.LeaseOwner = null;
+            source.LeaseUntil = null;
+        }
         var initialMessage = AppendMessage(session, initiatorOrganizationUserId,
             request.InitialMessage.Trim(), $"coordination:{session.Id:N}:initial");
         var initialTurn = new DomainTurn

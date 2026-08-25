@@ -1,5 +1,7 @@
 using System.Text.Json;
 using CSweet.Agent.SDK;
+using CSweet.Application.Communications;
+using CSweet.Contracts.Communications;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -16,6 +18,76 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentCoordinationServiceTests
 {
+    [Fact]
+    public async Task OutboundAgentKickoff_StartsCoordinationAndLinksSourceMessage()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+            .Options);
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var initiatorId = Guid.NewGuid();
+        var initiatorInstallationId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var targetInstallationId = Guid.NewGuid();
+        var sourceConversationId = Guid.NewGuid();
+        var coordinationConversationId = Guid.NewGuid();
+        var sourceMessageId = Guid.NewGuid();
+        var sourceTurnId = Guid.NewGuid();
+        db.Add(new Organization
+        {
+            Id = organizationId, Name = "Example", Status = OrganizationStatus.Active,
+            CreatedAt = now, UpdatedAt = now
+        });
+        db.AddRange(
+            AgentUser(initiatorId, organizationId, initiatorInstallationId, "Product Manager"),
+            AgentUser(targetId, organizationId, targetInstallationId, "Architect"),
+            Installation(initiatorInstallationId, organizationId, now),
+            Installation(targetInstallationId, organizationId, now),
+            Conversation(sourceConversationId, organizationId, initiatorId, "Planning kickoff", now),
+            Conversation(coordinationConversationId, organizationId, initiatorId, "Planning", now),
+            new ConversationMessage
+            {
+                Id = sourceMessageId, Sequence = 1, ConversationId = sourceConversationId,
+                Role = ConversationRole.User, Content = "Start governed architecture planning.",
+                SenderOrganizationUserId = initiatorId, ChatTurnId = sourceTurnId,
+                CorrelationId = Guid.NewGuid(), CreatedAt = now
+            },
+            new ChatTurn
+            {
+                Id = sourceTurnId, OrganizationId = organizationId,
+                ConversationId = sourceConversationId, UserMessageId = sourceMessageId,
+                TargetAgentOrganizationUserId = targetId, Status = ChatTurnStatus.Queued,
+                CreatedAt = now, UpdatedAt = now
+            });
+        await db.SaveChangesAsync();
+        var chat = new CommunicationChatResponse(
+            coordinationConversationId, "Planning", null, true, true, false, true, now,
+            [
+                new CommunicationParticipantResponse(initiatorId, "Product Manager", "Agent", "Software Product Manager"),
+                new CommunicationParticipantResponse(targetId, "Architect", "Agent", "Software Architect")
+            ], null, null, 0);
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+        var service = new AgentCoordinationService(db, new StubCommunicationHubService(chat), inbox);
+
+        var session = await service.StartAsync(
+            organizationId, initiatorId, initiatorInstallationId,
+            new StartAgentCoordinationRequest(
+                targetId, "Release planning", "Produce an approved design.", ["Design is traceable."],
+                "Begin with the technical design.", sourceConversationId, sourceTurnId,
+                sourceMessageId, "pm-architect-planning"));
+
+        Assert.Equal(targetId, session.CurrentOrganizationUserId);
+        Assert.Equal(session.Id, (await db.CoreConversationMessages.SingleAsync(x =>
+            x.Id == sourceMessageId)).CoordinationSessionId);
+        Assert.Equal(ChatTurnStatus.Completed, (await db.ChatTurns.SingleAsync(x =>
+            x.Id == sourceTurnId)).Status);
+        Assert.Single(await db.AgentWorkItems.Where(x =>
+            x.AgentInstallationId == targetInstallationId &&
+            x.CorrelationId == session.Id.ToString("D")).ToListAsync());
+    }
+
     [Fact]
     public async Task StructuredArtifact_IsPersistedWithPlatformDigestAndReturnedOnReplay()
     {
@@ -391,4 +463,81 @@ public sealed class AgentCoordinationServiceTests
             RevisionStatus = PluginRevisionStatus.Active, CreatedAt = now, UpdatedAt = now
         };
     }
+
+    private sealed class StubCommunicationHubService(CommunicationChatResponse chat)
+        : ICommunicationHubService
+    {
+        public Task<CommunicationHubActionResponse> CreateAsync(
+            Guid organizationId, Guid actorOrganizationUserId, CreateCommunicationChatRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new CommunicationHubActionResponse(true, null, "Created", chat));
+
+        public Task<Guid?> ResolveOrganizationUserIdAsync(Guid organizationId, Guid applicationUserId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CommunicationHubResponse?> GetAsync(Guid organizationId, Guid actorOrganizationUserId,
+            Guid? perspectiveOrganizationUserId = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<bool> CanAccessChatAsync(Guid organizationId, Guid chatId, Guid actorOrganizationUserId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<CommunicationHubMessageResponse>?> ListMessagesAsync(
+            Guid organizationId, Guid chatId, Guid actorOrganizationUserId,
+            Guid? perspectiveOrganizationUserId = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<CommunicationUnreadSummaryResponse?> GetUnreadSummaryAsync(
+            Guid organizationId, Guid actorOrganizationUserId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CommunicationUnreadSummaryResponse?> MarkReadAsync(
+            Guid organizationId, Guid chatId, Guid actorOrganizationUserId, long throughMessageSequence,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CommunicationHubActionResponse> UpdateAsync(
+            Guid organizationId, Guid chatId, Guid actorOrganizationUserId,
+            UpdateCommunicationChatRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<CommunicationHubActionResponse> ArchiveAsync(
+            Guid organizationId, Guid chatId, Guid actorOrganizationUserId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CommunicationMessageSendResponse?> SendAsync(
+            Guid organizationId, Guid chatId, Guid actorOrganizationUserId,
+            SendCommunicationMessageRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private static OrganizationUser AgentUser(
+        Guid id, Guid organizationId, Guid installationId, string name) => new()
+    {
+        Id = id, OrganizationId = organizationId, DisplayName = name,
+        EmployeeType = EmployeeType.Agent, PermissionLevel = OrganizationPermissionLevel.Contributor,
+        AgentInstallationId = installationId, IsActive = true, CreatedAt = DateTimeOffset.UtcNow
+    };
+
+    private static AgentInstallation Installation(
+        Guid id, Guid organizationId, DateTimeOffset now)
+    {
+        var installation = new AgentInstallation
+        {
+            Id = id, InstallationKey = Guid.NewGuid(), PackageVersionId = Guid.NewGuid(),
+            BusinessId = organizationId.ToString("D"), IsEnabled = true,
+            RevisionStatus = PluginRevisionStatus.Active, CreatedAt = now, UpdatedAt = now
+        };
+        installation.Grant = new AgentInstallationGrant
+        {
+            Id = Guid.NewGuid(), AgentInstallationId = id,
+            EventSubscriptionsJson = "[]", ProvidedCapabilitiesJson = "[]",
+            RequiredCapabilitiesJson = JsonSerializer.Serialize(new[]
+            {
+                CommunicationCapabilities.CoordinationRead,
+                CommunicationCapabilities.CoordinationRespond
+            }),
+            NetworkAccessJson = "[]", ResourceLimitsJson = "{}", ApprovedAt = now
+        };
+        return installation;
+    }
+
+    private static Conversation Conversation(
+        Guid id, Guid organizationId, Guid initiatorId, string title, DateTimeOffset now) => new()
+    {
+        Id = id, OrganizationId = organizationId, Title = title,
+        Kind = ConversationKind.AgentChannel, InitiatedByOrganizationUserId = initiatorId,
+        IsPrivate = true, CreatedAt = now, UpdatedAt = now
+    };
 }

@@ -80,6 +80,52 @@ public sealed class McpCapabilityRegistryTests
     }
 
     [Fact]
+    public void CoordinationMutationSchemas_AcceptTypedArtifacts()
+    {
+        var registry = new McpToolCatalog([]);
+        var artifact = new AgentCoordinationArtifactSubmission(
+            "product-management.architecture-brief.v2",
+            "2",
+            "team:board:brief",
+            0,
+            true,
+            JsonSerializer.SerializeToElement(new { outcome = "Ship a playable increment." }));
+        var cases = new (string Capability, object Request)[]
+        {
+            (
+                CommunicationCapabilities.CoordinationStart,
+                new StartAgentCoordinationRequest(
+                    Guid.NewGuid(), "Delivery planning", "Produce the approved architecture.",
+                    ["The design is traceable to product requirements."], "Begin design.",
+                    Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "planning-start", artifact)),
+            (
+                CommunicationCapabilities.CoordinationStartWork,
+                new StartWorkItemCoordinationRequest(
+                    Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1,
+                    "Developer support", "Resolve the blocked implementation stage.",
+                    ["Guidance preserves the approved design."], "Please diagnose this blocker.",
+                    "support-start", artifact)),
+            (
+                CommunicationCapabilities.CoordinationRespond,
+                new RespondToAgentCoordinationRequest(
+                    Guid.NewGuid(), 1, 1, AgentCoordinationDispositions.Continue,
+                    "The design proposal is attached.", "planning-response", artifact))
+        };
+
+        foreach (var testCase in cases)
+        {
+            var tool = Assert.Single(registry.List(
+                new HashSet<string>([testCase.Capability], StringComparer.Ordinal)));
+            JsonSchemaValidator.Validate(
+                JsonSerializer.SerializeToElement(
+                    testCase.Request,
+                    testCase.Request.GetType(),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                tool.InputSchema);
+        }
+    }
+
+    [Fact]
     public void BaselineToolsStillRequireAnExplicitGrant()
     {
         var registry = new McpToolCatalog([]);
@@ -247,5 +293,34 @@ public sealed class McpCapabilityRegistryTests
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Equal(JsonValueKind.Null, payload.GetProperty("mentions").ValueKind);
         JsonSchemaValidator.Validate(payload, tool.InputSchema);
+    }
+
+    [Fact]
+    public void ReleasePersonalTodoSchema_AcceptsTypedSdkKeepInProgressRequest()
+    {
+        var registry = new McpToolCatalog([]);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([PersonalTodoCapabilities.Release], StringComparer.Ordinal)));
+        var request = new ReleasePersonalTodoItemRequest(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            3,
+            "personal-todo-release-schema-test")
+        {
+            KeepInProgress = true
+        };
+
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            tool.InputSchema);
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(new
+            {
+                itemId = Guid.NewGuid(),
+                eventId = Guid.NewGuid(),
+                expectedRevision = 3,
+                idempotencyKey = "legacy-personal-todo-release-schema-test"
+            }),
+            tool.InputSchema);
     }
 }

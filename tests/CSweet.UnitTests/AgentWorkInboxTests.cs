@@ -5,6 +5,7 @@ using CSweet.Infrastructure.Setup;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CSweet.UnitTests;
 
@@ -322,6 +323,81 @@ public sealed class AgentWorkInboxTests
     }
 
     [Fact]
+    public async Task ClaimAsync_DoesNotRequeueAnotherInstallationsExpiredLease()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        await using var db = CreateDb();
+        var firstInstallation = Installation(clock.GetUtcNow());
+        var secondInstallation = Installation(clock.GetUtcNow());
+        var firstRuntime = Runtime(firstInstallation, clock.GetUtcNow());
+        var secondRuntime = Runtime(secondInstallation, clock.GetUtcNow());
+        db.AddRange(firstInstallation, secondInstallation, firstRuntime, secondRuntime);
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        var secondSession = Session(secondInstallation, secondRuntime);
+        var item = await inbox.EnqueueAsync(
+            secondInstallation.BusinessId,
+            secondInstallation.Id,
+            AgentWorkKind.Capability,
+            "example.execute.v1",
+            Json("{}"),
+            "second-installation-work",
+            clock.GetUtcNow().AddMinutes(10));
+        Assert.NotNull(await inbox.ClaimAsync(secondSession, CancellationToken.None));
+
+        clock.Advance(AgentWorkInbox.LeaseDuration.Add(TimeSpan.FromSeconds(1)));
+
+        Assert.Null(await inbox.ClaimAsync(
+            Session(firstInstallation, firstRuntime),
+            CancellationToken.None));
+        db.ChangeTracker.Clear();
+        var unchanged = await db.AgentWorkItems
+            .Include(x => x.Attempts)
+            .SingleAsync(x => x.Id == item.Id);
+        Assert.Equal(AgentWorkStatus.Leased, unchanged.Status);
+        Assert.Null(Assert.Single(unchanged.Attempts).FinishedAt);
+    }
+
+    [Fact]
+    public async Task ClaimAsync_ConcurrentSessionsLeaseAnItemExactlyOnce()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var databaseName = Guid.NewGuid().ToString("N");
+        var databaseRoot = new InMemoryDatabaseRoot();
+        var protection = new EphemeralDataProtectionProvider();
+        var installation = Installation(clock.GetUtcNow());
+        var firstRuntime = Runtime(installation, clock.GetUtcNow());
+        var secondRuntime = Runtime(installation, clock.GetUtcNow());
+        await using (var seedDb = CreateDb(databaseName, databaseRoot))
+        {
+            seedDb.AddRange(installation, firstRuntime, secondRuntime);
+            await seedDb.SaveChangesAsync();
+            var seedInbox = new AgentWorkInbox(seedDb, protection, clock);
+            await seedInbox.EnqueueAsync(
+                installation.BusinessId,
+                installation.Id,
+                AgentWorkKind.Capability,
+                "example.execute.v1",
+                Json("{}"),
+                "concurrent-claim",
+                clock.GetUtcNow().AddMinutes(10));
+        }
+
+        await using var firstDb = CreateDb(databaseName, databaseRoot);
+        await using var secondDb = CreateDb(databaseName, databaseRoot);
+        var claims = await Task.WhenAll(
+            new AgentWorkInbox(firstDb, protection, clock).ClaimAsync(
+                Session(installation, firstRuntime), CancellationToken.None),
+            new AgentWorkInbox(secondDb, protection, clock).ClaimAsync(
+                Session(installation, secondRuntime), CancellationToken.None));
+
+        Assert.Single(claims, x => x is not null);
+        Assert.Single(claims, x => x is null);
+        await using var verificationDb = CreateDb(databaseName, databaseRoot);
+        Assert.Equal(1, await verificationDb.AgentWorkAttempts.CountAsync());
+    }
+
+    [Fact]
     public async Task CancelBySourceAsync_CancelsEveryActiveAttemptForTheTurn()
     {
         var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
@@ -369,6 +445,12 @@ public sealed class AgentWorkInboxTests
             .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options);
 
+    private static CSweetDbContext CreateDb(string databaseName, InMemoryDatabaseRoot databaseRoot) => new(
+        new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(databaseName, databaseRoot)
+            .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+            .Options);
+
     private static JsonElement Json(string value) =>
         JsonDocument.Parse(value).RootElement.Clone();
 
@@ -382,6 +464,26 @@ public sealed class AgentWorkInboxTests
         RevisionStatus = PluginRevisionStatus.Active,
         CreatedAt = now,
         UpdatedAt = now
+    };
+
+    private static AgentRuntimeInstance Runtime(AgentInstallation installation, DateTimeOffset now) => new()
+    {
+        Id = Guid.NewGuid(),
+        TickId = Guid.NewGuid(),
+        AgentInstallationId = installation.Id,
+        QueuedAt = now,
+        RuntimeDeadlineAt = now.AddMinutes(30)
+    };
+
+    private static McpAgentSession Session(
+        AgentInstallation installation,
+        AgentRuntimeInstance runtime) => new()
+    {
+        Id = Guid.NewGuid(),
+        RuntimeInstanceId = runtime.Id,
+        TickId = runtime.TickId,
+        AgentInstallationId = installation.Id,
+        OrganizationId = installation.BusinessId
     };
 
     private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
