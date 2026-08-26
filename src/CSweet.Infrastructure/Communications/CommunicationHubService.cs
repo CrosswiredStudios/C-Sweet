@@ -22,6 +22,11 @@ public sealed class CommunicationHubService(
     IHiringService? hiring = null,
     IAgentCommunicationOnboardingService? onboarding = null) : ICommunicationHubService
 {
+    private const long MaximumAttachmentBytes = 25L * 1024 * 1024;
+    private const long MaximumTotalAttachmentBytes = 50L * 1024 * 1024;
+    private static readonly HashSet<string> AllowedAttachmentTypes = new(StringComparer.OrdinalIgnoreCase)
+    { "image/png", "image/jpeg", "image/webp", "application/pdf", "text/plain", "text/markdown" };
+
     public async Task<Guid?> ResolveOrganizationUserIdAsync(
         Guid organizationId,
         Guid applicationUserId,
@@ -120,7 +125,7 @@ public sealed class CommunicationHubService(
             .Where(x => x.OrganizationId == organizationId && x.ArchivedAt == null &&
                 x.Participants.Any(p => p.OrganizationUserId == viewedUser.Id && p.LeftAt == null))
             .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
-            .Include(x => x.Messages)
+            .Include(x => x.Messages).ThenInclude(x => x.Attachments)
             .OrderByDescending(x => x.UpdatedAt)
             .ToListAsync(cancellationToken);
 
@@ -186,6 +191,7 @@ public sealed class CommunicationHubService(
             .Where(x => x.ConversationId == chatId)
             .Include(x => x.Mentions)
                 .ThenInclude(x => x.MentionedOrganizationUser)
+            .Include(x => x.Attachments)
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         var decisionCards = decisions is null
@@ -290,7 +296,7 @@ public sealed class CommunicationHubService(
                     x.Kind == ConversationKind.DirectHumanAgent && x.Participants.Count(p => p.LeftAt == null) == 2 &&
                     x.Participants.Any(p => p.OrganizationUserId == actor.Id && p.LeftAt == null))
                 .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
-                .Include(x => x.Messages)
+                .Include(x => x.Messages).ThenInclude(x => x.Attachments)
                 .ToListAsync(cancellationToken);
             var existing = candidates.FirstOrDefault(x => x.Participants.Where(p => p.LeftAt == null)
                 .Select(p => p.OrganizationUserId).ToHashSet().SetEquals(memberIds));
@@ -340,7 +346,7 @@ public sealed class CommunicationHubService(
         var chat = await db.CoreConversations
             .Where(x => x.Id == chatId && x.OrganizationId == organizationId && x.ArchivedAt == null)
             .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
-            .Include(x => x.Messages)
+            .Include(x => x.Messages).ThenInclude(x => x.Attachments)
             .SingleOrDefaultAsync(cancellationToken);
         if (actor is null || chat is null) return Failure("chat_not_found", "The chat was not found.");
         if (chat.IsDeletionProtected) return Failure("protected_chat_immutable", "This agent-instance conversation cannot be modified.");
@@ -418,8 +424,12 @@ public sealed class CommunicationHubService(
             .Include(x => x.Participants)
             .SingleOrDefaultAsync(x => x.Id == chatId && x.OrganizationId == organizationId && x.ArchivedAt == null &&
                 x.Participants.Any(p => p.OrganizationUserId == actorOrganizationUserId && p.LeftAt == null), cancellationToken);
-        if (actor is null || chat is null || string.IsNullOrWhiteSpace(request.Content)) return null;
-        var content = request.Content.TrimEnd();
+        if (actor is null || chat is null) return null;
+        var attachmentAssetIds = (request.AttachmentMediaAssetIds ?? []).Distinct().ToList();
+        if (string.IsNullOrWhiteSpace(request.Content) && attachmentAssetIds.Count == 0) return null;
+        var attachmentAssets = await LoadAttachmentAssetsAsync(
+            organizationId, attachmentAssetIds, cancellationToken);
+        var content = request.Content?.TrimEnd() ?? string.Empty;
         var mentions = await ValidateMentionsAsync(
             organizationId, chat, actor.Id, content, request.Mentions, cancellationToken);
 
@@ -434,6 +444,7 @@ public sealed class CommunicationHubService(
         {
             var existing = await db.CoreConversationMessages.AsNoTracking()
                 .Include(x => x.Mentions).ThenInclude(x => x.MentionedOrganizationUser)
+                .Include(x => x.Attachments)
                 .SingleOrDefaultAsync(x => x.ConversationId == chat.Id &&
                     x.SenderOrganizationUserId == actor.Id && x.IdempotencyKey == idempotencyKey, cancellationToken);
             if (existing is not null)
@@ -473,8 +484,13 @@ public sealed class CommunicationHubService(
                 actor.Id,
                 CommunicationProviderKeys.InApp,
                 idempotencyKey: idempotencyKey,
+                attachmentMediaAssetIds: attachmentAssetIds,
                 cancellationToken: cancellationToken);
             if (started is null) return null;
+            var persistedAttachments = await db.ConversationMessageAttachments.AsNoTracking()
+                .Where(x => x.MessageId == started.UserMessage.Id)
+                .OrderBy(x => x.CreatedAt)
+                .ToListAsync(cancellationToken);
             await PersistMentionsAsync(
                 organizationId, chat, actor, started.UserMessage.Id, content, mentions, cancellationToken);
             if (mentionTransaction is not null)
@@ -491,7 +507,8 @@ public sealed class CommunicationHubService(
                     started.UserMessage.CreatedAt,
                     started.Turn.Id)
                 {
-                    Mentions = ToMentionResponses(mentions)
+                    Mentions = ToMentionResponses(mentions),
+                    Attachments = ToAttachmentResponses(persistedAttachments)
                 },
                 started.Turn);
             await WriteMessageAuditAsync(
@@ -508,6 +525,9 @@ public sealed class CommunicationHubService(
             Content = content, CorrelationId = Guid.NewGuid(), DeliveryIntent = CommunicationDeliveryIntent.Inform,
             SourceProvider = "InApp", IdempotencyKey = idempotencyKey, CreatedAt = now
         };
+        foreach (var asset in attachmentAssets)
+            message.Attachments.Add(CreateAttachment(
+                organizationId, chat.Id, message.Id, asset, now));
         chat.UpdatedAt = now;
         db.CoreConversationMessages.Add(message);
         AddMentionEntities(organizationId, chat.Id, message.Id, mentions, now);
@@ -517,7 +537,8 @@ public sealed class CommunicationHubService(
             new CommunicationHubMessageResponse(message.Id, message.Sequence, chat.Id, actor.Id, actor.DisplayName,
                 actor.EmployeeType.ToString(), message.Content, message.CreatedAt, message.ChatTurnId)
             {
-                Mentions = ToMentionResponses(mentions)
+                Mentions = ToMentionResponses(mentions),
+                Attachments = ToAttachmentResponses(message.Attachments)
             });
         await WriteMessageAuditAsync(
             organizationId, actor, chat, sent.Message, message.CorrelationId, cancellationToken);
@@ -880,6 +901,8 @@ public sealed class CommunicationHubService(
             hiringWorkflow)
         {
             CoordinationSessionId = message.CoordinationSessionId,
+            Attachments = message.Attachments.Select(x => new CommunicationMessageAttachmentResponse(
+                x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList(),
             Mentions = message.Mentions
                 .OrderBy(x => x.Offset)
                 .Select(x => new CommunicationMessageMentionResponse(
@@ -897,6 +920,47 @@ public sealed class CommunicationHubService(
                 : CommunicationMessageTypes.Standard
         };
     }
+
+    private async Task<List<MediaAsset>> LoadAttachmentAssetsAsync(
+        Guid organizationId,
+        IReadOnlyList<Guid> assetIds,
+        CancellationToken cancellationToken)
+    {
+        if (assetIds.Count > 8)
+            throw new InvalidOperationException("A message can contain at most 8 attachments.");
+        var assets = await db.MediaAssets.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && assetIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        if (assets.Count != assetIds.Count)
+            throw new InvalidOperationException("One or more attachments are unavailable to this organization.");
+        if (assets.Any(x => x.SizeBytes > MaximumAttachmentBytes))
+            throw new InvalidOperationException("Each attachment must be 25 MB or smaller.");
+        if (assets.Sum(x => x.SizeBytes) > MaximumTotalAttachmentBytes)
+            throw new InvalidOperationException("Message attachments must total 50 MB or less.");
+        if (assets.Any(x => !AllowedAttachmentTypes.Contains(x.ContentType)))
+            throw new InvalidOperationException("Attachments must be PNG, JPEG, WebP, PDF, UTF-8 text, or Markdown.");
+        return assetIds.Select(id => assets.Single(x => x.Id == id)).ToList();
+    }
+
+    private static ConversationMessageAttachment CreateAttachment(
+        Guid organizationId,
+        Guid conversationId,
+        Guid messageId,
+        MediaAsset asset,
+        DateTimeOffset createdAt) => new()
+    {
+        Id = Guid.NewGuid(), OrganizationId = organizationId, ConversationId = conversationId,
+        MessageId = messageId, MediaAssetId = asset.Id, FileName = asset.FileName,
+        ContentType = asset.ContentType, SizeBytes = asset.SizeBytes, Sha256 = asset.Sha256,
+        CreatedAt = createdAt
+    };
+
+    private static IReadOnlyList<CommunicationMessageAttachmentResponse> ToAttachmentResponses(
+        IEnumerable<ConversationMessageAttachment> attachments) => attachments.Select(attachment =>
+            new CommunicationMessageAttachmentResponse(
+                attachment.Id, attachment.MessageId, attachment.FileName, attachment.ContentType,
+                attachment.SizeBytes, attachment.Sha256))
+            .ToList();
 
     private static bool TryGetDecision(
         ConversationMessage message,

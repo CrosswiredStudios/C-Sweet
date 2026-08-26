@@ -1,4 +1,5 @@
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -82,6 +83,72 @@ public sealed class ChatTurnServiceTests
     }
 
     [Fact]
+    public async Task AttachmentOnlyTurn_PersistsSanitizedDescriptorAndRetryPreservesReference()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var agentId = Guid.NewGuid();
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentOrganizationUserId = agentId, InitiatedByOrganizationUserId = Guid.NewGuid(),
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var asset = CreateAsset(organizationId, "concept.webp", "image/webp", 1024);
+        db.AddRange(CreateAgent(organizationId, agentId), conversation, asset);
+        await db.SaveChangesAsync();
+        var service = new ChatTurnService(db);
+
+        var original = await service.StartForAgentAsync(
+            organizationId, conversation.Id, agentId, string.Empty,
+            attachmentMediaAssetIds: [asset.Id]);
+
+        Assert.NotNull(original);
+        Assert.Equal("concept.webp", conversation.Title);
+        var persisted = await db.CoreConversationMessages.Include(x => x.Attachments)
+            .SingleAsync(x => x.Id == original!.UserMessage.Id);
+        var attachment = Assert.Single(persisted.Attachments);
+        Assert.Equal(asset.Id, attachment.MediaAssetId);
+        Assert.Equal(asset.Sha256, attachment.Sha256);
+        Assert.DoesNotContain(asset.StorageKey, original.UserMessage.Content, StringComparison.Ordinal);
+
+        await service.SetStatusAsync(original.Turn.Id, ChatTurnStatus.Failed.ToString(), "test", "failed");
+        var retry = await service.RetryAsync(organizationId, original.Turn.Id);
+        Assert.NotNull(retry);
+        var retryMessage = await db.CoreConversationMessages.Include(x => x.Attachments)
+            .SingleAsync(x => x.Id == retry!.UserMessage.Id);
+        Assert.Equal(asset.Id, Assert.Single(retryMessage.Attachments).MediaAssetId);
+        Assert.Equal(attachment.Sha256, Assert.Single(retry.UserMessage.Attachments).Sha256);
+    }
+
+    [Fact]
+    public async Task AttachmentValidation_DeniesForeignOversizedAndUnsupportedAssets()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var agentId = Guid.NewGuid();
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentOrganizationUserId = agentId, InitiatedByOrganizationUserId = Guid.NewGuid(),
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var foreign = CreateAsset(Guid.NewGuid(), "foreign.png", "image/png", 10);
+        var oversized = CreateAsset(organizationId, "large.png", "image/png", 25L * 1024 * 1024 + 1);
+        var unsupported = CreateAsset(organizationId, "archive.zip", "application/zip", 10);
+        db.AddRange(CreateAgent(organizationId, agentId), conversation, foreign, oversized, unsupported);
+        await db.SaveChangesAsync();
+        var service = new ChatTurnService(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartForAgentAsync(
+            organizationId, conversation.Id, agentId, string.Empty, attachmentMediaAssetIds: [foreign.Id]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartForAgentAsync(
+            organizationId, conversation.Id, agentId, string.Empty, attachmentMediaAssetIds: [oversized.Id]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartForAgentAsync(
+            organizationId, conversation.Id, agentId, string.Empty, attachmentMediaAssetIds: [unsupported.Id]));
+    }
+
+    [Fact]
     public async Task CancelledTurn_CannotBeReactivatedByLateWorkerUpdates()
     {
         await using var db = CreateDb();
@@ -123,5 +190,12 @@ public sealed class ChatTurnServiceTests
         PermissionLevel = OrganizationPermissionLevel.Viewer,
         IsActive = true,
         CreatedAt = DateTimeOffset.UtcNow
+    };
+
+    private static MediaAsset CreateAsset(Guid organizationId, string fileName, string contentType, long size) => new()
+    {
+        Id = Guid.NewGuid(), OrganizationId = organizationId, FileName = fileName,
+        ContentType = contentType, SizeBytes = size, Sha256 = new string('a', 64),
+        StorageKey = $"private/{Guid.NewGuid():N}", CreatedAt = DateTimeOffset.UtcNow
     };
 }

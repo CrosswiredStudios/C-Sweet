@@ -915,11 +915,15 @@ public sealed class ExecutionFleetService(
                 return new ClaimOfficeResponse(false, approval.ErrorCode,
                     "The assisted Office connected but could not be approved automatically.", node.Id, receipt);
             }
-            assistedSession.Status = LocalOfficeSetupSessionStatus.Ready;
-            assistedSession.CompletedAt = timeProvider.GetUtcNow();
-            assistedSession.UpdatedAt = assistedSession.CompletedAt.Value;
+            // Approval installs the operational identity and intentionally clears the bootstrap
+            // heartbeat. Keep the assisted session in verification until the Office reconnects
+            // with that identity and sends its first authenticated heartbeat.
+            assistedSession.Status = LocalOfficeSetupSessionStatus.Connected;
+            assistedSession.UpdatedAt = timeProvider.GetUtcNow();
             await dbContext.SaveChangesAsync(cancellationToken);
-            return new ClaimOfficeResponse(true, null, "Office enrolled and approved automatically.", node.Id, receipt);
+            return new ClaimOfficeResponse(true, null,
+                "Office enrolled and approved automatically; waiting for its authenticated control connection.",
+                node.Id, receipt);
         }
         return new ClaimOfficeResponse(true, null, "Office enrolled and awaiting administrator approval.", node.Id, receipt);
     }
@@ -1585,9 +1589,10 @@ public sealed class ExecutionFleetService(
                 continue;
             }
 
-            session.Status = LocalOfficeSetupSessionStatus.Ready;
-            session.CompletedAt = timeProvider.GetUtcNow();
-            session.UpdatedAt = session.CompletedAt.Value;
+            // Approving a recovered claim clears its bootstrap heartbeat. The session becomes
+            // effectively ready only after the approved Office reconnects and heartbeats.
+            session.Status = LocalOfficeSetupSessionStatus.Connected;
+            session.UpdatedAt = timeProvider.GetUtcNow();
             await dbContext.SaveChangesAsync(cancellationToken);
             await auditWriter.WriteAsync("office.local-setup.claim-reconciled",
                 nameof(LocalOfficeSetupSession), session.Id,

@@ -107,7 +107,10 @@ internal static class CoreMappers
             CorrelationId = message.CorrelationId,
             DeliveryIntent = message.DeliveryIntent.ToString(),
             SourceProvider = message.SourceProvider,
-            SourceChannelExternalId = message.SourceChannelExternalId
+            SourceChannelExternalId = message.SourceChannelExternalId,
+            Attachments = message.Attachments.Select(x =>
+                new Contracts.Communications.CommunicationMessageAttachmentResponse(
+                    x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList()
         };
     }
 

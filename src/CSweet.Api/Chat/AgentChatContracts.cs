@@ -45,7 +45,18 @@ internal sealed record UserMessageReceived(
     IReadOnlyDictionary<string, string>? Context,
     Guid TurnId = default,
     int Attempt = 0,
-    Guid MessageId = default);
+    Guid MessageId = default)
+{
+    public IReadOnlyList<UserMessageAttachment> Attachments { get; init; } = [];
+}
+
+internal sealed record UserMessageAttachment(
+    Guid Id,
+    Guid MessageId,
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    string Sha256);
 
 internal sealed record AssistantResponseChunk(
     string ConversationId,

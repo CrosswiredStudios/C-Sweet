@@ -81,6 +81,7 @@ public sealed class ChatTurnWorker(
         var audit = services.GetRequiredService<IAuditEventWriter>();
         var turn = await db.ChatTurns
             .Include(x => x.UserMessage!).ThenInclude(x => x.Mentions).ThenInclude(x => x.MentionedOrganizationUser)
+            .Include(x => x.UserMessage!).ThenInclude(x => x.Attachments)
             .Include(x => x.Conversation)
             .SingleAsync(x => x.Id == turnId, stoppingToken);
         var conversation = turn.Conversation!;
@@ -223,7 +224,11 @@ public sealed class ChatTurnWorker(
                     eventContext,
                     turnId,
                     turn.Attempt,
-                    turn.UserMessageId);
+                    turn.UserMessageId)
+                {
+                    Attachments = userMessage.Attachments.Select(x => new UserMessageAttachment(
+                        x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList()
+                };
 
                 await PublishTraceAsync(turns, turnId, "model", "model.dispatched", "running", "Assistant dispatched",
                     "The request was submitted as durable agent work.", new

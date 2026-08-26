@@ -157,7 +157,10 @@
     private RenderFragment WelcomeStep => @<WelcomeSetupStep IsBusy="@_isBusy" OnContinue="@ContinueFromWelcomeAsync" />;
 
     private RenderFragment AgentExecutionStep =>
-        @<AgentHostOnboardingStep OnBack="@BackToWelcome" OnContinue="@ContinueFromExecutionAsync" />;
+        @<AgentHostOnboardingStep OnBack="@BackToWelcome"
+                                  OnContinue="@ContinueFromExecutionAsync"
+                                  IsCompleting="@_isBusy"
+                                  CompletionMessage="@_stepMessage" />;
 
     private RenderFragment LlmProviderStep => @<LlmProviderSetupStep Profiles="@_profiles"
                                                                          SelectedProviderId="@_providerProfileId"
@@ -250,20 +253,28 @@
     {
         _isBusy = true;
         _stepMessage = null;
-
-        var result = await SetupApi.CompleteStepAsync(key);
-        _status = result.Status ?? _status;
-
-        if (result.Succeeded)
+        try
         {
-            _activeStepKey = nextStepKey;
-        }
-        else
-        {
-            _stepMessage = result.Message;
-        }
+            var result = await SetupApi.CompleteStepAsync(key);
+            _status = result.Status ?? _status;
 
-        _isBusy = false;
+            if (result.Succeeded)
+            {
+                _activeStepKey = nextStepKey;
+            }
+            else
+            {
+                _stepMessage = result.Message;
+            }
+        }
+        catch
+        {
+            _stepMessage = "C-Sweet could not save this setup step. Check the connection and try again.";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
     }
 
     private void SelectStep(string key)

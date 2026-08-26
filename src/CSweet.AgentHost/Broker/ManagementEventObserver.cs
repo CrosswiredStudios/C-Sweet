@@ -47,6 +47,16 @@ public sealed class ManagementReportCapabilityHandler(CSweetDbContext db, IAudit
         {
             var report = JsonSerializer.Deserialize<ManagementStatusReport>(publishedEvent.Payload.Span, JsonOptions);
             if (report is null) return;
+            var reporterIdentity = await db.CoreOrganizationUsers.AsNoTracking()
+                .Include(x => x.Role)
+                .SingleAsync(x => x.Id == reporterId.Value && x.OrganizationId == organizationId,
+                    cancellationToken);
+            report = report with
+            {
+                ReporterOrganizationUserId = reporterId.Value,
+                ReporterDisplayName = reporterIdentity.DisplayName,
+                ReporterRole = reporterIdentity.Role?.Name ?? reporterIdentity.EmployeeType.ToString()
+            };
             var request = report.RequestId.HasValue
                 ? await db.ManagementCheckInRequests.SingleOrDefaultAsync(x => x.Id == report.RequestId.Value &&
                     x.OrganizationId == organizationId && x.RequestedFromOrganizationUserId == reporterId &&
@@ -133,6 +143,21 @@ public sealed class ManagementReportCapabilityHandler(CSweetDbContext db, IAudit
                         PayloadJson = JsonSerializer.Serialize(report, JsonOptions), CreatedAt = DateTimeOffset.UtcNow
                     });
                 }
+            }
+            else if (reporterIdentity.ReportsToOrganizationUserId is { } reportingManagerId)
+            {
+                var agentManager = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.Id == reportingManagerId && x.OrganizationId == organizationId && x.IsActive &&
+                    x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId != null, cancellationToken);
+                if (agentManager is not null)
+                    db.ExecutiveBriefingDeliveries.Add(new ExecutiveBriefingDeliveryRecord
+                    {
+                        Id = Guid.NewGuid(), OrganizationId = organizationId,
+                        ManagementCheckInRequestId = request.Id, ManagementStatusReportId = record.Id,
+                        RecipientOrganizationUserId = agentManager.Id, Channel = "AgentRuntime",
+                        Status = "Pending", PayloadJson = JsonSerializer.Serialize(report, JsonOptions),
+                        CreatedAt = DateTimeOffset.UtcNow
+                    });
             }
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("management.status-reported", nameof(ManagementStatusReportRecord), record.Id,

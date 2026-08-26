@@ -249,6 +249,7 @@ public static class DependencyInjection
         builder.Services.Configure<MediaAssetStorageOptions>(builder.Configuration.GetSection(MediaAssetStorageOptions.SectionName));
         builder.Services.AddSingleton<IMediaAssetStore, FileMediaAssetStore>();
         builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
+        builder.Services.AddScoped<IConversationAttachmentSourceResolver, MediaAssetConversationAttachmentSourceResolver>();
         builder.Services.AddSingleton<IResumableMediaUploadStore, FileResumableMediaUploadStore>();
         builder.Services.AddScoped<IResumableMediaUploadService, ResumableMediaUploadService>();
         builder.Services.AddScoped<IAgentRunLogWriter, AgentRunLogWriter>();

@@ -11,7 +11,33 @@ public sealed class AgentHostBrokerOperationHandlerTests
     [Fact]
     public void Options_DefaultTimeoutCoversAgentHostLlmRequests()
     {
-        Assert.True(new AgentHostBrokerOptions().TimeoutSeconds > 120);
+        var options = new AgentHostBrokerOptions();
+
+        Assert.True(options.TimeoutSeconds > 120);
+        Assert.True(options.ControlRequestTimeoutSeconds < 30);
+    }
+
+    [Theory]
+    [InlineData("initialize", 10)]
+    [InlineData("ping", 10)]
+    [InlineData("csweet/work/claim", 10)]
+    [InlineData("tools/call", 180)]
+    public void ResolveTimeoutSeconds_LeavesReconnectHeadroomForControlRequests(
+        string method,
+        int expectedSeconds)
+    {
+        var client = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)))
+        {
+            BaseAddress = new Uri("http://agenthost/")
+        };
+        var handler = new AgentHostBrokerOperationHandler(
+            new StubHttpClientFactory(client),
+            new AgentHostBrokerOptions { BaseUrl = "http://agenthost/" },
+            NullLogger<AgentHostBrokerOperationHandler>.Instance);
+
+        var body = Encoding.UTF8.GetBytes($"{{\"jsonrpc\":\"2.0\",\"method\":\"{method}\"}}");
+
+        Assert.Equal(expectedSeconds, handler.ResolveTimeoutSeconds(body));
     }
 
     [Fact]

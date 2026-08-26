@@ -408,6 +408,9 @@ public sealed class MediaAssetService(
     {
         var asset = await db.MediaAssets.SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId, cancellationToken);
         if (asset is null) return;
+        if (await db.ConversationMessageAttachments.AsNoTracking()
+            .AnyAsync(x => x.MediaAssetId == id && x.OrganizationId == organizationId, cancellationToken))
+            throw new InvalidOperationException("Media attached to retained conversation history cannot be deleted.");
         await store.DeleteAsync(asset.StorageKey, cancellationToken);
         db.MediaAssets.Remove(asset);
         await db.SaveChangesAsync(cancellationToken);
@@ -420,14 +423,16 @@ public sealed class MediaAssetService(
     {
         "image/png" => "image/png", "image/jpeg" => "image/jpeg", "image/webp" => "image/webp",
         "video/mp4" => "video/mp4", "video/webm" => "video/webm",
-        "text/vtt" => "text/vtt", "application/x-subrip" => "application/x-subrip", "text/plain" => "text/plain",
-        _ => throw new InvalidOperationException("Only PNG, JPEG, WebP, MP4, WebM, WebVTT, and SubRip media are supported.")
+        "text/vtt" => "text/vtt", "application/x-subrip" => "application/x-subrip",
+        "text/plain" => "text/plain", "text/markdown" or "text/x-markdown" => "text/markdown",
+        "application/pdf" => "application/pdf",
+        _ => throw new InvalidOperationException("Only PNG, JPEG, WebP, PDF, UTF-8 text, Markdown, MP4, WebM, WebVTT, and SubRip media are supported.")
     };
 
     internal static async Task ValidateSignatureAsync(Stream stream, string contentType, CancellationToken token)
     {
         if (!stream.CanSeek) return;
-        var header = new byte[16];
+        var header = new byte[4096];
         var read = await stream.ReadAsync(header, token);
         stream.Position = 0;
         var valid = contentType switch
@@ -435,13 +440,28 @@ public sealed class MediaAssetService(
             "image/png" => read >= 8 && header.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }),
             "image/jpeg" => read >= 3 && header[0] == 0xff && header[1] == 0xd8 && header[2] == 0xff,
             "image/webp" => read >= 12 && Encoding.ASCII.GetString(header, 0, 4) == "RIFF" && Encoding.ASCII.GetString(header, 8, 4) == "WEBP",
+            "application/pdf" => read >= 5 && Encoding.ASCII.GetString(header, 0, 5) == "%PDF-",
             "video/mp4" => read >= 12 && Encoding.ASCII.GetString(header, 4, 4) == "ftyp",
             "video/webm" => read >= 4 && header.AsSpan(0, 4).SequenceEqual(new byte[] { 0x1a, 0x45, 0xdf, 0xa3 }),
             "text/vtt" => read >= 6 && Encoding.UTF8.GetString(header, 0, read).TrimStart('\uFEFF').StartsWith("WEBVTT", StringComparison.Ordinal),
-            "application/x-subrip" or "text/plain" => read > 0 && !header.AsSpan(0, read).Contains((byte)0),
+            "application/x-subrip" or "text/plain" or "text/markdown" =>
+                read > 0 && !header.AsSpan(0, read).Contains((byte)0) && IsValidUtf8(header.AsSpan(0, read)),
             _ => false
         };
         if (!valid) throw new InvalidOperationException("The media content does not match its declared type.");
+    }
+
+    private static bool IsValidUtf8(ReadOnlySpan<byte> bytes)
+    {
+        try
+        {
+            _ = new UTF8Encoding(false, true).GetString(bytes);
+            return true;
+        }
+        catch (DecoderFallbackException)
+        {
+            return false;
+        }
     }
 }
 

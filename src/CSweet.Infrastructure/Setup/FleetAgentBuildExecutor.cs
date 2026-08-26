@@ -120,9 +120,15 @@ public sealed class FleetAgentBuildExecutor(
                     return Result(assignment, workspace.LogPath);
                 if (assignment.Status is ExecutionAssignmentStatus.Failed or ExecutionAssignmentStatus.Fenced or
                     ExecutionAssignmentStatus.Cancelled)
+                {
+                    await AppendDiagnosticExcerptAsync(
+                        workspace.LogPath,
+                        assignment.ResultLogExcerpt,
+                        cancellationToken);
                     throw new AgentBuildException(
                         assignment.SanitizedFailure ?? "The distributed builder workload failed.",
                         AgentBuildStepKeys.Isolate);
+                }
                 await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
             }
         }
@@ -132,6 +138,17 @@ public sealed class FleetAgentBuildExecutor(
                 "Builder execution was cancelled by the control plane.", CancellationToken.None);
             throw;
         }
+    }
+
+    private static async Task AppendDiagnosticExcerptAsync(
+        string logPath,
+        string? diagnosticExcerpt,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(diagnosticExcerpt)) return;
+        var text = $"{Environment.NewLine}[{DateTimeOffset.UtcNow:O}] Isolated builder diagnostics:{Environment.NewLine}" +
+                   diagnosticExcerpt.TrimEnd() + Environment.NewLine;
+        await File.AppendAllTextAsync(logPath, text, cancellationToken);
     }
 
     public Task CleanupWorkspaceAsync(AgentBuildWorkspace workspace,

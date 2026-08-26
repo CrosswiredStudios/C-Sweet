@@ -369,7 +369,7 @@ public sealed class FirstPartyAgentCatalogProvider(IOptions<MarketplaceOptions> 
         NullIfWhiteSpace(item.LicenseUrl),
         item.IconUrls,
         string.IsNullOrWhiteSpace(item.RoleKey) ? [] : [item.RoleKey],
-        []);
+        item.SpecializationKeys);
 
     private static string? NullIfWhiteSpace(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
     private static bool TryGuid(string reference, string prefix, out Guid id)

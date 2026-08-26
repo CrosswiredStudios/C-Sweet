@@ -1,8 +1,12 @@
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
 using CSweet.AI.Providers;
+using CSweet.Application.Communications;
+using CSweet.Contracts.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -18,6 +22,89 @@ namespace CSweet.UnitTests;
 public sealed class PlatformLlmCapabilityHandlerTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    [Fact]
+    public async Task StreamAsync_ResolvesVerifiedOpaqueAttachmentAndDeniesForgedDigest()
+    {
+        await using var db = new CSweetDbContext(
+            new DbContextOptionsBuilder<CSweetDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var providerId = await AddProviderAsync(db);
+        var organizationId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var employeeId = Guid.NewGuid();
+        var conversationId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        var attachmentId = Guid.NewGuid();
+        var bytes = Encoding.UTF8.GetBytes("# Reference\n\nA clockwork ocean world.");
+        var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        db.CoreOrganizationUsers.Add(new OrganizationUser
+        {
+            Id = employeeId, OrganizationId = organizationId, AgentInstallationId = installationId,
+            DisplayName = "Creative Director", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Contributor, IsActive = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        db.CoreConversations.Add(new Conversation
+        {
+            Id = conversationId, OrganizationId = organizationId,
+            InitiatedByOrganizationUserId = Guid.NewGuid(), CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        db.ConversationParticipants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), ConversationId = conversationId, OrganizationUserId = employeeId,
+            Role = ConversationParticipantRole.Member, JoinedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var resolver = new TestAttachmentResolver(
+            attachmentId,
+            new CommunicationMessageAttachmentResponse(
+                attachmentId, messageId, "world.md", "text/markdown", bytes.Length, digest),
+            conversationId,
+            bytes);
+        var handler = new PlatformLlmCapabilityHandler(
+            db, new StreamingProviderFactory(), new AgentEmployeeIdentityResolver(db),
+            new AgentInstallationConfigurationService(db, new TestAuditEventWriter()), [resolver],
+            NullLogger<PlatformLlmCapabilityHandler>.Instance);
+        var session = new AgentSession(
+            Guid.NewGuid().ToString("N"), "creative-director", installationId.ToString("D"),
+            organizationId.ToString("D"), Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
+            new AuthorizedAgentGrant(
+                new HashSet<string>(), new HashSet<string>(),
+                new HashSet<string>([PlatformCapabilities.LlmChatStream], StringComparer.Ordinal), 1));
+
+        RequestCapability CreateRequest(string suppliedDigest) => new()
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            Capability = PlatformCapabilities.LlmChatStream,
+            Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                providerProfileId = providerId,
+                model = "test-model",
+                messages = new[] { new { role = "user", contents = new[] { new
+                {
+                    kind = "media_reference", attachmentId, messageId, conversationId,
+                    fileName = "world.md", contentType = "text/markdown",
+                    sizeBytes = bytes.Length, sha256 = suppliedDigest
+                } } } },
+                telemetry = new { conversationId, chatTurnId = Guid.NewGuid(), invocationKind = "creative-pitch" }
+            }, JsonOptions))
+        };
+
+        var accepted = new List<CapabilityResult>();
+        await foreach (var result in handler.StreamAsync(session, CreateRequest(digest), CancellationToken.None))
+            accepted.Add(result);
+        Assert.True(resolver.ResolutionCount > 0);
+        Assert.All(accepted, result => Assert.True(result.Succeeded, result.Error));
+
+        var denied = new List<CapabilityResult>();
+        await foreach (var result in handler.StreamAsync(session, CreateRequest(new string('0', 64)), CancellationToken.None))
+            denied.Add(result);
+        var failure = Assert.Single(denied);
+        Assert.False(failure.Succeeded);
+        Assert.Contains("metadata verification", failure.Error, StringComparison.OrdinalIgnoreCase);
+    }
 
     [Fact]
     public async Task StreamAsync_ForwardsInterleavedProviderUpdatesInExactOrder()
@@ -60,6 +147,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             new StreamingProviderFactory(),
             new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+            [],
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
         var request = new RequestCapability
         {
@@ -168,6 +256,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             new StreamingProviderFactory(new ThrowingAfterUsageChatClient()),
             new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+            [],
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
 
         var results = await ReadAsync(handler, providerId);
@@ -199,6 +288,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             new StreamingProviderFactory(),
             new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+            [],
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
 
         var results = await ReadAsync(handler, providerId);
@@ -274,6 +364,28 @@ public sealed class PlatformLlmCapabilityHandlerTests
             string? model,
             CancellationToken cancellationToken = default) =>
             CreateChatClientAsync(providerProfileId, cancellationToken);
+    }
+
+    private sealed class TestAttachmentResolver(
+        Guid attachmentId,
+        CommunicationMessageAttachmentResponse descriptor,
+        Guid conversationId,
+        byte[] bytes) : IConversationAttachmentSourceResolver
+    {
+        public string Source => "test";
+        public int ResolutionCount { get; private set; }
+
+        public Task<ResolvedConversationAttachment?> ResolveAsync(
+            Guid organizationId,
+            Guid requestedAttachmentId,
+            CancellationToken cancellationToken = default)
+        {
+            if (requestedAttachmentId != attachmentId)
+                return Task.FromResult<ResolvedConversationAttachment?>(null);
+            ResolutionCount++;
+            return Task.FromResult<ResolvedConversationAttachment?>(new(
+                descriptor, conversationId, Guid.NewGuid(), new MemoryStream(bytes, writable: false)));
+        }
     }
 
     private sealed class StreamingChatClient : IChatClient

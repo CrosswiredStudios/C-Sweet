@@ -27,6 +27,7 @@ internal static class CoreConfigurations
         modelBuilder.Entity<ConversationParticipant>(ConfigureConversationParticipant);
         modelBuilder.Entity<ConversationMessage>(ConfigureConversationMessage);
         modelBuilder.Entity<ConversationMessageMention>(ConfigureConversationMessageMention);
+        modelBuilder.Entity<ConversationMessageAttachment>(ConfigureConversationMessageAttachment);
         modelBuilder.Entity<SuggestedUserAction>(ConfigureSuggestedUserAction);
         modelBuilder.Entity<ChatTurn>(ConfigureChatTurn);
         modelBuilder.Entity<ChatTurnTraceEvent>(ConfigureChatTurnTraceEvent);
@@ -728,6 +729,22 @@ internal static class CoreConfigurations
             .WithMany()
             .HasForeignKey(x => x.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
+    }
+
+    static void ConfigureConversationMessageAttachment(EntityTypeBuilder<ConversationMessageAttachment> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.FileName).HasMaxLength(260).IsRequired();
+        entity.Property(x => x.ContentType).HasMaxLength(100).IsRequired();
+        entity.Property(x => x.Sha256).HasMaxLength(64).IsRequired();
+        entity.HasIndex(x => new { x.MessageId, x.MediaAssetId }).IsUnique();
+        entity.HasIndex(x => new { x.OrganizationId, x.ConversationId });
+        entity.HasOne(x => x.Message).WithMany(x => x.Attachments)
+            .HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne(x => x.MediaAsset).WithMany()
+            .HasForeignKey(x => x.MediaAssetId).OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne<Conversation>().WithMany()
+            .HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
     }
 
     static void ConfigureSuggestedUserAction(EntityTypeBuilder<SuggestedUserAction> entity)

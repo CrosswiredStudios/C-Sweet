@@ -232,10 +232,25 @@ public sealed class ExecutionBrokerSessionRunner(
             ]);
             if (!string.IsNullOrWhiteSpace(request.TargetFramework))
                 start.Entrypoint.AddRange(["--target-framework", request.TargetFramework]);
+            var diagnostics = new RuntimeDiagnosticBrokerStreamHandler(
+                workload.WorkloadId,
+                request.PackageVersionId);
             var session = new GuestBrokerHostSession(
-                grant, operations, timeProvider, bootConfiguration: boot, startCommand: start);
+                grant,
+                operations,
+                timeProvider,
+                streamHandler: diagnostics,
+                bootConfiguration: boot,
+                startCommand: start);
             var resultTask = builderResults.WaitAsync(workload.WorkloadId, cancellationToken);
-            await session.RunAsync(stream, stream, cancellationToken);
+            try
+            {
+                await session.RunAsync(stream, stream, cancellationToken);
+            }
+            finally
+            {
+                await PersistBuilderDiagnosticsAsync(assignment.Id, diagnostics.Latest);
+            }
             var result = await resultTask;
             assignment.ResultArtifactLocator = result.OpaqueLocator;
             assignment.ResultArtifactDigest = result.Artifact.Digest;
@@ -247,6 +262,26 @@ public sealed class ExecutionBrokerSessionRunner(
             logger.LogInformation(
                 "Authenticated builder broker session completed for assignment {AssignmentId}, workload {WorkloadId}, artifact {ArtifactDigest}.",
                 assignment.Id, workload.WorkloadId, result.Artifact.Digest);
+        }
+    }
+
+    private async Task PersistBuilderDiagnosticsAsync(Guid assignmentId, string? diagnosticExcerpt)
+    {
+        if (string.IsNullOrWhiteSpace(diagnosticExcerpt)) return;
+        try
+        {
+            await dbContext.ExecutionWorkloadAssignments
+                .Where(x => x.Id == assignmentId)
+                .ExecuteUpdateAsync(
+                    updates => updates.SetProperty(x => x.ResultLogExcerpt, diagnosticExcerpt),
+                    CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Could not persist the bounded builder diagnostic excerpt for assignment {AssignmentId}.",
+                assignmentId);
         }
     }
 }

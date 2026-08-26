@@ -408,6 +408,55 @@ public sealed class PluginAgentApproverTests
 public sealed class ResumableMediaUploadServiceTests
 {
     [Fact]
+    public async Task MediaAssets_ValidateDeclaredSignatureAndUtf8Text()
+    {
+        await using var db = CreateDb();
+        var organizationId = await AddOrganizationAsync(db);
+        var service = new MediaAssetService(db, new MemoryAssetStore());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveUploadAsync(
+            organizationId, "forged.png", "image/png", new MemoryStream(Encoding.UTF8.GetBytes("not a png"))));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveUploadAsync(
+            organizationId, "invalid.md", "text/markdown", new MemoryStream([0xff, 0xfe, 0x00])));
+
+        var markdown = await service.SaveUploadAsync(
+            organizationId, "design.md", "text/x-markdown",
+            new MemoryStream(Encoding.UTF8.GetBytes("# Game design\n\nCore loop.")));
+        Assert.Equal("text/markdown", markdown.ContentType);
+    }
+
+    [Fact]
+    public async Task MediaAssetDeletion_IsDeniedWhileRetainedMessageReferencesAsset()
+    {
+        await using var db = CreateDb();
+        var organizationId = await AddOrganizationAsync(db);
+        var asset = new MediaAsset
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, FileName = "concept.png",
+            ContentType = "image/png", SizeBytes = 8, Sha256 = new string('a', 64),
+            StorageKey = "retained", CreatedAt = DateTimeOffset.UtcNow
+        };
+        var conversationId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        db.MediaAssets.Add(asset);
+        db.ConversationMessageAttachments.Add(new ConversationMessageAttachment
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, ConversationId = conversationId,
+            MessageId = messageId, MediaAssetId = asset.Id, FileName = asset.FileName,
+            ContentType = asset.ContentType, SizeBytes = asset.SizeBytes, Sha256 = asset.Sha256,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var service = new MediaAssetService(db, new MemoryAssetStore());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.DeleteAsync(asset.Id, organizationId));
+
+        Assert.Contains("retained conversation history", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(await db.MediaAssets.FindAsync(asset.Id));
+    }
+
+    [Fact]
     public async Task Upload_ResumesAtExactOffset_AndCompletesValidatedAsset()
     {
         await using var db = CreateDb();

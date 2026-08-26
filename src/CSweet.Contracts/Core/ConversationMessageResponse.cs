@@ -1,3 +1,5 @@
+using CSweet.Contracts.Communications;
+
 namespace CSweet.Contracts.Core;
 
 public sealed record ConversationMessageResponse(
@@ -15,4 +17,5 @@ public sealed record ConversationMessageResponse(
     public string DeliveryIntent { get; init; } = "Inform";
     public string SourceProvider { get; init; } = "InApp";
     public string? SourceChannelExternalId { get; init; }
+    public IReadOnlyList<CommunicationMessageAttachmentResponse> Attachments { get; init; } = [];
 }

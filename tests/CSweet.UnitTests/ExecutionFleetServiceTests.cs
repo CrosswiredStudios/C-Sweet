@@ -161,7 +161,7 @@ public sealed class ExecutionFleetServiceTests
     }
 
     [Fact]
-    public async Task AssistedLocalSetup_IsMachineBoundSingleUse_AndAutoApprovesExactClaim()
+    public async Task AssistedLocalSetup_WaitsForAuthenticatedHeartbeatBeforeReportingReady()
     {
         await using var db = CreateDb();
         var clock = new MutableTimeProvider(Now);
@@ -233,12 +233,24 @@ public sealed class ExecutionFleetServiceTests
 
         Assert.True(claimed.Succeeded);
         Assert.Equal(ExecutionNodeStatus.Ready, (await db.ExecutionNodes.SingleAsync()).Status);
-        Assert.Equal(LocalOfficeSetupSessionStatus.Ready,
+        Assert.Equal(LocalOfficeSetupSessionStatus.Connected,
             (await db.LocalOfficeSetupSessions.SingleAsync()).Status);
+        var verifyingSession = (await fleet.GetLocalSetupSessionAsync(created.Session!.Id, userId)).Session;
+        Assert.Equal("connected", verifyingSession?.State);
+        Assert.Equal("verify", verifyingSession?.PhaseKey);
+        Assert.False((await fleet.GetOnboardingStatusAsync()).IsReady);
+        Assert.False((await new SetupService(db, fleet).CompleteStepAsync("agent-execution")).Succeeded);
+
+        var approvedNode = await db.ExecutionNodes.SingleAsync();
+        approvedNode.LastHeartbeatAt = clock.GetUtcNow();
+        await db.SaveChangesAsync();
+
         var readySession = (await fleet.GetLocalSetupSessionAsync(created.Session!.Id, userId)).Session;
         Assert.Equal("ready", readySession?.State);
         Assert.Equal("ready", readySession?.PhaseKey);
         Assert.Equal("Your Office is ready", readySession?.PhaseDisplayName);
+        Assert.True((await fleet.GetOnboardingStatusAsync()).IsReady);
+        Assert.True((await new SetupService(db, fleet).CompleteStepAsync("agent-execution")).Succeeded);
     }
 
     [Fact]
@@ -553,9 +565,16 @@ public sealed class ExecutionFleetServiceTests
 
         var recovered = await fleet.GetLocalSetupSessionAsync(created.Session!.Id, userId);
 
-        Assert.Equal("ready", recovered.Session?.State);
+        Assert.Equal("connected", recovered.Session?.State);
         Assert.Equal(ExecutionNodeStatus.Ready, (await db.ExecutionNodes.SingleAsync()).Status);
-        Assert.Equal(LocalOfficeSetupSessionStatus.Ready, session.Status);
+        Assert.Equal(LocalOfficeSetupSessionStatus.Connected, session.Status);
+
+        var approvedNode = await db.ExecutionNodes.SingleAsync();
+        approvedNode.LastHeartbeatAt = clock.GetUtcNow();
+        await db.SaveChangesAsync();
+
+        recovered = await fleet.GetLocalSetupSessionAsync(created.Session.Id, userId);
+        Assert.Equal("ready", recovered.Session?.State);
     }
 
     [Fact]

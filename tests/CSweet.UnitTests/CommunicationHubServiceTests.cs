@@ -52,6 +52,41 @@ public sealed class CommunicationHubServiceTests
     }
 
     [Fact]
+    public async Task AttachmentOnlyMessage_IsIdempotentAndRecoversSanitizedDescriptorFromChatRead()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var sender = User(organization.Id, "Sender", OrganizationPermissionLevel.Manager);
+        var recipient = User(organization.Id, "Recipient", OrganizationPermissionLevel.Contributor);
+        var asset = new MediaAsset
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, FileName = "storyboard.pdf",
+            ContentType = "application/pdf", SizeBytes = 4096, Sha256 = new string('b', 64),
+            StorageKey = "private/storage-key-that-must-not-leak", CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.AddRange(organization, sender, recipient, asset);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var chat = (await service.CreateAsync(organization.Id, sender.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [recipient.Id]))).Chat!;
+
+        var first = await service.SendAsync(organization.Id, chat.Id, sender.Id,
+            new SendCommunicationMessageRequest(string.Empty, "attachment-only", null, [asset.Id]));
+        var replay = await service.SendAsync(organization.Id, chat.Id, sender.Id,
+            new SendCommunicationMessageRequest(string.Empty, "attachment-only", null, [asset.Id]));
+        db.ChangeTracker.Clear();
+        var messages = await service.ListMessagesAsync(organization.Id, chat.Id, recipient.Id);
+
+        Assert.NotNull(first);
+        Assert.Equal(first!.Message.Id, replay!.Message.Id);
+        var attachment = Assert.Single(Assert.Single(messages!).Attachments);
+        Assert.Equal("storyboard.pdf", attachment.FileName);
+        Assert.Equal(asset.Sha256, attachment.Sha256);
+        Assert.DoesNotContain(asset.StorageKey, System.Text.Json.JsonSerializer.Serialize(attachment),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GroupManagement_IsScopedAndArchivePreservesHistory()
     {
         await using var db = CreateDb();

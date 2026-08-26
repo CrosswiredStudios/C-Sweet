@@ -69,6 +69,14 @@
             @RemoteExperience()
         }
 
+        @if (!string.IsNullOrWhiteSpace(CompletionMessage))
+        {
+            <div class="host-feedback warning" role="alert">
+                <MudIcon Icon="@Icons.Material.Outlined.Info" />
+                <span>@CompletionMessage</span>
+            </div>
+        }
+
         @if (!string.IsNullOrWhiteSpace(_actionMessage) &&
              (_installationTarget == "remote" || !_actionSucceeded))
         {
@@ -82,7 +90,7 @@
     @if (_installationTarget == "remote")
     {
         <footer class="host-onboarding-actions">
-            <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
+            <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">Back</MudButton>
             <div>
                 @if (_status?.IsReady != true)
                 {
@@ -91,7 +99,7 @@
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
                            EndIcon="@Icons.Material.Filled.ArrowForward"
-                           Disabled="@(_busy || _loading || _status?.IsReady != true)"
+                           Disabled="@(_busy || IsCompleting || _loading || _status?.IsReady != true)"
                            OnClick="OnContinue">Continue</MudButton>
             </div>
         </footer>
@@ -101,6 +109,8 @@
 @code {
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public EventCallback OnContinue { get; set; }
+    [Parameter] public bool IsCompleting { get; set; }
+    [Parameter] public string? CompletionMessage { get; set; }
 
     private readonly HashSet<Guid> _remoteApprovalInFlight = [];
     private ExecutionCapacityOnboardingResponse? _status;
@@ -657,7 +667,7 @@
                 else
                 {
                 <div class="local-session-progress" role="status" aria-live="polite">
-                @if (_localSession.State == "ready")
+                @if (LocalOfficeIsReady)
                 {
                     <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
                 }
@@ -676,7 +686,7 @@
                     <MudProgressLinear Value="@LocalProgressPercent" Color="Color.Primary" />
                     <div class="local-progress-meta">
                         <span>@LocalProgressPercent% complete</span>
-                        @if (_localSession.State == "ready")
+                        @if (LocalOfficeIsReady)
                         {
                             <span>Setup complete</span>
                         }
@@ -709,11 +719,18 @@
         }
 
         <footer class="local-wizard-actions">
-            <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
-            @if (_localSession?.State == "ready")
+            <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">Back</MudButton>
+            @if (LocalOfficeIsReady)
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward"
-                           OnClick="OnContinue">Continue</MudButton>
+                           Disabled="@IsCompleting" OnClick="OnContinue">
+                    @(IsCompleting ? "Continuing…" : "Continue")
+                </MudButton>
+            }
+            else if (_localSession?.State is "connected" or "ready")
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           Disabled="true">Finishing connection…</MudButton>
             }
             else if (_localSession is null)
             {
@@ -981,14 +998,19 @@
     private IReadOnlyList<ExecutionNodeSummaryResponse> PendingNodes => _status?.Nodes
         .Where(node => node.Status == "pendingapproval").ToArray() ?? [];
 
+    private bool LocalOfficeIsReady =>
+        _localSession?.State == "ready" && _status?.IsReady == true;
+
+    private bool LocalSessionClaimsReady =>
+        _localSession?.State == "ready" && !LocalOfficeIsReady;
+
     private int LocalStepNumber => _localSession is null
         ? 1
-        : _localSession.State == "ready"
+        : LocalOfficeIsReady
             ? 4
             : _localSession.PhaseKey switch
             {
-                "connect" or "verify" => 3,
-                "ready" => 4,
+                "connect" or "verify" or "ready" => 3,
                 _ => 2
             };
 
@@ -1005,8 +1027,10 @@
             ? progress
             : null;
 
-    private string LocalProgressTitle => _localSession?.State == "ready"
+    private string LocalProgressTitle => LocalOfficeIsReady
         ? "Your Office is ready"
+        : LocalSessionClaimsReady
+            ? "Finalizing your Office connection"
         : LocalSetupStartStalled
             ? "Windows setup needs attention"
             : AwaitingBootstrapAfterApproval
@@ -1015,8 +1039,10 @@
                   ?? _localSession?.PhaseDisplayName
                   ?? "Preparing your Office";
 
-    private string LocalProgressMessage => _localSession?.State == "ready"
+    private string LocalProgressMessage => LocalOfficeIsReady
         ? "This Office is connected and healthy."
+        : LocalSessionClaimsReady
+            ? "C-Sweet is waiting for a fresh authenticated health check from this Office."
         : LocalSetupStartStalled
             ? "The administrator request opened, but Windows setup has not reported progress. If you approved it and this message persists, try again."
             : AwaitingBootstrapAfterApproval
@@ -1025,9 +1051,11 @@
                   ?? _localSession?.Message
                   ?? "C-Sweet is preparing this machine.";
 
-    private int LocalProgressPercent => ActiveLocalProvisioning?.PercentComplete
-        ?? _localSession?.PercentComplete
-        ?? 0;
+    private int LocalProgressPercent => LocalOfficeIsReady
+        ? 100
+        : Math.Min(99, ActiveLocalProvisioning?.PercentComplete
+            ?? _localSession?.PercentComplete
+            ?? 0);
 
     private string? LocalProgressEta => ActiveLocalProvisioning is { } progress
         ? Eta(progress)

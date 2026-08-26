@@ -12,6 +12,9 @@ public sealed class AgentHostBrokerOptions
     // The AgentHost allows LLM requests to run for up to two minutes. Leave
     // enough forwarding headroom for that request and response to complete.
     public int TimeoutSeconds { get; set; } = 180;
+    // Control-plane calls must fail early enough for the SDK to reconnect before the
+    // runtime startup circuit breaker fires. Capability calls retain the longer timeout.
+    public int ControlRequestTimeoutSeconds { get; set; } = 10;
     public int MaximumResponseBytes { get; set; } = 16 * 1024 * 1024;
 
     public Uri ValidatedBaseUri()
@@ -19,7 +22,10 @@ public sealed class AgentHostBrokerOptions
         if (!Uri.TryCreate(BaseUrl, UriKind.Absolute, out var uri) ||
             uri.Scheme is not ("http" or "https" or "https+http"))
             throw new InvalidOperationException("The AgentHost broker base URL is invalid.");
-        if (TimeoutSeconds is < 1 or > 300 || MaximumResponseBytes is < 1 or > 64 * 1024 * 1024)
+        if (TimeoutSeconds is < 1 or > 300 ||
+            ControlRequestTimeoutSeconds is < 1 or > 120 ||
+            ControlRequestTimeoutSeconds >= TimeoutSeconds ||
+            MaximumResponseBytes is < 1 or > 64 * 1024 * 1024)
             throw new InvalidOperationException("The AgentHost broker limits are invalid.");
         return uri.AbsoluteUri.EndsWith('/') ? uri : new Uri(uri.AbsoluteUri + "/");
     }
@@ -71,7 +77,7 @@ public sealed class AgentHostBrokerOperationHandler(
                 message.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
+        timeout.CancelAfter(TimeSpan.FromSeconds(ResolveTimeoutSeconds(request.Body)));
         HttpResponseMessage response;
         try
         {
@@ -118,6 +124,26 @@ public sealed class AgentHostBrokerOperationHandler(
             }
             return new BrokerOperationResult((int)response.StatusCode, headers, body);
         }
+    }
+
+    internal int ResolveTimeoutSeconds(ReadOnlyMemory<byte> body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("method", out var method) &&
+                method.ValueKind == JsonValueKind.String &&
+                method.GetString() is "initialize" or "ping" or "csweet/session/renew" or
+                    "csweet/work/claim" or "csweet/work/renew" or "csweet/work/progress" or
+                    "csweet/work/complete" or "csweet/work/fail" or "csweet/runtime/complete")
+                return options.ControlRequestTimeoutSeconds;
+        }
+        catch (JsonException)
+        {
+            // AgentHost owns JSON-RPC validation. Preserve the established forwarding
+            // behavior for malformed or future request shapes.
+        }
+        return options.TimeoutSeconds;
     }
 
     internal static string? DescribeErrorResponse(ReadOnlyMemory<byte> body)

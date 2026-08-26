@@ -38,6 +38,7 @@ public sealed class FirstPartyMarketplaceAgentOptions
     public List<string> IconUrls { get; set; } = [];
     public List<string> Capabilities { get; set; } = [];
     public List<string> RoleAliases { get; set; } = [];
+    public List<string> SpecializationKeys { get; set; } = [];
     public List<string> Keywords { get; set; } = [];
     public bool IsFeatured { get; set; }
     public string Availability { get; set; } = "Available";

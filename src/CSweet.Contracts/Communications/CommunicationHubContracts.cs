@@ -77,7 +77,16 @@ public sealed record CommunicationHubMessageResponse(
     public string MessageType { get; init; } = CommunicationMessageTypes.Standard;
     public Guid? CoordinationSessionId { get; init; }
     public IReadOnlyList<CommunicationMessageMentionResponse> Mentions { get; init; } = [];
+    public IReadOnlyList<CommunicationMessageAttachmentResponse> Attachments { get; init; } = [];
 }
+
+public sealed record CommunicationMessageAttachmentResponse(
+    Guid Id,
+    Guid MessageId,
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    string Sha256);
 
 public sealed record CommunicationMessageMentionResponse(
     Guid OrganizationUserId,
@@ -241,9 +250,10 @@ public sealed record UpdateCommunicationChatRequest(
     IReadOnlyList<Guid>? AudienceWorkstreamIds = null);
 
 public sealed record SendCommunicationMessageRequest(
-    [property: Required, MaxLength(32768)] string Content,
+    [property: MaxLength(32768)] string Content,
     [property: MaxLength(160)] string? IdempotencyKey = null,
-    IReadOnlyList<CommunicationMessageMentionInput>? Mentions = null);
+    IReadOnlyList<CommunicationMessageMentionInput>? Mentions = null,
+    IReadOnlyList<Guid>? AttachmentMediaAssetIds = null);
 
 public sealed record CommunicationHubActionResponse(
     bool Succeeded,

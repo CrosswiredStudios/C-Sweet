@@ -119,7 +119,8 @@ public sealed class CommunicationHubCapabilityHandler(
     {
         var input = Read<SendMessageCapabilityRequest>(request);
         var message = await hub.SendAsync(organizationId, input.ChatId, actorId,
-            new SendCommunicationMessageRequest(input.Content, input.IdempotencyKey), token);
+            new SendCommunicationMessageRequest(
+                input.Content, input.IdempotencyKey, input.Mentions, input.AttachmentMediaAssetIds), token);
         if (message is null)
         {
             logger?.LogWarning(
@@ -199,7 +200,12 @@ public sealed class CommunicationHubCapabilityHandler(
         IReadOnlyList<Guid> ParticipantOrganizationUserIds,
         IReadOnlyList<Guid>? AudienceRoleIds = null,
         IReadOnlyList<Guid>? AudienceWorkstreamIds = null);
-    private sealed record SendMessageCapabilityRequest(Guid ChatId, string Content, string? IdempotencyKey = null);
+    private sealed record SendMessageCapabilityRequest(
+        Guid ChatId,
+        string Content,
+        string? IdempotencyKey = null,
+        IReadOnlyList<CSweet.Contracts.Communications.CommunicationMessageMentionInput>? Mentions = null,
+        IReadOnlyList<Guid>? AttachmentMediaAssetIds = null);
     private sealed record AskUserCapabilityRequest(
         Guid ConversationId,
         Guid? ChatTurnId,

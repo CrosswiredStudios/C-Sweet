@@ -2,6 +2,7 @@ using System.Text.Json;
 using CSweet.Application.Core;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
+using CSweet.Infrastructure.Communications;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,6 +10,10 @@ namespace CSweet.Infrastructure.Core;
 
 public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
 {
+    private const long MaximumAttachmentBytes = 25L * 1024 * 1024;
+    private const long MaximumTotalAttachmentBytes = 50L * 1024 * 1024;
+    private static readonly HashSet<string> AllowedAttachmentTypes = new(StringComparer.OrdinalIgnoreCase)
+    { "image/png", "image/jpeg", "image/webp", "application/pdf", "text/plain", "text/markdown" };
     private static readonly TimeSpan InitialLeaseDuration = TimeSpan.FromMinutes(3);
     private static readonly HashSet<ChatTurnStatus> ActiveStatuses =
     [ChatTurnStatus.Queued, ChatTurnStatus.RecallingMemory, ChatTurnStatus.Dispatching, ChatTurnStatus.Running, ChatTurnStatus.FinalizingMemory];
@@ -22,22 +27,26 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
             .Select(x => x.AgentOrganizationUserId)
             .SingleOrDefaultAsync(cancellationToken);
         if (!target.HasValue) return null;
-        return await StartCoreAsync(organizationId, conversationId, target.Value, message, null, "InApp", null, null, retryOfTurnId, cancellationToken);
+        return await StartCoreAsync(organizationId, conversationId, target.Value, message, null, "InApp", null, null, null, retryOfTurnId, cancellationToken);
     }
 
     public Task<ChatTurnStartResponse?> StartForAgentAsync(
         Guid organizationId, Guid conversationId, Guid targetAgentOrganizationUserId, string message,
         Guid? senderOrganizationUserId = null, string sourceProvider = "InApp", string? sourceChannelExternalId = null,
-        string? idempotencyKey = null, CancellationToken cancellationToken = default) =>
+        string? idempotencyKey = null, IReadOnlyList<Guid>? attachmentMediaAssetIds = null,
+        CancellationToken cancellationToken = default) =>
         StartCoreAsync(organizationId, conversationId, targetAgentOrganizationUserId, message, senderOrganizationUserId,
-            sourceProvider, sourceChannelExternalId, idempotencyKey, null, cancellationToken);
+            sourceProvider, sourceChannelExternalId, idempotencyKey, attachmentMediaAssetIds, null, cancellationToken);
 
     private async Task<ChatTurnStartResponse?> StartCoreAsync(
         Guid organizationId, Guid conversationId, Guid targetAgentOrganizationUserId, string message,
         Guid? senderOrganizationUserId, string sourceProvider, string? sourceChannelExternalId,
-        string? idempotencyKey, Guid? retryOfTurnId, CancellationToken cancellationToken)
+        string? idempotencyKey, IReadOnlyList<Guid>? attachmentMediaAssetIds, Guid? retryOfTurnId,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(message)) return null;
+        var assetIds = (attachmentMediaAssetIds ?? []).Distinct().ToList();
+        if (string.IsNullOrWhiteSpace(message) && assetIds.Count == 0) return null;
+        var assets = await LoadAttachmentAssetsAsync(organizationId, assetIds, cancellationToken);
         var conversation = await db.CoreConversations.SingleOrDefaultAsync(
             x => x.Id == conversationId && x.OrganizationId == organizationId, cancellationToken);
         if (conversation is null) return null;
@@ -53,12 +62,20 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
         var userMessage = new ConversationMessage
         {
             Id = Guid.NewGuid(), ConversationId = conversationId, ChatTurnId = turnId,
-            Role = ConversationRole.User, Content = message.Trim(), CreatedAt = now,
+            Role = ConversationRole.User, Content = message?.Trim() ?? string.Empty, CreatedAt = now,
             SenderOrganizationUserId = senderOrganizationUserId,
             CorrelationId = Guid.NewGuid(), DeliveryIntent = CommunicationDeliveryIntent.RequestResponse,
             SourceProvider = sourceProvider, SourceChannelExternalId = sourceChannelExternalId,
             IdempotencyKey = idempotencyKey
         };
+        foreach (var asset in assets)
+            userMessage.Attachments.Add(new ConversationMessageAttachment
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, ConversationId = conversationId,
+                MessageId = userMessage.Id, MediaAssetId = asset.Id, FileName = asset.FileName,
+                ContentType = asset.ContentType, SizeBytes = asset.SizeBytes, Sha256 = asset.Sha256,
+                CreatedAt = now
+            });
         var turn = new ChatTurn
         {
             Id = turnId, OrganizationId = organizationId, ConversationId = conversationId,
@@ -67,7 +84,10 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
             CreatedAt = now, UpdatedAt = now, LastActivityAt = now
         };
         conversation.UpdatedAt = now;
-        conversation.Title ??= userMessage.Content.Length <= 80 ? userMessage.Content : userMessage.Content[..80];
+        var titleSeed = string.IsNullOrWhiteSpace(userMessage.Content)
+            ? assets.First().FileName
+            : userMessage.Content;
+        conversation.Title ??= titleSeed.Length <= 80 ? titleSeed : titleSeed[..80];
         db.CoreConversationMessages.Add(userMessage);
         db.ChatTurns.Add(turn);
         db.MemoryCaptureOutbox.Add(new MemoryCaptureOutboxItem
@@ -105,19 +125,41 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
         turn.CompletedAt = turn.UpdatedAt = DateTimeOffset.UtcNow;
         turn.LeaseOwner = null; turn.LeaseUntil = null;
         await CancelPendingDecisionsAsync(turnId, cancellationToken);
+        await CancelPendingActionsAsync(turnId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }
 
     public async Task<ChatTurnStartResponse?> RetryAsync(Guid organizationId, Guid turnId, CancellationToken cancellationToken = default)
     {
-        var original = await db.ChatTurns.Include(x => x.UserMessage)
+        var original = await db.ChatTurns.Include(x => x.UserMessage).ThenInclude(x => x!.Attachments)
             .SingleOrDefaultAsync(x => x.Id == turnId && x.OrganizationId == organizationId, cancellationToken);
         if (original is null || original.Status is not (ChatTurnStatus.Failed or ChatTurnStatus.Cancelled or ChatTurnStatus.CompletedWithWarnings)) return null;
         return await StartCoreAsync(organizationId, original.ConversationId, original.TargetAgentOrganizationUserId,
             original.UserMessage!.Content, original.UserMessage.SenderOrganizationUserId,
             original.UserMessage.SourceProvider, original.UserMessage.SourceChannelExternalId,
-            null, original.Id, cancellationToken);
+            null, original.UserMessage.Attachments.Select(x => x.MediaAssetId).ToList(), original.Id, cancellationToken);
+    }
+
+    private async Task<List<Domain.Setup.MediaAsset>> LoadAttachmentAssetsAsync(
+        Guid organizationId,
+        IReadOnlyList<Guid> assetIds,
+        CancellationToken cancellationToken)
+    {
+        if (assetIds.Count > 8)
+            throw new InvalidOperationException("A message can contain at most 8 attachments.");
+        var assets = await db.MediaAssets.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && assetIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        if (assets.Count != assetIds.Count)
+            throw new InvalidOperationException("One or more attachments are unavailable to this organization.");
+        if (assets.Any(x => x.SizeBytes > MaximumAttachmentBytes))
+            throw new InvalidOperationException("Each attachment must be 25 MB or smaller.");
+        if (assets.Sum(x => x.SizeBytes) > MaximumTotalAttachmentBytes)
+            throw new InvalidOperationException("Message attachments must total 50 MB or less.");
+        if (assets.Any(x => !AllowedAttachmentTypes.Contains(x.ContentType)))
+            throw new InvalidOperationException("Attachments must be PNG, JPEG, WebP, PDF, UTF-8 text, or Markdown.");
+        return assetIds.Select(id => assets.Single(x => x.Id == id)).ToList();
     }
 
     public async Task<Guid?> ClaimNextAsync(string leaseOwner, CancellationToken cancellationToken = default)
@@ -176,6 +218,8 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
         turn.LastActivityAt = now;
         if (turn.Status is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
             await CancelPendingDecisionsAsync(turnId, cancellationToken);
+        if (turn.Status is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
+            await CancelPendingActionsAsync(turnId, cancellationToken);
         if (turn.Status is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled) turn.CompletedAt = turn.UpdatedAt;
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -190,6 +234,13 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
             decision.Status = ExecutiveDecisionStatus.Cancelled;
             decision.UpdatedAt = now;
         }
+    }
+
+    private async Task CancelPendingActionsAsync(Guid turnId, CancellationToken cancellationToken)
+    {
+        var pending = await db.SuggestedUserActions.Where(x => x.ChatTurnId == turnId &&
+            x.ConversationMessageId == null && x.Status == "Pending").ToListAsync(cancellationToken);
+        foreach (var action in pending) action.Status = "Cancelled";
     }
 
     public async Task AppendOutputAsync(Guid turnId, string delta, CancellationToken cancellationToken = default)
@@ -229,6 +280,20 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
         turn.Status = memoryWarning ? ChatTurnStatus.CompletedWithWarnings : ChatTurnStatus.Completed;
         turn.ResponseReadyAt = turn.CompletedAt = turn.UpdatedAt = now;
         turn.LeaseOwner = null; turn.LeaseUntil = null;
+        var pendingActions = await db.SuggestedUserActions
+            .Where(x => x.ChatTurnId == turnId && x.ConversationMessageId == null && x.Status == "Pending")
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+        foreach (var action in pendingActions)
+        {
+            await SuggestedUserActionMaterializer.MaterializeAsync(
+                db,
+                action,
+                turnId,
+                turnId,
+                DateTimeOffset.UtcNow,
+                cancellationToken);
+        }
         await db.SaveChangesAsync(cancellationToken);
     }
 

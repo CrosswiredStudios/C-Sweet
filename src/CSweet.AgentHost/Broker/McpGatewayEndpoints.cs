@@ -62,7 +62,14 @@ public static class McpGatewayEndpoints
             try
             {
                 if (method == "initialize")
-                    return await InitializeAsync(id, root, http, sessions, audit, cancellationToken);
+                    return await InitializeAsync(
+                        id,
+                        root,
+                        http,
+                        sessions,
+                        audit,
+                        loggerFactory.CreateLogger("CSweet.AgentHost.Broker.McpGateway"),
+                        cancellationToken);
 
                 var token = ReadBearerToken(http.Request.Headers.Authorization);
                 var session = token is null
@@ -136,6 +143,7 @@ public static class McpGatewayEndpoints
         HttpContext http,
         McpAgentSessionService sessions,
         IAuditEventWriter audit,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         var workloadToken = ReadBearerToken(http.Request.Headers.Authorization)
@@ -153,7 +161,10 @@ public static class McpGatewayEndpoints
             client.GetProperty("version").GetString()!,
             cancellationToken);
         http.Response.Headers["Mcp-Session-Id"] = issue.Session.SessionId;
-        await WriteAuditAsync(audit, issue.Session, "initialize", "Established", null, cancellationToken);
+        // The session is already durably established. Audit-ledger serialization can be
+        // briefly contended by unrelated organization activity, so it must not hold the
+        // guest's startup handshake open until the runtime deadline expires.
+        RegisterAuditAfterResponse(http, audit, issue.Session, logger);
         return Results.Json(Success(id, new
         {
             protocolVersion = ProtocolVersion,
@@ -172,6 +183,34 @@ public static class McpGatewayEndpoints
                 }
             }
         }));
+    }
+
+    private static void RegisterAuditAfterResponse(
+        HttpContext http,
+        IAuditEventWriter audit,
+        AgentSession session,
+        ILogger logger)
+    {
+        http.Response.OnCompleted(async () =>
+        {
+            try
+            {
+                await WriteAuditAsync(
+                    audit,
+                    session,
+                    "initialize",
+                    "Established",
+                    null,
+                    CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Could not append the MCP session establishment audit event for runtime {RuntimeInstanceId}.",
+                    session.RuntimeInstanceId);
+            }
+        });
     }
 
     private static async Task<IResult> ListToolsAsync(

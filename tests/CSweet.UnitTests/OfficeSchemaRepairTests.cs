@@ -80,7 +80,9 @@ public sealed class OfficeSchemaRepairTests
         Assert.Contains("if (target == \"remote\" && LocalSetupLocksLocation) return;", razor, StringComparison.Ordinal);
         Assert.Contains("RefreshLocalOfficeSetupSessionHandoffAsync", razor, StringComparison.Ordinal);
         Assert.Contains("private int LocalStepNumber => _localSession is null", razor, StringComparison.Ordinal);
-        Assert.Contains("_localSession.State == \"ready\"", razor, StringComparison.Ordinal);
+        Assert.Contains("private bool LocalOfficeIsReady", razor, StringComparison.Ordinal);
+        Assert.Contains("_localSession?.State == \"ready\" && _status?.IsReady == true", razor, StringComparison.Ordinal);
+        Assert.Contains("Finishing connection…", razor, StringComparison.Ordinal);
         Assert.Contains("<span>Setup complete</span>", razor, StringComparison.Ordinal);
         Assert.Contains("_ => 2", razor, StringComparison.Ordinal);
         Assert.DoesNotContain("saveLocalOfficeSetup", razor, StringComparison.Ordinal);

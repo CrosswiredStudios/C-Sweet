@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Agent.SDK;
+using CSweet.Application.Communications;
 using CSweet.Application.Setup;
 using CSweet.AI.Providers;
 using CSweet.Domain.Setup;
@@ -21,18 +22,21 @@ public sealed class PlatformLlmCapabilityHandler
     private readonly ILogger<PlatformLlmCapabilityHandler> _logger;
     private readonly AgentEmployeeIdentityResolver _employeeIdentityResolver;
     private readonly IAgentConfigurationService _configurations;
+    private readonly IReadOnlyList<IConversationAttachmentSourceResolver> _attachmentResolvers;
 
     public PlatformLlmCapabilityHandler(
         CSweetDbContext dbContext,
         ILlmProviderFactory providerFactory,
         AgentEmployeeIdentityResolver employeeIdentityResolver,
         IAgentConfigurationService configurations,
+        IEnumerable<IConversationAttachmentSourceResolver> attachmentResolvers,
         ILogger<PlatformLlmCapabilityHandler> logger)
     {
         _dbContext = dbContext;
         _providerFactory = providerFactory;
         _employeeIdentityResolver = employeeIdentityResolver;
         _configurations = configurations;
+        _attachmentResolvers = attachmentResolvers.ToList();
         _logger = logger;
     }
 
@@ -137,6 +141,38 @@ public sealed class PlatformLlmCapabilityHandler
         }
 
         var identity = await _employeeIdentityResolver.ResolveAsync(session, requestToken);
+        if (!Guid.TryParse(session.BusinessId, out var organizationId))
+        {
+            yield return Failure(request.RequestId, "The agent organization identity is unavailable.");
+            yield break;
+        }
+        var hasMediaReferences = input.Messages.Any(message => message.Contents?.Any(content =>
+            string.Equals(content.Kind, "media_reference", StringComparison.Ordinal)) == true);
+        var employeeId = Guid.Empty;
+        var hasEmployeeIdentity = identity is not null && Guid.TryParse(identity.EmployeeId, out employeeId);
+        if (hasMediaReferences && !hasEmployeeIdentity)
+        {
+            yield return Failure(request.RequestId, "The agent employee identity is unavailable for attachment resolution.");
+            yield break;
+        }
+
+        List<ChatMessage> messages = [];
+        string? attachmentResolutionError = null;
+        try
+        {
+            messages = await ResolveMessagesAsync(
+                organizationId, hasEmployeeIdentity ? employeeId : Guid.Empty, input, requestToken);
+        }
+        catch (InvalidOperationException exception)
+        {
+            LogDenied(session, request, input.ProviderProfileId, selectedModel, exception.Message);
+            attachmentResolutionError = exception.Message;
+        }
+        if (attachmentResolutionError is not null)
+        {
+            yield return Failure(request.RequestId, attachmentResolutionError);
+            yield break;
+        }
         var runLog = CreateRunLog(
             session,
             identity?.EmployeeId,
@@ -145,7 +181,6 @@ public sealed class PlatformLlmCapabilityHandler
             input,
             request.Payload.Span);
         var runStopwatch = Stopwatch.StartNew();
-        var messages = input.Messages.Select(ToChatMessage).ToList();
         var options = new ChatOptions
         {
             Instructions = identity is null
@@ -554,7 +589,86 @@ public sealed class PlatformLlmCapabilityHandler
         _ => ChatRole.User
     };
 
-    private static ChatMessage ToChatMessage(PlatformChatMessage message) => new(
+    private async Task<List<ChatMessage>> ResolveMessagesAsync(
+        Guid organizationId,
+        Guid employeeId,
+        PlatformChatRequest request,
+        CancellationToken cancellationToken)
+    {
+        var mediaReferences = request.Messages.SelectMany(x => x.Contents ?? [])
+            .Where(x => string.Equals(x.Kind, "media_reference", StringComparison.Ordinal))
+            .ToList();
+        if (mediaReferences.Count > 8)
+            throw new InvalidOperationException("A model request can contain at most 8 attachment references.");
+        if (mediaReferences.Count == 0)
+            return request.Messages.Select(ToChatMessageWithoutMedia).ToList();
+        if (request.Telemetry?.ConversationId is not { } telemetryConversationId)
+            throw new InvalidOperationException("Attachment model requests require authenticated conversation telemetry.");
+        if (!await _dbContext.ConversationParticipants.AsNoTracking().AnyAsync(x =>
+                x.ConversationId == telemetryConversationId &&
+                x.OrganizationUserId == employeeId && x.LeftAt == null, cancellationToken))
+            throw new InvalidOperationException("The agent is not an active participant in the attachment conversation.");
+
+        var resolved = new Dictionary<Guid, AIContent>();
+        long totalBytes = 0;
+        foreach (var reference in mediaReferences)
+        {
+            if (reference.AttachmentId is not { } attachmentId ||
+                reference.MessageId is not { } messageId ||
+                reference.ConversationId != telemetryConversationId ||
+                string.IsNullOrWhiteSpace(reference.ContentType) ||
+                string.IsNullOrWhiteSpace(reference.Sha256) ||
+                reference.SizeBytes is not > 0)
+                throw new InvalidOperationException("The attachment reference is incomplete or does not match this conversation.");
+            var source = await ResolveAttachmentAsync(organizationId, attachmentId, cancellationToken)
+                ?? throw new InvalidOperationException("The referenced attachment is unavailable.");
+            await using (source)
+            {
+                var descriptor = source.Descriptor;
+                if (source.ConversationId != telemetryConversationId || descriptor.MessageId != messageId ||
+                    !string.Equals(descriptor.ContentType, reference.ContentType, StringComparison.OrdinalIgnoreCase) ||
+                    descriptor.SizeBytes != reference.SizeBytes ||
+                    !string.Equals(descriptor.Sha256, reference.Sha256, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("The attachment reference failed association or metadata verification.");
+                if (descriptor.SizeBytes > 25L * 1024 * 1024 ||
+                    (totalBytes += descriptor.SizeBytes) > 50L * 1024 * 1024)
+                    throw new InvalidOperationException("The attachment reference exceeds the model attachment size limit.");
+                using var buffer = new MemoryStream((int)descriptor.SizeBytes);
+                await source.Content.CopyToAsync(buffer, cancellationToken);
+                var bytes = buffer.ToArray();
+                if (bytes.LongLength != descriptor.SizeBytes ||
+                    !string.Equals(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+                        descriptor.Sha256, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("The attachment content failed size or digest verification.");
+                resolved[attachmentId] = descriptor.ContentType is "text/plain" or "text/markdown"
+                    ? new TextContent($"<attachment name=\"{descriptor.FileName}\" type=\"{descriptor.ContentType}\">\n{new UTF8Encoding(false, true).GetString(bytes)}\n</attachment>")
+                    : new DataContent(bytes, descriptor.ContentType);
+            }
+        }
+
+        return request.Messages.Select(message => new ChatMessage(
+            ParseRole(message.Role),
+            message.Contents is { Count: > 0 }
+                ? message.Contents.Select(content =>
+                    string.Equals(content.Kind, "media_reference", StringComparison.Ordinal) &&
+                    content.AttachmentId is { } id
+                        ? resolved[id]
+                        : ToAiContent(content)).ToList()
+                : [new TextContent(message.Text ?? string.Empty)])).ToList();
+    }
+
+    private async Task<ResolvedConversationAttachment?> ResolveAttachmentAsync(
+        Guid organizationId,
+        Guid attachmentId,
+        CancellationToken cancellationToken)
+    {
+        foreach (var resolver in _attachmentResolvers)
+            if (await resolver.ResolveAsync(organizationId, attachmentId, cancellationToken) is { } resolved)
+                return resolved;
+        return null;
+    }
+
+    private static ChatMessage ToChatMessageWithoutMedia(PlatformChatMessage message) => new(
         ParseRole(message.Role),
         message.Contents is { Count: > 0 }
             ? message.Contents.Select(ToAiContent).ToList()

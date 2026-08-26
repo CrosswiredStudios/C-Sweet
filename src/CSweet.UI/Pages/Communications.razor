@@ -2,7 +2,9 @@
 @page "/organizations/{OrganizationId:guid}/communications/{ChatId:guid}"
 @using CSweet.Contracts.Communications
 @using CSweet.Contracts.Core
+@using CSweet.Contracts.GenAi
 @using CSweet.UI.Components.Communications
+@using Microsoft.AspNetCore.Components.Forms
 @implements IAsyncDisposable
 @inject HttpClient Http
 @inject IChatTurnApiClient ChatTurns
@@ -275,6 +277,19 @@
                                   {
                                       <MentionedMessageContent Content="@message.Content" Mentions="@message.Mentions" />
                                   }
+                                  @if (message.Attachments.Count > 0)
+                                  {
+                                      <div class="hub-message-attachments" aria-label="Message attachments">
+                                          @foreach (var attachment in message.Attachments)
+                                          {
+                                              <span class="hub-message-attachment" title="@attachment.Sha256">
+                                                  <MudIcon Icon="@AttachmentIcon(attachment.ContentType)" Size="Size.Small" />
+                                                  <span>@attachment.FileName</span>
+                                                  <small>@FormatAttachmentBytes(attachment.SizeBytes)</small>
+                                              </span>
+                                          }
+                                      </div>
+                                  }
                                  @if (message.ResourceChange is { } resourceChange)
                                  {
                                       <section class="hub-system-action-message hub-resource-change-approval" aria-label="Hiring plan approval">
@@ -517,6 +532,17 @@
                                     }
                                 </div>
                             }
+                            @if (_pendingAttachments.Count > 0)
+                            {
+                                <div class="hub-composer-attachments">
+                                    @foreach (var attachment in _pendingAttachments)
+                                    {
+                                        <span>@attachment.FileName <small>@FormatAttachmentBytes(attachment.SizeBytes)</small>
+                                            <button type="button" title="Remove attachment" @onclick="@(() => RemoveAttachment(attachment.Id))">×</button>
+                                        </span>
+                                    }
+                                </div>
+                            }
                         </div>
                         @if (BlockingTurn is { } activeTurn)
                         {
@@ -528,8 +554,14 @@
                         }
                         else
                         {
+                            <label class="hub-attachment-button" title="Attach up to 8 PNG, JPEG, WebP, PDF, text, or Markdown files">
+                                <MudIcon Icon="@Icons.Material.Outlined.AttachFile" />
+                                <InputFile OnChange="UploadAttachmentsAsync" multiple
+                                           accept="image/png,image/jpeg,image/webp,application/pdf,text/plain,text/markdown,.md"
+                                           disabled="@(_sending || _uploadingAttachments || ComposerBlocked)" />
+                            </label>
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
-                                       Disabled="@(_sending || string.IsNullOrWhiteSpace(_draft))" EndIcon="@Icons.Material.Filled.Send">Send</MudButton>
+                                       Disabled="@(_sending || _uploadingAttachments || (string.IsNullOrWhiteSpace(_draft) && _pendingAttachments.Count == 0))" EndIcon="@Icons.Material.Filled.Send">Send</MudButton>
                         }
                     </footer>
                 }
@@ -681,6 +713,7 @@
     private readonly List<CommunicationHubMessageResponse> _messages = [];
     private IReadOnlyList<NotificationResponse> _notifications = [];
     private readonly List<DraftMention> _draftMentions = [];
+    private readonly List<PendingAttachment> _pendingAttachments = [];
     private IReadOnlyList<CommunicationPersonResponse> _mentionMatches = [];
     private readonly List<AgentCoordinationSessionResponse> _coordinationSessions = [];
     private readonly HashSet<Guid> _stoppingCoordination = [];
@@ -696,7 +729,7 @@
     private string? _resourceFeedback;
     private readonly Dictionary<Guid, string> _decisionErrors = [];
     private const string SomethingElseKey = "__something_else__";
-    private bool _loading = true, _sending, _stoppingTurn, _showMembers, _showEditor, _editorBusy, _editorPrivate, _confirmArchive;
+    private bool _loading = true, _sending, _uploadingAttachments, _stoppingTurn, _showMembers, _showEditor, _editorBusy, _editorPrivate, _confirmArchive;
     private bool _showMentions, _mentionOpen;
     private int _mentionTriggerOffset, _mentionCaret, _mentionSelection;
     private string _search = string.Empty, _draft = string.Empty, _editorTitle = string.Empty, _editorDescription = string.Empty;
@@ -987,7 +1020,7 @@
         if (_hub?.IsReadOnlyPerspective == true ||
             _selected is null ||
             ComposerBlocked ||
-            string.IsNullOrWhiteSpace(_draft))
+            (string.IsNullOrWhiteSpace(_draft) && _pendingAttachments.Count == 0))
             return;
         _sending = true; _notice = null;
         var content = _draft.TrimEnd();
@@ -996,13 +1029,17 @@
             .Select(x => new CommunicationMessageMentionInput(x.OrganizationUserId, x.Offset, x.Length))
             .ToList();
         var mentionSnapshot = _draftMentions.ToList();
+        var attachmentSnapshot = _pendingAttachments.ToList();
         _draft = string.Empty;
         _draftMentions.Clear();
+        _pendingAttachments.Clear();
         await SetMentionMenuOpenAsync(false);
         try
         {
             var response = await Http.PostAsJsonAsync($"{BasePath}/chats/{_selected.Id}/messages",
-                new SendCommunicationMessageRequest(content, Guid.NewGuid().ToString("N"), mentions), _disposeCts.Token);
+                new SendCommunicationMessageRequest(
+                    content, Guid.NewGuid().ToString("N"), mentions,
+                    attachmentSnapshot.Select(x => x.Id).ToList()), _disposeCts.Token);
             if (!response.IsSuccessStatusCode) throw new InvalidOperationException(await response.Content.ReadAsStringAsync(_disposeCts.Token));
             var sent = await response.Content.ReadFromJsonAsync<CommunicationMessageSendResponse>(_disposeCts.Token);
             if (sent is not null)
@@ -1022,6 +1059,7 @@
         {
             _draft = content;
             _draftMentions.AddRange(mentionSnapshot);
+            _pendingAttachments.AddRange(attachmentSnapshot);
             _notice = ex.Message;
         }
         finally
@@ -1031,6 +1069,91 @@
                 _ = InvokeAsync(RefreshFromRealtimeAsync);
         }
     }
+
+    private async Task UploadAttachmentsAsync(InputFileChangeEventArgs args)
+    {
+        _uploadingAttachments = true;
+        _notice = null;
+        try
+        {
+            var files = args.GetMultipleFiles(8);
+            if (_pendingAttachments.Count + files.Count > 8)
+                throw new InvalidOperationException("A message can contain at most 8 attachments.");
+            if (_pendingAttachments.Sum(x => x.SizeBytes) + files.Sum(x => x.Size) > 50L * 1024 * 1024)
+                throw new InvalidOperationException("Message attachments must total 50 MB or less.");
+            foreach (var file in files)
+            {
+                if (file.Size > 25L * 1024 * 1024)
+                    throw new InvalidOperationException($"{file.Name} exceeds the 25 MB attachment limit.");
+                var contentType = AttachmentContentType(file);
+                var create = await Http.PostAsJsonAsync(
+                    $"api/media-assets/uploads/organization/{OrganizationId:D}",
+                    new CreateMediaUploadSessionRequest(file.Name, contentType, file.Size), _disposeCts.Token);
+                await EnsureAttachmentSuccessAsync(create);
+                var session = await create.Content.ReadFromJsonAsync<MediaUploadSessionResponse>(_disposeCts.Token)
+                    ?? throw new InvalidOperationException("C-Sweet did not create an upload session.");
+                await using var input = file.OpenReadStream(25L * 1024 * 1024, _disposeCts.Token);
+                while (session.ReceivedBytes < session.TotalBytes)
+                {
+                    var size = (int)Math.Min(session.ChunkSizeBytes, session.TotalBytes - session.ReceivedBytes);
+                    var buffer = new byte[size];
+                    await input.ReadExactlyAsync(buffer, _disposeCts.Token);
+                    using var chunk = new ByteArrayContent(buffer);
+                    chunk.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                    var append = await Http.PutAsync(
+                        $"api/media-assets/uploads/{session.Id:D}/chunks/{session.ReceivedBytes}?organizationId={OrganizationId:D}",
+                        chunk, _disposeCts.Token);
+                    await EnsureAttachmentSuccessAsync(append);
+                    session = await append.Content.ReadFromJsonAsync<MediaUploadSessionResponse>(_disposeCts.Token)
+                        ?? throw new InvalidOperationException("C-Sweet returned no upload progress.");
+                }
+                var complete = await Http.PostAsync(
+                    $"api/media-assets/uploads/{session.Id:D}/complete?organizationId={OrganizationId:D}",
+                    null, _disposeCts.Token);
+                await EnsureAttachmentSuccessAsync(complete);
+                session = await complete.Content.ReadFromJsonAsync<MediaUploadSessionResponse>(_disposeCts.Token)
+                    ?? throw new InvalidOperationException("C-Sweet returned no completed attachment.");
+                var asset = session.Asset ?? throw new InvalidOperationException("The attachment upload did not produce an asset.");
+                _pendingAttachments.Add(new PendingAttachment(
+                    asset.Id, asset.FileName, asset.ContentType, asset.SizeBytes, asset.Sha256));
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _notice = $"Attachment upload failed: {exception.Message}";
+        }
+        finally
+        {
+            _uploadingAttachments = false;
+        }
+    }
+
+    private void RemoveAttachment(Guid id) => _pendingAttachments.RemoveAll(x => x.Id == id);
+
+    private static string AttachmentContentType(IBrowserFile file) => Path.GetExtension(file.Name).ToLowerInvariant() switch
+    {
+        ".md" or ".markdown" => "text/markdown",
+        ".txt" => "text/plain",
+        ".pdf" => "application/pdf",
+        _ => file.ContentType.Split(';', 2)[0].Trim().ToLowerInvariant()
+    };
+
+    private static string AttachmentIcon(string contentType) => contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+        ? Icons.Material.Outlined.Image
+        : contentType == "application/pdf" ? Icons.Material.Outlined.PictureAsPdf : Icons.Material.Outlined.Description;
+
+    private static string FormatAttachmentBytes(long bytes) => bytes >= 1024 * 1024
+        ? $"{bytes / (1024d * 1024):0.##} MB"
+        : $"{bytes / 1024d:0.##} KB";
+
+    private static async Task EnsureAttachmentSuccessAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
+    }
+
+    private sealed record PendingAttachment(
+        Guid Id, string FileName, string ContentType, long SizeBytes, string Sha256);
 
     private bool SelectedDecisionOption(Guid decisionId, string optionId) =>
         _decisionSelections.TryGetValue(decisionId, out var selected) && selected == optionId;

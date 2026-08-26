@@ -71,7 +71,8 @@ public sealed class CommunicationRouter(CSweetDbContext db, IChatTurnService tur
         {
             var result = await turns.StartForAgentAsync(connection.OrganizationId, conversation.Id, target,
                 envelope.Content, identity.OrganizationUserId, "Discord", envelope.ChannelExternalId,
-                $"discord:{connection.Id:D}:{envelope.MessageExternalId}:{target:D}", cancellationToken);
+                $"discord:{connection.Id:D}:{envelope.MessageExternalId}:{target:D}",
+                cancellationToken: cancellationToken);
             if (result is not null && firstMessage is null)
                 firstMessage = await db.CoreConversationMessages.SingleAsync(x => x.Id == result.UserMessage.Id, cancellationToken);
         }

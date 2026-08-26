@@ -23,6 +23,24 @@ public sealed class ConversationMessage
     // Navigation
     public Conversation? Conversation { get; set; }
     public ICollection<ConversationMessageMention> Mentions { get; set; } = [];
+    public ICollection<ConversationMessageAttachment> Attachments { get; set; } = [];
+}
+
+public sealed class ConversationMessageAttachment
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid ConversationId { get; set; }
+    public Guid MessageId { get; set; }
+    public Guid MediaAssetId { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = string.Empty;
+    public long SizeBytes { get; set; }
+    public string Sha256 { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public ConversationMessage? Message { get; set; }
+    public Setup.MediaAsset? MediaAsset { get; set; }
 }
 
 public sealed class ConversationMessageMention

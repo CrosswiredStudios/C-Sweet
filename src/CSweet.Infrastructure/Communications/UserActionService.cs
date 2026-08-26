@@ -12,9 +12,6 @@ public sealed class UserActionService(
     CSweetDbContext db,
     IEnumerable<IUserActionWorkflowResolver> resolvers) : IUserActionService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private const string SystemActionSourceProvider = "SystemAction";
-
     public async Task<SuggestedUserActionResponse> SuggestAsync(
         Guid organizationId,
         Guid originatingInstallationId,
@@ -40,6 +37,7 @@ public sealed class UserActionService(
 
         Guid conversationId;
         Guid? targetChatTurnId;
+        var materializeImmediately = request.MessageId.HasValue;
         if (request.MessageId.HasValue)
         {
             var target = await db.CoreConversationMessages.AsNoTracking()
@@ -53,13 +51,15 @@ public sealed class UserActionService(
         }
         else
         {
-            conversationId = await db.ChatTurns.AsNoTracking()
+            var target = await db.ChatTurns.AsNoTracking()
                 .Where(x => x.Id == request.ChatTurnId &&
                             x.OrganizationId == organizationId &&
                             x.TargetAgentOrganizationUserId == actorId)
-                .Select(x => x.ConversationId)
+                .Select(x => new { x.ConversationId, x.AssistantMessageId })
                 .SingleOrDefaultAsync(cancellationToken);
+            conversationId = target?.ConversationId ?? Guid.Empty;
             targetChatTurnId = request.ChatTurnId;
+            materializeImmediately = target?.AssistantMessageId.HasValue == true;
         }
         if (conversationId == Guid.Empty)
             throw new UnauthorizedAccessException("The target message or chat turn does not belong to this installation.");
@@ -72,29 +72,14 @@ public sealed class UserActionService(
         var now = DateTimeOffset.UtcNow;
         var label = Required(request.Label, 120, nameof(request.Label));
         var description = Clean(request.Description, 500, nameof(request.Description));
-        var systemMessage = new ConversationMessage
-        {
-            Id = Guid.NewGuid(),
-            ConversationId = conversationId,
-            Role = ConversationRole.Assistant,
-            Content = description ?? label,
-            CreatedAt = now,
-            ChatTurnId = targetChatTurnId,
-            SenderOrganizationUserId = null,
-            CorrelationId = Guid.NewGuid(),
-            CausationId = request.MessageId ?? request.ChatTurnId,
-            DeliveryIntent = CommunicationDeliveryIntent.Inform,
-            SourceProvider = SystemActionSourceProvider,
-            IdempotencyKey = $"suggested-action:{originatingInstallationId:N}:{key}"
-        };
         var action = new SuggestedUserAction
         {
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
             OriginatingInstallationId = originatingInstallationId,
             ConversationId = conversationId,
-            ConversationMessageId = systemMessage.Id,
-            ChatTurnId = null,
+            ConversationMessageId = null,
+            ChatTurnId = materializeImmediately ? null : request.ChatTurnId,
             WorkflowType = workflowType,
             Label = label,
             Description = description,
@@ -104,34 +89,17 @@ public sealed class UserActionService(
             Status = "Pending",
             CreatedAt = now
         };
-        db.CoreConversationMessages.Add(systemMessage);
         db.SuggestedUserActions.Add(action);
-        var conversation = await db.CoreConversations.SingleAsync(
-            x => x.Id == conversationId,
-            cancellationToken);
-        conversation.UpdatedAt = now;
-        var recipients = await db.ConversationParticipants.AsNoTracking()
-            .Where(x => x.ConversationId == conversationId && x.LeftAt == null)
-            .Select(x => x.OrganizationUserId)
-            .ToListAsync(cancellationToken);
-        db.ApplicationRealtimeOutbox.Add(new ApplicationRealtimeOutboxItem
+        if (materializeImmediately)
         {
-            Id = Guid.NewGuid(),
-            OrganizationId = organizationId,
-            RecipientOrganizationUserIdsJson = JsonSerializer.Serialize(recipients, JsonOptions),
-            ChatId = conversationId,
-            EventType = "com.csweet.communication.user-action.created.v1",
-            Subject = $"organizations/{organizationId:D}/communications/chats/{conversationId:D}/actions/{action.Id:D}",
-            DataJson = JsonSerializer.Serialize(new
-            {
-                action.Id,
-                action.WorkflowType,
-                MessageId = systemMessage.Id
-            }, JsonOptions),
-            Status = ApplicationRealtimeOutboxStatus.Pending,
-            NextAttemptAt = now,
-            OccurredAt = now
-        });
+            await SuggestedUserActionMaterializer.MaterializeAsync(
+                db,
+                action,
+                request.MessageId ?? request.ChatTurnId!.Value,
+                targetChatTurnId,
+                now,
+                cancellationToken);
+        }
         await db.SaveChangesAsync(cancellationToken);
         return ToResponse(action);
     }
@@ -157,6 +125,67 @@ public sealed class UserActionService(
         var cleaned = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         if (cleaned?.Length > maximum) throw new ArgumentException($"{name} cannot exceed {maximum} characters.");
         return cleaned;
+    }
+}
+
+internal static class SuggestedUserActionMaterializer
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const string SystemActionSourceProvider = "SystemAction";
+
+    public static async Task MaterializeAsync(
+        CSweetDbContext db,
+        SuggestedUserAction action,
+        Guid causationId,
+        Guid? sourceChatTurnId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (action.ConversationMessageId.HasValue) return;
+        var systemMessage = new ConversationMessage
+        {
+            Id = Guid.NewGuid(),
+            ConversationId = action.ConversationId,
+            Role = ConversationRole.Assistant,
+            Content = action.Description ?? action.Label,
+            CreatedAt = now,
+            ChatTurnId = sourceChatTurnId,
+            SenderOrganizationUserId = null,
+            CorrelationId = Guid.NewGuid(),
+            CausationId = causationId,
+            DeliveryIntent = CommunicationDeliveryIntent.Inform,
+            SourceProvider = SystemActionSourceProvider,
+            IdempotencyKey = $"suggested-action:{action.OriginatingInstallationId:N}:{action.IdempotencyKey}"
+        };
+        action.ConversationMessageId = systemMessage.Id;
+        action.ChatTurnId = null;
+        db.CoreConversationMessages.Add(systemMessage);
+        var conversation = await db.CoreConversations.SingleAsync(
+            x => x.Id == action.ConversationId,
+            cancellationToken);
+        conversation.UpdatedAt = now;
+        var recipients = await db.ConversationParticipants.AsNoTracking()
+            .Where(x => x.ConversationId == action.ConversationId && x.LeftAt == null)
+            .Select(x => x.OrganizationUserId)
+            .ToListAsync(cancellationToken);
+        db.ApplicationRealtimeOutbox.Add(new ApplicationRealtimeOutboxItem
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = action.OrganizationId,
+            RecipientOrganizationUserIdsJson = JsonSerializer.Serialize(recipients, JsonOptions),
+            ChatId = action.ConversationId,
+            EventType = "com.csweet.communication.user-action.created.v1",
+            Subject = $"organizations/{action.OrganizationId:D}/communications/chats/{action.ConversationId:D}/actions/{action.Id:D}",
+            DataJson = JsonSerializer.Serialize(new
+            {
+                action.Id,
+                action.WorkflowType,
+                MessageId = systemMessage.Id
+            }, JsonOptions),
+            Status = ApplicationRealtimeOutboxStatus.Pending,
+            NextAttemptAt = now,
+            OccurredAt = now
+        });
     }
 }
 

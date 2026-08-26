@@ -51,6 +51,30 @@
           "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareProductManager#readme"
         },
         {
+          "Id": "2bb027ff-5316-4515-b538-369ef66cc2a8",
+          "AgentId": "com.csweet.video-game-creative-director",
+          "ListingSlug": "video-game-creative-director",
+          "Name": "Video Game Creative Director",
+          "Summary": "Leads video-game vision from minimal discovery through iterative pitch approval, Product Manager handoff, and creative production oversight.",
+          "Category": "Creative",
+          "RoleKey": "creative-director",
+          "RoleName": "Creative Director",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "creative-direction.game-vision.v1",
+            "game-creative-direction",
+            "video-game-development"
+          ],
+          "RoleAliases": [ "Creative Director", "Game Director", "Video Game Creative Lead" ],
+          "SpecializationKeys": [ "video-game-development", "game-creative-direction" ],
+          "Keywords": [ "video games", "game design", "creative direction", "game vision" ],
+          "IsFeatured": true,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.CreativeDirector.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.CreativeDirector.VideoGame#readme"
+        },
+        {
           "Id": "39949c34-fe1e-4c7c-bd01-9a05c0a2ebcc",
           "AgentId": "com.csweet.software-developer",
           "ListingSlug": "software-developer",
