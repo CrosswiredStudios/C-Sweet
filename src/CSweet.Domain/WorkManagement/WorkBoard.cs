@@ -43,6 +43,7 @@ public sealed class WorkBoard
     public Guid? ManagerOrganizationUserId { get; set; }
     public Guid? OwnerOrganizationUserId { get; set; }
     public WorkBoardKind Kind { get; set; } = WorkBoardKind.Standard;
+    public string ProfileKey { get; set; } = "general-work.v1";
     public string Key { get; set; } = string.Empty;
     public long NextItemSequence { get; set; } = 1;
     public string Name { get; set; } = string.Empty;
@@ -222,4 +223,26 @@ public sealed class WorkItemActivity
     public string? IdempotencyKey { get; set; }
     public string DataJson { get; set; } = "{}";
     public DateTimeOffset OccurredAt { get; set; }
+}
+
+public sealed class WorkItemApproval
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid BoardId { get; set; }
+    public Guid WorkItemId { get; set; }
+    public string PolicyKey { get; set; } = string.Empty;
+    public string Status { get; set; } = "Pending";
+    public long PlanningRevision { get; set; }
+    public Guid? ApproverEmployeeId { get; set; }
+    public Guid? ApproverInstallationId { get; set; }
+    public string RequiredRoleCategory { get; set; } = string.Empty;
+    public string? ArtifactDigest { get; set; }
+    public Guid? CoordinationSessionId { get; set; }
+    public string? Rationale { get; set; }
+    public string? ManagerWaiverSource { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    public WorkTask? WorkItem { get; set; }
 }

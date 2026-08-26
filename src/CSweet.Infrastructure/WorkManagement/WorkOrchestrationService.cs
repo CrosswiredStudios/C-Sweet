@@ -403,7 +403,8 @@ public sealed class WorkOrchestrationService(
             .SingleAsync(x => x.Id == policyId.Value, cancellationToken);
         errors.AddRange(ValidateRevision(policy,
             await db.WorkBoardColumns.AsNoTracking().Where(x => x.BoardId == boardId).Select(x => x.Id).ToHashSetAsync(cancellationToken)));
-        var items = await db.CoreWorkTasks.AsNoTracking().Include(x => x.StageAssignments)
+        var items = await db.CoreWorkTasks.AsNoTracking()
+            .Include(x => x.StageAssignments).Include(x => x.Approvals)
             .Where(x => x.SprintId == sprintId && x.Kind != WorkItemKind.Initiative && x.Kind != WorkItemKind.Epic)
             .ToListAsync(cancellationToken);
         if (items.Count == 0) errors.Add(new("sprint.empty", "The sprint has no executable work items."));
@@ -421,6 +422,11 @@ public sealed class WorkOrchestrationService(
         var initialStage = policy.Stages.Single(x => x.Key == policy.InitialStageKey);
         foreach (var item in items)
         {
+            if (item.Approvals.Any(x => x.PlanningRevision != item.PlanningRevision ||
+                    x.Status is not (CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Approved or
+                        CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Waived)))
+                errors.Add(new("item.approval_pending",
+                    "Every required specialist approval must be current before sprint execution.", item.Id));
             if (string.IsNullOrWhiteSpace(item.DeliverySpecificationJson))
                 errors.Add(new("item.delivery_not_finalized",
                     "Planning-only work must be finalized with a repository and base branch before sprint execution.",

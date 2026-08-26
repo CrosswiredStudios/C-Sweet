@@ -13,6 +13,7 @@ public sealed record PluginManifest
     public PluginPublisher Publisher { get; init; } = new();
     public PluginRuntime Runtime { get; init; } = new();
     public PluginRolePolicy? RolePolicy { get; init; }
+    public PluginWorkItemTypes WorkItemTypes { get; init; } = new();
     public PluginProtocol Protocol { get; init; } = new();
     public IReadOnlyList<PluginCapabilityDeclaration> Provides { get; init; } = [];
     public IReadOnlyList<PluginCapabilityRequirement> Requires { get; init; } = [];
@@ -24,6 +25,11 @@ public sealed record PluginManifest
     public PluginWebAccess WebAccess { get; init; } = new();
     public IReadOnlyList<PluginUiContribution> Ui { get; init; } = [];
     public PluginCatalogMetadata Catalog { get; init; } = new();
+}
+
+public sealed record PluginWorkItemTypes
+{
+    public IReadOnlyList<string> Requires { get; init; } = [];
 }
 
 public sealed record PluginRolePolicy

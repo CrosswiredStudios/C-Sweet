@@ -4,6 +4,17 @@ namespace CSweet.UI.Components.WorkBoards;
 
 public static class WorkBoardPresentation
 {
+    public static string DescriptionPreview(string? value, int maximumLength = 100)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        if (maximumLength < 1) throw new ArgumentOutOfRangeException(nameof(maximumLength));
+        var normalized = string.Join(' ', value.Split(
+            (char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Length <= maximumLength
+            ? normalized
+            : $"{normalized[..maximumLength]}…";
+    }
+
     public static bool Matches(WorkBoardItemResponse item, string? search)
     {
         if (string.IsNullOrWhiteSpace(search)) return true;

@@ -50,6 +50,18 @@ public sealed class StaffingReplenishmentService(
             if (!desiredByKey.TryGetValue(gap.RoleKey, out var role) || role.Headcount != gap.DesiredHeadcount)
                 throw new InvalidOperationException($"Gap role '{gap.RoleKey}' does not match the approved desired-team baseline.");
         }
+        var fulfilledByRole = await db.WorkforcePlans.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId &&
+                x.SourceResourceChangeRequestId == approved.Id && x.RoleKey != null)
+            .GroupBy(x => x.RoleKey!)
+            .Select(group => new { RoleKey = group.Key, Headcount = group.Sum(x => x.FulfilledHeadcount) })
+            .ToDictionaryAsync(x => x.RoleKey, x => x.Headcount, StringComparer.Ordinal, cancellationToken);
+        foreach (var gap in request.Gaps)
+        {
+            if (fulfilledByRole.GetValueOrDefault(gap.RoleKey) <= gap.EffectiveHeadcount)
+                throw new InvalidOperationException(
+                    $"Gap role '{gap.RoleKey}' has not lost previously fulfilled capacity. Continue the original approved hiring plan instead.");
+        }
         var duplicateGap = await db.StaffingReplenishmentRequests.AsNoTracking().SingleOrDefaultAsync(x =>
             x.SourceResourceChangeRequestId == request.SourceResourceChangeRequestId &&
             x.DecisionFingerprint == request.DecisionFingerprint &&

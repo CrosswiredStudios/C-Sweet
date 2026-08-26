@@ -111,6 +111,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<WorkItemMutationReceipt> WorkItemMutationReceipts => Set<WorkItemMutationReceipt>();
     public DbSet<WorkItemComment> WorkItemComments => Set<WorkItemComment>();
     public DbSet<WorkItemActivity> WorkItemActivities => Set<WorkItemActivity>();
+    public DbSet<WorkItemApproval> WorkItemApprovals => Set<WorkItemApproval>();
     public DbSet<WorkItemDependency> WorkItemDependencies => Set<WorkItemDependency>();
     public DbSet<WorkQualityRun> WorkQualityRuns => Set<WorkQualityRun>();
     public DbSet<WorkOrchestrationPolicy> WorkOrchestrationPolicies => Set<WorkOrchestrationPolicy>();

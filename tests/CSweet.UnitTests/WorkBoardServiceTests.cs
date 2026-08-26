@@ -5,6 +5,7 @@ using CSweet.Domain.Security;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Security;
 using CSweet.Infrastructure.WorkManagement;
+using WorkItemTypeKeys = CSweet.WorkManagement.Contracts.WorkItemTypeKeys;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -331,13 +332,43 @@ public sealed class WorkBoardServiceTests
 
         await service.CreateItemAsync(
             setup.OrganizationId, boardId, setup.ApplicationUserId,
-            new CreateBoardWorkItemRequest("First", Kind: "Epic"));
+            new CreateBoardWorkItemRequest("First", Kind: "Epic")
+            {
+                TypeKey = WorkItemTypeKeys.GeneralEpicV1
+            });
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CreateItemAsync(
                 setup.OrganizationId, boardId, setup.ApplicationUserId,
-                new CreateBoardWorkItemRequest("Second", Kind: "Epic")));
+                new CreateBoardWorkItemRequest("Second", Kind: "Epic")
+                {
+                    TypeKey = WorkItemTypeKeys.GeneralEpicV1
+                }));
 
         Assert.Contains("WIP limit", exception.Message);
+    }
+
+    [Fact]
+    public async Task WorkItemCreationRequiresARegisteredTypeAndMatchingBaseKind()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOrganization(db, OrganizationPermissionLevel.Owner);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+        var boardId = Assert.Single((await service.ListDirectoryAsync(
+            setup.OrganizationId, setup.ApplicationUserId, new WorkBoardDirectoryQuery())).Boards).Id;
+
+        var missing = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateItemAsync(
+            setup.OrganizationId, boardId, setup.ApplicationUserId,
+            new CreateBoardWorkItemRequest("Missing type", Kind: "Epic")));
+        Assert.Contains("type key", missing.Message, StringComparison.OrdinalIgnoreCase);
+
+        var mismatch = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateItemAsync(
+            setup.OrganizationId, boardId, setup.ApplicationUserId,
+            new CreateBoardWorkItemRequest("Mismatched kind", Kind: "Task")
+            {
+                TypeKey = WorkItemTypeKeys.GeneralEpicV1
+            }));
+        Assert.Contains("does not match", mismatch.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

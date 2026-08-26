@@ -89,6 +89,20 @@ public sealed class StaffingReplenishmentServiceTests
             "qa-gap-fingerprint", "qa-gap-idempotency-key");
         var service = new StaffingReplenishmentService(db, new TestAuditEventWriter(), null!);
 
+        var initialVacancy = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ProposeAsync(organizationId, requesterInstallationId, request));
+        Assert.Contains("original approved hiring plan", initialVacancy.Message, StringComparison.OrdinalIgnoreCase);
+        db.WorkforcePlans.Add(new WorkforcePlan
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            RequestingInstallationId = requesterInstallationId, TeamId = teamId,
+            SourceResourceChangeRequestId = baselineId, RoleKey = "software-qa",
+            Title = "Software QA", Objective = "Independent verification",
+            Headcount = 1, FulfilledHeadcount = 1, Status = ProposalStatus.Approved,
+            IdempotencyKey = "initial-software-qa", CreatedAt = now, UpdatedAt = now
+        });
+        await db.SaveChangesAsync();
+
         var first = await service.ProposeAsync(organizationId, requesterInstallationId, request);
         var replay = await service.ProposeAsync(organizationId, requesterInstallationId, request);
 

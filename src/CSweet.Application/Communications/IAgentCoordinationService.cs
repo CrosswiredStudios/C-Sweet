@@ -18,6 +18,13 @@ public interface IAgentCoordinationService
         StartWorkItemCoordinationRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<AgentCoordinationSession> StartBoardAsync(
+        Guid organizationId,
+        Guid initiatorOrganizationUserId,
+        Guid initiatorInstallationId,
+        StartBoardCoordinationRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<AgentCoordinationSession> RespondAsync(
         Guid organizationId,
         Guid actorOrganizationUserId,

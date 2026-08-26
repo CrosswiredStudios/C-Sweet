@@ -8,6 +8,7 @@ using CSweet.Contracts.Agents;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Setup;
@@ -259,6 +260,15 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                 rolePolicy.SpecializationKeys.Distinct(StringComparer.Ordinal).Count() != rolePolicy.SpecializationKeys.Count)
                 errors.Add("rolePolicy.specializationKeys must contain up to 32 unique lowercase kebab-case keys.");
         }
+        if (manifest.WorkItemTypes.Requires.Count > 64 ||
+            manifest.WorkItemTypes.Requires.Distinct(StringComparer.Ordinal).Count() !=
+            manifest.WorkItemTypes.Requires.Count)
+            errors.Add("workItemTypes.requires must contain up to 64 unique type keys.");
+        var availableWorkTypes = PlatformWorkTypeCatalog.Read().Types
+            .Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var typeKey in manifest.WorkItemTypes.Requires)
+            if (!availableWorkTypes.Contains(typeKey))
+                errors.Add($"Required work item type '{typeKey}' has no available provider.");
         if (manifest.Protocol is null ||
             string.IsNullOrWhiteSpace(manifest.Protocol.MinimumVersion) ||
             string.IsNullOrWhiteSpace(manifest.Protocol.MaximumVersion))

@@ -20,6 +20,62 @@ public sealed class WorkManagementCapabilityHandlerTests
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [Fact]
+    public async Task DirectSoftwareStoryCreation_ProducesOnePendingExactRevisionApproval()
+    {
+        await using var db = CreateDb();
+        var setup = SeedInstallation(db);
+        var board = new WorkBoard
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            Name = "Software delivery",
+            Description = string.Empty,
+            ProfileKey = SharedWork.WorkBoardProfileKeys.SoftwareDeliveryV1,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Columns = [Column("Backlog", WorkBoardColumnCategory.ToDo, 0)]
+        };
+        db.WorkBoards.Add(board);
+        Grant(db, setup, WorkItemActions.Create, GrantScopeKind.Board, board.Id);
+        await db.SaveChangesAsync();
+        var handler = CreateHandler(db, new TestAuditEventWriter());
+        var session = Session(setup, WorkItemActions.Create);
+
+        var epic = await InvokeAsync(handler, session, WorkItemActions.Create, new
+        {
+            boardId = board.Id,
+            title = "Playable release",
+            typeKey = SharedWork.WorkItemTypeKeys.SoftwareEpicV1,
+            priority = "High",
+            idempotencyKey = "software-epic-1"
+        });
+        Assert.True(epic.Succeeded, epic.Error);
+        using var epicJson = JsonDocument.Parse(epic.Payload.ToByteArray());
+        var epicId = epicJson.RootElement.GetProperty("id").GetGuid();
+
+        var story = await InvokeAsync(handler, session, WorkItemActions.Create, new
+        {
+            boardId = board.Id,
+            title = "Drive the kart",
+            typeKey = SharedWork.WorkItemTypeKeys.SoftwareStoryV1,
+            parentItemId = epicId,
+            priority = "High",
+            planning = new
+            {
+                requirements = new[] { "Support steering, acceleration, and braking." },
+                acceptanceCriteria = new[] { "Player input changes kart motion." }
+            },
+            idempotencyKey = "software-story-1"
+        });
+
+        Assert.True(story.Succeeded, story.Error);
+        var approval = Assert.Single(await db.WorkItemApprovals.ToListAsync());
+        Assert.Equal(SharedWork.WorkItemApprovalStatuses.Pending, approval.Status);
+        Assert.Equal(1, approval.PlanningRevision);
+        Assert.Equal(SharedWork.WorkItemApprovalPolicyKeys.SoftwareArchitectureReviewV1, approval.PolicyKey);
+    }
+
+    [Fact]
     public void AgentSdkWorkCapabilitiesMatchPlatformWireActions()
     {
         var platformAgentActions = WorkBoardActions.All
@@ -142,11 +198,26 @@ public sealed class WorkManagementCapabilityHandlerTests
         var handler = CreateHandler(db, new TestAuditEventWriter());
         var session = Session(setup, WorkItemActions.Create, WorkItemActions.FinalizeDelivery);
 
+        var parentResult = await InvokeAsync(handler, session, WorkItemActions.Create, new
+        {
+            boardId = board.Id,
+            title = "Flight controls",
+            typeKey = SharedWork.WorkItemTypeKeys.GeneralEpicV1,
+            kind = "Epic",
+            priority = "High",
+            idempotencyKey = "planning-epic-1"
+        });
+        Assert.True(parentResult.Succeeded, parentResult.Error);
+        using var parentJson = JsonDocument.Parse(parentResult.Payload.ToByteArray());
+        var parentItemId = parentJson.RootElement.GetProperty("id").GetGuid();
+
         var created = await InvokeAsync(handler, session, WorkItemActions.Create, new
         {
             boardId = board.Id,
             title = "Implement flight controls",
+            typeKey = SharedWork.WorkItemTypeKeys.GeneralStoryV1,
             kind = "Story",
+            parentItemId,
             priority = "High",
             idempotencyKey = "planning-ticket-1",
             planning = new
@@ -208,7 +279,9 @@ public sealed class WorkManagementCapabilityHandlerTests
         Assert.Equal(itemId, finalizedJson.RootElement.GetProperty("id").GetGuid());
         Assert.Equal(itemId, replayJson.RootElement.GetProperty("id").GetGuid());
         Assert.Equal("main", finalizedJson.RootElement.GetProperty("delivery").GetProperty("baseBranch").GetString());
-        Assert.Single(await db.CoreWorkTasks.ToListAsync());
+        var persistedItems = await db.CoreWorkTasks.ToListAsync();
+        Assert.Equal(2, persistedItems.Count);
+        Assert.Contains(persistedItems, x => x.Id == itemId && x.ParentWorkTaskId == parentItemId);
         Assert.Single(await db.WorkItemStageAssignments.ToListAsync());
     }
 

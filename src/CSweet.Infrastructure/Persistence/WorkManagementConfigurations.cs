@@ -16,6 +16,7 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.Description).HasMaxLength(2048).IsRequired();
             entity.Property(x => x.Key).HasMaxLength(12).IsRequired();
             entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.ProfileKey).HasMaxLength(200).IsRequired();
             entity.HasIndex(x => new { x.OrganizationId, x.Key }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Name });
             entity.HasIndex(x => x.OwnerOrganizationUserId)
@@ -113,6 +114,27 @@ internal static class WorkManagementConfigurations
                 .HasForeignKey(x => x.DependsOnWorkItemId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(x => x.DependsOnWorkItemId);
+        });
+
+        modelBuilder.Entity<WorkItemApproval>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.PolicyKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.RequiredRoleCategory).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ArtifactDigest).HasMaxLength(128);
+            entity.Property(x => x.Rationale).HasMaxLength(4096);
+            entity.Property(x => x.ManagerWaiverSource).HasMaxLength(300);
+            entity.HasIndex(x => new { x.WorkItemId, x.PolicyKey }).IsUnique();
+            entity.HasIndex(x => new { x.BoardId, x.Status, x.PolicyKey });
+            entity.HasOne(x => x.WorkItem)
+                .WithMany(x => x.Approvals)
+                .HasForeignKey(x => x.WorkItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Organization>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WorkQualityRun>(entity =>

@@ -46,6 +46,16 @@ Before work becomes executable, a manager verifies repository, dependencies, wor
 
 Independent review must remain independent. For the software reference workflow, Architect, Developer, and QA are all required before a sprint starts. A vital-role loss blocks new starts and unsafe downstream transitions while allowing already executing snapshots to finish.
 
+### Typed work and specialist approval
+
+`Kind` expresses hierarchy only (`Initiative`, `Epic`, `Story`, or `Task`). `TypeKey` selects domain behavior from the immutable provider catalog. Boards declare one profile before their first item: `general-work.v1` has no architecture policy, while `software-delivery.v1` permits the versioned software Epic, Story, and Task types. Agents declare required type keys in `workItemTypes.requires`; installation fails closed when a type or policy provider is unavailable.
+
+Approval is a generic policy record, not a software-specific ticket field. Software Stories and Tasks require `software.architecture-review.v1`; Software Epics and every general-work type do not. A decision pins the exact `PlanningRevision`, approver identities, artifact digest, coordination session, and rationale. Architecture-relevant edits increment that revision and invalidate the current approval. Sprint assignment, estimates, comments, delivery binding, and status movement do not.
+
+The PM retains product and board authority. A direct PM-created software Story or Task remains in Backlog or a Planned sprint while its review is pending, but cannot enter Ready, finalize delivery, pass preflight, or execute. Work persisted from a verified Architect artifact is approved only when the board-scoped session, artifact digest, proposal key, speaker role, and planning revision all match. A late Architect reviews open waived work; executing and completed snapshots stay immutable.
+
+Architect review uses one board-scoped coordination session and `software-architecture.work-review.v1` artifacts. The Architect fingerprints item identity, type, planning revision, and approval state, so unrelated board metadata does not cause duplicate review. A review recommendation either approves the exact revision or names the missing technical inputs. Product scope, priority, acceptance criteria, and sprint grouping remain PM decisions.
+
 ## Communication pattern
 
 Every coordination has explicit sender and recipient authority, correlation and causation IDs, an idempotency key, a current turn owner, a bounded response expectation, and a terminal outcome. Use direct manager conversations for approvals, bounded coordination sessions for specialist collaboration, and team delivery conversations for material delivery notices.

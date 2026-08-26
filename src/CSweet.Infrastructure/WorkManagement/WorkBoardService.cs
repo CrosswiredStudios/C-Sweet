@@ -180,6 +180,7 @@ public sealed class WorkBoardService(
             OrganizationId = organizationId,
             WorkstreamId = request.WorkstreamId,
             TeamId = request.TeamId,
+            ProfileKey = PlatformWorkTypeCatalog.RequireProfile(request.ProfileKey).Key,
             ManagerOrganizationUserId = managerId,
             Key = boardKey,
             Name = request.Name.Trim(),
@@ -401,7 +402,19 @@ public sealed class WorkBoardService(
             ?? throw new KeyNotFoundException("Board was not found.");
         if (string.IsNullOrWhiteSpace(request.Title))
             throw new ArgumentException("Work item title is required.");
-        var kind = ParseEnum<WorkItemKind>(request.Kind, "work item kind");
+        var parentTypeKey = request.ParentItemId.HasValue
+            ? await db.CoreWorkTasks.Where(x => x.Id == request.ParentItemId &&
+                    x.OrganizationId == organizationId && x.BoardId == boardId)
+                .Select(x => x.TypeKey).SingleOrDefaultAsync(cancellationToken)
+            : null;
+        if (string.IsNullOrWhiteSpace(request.TypeKey))
+            throw new ArgumentException("A registered work item type key is required.");
+        var type = PlatformWorkTypeCatalog.RequireType(board.ProfileKey, request.TypeKey, parentTypeKey);
+        var kind = ParseEnum<WorkItemKind>(type.Kind, "work item kind");
+        if (!string.IsNullOrWhiteSpace(request.Kind) &&
+            !request.Kind.Equals(type.Kind, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(
+                $"Work item kind '{request.Kind}' does not match type '{type.Key}' ({type.Kind}).");
         var priority = ParseEnum<WorkTaskPriority>(request.Priority, "work item priority");
         var column = request.ColumnId.HasValue
             ? board.Columns.SingleOrDefault(x => x.Id == request.ColumnId.Value)
@@ -458,9 +471,17 @@ public sealed class WorkBoardService(
             Identifier = $"{board.Key}-{board.NextItemSequence}",
             ParentWorkTaskId = request.ParentItemId,
             Kind = kind,
+            TypeKey = type.Key,
+            PlanningRevision = 1,
             Title = normalized.Title,
             Description = normalized.Description,
             StructuredMentionsJson = normalized.MentionsJson,
+            PlanningSpecificationJson = request.Planning is null
+                ? null
+                : JsonSerializer.Serialize(request.Planning, JsonOptions),
+            ProposalCoordinationSessionId = request.ProposalProvenance?.CoordinationSessionId,
+            ProposalArtifactDigest = request.ProposalProvenance?.ArtifactDigest,
+            ProposalItemKey = request.ProposalProvenance?.ProposalItemKey,
             Status = StatusFor(column.Category),
             Priority = priority,
             BoardRank = (await db.CoreWorkTasks
@@ -472,6 +493,18 @@ public sealed class WorkBoardService(
         };
         board.NextItemSequence++;
         db.CoreWorkTasks.Add(item);
+        foreach (var policyKey in type.RequiredApprovalPolicyKeys)
+        {
+            item.Approvals.Add(new WorkItemApproval
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, BoardId = boardId,
+                WorkItemId = item.Id, PolicyKey = policyKey,
+                Status = CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Pending,
+                PlanningRevision = item.PlanningRevision,
+                RequiredRoleCategory = "software-architect",
+                CreatedAt = now, UpdatedAt = now
+            });
+        }
         foreach (var assignment in request.StageAssignments)
         {
             db.WorkItemStageAssignments.Add(new WorkItemStageAssignment
@@ -546,6 +579,18 @@ public sealed class WorkBoardService(
         };
         var decision = await RequireAsync(
             organizationId, member, action, boardId, cancellationToken);
+        if (RequiresApprovedPlanning(target))
+        {
+            var approvalBlocked = await db.WorkItemApprovals.AnyAsync(x =>
+                x.WorkItemId == item.Id &&
+                ((x.Status != CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Approved &&
+                  x.Status != CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Waived) ||
+                 x.PlanningRevision != item.PlanningRevision),
+                cancellationToken);
+            if (approvalBlocked)
+                throw new InvalidOperationException(
+                    "This work item cannot enter a ready or executing column until its required planning approvals are current.");
+        }
         await EnforceWipLimitAsync(boardId, target, item.Id, cancellationToken);
 
         var targetItems = await db.CoreWorkTasks
@@ -605,6 +650,10 @@ public sealed class WorkBoardService(
                 $"Column '{column.Name}' has reached its WIP limit of {column.WipLimit.Value}.");
     }
 
+    private static bool RequiresApprovedPlanning(WorkBoardColumn column) =>
+        column.Category == WorkBoardColumnCategory.InProgress ||
+        column.Name.Contains("ready", StringComparison.OrdinalIgnoreCase);
+
     private static long RankBefore(List<WorkTask> targetItems, Guid? beforeItemId)
     {
         if (!beforeItemId.HasValue)
@@ -661,11 +710,40 @@ public sealed class WorkBoardService(
         item.CreatedAt,
         item.UpdatedAt)
     {
+        TypeKey = item.TypeKey,
+        PlanningRevision = item.PlanningRevision,
         Identifier = item.Identifier,
         AccountableOrganizationUserId = item.AccountableOrganizationUserId,
         StageAssignments = item.StageAssignments.Select(ToAssignmentContract).ToList(),
-        Mentions = WorkItemMentionCodec.Deserialize(item.StructuredMentionsJson)
+        Mentions = WorkItemMentionCodec.Deserialize(item.StructuredMentionsJson),
+        Planning = DeserializeJson<CSweet.WorkManagement.Contracts.WorkItemPlanningSpecification>(
+            item.PlanningSpecificationJson),
+        Delivery = DeserializeJson<CSweet.WorkManagement.Contracts.WorkItemDeliverySpecification>(
+            item.DeliverySpecificationJson),
+        ProposalProvenance = item.ProposalCoordinationSessionId.HasValue &&
+                             !string.IsNullOrWhiteSpace(item.ProposalArtifactDigest) &&
+                             !string.IsNullOrWhiteSpace(item.ProposalItemKey)
+            ? new CSweet.WorkManagement.Contracts.WorkItemProposalProvenance(
+                item.ProposalCoordinationSessionId.Value, item.ProposalArtifactDigest, item.ProposalItemKey)
+            : null,
+        Approvals = item.Approvals.Select(ToApprovalContract).ToList()
     };
+
+    private static CSweet.WorkManagement.Contracts.WorkItemApproval ToApprovalContract(
+        WorkItemApproval approval) => new(
+            approval.Id, approval.PolicyKey, approval.Status, approval.PlanningRevision,
+            approval.ApproverEmployeeId, approval.ApproverInstallationId,
+            approval.RequiredRoleCategory, approval.ArtifactDigest,
+            approval.CoordinationSessionId, approval.Rationale,
+            approval.CreatedAt, approval.UpdatedAt)
+        { ManagerWaiverSource = approval.ManagerWaiverSource };
+
+    private static T? DeserializeJson<T>(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return default;
+        try { return JsonSerializer.Deserialize<T>(json, JsonOptions); }
+        catch (JsonException) { return default; }
+    }
 
     private static CSweet.WorkManagement.Contracts.WorkStageAssignment ToAssignmentContract(
         WorkItemStageAssignment assignment) => new(
@@ -969,53 +1047,15 @@ public sealed class WorkBoardService(
         var canReadItems = HasActionForBoard(grants, WorkItemActions.Read, board.Id);
         var itemRows = canReadItems
             ? await db.CoreWorkTasks.AsNoTracking()
+                .Include(x => x.Approvals)
+                .Include(x => x.StageAssignments)
                 .Where(x => x.BoardId == board.Id && x.BoardColumnId != null)
                 .OrderBy(x => x.BoardColumnId)
                 .ThenBy(x => x.BoardRank)
-                .Select(x => new
-                {
-                    x.Id,
-                    x.BoardColumnId,
-                    x.ParentWorkTaskId,
-                    x.SprintId,
-                    x.Kind,
-                    x.Title,
-                    x.Description,
-                    x.Status,
-                    x.Priority,
-                    x.EstimatePoints,
-                    x.BoardRank,
-                    x.Revision,
-                    x.DueDate,
-                    x.CreatedAt,
-                    x.UpdatedAt
-                    ,x.Identifier,
-                    x.AccountableOrganizationUserId
-                })
                 .ToListAsync(cancellationToken)
             : [];
         var items = itemRows
-            .Select(x => new WorkBoardItemResponse(
-                x.Id,
-                board.Id,
-                x.BoardColumnId!.Value,
-                x.ParentWorkTaskId,
-                x.SprintId,
-                x.Kind.ToString(),
-                x.Title,
-                x.Description,
-                x.Status.ToString(),
-                x.Priority.ToString(),
-                x.EstimatePoints,
-                x.BoardRank,
-                x.Revision,
-                x.DueDate,
-                x.CreatedAt,
-                x.UpdatedAt)
-            {
-                Identifier = x.Identifier,
-                AccountableOrganizationUserId = x.AccountableOrganizationUserId
-            })
+            .Select(ToItemResponse)
             .ToList();
         return new WorkBoardDetailResponse(
             ToSummary(board, memberId, grants, all, preference?.IsFavorite ?? false,
@@ -1061,7 +1101,8 @@ public sealed class WorkBoardService(
         {
             TeamId = board.TeamId,
             ManagerOrganizationUserId = board.ManagerOrganizationUserId,
-            Key = board.Key
+            Key = board.Key,
+            ProfileKey = board.ProfileKey
         };
     }
 

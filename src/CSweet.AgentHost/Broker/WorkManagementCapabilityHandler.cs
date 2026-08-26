@@ -33,6 +33,9 @@ public sealed class WorkManagementCapabilityHandler(
         WorkBoardActions.ConfigureColumns,
         WorkItemActions.Read,
         WorkItemActions.Create,
+        WorkItemActions.ReadTypes,
+        WorkItemActions.RevisePlanning,
+        WorkItemActions.DecideApproval,
         WorkItemActions.Comment,
         WorkItemActions.ReadComments,
         WorkItemActions.Estimate,
@@ -124,6 +127,19 @@ public sealed class WorkManagementCapabilityHandler(
                     await CreateItemAsync(
                         session, organizationId, installation,
                         Read<Wire.CreateWorkItemRequest>(request), cancellationToken)),
+                WorkItemActions.ReadTypes => Success(
+                    request.RequestId,
+                    PlatformWorkTypeCatalog.Read(Read<Wire.ReadWorkItemTypesRequest>(request).BoardProfileKey)),
+                WorkItemActions.RevisePlanning => Success(
+                    request.RequestId,
+                    await ReviseItemPlanningAsync(
+                        session, organizationId, installation,
+                        Read<Wire.ReviseWorkItemPlanningRequest>(request), cancellationToken)),
+                WorkItemActions.DecideApproval => Success(
+                    request.RequestId,
+                    await DecideItemApprovalAsync(
+                        session, organizationId, installation,
+                        Read<Wire.DecideWorkItemApprovalRequest>(request), cancellationToken)),
                 WorkItemActions.FinalizeDelivery => Success(
                     request.RequestId,
                     await FinalizeItemDeliveryAsync(
@@ -523,7 +539,8 @@ public sealed class WorkManagementCapabilityHandler(
             {
                 TeamId = board.TeamId,
                 ManagerOrganizationUserId = board.ManagerOrganizationUserId,
-                Key = board.Key
+                Key = board.Key,
+                ProfileKey = board.ProfileKey
             };
         }).ToList();
         await WriteAuditAsync(
@@ -548,7 +565,8 @@ public sealed class WorkManagementCapabilityHandler(
                 x.Id == input.BoardId && x.OrganizationId == organizationId,
                 cancellationToken)
             ?? throw new KeyNotFoundException("Board was not found.");
-        var itemRows = await db.CoreWorkTasks.AsNoTracking().Include(x => x.StageAssignments)
+        var itemRows = await db.CoreWorkTasks.AsNoTracking()
+            .Include(x => x.StageAssignments).Include(x => x.Approvals)
             .Where(x => x.BoardId == board.Id && x.BoardColumnId != null)
             .OrderBy(x => x.BoardColumnId)
             .ThenBy(x => x.BoardRank)
@@ -628,7 +646,8 @@ public sealed class WorkManagementCapabilityHandler(
             input.BoardId,
             input.ItemId,
             cancellationToken);
-        var item = await db.CoreWorkTasks.AsNoTracking().Include(x => x.StageAssignments).SingleOrDefaultAsync(x =>
+        var item = await db.CoreWorkTasks.AsNoTracking()
+            .Include(x => x.StageAssignments).Include(x => x.Approvals).SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId &&
             x.BoardId == input.BoardId &&
             x.Id == input.ItemId, cancellationToken)
@@ -1145,6 +1164,7 @@ public sealed class WorkManagementCapabilityHandler(
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
             TeamId = input.TeamId,
+            ProfileKey = PlatformWorkTypeCatalog.RequireProfile(input.ProfileKey).Key,
             ManagerOrganizationUserId = manager.Id,
             Key = await ResolveBoardKeyAsync(organizationId, input.Key, input.Name, cancellationToken),
             Name = input.Name.Trim(),
@@ -1163,7 +1183,8 @@ public sealed class WorkManagementCapabilityHandler(
         {
             TeamId = board.TeamId,
             ManagerOrganizationUserId = board.ManagerOrganizationUserId,
-            Key = board.Key
+            Key = board.Key,
+            ProfileKey = board.ProfileKey
         };
         db.WorkBoards.Add(board);
         AddReceipt(
@@ -1264,7 +1285,8 @@ public sealed class WorkManagementCapabilityHandler(
         {
             TeamId = board.TeamId,
             ManagerOrganizationUserId = board.ManagerOrganizationUserId,
-            Key = board.Key
+            Key = board.Key,
+            ProfileKey = board.ProfileKey
         };
         AddReceipt(
             organizationId, installation.Id, WorkBoardActions.Configure,
@@ -1367,7 +1389,7 @@ public sealed class WorkManagementCapabilityHandler(
         board.Revision++;
         board.UpdatedAt = DateTimeOffset.UtcNow;
 
-        var itemRows = await db.CoreWorkTasks.Include(x => x.StageAssignments)
+        var itemRows = await db.CoreWorkTasks.Include(x => x.StageAssignments).Include(x => x.Approvals)
             .Where(x => x.OrganizationId == organizationId && x.BoardId == board.Id && x.BoardColumnId != null)
             .OrderBy(x => x.BoardColumnId).ThenBy(x => x.BoardRank)
             .ToListAsync(cancellationToken);
@@ -1382,7 +1404,8 @@ public sealed class WorkManagementCapabilityHandler(
             {
                 TeamId = board.TeamId,
                 ManagerOrganizationUserId = board.ManagerOrganizationUserId,
-                Key = board.Key
+                Key = board.Key,
+                ProfileKey = board.ProfileKey
             },
             configured.OrderBy(x => x.Position).Select(x => new Wire.WorkBoardColumn(
                 x.Id, x.Name, x.Category.ToString(), x.Position,
@@ -1411,8 +1434,6 @@ public sealed class WorkManagementCapabilityHandler(
         ValidateIdempotencyKey(input.IdempotencyKey);
         if (string.IsNullOrWhiteSpace(input.Title))
             throw new ArgumentException("Work item title is required.");
-        if (!Enum.TryParse<WorkItemKind>(input.Kind, true, out var kind) || !Enum.IsDefined(kind))
-            throw new ArgumentException("Work item kind is invalid.");
         if (!Enum.TryParse<WorkTaskPriority>(input.Priority, true, out var priority) ||
             !Enum.IsDefined(priority))
             throw new ArgumentException("Work item priority is invalid.");
@@ -1428,6 +1449,19 @@ public sealed class WorkManagementCapabilityHandler(
                 x.OrganizationId == organizationId &&
                 x.ArchivedAt == null, cancellationToken)
             ?? throw new KeyNotFoundException("Board was not found.");
+        var parentTypeKey = input.ParentItemId.HasValue
+            ? await db.CoreWorkTasks.Where(x => x.Id == input.ParentItemId &&
+                    x.OrganizationId == organizationId && x.BoardId == board.Id)
+                .Select(x => x.TypeKey).SingleOrDefaultAsync(cancellationToken)
+            : null;
+        var type = PlatformWorkTypeCatalog.RequireType(
+            board.ProfileKey, input.TypeKey, parentTypeKey);
+        if (!Enum.TryParse<WorkItemKind>(type.Kind, true, out var kind) || !Enum.IsDefined(kind))
+            throw new ArgumentException("The work type has an invalid base kind.");
+        if (!string.IsNullOrWhiteSpace(input.Kind) &&
+            !input.Kind.Equals(type.Kind, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(
+                $"Work item kind '{input.Kind}' does not match type '{type.Key}' ({type.Kind}).");
         var column = input.ColumnId.HasValue
             ? board.Columns.SingleOrDefault(x => x.Id == input.ColumnId.Value)
             : board.Columns.OrderBy(x => x.Position)
@@ -1492,6 +1526,8 @@ public sealed class WorkManagementCapabilityHandler(
             IdentifierSequence = board.NextItemSequence,
             Identifier = $"{board.Key}-{board.NextItemSequence}",
             Kind = kind,
+            TypeKey = type.Key,
+            PlanningRevision = 1,
             Title = normalized.Title,
             Description = normalized.Description,
             StructuredMentionsJson = normalized.MentionsJson,
@@ -1504,6 +1540,9 @@ public sealed class WorkManagementCapabilityHandler(
             PlanningSpecificationJson = input.Planning is null
                 ? null
                 : JsonSerializer.Serialize(input.Planning, JsonOptions),
+            ProposalCoordinationSessionId = input.ProposalProvenance?.CoordinationSessionId,
+            ProposalArtifactDigest = input.ProposalProvenance?.ArtifactDigest,
+            ProposalItemKey = input.ProposalProvenance?.ProposalItemKey,
             DeliverySpecificationJson = input.Delivery is null
                 ? null
                 : JsonSerializer.Serialize(input.Delivery, JsonOptions),
@@ -1511,9 +1550,32 @@ public sealed class WorkManagementCapabilityHandler(
             CreatedAt = now,
             UpdatedAt = now
         };
-        var result = ToAgentItem(item);
         db.CoreWorkTasks.Add(item);
         board.NextItemSequence++;
+        foreach (var policyKey in type.RequiredApprovalPolicyKeys)
+        {
+            var verified = await VerifyProposalApprovalAsync(
+                organizationId, board.Id, policyKey, input.ProposalProvenance, cancellationToken);
+            var approval = new WorkItemApproval
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, BoardId = board.Id,
+                WorkItemId = item.Id, PolicyKey = policyKey,
+                Status = verified is null ? Wire.WorkItemApprovalStatuses.Pending : Wire.WorkItemApprovalStatuses.Approved,
+                PlanningRevision = item.PlanningRevision,
+                RequiredRoleCategory = "software-architect",
+                ApproverEmployeeId = verified?.EmployeeId,
+                ApproverInstallationId = verified?.InstallationId,
+                ArtifactDigest = verified?.ArtifactDigest,
+                CoordinationSessionId = verified?.SessionId,
+                Rationale = verified is null ? null : "Verified Architect proposal provenance.",
+                CreatedAt = now, UpdatedAt = now
+            };
+            item.Approvals.Add(approval);
+        }
+        foreach (var approval in item.Approvals.Where(x =>
+                     x.Status == Wire.WorkItemApprovalStatuses.Pending))
+            await QueueApprovalRequiredAsync(
+                organizationId, board, item, approval, cancellationToken);
         foreach (var assignment in input.StageAssignments)
             db.WorkItemStageAssignments.Add(new WorkItemStageAssignment
             {
@@ -1544,6 +1606,7 @@ public sealed class WorkManagementCapabilityHandler(
             string.IsNullOrWhiteSpace(session.AgentId) ? "Agent" : session.AgentId,
             WorkItemActions.Create, "item.created", grant,
             new { columnId = column.Id }, now);
+        var result = ToAgentItem(item);
         AddReceipt(
             organizationId, installation.Id, WorkItemActions.Create,
             input.IdempotencyKey, item.Id, result);
@@ -1582,11 +1645,13 @@ public sealed class WorkManagementCapabilityHandler(
             ?? throw new KeyNotFoundException("Board was not found.");
         var item = await db.CoreWorkTasks
             .Include(x => x.StageAssignments)
+            .Include(x => x.Approvals)
             .SingleOrDefaultAsync(x => x.Id == input.ItemId &&
                                        x.BoardId == input.BoardId &&
                                        x.OrganizationId == organizationId,
                 cancellationToken)
             ?? throw new KeyNotFoundException("Work item was not found.");
+        EnsureRequiredApprovals(item);
         if (item.Kind is WorkItemKind.Initiative or WorkItemKind.Epic)
             throw new ArgumentException("Initiatives and epics do not have executable delivery specifications.");
         if (item.Revision != input.ExpectedRevision)
@@ -1661,6 +1726,190 @@ public sealed class WorkManagementCapabilityHandler(
             WorkItemActions.FinalizeDelivery, grant,
             new { boardId = board.Id, itemId = item.Id, input.Delivery.RepositoryId,
                   input.Delivery.BaseBranch, input.IdempotencyKey },
+            cancellationToken, session);
+        return result;
+    }
+
+    private async Task<Wire.WorkItem> ReviseItemPlanningAsync(
+        AgentSession session,
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.ReviseWorkItemPlanningRequest input,
+        CancellationToken cancellationToken)
+    {
+        var grant = await RequireAsync(
+            organizationId, installation.Id, WorkItemActions.RevisePlanning,
+            input.BoardId, cancellationToken);
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        var replay = await ReplayAsync<Wire.WorkItem>(
+            installation.Id, WorkItemActions.RevisePlanning, input.IdempotencyKey, cancellationToken);
+        if (replay is not null) return replay;
+        if (string.IsNullOrWhiteSpace(input.Title) || input.Planning.Requirements.Count == 0 ||
+            input.Planning.AcceptanceCriteria.Count == 0)
+            throw new ArgumentException("Title, requirements, and acceptance criteria are required.");
+
+        var board = await db.WorkBoards.SingleOrDefaultAsync(x =>
+            x.Id == input.BoardId && x.OrganizationId == organizationId && x.ArchivedAt == null,
+            cancellationToken) ?? throw new KeyNotFoundException("Board was not found.");
+        var item = await db.CoreWorkTasks
+            .Include(x => x.Approvals)
+            .Include(x => x.Dependencies)
+            .SingleOrDefaultAsync(x => x.Id == input.ItemId && x.BoardId == input.BoardId &&
+                x.OrganizationId == organizationId, cancellationToken)
+            ?? throw new KeyNotFoundException("Work item was not found.");
+        if (item.Revision != input.ExpectedRevision ||
+            item.PlanningRevision != input.ExpectedPlanningRevision)
+            throw new DbUpdateConcurrencyException("The work item planning changed before this revision was applied.");
+        if (await db.WorkItemExecutions.AnyAsync(x => x.WorkItemId == item.Id &&
+                (x.SprintExecution!.Status == WorkSprintExecutionStatus.Active ||
+                 x.SprintExecution.Status == WorkSprintExecutionStatus.Paused), cancellationToken))
+            throw new InvalidOperationException("Executing work planning is immutable.");
+
+        var parentTypeKey = input.ParentItemId.HasValue
+            ? await db.CoreWorkTasks.Where(x => x.Id == input.ParentItemId && x.BoardId == board.Id)
+                .Select(x => x.TypeKey).SingleOrDefaultAsync(cancellationToken)
+            : null;
+        PlatformWorkTypeCatalog.RequireType(board.ProfileKey, item.TypeKey, parentTypeKey);
+        var dependencyIds = input.Planning.DependencyItemIds.Distinct().ToList();
+        if (dependencyIds.Contains(item.Id))
+            throw new ArgumentException("A work item cannot depend on itself.");
+        if (await db.CoreWorkTasks.CountAsync(x => x.BoardId == board.Id &&
+                dependencyIds.Contains(x.Id), cancellationToken) != dependencyIds.Count)
+            throw new ArgumentException("Every planning dependency must exist on the same board.");
+
+        var now = DateTimeOffset.UtcNow;
+        item.Title = input.Title.Trim();
+        item.Description = input.Description?.Trim() ?? string.Empty;
+        item.ParentWorkTaskId = input.ParentItemId;
+        item.PlanningSpecificationJson = JsonSerializer.Serialize(input.Planning, JsonOptions);
+        item.ProposalCoordinationSessionId = input.ProposalProvenance?.CoordinationSessionId;
+        item.ProposalArtifactDigest = input.ProposalProvenance?.ArtifactDigest;
+        item.ProposalItemKey = input.ProposalProvenance?.ProposalItemKey;
+        item.PlanningRevision++;
+        item.Revision++;
+        item.UpdatedAt = now;
+        db.WorkItemDependencies.RemoveRange(item.Dependencies);
+        foreach (var dependencyId in dependencyIds)
+            db.WorkItemDependencies.Add(new WorkItemDependency
+            {
+                WorkItemId = item.Id,
+                DependsOnWorkItemId = dependencyId
+            });
+
+        foreach (var approval in item.Approvals)
+        {
+            var verified = await VerifyProposalApprovalAsync(
+                organizationId, board.Id, approval.PolicyKey,
+                input.ProposalProvenance, cancellationToken);
+            approval.Status = verified is null
+                ? Wire.WorkItemApprovalStatuses.Pending
+                : Wire.WorkItemApprovalStatuses.Approved;
+            approval.PlanningRevision = item.PlanningRevision;
+            approval.ApproverEmployeeId = verified?.EmployeeId;
+            approval.ApproverInstallationId = verified?.InstallationId;
+            approval.ArtifactDigest = verified?.ArtifactDigest;
+            approval.CoordinationSessionId = verified?.SessionId;
+            approval.Rationale = verified is null ? null : "Verified Architect proposal provenance.";
+            approval.ManagerWaiverSource = null;
+            approval.UpdatedAt = now;
+            if (verified is null)
+                await QueueApprovalRequiredAsync(organizationId, board, item, approval, cancellationToken);
+        }
+
+        AddActivity(organizationId, board.Id, item.Id, installation.Id,
+            string.IsNullOrWhiteSpace(session.AgentId) ? "Agent" : session.AgentId,
+            WorkItemActions.RevisePlanning, "item.planning.revised", grant,
+            new { item.PlanningRevision }, now);
+        var result = ToAgentItem(item);
+        AddReceipt(organizationId, installation.Id, WorkItemActions.RevisePlanning,
+            input.IdempotencyKey, item.Id, result);
+        await QueueRealtimeAsync(organizationId, board.Id, item.Id,
+            "item.planning.revised", item.Revision, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await WriteAuditAsync(organizationId, installation.Id, board.Id,
+            WorkItemActions.RevisePlanning, grant,
+            new { item.Id, item.PlanningRevision, input.IdempotencyKey }, cancellationToken, session);
+        return result;
+    }
+
+    private async Task<Wire.WorkItemApproval> DecideItemApprovalAsync(
+        AgentSession session,
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.DecideWorkItemApprovalRequest input,
+        CancellationToken cancellationToken)
+    {
+        var grant = await RequireAsync(
+            organizationId, installation.Id, WorkItemActions.DecideApproval,
+            input.BoardId, cancellationToken);
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        if (!Wire.WorkItemApprovalStatuses.All.Contains(input.Decision) ||
+            input.Decision == Wire.WorkItemApprovalStatuses.Pending)
+            throw new ArgumentException("Approval decision must be Approved, ChangesRequested, or Waived.");
+        var replay = await ReplayAsync<Wire.WorkItemApproval>(
+            installation.Id, WorkItemActions.DecideApproval, input.IdempotencyKey, cancellationToken);
+        if (replay is not null) return replay;
+
+        var board = await db.WorkBoards.SingleOrDefaultAsync(x => x.Id == input.BoardId &&
+            x.OrganizationId == organizationId, cancellationToken)
+            ?? throw new KeyNotFoundException("Board was not found.");
+        var employeeId = await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
+                x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive)
+            .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken)
+            ?? throw new UnauthorizedAccessException("The installation is not an active employee.");
+        var item = await db.CoreWorkTasks.Include(x => x.Approvals).SingleOrDefaultAsync(x =>
+            x.Id == input.ItemId && x.BoardId == input.BoardId && x.OrganizationId == organizationId,
+            cancellationToken) ?? throw new KeyNotFoundException("Work item was not found.");
+        if (item.PlanningRevision != input.ExpectedPlanningRevision)
+            throw new DbUpdateConcurrencyException("The approval references a stale planning revision.");
+        var approval = item.Approvals.SingleOrDefault(x => x.PolicyKey == input.PolicyKey)
+            ?? throw new ArgumentException("The requested approval policy is not required by this work item.");
+
+        if (input.Decision == Wire.WorkItemApprovalStatuses.Waived)
+        {
+            if (board.ManagerOrganizationUserId != employeeId || string.IsNullOrWhiteSpace(input.ManagerWaiverSource))
+                throw new UnauthorizedAccessException("Only the board manager may record an explicit governed waiver.");
+        }
+        else if (!await InstallationDeclaresRoleAsync(
+                     installation.Id, approval.RequiredRoleCategory, cancellationToken))
+        {
+            throw new UnauthorizedAccessException(
+                $"This decision requires role category '{approval.RequiredRoleCategory}'.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        approval.Status = input.Decision;
+        approval.PlanningRevision = item.PlanningRevision;
+        approval.ApproverEmployeeId = employeeId;
+        approval.ApproverInstallationId = installation.Id;
+        approval.CoordinationSessionId = input.CoordinationSessionId;
+        approval.ArtifactDigest = input.ArtifactDigest;
+        approval.Rationale = input.Rationale?.Trim();
+        approval.ManagerWaiverSource = input.Decision == Wire.WorkItemApprovalStatuses.Waived
+            ? input.ManagerWaiverSource : null;
+        approval.UpdatedAt = now;
+        AddActivity(organizationId, board.Id, item.Id, installation.Id,
+            string.IsNullOrWhiteSpace(session.AgentId) ? "Agent" : session.AgentId,
+            WorkItemActions.DecideApproval, "item.approval.decided", grant,
+            new { approval.PolicyKey, approval.Status, item.PlanningRevision }, now);
+        var result = ToApprovalContract(approval);
+        AddReceipt(organizationId, installation.Id, WorkItemActions.DecideApproval,
+            input.IdempotencyKey, approval.Id, result);
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            EventType = Wire.WorkItemEvents.ApprovalDecided,
+            DataJson = JsonSerializer.Serialize(new Wire.WorkItemApprovalDecidedEvent(
+                board.Id, item.Id, item.TypeKey, approval.PolicyKey, approval.Status,
+                item.PlanningRevision, employeeId, installation.Id, approval.Rationale), JsonOptions),
+            IdempotencyKey = $"work-approval-decided:{item.Id:N}:{approval.PolicyKey}:{item.PlanningRevision}:{approval.Status}",
+            Status = AgentPlatformEventOutboxStatus.Pending,
+            NextAttemptAt = now, OccurredAt = now
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await WriteAuditAsync(organizationId, installation.Id, board.Id,
+            WorkItemActions.DecideApproval, grant,
+            new { item.Id, approval.PolicyKey, approval.Status, input.IdempotencyKey },
             cancellationToken, session);
         return result;
     }
@@ -2101,6 +2350,15 @@ public sealed class WorkManagementCapabilityHandler(
             .OrderBy(x => x.Position)
             .ToListAsync(cancellationToken);
         var target = ResolveTransitionColumn(action, input.TargetColumnId, item, columns);
+        if (RequiresApprovedPlanning(target) &&
+            await db.WorkItemApprovals.AnyAsync(x =>
+                x.WorkItemId == item.Id &&
+                ((x.Status != Wire.WorkItemApprovalStatuses.Approved &&
+                  x.Status != Wire.WorkItemApprovalStatuses.Waived) ||
+                 x.PlanningRevision != item.PlanningRevision),
+                cancellationToken))
+            throw new InvalidOperationException(
+                "This work item cannot enter a ready or executing column until its required planning approvals are current.");
         await EnforceWipAsync(target, item.Id, cancellationToken);
 
         var sourceColumnId = item.BoardColumnId;
@@ -2183,6 +2441,10 @@ public sealed class WorkManagementCapabilityHandler(
                 $"The '{action}' grant cannot perform the requested state transition.");
         return target;
     }
+
+    private static bool RequiresApprovedPlanning(WorkBoardColumn column) =>
+        column.Category == WorkBoardColumnCategory.InProgress ||
+        column.Name.Contains("ready", StringComparison.OrdinalIgnoreCase);
 
     private void AddActivity(
         Guid organizationId,
@@ -2598,6 +2860,8 @@ public sealed class WorkManagementCapabilityHandler(
         null,
         DeserializeDevelopmentBrief(item.DevelopmentBriefJson))
     {
+        TypeKey = item.TypeKey,
+        PlanningRevision = item.PlanningRevision,
         Planning = DeserializeJson<Wire.WorkItemPlanningSpecification>(
             item.PlanningSpecificationJson),
         Quality = DeserializeJson<Wire.SoftwareQualityBrief>(item.QualityBriefJson),
@@ -2608,8 +2872,165 @@ public sealed class WorkManagementCapabilityHandler(
         Mentions = WorkItemMentionCodec.Deserialize(item.StructuredMentionsJson),
         StageAssignments = item.StageAssignments.Select(x => new Wire.WorkStageAssignment(
             x.StageKey, x.PrincipalKind.ToString(), x.OrganizationUserId,
-            x.AgentInstallationId, x.PlatformAction)).ToList()
+            x.AgentInstallationId, x.PlatformAction)).ToList(),
+        Approvals = item.Approvals.Select(ToApprovalContract).ToList(),
+        ProposalProvenance = item.ProposalCoordinationSessionId.HasValue &&
+                             !string.IsNullOrWhiteSpace(item.ProposalArtifactDigest) &&
+                             !string.IsNullOrWhiteSpace(item.ProposalItemKey)
+            ? new Wire.WorkItemProposalProvenance(
+                item.ProposalCoordinationSessionId.Value,
+                item.ProposalArtifactDigest,
+                item.ProposalItemKey)
+            : null
     };
+
+    private static Wire.WorkItemApproval ToApprovalContract(WorkItemApproval approval) => new(
+        approval.Id, approval.PolicyKey, approval.Status, approval.PlanningRevision,
+        approval.ApproverEmployeeId, approval.ApproverInstallationId,
+        approval.RequiredRoleCategory, approval.ArtifactDigest,
+        approval.CoordinationSessionId, approval.Rationale,
+        approval.CreatedAt, approval.UpdatedAt)
+    { ManagerWaiverSource = approval.ManagerWaiverSource };
+
+    private static void EnsureRequiredApprovals(WorkTask item)
+    {
+        var staleOrOpen = item.Approvals.Where(x =>
+            x.PlanningRevision != item.PlanningRevision ||
+            x.Status is not (Wire.WorkItemApprovalStatuses.Approved or
+                Wire.WorkItemApprovalStatuses.Waived)).ToList();
+        if (staleOrOpen.Count > 0)
+            throw new InvalidOperationException(
+                "Every required work-item approval must be current and approved or explicitly waived before delivery finalization.");
+    }
+
+    private async Task<VerifiedProposalApproval?> VerifyProposalApprovalAsync(
+        Guid organizationId,
+        Guid boardId,
+        string policyKey,
+        Wire.WorkItemProposalProvenance? provenance,
+        CancellationToken cancellationToken)
+    {
+        if (policyKey != Wire.WorkItemApprovalPolicyKeys.SoftwareArchitectureReviewV1 ||
+            provenance is null || provenance.CoordinationSessionId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(provenance.ArtifactDigest) ||
+            string.IsNullOrWhiteSpace(provenance.ProposalItemKey))
+            return null;
+        var artifact = await db.AgentCoordinationTurns.AsNoTracking()
+            .Where(x => x.SessionId == provenance.CoordinationSessionId &&
+                        x.Session!.OrganizationId == organizationId &&
+                        x.Session.SourceKind == "Board" &&
+                        x.Session.SourceBoardId == boardId &&
+                        x.ArtifactDigest == provenance.ArtifactDigest &&
+                        x.ArtifactType != null &&
+                        x.ArtifactType.StartsWith("software-architecture.") &&
+                        x.ArtifactPayloadJson != null &&
+                        x.ArtifactPayloadJson.Contains(provenance.ProposalItemKey))
+            .Select(x => new
+            {
+                x.SessionId,
+                x.SpeakerOrganizationUserId,
+                x.ArtifactDigest,
+                x.Session!.InitiatorOrganizationUserId,
+                x.Session.InitiatorInstallationId,
+                x.Session.TargetOrganizationUserId,
+                x.Session.TargetInstallationId
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (artifact is null) return null;
+        var speakerInstallationId = artifact.SpeakerOrganizationUserId == artifact.InitiatorOrganizationUserId
+            ? artifact.InitiatorInstallationId
+            : artifact.SpeakerOrganizationUserId == artifact.TargetOrganizationUserId
+                ? artifact.TargetInstallationId
+                : Guid.Empty;
+        if (speakerInstallationId == Guid.Empty ||
+            !await InstallationDeclaresRoleAsync(
+                speakerInstallationId, "software-architect", cancellationToken))
+            return null;
+        return new VerifiedProposalApproval(
+            artifact.SpeakerOrganizationUserId, speakerInstallationId,
+            artifact.SessionId, artifact.ArtifactDigest!);
+    }
+
+    private async Task QueueApprovalRequiredAsync(
+        Guid organizationId,
+        WorkBoard board,
+        WorkTask item,
+        WorkItemApproval approval,
+        CancellationToken cancellationToken)
+    {
+        var reviewer = await FindRoleReviewerAsync(
+            organizationId, board.TeamId, approval.RequiredRoleCategory, cancellationToken);
+        if (reviewer is null) return;
+        var idempotencyKey =
+            $"work-approval-required:{item.Id:N}:{approval.PolicyKey}:{item.PlanningRevision}:{reviewer.InstallationId:N}";
+        if (await db.AgentPlatformEventOutbox.AnyAsync(x =>
+                x.OrganizationId == organizationId && x.IdempotencyKey == idempotencyKey,
+                cancellationToken))
+            return;
+        var now = DateTimeOffset.UtcNow;
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            TargetInstallationId = reviewer.InstallationId,
+            EventType = Wire.WorkItemEvents.ApprovalRequired,
+            DataJson = JsonSerializer.Serialize(new Wire.WorkItemApprovalRequiredEvent(
+                board.Id, item.Id, item.TypeKey, approval.PolicyKey, item.PlanningRevision,
+                reviewer.EmployeeId, reviewer.InstallationId,
+                item.ProposalCoordinationSessionId, item.ProposalArtifactDigest), JsonOptions),
+            IdempotencyKey = idempotencyKey,
+            Status = AgentPlatformEventOutboxStatus.Pending,
+            NextAttemptAt = now, OccurredAt = now
+        });
+    }
+
+    private async Task<RoleReviewer?> FindRoleReviewerAsync(
+        Guid organizationId,
+        Guid? teamId,
+        string roleKey,
+        CancellationToken cancellationToken)
+    {
+        if (!teamId.HasValue) return null;
+        var candidates = await (from membership in db.TeamMemberships.AsNoTracking()
+                                join employee in db.CoreOrganizationUsers.AsNoTracking()
+                                    on membership.OrganizationUserId equals employee.Id
+                                where membership.OrganizationId == organizationId &&
+                                      membership.TeamId == teamId && membership.EndedAt == null &&
+                                      employee.IsActive && employee.AgentInstallationId != null
+                                orderby employee.Id
+                                select new RoleReviewer(employee.Id, employee.AgentInstallationId!.Value))
+            .ToListAsync(cancellationToken);
+        foreach (var candidate in candidates)
+            if (await InstallationDeclaresRoleAsync(candidate.InstallationId, roleKey, cancellationToken))
+                return candidate;
+        return null;
+    }
+
+    private async Task<bool> InstallationDeclaresRoleAsync(
+        Guid installationId,
+        string roleKey,
+        CancellationToken cancellationToken)
+    {
+        var manifest = await (from installation in db.AgentInstallations.AsNoTracking()
+                              join package in db.AgentPackageVersions.AsNoTracking()
+                                  on installation.PackageVersionId equals package.Id
+                              where installation.Id == installationId && installation.IsEnabled &&
+                                    installation.RevisionStatus == PluginRevisionStatus.Active
+                              select package.ManifestJson).SingleOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(manifest)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(manifest);
+            return document.RootElement.TryGetProperty("rolePolicy", out var rolePolicy) &&
+                   rolePolicy.TryGetProperty("declaredRoleKeys", out var roles) &&
+                   roles.ValueKind == JsonValueKind.Array &&
+                   roles.EnumerateArray().Any(x =>
+                       string.Equals(x.GetString(), roleKey, StringComparison.Ordinal));
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 
     private static void ValidateStageAssignments(
         bool executable,
@@ -2798,6 +3219,10 @@ public sealed class WorkManagementCapabilityHandler(
         Guid? OrganizationUserId,
         Guid? AgentInstallationId,
         string? PlatformAction);
+
+    private sealed record VerifiedProposalApproval(
+        Guid EmployeeId, Guid InstallationId, Guid SessionId, string ArtifactDigest);
+    private sealed record RoleReviewer(Guid EmployeeId, Guid InstallationId);
 
     private static CapabilityResult Success<T>(string requestId, T payload) => new()
     {

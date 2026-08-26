@@ -6,6 +6,19 @@ namespace CSweet.UnitTests;
 public sealed class WorkBoardPresentationTests
 {
     [Fact]
+    public void DescriptionPreview_NormalizesWhitespaceAndCapsAtOneHundredCharacters()
+    {
+        var source = $"  {new string('a', 60)}\r\n   {new string('b', 60)}  ";
+
+        var preview = WorkBoardPresentation.DescriptionPreview(source);
+
+        Assert.Equal(101, preview.Length);
+        Assert.EndsWith("…", preview, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', preview);
+        Assert.DoesNotContain('\n', preview);
+    }
+
+    [Fact]
     public void ItemsForColumn_GroupsOrdersAndFiltersCards()
     {
         var columnId = Guid.NewGuid();

@@ -8,6 +8,8 @@
 @using CSweet.Contracts.Realtime
 @using CSweet.Contracts.Core
 @using CSweet.UI.Components.WorkBoards
+@using WorkBoardProfileKeys = CSweet.WorkManagement.Contracts.WorkBoardProfileKeys
+@using WorkItemTypeKeys = CSweet.WorkManagement.Contracts.WorkItemTypeKeys
 @using SoftwareDevelopmentBrief = CSweet.WorkManagement.Contracts.SoftwareDevelopmentBrief
 @using WorkSprintPreflightResult = CSweet.WorkManagement.Contracts.WorkSprintPreflightResult
 @using WorkOrchestrationPolicyRevision = CSweet.WorkManagement.Contracts.WorkOrchestrationPolicyRevision
@@ -458,96 +460,43 @@
                             <div @ondragover:preventDefault="true"
                                  @ondrop:stopPropagation="true"
                                  @ondrop="@(() => DropItemAsync(column, item.Id))">
-                            <MudCard Outlined="true" Class="kanban-card"
-                                     draggable="@CanDrag(item)"
-                                     @ondragstart="@(() => BeginDrag(item))"
-                                     @ondragend="EndDrag">
-                                <MudCardContent>
+                            <article class="kanban-card" aria-label="Open work item @item.Identifier">
+                                <button type="button" class="kanban-drag-handle"
+                                        draggable="@CanDrag(item)"
+                                        @ondragstart="@(() => BeginDrag(item))"
+                                        @ondragend="EndDrag"
+                                        aria-label="Drag @item.Identifier to another column">
+                                    <MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" />
+                                </button>
+                                <button type="button" class="kanban-card-body" @onclick="@(() => OpenItemDetailsAsync(item))">
                                     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                                         <MudText Typo="Typo.overline" Color="Color.Primary">@(item.Identifier ?? item.Kind)</MudText>
                                         <MudChip T="string" Size="Size.Small" Color="@PriorityColor(item.Priority)">@item.Priority</MudChip>
                                     </MudStack>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@item.Kind</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@TypeLabel(item)</MudText>
                                     <MudText Typo="Typo.subtitle2"><StructuredMentionText Text="@item.Title" Mentions="@item.Mentions" Field="@CSweet.WorkManagement.Contracts.WorkItemMentionFields.Title" /></MudText>
                                     @if (!string.IsNullOrWhiteSpace(item.Description))
                                     {
-                                        <MudText Typo="Typo.caption"><StructuredMentionText Text="@item.Description" Mentions="@item.Mentions" Field="@CSweet.WorkManagement.Contracts.WorkItemMentionFields.Description" /></MudText>
+                                        <MudText Typo="Typo.caption" Class="kanban-card-preview">@WorkBoardPresentation.DescriptionPreview(item.Description)</MudText>
                                     }
+                                    <div class="kanban-card-badges">
                                     @if (SprintFor(item.SprintId) is { } sprint)
                                     {
                                         <MudChip T="string" Size="Size.Small" Color="Color.Info"
-                                                 Variant="Variant.Outlined" Class="mt-2">
+                                                 Variant="Variant.Outlined">
                                             @sprint.Name
                                         </MudChip>
                                     }
-                                    @if (item.EstimatePoints.HasValue)
+                                    @if (CurrentApproval(item) is { } approval)
                                     {
                                         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                                 Class="mt-2 ml-1">
-                                            @item.EstimatePoints.Value.ToString("0.##") pts
+                                                 Color="@ApprovalColor(approval.Status)">
+                                            Architecture: @approval.Status
                                         </MudChip>
                                     }
-                                    @if (!string.IsNullOrWhiteSpace(item.AssignedDisplayName))
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary"
-                                                 Variant="Variant.Outlined" Class="mt-2 ml-1"
-                                                 Icon="@Icons.Material.Outlined.Code">
-                                            @item.AssignedDisplayName
-                                        </MudChip>
-                                    }
-                                    @if (item.DueDate.HasValue)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                                 Color="@DueDateColor(item.DueDate.Value)" Class="mt-2 ml-1">
-                                            Due @item.DueDate.Value.ToLocalTime().ToString("MMM d")
-                                        </MudChip>
-                                    }
-                                </MudCardContent>
-                                <MudCardActions>
-                                    <MudIconButton Icon="@Icons.Material.Outlined.Forum"
-                                                   Size="Size.Small"
-                                                   OnClick="@(() => OpenCollaborationAsync(item))"
-                                                   aria-label="Comments and activity" />
-                                    @if (_detail.Board.AllowedActions.Contains(WorkItemActions.Estimate) &&
-                                         !_detail.Board.IsArchived)
-                                    {
-                                        <MudIconButton Icon="@Icons.Material.Outlined.Calculate"
-                                                       Size="Size.Small"
-                                                       OnClick="@(() => OpenEstimate(item))"
-                                                       aria-label="Set estimate" />
-                                    }
-                                    @if (_detail.Board.AllowedActions.Contains(WorkSprintActions.ManageScope) &&
-                                         !_detail.Board.IsArchived)
-                                    {
-                                        <MudMenu Icon="@Icons.Material.Outlined.EventAvailable"
-                                                 Size="Size.Small"
-                                                 AriaLabel="Assign sprint">
-                                            <MudMenuItem Disabled="@(!item.SprintId.HasValue)"
-                                                         OnClick="@(() => SetItemSprintAsync(item, null))">
-                                                Backlog (no sprint)
-                                            </MudMenuItem>
-                                            @foreach (var sprintOption in AssignableSprints)
-                                            {
-                                                <MudMenuItem Disabled="@(item.SprintId == sprintOption.Id)"
-                                                             OnClick="@(() => SetItemSprintAsync(item, sprintOption.Id))">
-                                                    @sprintOption.Name
-                                                </MudMenuItem>
-                                            }
-                                        </MudMenu>
-                                    }
-                                    <MudSpacer />
-                                    <MudMenu Icon="@Icons.Material.Outlined.DriveFileMove" Size="Size.Small"
-                                             AriaLabel="Move work item to another column">
-                                        @foreach (var targetColumn in _detail.Columns)
-                                        {
-                                            <MudMenuItem Disabled="@(!CanMoveTo(item, targetColumn))"
-                                                         OnClick="@(() => MoveItemAsync(item, targetColumn))">
-                                                Move to @targetColumn.Name
-                                            </MudMenuItem>
-                                        }
-                                    </MudMenu>
-                                </MudCardActions>
-                            </MudCard>
+                                    </div>
+                                </button>
+                            </article>
                             </div>
                         }
                         @if (columnItems.Count == 0)
@@ -561,6 +510,88 @@
     </section>
 </main>
 }
+
+<MudDialog @bind-Visible="_itemDetailsOpen"
+           Options="@(new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(_detailItem?.Identifier ?? "Work item") · @(_detailItem?.Title)</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_detailItem is { } detailItem)
+        {
+            <div class="ticket-detail-grid">
+                <section>
+                    <MudText Typo="Typo.overline">@TypeLabel(detailItem) · planning revision @detailItem.PlanningRevision</MudText>
+                    <MudText Typo="Typo.body1" Class="ticket-full-description">@detailItem.Description</MudText>
+                    @if (detailItem.Planning is { } planning)
+                    {
+                        <MudText Typo="Typo.subtitle1" Class="mt-4"><b>Requirements</b></MudText>
+                        @foreach (var value in planning.Requirements) { <MudText Typo="Typo.body2">• @value</MudText> }
+                        <MudText Typo="Typo.subtitle1" Class="mt-3"><b>Acceptance criteria</b></MudText>
+                        @foreach (var value in planning.AcceptanceCriteria) { <MudText Typo="Typo.body2">• @value</MudText> }
+                        @if (planning.Constraints is { Count: > 0 })
+                        {
+                            <MudText Typo="Typo.subtitle1" Class="mt-3"><b>Constraints</b></MudText>
+                            @foreach (var value in planning.Constraints) { <MudText Typo="Typo.body2">• @value</MudText> }
+                        }
+                        @if (!string.IsNullOrWhiteSpace(planning.ArchitectureArtifactDigest))
+                        {
+                            <MudText Typo="Typo.caption" Class="mt-3">Architecture artifact: @planning.ArchitectureArtifactDigest</MudText>
+                        }
+                    }
+                    <MudText Typo="Typo.subtitle1" Class="mt-4"><b>Related work</b></MudText>
+                    @foreach (var related in RelatedItems(detailItem))
+                    {
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => SelectDetailItem(related))">
+                            @(related.Identifier ?? related.Kind) · @related.Title
+                        </MudButton>
+                    }
+                </section>
+                <aside>
+                    <MudText Typo="Typo.subtitle1"><b>Delivery</b></MudText>
+                    <MudText Typo="Typo.body2">Status: @detailItem.Status</MudText>
+                    <MudText Typo="Typo.body2">Priority: @detailItem.Priority</MudText>
+                    <MudText Typo="Typo.body2">Sprint: @(SprintFor(detailItem.SprintId)?.Name ?? "Backlog")</MudText>
+                    <MudText Typo="Typo.body2">Estimate: @(detailItem.EstimatePoints?.ToString("0.##") ?? "Not set")</MudText>
+                    <MudText Typo="Typo.body2">Assigned: @(detailItem.AssignedDisplayName ?? "Unassigned")</MudText>
+                    <MudText Typo="Typo.subtitle1" Class="mt-4"><b>Approvals</b></MudText>
+                    @if (detailItem.Approvals.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">No specialist approval is required.</MudText>
+                    }
+                    @foreach (var approval in detailItem.Approvals)
+                    {
+                        <MudAlert Severity="@ApprovalSeverity(approval.Status)" Variant="Variant.Outlined" Class="mt-2">
+                            @approval.PolicyKey · @approval.Status · revision @approval.PlanningRevision
+                            @if (!string.IsNullOrWhiteSpace(approval.Rationale)) { <div>@approval.Rationale</div> }
+                        </MudAlert>
+                    }
+                    <MudStack Spacing="1" Class="mt-4">
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Forum"
+                                   OnClick="@(() => OpenCollaborationAsync(detailItem))">Comments and activity</MudButton>
+                        @if (_detail?.Board.AllowedActions.Contains(WorkItemActions.Estimate) == true && _detail.Board.IsArchived == false)
+                        {
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Calculate"
+                                       OnClick="@(() => OpenEstimate(detailItem))">Set estimate</MudButton>
+                        }
+                        <MudMenu Label="Move or assign" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.DriveFileMove">
+                            @foreach (var targetColumn in _detail!.Columns)
+                            {
+                                <MudMenuItem Disabled="@(!CanMoveTo(detailItem, targetColumn))"
+                                             OnClick="@(() => MoveFromDetailsAsync(detailItem, targetColumn))">Move to @targetColumn.Name</MudMenuItem>
+                            }
+                            @foreach (var sprintOption in AssignableSprints)
+                            {
+                                <MudMenuItem OnClick="@(() => SetItemSprintAsync(detailItem, sprintOption.Id))">Assign @sprintOption.Name</MudMenuItem>
+                            }
+                        </MudMenu>
+                    </MudStack>
+                </aside>
+            </div>
+        }
+    </DialogContent>
+    <DialogActions><MudButton OnClick="@(() => _itemDetailsOpen = false)">Close</MudButton></DialogActions>
+</MudDialog>
 
 <MudDialog @bind-Visible="_automationsOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
@@ -1503,6 +1534,7 @@
     private bool _columnsOpen;
     private bool _agentAccessOpen;
     private bool _collaborationOpen;
+    private bool _itemDetailsOpen;
     private bool _collaborationLoading;
     private bool _sprintsOpen;
     private bool _automationsOpen;
@@ -1548,6 +1580,7 @@
     private Guid? _selectedAgentId;
     private Guid? _transferBoardId;
     private WorkBoardItemResponse? _selectedItem;
+    private WorkBoardItemResponse? _detailItem;
     private WorkBoardItemResponse? _estimateItem;
     private WorkBoardItemResponse? _developerAssignmentItem;
     private WorkItemCollaborationResponse? _collaboration;
@@ -1972,6 +2005,7 @@
                 $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items",
                 new CreateBoardWorkItemRequest(_itemTitle, _itemDescription, _itemKind)
                 {
+                    TypeKey = WorkTypeKeyFor(_detail.Board.ProfileKey, _itemKind),
                     AccountableOrganizationUserId = _itemKind is "Initiative" or "Epic" ? null : _itemAccountableOwnerId,
                     StageAssignments = assignments,
                     Mentions = _itemTitleMentions.Concat(_itemDescriptionMentions).ToList()
@@ -1993,6 +2027,19 @@
             _saving = false;
         }
     }
+
+    private static string WorkTypeKeyFor(string profileKey, string kind) => (profileKey, kind) switch
+    {
+        (WorkBoardProfileKeys.SoftwareDeliveryV1, "Epic") => WorkItemTypeKeys.SoftwareEpicV1,
+        (WorkBoardProfileKeys.SoftwareDeliveryV1, "Story") => WorkItemTypeKeys.SoftwareStoryV1,
+        (WorkBoardProfileKeys.SoftwareDeliveryV1, "Task") => WorkItemTypeKeys.SoftwareTaskV1,
+        (WorkBoardProfileKeys.GeneralWorkV1, "Initiative") => WorkItemTypeKeys.GeneralInitiativeV1,
+        (WorkBoardProfileKeys.GeneralWorkV1, "Epic") => WorkItemTypeKeys.GeneralEpicV1,
+        (WorkBoardProfileKeys.GeneralWorkV1, "Story") => WorkItemTypeKeys.GeneralStoryV1,
+        (WorkBoardProfileKeys.GeneralWorkV1, "Task") => WorkItemTypeKeys.GeneralTaskV1,
+        _ => throw new InvalidOperationException(
+            $"Board profile '{profileKey}' does not provide a work type for '{kind}'.")
+    };
 
     private Guid? StageAgent(string key) => _stageAgentAssignments.GetValueOrDefault(key);
     private Guid? StageHuman(string key) => _stageHumanAssignments.GetValueOrDefault(key);
@@ -2848,6 +2895,67 @@
         "Low" => Color.Default,
         _ => Color.Info
     };
+
+    private static string TypeLabel(WorkBoardItemResponse item) => item.TypeKey switch
+    {
+        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.SoftwareEpicV1 => "Software Epic",
+        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.SoftwareStoryV1 => "Software Story",
+        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.SoftwareTaskV1 => "Software Task",
+        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.GeneralInitiativeV1 => "Initiative",
+        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.GeneralEpicV1 => "Epic",
+        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.GeneralStoryV1 => "Story",
+        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.GeneralTaskV1 => "Task",
+        _ => string.IsNullOrWhiteSpace(item.TypeKey) ? item.Kind : item.TypeKey
+    };
+
+    private static CSweet.WorkManagement.Contracts.WorkItemApproval? CurrentApproval(WorkBoardItemResponse item) =>
+        item.Approvals.OrderByDescending(x => x.UpdatedAt).FirstOrDefault();
+
+    private static Color ApprovalColor(string status) => status switch
+    {
+        CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Approved => Color.Success,
+        CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Waived => Color.Info,
+        CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.ChangesRequested => Color.Error,
+        _ => Color.Warning
+    };
+
+    private static Severity ApprovalSeverity(string status) => status switch
+    {
+        CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Approved => Severity.Success,
+        CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Waived => Severity.Info,
+        CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.ChangesRequested => Severity.Error,
+        _ => Severity.Warning
+    };
+
+    private Task OpenItemDetailsAsync(WorkBoardItemResponse item)
+    {
+        _detailItem = item;
+        _itemDetailsOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private void SelectDetailItem(WorkBoardItemResponse item) => _detailItem = item;
+
+    private IReadOnlyList<WorkBoardItemResponse> RelatedItems(WorkBoardItemResponse item)
+    {
+        if (_detail is null) return [];
+        var dependencyIds = item.Planning?.DependencyItemIds ?? [];
+        return _detail.Items.Where(candidate =>
+                candidate.Id == item.ParentItemId ||
+                candidate.ParentItemId == item.Id ||
+                dependencyIds.Contains(candidate.Id) ||
+                (candidate.Planning?.DependencyItemIds.Contains(item.Id) ?? false))
+            .OrderBy(x => x.Kind)
+            .ThenBy(x => x.Identifier)
+            .ToList();
+    }
+
+    private async Task MoveFromDetailsAsync(WorkBoardItemResponse item, WorkBoardColumnResponse column)
+    {
+        await MoveItemAsync(item, column);
+        if (_detail is not null)
+            _detailItem = _detail.Items.FirstOrDefault(x => x.Id == item.Id);
+    }
 
     private static Color DueDateColor(DateTimeOffset dueDate) =>
         dueDate < DateTimeOffset.UtcNow ? Color.Error :

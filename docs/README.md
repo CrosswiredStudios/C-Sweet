@@ -21,6 +21,8 @@ The normative plugin contract, grant lifecycle, proxy policy, administrator runb
 13. `12-example-scenarios.md`
 14. `13-system-boundaries-and-deployment.md`
 15. `14-application-design-system.md`
+16. `15-team-structure-and-role-occupancy.md`
+17. `16-chief-of-staff-agent-refinement.md`
 
 ## Product and platform guides
 

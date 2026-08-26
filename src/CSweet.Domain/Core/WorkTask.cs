@@ -37,6 +37,11 @@ public sealed class WorkTask
     public string? Identifier { get; set; }
     public string? DevelopmentBriefJson { get; set; }
     public string? PlanningSpecificationJson { get; set; }
+    public string TypeKey { get; set; } = "general.task.v1";
+    public long PlanningRevision { get; set; } = 1;
+    public Guid? ProposalCoordinationSessionId { get; set; }
+    public string? ProposalArtifactDigest { get; set; }
+    public string? ProposalItemKey { get; set; }
     public string? DeliverySpecificationJson { get; set; }
     public string? QualityBriefJson { get; set; }
     public bool IsQaTrackingDefect { get; set; }
@@ -80,4 +85,5 @@ public sealed class WorkTask
     public OrganizationUser? AccountableOrganizationUser { get; set; }
     public OrganizationUser? CreatedByOrganizationUser { get; set; }
     public ICollection<CSweet.Domain.WorkManagement.WorkItemStageAssignment> StageAssignments { get; set; } = [];
+    public ICollection<CSweet.Domain.WorkManagement.WorkItemApproval> Approvals { get; set; } = [];
 }

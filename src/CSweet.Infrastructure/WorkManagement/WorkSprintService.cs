@@ -179,6 +179,14 @@ public sealed class WorkSprintService(
                         x.DeliverySpecificationJson == null, cancellationToken))
                     throw new InvalidOperationException(
                         "Planning-only work must be finalized with a repository and base branch before the sprint can start.");
+                if (await db.WorkItemApprovals.AnyAsync(x =>
+                        x.WorkItem!.SprintId == sprint.Id &&
+                        (x.PlanningRevision != x.WorkItem.PlanningRevision ||
+                         (x.Status != CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Approved &&
+                          x.Status != CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Waived)),
+                        cancellationToken))
+                    throw new InvalidOperationException(
+                        "Every required specialist approval must be current before the sprint can start.");
                 if (await db.WorkSprints.AnyAsync(x =>
                         x.BoardId == boardId &&
                         x.Status == WorkSprintStatus.Active &&

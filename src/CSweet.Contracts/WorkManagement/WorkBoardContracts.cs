@@ -21,6 +21,9 @@ public static class WorkItemActions
 {
     public const string Read = WorkManagementCapabilityNames.ItemRead;
     public const string Create = WorkManagementCapabilityNames.ItemCreate;
+    public const string ReadTypes = WorkManagementCapabilityNames.ItemTypesReadV1;
+    public const string RevisePlanning = WorkManagementCapabilityNames.ItemPlanningReviseV1;
+    public const string DecideApproval = WorkManagementCapabilityNames.ItemApprovalDecideV1;
     public const string FinalizeDelivery = WorkManagementCapabilityNames.ItemFinalizeDelivery;
     public const string Update = "work.item.update";
     public const string Start = WorkManagementCapabilityNames.ItemStart;
@@ -35,7 +38,8 @@ public static class WorkItemActions
     public const string QualitySubmit = WorkManagementCapabilityNames.ItemQualitySubmit;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Create, FinalizeDelivery, Update, Move, Transfer, Comment, ReadComments, Estimate];
+        [Read, Create, ReadTypes, RevisePlanning, DecideApproval, FinalizeDelivery,
+         Update, Move, Transfer, Comment, ReadComments, Estimate];
 }
 
 public static class WorkSprintActions
@@ -152,6 +156,7 @@ public sealed record WorkBoardSummaryResponse(
     public Guid? TeamId { get; init; }
     public Guid? ManagerOrganizationUserId { get; init; }
     public string Key { get; init; } = string.Empty;
+    public string ProfileKey { get; init; } = WorkBoardProfileKeys.GeneralWorkV1;
 }
 
 public sealed record WorkBoardDetailResponse(
@@ -171,6 +176,7 @@ public sealed record CreateWorkBoardRequest(
 {
     public Guid? ManagerOrganizationUserId { get; init; }
     public string? Key { get; init; }
+    public string ProfileKey { get; init; } = WorkBoardProfileKeys.GeneralWorkV1;
 }
 
 public sealed record UpdateWorkBoardRequest(
@@ -227,10 +233,16 @@ public sealed record WorkBoardItemResponse(
     SoftwareDevelopmentBrief? Development = null,
     long AssignmentRevision = 0)
 {
+    public string TypeKey { get; init; } = string.Empty;
+    public long PlanningRevision { get; init; }
     public string? Identifier { get; init; }
     public Guid? AccountableOrganizationUserId { get; init; }
     public IReadOnlyList<WorkStageAssignment> StageAssignments { get; init; } = [];
     public IReadOnlyList<WorkItemMentionSpan> Mentions { get; init; } = [];
+    public IReadOnlyList<CSweet.WorkManagement.Contracts.WorkItemApproval> Approvals { get; init; } = [];
+    public WorkItemPlanningSpecification? Planning { get; init; }
+    public WorkItemDeliverySpecification? Delivery { get; init; }
+    public WorkItemProposalProvenance? ProposalProvenance { get; init; }
 }
 
 public sealed record CreateBoardWorkItemRequest(
@@ -242,6 +254,10 @@ public sealed record CreateBoardWorkItemRequest(
     Guid? ParentItemId = null,
     DateTimeOffset? DueDate = null)
 {
+    [Required]
+    public string TypeKey { get; init; } = string.Empty;
+    public WorkItemPlanningSpecification? Planning { get; init; }
+    public WorkItemProposalProvenance? ProposalProvenance { get; init; }
     public Guid? AccountableOrganizationUserId { get; init; }
     public IReadOnlyList<WorkStageAssignment> StageAssignments { get; init; } = [];
     public IReadOnlyList<WorkItemMentionInput> Mentions { get; init; } = [];

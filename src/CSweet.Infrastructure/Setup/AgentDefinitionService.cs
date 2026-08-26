@@ -2,6 +2,7 @@ using System.Text.Json;
 using CSweet.Application.Setup;
 using CSweet.AI.Providers;
 using CSweet.Contracts.Agents;
+using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -308,6 +309,24 @@ public sealed class AgentDefinitionService(
 
         if (package.BuildJobs.Any(x => x.Status is AgentBuildStatus.Cloning or AgentBuildStatus.Building))
             throw new AgentInstallationException("The agent is currently building. Wait for the build to finish before removing it.");
+
+        var hireOperations = await db.AgentHireOperations
+            .Where(x => x.AgentDefinitionId == definition.Id)
+            .ToListAsync(cancellationToken);
+        var activeHire = hireOperations.FirstOrDefault(x => x.Status != AgentHireOperationStatus.Failed);
+        if (activeHire is not null)
+            throw new AgentInstallationException(
+                "This agent definition still has an active or completed hire operation. Remove the related agent employee or wait for the hire to finish.");
+        var now = DateTimeOffset.UtcNow;
+        foreach (var failedHire in hireOperations)
+        {
+            // Failed hire operations are durable history, not live usages of the definition.
+            // Detach them so a package that never installed can be removed
+            // and imported cleanly while preserving the failure record.
+            failedHire.AgentDefinitionId = null;
+            failedHire.DismissedAt ??= now;
+            failedHire.UpdatedAt = now;
+        }
 
         var removePackage = !await db.AgentInstallations.AnyAsync(
                                 x => x.PackageVersionId == package.Id, cancellationToken) &&

@@ -265,6 +265,99 @@ public sealed class AgentCoordinationService(
         return await MapAsync(session, cancellationToken);
     }
 
+    public async Task<AgentCoordinationSession> StartBoardAsync(
+        Guid organizationId,
+        Guid initiatorOrganizationUserId,
+        Guid initiatorInstallationId,
+        StartBoardCoordinationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateBoardStart(request);
+        var existing = await QuerySession().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey,
+            cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.SourceKind != "Board" || existing.SourceBoardId != request.BoardId ||
+                existing.InitiatorOrganizationUserId != initiatorOrganizationUserId ||
+                existing.TargetOrganizationUserId != request.TargetOrganizationUserId)
+                throw new InvalidOperationException(
+                    "The board coordination idempotency key is already bound to another collaboration.");
+            return await MapAsync(existing, cancellationToken);
+        }
+
+        var board = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == request.BoardId && x.OrganizationId == organizationId &&
+            x.ArchivedAt == null && x.TeamId != null, cancellationToken)
+            ?? throw new InvalidOperationException("Board coordination requires an active team board.");
+        var participantIds = new[] { initiatorOrganizationUserId, request.TargetOrganizationUserId };
+        var participants = await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
+                participantIds.Contains(x.Id) && x.OrganizationId == organizationId &&
+                x.IsActive && x.AgentInstallationId != null)
+            .Select(x => new
+            {
+                x.Id,
+                InstallationId = x.AgentInstallationId!.Value,
+                InTeam = db.TeamMemberships.Any(m => m.OrganizationId == organizationId &&
+                    m.TeamId == board.TeamId && m.OrganizationUserId == x.Id && m.EndedAt == null)
+            }).ToListAsync(cancellationToken);
+        if (participants.Count != 2 || participants.Any(x => !x.InTeam) ||
+            participants.Single(x => x.Id == initiatorOrganizationUserId).InstallationId != initiatorInstallationId)
+            throw new UnauthorizedAccessException(
+                "Both board-collaboration participants must be active agents on the board team.");
+        if (board.ManagerOrganizationUserId != initiatorOrganizationUserId &&
+            board.ManagerOrganizationUserId != request.TargetOrganizationUserId)
+            throw new UnauthorizedAccessException(
+                "Board coordination must include the accountable board manager.");
+        var targetInstallationId = participants.Single(x =>
+            x.Id == request.TargetOrganizationUserId).InstallationId;
+        var chatAction = await hub.CreateAsync(
+            organizationId, initiatorOrganizationUserId,
+            new CreateCommunicationChatRequest(
+                null, $"Board planning: {request.Subject.Trim()}", true, true,
+                [request.TargetOrganizationUserId]), cancellationToken);
+        var chat = chatAction.Chat ?? throw new InvalidOperationException(chatAction.Message);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var session = new DomainSession
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, ConversationId = chat.Id,
+            SourceKind = "Board", SourceBoardId = request.BoardId, MaximumTurns = 18,
+            InitiatorOrganizationUserId = initiatorOrganizationUserId,
+            InitiatorInstallationId = initiatorInstallationId,
+            TargetOrganizationUserId = request.TargetOrganizationUserId,
+            TargetInstallationId = targetInstallationId,
+            CurrentOrganizationUserId = request.TargetOrganizationUserId,
+            Subject = request.Subject.Trim(), Objective = request.Objective.Trim(),
+            SuccessCriteriaJson = JsonSerializer.Serialize(
+                request.SuccessCriteria.Select(x => x.Trim()).ToArray(), JsonOptions),
+            Status = DomainStatus.Active, Revision = 1, NextTurnOrdinal = 1,
+            IdempotencyKey = request.IdempotencyKey.Trim(), CreatedAt = now, UpdatedAt = now
+        };
+        var initialMessage = AppendMessage(session, initiatorOrganizationUserId,
+            request.InitialMessage.Trim(), $"coordination:{session.Id:N}:initial");
+        var initialTurn = new DomainTurn
+        {
+            Id = Guid.NewGuid(), SessionId = session.Id, EventId = Guid.NewGuid(),
+            SpeakerOrganizationUserId = initiatorOrganizationUserId,
+            ConversationMessageId = initialMessage.Id, Ordinal = 0,
+            Disposition = AgentCoordinationDispositions.Continue,
+            Content = request.InitialMessage.Trim(),
+            IdempotencyKey = $"coordination:{session.Id:N}:initial", CreatedAt = now
+        };
+        ApplyArtifact(initialTurn, request.Artifact);
+        session.Turns.Add(initialTurn);
+        db.AgentCoordinationSessions.Add(session);
+        await db.SaveChangesAsync(cancellationToken);
+        session.CurrentAgentWorkItemId = await EnqueueTurnAsync(
+            session, targetInstallationId, request.TargetOrganizationUserId, cancellationToken);
+        initialTurn.AgentWorkItemId = session.CurrentAgentWorkItemId;
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return await MapAsync(session, cancellationToken);
+    }
+
     public async Task<AgentCoordinationSession> RespondAsync(
         Guid organizationId,
         Guid actorOrganizationUserId,
@@ -500,7 +593,10 @@ public sealed class AgentCoordinationService(
             CSweet.Domain.Setup.AgentWorkKind.Event,
             AgentCoordinationEvents.TurnRequested,
             JsonSerializer.SerializeToElement(request, JsonOptions),
-            $"coordination:{session.Id:N}:turn:{session.NextTurnOrdinal}",
+            // A resumed logical turn has the same ordinal but a new session revision and
+            // therefore a different payload. Include the revision so recovery never collides
+            // with the failed delivery's idempotency record.
+            $"coordination:{session.Id:N}:turn:{session.NextTurnOrdinal}:revision:{session.Revision}",
             DateTimeOffset.UtcNow.Add(TurnDeadline),
             correlationId: session.Id.ToString("D"),
             causationId: session.Turns.OrderByDescending(x => x.Ordinal).First().Id.ToString("D"),
@@ -524,6 +620,7 @@ public sealed class AgentCoordinationService(
         {
             SourceKind = mapped.SourceKind,
             WorkSource = mapped.WorkSource,
+            BoardSource = mapped.BoardSource,
             MaximumTurns = mapped.MaximumTurns
         };
     }
@@ -622,6 +719,9 @@ public sealed class AgentCoordinationService(
                     session.SourceSprintExecutionId.Value, session.SourceStageExecutionId.Value,
                     session.SourceAssignmentRevision.Value)
                 : null,
+            BoardSource = session.SourceKind == "Board" && session.SourceBoardId.HasValue
+                ? new AgentCoordinationBoardSource(session.SourceBoardId.Value)
+                : null,
             MaximumTurns = session.MaximumTurns
         };
     }
@@ -660,6 +760,16 @@ public sealed class AgentCoordinationService(
             string.IsNullOrWhiteSpace(request.InitialMessage) || string.IsNullOrWhiteSpace(request.IdempotencyKey) ||
             request.SuccessCriteria.Count == 0 || request.SuccessCriteria.Any(string.IsNullOrWhiteSpace))
             throw new ArgumentException("Work coordination content and success criteria are required.");
+        ValidateArtifact(request.Artifact);
+    }
+
+    private static void ValidateBoardStart(StartBoardCoordinationRequest request)
+    {
+        if (request.TargetOrganizationUserId == Guid.Empty || request.BoardId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(request.Subject) || string.IsNullOrWhiteSpace(request.Objective) ||
+            string.IsNullOrWhiteSpace(request.InitialMessage) || string.IsNullOrWhiteSpace(request.IdempotencyKey) ||
+            request.SuccessCriteria.Count == 0 || request.SuccessCriteria.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("Board coordination target, board, content, and success criteria are required.");
         ValidateArtifact(request.Artifact);
     }
 

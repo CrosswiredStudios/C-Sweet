@@ -385,6 +385,30 @@ public sealed class AgentDefinitionLifecycleTests
         Assert.Empty(await db.AgentPackageSources.ToListAsync());
     }
 
+    [Fact]
+    public async Task Remove_DetachesFailedHireOperationFromDefinitionThatNeverInstalled()
+    {
+        await using var db = CreateDb();
+        var package = SeedPackage(db, AgentPackageVersionStatus.Failed, requiredConfiguration: false);
+        var definition = SeedDefinition(db, package, ActivationMode.OnDemand);
+        var operation = new AgentHireOperation
+        {
+            Id = Guid.NewGuid(), WorkflowId = Guid.NewGuid(), OrganizationId = Guid.NewGuid(),
+            AgentDefinitionId = definition.Id, Status = AgentHireOperationStatus.Failed,
+            Error = "Package validation failed.", CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.AgentHireOperations.Add(operation);
+        await db.SaveChangesAsync();
+        var service = new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db));
+
+        await service.RemoveAsync(definition.Id);
+
+        Assert.Null(operation.AgentDefinitionId);
+        Assert.NotNull(operation.DismissedAt);
+        Assert.Empty(await db.AgentDefinitions.ToListAsync());
+    }
+
     [Theory]
     [InlineData(ActivationMode.AlwaysOn, 1)]
     [InlineData(ActivationMode.Scheduled, 0)]

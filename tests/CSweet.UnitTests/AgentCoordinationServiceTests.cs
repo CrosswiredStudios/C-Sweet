@@ -273,6 +273,18 @@ public sealed class AgentCoordinationServiceTests
     public async Task InitiatorCanListAndIdempotentlyResumeItsFailedSession()
     {
         await using var fixture = await Fixture.CreateAsync();
+        var failedDelivery = await fixture.Inbox.EnqueueAsync(
+            fixture.OrganizationId.ToString("D"),
+            fixture.InitiatorInstallationId,
+            CSweet.Domain.Setup.AgentWorkKind.Event,
+            AgentCoordinationEvents.TurnRequested,
+            JsonSerializer.SerializeToElement(new { sessionId = fixture.SessionId, revision = 2 }),
+            $"coordination:{fixture.SessionId:N}:turn:1",
+            DateTimeOffset.UtcNow.AddMinutes(5),
+            correlationId: fixture.SessionId.ToString("D"),
+            sourceType: "agent-coordination",
+            sourceId: Guid.NewGuid().ToString("D"));
+        failedDelivery.Status = AgentWorkStatus.DeadLetter;
         var stored = await fixture.Db.AgentCoordinationSessions.SingleAsync(x =>
             x.Id == fixture.SessionId);
         stored.Status = AgentCoordinationStatus.Failed;

@@ -244,6 +244,7 @@ public sealed class McpCapabilityRegistryTests
             null,
             "provisional-driving-loop")
         {
+            TypeKey = WorkItemTypeKeys.SoftwareStoryV1,
             Planning = new WorkItemPlanningSpecification(
                 ["The player can accelerate, brake, and steer."],
                 ["Input changes vehicle motion within one rendered frame."],

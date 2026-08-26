@@ -496,6 +496,9 @@ internal static class CoreConfigurations
         entity.Property(x => x.EstimatePoints).HasPrecision(8, 2);
         entity.Property(x => x.DevelopmentBriefJson).HasColumnType("text");
         entity.Property(x => x.PlanningSpecificationJson).HasColumnType("text");
+        entity.Property(x => x.TypeKey).HasMaxLength(200).IsRequired();
+        entity.Property(x => x.ProposalArtifactDigest).HasMaxLength(128);
+        entity.Property(x => x.ProposalItemKey).HasMaxLength(300);
         entity.Property(x => x.DeliverySpecificationJson).HasColumnType("text");
         entity.Property(x => x.QualityBriefJson).HasColumnType("text");
         entity.Property(x => x.MergeStatus).HasMaxLength(24).IsRequired();
@@ -518,6 +521,7 @@ internal static class CoreConfigurations
         entity.HasIndex(x => new { x.BoardColumnId, x.BoardRank });
         entity.HasIndex(x => new { x.SprintId, x.BoardRank });
         entity.HasIndex(x => new { x.BoardId, x.ArchivedAt, x.Status, x.BoardRank });
+        entity.HasIndex(x => new { x.BoardId, x.TypeKey, x.PlanningRevision });
         entity.HasIndex(x => new { x.CreatedByOrganizationUserId, x.CreationIdempotencyKey })
             .IsUnique()
             .HasFilter("\"CreationIdempotencyKey\" IS NOT NULL");
