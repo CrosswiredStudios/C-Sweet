@@ -269,6 +269,15 @@
                                                                      Min="@field.Minimum" Max="@field.Maximum" Step="@(field.Step ?? 1)"
                                                                      Variant="Variant.Outlined" Disabled="@_saving" />
                                                 }
+                                                else if (IsBusinessOperatingProfileField(field))
+                                                {
+                                                    <MudAutocomplete T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationString(field.Key)"
+                                                                     ValueChanged="@(value => SetConfigurationValue(field.Key, value))"
+                                                                     SearchFunc="@((value, token) => SearchConfigurationOptionsAsync(field, value, token))"
+                                                                     ToStringFunc="@(value => ConfigurationOptionLabel(field, value))"
+                                                                     CoerceText="false" ResetValueOnEmptyText="false" Clearable="true"
+                                                                     Variant="Variant.Outlined" Disabled="@_saving" />
+                                                }
                                                 else if (field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
                                                 {
                                                     <MudSelect T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationString(field.Key)"
@@ -585,6 +594,15 @@
                 _configurationValues[field.Key] = option.Value;
         }
 
+        var operatingProfile = preview.ConfigurationFields.FirstOrDefault(IsBusinessOperatingProfileField);
+        if (operatingProfile is not null)
+        {
+            _configurationValues[operatingProfile.Key] = BusinessOperatingProfileRecommender.Recommend(
+                _formIndustry,
+                _formMission,
+                operatingProfile.Options);
+        }
+
         var providerField = preview.ConfigurationFields.FirstOrDefault(IsProviderField);
         var selectedProvider = providerField is null
             ? fallbackProvider
@@ -779,6 +797,23 @@
     }
     private static bool IsProviderField(PluginConfigurationField field) => field.Type.Equals("provider", StringComparison.OrdinalIgnoreCase) || field.Type.Equals("llmProvider", StringComparison.OrdinalIgnoreCase);
     private static bool IsModelField(PluginConfigurationField field) => field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) || field.Type.Equals("llmModel", StringComparison.OrdinalIgnoreCase);
+    private static bool IsBusinessOperatingProfileField(PluginConfigurationField field) =>
+        string.Equals(field.Key, BusinessOperatingProfileRecommender.ConfigurationKey, StringComparison.Ordinal);
+    private static string ConfigurationOptionLabel(PluginConfigurationField field, string? value) =>
+        field.Options?.FirstOrDefault(x => string.Equals(x.Value, value, StringComparison.Ordinal))?.Label ?? value ?? string.Empty;
+    private static Task<IEnumerable<string>> SearchConfigurationOptionsAsync(
+        PluginConfigurationField field,
+        string? value,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var options = (field.Options ?? [])
+            .Where(x => string.IsNullOrWhiteSpace(value) ||
+                x.Label.Contains(value, StringComparison.OrdinalIgnoreCase) ||
+                x.Value.Contains(value, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Value);
+        return Task.FromResult(options);
+    }
     private static string RequiredLabel(string label, bool required) => required ? $"{label} (required)" : label;
     private static string ShortHash(string value) => value.Length <= 9 ? value : value[..9];
     private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);

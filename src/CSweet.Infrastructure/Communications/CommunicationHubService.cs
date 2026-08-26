@@ -873,8 +873,8 @@ public sealed class CommunicationHubService(
             isSystemAction ? "C-Sweet" : sender?.DisplayName ?? (message.Role == ConversationRole.Assistant ? "Assistant" : "Unknown"),
             isSystemAction ? "System" : sender?.EmployeeType.ToString() ?? (message.Role == ConversationRole.Assistant ? "Agent" : "Human"),
             message.Content, message.CreatedAt, message.ChatTurnId,
-            !isSystemAction && message.Role == ConversationRole.Assistant && message.ChatTurnId.HasValue &&
-            decisions?.TryGetValue(message.ChatTurnId.Value, out var decision) == true ? decision : null,
+            !isSystemAction && message.Role == ConversationRole.Assistant &&
+            TryGetDecision(message, decisions, out var decision) ? decision : null,
             actions ?? [],
             resourceChange,
             hiringWorkflow)
@@ -896,6 +896,26 @@ public sealed class CommunicationHubService(
                 ? CommunicationMessageTypes.SystemAction
                 : CommunicationMessageTypes.Standard
         };
+    }
+
+    private static bool TryGetDecision(
+        ConversationMessage message,
+        IReadOnlyDictionary<Guid, ExecutiveDecisionCardResponse>? decisions,
+        out ExecutiveDecisionCardResponse? decision)
+    {
+        decision = null;
+        if (decisions is null) return false;
+        if (decisions.TryGetValue(message.Id, out var byMessage))
+        {
+            decision = byMessage;
+            return true;
+        }
+        if (message.ChatTurnId.HasValue && decisions.TryGetValue(message.ChatTurnId.Value, out var byTurn))
+        {
+            decision = byTurn;
+            return true;
+        }
+        return false;
     }
 
     private async Task<IReadOnlyList<ValidatedMention>> ValidateMentionsAsync(

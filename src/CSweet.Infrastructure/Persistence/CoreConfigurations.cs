@@ -743,6 +743,7 @@ internal static class CoreConfigurations
         entity.HasIndex(x => new { x.OriginatingInstallationId, x.IdempotencyKey }).IsUnique();
         entity.HasIndex(x => x.ConversationMessageId);
         entity.HasIndex(x => x.ChatTurnId);
+        entity.HasIndex(x => x.ConversationMessageId);
         entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         entity.HasOne<ConversationMessage>().WithMany().HasForeignKey(x => x.ConversationMessageId).OnDelete(DeleteBehavior.Cascade);
         entity.HasOne<ChatTurn>().WithMany().HasForeignKey(x => x.ChatTurnId).OnDelete(DeleteBehavior.Cascade);
@@ -808,6 +809,7 @@ internal static class CoreConfigurations
         entity.HasIndex(x => x.ChatTurnId);
         entity.HasOne(x => x.Conversation).WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         entity.HasOne(x => x.ChatTurn).WithMany().HasForeignKey(x => x.ChatTurnId).OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne(x => x.ConversationMessage).WithMany().HasForeignKey(x => x.ConversationMessageId).OnDelete(DeleteBehavior.Cascade);
     }
 
     static void ConfigureMemoryCaptureOutbox(EntityTypeBuilder<MemoryCaptureOutboxItem> entity)

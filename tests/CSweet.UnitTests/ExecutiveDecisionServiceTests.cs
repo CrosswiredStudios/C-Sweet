@@ -19,9 +19,9 @@ public sealed class ExecutiveDecisionServiceTests
         var service = new ExecutiveDecisionService(db, new ChatTurnService(db), audit);
         var options = new[] { new CreateExecutiveDecisionOption("a", "Proceed", null), new CreateExecutiveDecisionOption("b", "Wait", null) };
 
-        var first = await service.CreateAsync(new(setup.OrganizationId, setup.ConversationId, setup.TurnId,
+        var first = await service.CreateAsync(new(setup.OrganizationId, setup.ConversationId, setup.TurnId, null,
             setup.InstallationId, "Proceed now?", options, "a", "decision-1"));
-        var second = await service.CreateAsync(new(setup.OrganizationId, setup.ConversationId, setup.TurnId,
+        var second = await service.CreateAsync(new(setup.OrganizationId, setup.ConversationId, setup.TurnId, null,
             setup.InstallationId, "Choose the launch path", options, "a", "decision-2"));
 
         Assert.Equal("Superseded", (await db.ExecutiveDecisions.SingleAsync(x => x.Id == first.Id)).Status.ToString());
@@ -36,7 +36,7 @@ public sealed class ExecutiveDecisionServiceTests
         var setup = await SeedAsync(db);
         var audit = new TestAuditEventWriter();
         var service = new ExecutiveDecisionService(db, new ChatTurnService(db), audit);
-        var decision = await service.CreateAsync(new(setup.OrganizationId, setup.ConversationId, setup.TurnId,
+        var decision = await service.CreateAsync(new(setup.OrganizationId, setup.ConversationId, setup.TurnId, null,
             setup.InstallationId, "Choose", [new("a", "Proceed", null), new("b", "Wait", null)], "a", "decision"));
 
         var first = await service.AnswerAsync(setup.OrganizationId, setup.ConversationId, decision.Id, setup.OwnerId,
@@ -53,11 +53,43 @@ public sealed class ExecutiveDecisionServiceTests
         Assert.DoesNotContain("Run a smaller pilot", string.Join("", audit.Events.Select(x => x.MetadataJson)));
     }
 
+    [Fact]
+    public async Task MessageAttachedDecision_IsReturnedForLifecycleMessageAndStartsNextTurn()
+    {
+        await using var db = CreateDb();
+        var setup = await SeedAsync(db);
+        var service = new ExecutiveDecisionService(db, new ChatTurnService(db));
+
+        var decision = await service.CreateAsync(new(
+            setup.OrganizationId,
+            setup.ConversationId,
+            null,
+            setup.AssistantMessageId,
+            setup.InstallationId,
+            "Where should we focus first?",
+            [new("product", "Product", null), new("legal", "Legal", null)],
+            "product",
+            "onboarding-focus"));
+
+        var cards = await service.ListForMessagesAsync(setup.OrganizationId, setup.ConversationId);
+        var answered = await service.AnswerAsync(
+            setup.OrganizationId,
+            setup.ConversationId,
+            decision.Id,
+            setup.OwnerId,
+            new AnswerExecutiveDecisionRequest("legal", null, "answer-focus"));
+
+        Assert.Equal(decision.Id, cards[setup.AssistantMessageId].Id);
+        Assert.True(answered.Succeeded);
+        var nextTurn = await db.ChatTurns.SingleAsync(x => x.Id == answered.Turn!.Id);
+        Assert.Contains("Answer: Legal", (await db.CoreConversationMessages.SingleAsync(x => x.Id == nextTurn.UserMessageId)).Content);
+    }
+
     private static async Task<Setup> SeedAsync(CSweetDbContext db)
     {
         var organizationId = Guid.NewGuid(); var installationId = Guid.NewGuid();
         var ownerId = Guid.NewGuid(); var agentId = Guid.NewGuid(); var conversationId = Guid.NewGuid();
-        var turnId = Guid.NewGuid(); var messageId = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
+        var turnId = Guid.NewGuid(); var messageId = Guid.NewGuid(); var assistantMessageId = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
         db.CoreOrganizations.Add(new Organization { Id = organizationId, Name = "Example", CreatedAt = now, UpdatedAt = now });
         db.CoreOrganizationUsers.AddRange(
             new OrganizationUser { Id = ownerId, OrganizationId = organizationId, DisplayName = "Owner", EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner, CreatedAt = now },
@@ -69,14 +101,16 @@ public sealed class ExecutiveDecisionServiceTests
             new ConversationParticipant { Id = Guid.NewGuid(), ConversationId = conversationId, OrganizationUserId = agentId, JoinedAt = now });
         db.CoreConversationMessages.Add(new ConversationMessage { Id = messageId, ConversationId = conversationId, ChatTurnId = turnId,
             Role = ConversationRole.User, Content = "Help", CreatedAt = now, CorrelationId = Guid.NewGuid() });
+        db.CoreConversationMessages.Add(new ConversationMessage { Id = assistantMessageId, ConversationId = conversationId,
+            SenderOrganizationUserId = agentId, Role = ConversationRole.Assistant, Content = "Choose a focus", CreatedAt = now.AddSeconds(1), CorrelationId = Guid.NewGuid() });
         db.ChatTurns.Add(new ChatTurn { Id = turnId, OrganizationId = organizationId, ConversationId = conversationId,
             TargetAgentOrganizationUserId = agentId, UserMessageId = messageId, Status = ChatTurnStatus.Completed,
             CreatedAt = now, UpdatedAt = now, CompletedAt = now });
         await db.SaveChangesAsync();
-        return new(organizationId, installationId, ownerId, conversationId, turnId);
+        return new(organizationId, installationId, ownerId, conversationId, turnId, assistantMessageId);
     }
 
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
-    private sealed record Setup(Guid OrganizationId, Guid InstallationId, Guid OwnerId, Guid ConversationId, Guid TurnId);
+    private sealed record Setup(Guid OrganizationId, Guid InstallationId, Guid OwnerId, Guid ConversationId, Guid TurnId, Guid AssistantMessageId);
 }

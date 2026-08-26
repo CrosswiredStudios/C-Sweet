@@ -13,7 +13,8 @@ public sealed class ExecutiveDecision
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid ConversationId { get; set; }
-    public Guid ChatTurnId { get; set; }
+    public Guid? ChatTurnId { get; set; }
+    public Guid? ConversationMessageId { get; set; }
     public Guid RequestingInstallationId { get; set; }
     public string Prompt { get; set; } = string.Empty;
     public string OptionsJson { get; set; } = "[]";
@@ -32,4 +33,5 @@ public sealed class ExecutiveDecision
 
     public Conversation? Conversation { get; set; }
     public ChatTurn? ChatTurn { get; set; }
+    public ConversationMessage? ConversationMessage { get; set; }
 }

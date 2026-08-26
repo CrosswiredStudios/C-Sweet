@@ -7,7 +7,8 @@ public sealed record CreateExecutiveDecisionOption(string Id, string Label, stri
 public sealed record CreateExecutiveDecisionCommand(
     Guid OrganizationId,
     Guid ConversationId,
-    Guid ChatTurnId,
+    Guid? ChatTurnId,
+    Guid? ConversationMessageId,
     Guid RequestingInstallationId,
     string Prompt,
     IReadOnlyList<CreateExecutiveDecisionOption> Options,

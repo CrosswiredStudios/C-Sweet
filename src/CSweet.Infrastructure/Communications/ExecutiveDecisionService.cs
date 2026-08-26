@@ -43,15 +43,36 @@ public sealed class ExecutiveDecisionService(
         if (!options.Any(x => x.Id == recommendedOptionId))
             throw new ArgumentException("The recommended option must identify one of the supplied options.");
 
-        var turnIdentity = await (from turn in db.ChatTurns.AsNoTracking()
-            join agent in db.CoreOrganizationUsers.AsNoTracking()
-                on turn.TargetAgentOrganizationUserId equals agent.Id
-            where turn.Id == command.ChatTurnId && turn.OrganizationId == command.OrganizationId &&
-                  turn.ConversationId == command.ConversationId
-            select new { turn.Id, InstallationId = agent.AgentInstallationId })
-            .SingleOrDefaultAsync(cancellationToken);
-        if (turnIdentity?.InstallationId != command.RequestingInstallationId)
-            throw new InvalidOperationException("The decision must be attached to the requesting agent's active chat turn.");
+        if (command.ChatTurnId.HasValue == command.ConversationMessageId.HasValue)
+            throw new ArgumentException("Attach the decision to exactly one chat turn or conversation message.");
+        if (command.ChatTurnId.HasValue)
+        {
+            var turnIdentity = await (from turn in db.ChatTurns.AsNoTracking()
+                join agent in db.CoreOrganizationUsers.AsNoTracking()
+                    on turn.TargetAgentOrganizationUserId equals agent.Id
+                where turn.Id == command.ChatTurnId && turn.OrganizationId == command.OrganizationId &&
+                      turn.ConversationId == command.ConversationId
+                select agent.AgentInstallationId)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (turnIdentity != command.RequestingInstallationId)
+                throw new InvalidOperationException("The decision must be attached to the requesting agent's active chat turn.");
+        }
+        else
+        {
+            var messageIdentity = await (from message in db.CoreConversationMessages.AsNoTracking()
+                join conversation in db.CoreConversations.AsNoTracking()
+                    on message.ConversationId equals conversation.Id
+                join agent in db.CoreOrganizationUsers.AsNoTracking()
+                    on message.SenderOrganizationUserId equals agent.Id
+                where message.Id == command.ConversationMessageId &&
+                      message.ConversationId == command.ConversationId &&
+                      conversation.OrganizationId == command.OrganizationId &&
+                      message.Role == ConversationRole.Assistant
+                select agent.AgentInstallationId)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (messageIdentity != command.RequestingInstallationId)
+                throw new InvalidOperationException("The decision must be attached to a message sent by the requesting agent.");
+        }
 
         var now = DateTimeOffset.UtcNow;
         var pending = await db.ExecutiveDecisions
@@ -62,7 +83,8 @@ public sealed class ExecutiveDecisionService(
         var decision = new ExecutiveDecision
         {
             Id = Guid.NewGuid(), OrganizationId = command.OrganizationId, ConversationId = command.ConversationId,
-            ChatTurnId = command.ChatTurnId, RequestingInstallationId = command.RequestingInstallationId,
+            ChatTurnId = command.ChatTurnId, ConversationMessageId = command.ConversationMessageId,
+            RequestingInstallationId = command.RequestingInstallationId,
             Prompt = prompt, OptionsJson = JsonSerializer.Serialize(options, JsonOptions),
             RecommendedOptionId = recommendedOptionId, IdempotencyKey = idempotencyKey,
             Status = ExecutiveDecisionStatus.Pending, CreatedAt = now, UpdatedAt = now
@@ -94,13 +116,14 @@ public sealed class ExecutiveDecisionService(
                 {
                     command.ConversationId,
                     command.ChatTurnId,
+                    command.ConversationMessageId,
                     optionCount = options.Count,
                     recommendedOptionId,
                     promptBytes = promptBytes.Length,
                     promptSha256 = Convert.ToHexString(SHA256.HashData(promptBytes))
                 }, JsonOptions),
                 ExternalRequestId: decision.Id.ToString("D"),
-                CorrelationId: command.ChatTurnId.ToString("D"),
+                CorrelationId: (command.ChatTurnId ?? command.ConversationMessageId)!.Value.ToString("D"),
                 Actor: new AuditActor(
                     "Agent",
                     true,
@@ -124,7 +147,7 @@ public sealed class ExecutiveDecisionService(
                 x.Status != ExecutiveDecisionStatus.Cancelled)
             .OrderByDescending(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
-        return decisions.GroupBy(x => x.ChatTurnId)
+        return decisions.GroupBy(x => x.ConversationMessageId ?? x.ChatTurnId!.Value)
             .ToDictionary(group => group.Key, group => ToCard(group.First()));
     }
 
@@ -215,6 +238,7 @@ public sealed class ExecutiveDecisionService(
                 {
                     conversationId,
                     decision.ChatTurnId,
+                    decision.ConversationMessageId,
                     nextChatTurnId = started.Turn.Id,
                     selectedOptionId = selected?.Id,
                     usedFreeText = freeText is not null,
