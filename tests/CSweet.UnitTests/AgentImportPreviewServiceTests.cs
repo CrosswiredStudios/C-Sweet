@@ -89,6 +89,57 @@ public class AgentImportPreviewServiceTests
     }
 
     [Fact]
+    public async Task PreviewAsync_PreservesConditionalVisibilityMetadata()
+    {
+        await using var dbContext = CreateDbContext();
+        var manifest = WithConfiguration(
+            """{"key":"profile","type":"select","label":"Profile","required":true,"secret":false,"defaultValue":"general","options":[{"value":"general","label":"General"},{"value":"custom","label":"Custom"}]},{"key":"description","type":"textarea","label":"Description","required":true,"secret":false,"visibleWhenFieldKey":"profile","visibleWhenValue":"custom"}""");
+        var service = new AgentImportPreviewService(
+            dbContext,
+            new FakeGitHubAgentRepositoryClient(manifest),
+            new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest(
+            "https://github.com/example/research-agent"));
+
+        var description = result.ConfigurationFields.Single(field => field.Key == "description");
+        Assert.Equal("profile", description.VisibleWhenFieldKey);
+        Assert.Equal("custom", description.VisibleWhenValue);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RejectsInvalidConditionalVisibilityMetadata()
+    {
+        var invalidConfigurations = new (string Configuration, string Expected)[]
+        {
+            ("""{"key":"profile","type":"text","label":"Profile","required":false,"secret":false},{"key":"description","type":"text","label":"Description","required":false,"secret":false,"visibleWhenFieldKey":"profile"}""",
+                "must declare visibleWhenFieldKey and visibleWhenValue together"),
+            ("""{"key":"profile","type":"text","label":"Profile","required":false,"secret":false},{"key":"description","type":"text","label":"Description","required":false,"secret":false,"visibleWhenFieldKey":"missing","visibleWhenValue":"custom"}""",
+                "references unknown visibility field 'missing'"),
+            ("""{"key":"profile","type":"text","label":"Profile","required":false,"secret":false,"visibleWhenFieldKey":"profile","visibleWhenValue":"custom"}""",
+                "cannot control its own visibility"),
+            ("""{"key":"profile","type":"select","label":"Profile","required":false,"secret":false,"options":[{"value":"general","label":"General"}]},{"key":"description","type":"text","label":"Description","required":false,"secret":false,"visibleWhenFieldKey":"profile","visibleWhenValue":"custom"}""",
+                "visibility value is not declared"),
+            ("""{"key":"first","type":"text","label":"First","required":false,"secret":false,"visibleWhenFieldKey":"second","visibleWhenValue":"yes"},{"key":"second","type":"text","label":"Second","required":false,"secret":false,"visibleWhenFieldKey":"first","visibleWhenValue":"yes"}""",
+                "Configuration visibility cycle")
+        };
+
+        foreach (var (configuration, expected) in invalidConfigurations)
+        {
+            await using var dbContext = CreateDbContext();
+            var service = new AgentImportPreviewService(
+                dbContext,
+                new FakeGitHubAgentRepositoryClient(WithConfiguration(configuration)),
+                new TestAuditEventWriter());
+
+            var exception = await Assert.ThrowsAsync<AgentImportPreviewException>(() =>
+                service.PreviewAsync(new PreviewAgentImportRequest(
+                    "https://github.com/example/research-agent")));
+            Assert.Contains(expected, exception.Message, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task PreviewAsync_AcceptsLongRunningCapabilityWithinSdkLimit()
     {
         await using var dbContext = CreateDbContext();
@@ -325,6 +376,11 @@ public class AgentImportPreviewServiceTests
             .Options;
         return new CSweetDbContext(options);
     }
+
+    private static string WithConfiguration(string configuration) => ValidManifest().Replace(
+        """{"key":"workspaceId","type":"string","label":"Workspace ID","required":true,"secret":false}""",
+        configuration,
+        StringComparison.Ordinal);
 
     private static string ValidManifest() => """
         {

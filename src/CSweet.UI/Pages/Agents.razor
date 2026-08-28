@@ -362,7 +362,7 @@
                         <MudText Color="Color.Secondary" Class="mt-4">Schema @_schema.SchemaVersion from the signed package manifest.</MudText>
 
                         <div class="agent-config-form">
-                            @foreach (var field in _schema.Fields)
+                            @foreach (var field in _schema.Fields.Where(IsConfigurationFieldVisible))
                             {
                                 <div class="agent-config-field">
                                     @switch (field.Type)
@@ -547,7 +547,7 @@
                     <div class="agent-import-status-chips">
                         <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">@_importPreview.RuntimeType</MudChip>
                         <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@DisplayImportValue(_importPreview.DefaultActivationMode)</MudChip>
-                        @if (_importPreview.ConfigurationFields.Any(field => !field.Secret))
+                        @if (ImportConfigurationFieldCount > 0)
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">
                                 @ImportConfigurationFieldCount agent setting@(ImportConfigurationFieldCount == 1 ? string.Empty : "s")
@@ -613,7 +613,7 @@
                             @ApprovalSection("Network access", _importPreview.RequestedNetworkAccess, _approvedNetworkAccess)
                         </div>
                     </MudTabPanel>
-                    @if (_importPreview.ConfigurationFields.Any(field => !field.Secret))
+                    @if (ImportConfigurationFieldCount > 0)
                     {
                         <MudTabPanel Text="Agent settings" Icon="@Icons.Material.Filled.Settings">
                             <div class="agent-import-tab-content">
@@ -624,7 +624,7 @@
                                     </MudText>
                                 </div>
                                 <div class="agent-import-form-grid">
-                                    @foreach (var field in _importPreview.ConfigurationFields.Where(field => !field.Secret))
+                                    @foreach (var field in _importPreview.ConfigurationFields.Where(field => !field.Secret && IsImportConfigurationFieldVisible(field)))
                                     {
                                         <div class="agent-configuration-field">
                                             @if (IsImportProviderField(field))
@@ -860,7 +860,7 @@
                 This permanently removes the global <strong>@_removeInstallation?.AgentName</strong> definition.
             </MudText>
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                The definition can only be removed when no employees use it. Global defaults and unshared cached package records will be deleted. You will need to import and approve the agent again.
+                The definition can only be removed when no employees use it. Unused business installations, global defaults, and unshared cached package records will be deleted. You will need to import and approve the agent again.
             </MudAlert>
             @if (!string.IsNullOrWhiteSpace(_removeError))
             {
@@ -1030,10 +1030,10 @@
          HasMissingRequiredImportConfiguration);
     private bool HasMissingRequiredImportConfiguration =>
         _importPreview?.ConfigurationFields
-            .Where(configField => configField.Required && !configField.Secret)
+            .Where(configField => configField.Required && !configField.Secret && IsImportConfigurationFieldVisible(configField))
             .Any(configField => !HasImportConfigurationValue(configField)) == true;
     private int ImportConfigurationFieldCount =>
-        _importPreview?.ConfigurationFields.Count(configField => !configField.Secret) ?? 0;
+        _importPreview?.ConfigurationFields.Count(configField => !configField.Secret && IsImportConfigurationFieldVisible(configField)) ?? 0;
     private string ImportBlockerMessage => HasMissingRequiredImportConfiguration
         ? "Complete the required values on the Agent settings tab before installing."
         : _runtimeSettings is null
@@ -1947,7 +1947,7 @@
         try
         {
             var missingRequired = _schema.Fields
-                .Where(field => field.Required && IsMissingValue(field))
+                .Where(field => field.Required && IsConfigurationFieldVisible(field) && IsMissingValue(field))
                 .Select(field => field.Label)
                 .ToList();
             if (missingRequired.Count > 0)
@@ -2209,6 +2209,12 @@
             ? false
             : string.IsNullOrWhiteSpace(value.ToString());
     }
+
+    private bool IsConfigurationFieldVisible(AgentConfigurationField field) =>
+        AgentConfigurationVisibility.IsVisible(field, _formValues);
+
+    private bool IsImportConfigurationFieldVisible(PluginConfigurationField field) =>
+        AgentConfigurationVisibility.IsVisible(field, _importConfigurationValues);
 
     private static string FormatTokens(long tokens) => tokens >= 1_000_000
         ? $"{tokens / 1_000_000d:0.##}M"

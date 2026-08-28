@@ -305,7 +305,7 @@
                         Restore all defaults
                     </MudButton>
                 </MudStack>
-                @foreach (var field in _configurationSchema.Fields)
+                @foreach (var field in _configurationSchema.Fields.Where(IsConfigurationFieldVisible))
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                         @if (IsConfigurationOverridden(field.Key))

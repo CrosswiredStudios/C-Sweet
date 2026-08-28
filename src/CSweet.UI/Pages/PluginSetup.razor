@@ -71,6 +71,10 @@
                             @foreach (var key in step.ConfigurationKeys)
                             {
                                 var field = _setup.ConfigurationFields.FirstOrDefault(x => x.Key == key);
+                                if (field is not null && !AgentConfigurationVisibility.IsVisible(field, _values))
+                                {
+                                    continue;
+                                }
                                 if (field?.Type.Equals("boolean", StringComparison.OrdinalIgnoreCase) == true)
                                 {
                                     <MudCheckBox T="bool" Label="@(field.Label)" Value="@BooleanValue(key)"

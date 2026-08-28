@@ -131,6 +131,8 @@ public sealed record PluginConfigurationField
     public decimal? Step { get; init; }
     public string? DependsOnFieldKey { get; init; }
     public string? LessThanFieldKey { get; init; }
+    public string? VisibleWhenFieldKey { get; init; }
+    public string? VisibleWhenValue { get; init; }
 }
 
 public sealed record PluginConfigurationOption(string Value, string Label);

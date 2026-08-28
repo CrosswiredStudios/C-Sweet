@@ -491,6 +491,41 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                     errors.Add($"Configuration field '{field.Key}' depends on unknown field '{field.DependsOnFieldKey}'.");
             }
 
+            var hasVisibilityKey = !string.IsNullOrWhiteSpace(field.VisibleWhenFieldKey);
+            var hasVisibilityValue = !string.IsNullOrWhiteSpace(field.VisibleWhenValue);
+            if (hasVisibilityKey != hasVisibilityValue)
+            {
+                errors.Add($"Configuration field '{field.Key}' must declare visibleWhenFieldKey and visibleWhenValue together.");
+            }
+            else if (hasVisibilityKey)
+            {
+                if (string.Equals(field.Key, field.VisibleWhenFieldKey, StringComparison.Ordinal))
+                {
+                    errors.Add($"Configuration field '{field.Key}' cannot control its own visibility.");
+                }
+                else if (!fieldsByKey.TryGetValue(field.VisibleWhenFieldKey!, out var controllerGroup) ||
+                         controllerGroup.Length != 1)
+                {
+                    errors.Add($"Configuration field '{field.Key}' references unknown visibility field '{field.VisibleWhenFieldKey}'.");
+                }
+                else
+                {
+                    var controller = controllerGroup[0];
+                    var controllerType = controller.Type.Trim().ToLowerInvariant();
+                    if (controllerType is not ("string" or "text" or "textarea" or "select" or
+                        "provider" or "llmprovider" or "model" or "llmmodel"))
+                    {
+                        errors.Add($"Configuration field '{field.Key}' visibility controller '{controller.Key}' must contain text.");
+                    }
+                    else if (controllerType == "select" && controller.Options is { Count: > 0 } &&
+                             !controller.Options.Any(option => string.Equals(
+                                 option.Value, field.VisibleWhenValue, StringComparison.Ordinal)))
+                    {
+                        errors.Add($"Configuration field '{field.Key}' visibility value is not declared by '{controller.Key}'.");
+                    }
+                }
+            }
+
             if (!field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -529,6 +564,23 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                     break;
                 }
                 current = dependencyGroup[0];
+            }
+        }
+
+        foreach (var field in manifest.Configuration.Where(x => !string.IsNullOrWhiteSpace(x.Key)))
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal) { field.Key };
+            var current = field;
+            while (!string.IsNullOrWhiteSpace(current.VisibleWhenFieldKey) &&
+                   fieldsByKey.TryGetValue(current.VisibleWhenFieldKey, out var controllerGroup) &&
+                   controllerGroup.Length == 1)
+            {
+                if (!visited.Add(current.VisibleWhenFieldKey))
+                {
+                    errors.Add($"Configuration visibility cycle includes field '{field.Key}'.");
+                    break;
+                }
+                current = controllerGroup[0];
             }
         }
 

@@ -268,13 +268,13 @@
                             else
                             {
                                 <div class="connection-form">
-                                    @foreach (var field in _preview.ConfigurationFields.Where(x => !x.Secret))
+                                    @foreach (var field in _preview.ConfigurationFields.Where(x => !x.Secret && IsConfigurationFieldVisible(x)))
                                     {
                                         <MudTextField T="string" Label="@FieldLabel(field.Label, field.Required)" Value="@ConfigurationValue(field.Key)"
                                                       ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined"
                                                       Disabled="@_busy" HelperText="@ConfigurationHelp(_activePlugin?.Key, field.Key)" />
                                     }
-                                    @foreach (var field in _preview.ConfigurationFields.Where(x => x.Secret))
+                                    @foreach (var field in _preview.ConfigurationFields.Where(x => x.Secret && IsConfigurationFieldVisible(x)))
                                     {
                                         <MudTextField T="string" Label="@FieldLabel(field.Label, field.Required)" Value="@SecretValue(field.Key)"
                                                       ValueChanged="@(value => SetSecretValue(field.Key, value))" Variant="Variant.Outlined"
@@ -354,8 +354,8 @@
     private bool CanSaveConnection => _preview is not null
         && _approved
         && (_preview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _allPublicAcknowledged)
-        && _preview.ConfigurationFields.Where(x => x.Required && !x.Secret).All(x => HasValue(_configurationValues, x.Key))
-        && _preview.ConfigurationFields.Where(x => x.Required && x.Secret).All(x => HasValue(_secretValues, x.Key))
+        && _preview.ConfigurationFields.Where(x => x.Required && !x.Secret && IsConfigurationFieldVisible(x)).All(x => HasValue(_configurationValues, x.Key))
+        && _preview.ConfigurationFields.Where(x => x.Required && x.Secret && IsConfigurationFieldVisible(x)).All(x => HasValue(_secretValues, x.Key))
         && _preview.CredentialBindings.All(x => HasValue(_secretValues, x.Name));
 
     protected override async Task OnInitializedAsync() => await LoadInstallationsAsync();
@@ -500,6 +500,8 @@
     private string ConfigurationValue(string key) => _configurationValues.GetValueOrDefault(key, string.Empty);
     private string SecretValue(string key) => _secretValues.GetValueOrDefault(key, string.Empty);
     private void SetConfigurationValue(string key, string value) => _configurationValues[key] = value;
+    private bool IsConfigurationFieldVisible(PluginConfigurationField field) =>
+        AgentConfigurationVisibility.IsVisible(field, _configurationValues);
     private void SetSecretValue(string key, string value) => _secretValues[key] = value;
     private static bool HasValue(IReadOnlyDictionary<string, string> values, string key) => values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value);
 

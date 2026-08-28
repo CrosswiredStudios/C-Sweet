@@ -230,7 +230,7 @@
                                 {
                                     <div class="agent-config-heading"><h4>Agent configuration</h4><p>Choose the backing and values this employee will use in this business.</p></div>
                                     <div class="agent-config-grid">
-                                        @foreach (var field in _agentPreview.ConfigurationFields.Where(x => !x.Secret))
+                                        @foreach (var field in _agentPreview.ConfigurationFields.Where(x => !x.Secret && IsConfigurationFieldVisible(x)))
                                         {
                                             <div class="agent-configuration-field">
                                                 @if (IsProviderField(field))
@@ -292,7 +292,8 @@
                                                 else
                                                 {
                                                     <MudTextField T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@ConfigurationString(field.Key)"
-                                                                  ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined" Disabled="@_saving" />
+                                                                  ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Lines="@(field.Type.Equals(AgentConfigurationFieldTypes.TextArea, StringComparison.OrdinalIgnoreCase) ? 4 : 1)"
+                                                                  Variant="Variant.Outlined" Disabled="@_saving" />
                                                 }
                                                 @if (!string.IsNullOrWhiteSpace(field.Description))
                                                 {
@@ -300,7 +301,7 @@
                                                 }
                                             </div>
                                         }
-                                        @foreach (var field in _agentPreview.ConfigurationFields.Where(x => x.Secret))
+                                        @foreach (var field in _agentPreview.ConfigurationFields.Where(x => x.Secret && IsConfigurationFieldVisible(x)))
                                         {
                                             <MudTextField T="string" Label="@RequiredLabel(field.Label, field.Required)" Value="@SecretValue(field.Key)"
                                                           ValueChanged="@(value => SetSecretValue(field.Key, value))" Variant="Variant.Outlined" InputType="InputType.Password"
@@ -418,8 +419,8 @@
     private bool CanCreateBusiness => _agentPreview is not null && _agentApproved && !string.IsNullOrWhiteSpace(_chiefDisplayName) &&
         (_agentPreview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _allPublicWebApproved) &&
         (!RuntimeApprovalRequired || _runtimeApproved) &&
-        _agentPreview.ConfigurationFields.Where(x => x.Required && !x.Secret).All(HasConfigurationValue) &&
-        _agentPreview.ConfigurationFields.Where(x => x.Required && x.Secret).All(x => HasValue(_secretValues, x.Key)) &&
+        _agentPreview.ConfigurationFields.Where(x => x.Required && !x.Secret && IsConfigurationFieldVisible(x)).All(HasConfigurationValue) &&
+        _agentPreview.ConfigurationFields.Where(x => x.Required && x.Secret && IsConfigurationFieldVisible(x)).All(x => HasValue(_secretValues, x.Key)) &&
         _agentPreview.CredentialBindings.All(x => HasValue(_secretValues, x.Name));
     private IReadOnlyList<string> ChiefReadinessNotes => _agentPreview is null
         ? []
@@ -799,6 +800,8 @@
     private static bool IsModelField(PluginConfigurationField field) => field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) || field.Type.Equals("llmModel", StringComparison.OrdinalIgnoreCase);
     private static bool IsBusinessOperatingProfileField(PluginConfigurationField field) =>
         string.Equals(field.Key, BusinessOperatingProfileRecommender.ConfigurationKey, StringComparison.Ordinal);
+    private bool IsConfigurationFieldVisible(PluginConfigurationField field) =>
+        AgentConfigurationVisibility.IsVisible(field, _configurationValues);
     private static string ConfigurationOptionLabel(PluginConfigurationField field, string? value) =>
         field.Options?.FirstOrDefault(x => string.Equals(x.Value, value, StringComparison.Ordinal))?.Label ?? value ?? string.Empty;
     private static Task<IEnumerable<string>> SearchConfigurationOptionsAsync(

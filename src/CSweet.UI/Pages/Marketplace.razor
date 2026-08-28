@@ -278,7 +278,7 @@
                                 </div>
                             </div>
                             <div class="hire-form-grid">
-                                @foreach (var field in _preview.ConfigurationFields)
+                                @foreach (var field in _preview.ConfigurationFields.Where(IsConfigurationFieldVisible))
                                 {
                                     <div class="hire-configuration-field">
                                         @if (IsProviderField(field))
@@ -392,7 +392,7 @@
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private bool HasMissingRequiredConfiguration =>
         _preview?.ConfigurationFields
-            .Where(configField => configField.Required)
+            .Where(configField => configField.Required && IsConfigurationFieldVisible(configField))
             .Any(configField => !HasConfigurationValue(configField)) == true;
 
     private IReadOnlyList<string> Categories => (_result?.Agents ?? [])
@@ -701,6 +701,9 @@
     private static bool IsModelField(PluginConfigurationField field) =>
         field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) ||
         field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmModel, StringComparison.OrdinalIgnoreCase);
+
+    private bool IsConfigurationFieldVisible(PluginConfigurationField field) =>
+        AgentConfigurationVisibility.IsVisible(field, _configurationValues);
 
     private static string FieldLabel(PluginConfigurationField field) =>
         field.Required ? $"{field.Label} (required)" : field.Label;

@@ -7,7 +7,10 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using CSweet.Office.Contracts.Workloads;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
@@ -410,6 +413,50 @@ public sealed class AgentDefinitionLifecycleTests
     }
 
     [Theory]
+    [InlineData(AgentHireOperationStatus.Succeeded)]
+    [InlineData(AgentHireOperationStatus.NeedsSetup)]
+    public async Task Remove_CleansOrphanedBusinessInstallationAndTerminalHireHistory(
+        AgentHireOperationStatus hireStatus)
+    {
+        await using var db = CreateDb();
+        var package = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        var definition = SeedDefinition(db, package, ActivationMode.OnDemand);
+        var installation = RuntimeInstallation(package, Guid.NewGuid().ToString("D"));
+        installation.AgentDefinitionId = definition.Id;
+        var operation = new AgentHireOperation
+        {
+            Id = Guid.NewGuid(), WorkflowId = Guid.NewGuid(), OrganizationId = Guid.NewGuid(),
+            AgentDefinitionId = definition.Id, Status = hireStatus,
+            CompletedAt = DateTimeOffset.UtcNow, CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.AddRange(installation, operation);
+        await db.SaveChangesAsync();
+        var builds = new RecordingBuildService(db);
+        var installationService = new AgentInstallationService(
+            db,
+            new TestAuditEventWriter(),
+            builds,
+            new NoOpWorkloadRunner(),
+            Options.Create(new AgentRuntimeManagerOptions()),
+            NullLogger<AgentInstallationService>.Instance);
+        var service = new AgentDefinitionService(
+            db,
+            new TestAuditEventWriter(),
+            builds,
+            installationService: installationService);
+
+        await service.RemoveAsync(definition.Id);
+
+        Assert.Empty(await db.AgentInstallations.ToListAsync());
+        Assert.Empty(await db.AgentDefinitions.ToListAsync());
+        Assert.Empty(await db.AgentPackageVersions.ToListAsync());
+        Assert.Empty(await db.AgentPackageSources.ToListAsync());
+        Assert.Null(operation.AgentDefinitionId);
+        Assert.NotNull(operation.DismissedAt);
+    }
+
+    [Theory]
     [InlineData(ActivationMode.AlwaysOn, 1)]
     [InlineData(ActivationMode.Scheduled, 0)]
     [InlineData(ActivationMode.OnDemand, 0)]
@@ -630,6 +677,35 @@ public sealed class AgentDefinitionLifecycleTests
         public Task<int> EnsureAlwaysOnRuntimesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<int> ProcessDueSchedulesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<int> ReconcileAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+    }
+
+    private sealed class NoOpWorkloadRunner : IAgentWorkloadRunner
+    {
+        public Task<IsolationWorkloadHandle> CreateAndStartAsync(
+            RuntimeWorkloadSpecification workload,
+            AgentTrustLevel trustLevel,
+            string? preferredProviderId = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IsolationWorkloadStatus?> InspectAsync(
+            IsolationWorkloadHandle handle,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IsolationWorkloadStatus?>(null);
+
+        public Task StopAsync(
+            IsolationWorkloadHandle handle,
+            TimeSpan gracePeriod,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task DestroyAsync(
+            IsolationWorkloadHandle handle,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<string> GetLogsAsync(
+            IsolationWorkloadHandle handle,
+            int maximumBytes,
+            CancellationToken cancellationToken = default) => Task.FromResult(string.Empty);
     }
 
     private sealed class RecordingBuildService(CSweetDbContext db) : IAgentBuildService

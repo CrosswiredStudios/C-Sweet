@@ -50,7 +50,9 @@ internal static class AgentConfigurationRules
             x.Minimum,
             x.Maximum,
             x.Step,
-            x.DependsOnFieldKey)).ToArray();
+            x.DependsOnFieldKey,
+            x.VisibleWhenFieldKey,
+            x.VisibleWhenValue)).ToArray();
 
     public static async Task ValidateAsync(
         CSweetDbContext db,
@@ -81,7 +83,7 @@ internal static class AgentConfigurationRules
         foreach (var field in fields.Values)
         {
             var present = settings.TryGetValue(field.Key, out var value) && HasValue(value);
-            if (requireRequired && field.Required && !present)
+            if (requireRequired && field.Required && IsVisible(field, settings) && !present)
                 throw new AgentInstallationException($"'{field.Label}' ({field.Key}) is required.");
             if (!present)
                 continue;
@@ -152,7 +154,19 @@ internal static class AgentConfigurationRules
 
     public static bool HasAllRequired(PluginManifest manifest, IReadOnlyDictionary<string, JsonElement> settings) =>
         manifest.Configuration.Where(x => !x.Secret && x.Required)
-            .All(field => settings.TryGetValue(field.Key, out var value) && HasValue(value));
+            .All(field => !IsVisible(field, settings) ||
+                settings.TryGetValue(field.Key, out var value) && HasValue(value));
+
+    public static bool IsVisible(
+        PluginConfigurationField field,
+        IReadOnlyDictionary<string, JsonElement> settings)
+    {
+        if (string.IsNullOrWhiteSpace(field.VisibleWhenFieldKey))
+            return true;
+        return settings.TryGetValue(field.VisibleWhenFieldKey, out var controller) &&
+               controller.ValueKind == JsonValueKind.String &&
+               string.Equals(controller.GetString(), field.VisibleWhenValue, StringComparison.Ordinal);
+    }
 
     private static bool HasValue(JsonElement value) => value.ValueKind switch
     {

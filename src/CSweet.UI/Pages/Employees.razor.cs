@@ -7,6 +7,7 @@ using CSweet.Contracts.Llm;
 using CSweet.Domain.Core;
 using CSweet.UI.Components.Employees;
 using CSweet.UI.Components.Employees.Models;
+using CSweet.UI.Services;
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
 
@@ -1216,6 +1217,9 @@ public partial class Employees
     private string ConfigurationString(string key) => _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
     private bool ConfigurationBoolean(string key) => _configurationValues.GetValueOrDefault(key) is true;
     private decimal? ConfigurationNumber(string key) => _configurationValues.GetValueOrDefault(key) as decimal?;
+
+    private bool IsConfigurationFieldVisible(AgentConfigurationField field) =>
+        AgentConfigurationVisibility.IsVisible(field, _configurationValues);
     private void SetConfigurationValue(string key, object? value) => _configurationValues[key] = value;
 
     private async Task SetProviderValueAsync(string key, string value)

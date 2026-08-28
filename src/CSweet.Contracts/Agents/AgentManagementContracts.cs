@@ -86,7 +86,9 @@ public sealed record AgentConfigurationField(
     decimal? Minimum = null,
     decimal? Maximum = null,
     decimal? Step = null,
-    string? DependsOnFieldKey = null);
+    string? DependsOnFieldKey = null,
+    string? VisibleWhenFieldKey = null,
+    string? VisibleWhenValue = null);
 
 public sealed record AgentConfigurationOption(
     string Value,

@@ -15,7 +15,8 @@ public sealed class AgentDefinitionService(
     IAuditEventWriter auditWriter,
     IAgentBuildService buildService,
     IModelCatalogClient? modelCatalog = null,
-    ILogger<AgentDefinitionService>? logger = null) : IAgentDefinitionService
+    ILogger<AgentDefinitionService>? logger = null,
+    IAgentInstallationService? installationService = null) : IAgentDefinitionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -301,31 +302,45 @@ public sealed class AgentDefinitionService(
                 "Remove those employees from the Employees page before removing the agent definition.");
         }
 
-        if (await db.AgentInstallations.AnyAsync(x => x.AgentDefinitionId == definition.Id, cancellationToken))
-        {
-            throw new AgentInstallationException(
-                "This agent definition is still used by an installation. Remove the related agent employee before removing the definition.");
-        }
-
         if (package.BuildJobs.Any(x => x.Status is AgentBuildStatus.Cloning or AgentBuildStatus.Building))
             throw new AgentInstallationException("The agent is currently building. Wait for the build to finish before removing it.");
 
         var hireOperations = await db.AgentHireOperations
             .Where(x => x.AgentDefinitionId == definition.Id)
             .ToListAsync(cancellationToken);
-        var activeHire = hireOperations.FirstOrDefault(x => x.Status != AgentHireOperationStatus.Failed);
+        var activeHire = hireOperations.FirstOrDefault(x => x.Status is
+            AgentHireOperationStatus.Starting or
+            AgentHireOperationStatus.Queued or
+            AgentHireOperationStatus.Building or
+            AgentHireOperationStatus.CompletingHire or
+            AgentHireOperationStatus.AwaitingConfirmation);
         if (activeHire is not null)
-            throw new AgentInstallationException(
-                "This agent definition still has an active or completed hire operation. Remove the related agent employee or wait for the hire to finish.");
-        var now = DateTimeOffset.UtcNow;
-        foreach (var failedHire in hireOperations)
         {
-            // Failed hire operations are durable history, not live usages of the definition.
-            // Detach them so a package that never installed can be removed
-            // and imported cleanly while preserving the failure record.
-            failedHire.AgentDefinitionId = null;
-            failedHire.DismissedAt ??= now;
-            failedHire.UpdatedAt = now;
+            throw new AgentInstallationException(
+                "This agent definition still has an active hire operation. Wait for the hire to finish or cancel its pending review before removing the definition.");
+        }
+
+        var installationIds = await db.AgentInstallations
+            .Where(x => x.AgentDefinitionId == definition.Id)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+        if (installationIds.Count > 0 && installationService is null)
+        {
+            throw new AgentInstallationException(
+                "This agent definition is still used by an installation. Remove the related agent employee before removing the definition.");
+        }
+        foreach (var installationId in installationIds)
+            await installationService!.RemoveAsync(installationId, cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var completedHire in hireOperations)
+        {
+            // Terminal hire operations are durable history, not live usages of the definition.
+            // Once no employee remains assigned, detach them so the definition can be removed
+            // and imported cleanly while preserving the operation record.
+            completedHire.AgentDefinitionId = null;
+            completedHire.DismissedAt ??= now;
+            completedHire.UpdatedAt = now;
         }
 
         var removePackage = !await db.AgentInstallations.AnyAsync(

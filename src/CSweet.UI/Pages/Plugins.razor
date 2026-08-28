@@ -84,7 +84,7 @@
             <MudText Typo="Typo.body2" Class="mt-3">Provided capabilities: @Format(_preview.Capabilities)</MudText>
             <MudText Typo="Typo.body2">Requested platform capabilities: @Format(_preview.RequestedCapabilities)</MudText>
             <MudText Typo="Typo.body2">Network access: @Format(_preview.RequestedNetworkAccess)</MudText>
-            @foreach (var configField in _preview.ConfigurationFields.Where(configField => !configField.Secret))
+            @foreach (var configField in _preview.ConfigurationFields.Where(configField => !configField.Secret && IsConfigurationFieldVisible(configField)))
             {
                 <MudTextField T="string" Label="@FieldLabel(configField)"
                               Value="@ConfigurationValue(configField.Key)"
@@ -162,7 +162,7 @@
     private bool _editingManagedProfile;
     private bool HasMissingConfiguration =>
         _preview?.ConfigurationFields
-            .Where(configField => configField.Required && !configField.Secret)
+            .Where(configField => configField.Required && !configField.Secret && IsConfigurationFieldVisible(configField))
             .Any(configField => string.IsNullOrWhiteSpace(ConfigurationValue(configField.Key))) == true;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
@@ -297,6 +297,8 @@
         configField.Required ? $"{configField.Label} (required)" : configField.Label;
     private string ConfigurationValue(string key) => _configurationValues.GetValueOrDefault(key) ?? string.Empty;
     private void SetConfigurationValue(string key, string value) => _configurationValues[key] = value;
+    private bool IsConfigurationFieldVisible(PluginConfigurationField field) =>
+        AgentConfigurationVisibility.IsVisible(field, _configurationValues);
     private void ShowSuccess(string message) { _message = message; _error = false; }
     private void ShowError(Exception exception) { _message = exception.Message; _error = true; }
 }

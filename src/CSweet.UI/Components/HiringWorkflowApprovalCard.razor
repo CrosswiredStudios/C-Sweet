@@ -44,7 +44,7 @@
         @if (Workflow.ConfigurationFields.Count > 0)
         {
             <MudText Typo="Typo.subtitle2" Class="mt-3">Required configuration</MudText>
-            @foreach (var field in Workflow.ConfigurationFields)
+            @foreach (var field in Workflow.ConfigurationFields.Where(IsConfigurationFieldVisible))
             {
                 @if (IsProviderField(field))
                 {
@@ -326,13 +326,16 @@
     }
 
     private bool HasMissingRequiredConfiguration =>
-        Workflow.ConfigurationFields.Any(configField => configField.Required && !HasConfigurationValue(configField));
+        Workflow.ConfigurationFields.Any(configField => configField.Required &&
+            IsConfigurationFieldVisible(configField) && !HasConfigurationValue(configField));
     private static bool IsProviderField(PluginConfigurationField field) =>
         field.Type.Equals("provider", StringComparison.OrdinalIgnoreCase) ||
         field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmProvider, StringComparison.OrdinalIgnoreCase);
     private static bool IsModelField(PluginConfigurationField field) =>
         field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) ||
         field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmModel, StringComparison.OrdinalIgnoreCase);
+    private bool IsConfigurationFieldVisible(PluginConfigurationField field) =>
+        AgentConfigurationVisibility.IsVisible(field, _configurationValues);
     private static string FieldLabel(PluginConfigurationField field) => field.Required ? $"{field.Label} (required)" : field.Label;
     private static object? ConfigurationDefaultValue(PluginConfigurationField field)
     {

@@ -847,9 +847,13 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 $"This agent is assigned to {assignedEmployees.Count} employee(s): {names}{remainder}. " +
                 "Remove those employees from the Employees page before removing the agent installation.");
         }
-        var removePackage = !await _dbContext.AgentInstallations.AnyAsync(
-            x => x.PackageVersionId == package.Id && x.Id != installation.Id,
-            cancellationToken);
+        var removePackage =
+            !await _dbContext.AgentInstallations.AnyAsync(
+                x => x.PackageVersionId == package.Id && x.Id != installation.Id,
+                cancellationToken) &&
+            !await _dbContext.AgentDefinitions.AnyAsync(
+                x => x.PackageVersionId == package.Id,
+                cancellationToken);
 
         if (removePackage && package.BuildJobs.Any(
                 x => x.Status is AgentBuildStatus.Cloning or AgentBuildStatus.Building))
@@ -1202,7 +1206,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         foreach (var field in publicFields.Values)
         {
             var hasValue = settings.TryGetValue(field.Key, out var value) && HasConfigurationValue(value);
-            if (field.Required && !hasValue)
+            if (field.Required && AgentConfigurationRules.IsVisible(field, settings) && !hasValue)
             {
                 throw new AgentInstallationException(
                     $"'{field.Label}' ({field.Key}) is required before this agent can be installed or enabled.");

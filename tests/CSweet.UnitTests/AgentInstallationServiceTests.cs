@@ -674,6 +674,36 @@ public sealed class AgentInstallationServiceTests
     }
 
     [Fact]
+    public async Task RemoveAsync_PackageUsedByGlobalDefinition_PreservesPackageAndSource()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext);
+        var service = CreateService(dbContext);
+        var installation = await service.InstallAsync(package.Id, ValidRequest());
+        var now = DateTimeOffset.UtcNow;
+        dbContext.AgentDefinitions.Add(new AgentDefinition
+        {
+            Id = Guid.NewGuid(), PackageSourceId = package.PackageSourceId,
+            AgentId = package.AgentId, PackageVersionId = package.Id,
+            Status = AgentDefinitionStatus.Available, IsAvailableForHire = true,
+            DefaultActivationMode = ActivationMode.Scheduled,
+            DefaultTickFrequencySeconds = 900, DefaultOverlapPolicy = OverlapPolicy.Skip,
+            DefaultMaxRuntimeSeconds = 600, DefaultMemoryMb = 512, DefaultCpuPercent = 50,
+            CreatedAt = now, UpdatedAt = now
+        });
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.RemoveAsync(installation.Id);
+
+        Assert.False(result.PackageRemoved);
+        Assert.False(result.SourceRemoved);
+        Assert.Empty(await dbContext.AgentInstallations.ToListAsync());
+        Assert.Single(await dbContext.AgentDefinitions.ToListAsync());
+        Assert.Single(await dbContext.AgentPackageVersions.ToListAsync());
+        Assert.Single(await dbContext.AgentPackageSources.ToListAsync());
+    }
+
+    [Fact]
     public async Task RemoveAsync_RemovesRetainedRuntimeContainer()
     {
         await using var dbContext = CreateDbContext();
