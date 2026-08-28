@@ -34,6 +34,9 @@
                     <MudNavLink Href="@ApprovalsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Approval" Class="business-nav-link">
                         Approvals
                     </MudNavLink>
+                    <MudNavLink Href="@DocumentsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Description" Class="business-nav-link">
+                        Documents
+                    </MudNavLink>
                     <MudNavLink Href="@EmployeesHref" Icon="@Icons.Material.Outlined.Groups" Class="@EmployeesClass">
                         Employees
                     </MudNavLink>
@@ -64,6 +67,7 @@
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.ViewKanban" /> Work</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /> Source Control</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Approval" /> Approvals</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Description" /> Documents</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Groups" /> Employees</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Insights" /> Analytics</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Storefront" /> Agent marketplace</div>
@@ -119,6 +123,10 @@
 
     private string? CommunicationsHref => BusinessContext.SelectedBusiness is { } business
         ? $"/organizations/{business.Id}/communications"
+        : null;
+
+    private string? DocumentsHref => BusinessContext.SelectedBusiness is { } business
+        ? $"/organizations/{business.Id}/documents"
         : null;
 
     private string? MarketplaceHref => BusinessContext.SelectedBusiness is { } business

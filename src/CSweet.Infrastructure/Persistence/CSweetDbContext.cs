@@ -128,6 +128,13 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<TaskRun> CoreTaskRuns => Set<TaskRun>();
     public DbSet<Artifact> CoreArtifacts => Set<Artifact>();
     public DbSet<Approval> CoreApprovals => Set<Approval>();
+    public DbSet<ArtifactRevision> ArtifactRevisions => Set<ArtifactRevision>();
+    public DbSet<ArtifactFolder> ArtifactFolders => Set<ArtifactFolder>();
+    public DbSet<ArtifactPackage> ArtifactPackages => Set<ArtifactPackage>();
+    public DbSet<ArtifactPackageMember> ArtifactPackageMembers => Set<ArtifactPackageMember>();
+    public DbSet<ArtifactAccessRequest> ArtifactAccessRequests => Set<ArtifactAccessRequest>();
+    public DbSet<ArtifactReviewJob> ArtifactReviewJobs => Set<ArtifactReviewJob>();
+    public DbSet<ConversationMessageArtifact> ConversationMessageArtifacts => Set<ConversationMessageArtifact>();
     public DbSet<BusinessProfile> BusinessProfiles => Set<BusinessProfile>();
     public DbSet<FinancialOperatingProfile> FinancialOperatingProfiles => Set<FinancialOperatingProfile>();
     public DbSet<BusinessDiscoveryAssessment> BusinessDiscoveryAssessments => Set<BusinessDiscoveryAssessment>();
@@ -194,6 +201,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         CaptureCommunicationEvents();
         CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
+        CaptureArtifactEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -204,6 +212,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         CaptureCommunicationEvents();
         CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
+        CaptureArtifactEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -359,6 +368,34 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             QueueApplicationRealtimeEvent(item.OrganizationId, item.RecipientOrganizationUserId, null, eventType,
                 $"organizations/{item.OrganizationId:D}/notifications/{item.Id:D}",
                 JsonSerializer.Serialize(data, EventJsonOptions), DateTimeOffset.UtcNow);
+        }
+    }
+
+    private void CaptureArtifactEvents()
+    {
+        ChangeTracker.DetectChanges();
+        var changedOrganizations = ChangeTracker.Entries()
+            .Where(x => x.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .Select(x => x.Entity switch
+            {
+                Artifact artifact => (Guid?)artifact.OrganizationId,
+                ArtifactRevision revision => revision.OrganizationId,
+                ArtifactFolder folder => folder.OrganizationId,
+                ArtifactPackage package => package.OrganizationId,
+                ArtifactPackageMember member => member.Package?.OrganizationId,
+                ArtifactAccessRequest request => request.OrganizationId,
+                ArtifactReviewJob job => job.OrganizationId,
+                ConversationMessageArtifact association => association.OrganizationId,
+                _ => null
+            })
+            .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+        foreach (var organizationId in changedOrganizations)
+        {
+            var occurredAt = DateTimeOffset.UtcNow;
+            QueueApplicationRealtimeEvent(organizationId, null, null, AppRealtimeEvents.DocumentChanged,
+                $"organizations/{organizationId:D}/documents",
+                JsonSerializer.Serialize(new DocumentChangedEvent(organizationId, "Changed"), EventJsonOptions),
+                occurredAt, ResolveActiveOrganizationRecipients(organizationId));
         }
     }
 

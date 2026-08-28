@@ -13,7 +13,8 @@ public enum GrantScopeKind
     Team,
     Workstream,
     Board,
-    WorkItem
+    WorkItem,
+    Artifact
 }
 
 /// <summary>

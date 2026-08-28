@@ -395,6 +395,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ITaskRunService, TaskRunService>();
         builder.Services.AddScoped<IArtifactService, ArtifactService>();
         builder.Services.AddScoped<IArtifactApprovalService, ArtifactApprovalService>();
+        builder.Services.AddScoped<IArtifactDocumentService, ArtifactDocumentService>();
         builder.Services.AddScoped<IOrganizationUserService, OrganizationUserService>();
         builder.Services.AddScoped<ITeamService, TeamService>();
         builder.Services.AddScoped<IExecutiveBriefingService, ExecutiveBriefingService>();

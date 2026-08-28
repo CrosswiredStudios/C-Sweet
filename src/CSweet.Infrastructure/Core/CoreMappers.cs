@@ -110,7 +110,10 @@ internal static class CoreMappers
             SourceChannelExternalId = message.SourceChannelExternalId,
             Attachments = message.Attachments.Select(x =>
                 new Contracts.Communications.CommunicationMessageAttachmentResponse(
-                    x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList()
+                    x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList(),
+            Artifacts = message.Artifacts.Select(x =>
+                new Contracts.Communications.CommunicationMessageArtifactResponse(
+                    x.Id, x.MessageId, x.ArtifactId, x.RevisionId)).ToList()
         };
     }
 

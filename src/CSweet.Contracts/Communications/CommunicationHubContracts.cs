@@ -78,6 +78,7 @@ public sealed record CommunicationHubMessageResponse(
     public Guid? CoordinationSessionId { get; init; }
     public IReadOnlyList<CommunicationMessageMentionResponse> Mentions { get; init; } = [];
     public IReadOnlyList<CommunicationMessageAttachmentResponse> Attachments { get; init; } = [];
+    public IReadOnlyList<CommunicationMessageArtifactResponse> Artifacts { get; init; } = [];
 }
 
 public sealed record CommunicationMessageAttachmentResponse(
@@ -87,6 +88,12 @@ public sealed record CommunicationMessageAttachmentResponse(
     string ContentType,
     long SizeBytes,
     string Sha256);
+
+public sealed record CommunicationMessageArtifactResponse(
+    Guid Id,
+    Guid MessageId,
+    Guid ArtifactId,
+    Guid? RevisionId);
 
 public sealed record CommunicationMessageMentionResponse(
     Guid OrganizationUserId,

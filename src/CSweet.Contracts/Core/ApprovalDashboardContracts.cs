@@ -6,6 +6,7 @@ public static class ApprovalDashboardKinds
     public const string AgentAction = "AgentAction";
     public const string HiringWorkflow = "HiringWorkflow";
     public const string Artifact = "Artifact";
+    public const string ArtifactAccess = "ArtifactAccess";
     public const string RepositoryProvisioning = "RepositoryProvisioning";
     public const string Merge = "Merge";
 }
@@ -27,6 +28,7 @@ public sealed record ApprovalDashboardItemResponse(
     SourceControlApprovalCardResponse? SourceControl = null)
 {
     public ManagedAgentActionApprovalResponse? AgentAction { get; init; }
+    public ArtifactAccessRequestResponse? ArtifactAccess { get; init; }
 }
 
 public sealed record ManagedAgentActionApprovalResponse(

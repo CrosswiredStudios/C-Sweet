@@ -28,7 +28,9 @@ public sealed record SecurityEventSummaryResponse(
     string? TargetDisplayName,
     string? Summary,
     string? CorrelationId,
-    string IntegrityStatus);
+    string IntegrityStatus,
+    string EntityType,
+    Guid? EntityId);
 
 public sealed class SecurityEventDetailResponse
 {

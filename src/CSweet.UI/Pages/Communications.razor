@@ -15,6 +15,7 @@
 
 <PageTitle>Communications - C-Sweet</PageTitle>
 
+<div class="communications-document-layout">
 <div class="hub-page">
     @if (_loading)
     {
@@ -287,6 +288,19 @@
                                                   <span>@attachment.FileName</span>
                                                   <small>@FormatAttachmentBytes(attachment.SizeBytes)</small>
                                               </span>
+                                          }
+                                      </div>
+                                  }
+                                  @if (message.Artifacts.Count > 0)
+                                  {
+                                      <div class="hub-message-artifacts" aria-label="Linked documents">
+                                          @foreach (var artifact in message.Artifacts)
+                                          {
+                                              <button @onclick="@(() => OpenArtifact(artifact.ArtifactId))">
+                                                  <MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Small" />
+                                                  <span>Open document</span>
+                                                  @if (artifact.RevisionId.HasValue) { <small>linked revision</small> }
+                                              </button>
                                           }
                                       </div>
                                   }
@@ -634,6 +648,11 @@
         }
     }
 </div>
+@if (ArtifactId is Guid artifactId)
+{
+    <ArtifactWorkspace OrganizationId="OrganizationId" ArtifactId="artifactId" Closed="CloseArtifact" Changed="@(_ => LoadMessagesAsync(false))" />
+}
+</div>
 
 <MudDialog @bind-Visible="_thinkingDialogOpen" Options="_thinkingDialogOptions">
     <TitleContent>
@@ -703,6 +722,8 @@
     public Guid? PerspectiveAgentId { get; set; }
     [Parameter, SupplyParameterFromQuery(Name = "message")]
     public Guid? SourceMessageId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "artifact")]
+    public Guid? ArtifactId { get; set; }
     private readonly CancellationTokenSource _disposeCts = new();
     private CancellationTokenSource? _chatCts;
     private IJSObjectReference? _communicationsModule;
@@ -775,6 +796,22 @@
             x.PresenceStatus != CommunicationPresenceStatuses.Available)
         : null;
     private bool ComposerBlocked => _selected?.IsDirect == true && HasActiveTurn;
+
+    private void OpenArtifact(Guid artifactId)
+    {
+        var chatPath = _selected is null
+            ? $"/organizations/{OrganizationId:D}/communications"
+            : $"/organizations/{OrganizationId:D}/communications/{_selected.Id:D}";
+        Navigation.NavigateTo($"{chatPath}?artifact={artifactId:D}");
+    }
+
+    private void CloseArtifact()
+    {
+        var chatPath = _selected is null
+            ? $"/organizations/{OrganizationId:D}/communications"
+            : $"/organizations/{OrganizationId:D}/communications/{_selected.Id:D}";
+        Navigation.NavigateTo(chatPath);
+    }
     private TurnView? BlockingTurn => _selected?.IsDirect == true
         ? _turns.Values
             .Where(x => !IsTerminal(x.Turn.Status))

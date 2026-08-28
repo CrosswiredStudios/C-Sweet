@@ -1,7 +1,9 @@
 using CSweet.Contracts.Communications;
+using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Communications;
+using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,6 +11,41 @@ namespace CSweet.UnitTests;
 
 public sealed class CommunicationHubServiceTests
 {
+    [Fact]
+    public async Task UnambiguousHumanChatApproval_DecidesSolePendingDocumentWithMessageEvidence()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var owner = User(organization.Id, "Owner", OrganizationPermissionLevel.Owner);
+        owner.ApplicationUserId = Guid.NewGuid();
+        var collaborator = User(organization.Id, "Collaborator", OrganizationPermissionLevel.Contributor);
+        db.AddRange(organization, owner, collaborator);
+        await db.SaveChangesAsync();
+
+        var audit = new TestAuditEventWriter();
+        var documents = new ArtifactDocumentService(db, audit, TimeProvider.System);
+        var hub = new CommunicationHubService(
+            db, audit, new ChatTurnService(db), artifactDocuments: documents);
+        var chat = (await hub.CreateAsync(organization.Id, owner.Id,
+            new CreateCommunicationChatRequest("vision", null, true, true, [collaborator.Id]))).Chat!;
+        var document = await documents.CreateAsync(organization.Id,
+            new(owner.ApplicationUserId.Value),
+            new("Game vision", "# Vision", GameDesignDocumentTypes.HighLevelGdd, "chat-create",
+                OriginConversationId: chat.Id));
+        await documents.SubmitAsync(organization.Id, new(owner.ApplicationUserId.Value),
+            document.Document.Id, new(document.LatestRevision.Id, "chat-submit", chat.Id));
+
+        var sent = await hub.SendAsync(organization.Id, chat.Id, owner.Id,
+            new SendCommunicationMessageRequest("I approve", "chat-approve"));
+
+        var refreshed = await documents.GetAsync(organization.Id,
+            new(owner.ApplicationUserId.Value), document.Document.Id);
+        Assert.Equal("Approved", refreshed!.Document.Status);
+        var approval = await db.CoreApprovals.SingleAsync(x => x.ArtifactId == document.Document.Id);
+        Assert.Equal(sent!.Message.Id, approval.EvidenceConversationMessageId);
+        Assert.Equal(document.LatestRevision.Id, approval.ArtifactRevisionId);
+    }
+
     [Fact]
     public async Task CreateGroup_ExpandsRoleAudienceAndPersistsMessages()
     {

@@ -8,6 +8,7 @@ using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using CSweet.Domain.Communications;
+using CSweet.Domain.Security;
 using CSweet.Application.Communications;
 using CSweet.Infrastructure.Communications;
 using CSweet.Application.WorkManagement;
@@ -257,6 +258,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
                 queueLifecycleEvent: lifecycleReady,
                 cancellationToken: cancellationToken);
             if (!onboarding.Succeeded) return Failure(onboarding.ErrorCode!, onboarding.Message);
+            await AddApprovedArtifactCreateGrantAsync(user, hiringApplicationUserId, now, cancellationToken);
         }
         var hiringOrganizationUserId = hiringApplicationUserId.HasValue
             ? await _dbContext.CoreOrganizationUsers.AsNoTracking()
@@ -414,6 +416,35 @@ public sealed class OrganizationUserService : IOrganizationUserService
             OrganizationUser: user.ToResponse() with { InitialConversationId = onboarding?.ConversationId });
     }
 
+    private async Task AddApprovedArtifactCreateGrantAsync(OrganizationUser user, Guid? hiringApplicationUserId,
+        DateTimeOffset grantedAt, CancellationToken token)
+    {
+        if (!user.AgentInstallationId.HasValue) return;
+        var grantedJson = await _dbContext.AgentInstallationGrants.AsNoTracking()
+            .Where(x => x.AgentInstallationId == user.AgentInstallationId.Value)
+            .Select(x => x.RequiredCapabilitiesJson).SingleOrDefaultAsync(token);
+        if (string.IsNullOrWhiteSpace(grantedJson)) return;
+        string[] capabilities;
+        try { capabilities = JsonSerializer.Deserialize<string[]>(grantedJson) ?? []; }
+        catch (JsonException) { return; }
+        if (!capabilities.Contains(ArtifactPlatformCapabilities.Create, StringComparer.Ordinal)) return;
+        var grantedBy = hiringApplicationUserId.HasValue
+            ? await _dbContext.CoreOrganizationUsers.AsNoTracking().Where(x =>
+                    x.OrganizationId == user.OrganizationId && x.ApplicationUserId == hiringApplicationUserId && x.IsActive &&
+                    x.EmployeeType == EmployeeType.Human && x.PermissionLevel >= OrganizationPermissionLevel.Manager)
+                .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(token)
+            : user.ReportsToOrganizationUserId;
+        if (!grantedBy.HasValue) return;
+        _dbContext.ScopedActionGrants.Add(new ScopedActionGrant
+        {
+            Id = Guid.NewGuid(), OrganizationId = user.OrganizationId,
+            SubjectKind = GrantSubjectKind.AgentInstallation, SubjectId = user.AgentInstallationId.Value,
+            Action = ArtifactActions.Create, ScopeKind = GrantScopeKind.Organization,
+            GrantedBySubjectKind = GrantSubjectKind.OrganizationUser, GrantedBySubjectId = grantedBy.Value,
+            GrantedAt = grantedAt
+        });
+    }
+
     public async Task<CoreActionResponse> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var user = await _dbContext.CoreOrganizationUsers
@@ -482,9 +513,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
         if (previousManagerInstallationId.HasValue)
             affectedManagerInstallations.Add(previousManagerInstallationId.Value);
         affectedManagerInstallations = affectedManagerInstallations.Distinct().ToList();
-        var teamScopedGrants = await _dbContext.ScopedActionGrants.Where(x =>
+        var subjectGrants = await _dbContext.ScopedActionGrants.Where(x =>
                 x.OrganizationId == user.OrganizationId &&
-                x.ScopeKind == CSweet.Domain.Security.GrantScopeKind.Team &&
                 x.RevokedAt == null &&
                 ((x.SubjectKind == CSweet.Domain.Security.GrantSubjectKind.OrganizationUser &&
                   x.SubjectId == user.Id) ||
@@ -492,7 +522,30 @@ public sealed class OrganizationUserService : IOrganizationUserService
                   x.SubjectKind == CSweet.Domain.Security.GrantSubjectKind.AgentInstallation &&
                   x.SubjectId == installationId.Value)))
             .ToListAsync(cancellationToken);
-        foreach (var grant in teamScopedGrants) grant.RevokedAt = now;
+        foreach (var grant in subjectGrants) { grant.RevokedAt = now; grant.Revision++; }
+        if (installationId.HasValue)
+        {
+            var pendingDocumentRequests = await _dbContext.ArtifactAccessRequests.Where(x =>
+                x.OrganizationId == user.OrganizationId &&
+                x.RequestingInstallationId == installationId &&
+                x.Status == ArtifactAccessRequestStatus.Pending).ToListAsync(cancellationToken);
+            foreach (var request in pendingDocumentRequests)
+            {
+                request.Status = ArtifactAccessRequestStatus.Cancelled;
+                request.DecidedAt = now;
+                var actions = JsonSerializer.Deserialize<string[]>(request.ActionsJson) ?? [];
+                _dbContext.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+                {
+                    Id = Guid.NewGuid(), OrganizationId = user.OrganizationId,
+                    EventType = ArtifactPlatformCapabilities.AccessDecisionEvent,
+                    DataJson = JsonSerializer.Serialize(new ArtifactAccessDecisionEvent(
+                        request.Id, request.ArtifactId, "Cancelled", actions, [], [], now)),
+                    IdempotencyKey = $"artifact-access:{request.Id:D}:Cancelled",
+                    TargetInstallationId = installationId.Value,
+                    Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
+                });
+            }
+        }
         if (user.AgentInstallation is { } installation)
         {
             installation.IsEnabled = false;
@@ -537,6 +590,24 @@ public sealed class OrganizationUserService : IOrganizationUserService
                 CreateEmployeeDelivery(user, connectionId, CommunicationDeliveryKind.ArchiveEmployee, now)));
         }
         await _dbContext.SaveChangesAsync(cancellationToken);
+        foreach (var grant in subjectGrants.Where(x => x.ScopeKind == GrantScopeKind.Artifact))
+            await _auditEventWriter.AppendAsync(new AuditEventWriteRequest(
+                "artifact.access.revoked", "DocumentAccess", "Internal", "Completed",
+                user.OrganizationId, "Artifact", grant.ScopeId,
+                "Artifact access revoked because the employee or installation was deactivated.",
+                JsonSerializer.Serialize(new { grantId = grant.Id, grant.SubjectKind, grant.SubjectId,
+                    grant.Action, grant.Revision, reason = "employee_deactivated" }),
+                Actor: new AuditActor("System", false), UseAmbientOrganization: false), cancellationToken);
+        if (installationId.HasValue)
+            foreach (var request in await _dbContext.ArtifactAccessRequests.AsNoTracking().Where(x =>
+                         x.OrganizationId == user.OrganizationId && x.RequestingInstallationId == installationId &&
+                         x.Status == ArtifactAccessRequestStatus.Cancelled && x.DecidedAt == now).ToListAsync(cancellationToken))
+                await _auditEventWriter.AppendAsync(new AuditEventWriteRequest(
+                    "artifact.access.cancelled", "DocumentAccess", "Internal", "Completed",
+                    user.OrganizationId, "Artifact", request.ArtifactId,
+                    "Pending artifact access request cancelled because the installation was deactivated.",
+                    JsonSerializer.Serialize(new { requestId = request.Id, request.SubjectId }),
+                    Actor: new AuditActor("System", false), UseAmbientOrganization: false), cancellationToken);
         if (affectedManagerInstallations.Count > 0 && _attention is not null)
             await _attention.InvalidateAsync(affectedManagerInstallations, "workforce.deactivated", workforceEventId, cancellationToken);
 

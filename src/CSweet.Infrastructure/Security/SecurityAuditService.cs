@@ -54,7 +54,8 @@ public sealed class SecurityAuditService(
         var items = page.Select(x => new SecurityEventSummaryResponse(
             x.Id, x.Sequence, x.OccurredAt, x.Category, x.Direction, x.Outcome, x.EventType,
             x.ActorKind, ActorLabel(x), x.TargetDisplayName ?? x.TargetAgentId, x.Summary,
-            x.CorrelationId, IntegrityStatus(x, x.PreviousRecordHash is null || existingHashes.Contains(x.PreviousRecordHash)))).ToList();
+            x.CorrelationId, IntegrityStatus(x, x.PreviousRecordHash is null || existingHashes.Contains(x.PreviousRecordHash)),
+            x.EntityType, x.EntityId)).ToList();
         return new SecurityEventPageResponse(items,
             hasMore && page.Count > 0 ? EncodeCursor(page[^1].Sequence) : null);
     }

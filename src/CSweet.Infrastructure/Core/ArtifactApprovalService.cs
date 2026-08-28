@@ -30,6 +30,7 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
     public async Task<CoreActionResponse> ApproveAsync(Guid artifactId, string? comment = null, CancellationToken cancellationToken = default)
     {
         var artifact = await _dbContext.CoreArtifacts
+            .Include(x => x.Revisions)
             .SingleOrDefaultAsync(x => x.Id == artifactId, cancellationToken);
 
         if (artifact is null)
@@ -44,10 +45,12 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
         }
 
         var now = DateTimeOffset.UtcNow;
+        var revision = CurrentOrMigratedRevision(artifact, now);
         var approval = new Approval
         {
             Id = Guid.NewGuid(),
             ArtifactId = artifactId,
+            ArtifactRevisionId = revision.Id,
             Status = ApprovalStatus.Approved,
             Comment = comment,
             DecidedAt = now,
@@ -55,6 +58,11 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
         };
 
         artifact.ApprovalStatus = ApprovalStatus.Approved;
+        artifact.AcceptedRevisionId = revision.Id;
+        artifact.SubmittedRevisionId = null;
+        artifact.DocumentStatus = ArtifactDocumentStatus.Approved;
+        revision.Status = ArtifactRevisionStatus.Accepted;
+        revision.DecidedAt = now;
         artifact.UpdatedAt = now;
 
         _dbContext.CoreApprovals.Add(approval);
@@ -73,6 +81,7 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
     public async Task<CoreActionResponse> RejectAsync(Guid artifactId, string? comment = null, CancellationToken cancellationToken = default)
     {
         var artifact = await _dbContext.CoreArtifacts
+            .Include(x => x.Revisions)
             .SingleOrDefaultAsync(x => x.Id == artifactId, cancellationToken);
 
         if (artifact is null)
@@ -81,10 +90,12 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
         }
 
         var now = DateTimeOffset.UtcNow;
+        var revision = CurrentOrMigratedRevision(artifact, now);
         var approval = new Approval
         {
             Id = Guid.NewGuid(),
             ArtifactId = artifactId,
+            ArtifactRevisionId = revision.Id,
             Status = ApprovalStatus.Rejected,
             Comment = comment,
             DecidedAt = now,
@@ -92,6 +103,10 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
         };
 
         artifact.ApprovalStatus = ApprovalStatus.Rejected;
+        artifact.SubmittedRevisionId = null;
+        artifact.DocumentStatus = ArtifactDocumentStatus.ChangesRequested;
+        revision.Status = ArtifactRevisionStatus.Rejected;
+        revision.DecidedAt = now;
         artifact.UpdatedAt = now;
 
         _dbContext.CoreApprovals.Add(approval);
@@ -110,6 +125,7 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
     public async Task<CoreActionResponse> RequestRevisionAsync(Guid artifactId, string? comment = null, CancellationToken cancellationToken = default)
     {
         var artifact = await _dbContext.CoreArtifacts
+            .Include(x => x.Revisions)
             .SingleOrDefaultAsync(x => x.Id == artifactId, cancellationToken);
 
         if (artifact is null)
@@ -118,10 +134,12 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
         }
 
         var now = DateTimeOffset.UtcNow;
+        var revision = CurrentOrMigratedRevision(artifact, now);
         var approval = new Approval
         {
             Id = Guid.NewGuid(),
             ArtifactId = artifactId,
+            ArtifactRevisionId = revision.Id,
             Status = ApprovalStatus.RevisionRequested,
             Comment = comment,
             DecidedAt = now,
@@ -129,6 +147,10 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
         };
 
         artifact.ApprovalStatus = ApprovalStatus.RevisionRequested;
+        artifact.SubmittedRevisionId = null;
+        artifact.DocumentStatus = ArtifactDocumentStatus.ChangesRequested;
+        revision.Status = ArtifactRevisionStatus.Rejected;
+        revision.DecidedAt = now;
         artifact.UpdatedAt = now;
 
         _dbContext.CoreApprovals.Add(approval);
@@ -146,4 +168,28 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
 
     static CoreActionResponse Failure(string errorCode, string message) =>
         new CoreActionResponse(false, errorCode, message);
+
+    private ArtifactRevision CurrentOrMigratedRevision(Artifact artifact, DateTimeOffset now)
+    {
+        var revision = artifact.Revisions.SingleOrDefault(x => x.Id == artifact.SubmittedRevisionId) ??
+            artifact.Revisions.SingleOrDefault(x => x.Id == artifact.LatestRevisionId) ??
+            artifact.Revisions.OrderByDescending(x => x.Number).FirstOrDefault();
+        if (revision is not null) return revision;
+
+        // Compatibility for callers/tests that still materialize the pre-revision aggregate.
+        var content = artifact.Content ?? string.Empty;
+        revision = new ArtifactRevision
+        {
+            Id = Guid.NewGuid(), OrganizationId = artifact.OrganizationId, ArtifactId = artifact.Id,
+            Number = Math.Max(artifact.Version, 1), Content = content,
+            ContentSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(content))).ToLowerInvariant(),
+            Status = ArtifactRevisionStatus.Draft, CreatorDisplayName = artifact.CreatorDisplayName,
+            IdempotencyKey = $"legacy-approval:{artifact.Id:D}", CreatedAt = artifact.CreatedAt == default ? now : artifact.CreatedAt
+        };
+        artifact.LatestRevisionId = revision.Id;
+        artifact.Version = revision.Number;
+        _dbContext.ArtifactRevisions.Add(revision);
+        return revision;
+    }
 }

@@ -10,6 +10,7 @@ public static class AppRealtimeEvents
     public const string AgentHireOperationChanged = "com.csweet.app.agent-hire-operation.changed.v1";
     public const string BusinessOnboardingOperationChanged = "com.csweet.app.business-onboarding-operation.changed.v1";
     public const string EmployeeDirectoryChanged = "com.csweet.app.employee-directory.changed.v1";
+    public const string DocumentChanged = "com.csweet.app.document.changed.v1";
 }
 
 public sealed record AgentHireOperationChangedEvent(Guid OperationId, Guid OrganizationId, string Status);
@@ -20,6 +21,8 @@ public sealed record EmployeeDirectoryChangedEvent(
     Guid OrganizationId,
     Guid OrganizationUserId,
     string ChangeKind);
+
+public sealed record DocumentChangedEvent(Guid OrganizationId, string ChangeKind);
 
 public sealed record AppRealtimeEventEnvelope(
     Guid EventId,

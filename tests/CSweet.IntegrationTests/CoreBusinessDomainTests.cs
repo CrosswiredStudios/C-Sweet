@@ -1,13 +1,20 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text.Encodings.Web;
 using CSweet.Contracts.Core;
+using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.IntegrationTests;
 
@@ -147,6 +154,7 @@ public class CoreBusinessDomainTests
         var client = factory.CreateClient();
 
         var org = await CreateOrganizationAsync(client);
+        await AuthorizeOwnerAsync(factory, client, org.Id);
 
         var request = new CreateArtifactRequest(
             null, null, 0, "Test Artifact", "Test content", 1, 0);
@@ -166,6 +174,7 @@ public class CoreBusinessDomainTests
         var client = factory.CreateClient();
 
         var org = await CreateOrganizationAsync(client);
+        await AuthorizeOwnerAsync(factory, client, org.Id);
         var artifact = await CreateArtifactAsync(client, org);
 
         var request = new CreateApprovalRequest(2, "Looks good");
@@ -185,6 +194,7 @@ public class CoreBusinessDomainTests
         var client = factory.CreateClient();
 
         var org = await CreateOrganizationAsync(client);
+        await AuthorizeOwnerAsync(factory, client, org.Id);
         var artifact = await CreateArtifactAsync(client, org);
 
         var request = new CreateApprovalRequest(3, "Needs revision");
@@ -205,6 +215,7 @@ public class CoreBusinessDomainTests
 
         // 1. Create organization
         var org = await CreateOrganizationAsync(client);
+        await AuthorizeOwnerAsync(factory, client, org.Id);
 
         // 2. Add role (default roles are seeded, but add a custom one)
         var roleRequest = new CreateRoleRequest(
@@ -269,6 +280,24 @@ public class CoreBusinessDomainTests
         return artifact;
     }
 
+    private static async Task AuthorizeOwnerAsync(WebApplicationFactory<Program> factory, HttpClient client,
+        Guid organizationId)
+    {
+        var applicationUserId = Guid.NewGuid();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+        db.CoreOrganizationUsers.Add(new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, ApplicationUserId = applicationUserId,
+            DisplayName = "Test Owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+        client.DefaultRequestHeaders.Remove("X-Core-Test-UserId");
+        client.DefaultRequestHeaders.Add("X-Core-Test-UserId", applicationUserId.ToString("D"));
+    }
+
     private static WebApplicationFactory<Program> CreateFactory()
     {
         var databaseName = Guid.NewGuid().ToString();
@@ -277,13 +306,37 @@ public class CoreBusinessDomainTests
             .WithWebHostBuilder(builder =>
             {
                 builder.UseEnvironment("Testing");
-                builder.ConfigureServices(services =>
+                builder.ConfigureTestServices(services =>
                 {
                     services.RemoveAll<DbContextOptions<CSweetDbContext>>();
                     services.RemoveAll<IDbContextOptionsConfiguration<CSweetDbContext>>();
                     services.AddDbContext<CSweetDbContext>(options =>
                         options.UseInMemoryDatabase(databaseName));
+                    services.AddAuthentication(options =>
+                    {
+                        options.DefaultAuthenticateScheme = CoreTestAuthenticationHandler.SchemeName;
+                        options.DefaultChallengeScheme = CoreTestAuthenticationHandler.SchemeName;
+                        options.DefaultScheme = CoreTestAuthenticationHandler.SchemeName;
+                    }).AddScheme<AuthenticationSchemeOptions, CoreTestAuthenticationHandler>(
+                        CoreTestAuthenticationHandler.SchemeName, _ => { });
                 });
             });
+    }
+}
+
+file sealed class CoreTestAuthenticationHandler(
+    IOptionsMonitor<AuthenticationSchemeOptions> options,
+    ILoggerFactory logger,
+    UrlEncoder encoder) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+{
+    public const string SchemeName = "CoreBusinessTest";
+
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        if (!Request.Headers.TryGetValue("X-Core-Test-UserId", out var value) || !Guid.TryParse(value, out var id))
+            return Task.FromResult(AuthenticateResult.NoResult());
+        var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, id.ToString("D"))], SchemeName);
+        return Task.FromResult(AuthenticateResult.Success(
+            new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }
 }

@@ -208,6 +208,25 @@
                                 </MudStack>
                             }
                         }
+                        else if (item.ArtifactAccess is { } artifactAccess)
+                        {
+                            <MudText Class="mt-3"><strong>Requested actions</strong><br />@string.Join(", ", artifactAccess.Actions)</MudText>
+                            @if (item.CanDecide && item.Status == "Pending")
+                            {
+                                <MudTextField Value="@Feedback(item.Id)" ValueChanged="@((string value) => SetFeedback(item.Id, value))"
+                                              Label="Decision comment" Lines="2" Variant="Variant.Outlined" Class="mt-3" />
+                                @if (_decisionErrors.TryGetValue(item.Id, out var accessError))
+                                {
+                                    <MudAlert Severity="Severity.Error" Dense="true">@accessError</MudAlert>
+                                }
+                                <MudStack Row="true" Spacing="1">
+                                    <MudButton Color="Color.Success" Variant="Variant.Filled" Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideArtifactAccessAsync(item, "approve"))">Approve exact files</MudButton>
+                                    <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="@(_decidingId.HasValue)"
+                                               OnClick="@(() => DecideArtifactAccessAsync(item, "reject"))">Reject</MudButton>
+                                </MudStack>
+                            }
+                        }
                         else if (item.Status == "Pending")
                         {
                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
@@ -364,6 +383,28 @@
         finally { _decidingId = null; }
     }
 
+    private async Task DecideArtifactAccessAsync(ApprovalDashboardItemResponse item, string decision)
+    {
+        if (item.ArtifactAccess is null || _decidingId.HasValue) return;
+        _decidingId = item.Id;
+        _decisionErrors.Remove(item.Id);
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/documents/access-requests/{item.Id:D}/decision",
+                new DecideArtifactAccessRequest(decision, Feedback(item.Id), $"approval:{item.Id:N}:{decision}"));
+            if (!response.IsSuccessStatusCode)
+            {
+                _decisionErrors[item.Id] = await response.Content.ReadAsStringAsync();
+                return;
+            }
+            _feedback.Remove(item.Id);
+            await LoadAsync();
+        }
+        catch (Exception exception) { _decisionErrors[item.Id] = exception.Message; }
+        finally { _decidingId = null; }
+    }
+
     private string Feedback(Guid id) =>
         _feedback.TryGetValue(id, out var value) ? value : string.Empty;
 
@@ -384,6 +425,7 @@
         ApprovalDashboardKinds.AgentAction => "Agent action",
         ApprovalDashboardKinds.HiringWorkflow => "Hiring",
         ApprovalDashboardKinds.Artifact => "Artifact",
+        ApprovalDashboardKinds.ArtifactAccess => "Document access",
         ApprovalDashboardKinds.RepositoryProvisioning => "Private code project",
         ApprovalDashboardKinds.Merge => "Code merge",
         _ => kind

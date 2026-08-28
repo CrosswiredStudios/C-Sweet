@@ -66,6 +66,7 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, PluginOperationsCapabilit
 builder.Services.AddScoped<IPlatformCapabilityHandler, PlatformMediaTransferCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkManagementCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, PersonalTodoCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, ArtifactCapabilityHandler>();
 var agentBrokerKey = builder.Configuration["CSweet:SourceControl:AgentBrokerKeyBase64"];
 var coreBrokerBaseUrl = builder.Configuration["CSweet:SourceControl:CoreBrokerBaseUrl"];
 if (HasValidBrokerConfiguration(agentBrokerKey, coreBrokerBaseUrl, out var coreBrokerUri))

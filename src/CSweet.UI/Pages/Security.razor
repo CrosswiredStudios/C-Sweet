@@ -70,6 +70,13 @@
                 <MudTd DataLabel="Activity">
                     <MudText Typo="Typo.body2"><strong>@ActivityLabel(context)</strong></MudText>
                     <MudText Typo="Typo.caption" Color="Color.Secondary">@context.EventType · @context.Category</MudText>
+                    @if (context.Category == "DocumentAccess" && context.EntityId.HasValue)
+                    {
+                        @if (context.EventType.Contains(".package.", StringComparison.Ordinal))
+                        { <MudLink Href="@($"/organizations/{OrganizationId:D}/documents?packageId={context.EntityId:D}")">Open package</MudLink> }
+                        else if (!context.EventType.Contains(".folder.", StringComparison.Ordinal))
+                        { <MudLink Href="@($"/organizations/{OrganizationId:D}/documents?artifact={context.EntityId:D}")">Open document</MudLink> }
+                    }
                 </MudTd>
                 <MudTd DataLabel="Actor"><MudText Typo="Typo.body2">@context.ActorDisplayName</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@context.ActorKind</MudText></MudTd>
                 <MudTd DataLabel="Target">@Value(context.TargetDisplayName)</MudTd>
@@ -134,7 +141,7 @@
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
-    private static readonly string[] Categories = ["AgentCapability", "AgentRuntime", "AgentWork", "Communication", "Mcp", "McpAgentRuntime", "BrokerConnection", "BrokerEvent", "BrokerCapability", "SecurityAccess", "Domain"];
+    private static readonly string[] Categories = ["DocumentAccess", "AgentCapability", "AgentRuntime", "AgentWork", "Communication", "Mcp", "McpAgentRuntime", "BrokerConnection", "BrokerEvent", "BrokerCapability", "SecurityAccess", "Domain"];
     private static readonly string[] Outcomes = ["Received", "Accepted", "Authorized", "Established", "Delivered", "Completed", "Denied", "Rejected", "Failed", "Dropped"];
     private static readonly string[] ActorKinds = ["Human", "Agent", "Platform", "Unknown"];
     private readonly List<SecurityEventSummaryResponse> _items = [];

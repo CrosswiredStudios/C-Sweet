@@ -3,6 +3,7 @@ using CSweet.Application.Core;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Domain.Security;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -239,6 +240,41 @@ public sealed class ApprovalDashboardService(
             artifact.ApprovalStatus == ApprovalStatus.Pending ? null : artifact.UpdatedAt,
             $"/organizations/{organizationId:D}/command-center",
             false)));
+
+        var accessRequests = await db.ArtifactAccessRequests.AsNoTracking()
+            .Include(x => x.Artifact)
+            .Where(x => x.OrganizationId == organizationId)
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(250)
+            .ToListAsync(cancellationToken);
+        items.AddRange(accessRequests.Select(request =>
+        {
+            var actions = JsonSerializer.Deserialize<string[]>(request.ActionsJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? [];
+            var installationId = request.RequestingInstallationId ?? request.SubjectId;
+            var requesterName = request.SubjectKind == GrantSubjectKind.OrganizationUser
+                ? Name(names, request.SubjectId, request.SubjectId.ToString("D"))
+                : Name(installationNames, installationId, installationId.ToString("D"));
+            return new ApprovalDashboardItemResponse(
+            request.Id,
+            ApprovalDashboardKinds.ArtifactAccess,
+            $"Document access: {request.Artifact!.Title}",
+            $"{request.Justification} Requested actions: {string.Join(", ", actions)}.",
+            request.Status.ToString(),
+            requesterName,
+            ownerLabel,
+            request.CreatedAt,
+            request.DecidedAt,
+            $"/organizations/{organizationId:D}/documents?artifact={request.ArtifactId:D}",
+            request.Status == ArtifactAccessRequestStatus.Pending)
+        {
+            ArtifactAccess = new ArtifactAccessRequestResponse(
+                request.Id, request.ArtifactId, GrantSubjectKind.AgentInstallation.ToString(),
+                installationId,
+                requesterName,
+                actions, request.Justification, request.Status.ToString(), request.CreatedAt,
+                request.ExpiresAt, request.DecidedAt)
+            };
+        }));
 
         var ordered = items
             .OrderBy(x => IsPending(x.Status) ? 0 : 1)

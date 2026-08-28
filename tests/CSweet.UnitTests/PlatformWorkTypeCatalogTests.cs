@@ -43,7 +43,7 @@ public sealed class PlatformWorkTypeCatalogTests
         var catalog = PlatformWorkTypeCatalog.Read();
 
         Assert.Equal(PlatformWorkTypeCatalog.Revision, catalog.Revision);
-        Assert.Equal(2, catalog.BoardProfiles.Count);
+        Assert.Equal(3, catalog.BoardProfiles.Count);
         Assert.All(catalog.Types, type => Assert.Equal(PlatformWorkTypeCatalog.ProviderKey, type.ProviderKey));
         Assert.All(catalog.ApprovalPolicies,
             policy => Assert.Equal(PlatformWorkTypeCatalog.ProviderKey, policy.ProviderKey));

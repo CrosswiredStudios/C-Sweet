@@ -54,6 +54,11 @@ public static class BusinessNavigation
                 return $"/organizations/{businessId}/approvals";
             }
 
+            if (string.Equals(segments[2], "documents", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"/organizations/{businessId}/documents";
+            }
+
             if (string.Equals(segments[2], "command-center", StringComparison.OrdinalIgnoreCase))
             {
                 return $"/organizations/{businessId}/command-center";

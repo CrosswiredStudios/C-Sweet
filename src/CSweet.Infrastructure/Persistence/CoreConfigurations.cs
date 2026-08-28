@@ -23,6 +23,13 @@ internal static class CoreConfigurations
         modelBuilder.Entity<TaskRun>(ConfigureTaskRun);
         modelBuilder.Entity<Artifact>(ConfigureArtifact);
         modelBuilder.Entity<Approval>(ConfigureApproval);
+        modelBuilder.Entity<ArtifactRevision>(ConfigureArtifactRevision);
+        modelBuilder.Entity<ArtifactFolder>(ConfigureArtifactFolder);
+        modelBuilder.Entity<ArtifactPackage>(ConfigureArtifactPackage);
+        modelBuilder.Entity<ArtifactPackageMember>(ConfigureArtifactPackageMember);
+        modelBuilder.Entity<ArtifactAccessRequest>(ConfigureArtifactAccessRequest);
+        modelBuilder.Entity<ArtifactReviewJob>(ConfigureArtifactReviewJob);
+        modelBuilder.Entity<ConversationMessageArtifact>(ConfigureConversationMessageArtifact);
         modelBuilder.Entity<Conversation>(ConfigureConversation);
         modelBuilder.Entity<ConversationParticipant>(ConfigureConversationParticipant);
         modelBuilder.Entity<ConversationMessage>(ConfigureConversationMessage);
@@ -625,6 +632,14 @@ internal static class CoreConfigurations
         entity.Property(x => x.Title).HasMaxLength(512).IsRequired();
         entity.Property(x => x.Content).HasMaxLength(131072).IsRequired();
         entity.Property(x => x.ApprovalStatus).HasConversion<string>().HasMaxLength(32).IsRequired();
+        entity.Property(x => x.CreatorDisplayName).HasMaxLength(160).IsRequired();
+        entity.Property(x => x.CreatorAgentId).HasMaxLength(200);
+        entity.Property(x => x.CreatorAgentVersion).HasMaxLength(64);
+        entity.Property(x => x.DocumentType).HasMaxLength(160).IsRequired();
+        entity.Property(x => x.DocumentStatus).HasConversion<string>().HasMaxLength(32).IsRequired();
+        entity.HasIndex(x => new { x.OrganizationId, x.ArchivedAt, x.UpdatedAt });
+        entity.HasIndex(x => new { x.OrganizationId, x.FolderId });
+        entity.HasIndex(x => new { x.OrganizationId, x.PackageId });
 
         entity.HasOne(x => x.Organization)
             .WithMany()
@@ -640,6 +655,87 @@ internal static class CoreConfigurations
             .WithMany()
             .HasForeignKey(x => x.TaskRunId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        entity.HasOne(x => x.Folder).WithMany().HasForeignKey(x => x.FolderId).OnDelete(DeleteBehavior.SetNull);
+        entity.HasOne(x => x.Package).WithMany().HasForeignKey(x => x.PackageId).OnDelete(DeleteBehavior.SetNull);
+        entity.HasOne(x => x.CreatedByOrganizationUser).WithMany().HasForeignKey(x => x.CreatedByOrganizationUserId).OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(x => x.StewardOrganizationUser).WithMany().HasForeignKey(x => x.StewardOrganizationUserId).OnDelete(DeleteBehavior.SetNull);
+    }
+
+    static void ConfigureArtifactRevision(EntityTypeBuilder<ArtifactRevision> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.Content).HasMaxLength(131072).IsRequired();
+        entity.Property(x => x.ContentSha256).HasMaxLength(64).IsRequired();
+        entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+        entity.Property(x => x.CreatorDisplayName).HasMaxLength(160).IsRequired();
+        entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+        entity.HasIndex(x => new { x.ArtifactId, x.Number }).IsUnique();
+        entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
+        entity.HasOne(x => x.Artifact).WithMany(x => x.Revisions).HasForeignKey(x => x.ArtifactId).OnDelete(DeleteBehavior.Cascade);
+    }
+
+    static void ConfigureArtifactFolder(EntityTypeBuilder<ArtifactFolder> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+        entity.HasIndex(x => new { x.OrganizationId, x.ParentFolderId, x.Name }).IsUnique().HasFilter("\"ArchivedAt\" IS NULL");
+        entity.HasOne(x => x.ParentFolder).WithMany().HasForeignKey(x => x.ParentFolderId).OnDelete(DeleteBehavior.Restrict);
+    }
+
+    static void ConfigureArtifactPackage(EntityTypeBuilder<ArtifactPackage> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.Name).HasMaxLength(256).IsRequired();
+        entity.Property(x => x.PackageType).HasMaxLength(160).IsRequired();
+        entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+        entity.Property(x => x.LastSubmissionIdempotencyKey).HasMaxLength(200);
+        entity.Property(x => x.LastDecisionIdempotencyKey).HasMaxLength(200);
+        entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+        entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
+        entity.HasIndex(x => new { x.OrganizationId, x.ArchivedAt, x.UpdatedAt });
+    }
+
+    static void ConfigureArtifactPackageMember(EntityTypeBuilder<ArtifactPackageMember> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.RequiredDocumentType).HasMaxLength(160).IsRequired();
+        entity.HasIndex(x => new { x.PackageId, x.ArtifactId }).IsUnique();
+        entity.HasIndex(x => new { x.PackageId, x.Position }).IsUnique();
+        entity.HasOne(x => x.Package).WithMany(x => x.Members).HasForeignKey(x => x.PackageId).OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne(x => x.Artifact).WithMany().HasForeignKey(x => x.ArtifactId).OnDelete(DeleteBehavior.Restrict);
+    }
+
+    static void ConfigureArtifactAccessRequest(EntityTypeBuilder<ArtifactAccessRequest> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.SubjectKind).HasConversion<string>().HasMaxLength(32).IsRequired();
+        entity.Property(x => x.ActionsJson).HasColumnType("jsonb").IsRequired();
+        entity.Property(x => x.Justification).HasMaxLength(2048).IsRequired();
+        entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+        entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+        entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
+        entity.HasIndex(x => new { x.ArtifactId, x.SubjectKind, x.SubjectId, x.Status });
+        entity.HasOne(x => x.Artifact).WithMany().HasForeignKey(x => x.ArtifactId).OnDelete(DeleteBehavior.Cascade);
+    }
+
+    static void ConfigureArtifactReviewJob(EntityTypeBuilder<ArtifactReviewJob> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+        entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+        entity.Property(x => x.LastError).HasMaxLength(2048);
+        entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
+        entity.HasIndex(x => new { x.Status, x.NextAttemptAt, x.CreatedAt });
+    }
+
+    static void ConfigureConversationMessageArtifact(EntityTypeBuilder<ConversationMessageArtifact> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.HasIndex(x => new { x.MessageId, x.ArtifactId }).IsUnique();
+        entity.HasIndex(x => new { x.OrganizationId, x.ConversationId });
+        entity.HasOne(x => x.Message).WithMany(x => x.Artifacts).HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne(x => x.Artifact).WithMany().HasForeignKey(x => x.ArtifactId).OnDelete(DeleteBehavior.Restrict);
     }
 
     static void ConfigureApproval(EntityTypeBuilder<Approval> entity)
@@ -652,6 +748,9 @@ internal static class CoreConfigurations
             .WithMany()
             .HasForeignKey(x => x.ArtifactId)
             .OnDelete(DeleteBehavior.Cascade);
+        entity.HasOne(x => x.ArtifactRevision).WithMany()
+            .HasForeignKey(x => x.ArtifactRevisionId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     static void ConfigureConversation(EntityTypeBuilder<Conversation> entity)

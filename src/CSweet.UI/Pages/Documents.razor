@@ -1,0 +1,269 @@
+@page "/organizations/{OrganizationId:guid}/documents"
+@using CSweet.Contracts.Core
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject CSweet.UI.Services.AppRealtimeState Realtime
+@implements IDisposable
+
+<PageTitle>Documents - C-Sweet</PageTitle>
+
+<div class="documents-page @(_selectedId.HasValue ? "workspace-open" : null)">
+    <main class="documents-library">
+        <header class="documents-heading">
+            <div>
+                <MudText Typo="Typo.overline" Color="Color.Primary">COMPANY KNOWLEDGE</MudText>
+                <MudText Typo="Typo.h4">Documents</MudText>
+                <MudText Color="Color.Secondary">Browse durable work products without searching through old chats.</MudText>
+            </div>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.NoteAdd" OnClick="@(() => _creating = true)">New document</MudButton>
+        </header>
+
+        <div class="documents-filters">
+            <MudTextField @bind-Value="_search" Label="Search documents" Variant="Variant.Outlined"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Immediate="true"
+                          DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" />
+            <MudSelect T="string" Label="Status" Value="_status" ValueChanged="StatusChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All statuses</MudSelectItem>
+                @foreach (var value in new[] { "Draft", "InReview", "Approved", "ChangesRequested" })
+                { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
+            </MudSelect>
+            <MudSelect T="Guid?" Label="Package" Value="_packageId" ValueChanged="PackageChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">All packages</MudSelectItem>
+                @foreach (var package in _packages) { <MudSelectItem T="Guid?" Value="package.Id">@package.Name</MudSelectItem> }
+            </MudSelect>
+            <MudTextField @bind-Value="_documentType" Label="Document type" Variant="Variant.Outlined" Immediate="true"
+                          DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" />
+            <MudTextField @bind-Value="_creator" Label="Creator or steward" Variant="Variant.Outlined" Immediate="true"
+                          DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" />
+            <MudCheckBox T="bool" Value="_includeArchived" Label="Include archived" ValueChanged="ArchivedChanged" />
+        </div>
+
+        @if (_packageId.HasValue && _packages.SingleOrDefault(x => x.Id == _packageId) is { } selectedPackage)
+        {
+            <MudPaper Outlined="true" Class="pa-3 mb-3 d-flex align-center justify-space-between">
+                <div><strong>@selectedPackage.Name</strong><div class="text-secondary">Version @selectedPackage.Version · @selectedPackage.Status · @selectedPackage.Members.Count members</div></div>
+                <div class="d-flex gap-2">
+                    @if (selectedPackage.Status == "Draft")
+                    { <MudButton Variant="Variant.Outlined" OnClick="SubmitPackageAsync">Submit package</MudButton> }
+                    @if (selectedPackage.Status == "InReview")
+                    { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AcceptPackageAsync">Accept package</MudButton> }
+                    <MudButton Variant="Variant.Text" Color="Color.Warning" OnClick="ArchivePackageAsync">Archive</MudButton>
+                </div>
+            </MudPaper>
+        }
+
+        <div class="documents-content">
+            <aside class="documents-folders">
+                <button class="@(!_folderId.HasValue ? "active" : null)" @onclick="@(() => SelectFolderAsync(null))"><MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />All documents</button>
+                @foreach (var folder in OrderedFolders())
+                {
+                    <button class="@(_folderId == folder.Id ? "active" : null)" style="padding-left:@(1 + FolderDepth(folder) * 1.1)rem" @onclick="@(() => SelectFolderAsync(folder.Id))">
+                        <MudIcon Icon="@Icons.Material.Outlined.Folder" />@folder.Name
+                    </button>
+                }
+                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Outlined.CreateNewFolder" OnClick="OpenNewFolder">New folder</MudButton>
+                @if (_folderId.HasValue)
+                {
+                    <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Outlined.DriveFileRenameOutline" OnClick="OpenEditFolder">Rename or move</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Archive" OnClick="ArchiveFolderAsync">Archive folder</MudButton>
+                }
+            </aside>
+
+            <section class="documents-results">
+                @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
+                else if (!string.IsNullOrWhiteSpace(_error)) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+                else if (_documents.Count == 0) { <div class="documents-empty"><MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Large" /><strong>No documents match this view.</strong></div> }
+                else
+                {
+                    @foreach (var document in _documents)
+                    {
+                        <button class="document-card @(_selectedId == document.Id ? "active" : null)" @onclick="@(() => Open(document.Id))">
+                            <MudIcon Icon="@Icons.Material.Outlined.Description" />
+                            <span class="document-card-copy">
+                                <strong>@document.Title</strong>
+                                <small>@document.DocumentType · Revision @document.LatestRevisionNumber · Updated @document.UpdatedAt.ToLocalTime().ToString("g")</small>
+                                <small>Created by @document.CreatorDisplayName@(document.CreatorIsFormerEmployee ? " (former employee)" : null)</small>
+                            </span>
+                            <MudChip T="string" Size="Size.Small" Color="@StatusColor(document.Status)">@document.Status</MudChip>
+                        </button>
+                    }
+                }
+            </section>
+        </div>
+    </main>
+
+    @if (_selectedId is Guid selectedId)
+    {
+        <ArtifactWorkspace OrganizationId="OrganizationId" ArtifactId="selectedId" Closed="CloseWorkspace" Changed="OnDocumentChanged" />
+    }
+</div>
+
+<MudDialog @bind-Visible="_creating" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">New document</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_newTitle" Label="Title" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_newType" Label="Document type" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSelect T="Guid?" @bind-Value="_newFolderId" Label="Folder" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Unfiled</MudSelectItem>
+            @foreach (var folder in OrderedFolders()) { <MudSelectItem T="Guid?" Value="folder.Id">@folder.Name</MudSelectItem> }
+        </MudSelect>
+        <MudTextField @bind-Value="_newContent" Label="Markdown" Lines="14" Variant="Variant.Outlined" />
+    </DialogContent>
+    <DialogActions><MudButton OnClick="@(() => _creating = false)">Cancel</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateAsync">Create</MudButton></DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_creatingFolder">
+    <TitleContent><MudText Typo="Typo.h6">@(_editingFolder ? "Rename or move folder" : "New folder")</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_newFolderName" Label="Folder name" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSelect T="Guid?" @bind-Value="_folderParentId" Label="Parent folder" Variant="Variant.Outlined">
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Top level</MudSelectItem>
+            @foreach (var folder in OrderedFolders().Where(x => x.Id != _folderId))
+            { <MudSelectItem T="Guid?" Value="folder.Id">@folder.Name</MudSelectItem> }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions><MudButton OnClick="@(() => _creatingFolder = false)">Cancel</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveFolderAsync">Save</MudButton></DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    private readonly List<ArtifactDocumentSummary> _documents = [];
+    private readonly List<ArtifactFolderResponse> _folders = [];
+    private readonly List<ArtifactPackageResponse> _packages = [];
+    private Guid? _selectedId, _folderId, _newFolderId, _packageId, _folderParentId;
+    private string _search = "", _status = "", _documentType = "", _creator = "", _newTitle = "", _newType = "document", _newContent = "# New document\n", _newFolderName = "";
+    private bool _includeArchived, _loading, _creating, _creatingFolder, _editingFolder;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _selectedId = QueryArtifact();
+        _packageId = QueryGuid("packageId") ?? _packageId;
+        await Task.WhenAll(ReloadAsync(), LoadFoldersAsync(), LoadPackagesAsync());
+    }
+
+    protected override void OnInitialized() => Realtime.EventReceived += OnRealtimeEvent;
+
+    private void OnRealtimeEvent(CSweet.Contracts.Realtime.AppRealtimeEventEnvelope envelope)
+    {
+        if (envelope.OrganizationId == OrganizationId && envelope.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.DocumentChanged)
+            _ = InvokeAsync(async () => await Task.WhenAll(ReloadAsync(), LoadFoldersAsync()));
+    }
+
+    public void Dispose() => Realtime.EventReceived -= OnRealtimeEvent;
+
+    private async Task ReloadAsync()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var parts = new List<string> { $"includeArchived={_includeArchived.ToString().ToLowerInvariant()}" };
+            if (!string.IsNullOrWhiteSpace(_search)) parts.Add($"search={Uri.EscapeDataString(_search)}");
+            if (!string.IsNullOrWhiteSpace(_status)) parts.Add($"status={Uri.EscapeDataString(_status)}");
+            if (_folderId.HasValue) parts.Add($"folderId={_folderId:D}");
+            if (_packageId.HasValue) parts.Add($"packageId={_packageId:D}");
+            if (!string.IsNullOrWhiteSpace(_documentType)) parts.Add($"documentType={Uri.EscapeDataString(_documentType)}");
+            if (!string.IsNullOrWhiteSpace(_creator)) parts.Add($"creatorOrSteward={Uri.EscapeDataString(_creator)}");
+            var result = await Http.GetFromJsonAsync<List<ArtifactDocumentSummary>>($"api/organizations/{OrganizationId:D}/documents?{string.Join('&', parts)}");
+            _documents.Clear(); if (result is not null) _documents.AddRange(result);
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task LoadFoldersAsync()
+    {
+        var result = await Http.GetFromJsonAsync<List<ArtifactFolderResponse>>($"api/organizations/{OrganizationId:D}/documents/folders?includeArchived=false");
+        _folders.Clear(); if (result is not null) _folders.AddRange(result);
+    }
+
+    private async Task LoadPackagesAsync()
+    {
+        var result = await Http.GetFromJsonAsync<List<ArtifactPackageResponse>>($"api/organizations/{OrganizationId:D}/documents/packages?includeArchived={_includeArchived.ToString().ToLowerInvariant()}");
+        _packages.Clear(); if (result is not null) _packages.AddRange(result);
+    }
+
+    private async Task CreateAsync()
+    {
+        var response = await Http.PostAsJsonAsync($"api/organizations/{OrganizationId:D}/documents",
+            new CreateArtifactDocumentRequest(_newTitle, _newContent, _newType, $"ui-create:{Guid.NewGuid():N}", _newFolderId));
+        if (!response.IsSuccessStatusCode) { _error = await response.Content.ReadAsStringAsync(); return; }
+        var created = await response.Content.ReadFromJsonAsync<ArtifactDocumentDetail>();
+        _creating = false; await ReloadAsync(); if (created is not null) Open(created.Document.Id);
+    }
+
+    private void OpenNewFolder()
+    {
+        _editingFolder = false; _newFolderName = ""; _folderParentId = _folderId; _creatingFolder = true;
+    }
+
+    private void OpenEditFolder()
+    {
+        var folder = _folders.SingleOrDefault(x => x.Id == _folderId);
+        if (folder is null) return;
+        _editingFolder = true; _newFolderName = folder.Name; _folderParentId = folder.ParentFolderId; _creatingFolder = true;
+    }
+
+    private async Task SaveFolderAsync()
+    {
+        var response = _editingFolder && _folderId.HasValue
+            ? await Http.PutAsJsonAsync($"api/organizations/{OrganizationId:D}/documents/folders/{_folderId:D}",
+                new UpdateArtifactFolderRequest(_newFolderName, _folderParentId, $"ui-folder-update:{Guid.NewGuid():N}"))
+            : await Http.PostAsJsonAsync($"api/organizations/{OrganizationId:D}/documents/folders",
+                new CreateArtifactFolderRequest(_newFolderName, _folderParentId, $"ui-folder:{Guid.NewGuid():N}"));
+        if (!response.IsSuccessStatusCode) { _error = await response.Content.ReadAsStringAsync(); return; }
+        _creatingFolder = false; _newFolderName = ""; await LoadFoldersAsync();
+    }
+
+    private async Task ArchiveFolderAsync()
+    {
+        if (!_folderId.HasValue) return;
+        var response = await Http.PostAsJsonAsync($"api/organizations/{OrganizationId:D}/documents/folders/{_folderId:D}/archive",
+            new ArtifactArchiveRequest($"ui-folder-archive:{_folderId:N}:{Guid.NewGuid():N}"));
+        if (!response.IsSuccessStatusCode) { _error = await response.Content.ReadAsStringAsync(); return; }
+        _folderId = null; await Task.WhenAll(LoadFoldersAsync(), ReloadAsync());
+    }
+
+    private void Open(Guid id) { _selectedId = id; Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents?artifact={id:D}", false, true); }
+    private void CloseWorkspace() { _selectedId = null; Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents", false, true); }
+    private async Task OnDocumentChanged(ArtifactDocumentDetail _) => await ReloadAsync();
+    private async Task SelectFolderAsync(Guid? id) { _folderId = id; await ReloadAsync(); }
+    private async Task StatusChanged(string value) { _status = value; await ReloadAsync(); }
+    private async Task PackageChanged(Guid? value) { _packageId = value; await ReloadAsync(); }
+    private async Task ArchivedChanged(bool value) { _includeArchived = value; await ReloadAsync(); }
+
+    private Task SubmitPackageAsync() => MutatePackageAsync("submit",
+        new SubmitArtifactPackageRequest($"ui-package-submit:{_packageId:N}:{Guid.NewGuid():N}"));
+    private Task AcceptPackageAsync() => MutatePackageAsync("decision",
+        new DecideArtifactPackageRequest("accept", $"ui-package-accept:{_packageId:N}:{Guid.NewGuid():N}"));
+    private Task ArchivePackageAsync() => MutatePackageAsync("archive",
+        new ArtifactArchiveRequest($"ui-package-archive:{_packageId:N}:{Guid.NewGuid():N}"));
+
+    private async Task MutatePackageAsync<T>(string action, T request)
+    {
+        if (!_packageId.HasValue) return;
+        var response = await Http.PostAsJsonAsync(
+            $"api/organizations/{OrganizationId:D}/documents/packages/{_packageId:D}/{action}", request);
+        if (!response.IsSuccessStatusCode) { _error = await response.Content.ReadAsStringAsync(); return; }
+        await Task.WhenAll(LoadPackagesAsync(), ReloadAsync());
+    }
+
+    private IEnumerable<ArtifactFolderResponse> OrderedFolders() => _folders.OrderBy(x => FolderDepth(x)).ThenBy(x => x.Name);
+    private int FolderDepth(ArtifactFolderResponse folder)
+    {
+        var depth = 0; var parent = folder.ParentFolderId; var seen = new HashSet<Guid>();
+        while (parent.HasValue && seen.Add(parent.Value) && _folders.FirstOrDefault(x => x.Id == parent) is { } item) { depth++; parent = item.ParentFolderId; }
+        return depth;
+    }
+
+    private Guid? QueryArtifact()
+        => QueryGuid("artifact");
+
+    private Guid? QueryGuid(string key)
+    {
+        var query = new Uri(Navigation.Uri).Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var pair in query) { var parts = pair.Split('=', 2); if (parts.Length == 2 && parts[0] == key && Guid.TryParse(Uri.UnescapeDataString(parts[1]), out var id)) return id; }
+        return null;
+    }
+    private static Color StatusColor(string status) => status switch { "Approved" => Color.Success, "InReview" => Color.Info, "ChangesRequested" => Color.Warning, "Archived" => Color.Default, _ => Color.Primary };
+}

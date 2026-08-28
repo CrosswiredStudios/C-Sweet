@@ -5,6 +5,7 @@ using CSweet.Application.Communications;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Communications;
+using CSweet.Contracts.Core;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -20,7 +21,8 @@ public sealed class CommunicationHubService(
     IExecutiveDecisionService? decisions = null,
     IResourceChangeService? resourceChanges = null,
     IHiringService? hiring = null,
-    IAgentCommunicationOnboardingService? onboarding = null) : ICommunicationHubService
+    IAgentCommunicationOnboardingService? onboarding = null,
+    IArtifactDocumentService? artifactDocuments = null) : ICommunicationHubService
 {
     private const long MaximumAttachmentBytes = 25L * 1024 * 1024;
     private const long MaximumTotalAttachmentBytes = 50L * 1024 * 1024;
@@ -126,6 +128,7 @@ public sealed class CommunicationHubService(
                 x.Participants.Any(p => p.OrganizationUserId == viewedUser.Id && p.LeftAt == null))
             .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
             .Include(x => x.Messages).ThenInclude(x => x.Attachments)
+            .Include(x => x.Messages).ThenInclude(x => x.Artifacts)
             .OrderByDescending(x => x.UpdatedAt)
             .ToListAsync(cancellationToken);
 
@@ -192,6 +195,7 @@ public sealed class CommunicationHubService(
             .Include(x => x.Mentions)
                 .ThenInclude(x => x.MentionedOrganizationUser)
             .Include(x => x.Attachments)
+            .Include(x => x.Artifacts)
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         var decisionCards = decisions is null
@@ -297,6 +301,7 @@ public sealed class CommunicationHubService(
                     x.Participants.Any(p => p.OrganizationUserId == actor.Id && p.LeftAt == null))
                 .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
                 .Include(x => x.Messages).ThenInclude(x => x.Attachments)
+                .Include(x => x.Messages).ThenInclude(x => x.Artifacts)
                 .ToListAsync(cancellationToken);
             var existing = candidates.FirstOrDefault(x => x.Participants.Where(p => p.LeftAt == null)
                 .Select(p => p.OrganizationUserId).ToHashSet().SetEquals(memberIds));
@@ -347,6 +352,7 @@ public sealed class CommunicationHubService(
             .Where(x => x.Id == chatId && x.OrganizationId == organizationId && x.ArchivedAt == null)
             .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
             .Include(x => x.Messages).ThenInclude(x => x.Attachments)
+            .Include(x => x.Messages).ThenInclude(x => x.Artifacts)
             .SingleOrDefaultAsync(cancellationToken);
         if (actor is null || chat is null) return Failure("chat_not_found", "The chat was not found.");
         if (chat.IsDeletionProtected) return Failure("protected_chat_immutable", "This agent-instance conversation cannot be modified.");
@@ -445,6 +451,7 @@ public sealed class CommunicationHubService(
             var existing = await db.CoreConversationMessages.AsNoTracking()
                 .Include(x => x.Mentions).ThenInclude(x => x.MentionedOrganizationUser)
                 .Include(x => x.Attachments)
+                .Include(x => x.Artifacts)
                 .SingleOrDefaultAsync(x => x.ConversationId == chat.Id &&
                     x.SenderOrganizationUserId == actor.Id && x.IdempotencyKey == idempotencyKey, cancellationToken);
             if (existing is not null)
@@ -493,6 +500,8 @@ public sealed class CommunicationHubService(
                 .ToListAsync(cancellationToken);
             await PersistMentionsAsync(
                 organizationId, chat, actor, started.UserMessage.Id, content, mentions, cancellationToken);
+            await TryRecordArtifactApprovalAsync(
+                organizationId, chat.Id, actor, started.UserMessage.Id, content, cancellationToken);
             if (mentionTransaction is not null)
                 await mentionTransaction.CommitAsync(cancellationToken);
             var response = new CommunicationMessageSendResponse(
@@ -533,6 +542,8 @@ public sealed class CommunicationHubService(
         AddMentionEntities(organizationId, chat.Id, message.Id, mentions, now);
         QueueMentionDeliveries(organizationId, chat, actor, message.Id, content, mentions, now);
         await db.SaveChangesAsync(cancellationToken);
+        await TryRecordArtifactApprovalAsync(
+            organizationId, chat.Id, actor, message.Id, content, cancellationToken);
         var sent = new CommunicationMessageSendResponse(
             new CommunicationHubMessageResponse(message.Id, message.Sequence, chat.Id, actor.Id, actor.DisplayName,
                 actor.EmployeeType.ToString(), message.Content, message.CreatedAt, message.ChatTurnId)
@@ -543,6 +554,64 @@ public sealed class CommunicationHubService(
         await WriteMessageAuditAsync(
             organizationId, actor, chat, sent.Message, message.CorrelationId, cancellationToken);
         return sent;
+    }
+
+    private async Task TryRecordArtifactApprovalAsync(
+        Guid organizationId,
+        Guid conversationId,
+        OrganizationUser actor,
+        Guid messageId,
+        string content,
+        CancellationToken cancellationToken)
+    {
+        if (artifactDocuments is null || actor.EmployeeType != EmployeeType.Human ||
+            !actor.ApplicationUserId.HasValue || !IsUnambiguousApproval(content))
+            return;
+
+        var candidates = await db.CoreArtifacts.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.SubmittedRevisionId != null &&
+                (x.OriginConversationId == conversationId ||
+                 db.ConversationMessageArtifacts.Any(a => a.ConversationId == conversationId && a.ArtifactId == x.Id)))
+            .Select(x => new { x.Id, RevisionId = x.SubmittedRevisionId!.Value })
+            .ToListAsync(cancellationToken);
+
+        // A pasted artifact UUID is an explicit reference; otherwise approval is safe only when
+        // this conversation has exactly one pending document review.
+        var referenced = candidates.Where(x => content.Contains(x.Id.ToString(), StringComparison.OrdinalIgnoreCase)).ToList();
+        var selected = referenced.Count == 1 ? referenced[0] : candidates.Count == 1 ? candidates[0] : null;
+        if (selected is null) return;
+
+        try
+        {
+            await artifactDocuments.DecideAsync(
+                organizationId,
+                new ArtifactHumanActor(actor.ApplicationUserId.Value),
+                selected.Id,
+                new DecideArtifactRevisionRequest(
+                    selected.RevisionId,
+                    "accept",
+                    "Approved in chat.",
+                    $"chat-approval:{messageId:D}",
+                    messageId),
+                cancellationToken);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // The message is still delivered. The reviewer can explain that approval authority
+            // is missing without revealing any document metadata.
+        }
+        catch (InvalidOperationException)
+        {
+            // A concurrent decision or revision can make the candidate stale after selection.
+            // The persisted message remains valid evidence and the agent can clarify the state.
+        }
+    }
+
+    private static bool IsUnambiguousApproval(string content)
+    {
+        var normalized = content.Trim().TrimEnd('.', '!', '?').ToLowerInvariant();
+        return normalized is "approve" or "approved" or "accept" or "accepted" or
+            "i approve" or "i accept" or "looks good, approve" or "looks good, approved";
     }
 
     private async Task WriteMessageAuditAsync(
@@ -903,6 +972,8 @@ public sealed class CommunicationHubService(
             CoordinationSessionId = message.CoordinationSessionId,
             Attachments = message.Attachments.Select(x => new CommunicationMessageAttachmentResponse(
                 x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList(),
+            Artifacts = message.Artifacts.Select(x => new CommunicationMessageArtifactResponse(
+                x.Id, x.MessageId, x.ArtifactId, x.RevisionId)).ToList(),
             Mentions = message.Mentions
                 .OrderBy(x => x.Offset)
                 .Select(x => new CommunicationMessageMentionResponse(

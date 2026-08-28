@@ -18,4 +18,5 @@ public sealed record ConversationMessageResponse(
     public string SourceProvider { get; init; } = "InApp";
     public string? SourceChannelExternalId { get; init; }
     public IReadOnlyList<CommunicationMessageAttachmentResponse> Attachments { get; init; } = [];
+    public IReadOnlyList<CommunicationMessageArtifactResponse> Artifacts { get; init; } = [];
 }

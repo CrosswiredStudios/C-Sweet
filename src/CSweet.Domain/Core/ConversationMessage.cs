@@ -24,6 +24,7 @@ public sealed class ConversationMessage
     public Conversation? Conversation { get; set; }
     public ICollection<ConversationMessageMention> Mentions { get; set; } = [];
     public ICollection<ConversationMessageAttachment> Attachments { get; set; } = [];
+    public ICollection<ConversationMessageArtifact> Artifacts { get; set; } = [];
 }
 
 public sealed class ConversationMessageAttachment
