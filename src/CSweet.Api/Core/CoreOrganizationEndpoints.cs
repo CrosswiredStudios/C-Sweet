@@ -61,9 +61,10 @@ public static class CoreOrganizationEndpoints
         group.MapDelete("/{id:guid}", async (Guid id, ICoreOrganizationService service, CancellationToken cancellationToken) =>
         {
             var result = await service.DeleteAsync(id, cancellationToken);
-            return result.Succeeded
-                ? Results.NoContent()
-                : Results.BadRequest(result);
+            if (result.Succeeded) return Results.NoContent();
+            return result.ErrorCode == "not_found"
+                ? Results.NotFound(result)
+                : Results.Conflict(result);
         });
 
         return endpoints;

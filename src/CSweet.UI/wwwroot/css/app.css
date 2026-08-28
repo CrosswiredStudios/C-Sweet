@@ -1150,6 +1150,33 @@ code {
     height: 100%;
 }
 
+.organization-card-shell {
+    height: 100%;
+}
+
+.organization-card-deleting {
+    opacity: .72;
+    pointer-events: none;
+}
+
+.organization-card-deleting .mud-card-content {
+    filter: grayscale(.25);
+}
+
+.business-delete-progress {
+    display: inline-flex;
+    align-items: center;
+    gap: .65rem;
+    min-height: 2.25rem;
+    padding: 0 .5rem;
+    color: var(--mud-palette-error);
+    font-weight: 600;
+}
+
+.business-delete-message {
+    margin-bottom: 1rem;
+}
+
 .mt-2 {
     margin-top: 0.5rem;
 }
@@ -1874,7 +1901,7 @@ body { color: var(--cs-navy); }
 
 .organization-card,
 .employee-card { overflow: hidden; transition: transform .18s ease, box-shadow .18s ease; }
-.organization-card:hover,
+.organization-card:not(.organization-card-deleting):hover,
 .employee-card:hover { transform: translateY(-2px); box-shadow: 0 14px 34px rgba(24, 35, 63, .11); }
 
 .command-grid,

@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.Setup;
 
-public sealed class AgentInstallationService : IAgentInstallationService, IPluginInstallationService
+public sealed class AgentInstallationService : IAgentInstallationService, IPluginInstallationService, IBusinessAgentInstallationCleanup
 {
     private const int FirstPartyMinimumRuntimeMemoryMb = 1024;
     private static readonly TimeSpan RuntimeWorkloadCleanupTimeout = TimeSpan.FromSeconds(30);
@@ -249,6 +249,37 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .ThenBy(x => x.PackageVersion!.AgentName)
             .ToListAsync(cancellationToken);
         return installations.Select(ToResponse).ToList();
+    }
+
+    public async Task QuiesceAsync(Guid organizationId, CancellationToken cancellationToken = default)
+    {
+        var businessId = organizationId.ToString("D");
+        var installations = await InstallationQuery()
+            .Where(x => x.BusinessId == businessId)
+            .ToListAsync(cancellationToken);
+        if (installations.Count == 0)
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var installation in installations)
+        {
+            installation.IsEnabled = false;
+            installation.UpdatedAt = now;
+            if (installation.Schedule is not null)
+            {
+                installation.Schedule.IsEnabled = false;
+                installation.Schedule.NextTickAt = null;
+            }
+            await RevokeInstallationSessionsAsync(
+                installation.Id,
+                "The business is being deleted.",
+                now,
+                cancellationToken);
+        }
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        foreach (var installation in installations)
+            await RemoveRuntimeWorkloadsAsync(installation, cancellationToken);
     }
 
     async Task<IReadOnlyList<AgentInstallationResponse>> IPluginInstallationService.ListAsync(

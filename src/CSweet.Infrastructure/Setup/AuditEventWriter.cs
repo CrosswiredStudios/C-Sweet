@@ -43,7 +43,9 @@ public sealed class AuditEventWriter : IAuditEventWriter
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(request.EventType);
         var ambient = _executionContext.Current;
-        var organizationId = request.OrganizationId ?? ambient?.OrganizationId;
+        var organizationId = request.UseAmbientOrganization
+            ? request.OrganizationId ?? ambient?.OrganizationId
+            : request.OrganizationId;
         var actor = request.Actor ?? ambient?.Actor ?? new AuditActor("Platform", DisplayName: "C-Sweet platform");
         var streamKey = organizationId?.ToString("D") ?? "system";
         var streamLock = _streamLocks.GetOrAdd(streamKey, static _ => new SemaphoreSlim(1, 1));

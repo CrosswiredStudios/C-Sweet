@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using CSweet.Contracts.Core;
 
 namespace CSweet.UI.Services;
@@ -55,8 +56,39 @@ public sealed class OrganizationApiClient : IOrganizationApiClient
         var response = await _httpClient.DeleteAsync($"api/core/organizations/{id}", cancellationToken);
         if (response.StatusCode != System.Net.HttpStatusCode.NoContent && !response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadFromJsonAsync<CoreActionResponse>(cancellationToken);
-            throw new ApiClientException(response.StatusCode, error?.Message ?? "Failed to delete organization.");
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new ApiClientException(response.StatusCode, DeleteErrorMessage(body, response.StatusCode));
         }
+    }
+
+    private static string DeleteErrorMessage(string body, System.Net.HttpStatusCode statusCode)
+    {
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            try
+            {
+                var action = JsonSerializer.Deserialize<CoreActionResponse>(body, JsonSerializerOptions.Web);
+                if (!string.IsNullOrWhiteSpace(action?.Message))
+                    return action.Message;
+            }
+            catch (JsonException) { }
+
+            try
+            {
+                using var document = JsonDocument.Parse(body);
+                foreach (var propertyName in new[] { "detail", "message", "title" })
+                {
+                    if (document.RootElement.TryGetProperty(propertyName, out var property) &&
+                        property.ValueKind == JsonValueKind.String &&
+                        !string.IsNullOrWhiteSpace(property.GetString()))
+                    {
+                        return property.GetString()!;
+                    }
+                }
+            }
+            catch (JsonException) { }
+        }
+
+        return $"The business could not be deleted (HTTP {(int)statusCode}). Retry the deletion.";
     }
 }

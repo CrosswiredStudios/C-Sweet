@@ -4,6 +4,7 @@ using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CSweet.Infrastructure.Core;
 
@@ -12,12 +13,21 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
     private readonly CSweetDbContext _dbContext;
     private readonly IAuditEventWriter _auditEventWriter;
     private readonly IRoleService _roleService;
+    private readonly IOrganizationDataPurgeService? _purgeService;
+    private readonly ILogger<CoreOrganizationService>? _logger;
 
-    public CoreOrganizationService(CSweetDbContext dbContext, IAuditEventWriter auditEventWriter, IRoleService roleService)
+    public CoreOrganizationService(
+        CSweetDbContext dbContext,
+        IAuditEventWriter auditEventWriter,
+        IRoleService roleService,
+        IOrganizationDataPurgeService? purgeService = null,
+        ILogger<CoreOrganizationService>? logger = null)
     {
         _dbContext = dbContext;
         _auditEventWriter = auditEventWriter;
         _roleService = roleService;
+        _purgeService = purgeService;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<OrganizationResponse>> ListAsync(CancellationToken cancellationToken = default)
@@ -130,15 +140,44 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         }
 
         var name = org.Name;
-        _dbContext.CoreOrganizations.Remove(org);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            if (_purgeService is not null)
+                await _purgeService.PurgeAsync(id, cancellationToken);
+            else
+            {
+                _dbContext.CoreOrganizations.Remove(org);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
+        catch (OrganizationDeletionException exception)
+        {
+            return Failure("deletion_failed", exception.Message);
+        }
+        catch (DbUpdateException exception)
+        {
+            _logger?.LogError(exception, "Could not delete organization {OrganizationId}.", id);
+            return Failure("deletion_failed", "The business could not be deleted because its data cleanup did not complete. Retry the deletion.");
+        }
 
-        await _auditEventWriter.WriteAsync(
-            "organization.deleted",
-            "Organization",
-            org.Id,
-            $"Organization '{name}' deleted.",
-            cancellationToken: cancellationToken);
+        try
+        {
+            await _auditEventWriter.AppendAsync(
+                new AuditEventWriteRequest(
+                    "organization.deleted",
+                    OrganizationId: null,
+                    EntityType: "Organization",
+                    EntityId: org.Id,
+                    Summary: $"Organization '{name}' deleted.",
+                    UseAmbientOrganization: false),
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The local purge has already committed. Do not report a failed deletion and
+            // leave the client displaying a business that no longer exists.
+            _logger?.LogError(exception, "Organization {OrganizationId} was deleted, but its audit event could not be written.", id);
+        }
 
         return new CoreActionResponse(true, null, "Organization deleted successfully.");
     }

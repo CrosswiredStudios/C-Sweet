@@ -13,4 +13,5 @@ public interface IBusinessContext
     Task InitializeAsync(CancellationToken cancellationToken = default);
     Task RefreshAsync(CancellationToken cancellationToken = default);
     Task SelectAsync(Guid businessId, bool navigate = true, CancellationToken cancellationToken = default);
+    Task RemoveDeletedBusinessAsync(Guid businessId, CancellationToken cancellationToken = default);
 }

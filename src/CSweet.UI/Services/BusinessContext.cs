@@ -83,6 +83,18 @@ public sealed class BusinessContext : IBusinessContext, IDisposable
         }
     }
 
+    public async Task RemoveDeletedBusinessAsync(Guid businessId, CancellationToken cancellationToken = default)
+    {
+        Businesses = Businesses.Where(x => x.Id != businessId).ToList();
+        if (SelectedBusiness?.Id == businessId)
+        {
+            SelectedBusiness = Businesses.FirstOrDefault();
+        }
+
+        await PersistSelectionAsync(cancellationToken);
+        NotifyChanged();
+    }
+
     private async void OnLocationChanged(object? sender, LocationChangedEventArgs args)
     {
         var routeId = BusinessNavigation.OrganizationIdFromPath(_navigation.ToBaseRelativePath(args.Location));

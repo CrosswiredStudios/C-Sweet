@@ -24,6 +24,13 @@
         </MudButton>
     </MudStack>
 
+    @if (!string.IsNullOrWhiteSpace(_deleteMessage))
+    {
+        <MudAlert Severity="@(_deleteSucceeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Class="business-delete-message">
+            @_deleteMessage
+        </MudAlert>
+    }
+
     @if (_loading)
     {
         <MudPaper Elevation="1" Class="surface-panel">
@@ -43,7 +50,8 @@
             @foreach (var org in _organizations)
             {
                 <MudItem xs="12" md="6" lg="4">
-                    <MudCard Elevation="1" Class="organization-card">
+                    <div class="organization-card-shell" aria-busy="@(IsDeleting(org.Id) ? "true" : "false")">
+                    <MudCard Elevation="1" Class="@OrganizationCardClass(org.Id)">
                         <MudCardContent>
                             <MudText Typo="Typo.h6">@org.Name</MudText>
                             @if (!string.IsNullOrEmpty(org.Industry))
@@ -65,11 +73,23 @@
                             }
                         </MudCardContent>
                         <MudCardActions>
-                            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => NavigateToCommandCenter(org.Id)">Open</MudButton>
-                            <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small" OnClick="() => ShowEditForm(org)">Edit</MudButton>
-                            <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => ConfirmDelete(org)">Delete</MudButton>
+                            @if (IsDeleting(org.Id))
+                            {
+                                <div class="business-delete-progress" role="status" aria-live="polite">
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Error" />
+                                    <span>Deleting business…</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => NavigateToCommandCenter(org.Id)">Open</MudButton>
+                                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small" OnClick="() => ShowEditForm(org)">Edit</MudButton>
+                                <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
+                                           Disabled="@(_deletingOrganizationId is not null)" OnClick="() => ConfirmDelete(org)">Delete</MudButton>
+                            }
                         </MudCardActions>
                     </MudCard>
+                    </div>
                 </MudItem>
             }
         </MudGrid>
@@ -397,6 +417,8 @@
     private bool _agentDetailsExpanded;
     private bool _loadingModels;
     private bool _refreshingOnboardingOrganizations;
+    private Guid? _deletingOrganizationId;
+    private bool _deleteSucceeded;
     private int _wizardStep;
     private string _formName = string.Empty;
     private string _formIndustry = string.Empty;
@@ -406,6 +428,7 @@
     private string _agentRef = string.Empty;
     private string? _formError;
     private string? _modelCatalogMessage;
+    private string? _deleteMessage;
     private IReadOnlyList<ModelDescriptor> _availableModels = [];
     private Guid? _modelCatalogProviderId;
 
@@ -756,17 +779,33 @@
 
     private async Task ConfirmDelete(OrganizationResponse organization)
     {
+        if (_deletingOrganizationId is not null) return;
         if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{organization.Name}'? This will also delete all associated business data.")) return;
+        _deletingOrganizationId = organization.Id;
+        _deleteMessage = null;
+        _deleteSucceeded = false;
         try
         {
             await OrganizationApi.DeleteAsync(organization.Id);
-            await LoadAsync();
-            await BusinessContext.RefreshAsync();
+            _organizations = _organizations.Where(x => x.Id != organization.Id).ToList();
+            await BusinessContext.RemoveDeletedBusinessAsync(organization.Id);
+            _deleteSucceeded = true;
+            _deleteMessage = $"'{organization.Name}' was deleted.";
         }
-        catch (Exception exception) { _formError = exception.Message; }
+        catch (Exception exception)
+        {
+            _deleteMessage = $"'{organization.Name}' could not be deleted. {exception.Message}";
+        }
+        finally
+        {
+            _deletingOrganizationId = null;
+        }
     }
 
     private void NavigateToCommandCenter(Guid organizationId) => Navigation.NavigateTo($"/organizations/{organizationId}/command-center");
+    private bool IsDeleting(Guid organizationId) => _deletingOrganizationId == organizationId;
+    private string OrganizationCardClass(Guid organizationId) =>
+        IsDeleting(organizationId) ? "organization-card organization-card-deleting" : "organization-card";
     private bool IsChiefOnboarding(Guid organizationId) => BusinessOnboardingOperations.Operations.Any(operation =>
         operation.OrganizationId == organizationId && BusinessOnboardingOperationStatuses.IsActive(operation.Status));
     private string StepClass(int step) => _wizardStep == step ? "active" : _wizardStep > step ? "complete" : string.Empty;

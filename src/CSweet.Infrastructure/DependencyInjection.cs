@@ -162,6 +162,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<AgentInstallationService>();
         builder.Services.AddScoped<IAgentInstallationService>(sp => sp.GetRequiredService<AgentInstallationService>());
         builder.Services.AddScoped<IPluginInstallationService>(sp => sp.GetRequiredService<AgentInstallationService>());
+        builder.Services.AddScoped<IBusinessAgentInstallationCleanup>(sp => sp.GetRequiredService<AgentInstallationService>());
         builder.Services.AddScoped<IPluginOrganizationGrantService, PluginOrganizationGrantService>();
         builder.Services.AddScoped<IPluginAuthorizationPolicy, PersistedPluginAuthorizationPolicy>();
         builder.Services.AddScoped<IPluginSecretStore, DataProtectionPluginSecretStore>();
@@ -291,6 +292,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IBusinessOnboardingService, BusinessOnboardingService>();
         builder.Services.AddScoped<IBusinessOnboardingOperationService>(services =>
             (BusinessOnboardingService)services.GetRequiredService<IBusinessOnboardingService>());
+        builder.Services.AddScoped<IOrganizationDataPurgeService, OrganizationDataPurgeService>();
         builder.Services.AddScoped<ICoreOrganizationService, CoreOrganizationService>();
         builder.Services.AddScoped<IRoleService, RoleService>();
         builder.Services.AddScoped<IStrategicObjectiveService, StrategicObjectiveService>();
