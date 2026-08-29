@@ -142,9 +142,10 @@ public sealed class PlatformLlmCapabilityHandlerTests
             CreatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();
+        var chatClient = new StreamingChatClient();
         var handler = new PlatformLlmCapabilityHandler(
             db,
-            new StreamingProviderFactory(),
+            new StreamingProviderFactory(chatClient),
             new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             [],
@@ -157,7 +158,11 @@ public sealed class PlatformLlmCapabilityHandlerTests
             {
                 providerProfileId = providerId,
                 model = "test-model",
-                messages = new[] { new { role = "user", text = "<memory_context>remembered</memory_context>Hello" } },
+                messages = new[]
+                {
+                    new { role = "system", text = "Follow the agent's creative-direction policy." },
+                    new { role = "user", text = "<memory_context>remembered</memory_context>Hello" }
+                },
                 instructions = "Be concise.",
                 tools = new[]
                 {
@@ -237,6 +242,10 @@ public sealed class PlatformLlmCapabilityHandlerTests
         Assert.True(runLog.PromptInstructionCharacters > 0);
         Assert.True(runLog.PromptToolCharacters > 0);
         Assert.Equal(5, runLog.TokenCachedInputCount);
+        Assert.DoesNotContain(chatClient.ReceivedMessages, message => message.Role == ChatRole.System);
+        Assert.Contains("Follow the agent's creative-direction policy.", chatClient.ReceivedOptions?.Instructions,
+            StringComparison.Ordinal);
+        Assert.Contains("Be concise.", chatClient.ReceivedOptions?.Instructions, StringComparison.Ordinal);
 
         var globalUsage = await new LlmTokenUsageService(db).GetSummaryAsync();
         var agentUsage = Assert.Single(globalUsage.Agents, x => x.AgentKey == "test-agent");
@@ -390,6 +399,9 @@ public sealed class PlatformLlmCapabilityHandlerTests
 
     private sealed class StreamingChatClient : IChatClient
     {
+        public IReadOnlyList<ChatMessage> ReceivedMessages { get; private set; } = [];
+        public ChatOptions? ReceivedOptions { get; private set; }
+
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> messages,
             ChatOptions? options = null,
@@ -401,6 +413,8 @@ public sealed class PlatformLlmCapabilityHandlerTests
             ChatOptions? options = null,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
+            ReceivedMessages = messages.ToList();
+            ReceivedOptions = options;
             await Task.Yield();
             yield return new ChatResponseUpdate(ChatRole.Assistant,
                 [new TextReasoningContent("Considering the lookup. ") { ProtectedData = "encrypted-roundtrip-only" }]);

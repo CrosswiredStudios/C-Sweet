@@ -173,6 +173,13 @@ public sealed class PlatformLlmCapabilityHandler
             yield return Failure(request.RequestId, attachmentResolutionError);
             yield break;
         }
+        var messageInstructions = string.Join("\n\n", messages
+            .Where(message => message.Role == ChatRole.System)
+            .Select(message => message.Text)
+            .Where(text => !string.IsNullOrWhiteSpace(text)));
+        messages = messages.Where(message => message.Role != ChatRole.System).ToList();
+        var combinedInstructions = string.Join("\n\n", new[] { input.Instructions, messageInstructions }
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
         var runLog = CreateRunLog(
             session,
             identity?.EmployeeId,
@@ -184,8 +191,8 @@ public sealed class PlatformLlmCapabilityHandler
         var options = new ChatOptions
         {
             Instructions = identity is null
-                ? input.Instructions
-                : AgentEmployeeIdentityResolver.ApplyToInstructions(session, identity, input.Instructions),
+                ? combinedInstructions
+                : AgentEmployeeIdentityResolver.ApplyToInstructions(session, identity, combinedInstructions),
             Tools = input.Tools?
                 .Select(tool => (AITool)AIFunctionFactory.CreateDeclaration(
                     tool.Name,
