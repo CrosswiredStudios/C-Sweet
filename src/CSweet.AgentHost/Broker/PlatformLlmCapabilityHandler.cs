@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Application.Communications;
+using CSweet.Application.GenAi;
 using CSweet.Application.Setup;
 using CSweet.AI.Providers;
 using CSweet.Domain.Setup;
@@ -23,6 +24,7 @@ public sealed class PlatformLlmCapabilityHandler
     private readonly AgentEmployeeIdentityResolver _employeeIdentityResolver;
     private readonly IAgentConfigurationService _configurations;
     private readonly IReadOnlyList<IConversationAttachmentSourceResolver> _attachmentResolvers;
+    private readonly IMediaAssetService _mediaAssets;
 
     public PlatformLlmCapabilityHandler(
         CSweetDbContext dbContext,
@@ -30,6 +32,7 @@ public sealed class PlatformLlmCapabilityHandler
         AgentEmployeeIdentityResolver employeeIdentityResolver,
         IAgentConfigurationService configurations,
         IEnumerable<IConversationAttachmentSourceResolver> attachmentResolvers,
+        IMediaAssetService mediaAssets,
         ILogger<PlatformLlmCapabilityHandler> logger)
     {
         _dbContext = dbContext;
@@ -37,6 +40,7 @@ public sealed class PlatformLlmCapabilityHandler
         _employeeIdentityResolver = employeeIdentityResolver;
         _configurations = configurations;
         _attachmentResolvers = attachmentResolvers.ToList();
+        _mediaAssets = mediaAssets;
         _logger = logger;
     }
 
@@ -141,13 +145,14 @@ public sealed class PlatformLlmCapabilityHandler
         }
 
         var identity = await _employeeIdentityResolver.ResolveAsync(session, requestToken);
-        if (!Guid.TryParse(session.BusinessId, out var organizationId))
+        if (!Guid.TryParse(session.BusinessId, out var organizationId) ||
+            !Guid.TryParse(session.InstallationId, out var installationId))
         {
             yield return Failure(request.RequestId, "The agent organization identity is unavailable.");
             yield break;
         }
         var hasMediaReferences = input.Messages.Any(message => message.Contents?.Any(content =>
-            string.Equals(content.Kind, "media_reference", StringComparison.Ordinal)) == true);
+            content.Kind is "media_reference" or "media_asset_reference") == true);
         var employeeId = Guid.Empty;
         var hasEmployeeIdentity = identity is not null && Guid.TryParse(identity.EmployeeId, out employeeId);
         if (hasMediaReferences && !hasEmployeeIdentity)
@@ -161,7 +166,7 @@ public sealed class PlatformLlmCapabilityHandler
         try
         {
             messages = await ResolveMessagesAsync(
-                organizationId, hasEmployeeIdentity ? employeeId : Guid.Empty, input, requestToken);
+                organizationId, installationId, hasEmployeeIdentity ? employeeId : Guid.Empty, input, requestToken);
         }
         catch (InvalidOperationException exception)
         {
@@ -598,6 +603,7 @@ public sealed class PlatformLlmCapabilityHandler
 
     private async Task<List<ChatMessage>> ResolveMessagesAsync(
         Guid organizationId,
+        Guid installationId,
         Guid employeeId,
         PlatformChatRequest request,
         CancellationToken cancellationToken)
@@ -605,14 +611,17 @@ public sealed class PlatformLlmCapabilityHandler
         var mediaReferences = request.Messages.SelectMany(x => x.Contents ?? [])
             .Where(x => string.Equals(x.Kind, "media_reference", StringComparison.Ordinal))
             .ToList();
-        if (mediaReferences.Count > 8)
-            throw new InvalidOperationException("A model request can contain at most 8 attachment references.");
-        if (mediaReferences.Count == 0)
+        var assetReferences = request.Messages.SelectMany(x => x.Contents ?? [])
+            .Where(x => string.Equals(x.Kind, "media_asset_reference", StringComparison.Ordinal)).ToList();
+        if (mediaReferences.Count + assetReferences.Count > 8)
+            throw new InvalidOperationException("A model request can contain at most 8 media references.");
+        if (mediaReferences.Count + assetReferences.Count == 0)
             return request.Messages.Select(ToChatMessageWithoutMedia).ToList();
-        if (request.Telemetry?.ConversationId is not { } telemetryConversationId)
+        var telemetryConversationId = request.Telemetry?.ConversationId;
+        if (mediaReferences.Count > 0 && telemetryConversationId is null)
             throw new InvalidOperationException("Attachment model requests require authenticated conversation telemetry.");
-        if (!await _dbContext.ConversationParticipants.AsNoTracking().AnyAsync(x =>
-                x.ConversationId == telemetryConversationId &&
+        if (mediaReferences.Count > 0 && !await _dbContext.ConversationParticipants.AsNoTracking().AnyAsync(x =>
+                x.ConversationId == telemetryConversationId!.Value &&
                 x.OrganizationUserId == employeeId && x.LeftAt == null, cancellationToken))
             throw new InvalidOperationException("The agent is not an active participant in the attachment conversation.");
 
@@ -653,14 +662,71 @@ public sealed class PlatformLlmCapabilityHandler
             }
         }
 
+        var resolvedAssets = new Dictionary<Guid, AIContent>();
+        foreach (var reference in assetReferences)
+        {
+            if (reference.AssetId is not { } assetId || reference.WorkstreamId is not { } workstreamId ||
+                string.IsNullOrWhiteSpace(reference.OpaqueReference) || string.IsNullOrWhiteSpace(reference.ContentType) ||
+                string.IsNullOrWhiteSpace(reference.Sha256) || reference.SizeBytes is not > 0)
+                throw new InvalidOperationException("The project media reference is incomplete.");
+            var parts = reference.OpaqueReference.Split('.', 4, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 4 || parts[0] != "csweet-media-ref" || parts[1] != "v1" ||
+                !Guid.TryParseExact(parts[2], "N", out var grantId))
+                throw new InvalidOperationException("The project media reference is malformed.");
+            byte[] secret;
+            try
+            {
+                var encoded = parts[3].Replace('-', '+').Replace('_', '/');
+                secret = Convert.FromBase64String(encoded.PadRight(encoded.Length + (4 - encoded.Length % 4) % 4, '='));
+            }
+            catch (FormatException) { throw new InvalidOperationException("The project media reference is malformed."); }
+            var now = DateTimeOffset.UtcNow;
+            var grant = await _dbContext.MediaAssetReferenceGrants.SingleOrDefaultAsync(x => x.Id == grantId &&
+                x.OrganizationId == organizationId && x.AgentInstallationId == installationId &&
+                x.WorkstreamId == workstreamId && x.AssetId == assetId && x.ExpiresAt > now, cancellationToken)
+                ?? throw new InvalidOperationException("The project media reference is expired or unauthorized.");
+            var secretHash = Convert.ToHexString(SHA256.HashData(secret)).ToLowerInvariant();
+            if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(secretHash), Encoding.ASCII.GetBytes(grant.SecretHash)))
+                throw new InvalidOperationException("The project media reference failed authentication.");
+            var teamIds = await _dbContext.WorkstreamTeamAssignments.AsNoTracking().Where(x => x.WorkstreamId == workstreamId && x.EndsAt == null)
+                .Select(x => x.TeamId).ToListAsync(cancellationToken);
+            var projectAuthorized = await _dbContext.Workstreams.AsNoTracking().AnyAsync(x => x.Id == workstreamId &&
+                    x.OrganizationId == organizationId && x.AccountableManagerOrganizationUserId == employeeId, cancellationToken) ||
+                await _dbContext.WorkstreamSupervisionAssignments.AsNoTracking().AnyAsync(x => x.WorkstreamId == workstreamId &&
+                    x.SupervisorOrganizationUserId == employeeId && x.EndsAt == null, cancellationToken) ||
+                await _dbContext.TeamMemberships.AsNoTracking().AnyAsync(x => teamIds.Contains(x.TeamId) &&
+                    x.OrganizationUserId == employeeId && x.EndedAt == null, cancellationToken);
+            if (!projectAuthorized) throw new InvalidOperationException("The agent is no longer authorized for the referenced Workstream.");
+            var opened = await _mediaAssets.OpenReadAsync(assetId, organizationId, cancellationToken)
+                ?? throw new InvalidOperationException("The referenced project media is unavailable.");
+            await using var content = opened.Content;
+            var descriptor = opened.Asset;
+            if (descriptor.SizeBytes != reference.SizeBytes || descriptor.SizeBytes > 25L * 1024 * 1024 ||
+                (totalBytes += descriptor.SizeBytes) > 50L * 1024 * 1024 ||
+                !string.Equals(descriptor.ContentType, reference.ContentType, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(descriptor.Sha256, reference.Sha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The project media reference failed metadata or size verification.");
+            using var buffer = new MemoryStream((int)descriptor.SizeBytes);
+            await content.CopyToAsync(buffer, cancellationToken); var bytes = buffer.ToArray();
+            if (bytes.LongLength != descriptor.SizeBytes || !string.Equals(
+                    Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), descriptor.Sha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The project media content failed digest verification.");
+            resolvedAssets[assetId] = descriptor.ContentType is "text/plain" or "text/markdown"
+                ? new TextContent($"<project-media name=\"{descriptor.FileName}\" type=\"{descriptor.ContentType}\">\n{new UTF8Encoding(false, true).GetString(bytes)}\n</project-media>")
+                : new DataContent((ReadOnlyMemory<byte>)bytes, descriptor.ContentType);
+            grant.LastUsedAt = now;
+        }
+        if (assetReferences.Count > 0) await _dbContext.SaveChangesAsync(cancellationToken);
+
         return request.Messages.Select(message => new ChatMessage(
             ParseRole(message.Role),
             message.Contents is { Count: > 0 }
                 ? message.Contents.Select(content =>
-                    string.Equals(content.Kind, "media_reference", StringComparison.Ordinal) &&
-                    content.AttachmentId is { } id
+                    string.Equals(content.Kind, "media_reference", StringComparison.Ordinal) && content.AttachmentId is { } id
                         ? resolved[id]
-                        : ToAiContent(content)).ToList()
+                        : string.Equals(content.Kind, "media_asset_reference", StringComparison.Ordinal) && content.AssetId is { } assetId
+                            ? resolvedAssets[assetId]
+                            : ToAiContent(content)).ToList()
                 : [new TextContent(message.Text ?? string.Empty)])).ToList();
     }
 

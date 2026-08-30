@@ -29,6 +29,7 @@ internal static class CoreConfigurations
         modelBuilder.Entity<ArtifactPackageMember>(ConfigureArtifactPackageMember);
         modelBuilder.Entity<ArtifactAccessRequest>(ConfigureArtifactAccessRequest);
         modelBuilder.Entity<ArtifactReviewJob>(ConfigureArtifactReviewJob);
+        modelBuilder.Entity<ArtifactReview>(ConfigureArtifactReview);
         modelBuilder.Entity<ConversationMessageArtifact>(ConfigureConversationMessageArtifact);
         modelBuilder.Entity<Conversation>(ConfigureConversation);
         modelBuilder.Entity<ConversationParticipant>(ConfigureConversationParticipant);
@@ -222,14 +223,20 @@ internal static class CoreConfigurations
         modelBuilder.Entity<Workstream>(entity =>
         {
             entity.HasKey(x => x.Id); entity.Property(x => x.Name).HasMaxLength(512).IsRequired(); entity.Property(x => x.Outcome).HasMaxLength(8192).IsRequired();
+            entity.HasIndex(x => x.SourceProposalId).IsUnique().HasFilter("\"SourceProposalId\" IS NOT NULL");
             entity.ToTable(table => table.HasCheckConstraint(
                 "CK_Workstreams_ExecutionRequiresManager",
                 "\"Status\" NOT IN ('Approved', 'Active') OR \"AccountableManagerOrganizationUserId\" IS NOT NULL"));
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired(); entity.Property(x => x.LifecycleStage).HasMaxLength(80).IsRequired();
             entity.Property(x => x.ManagerTitle).HasMaxLength(160).IsRequired(); entity.Property(x => x.SuccessCriteriaJson).HasColumnType("jsonb");
             entity.Property(x => x.RequiredCapabilitiesJson).HasColumnType("jsonb"); entity.Property(x => x.RisksJson).HasColumnType("jsonb"); entity.Property(x => x.BudgetCurrency).HasMaxLength(8);
+            entity.Property(x => x.ProfileKey).HasMaxLength(200); entity.Property(x => x.ProfileDefinitionDigest).HasMaxLength(64);
+            entity.Property(x => x.ProfileDataJson).HasColumnType("jsonb"); entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasIndex(x => new { x.OrganizationId, x.Status });
+            entity.HasIndex(x => new { x.OrganizationId, x.ProfileKey, x.Status });
         });
+        ConfigureWorkstreamGovernance(modelBuilder);
+        ConfigureDeliveryEvidence(modelBuilder);
         modelBuilder.Entity<ActionProposal>(entity =>
         {
             entity.HasKey(x => x.Id); entity.Property(x => x.ActionType).HasMaxLength(160).IsRequired(); entity.Property(x => x.Summary).HasMaxLength(2048).IsRequired();
@@ -625,6 +632,204 @@ internal static class CoreConfigurations
             .OnDelete(DeleteBehavior.SetNull);
     }
 
+    static void ConfigureWorkstreamGovernance(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<WorkstreamProfileDefinitionRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Key).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.DisplayName).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.MetadataSchemaJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.DefinitionJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.LifecyclePolicyKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.DefaultBoardProfileKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.AuthorityPolicyKey).HasMaxLength(200);
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ProviderPackageId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.ProviderPackageVersion).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.DefinitionDigest).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.Key, x.Version }).IsUnique();
+            entity.HasIndex(x => x.DefinitionDigest).IsUnique();
+        });
+        modelBuilder.Entity<WorkstreamTeamAssignmentRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => new { x.WorkstreamId, x.TeamId, x.StartsAt }).IsUnique();
+            entity.HasIndex(x => x.WorkstreamId).IsUnique().HasFilter("\"EndsAt\" IS NULL");
+        });
+        modelBuilder.Entity<WorkstreamSupervisionAssignment>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RoleKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => new { x.WorkstreamId, x.SupervisorOrganizationUserId, x.RoleKey })
+                .IsUnique().HasFilter("\"EndsAt\" IS NULL");
+            entity.HasIndex(x => new { x.SupervisorOrganizationUserId, x.EndsAt });
+        });
+        modelBuilder.Entity<WorkstreamAuthorityEnvelopeRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.WorkstreamId).IsUnique();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.Property(x => x.AuthorizedStaffingRoleKeysJson).HasColumnType("jsonb");
+            entity.Property(x => x.HumanRequiredActionKeysJson).HasColumnType("jsonb");
+            entity.Property(x => x.AgentAuthorizedActionKeysJson).HasColumnType("jsonb");
+        });
+        modelBuilder.Entity<WorkstreamMilestoneRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Key).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.LifecycleStage).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.Property(x => x.RequiredEvidenceTypeKeysJson).HasColumnType("jsonb");
+            entity.Property(x => x.RequiredReviewerRoleKeysJson).HasColumnType("jsonb");
+            entity.HasIndex(x => new { x.WorkstreamId, x.Key }).IsUnique();
+        });
+        modelBuilder.Entity<WorkstreamGateRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Key).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.LifecycleStage).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.Property(x => x.RequiredEvidenceTypeKeysJson).HasColumnType("jsonb");
+            entity.Property(x => x.RequiredReviewerRoleKeysJson).HasColumnType("jsonb");
+            entity.Property(x => x.EvidenceJson).HasColumnType("jsonb");
+            entity.Property(x => x.FindingsJson).HasColumnType("jsonb");
+            entity.Property(x => x.SubmissionSummary).HasMaxLength(4096);
+            entity.Property(x => x.DecisionRationale).HasMaxLength(4096);
+            entity.HasIndex(x => new { x.WorkstreamId, x.Key }).IsUnique();
+        });
+        modelBuilder.Entity<WorkstreamDecisionRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.TypeKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Summary).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.AuthorityRuleKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.RecommendedOptionId).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.SelectedOptionId).HasMaxLength(100);
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.BlockingImpact).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Rationale).HasMaxLength(4096);
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.Property(x => x.OptionsJson).HasColumnType("jsonb");
+            entity.Property(x => x.EvidenceJson).HasColumnType("jsonb");
+            entity.Property(x => x.TypeDataJson).HasColumnType("jsonb");
+            entity.HasIndex(x => new { x.OrganizationId, x.RequestedByOrganizationUserId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => new { x.WorkstreamId, x.Status, x.DueAt });
+        });
+    }
+
+    static void ConfigureDeliveryEvidence(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ToolchainAdapterDefinitionRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Key).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.DisplayName).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.ProviderPackageId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.ProviderPackageVersion).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.DefinitionDigest).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.DefinitionJson).HasColumnType("jsonb");
+            entity.HasIndex(x => new { x.Key, x.Version, x.ProviderPackageId, x.ProviderPackageVersion }).IsUnique();
+        });
+        modelBuilder.Entity<ToolchainCertificationRunRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.EnvironmentProfileKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.EnvironmentImageDigest).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.ProviderPackageDigest).HasMaxLength(71).IsRequired();
+            entity.Property(x => x.DefinitionDigest).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ChecksJson).HasColumnType("jsonb");
+            entity.Property(x => x.FirstManifestHash).HasMaxLength(64);
+            entity.Property(x => x.SecondManifestHash).HasMaxLength(64);
+            entity.Property(x => x.RevocationReason).HasMaxLength(2048);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => new { x.OrganizationId, x.Status, x.CreatedAt });
+            entity.HasIndex(x => new { x.ToolchainDefinitionId, x.ProviderInstallationId, x.EnvironmentImageDigest, x.CreatedAt });
+        });
+        modelBuilder.Entity<ToolchainInstallationEligibilityRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.EnvironmentProfileKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.EnvironmentImageDigest).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.RevocationReason).HasMaxLength(2048);
+            entity.HasIndex(x => new { x.OrganizationId, x.ToolchainDefinitionId, x.ProviderInstallationId }).IsUnique();
+        });
+        modelBuilder.Entity<DeliveryBuildRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceRevision).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.RecipeKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.TargetKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.CertificationFixtureKey).HasMaxLength(200);
+            entity.Property(x => x.CertificationFixtureResource).HasMaxLength(1000);
+            entity.Property(x => x.ConfigurationJson).HasColumnType("jsonb");
+            entity.Property(x => x.DefinitionDigest).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.OutputsJson).HasColumnType("jsonb");
+            entity.Property(x => x.ProvenanceJson).HasColumnType("jsonb");
+            entity.Property(x => x.FailureCode).HasMaxLength(200);
+            entity.Property(x => x.FailureSummary).HasMaxLength(4096);
+            entity.Property(x => x.CancellationReason).HasMaxLength(2048);
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => new { x.OrganizationId, x.RequestedByOrganizationUserId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => new { x.WorkstreamId, x.CreatedAt });
+            entity.HasIndex(x => new { x.CertificationRunId, x.CertificationPass });
+        });
+        modelBuilder.Entity<DeliveryValidationRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.TypeKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Summary).HasMaxLength(4096).IsRequired();
+            entity.Property(x => x.FindingsJson).HasColumnType("jsonb");
+            entity.Property(x => x.EvidenceJson).HasColumnType("jsonb");
+            entity.HasIndex(x => new { x.BuildId, x.TypeKey });
+        });
+        modelBuilder.Entity<PreviewSessionRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Mode).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.AccessReference).HasMaxLength(2048);
+            entity.Property(x => x.EvidenceJson).HasColumnType("jsonb");
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => new { x.BuildId, x.ExpiresAt });
+        });
+        modelBuilder.Entity<EvaluationSessionRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.TypeKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.ConsentPolicyKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.PlanJson).HasColumnType("jsonb");
+            entity.Property(x => x.ReportJson).HasColumnType("jsonb");
+            entity.Property(x => x.EvidenceJson).HasColumnType("jsonb");
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => new { x.OrganizationId, x.CreatedByOrganizationUserId, x.IdempotencyKey }).IsUnique();
+        });
+        modelBuilder.Entity<ReleaseReadinessRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.TypeKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.EvidenceJson).HasColumnType("jsonb");
+            entity.Property(x => x.FindingsJson).HasColumnType("jsonb");
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => new { x.OrganizationId, x.WorkstreamId, x.TypeKey }).IsUnique();
+        });
+    }
+
     static void ConfigureArtifact(EntityTypeBuilder<Artifact> entity)
     {
         entity.HasKey(x => x.Id);
@@ -640,6 +845,7 @@ internal static class CoreConfigurations
         entity.HasIndex(x => new { x.OrganizationId, x.ArchivedAt, x.UpdatedAt });
         entity.HasIndex(x => new { x.OrganizationId, x.FolderId });
         entity.HasIndex(x => new { x.OrganizationId, x.PackageId });
+        entity.HasIndex(x => new { x.OrganizationId, x.WorkstreamId, x.DocumentType });
 
         entity.HasOne(x => x.Organization)
             .WithMany()
@@ -694,6 +900,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
         entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
         entity.HasIndex(x => new { x.OrganizationId, x.ArchivedAt, x.UpdatedAt });
+        entity.HasIndex(x => new { x.OrganizationId, x.WorkstreamId, x.PackageType });
     }
 
     static void ConfigureArtifactPackageMember(EntityTypeBuilder<ArtifactPackageMember> entity)
@@ -727,6 +934,19 @@ internal static class CoreConfigurations
         entity.Property(x => x.LastError).HasMaxLength(2048);
         entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
         entity.HasIndex(x => new { x.Status, x.NextAttemptAt, x.CreatedAt });
+    }
+
+    static void ConfigureArtifactReview(EntityTypeBuilder<ArtifactReview> entity)
+    {
+        entity.HasKey(x => x.Id);
+        entity.Property(x => x.RevisionDigest).HasMaxLength(64).IsRequired();
+        entity.Property(x => x.RubricTypeKey).HasMaxLength(200).IsRequired();
+        entity.Property(x => x.Disposition).HasMaxLength(40).IsRequired();
+        entity.Property(x => x.FindingsJson).HasColumnType("jsonb").IsRequired();
+        entity.Property(x => x.Comment).HasMaxLength(4096);
+        entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+        entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
+        entity.HasIndex(x => new { x.ArtifactId, x.RevisionId, x.CreatedAt });
     }
 
     static void ConfigureConversationMessageArtifact(EntityTypeBuilder<ConversationMessageArtifact> entity)

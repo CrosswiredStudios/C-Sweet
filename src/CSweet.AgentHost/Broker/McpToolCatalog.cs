@@ -7,6 +7,7 @@ using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -75,6 +76,60 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Find stage-appropriate operating patterns from broker-approved sources."),
         Approval(PlatformCapabilities.WorkstreamPlanPropose, "propose_workstream_plan",
             "Propose a managed workstream with one accountable manager."),
+        Read(W.WorkstreamCapabilityNames.ReadV1, "read_workstream",
+            "Read one visible Workstream, including its immutable profile binding and current revision."),
+        Approval(W.WorkstreamCapabilityNames.PlanProposeV2, "propose_profiled_workstream",
+            "Propose a profile-bound Workstream, accountable manager, authority envelope, milestones, and gates."),
+        Approval(W.WorkstreamCapabilityNames.ChangeProposeV1, "propose_workstream_change",
+            "Propose an optimistic-concurrency Workstream change bound to its current profile digest."),
+        Read(W.WorkstreamCapabilityNames.GateReadV1, "read_workstream_gates",
+            "Read lifecycle gates for a visible Workstream."),
+        Write(W.WorkstreamCapabilityNames.GateSubmitV1, "submit_workstream_gate",
+            "Submit an exact gate revision with structured evidence references."),
+        Write(W.WorkstreamCapabilityNames.GateDecideV1, "decide_workstream_gate",
+            "Decide a submitted gate within the Workstream authority envelope, with structured findings."),
+        Read(W.WorkstreamCapabilityNames.PortfolioReadV1, "read_management_portfolio",
+            "Read all Workstreams assigned to this employee for management or supervision without requiring team membership."),
+        Read(W.WorkstreamCapabilityNames.TeamRosterReadV2, "read_scoped_team_roster",
+            "Read the active team roster for a visible Workstream or an explicitly scoped team."),
+        Write(W.DecisionCapabilityNames.RequestV1, "request_workstream_decision",
+            "Create one durable, correlated decision request with options, evidence, deadline, and blocking impact."),
+        Read(W.DecisionCapabilityNames.ReadV1, "read_workstream_decisions",
+            "Read durable decisions by id or Workstream."),
+        Write(W.DecisionCapabilityNames.DecideV1, "decide_workstream_decision",
+            "Select an option for a pending decision when authorized by the Workstream authority envelope."),
+        Read(W.DeliveryEvidenceCapabilityNames.ToolchainCatalogReadV2, "read_eligible_toolchains",
+            "Read only automation-certified toolchain adapters compatible with requested targets and operations."),
+        Write(W.DeliveryEvidenceCapabilityNames.BuildRequestV2, "request_delivery_build",
+            "Request a reproducible build from an exact source revision using a certified adapter."),
+        Read(W.DeliveryEvidenceCapabilityNames.BuildReadV2, "read_delivery_builds",
+            "Read build status, immutable source provenance, and output evidence for a visible Workstream."),
+        HiddenWrite(W.DeliveryEvidenceCapabilityNames.BuildClaimV1, "claim_delivery_build",
+            "Claim a queued build with an optimistic revision and expiring execution lease."),
+        HiddenWrite(W.DeliveryEvidenceCapabilityNames.BuildHeartbeatV1, "heartbeat_delivery_build",
+            "Renew the active build execution lease while preserving claim ownership."),
+        HiddenWrite(W.DeliveryEvidenceCapabilityNames.BuildReportV2, "report_delivery_build",
+            "Report revision-bound build outputs, provenance, and validations as the certified adapter provider."),
+        Write(W.DeliveryEvidenceCapabilityNames.BuildCancelV1, "cancel_delivery_build",
+            "Request cancellation of a queued or running build and retain the audit reason."),
+        Read(W.DeliveryEvidenceCapabilityNames.ValidationReadV2, "read_delivery_validations",
+            "Read structured validation findings and evidence for builds in a visible Workstream."),
+        Write(W.DeliveryEvidenceCapabilityNames.PreviewCreateV2, "create_delivery_preview",
+            "Create a time-bounded preview from a successful published build."),
+        Read(W.DeliveryEvidenceCapabilityNames.PreviewReadV2, "read_delivery_previews",
+            "Read preview status and bounded access references for a visible Workstream."),
+        Write(W.DeliveryEvidenceCapabilityNames.EvaluationPlanV1, "plan_evaluation_session",
+            "Plan a consent-governed evaluation session bound to a Workstream and optional build."),
+        Read(W.DeliveryEvidenceCapabilityNames.EvaluationReadV1, "read_evaluation_sessions",
+            "Read evaluation plans, status, evidence, and provenance for a visible Workstream."),
+        Write(W.DeliveryEvidenceCapabilityNames.EvaluationReportV1, "report_evaluation_session",
+            "Complete an evaluation session with a revision-bound structured report and evidence."),
+        Read(W.DeliveryEvidenceCapabilityNames.ReleaseReadinessReadV1, "read_release_readiness",
+            "Read release-readiness evidence and blocking findings for a visible Workstream."),
+        Write(W.DeliveryEvidenceCapabilityNames.ReleaseReadinessSubmitV1, "submit_release_readiness",
+            "Submit typed release-readiness evidence; blocking findings prevent Ready status."),
+        Approval(W.DeliveryEvidenceCapabilityNames.PublicationProposeV1, "propose_publication",
+            "Propose a public publication from a Ready release record. Public mutation always remains human-gated."),
         Read(PlatformCapabilities.WorkforceSearch, "search_workforce",
             "Search current staff and connected human workforce providers. Installable agent listings require the separate agent-catalog grant."),
         Read(AgentCatalogCapabilities.Search, "get_available_agents",
@@ -215,6 +270,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Submit the latest document revision and enqueue its reviewer chat cycle."),
         Write(ArtifactPlatformCapabilities.Decide, "decide_artifact_revision",
             "Accept or request changes to one exact submitted revision when explicitly granted."),
+        Write(ArtifactPlatformCapabilities.DecideV2, "decide_artifact_revision_structured",
+            "Decide an exact revision and digest with a typed rubric, structured findings, blocking severity, and follow-up references."),
         Approval(ArtifactPlatformCapabilities.RequestAccess, "request_artifact_access",
             "Request human approval for exact actions on one exact document."),
         Write(ArtifactPlatformCapabilities.PackageCreate, "create_artifact_package",
@@ -418,6 +475,14 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
     {
         WorkBoardActions.Read or
         WorkSprintActions.Read or
+        W.WorkstreamCapabilityNames.GateReadV1 or
+        W.DecisionCapabilityNames.ReadV1 or
+        W.DeliveryEvidenceCapabilityNames.ToolchainCatalogReadV2 or
+        W.DeliveryEvidenceCapabilityNames.BuildReadV2 or
+        W.DeliveryEvidenceCapabilityNames.ValidationReadV2 or
+        W.DeliveryEvidenceCapabilityNames.PreviewReadV2 or
+        W.DeliveryEvidenceCapabilityNames.EvaluationReadV1 or
+        W.DeliveryEvidenceCapabilityNames.ReleaseReadinessReadV1 or
         SourceControlCapabilities.TeamRepositoryOptions => ArrayOutput,
         _ => ObjectOutput
     };
@@ -429,10 +494,53 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         capability.StartsWith("platform.agent-catalog", StringComparison.Ordinal) ? "marketplace" :
         "platform";
 
-    private static JsonElement InputFor(string capability) => capability switch
+    private static JsonElement InputFor(string capability)
     {
+        if (capability == W.WorkstreamCapabilityNames.PlanProposeV2)
+            return Schema("""
+                {"type":"object","required":["name","outcome","successCriteria","lifecycleStage","accountableManagerOrganizationUserId","initialSupervisors","requiredCapabilities","rationale","idempotencyKey","profileKey","profileVersion","profileData","authorityEnvelope","initialMilestones","initialEvidence"],"properties":{"name":{"type":"string","minLength":1,"maxLength":240},"outcome":{"type":"string","minLength":1,"maxLength":4000},"successCriteria":{"type":"array"},"lifecycleStage":{"type":"string"},"accountableManagerOrganizationUserId":{"type":"string","format":"uuid"},"initialTeamId":{"type":["string","null"],"format":"uuid"},"initialSupervisors":{"type":"array"},"requiredCapabilities":{"type":"array"},"strategicObjectiveId":{"type":["string","null"],"format":"uuid"},"targetDate":{"type":["string","null"],"format":"date-time"},"proposedBudgetAmount":{"type":["number","null"]},"proposedBudgetCurrency":{"type":["string","null"]},"rationale":{"type":"string"},"idempotencyKey":{"type":"string"},"profileKey":{"type":"string"},"profileVersion":{"type":"integer","minimum":1},"profileData":{"type":"object"},"authorityEnvelope":{"type":"object"},"initialMilestones":{"type":"array"},"initialEvidence":{"type":"array"}},"additionalProperties":false}
+                """);
+        if (capability == WorkItemActions.Create)
+            return Schema("""
+                {"type":"object","required":["boardId","title","typeKey","priority","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"kind":{"type":"string","enum":["Initiative","Epic","Story","Task","Bug"]},"typeKey":{"type":"string","minLength":1,"maxLength":200},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"columnId":{"type":["string","null"],"format":"uuid"},"parentItemId":{"type":["string","null"],"format":"uuid"},"dueDate":{"type":["string","null"],"format":"date-time"},"planning":{"type":["object","null"]},"delivery":{"type":["object","null"]},"proposalProvenance":{"type":["object","null"]},"accountableOrganizationUserId":{"type":["string","null"],"format":"uuid"},"stageAssignments":{"type":"array"},"mentions":{"type":"array"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+                """);
+        return capability switch
+        {
+        W.WorkstreamCapabilityNames.ReadV1 => Schema("""
+            {"type":"object","required":["workstreamId"],"properties":{"workstreamId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        W.WorkstreamCapabilityNames.PlanProposeV2 => Schema("""
+            {"type":"object","required":["name","outcome","successCriteria","lifecycleStage","accountableManagerOrganizationUserId","initialSupervisors","requiredCapabilities","rationale","idempotencyKey","profileKey","profileVersion","profileData","authorityEnvelope","initialMilestones"],"properties":{"name":{"type":"string","minLength":1,"maxLength":240},"outcome":{"type":"string","minLength":1,"maxLength":4000},"successCriteria":{"type":"array","items":{"type":"string"}},"lifecycleStage":{"type":"string","minLength":1,"maxLength":80},"accountableManagerOrganizationUserId":{"type":"string","format":"uuid"},"initialTeamId":{"type":["string","null"],"format":"uuid"},"initialSupervisors":{"type":"array","items":{"type":"object","required":["supervisorOrganizationUserId","roleKey"],"properties":{"supervisorOrganizationUserId":{"type":"string","format":"uuid"},"roleKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}},"requiredCapabilities":{"type":"array","items":{"type":"string"}},"strategicObjectiveId":{"type":["string","null"],"format":"uuid"},"targetDate":{"type":["string","null"],"format":"date-time"},"proposedBudgetAmount":{"type":["number","null"],"minimum":0},"proposedBudgetCurrency":{"type":["string","null"],"maxLength":8},"rationale":{"type":"string","minLength":1,"maxLength":4000},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"profileKey":{"type":"string","minLength":1,"maxLength":200},"profileVersion":{"type":"integer","minimum":1},"profileData":{"type":"object"},"authorityEnvelope":{"type":"object"},"initialMilestones":{"type":"array","items":{"type":"object"}}},"additionalProperties":false}
+            """),
+        W.WorkstreamCapabilityNames.ChangeProposeV1 => Schema("""
+            {"type":"object","required":["workstreamId","expectedRevision","summary","changes","rationale","idempotencyKey"],"properties":{"workstreamId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"summary":{"type":"string","minLength":1,"maxLength":1000},"changes":{"type":"object"},"rationale":{"type":"string","minLength":1,"maxLength":4000},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200}},"additionalProperties":false}
+            """),
+        W.WorkstreamCapabilityNames.GateReadV1 => Schema("""
+            {"type":"object","required":["workstreamId"],"properties":{"workstreamId":{"type":"string","format":"uuid"},"gateId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
+            """),
+        W.WorkstreamCapabilityNames.GateSubmitV1 => Schema("""
+            {"type":"object","required":["workstreamId","gateId","expectedRevision","evidence","summary","idempotencyKey"],"properties":{"workstreamId":{"type":"string","format":"uuid"},"gateId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"evidence":{"type":"array","items":{"type":"object"}},"summary":{"type":"string","minLength":1,"maxLength":4000},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200}},"additionalProperties":false}
+            """),
+        W.WorkstreamCapabilityNames.GateDecideV1 => Schema("""
+            {"type":"object","required":["workstreamId","gateId","expectedRevision","decision","rationale","findings","idempotencyKey"],"properties":{"workstreamId":{"type":"string","format":"uuid"},"gateId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"decision":{"type":"string","enum":["approved","changes-required","rejected"]},"rationale":{"type":"string","minLength":1,"maxLength":4000},"findings":{"type":"array","items":{"type":"object"}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200}},"additionalProperties":false}
+            """),
+        W.WorkstreamCapabilityNames.PortfolioReadV1 => Schema("""
+            {"type":"object","properties":{"workstreamIds":{"type":["array","null"],"items":{"type":"string","format":"uuid"}},"includeClosed":{"type":"boolean"}},"additionalProperties":false}
+            """),
+        W.WorkstreamCapabilityNames.TeamRosterReadV2 => Schema("""
+            {"type":"object","properties":{"teamId":{"type":["string","null"],"format":"uuid"},"workstreamId":{"type":["string","null"],"format":"uuid"},"page":{"type":"integer","minimum":1},"pageSize":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}
+            """),
+        W.DecisionCapabilityNames.RequestV1 => Schema("""
+            {"type":"object","required":["workstreamId","typeKey","summary","authorityRuleKey","options","recommendedOptionId","evidence","blockingImpact","idempotencyKey"],"properties":{"workstreamId":{"type":"string","format":"uuid"},"typeKey":{"type":"string","minLength":1,"maxLength":200},"summary":{"type":"string","minLength":1,"maxLength":4000},"authorityRuleKey":{"type":"string","minLength":1,"maxLength":200},"options":{"type":"array","minItems":2,"items":{"type":"object"}},"recommendedOptionId":{"type":"string"},"evidence":{"type":"array","items":{"type":"object"}},"dueAt":{"type":["string","null"],"format":"date-time"},"blockingImpact":{"type":"string","minLength":1,"maxLength":4000},"supersedesDecisionId":{"type":["string","null"],"format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200}},"additionalProperties":false}
+            """),
+        W.DecisionCapabilityNames.ReadV1 => Schema("""
+            {"type":"object","properties":{"decisionId":{"type":["string","null"],"format":"uuid"},"workstreamId":{"type":["string","null"],"format":"uuid"},"pendingOnly":{"type":"boolean"}},"additionalProperties":false}
+            """),
+        W.DecisionCapabilityNames.DecideV1 => Schema("""
+            {"type":"object","required":["decisionId","expectedRevision","selectedOptionId","rationale","idempotencyKey"],"properties":{"decisionId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"selectedOptionId":{"type":"string","minLength":1},"rationale":{"type":"string","minLength":1,"maxLength":4000},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200}},"additionalProperties":false}
+            """),
         ArtifactPlatformCapabilities.Create => Schema("""
-            {"type":"object","required":["title","content","documentType","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":512},"content":{"type":"string","minLength":1,"maxLength":131072},"documentType":{"type":"string","minLength":1,"maxLength":160},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"folderId":{"type":["string","null"],"format":"uuid"},"packageId":{"type":["string","null"],"format":"uuid"},"originConversationId":{"type":["string","null"],"format":"uuid"},"originWorkItemId":{"type":["string","null"],"format":"uuid"},"stewardOrganizationUserId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
+            {"type":"object","required":["title","content","documentType","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":512},"content":{"type":"string","minLength":1,"maxLength":131072},"documentType":{"type":"string","minLength":1,"maxLength":160},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"folderId":{"type":["string","null"],"format":"uuid"},"packageId":{"type":["string","null"],"format":"uuid"},"originConversationId":{"type":["string","null"],"format":"uuid"},"originWorkItemId":{"type":["string","null"],"format":"uuid"},"stewardOrganizationUserId":{"type":["string","null"],"format":"uuid"},"workstreamId":{"type":["string","null"],"format":"uuid"},"teamId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
             """),
         ArtifactPlatformCapabilities.Read => Schema("""
             {"type":"object","properties":{"artifactId":{"type":["string","null"],"format":"uuid"},"includeArchived":{"type":"boolean"}},"additionalProperties":false}
@@ -445,6 +553,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         ArtifactPlatformCapabilities.Decide => Schema("""
             {"type":"object","required":["artifactId","revisionId","decision","idempotencyKey"],"properties":{"artifactId":{"type":"string","format":"uuid"},"revisionId":{"type":"string","format":"uuid"},"decision":{"type":"string","enum":["accept","approve","reject","request-revision"]},"comment":{"type":["string","null"],"maxLength":4096},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"evidenceConversationMessageId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
+            """),
+        ArtifactPlatformCapabilities.DecideV2 => Schema("""
+            {"type":"object","required":["artifactId","revisionId","revisionDigest","rubricTypeKey","disposition","findings","idempotencyKey"],"properties":{"artifactId":{"type":"string","format":"uuid"},"revisionId":{"type":"string","format":"uuid"},"revisionDigest":{"type":"string","minLength":64,"maxLength":64},"rubricTypeKey":{"type":"string","minLength":1,"maxLength":200},"disposition":{"type":"string","enum":["accepted","accepted-with-findings","changes-required","rejected"]},"findings":{"type":"array","items":{"type":"object","required":["code","section","severity","blocking","summary"],"properties":{"code":{"type":"string"},"section":{"type":"string"},"severity":{"type":"string","enum":["Information","Minor","Major","Critical"]},"blocking":{"type":"boolean"},"summary":{"type":"string"},"requiredFollowUp":{"type":["string","null"]}},"additionalProperties":false}},"comment":{"type":["string","null"],"maxLength":4096},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"evidenceConversationMessageId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
             """),
         ArtifactPlatformCapabilities.RequestAccess => Schema("""
             {"type":"object","required":["artifactId","actions","justification","idempotencyKey"],"properties":{"artifactId":{"type":"string","format":"uuid"},"actions":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"string","enum":["artifact.read","artifact.revise","artifact.submit","artifact.decide"]}},"justification":{"type":"string","minLength":1,"maxLength":2048},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"expiresAt":{"type":["string","null"],"format":"date-time"}},"additionalProperties":false}
@@ -479,7 +590,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["chatId","content"],"properties":{"chatId":{"type":"string","format":"uuid"},"content":{"type":"string","minLength":1,"maxLength":32768},"idempotencyKey":{"type":["string","null"],"maxLength":160}},"additionalProperties":false}
             """),
         CommunicationCapabilities.CoordinationStart => Schema("""
-            {"type":"object","required":["targetOrganizationUserId","subject","objective","successCriteria","initialMessage","sourceConversationId","sourceChatTurnId","sourceMessageId","idempotencyKey"],"properties":{"targetOrganizationUserId":{"type":"string","format":"uuid"},"subject":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":4096},"successCriteria":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","minLength":1,"maxLength":2048}},"initialMessage":{"type":"string","minLength":1,"maxLength":32768},"sourceConversationId":{"type":"string","format":"uuid"},"sourceChatTurnId":{"type":"string","format":"uuid"},"sourceMessageId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"artifact":{"type":["object","null"],"required":["type","schemaVersion","key","pageOrdinal","isFinalPage","payload"],"properties":{"type":{"type":"string","minLength":1,"maxLength":200},"schemaVersion":{"type":"string","minLength":1,"maxLength":50},"key":{"type":"string","minLength":1,"maxLength":500},"pageOrdinal":{"type":"integer","minimum":0},"isFinalPage":{"type":"boolean"},"payload":{}},"additionalProperties":false}},"additionalProperties":false}
+            {"type":"object","required":["targetOrganizationUserId","subject","objective","successCriteria","initialMessage","sourceConversationId","sourceChatTurnId","sourceMessageId","idempotencyKey"],"properties":{"targetOrganizationUserId":{"type":"string","format":"uuid"},"subject":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":4096},"successCriteria":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","minLength":1,"maxLength":2048}},"initialMessage":{"type":"string","minLength":1,"maxLength":32768},"sourceConversationId":{"type":"string","format":"uuid"},"sourceChatTurnId":{"type":"string","format":"uuid"},"sourceMessageId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"artifact":{"type":["object","null"],"required":["type","schemaVersion","key","pageOrdinal","isFinalPage","payload"],"properties":{"type":{"type":"string","minLength":1,"maxLength":200},"schemaVersion":{"type":"string","minLength":1,"maxLength":50},"key":{"type":"string","minLength":1,"maxLength":500},"pageOrdinal":{"type":"integer","minimum":0},"isFinalPage":{"type":"boolean"},"payload":{}},"additionalProperties":false},"workContext":{"type":["object","null"],"required":["organizationId","workstreamId","correlationId"],"properties":{"organizationId":{"type":"string","format":"uuid"},"workstreamId":{"type":"string","format":"uuid"},"teamId":{"type":["string","null"],"format":"uuid"},"boardId":{"type":["string","null"],"format":"uuid"},"workItemId":{"type":["string","null"],"format":"uuid"},"milestoneId":{"type":["string","null"],"format":"uuid"},"gateId":{"type":["string","null"],"format":"uuid"},"correlationId":{"type":"string","format":"uuid"},"causationId":{"type":["string","null"],"format":"uuid"},"profileKey":{"type":["string","null"],"maxLength":200}},"additionalProperties":false}},"additionalProperties":false}
             """),
         CommunicationCapabilities.CoordinationStartWork => Schema("""
             {"type":"object","required":["targetOrganizationUserId","boardId","itemId","sprintExecutionId","stageExecutionId","assignmentRevision","subject","objective","successCriteria","initialMessage","idempotencyKey"],"properties":{"targetOrganizationUserId":{"type":"string","format":"uuid"},"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"sprintExecutionId":{"type":"string","format":"uuid"},"stageExecutionId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"subject":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":4096},"successCriteria":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","minLength":1,"maxLength":2048}},"initialMessage":{"type":"string","minLength":1,"maxLength":32768},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"artifact":{"type":["object","null"],"required":["type","schemaVersion","key","pageOrdinal","isFinalPage","payload"],"properties":{"type":{"type":"string","minLength":1,"maxLength":200},"schemaVersion":{"type":"string","minLength":1,"maxLength":50},"key":{"type":"string","minLength":1,"maxLength":500},"pageOrdinal":{"type":"integer","minimum":0},"isFinalPage":{"type":"boolean"},"payload":{}},"additionalProperties":false}},"additionalProperties":false}
@@ -569,10 +680,10 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
             """),
         WorkItemActions.ReadTypes => Schema("""
-            {"type":"object","properties":{"boardProfileKey":{"type":["string","null"],"maxLength":200}},"additionalProperties":false}
+            {"type":"object","properties":{"boardProfileKey":{"type":["string","null"],"maxLength":200},"boardId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
             """),
         WorkBoardActions.Create => Schema("""
-            {"type":"object","required":["name","profileKey","idempotencyKey"],"properties":{"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"teamId":{"type":["string","null"],"format":"uuid"},"key":{"type":["string","null"],"minLength":2,"maxLength":12},"profileKey":{"type":"string","enum":["general-work.v1","software-delivery.v1","video-game-production.v1"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["name","profileKey","idempotencyKey"],"properties":{"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"teamId":{"type":["string","null"],"format":"uuid"},"workstreamId":{"type":["string","null"],"format":"uuid"},"key":{"type":["string","null"],"minLength":2,"maxLength":12},"profileKey":{"type":"string","minLength":1,"maxLength":200},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkBoardActions.Configure => Schema("""
             {"type":"object","required":["boardId","expectedRevision","name","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":2048},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
@@ -581,7 +692,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["boardId","expectedRevision","columns","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"columns":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","required":["name","category","wipPolicy"],"properties":{"id":{"type":["string","null"],"format":"uuid"},"name":{"type":"string","minLength":1,"maxLength":160},"category":{"type":"string","enum":["ToDo","InProgress","Done","Cancelled"]},"wipPolicy":{"type":"string","enum":["Disabled","Warning","HardLimit"]},"wipLimit":{"type":["integer","null"],"minimum":1}},"additionalProperties":false}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkItemActions.Create => Schema("""
-            {"type":"object","required":["boardId","title","typeKey","priority","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"kind":{"type":"string","enum":["Initiative","Epic","Story","Task"]},"typeKey":{"type":"string","enum":["general.initiative.v1","general.epic.v1","general.story.v1","general.task.v1","software.epic.v1","software.story.v1","software.task.v1","video-game.epic.v1","video-game.story.v1","video-game.task.v1"]},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"columnId":{"type":["string","null"],"format":"uuid"},"parentItemId":{"type":["string","null"],"format":"uuid"},"dueDate":{"type":["string","null"],"format":"date-time"},"planning":{"type":["object","null"],"required":["requirements","acceptanceCriteria"],"properties":{"requirements":{"type":"array","minItems":1,"maxItems":200,"items":{"type":"string","minLength":1,"maxLength":4096}},"acceptanceCriteria":{"type":"array","minItems":1,"maxItems":200,"items":{"type":"string","minLength":1,"maxLength":4096}},"constraints":{"type":["array","null"],"maxItems":200,"items":{"type":"string","minLength":1,"maxLength":4096}},"dependencyItemIds":{"type":"array","maxItems":500,"items":{"type":"string","format":"uuid"}},"architectureArtifactDigest":{"type":["string","null"],"minLength":64,"maxLength":128},"designPackageDigest":{"type":["object","null"],"required":["packageId","version","sha256","approvedAt","documents"],"properties":{"packageId":{"type":"string","format":"uuid"},"version":{"type":"integer","minimum":1},"sha256":{"type":"string","minLength":64,"maxLength":64},"approvedAt":{"type":"string","format":"date-time"},"documents":{"type":"array","minItems":5,"maxItems":100,"items":{"type":"object","required":["artifactId","acceptedRevisionId","documentType","sha256"],"properties":{"artifactId":{"type":"string","format":"uuid"},"acceptedRevisionId":{"type":"string","format":"uuid"},"documentType":{"type":"string","minLength":1,"maxLength":200},"sha256":{"type":"string","minLength":64,"maxLength":64}},"additionalProperties":false}}},"additionalProperties":false},"delegationRecommendations":{"type":"array","maxItems":100,"items":{"type":"object"}}},"additionalProperties":false},"delivery":{"type":["object","null"]},"proposalProvenance":{"type":["object","null"],"required":["coordinationSessionId","artifactDigest","proposalItemKey"],"properties":{"coordinationSessionId":{"type":"string","format":"uuid"},"artifactDigest":{"type":"string","minLength":64,"maxLength":128},"proposalItemKey":{"type":"string","minLength":1,"maxLength":300}},"additionalProperties":false},"accountableOrganizationUserId":{"type":["string","null"],"format":"uuid"},"stageAssignments":{"type":"array","maxItems":100,"items":{"type":"object"}},"mentions":{"type":"array","maxItems":100,"items":{"type":"object"}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["boardId","title","typeKey","priority","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"typeKey":{"type":"string","minLength":1,"maxLength":200},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":true}
             """),
         WorkItemActions.RevisePlanning => Schema("""
             {"type":"object","required":["boardId","itemId","title","planning","expectedRevision","expectedPlanningRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"parentItemId":{"type":["string","null"],"format":"uuid"},"planning":{"type":"object"},"expectedRevision":{"type":"integer","minimum":1},"expectedPlanningRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"proposalProvenance":{"type":["object","null"]}},"additionalProperties":false}
@@ -704,7 +815,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
         _ => Schema("""
             {"type":"object","description":"Arguments are validated by the broker capability handler."}
             """)
-    };
+        };
+    }
 
     private static JsonElement Schema(string json) => JsonDocument.Parse(json).RootElement.Clone();
 

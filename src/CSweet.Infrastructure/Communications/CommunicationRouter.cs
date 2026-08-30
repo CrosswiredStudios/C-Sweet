@@ -120,11 +120,11 @@ public sealed class CommunicationRouter(CSweetDbContext db, IChatTurnService tur
             if (mentioned.Count > 0) return await ActiveAgents(connection.OrganizationId, mentioned, cancellationToken);
         }
 
-        if (channel?.TeamId is not null || channel?.ProjectId is not null)
+        if (channel?.TeamId is not null || channel?.WorkstreamId is not null)
         {
             var conversation = await db.CoreConversations.Include(x => x.Participants)
                 .SingleOrDefaultAsync(x => x.OrganizationId == connection.OrganizationId &&
-                    x.TeamId == channel.TeamId && x.ProjectId == channel.ProjectId &&
+                    x.TeamId == channel.TeamId && x.WorkstreamId == channel.WorkstreamId &&
                     x.Kind == (channel.TeamId != null ? ConversationKind.Team : ConversationKind.Project), cancellationToken);
             var coordinator = conversation?.Participants.FirstOrDefault(x => x.LeftAt == null && x.Role == ConversationParticipantRole.Coordinator)?.OrganizationUserId;
             if (coordinator.HasValue) return await ActiveAgents(connection.OrganizationId, [coordinator.Value], cancellationToken);
@@ -173,14 +173,14 @@ public sealed class CommunicationRouter(CSweetDbContext db, IChatTurnService tur
         var conversation = await db.CoreConversations.Include(x => x.Participants).FirstOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.Kind == kind &&
             (isDirect ? x.AgentOrganizationUserId == targetAgentId && x.InitiatedByOrganizationUserId == humanId :
-                x.TeamId == channel!.TeamId && x.ProjectId == channel.ProjectId), cancellationToken);
+                x.TeamId == channel!.TeamId && x.WorkstreamId == channel.WorkstreamId), cancellationToken);
         if (conversation is not null) return conversation;
         var now = DateTimeOffset.UtcNow;
         conversation = new Conversation
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, Kind = kind,
             AgentOrganizationUserId = isDirect || channel?.OrganizationUserId != null ? targetAgentId : null,
-            InitiatedByOrganizationUserId = humanId, TeamId = channel?.TeamId, ProjectId = channel?.ProjectId,
+            InitiatedByOrganizationUserId = humanId, TeamId = channel?.TeamId, WorkstreamId = channel?.WorkstreamId,
             Title = channel?.DisplayName, IsPrivate = isDirect, IsDeletionProtected = isDirect,
             CreatedAt = now, UpdatedAt = now
         };
@@ -191,7 +191,7 @@ public sealed class CommunicationRouter(CSweetDbContext db, IChatTurnService tur
         conversation.Participants.Add(new ConversationParticipant
         {
             Id = Guid.NewGuid(), OrganizationUserId = targetAgentId,
-            Role = channel?.TeamId != null || channel?.ProjectId != null ? ConversationParticipantRole.Coordinator : ConversationParticipantRole.Member,
+            Role = channel?.TeamId != null || channel?.WorkstreamId != null ? ConversationParticipantRole.Coordinator : ConversationParticipantRole.Member,
             JoinedAt = now
         });
         db.CoreConversations.Add(conversation);

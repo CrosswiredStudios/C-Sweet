@@ -10,6 +10,7 @@ using CSweet.Domain.Security;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using AgentWorkContext = CSweet.WorkManagement.Contracts.AgentWorkContext;
 using Microsoft.EntityFrameworkCore;
 using DomainSession = CSweet.Domain.Communications.AgentCoordinationSession;
 using DomainStatus = CSweet.Domain.Communications.AgentCoordinationStatus;
@@ -69,7 +70,12 @@ public sealed class AgentCoordinationService(
                 $"Agent collaboration: {request.Subject.Trim()}",
                 true,
                 true,
-                [request.TargetOrganizationUserId]),
+                [request.TargetOrganizationUserId],
+                AudienceWorkstreamIds: request.WorkContext?.WorkstreamId is { } contextWorkstreamId ? [contextWorkstreamId] : null)
+            {
+                WorkstreamId = request.WorkContext?.WorkstreamId,
+                TeamId = request.WorkContext?.TeamId
+            },
             cancellationToken);
         var chat = chatAction.Chat ?? throw new InvalidOperationException(chatAction.Message);
 
@@ -79,6 +85,8 @@ public sealed class AgentCoordinationService(
         {
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
+            WorkstreamId = request.WorkContext?.WorkstreamId,
+            TeamId = request.WorkContext?.TeamId,
             ConversationId = chat.Id,
             SourceConversationId = request.SourceConversationId,
             SourceChatTurnId = request.SourceChatTurnId,
@@ -621,7 +629,8 @@ public sealed class AgentCoordinationService(
             SourceKind = mapped.SourceKind,
             WorkSource = mapped.WorkSource,
             BoardSource = mapped.BoardSource,
-            MaximumTurns = mapped.MaximumTurns
+            MaximumTurns = mapped.MaximumTurns,
+            WorkContext = mapped.WorkContext
         };
     }
 
@@ -722,7 +731,11 @@ public sealed class AgentCoordinationService(
             BoardSource = session.SourceKind == "Board" && session.SourceBoardId.HasValue
                 ? new AgentCoordinationBoardSource(session.SourceBoardId.Value)
                 : null,
-            MaximumTurns = session.MaximumTurns
+            MaximumTurns = session.MaximumTurns,
+            WorkContext = session.WorkstreamId.HasValue
+                ? new AgentWorkContext(session.OrganizationId, session.WorkstreamId.Value, session.TeamId,
+                    session.SourceBoardId, session.SourceWorkItemId, null, null, session.Id, null, null)
+                : null
         };
     }
 

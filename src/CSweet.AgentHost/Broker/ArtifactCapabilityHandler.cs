@@ -11,6 +11,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Security;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -25,7 +26,7 @@ public sealed class ArtifactCapabilityHandler(
     {
         ArtifactPlatformCapabilities.Create, ArtifactPlatformCapabilities.Read,
         ArtifactPlatformCapabilities.Revise, ArtifactPlatformCapabilities.Submit,
-        ArtifactPlatformCapabilities.Decide, ArtifactPlatformCapabilities.RequestAccess,
+        ArtifactPlatformCapabilities.Decide, ArtifactPlatformCapabilities.DecideV2, ArtifactPlatformCapabilities.RequestAccess,
         ArtifactPlatformCapabilities.PackageCreate, ArtifactPlatformCapabilities.PackageRead,
         ArtifactPlatformCapabilities.PackageSubmit, ArtifactPlatformCapabilities.PackageDecide
     };
@@ -63,6 +64,8 @@ public sealed class ArtifactCapabilityHandler(
                     Read<AgentArtifactSubmitRequest>(request), token),
                 ArtifactPlatformCapabilities.Decide => await DecideAsync(organizationId, actor,
                     Read<AgentArtifactDecisionRequest>(request), token),
+                ArtifactPlatformCapabilities.DecideV2 => await DecideStructuredAsync(organizationId, actor,
+                    Read<W.StructuredArtifactDecisionRequest>(request), token),
                 ArtifactPlatformCapabilities.RequestAccess => await RequestAccessAsync(organizationId, actor,
                     Read<AgentArtifactAccessRequest>(request), token),
                 ArtifactPlatformCapabilities.PackageCreate => await CreatePackageAsync(organizationId, actor,
@@ -104,6 +107,7 @@ public sealed class ArtifactCapabilityHandler(
         if (request.StewardOrganizationUserId.HasValue && !await db.CoreOrganizationUsers.AnyAsync(x =>
                 x.Id == request.StewardOrganizationUserId && x.OrganizationId == organizationId && x.IsActive, token))
             throw new ArgumentException("The steward must be an active employee of this organization.");
+        var (workstreamId, teamId) = await ResolveWorkContextAsync(organizationId, employee.Id, request, token);
         var existing = await db.ArtifactRevisions.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey, token);
         if (existing is not null) return await AgentDetailAsync(organizationId, existing.ArtifactId, token);
@@ -111,6 +115,7 @@ public sealed class ArtifactCapabilityHandler(
         var artifact = new Artifact
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, Type = ArtifactType.Document,
+            WorkstreamId = workstreamId, TeamId = teamId,
             Title = request.Title.Trim(), Content = request.Content, Version = 1,
             ApprovalStatus = ApprovalStatus.Pending, CreatedAt = now, UpdatedAt = now,
             FolderId = request.FolderId, PackageId = request.PackageId,
@@ -136,6 +141,50 @@ public sealed class ArtifactCapabilityHandler(
         return await AgentDetailAsync(organizationId, artifact.Id, token);
     }
 
+    private async Task<(Guid? WorkstreamId, Guid? TeamId)> ResolveWorkContextAsync(
+        Guid organizationId, Guid actorId, CreateArtifactDocumentRequest request, CancellationToken token)
+    {
+        Guid? workstreamId = request.WorkstreamId;
+        Guid? teamId = request.TeamId;
+        if (request.OriginWorkItemId.HasValue)
+        {
+            var source = await (from item in db.CoreWorkTasks.AsNoTracking()
+                                join board in db.WorkBoards.AsNoTracking() on item.BoardId equals board.Id
+                                where item.OrganizationId == organizationId && item.Id == request.OriginWorkItemId
+                                select new { board.WorkstreamId, board.TeamId }).SingleOrDefaultAsync(token)
+                ?? throw new ArgumentException("The origin work item was not found.");
+            if (workstreamId.HasValue && source.WorkstreamId != workstreamId || teamId.HasValue && source.TeamId != teamId)
+                throw new ArgumentException("The explicit document context conflicts with its origin work item.");
+            workstreamId ??= source.WorkstreamId; teamId ??= source.TeamId;
+        }
+        if (request.OriginConversationId.HasValue)
+        {
+            var source = await db.CoreConversations.AsNoTracking().Where(x =>
+                x.OrganizationId == organizationId && x.Id == request.OriginConversationId)
+                .Select(x => new { x.WorkstreamId, x.TeamId }).SingleOrDefaultAsync(token)
+                ?? throw new ArgumentException("The origin conversation was not found.");
+            if (workstreamId.HasValue && source.WorkstreamId.HasValue && source.WorkstreamId != workstreamId ||
+                teamId.HasValue && source.TeamId.HasValue && source.TeamId != teamId)
+                throw new ArgumentException("The explicit document context conflicts with its origin conversation.");
+            workstreamId ??= source.WorkstreamId; teamId ??= source.TeamId;
+        }
+        if (!workstreamId.HasValue) return (null, teamId);
+        var workstream = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.Id == workstreamId, token)
+            ?? throw new ArgumentException("The Workstream was not found.");
+        var supervisor = await db.WorkstreamSupervisionAssignments.AsNoTracking().AnyAsync(x =>
+            x.WorkstreamId == workstream.Id && x.SupervisorOrganizationUserId == actorId && x.EndsAt == null, token);
+        var assignedTeams = await db.WorkstreamTeamAssignments.AsNoTracking().Where(x =>
+            x.WorkstreamId == workstream.Id && x.EndsAt == null).Select(x => x.TeamId).ToListAsync(token);
+        if (teamId.HasValue && !assignedTeams.Contains(teamId.Value))
+            throw new ArgumentException("The team is not assigned to the Workstream.");
+        var member = await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+            assignedTeams.Contains(x.TeamId) && x.OrganizationUserId == actorId && x.EndedAt == null, token);
+        if (workstream.AccountableManagerOrganizationUserId != actorId && !supervisor && !member)
+            throw new UnauthorizedAccessException("The document Workstream is outside this employee's scope.");
+        return (workstreamId, teamId);
+    }
+
     private async Task<object> ReadAsync(Guid organizationId, ArtifactAgentActor actor, AgentArtifactReadRequest request, CancellationToken token)
     {
         if (request.ArtifactId.HasValue)
@@ -153,7 +202,7 @@ public sealed class ArtifactCapabilityHandler(
         var ids = await GrantedArtifactIdsAsync(organizationId, actor.InstallationId, ArtifactActions.Read, token);
         var list = await db.CoreArtifacts.AsNoTracking().Where(x => x.OrganizationId == organizationId && ids.Contains(x.Id) &&
             (request.IncludeArchived || x.ArchivedAt == null)).OrderByDescending(x => x.UpdatedAt)
-            .Select(x => new { x.Id, x.Title, x.DocumentType, Status = x.DocumentStatus.ToString(), x.LatestRevisionId, x.AcceptedRevisionId, x.UpdatedAt }).ToListAsync(token);
+            .Select(x => new { x.Id, x.Title, x.DocumentType, Status = x.DocumentStatus.ToString(), x.LatestRevisionId, x.AcceptedRevisionId, x.WorkstreamId, x.TeamId, x.UpdatedAt }).ToListAsync(token);
         await AuditAsync("artifact.listed", "Completed", organizationId, null, actor, new { count = list.Count }, token);
         return list;
     }
@@ -198,8 +247,79 @@ public sealed class ArtifactCapabilityHandler(
             ArtifactId = artifact.Id, RevisionId = revision.Id, ConversationId = request.ConversationId ?? artifact.OriginConversationId,
             ReviewerOrganizationUserId = reviewerId, ReviewerInstallationId = reviewerInstallation,
             IdempotencyKey = request.IdempotencyKey, CreatedAt = now, NextAttemptAt = now });
+        AddArtifactEvent(W.WorkstreamEventNames.ArtifactRevisionSubmittedV1, artifact, revision,
+            "submitted", artifact.DocumentType, new { artifact.Id, revisionId = revision.Id, revision.ContentSha256 });
         await db.SaveChangesAsync(token);
         await AuditAsync("artifact.revision.submitted", "Completed", organizationId, artifact.Id, actor, new { revisionId = revision.Id }, token);
+        return await AgentDetailAsync(organizationId, artifact.Id, token);
+    }
+
+    private async Task<object> DecideStructuredAsync(
+        Guid organizationId, ArtifactAgentActor actor, W.StructuredArtifactDecisionRequest request, CancellationToken token)
+    {
+        await RequireFileGrantAsync(organizationId, request.ArtifactId, actor, ArtifactActions.Decide, token);
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 200 ||
+            string.IsNullOrWhiteSpace(request.RubricTypeKey) || request.RubricTypeKey.Length > 200)
+            throw new ArgumentException("Rubric type key and idempotency key are required.");
+        var existingReview = await db.ArtifactReviews.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey, token);
+        if (existingReview is not null)
+        {
+            if (existingReview.ArtifactId != request.ArtifactId || existingReview.RevisionId != request.RevisionId ||
+                !string.Equals(existingReview.RevisionDigest, request.RevisionDigest, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The idempotency key is already bound to a different review target.");
+            return await AgentDetailAsync(organizationId, request.ArtifactId, token);
+        }
+        var artifact = await db.CoreArtifacts.Include(x => x.Revisions).SingleOrDefaultAsync(x =>
+            x.Id == request.ArtifactId && x.OrganizationId == organizationId, token) ?? throw new KeyNotFoundException();
+        var revision = artifact.Revisions.SingleOrDefault(x => x.Id == request.RevisionId) ?? throw new KeyNotFoundException();
+        if (!string.Equals(revision.ContentSha256, request.RevisionDigest, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The submitted digest does not match the exact artifact revision.");
+        if (revision.Status != ArtifactRevisionStatus.Submitted)
+            throw new InvalidOperationException("Only a submitted revision can receive a structured decision.");
+        var disposition = request.Disposition.Trim().ToLowerInvariant();
+        if (disposition is not ("accepted" or "accepted-with-findings" or "changes-required" or "rejected"))
+            throw new ArgumentException("The structured review disposition is invalid.");
+        var accepted = disposition is "accepted" or "accepted-with-findings";
+        if (accepted && request.Findings.Any(x => x.Blocking))
+            throw new ArgumentException("A revision with blocking findings cannot be accepted.");
+        if (disposition == "accepted" && request.Findings.Count > 0)
+            throw new ArgumentException("Use accepted-with-findings when findings are present.");
+        var now = clock.GetUtcNow();
+        db.ArtifactReviews.Add(new ArtifactReview
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, ArtifactId = artifact.Id, RevisionId = revision.Id,
+            RevisionDigest = revision.ContentSha256, RubricTypeKey = request.RubricTypeKey,
+            Disposition = disposition, FindingsJson = JsonSerializer.Serialize(request.Findings, JsonOptions),
+            Comment = request.Comment, ReviewerOrganizationUserId = actor.OrganizationUserId,
+            ReviewerInstallationId = actor.InstallationId,
+            EvidenceConversationMessageId = request.EvidenceConversationMessageId,
+            IdempotencyKey = request.IdempotencyKey, CreatedAt = now
+        });
+        revision.Status = accepted ? ArtifactRevisionStatus.Accepted : ArtifactRevisionStatus.Rejected;
+        revision.DecidedAt = now;
+        artifact.DocumentStatus = accepted ? ArtifactDocumentStatus.Approved : ArtifactDocumentStatus.ChangesRequested;
+        artifact.ApprovalStatus = accepted ? ApprovalStatus.Approved : ApprovalStatus.RevisionRequested;
+        artifact.SubmittedRevisionId = null;
+        if (accepted) artifact.AcceptedRevisionId = revision.Id;
+        artifact.UpdatedAt = now;
+        db.CoreApprovals.Add(new Approval
+        {
+            Id = Guid.NewGuid(), ArtifactId = artifact.Id, ArtifactRevisionId = revision.Id,
+            Status = artifact.ApprovalStatus, Comment = request.Comment, DecidedAt = now, CreatedAt = now,
+            DecidedByOrganizationUserId = actor.OrganizationUserId,
+            DecidedByAgentInstallationId = actor.InstallationId,
+            EvidenceConversationMessageId = request.EvidenceConversationMessageId
+        });
+        foreach (var job in await db.ArtifactReviewJobs.Where(x => x.RevisionId == revision.Id &&
+                     x.Status != ArtifactReviewJobStatus.Completed).ToListAsync(token))
+            job.Status = ArtifactReviewJobStatus.Completed;
+        AddArtifactEvent(W.WorkstreamEventNames.ArtifactRevisionDecidedV1, artifact, revision,
+            disposition, request.RubricTypeKey, new { artifact.Id, revisionId = revision.Id, revision.ContentSha256,
+                request.RubricTypeKey, disposition, request.Findings });
+        await db.SaveChangesAsync(token);
+        await AuditAsync("artifact.revision.structured-decided", "Completed", organizationId, artifact.Id, actor,
+            new { revisionId = revision.Id, revision.ContentSha256, request.RubricTypeKey, disposition, request.Findings }, token);
         return await AgentDetailAsync(organizationId, artifact.Id, token);
     }
 
@@ -289,19 +409,23 @@ public sealed class ArtifactCapabilityHandler(
         var replay = await db.ArtifactPackages.AsNoTracking().Include(x => x.Members)
             .SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey, token);
         if (replay is not null) return MapPackage(replay);
-        if (request.PackageType == GameDesignDocumentTypes.DetailedPackage &&
-            (request.Members.Count != GameDesignDocumentTypes.RequiredDetailedPackage.Count ||
-             GameDesignDocumentTypes.RequiredDetailedPackage.Any(type => request.Members.Count(x => x.RequiredDocumentType == type) != 1)))
-            throw new ArgumentException("A detailed game-design package must contain exactly the five required document types.");
+        if (request.Members.Count is 0 or > 100 ||
+            request.Members.Select(x => x.Position).Distinct().Count() != request.Members.Count)
+            throw new ArgumentException("A package requires up to 100 members with unique positions.");
         foreach (var item in request.Members) await RequireFileGrantAsync(organizationId, item.ArtifactId, actor, ArtifactActions.Read, token);
         var ids = request.Members.Select(x => x.ArtifactId).Distinct().ToList();
         var artifacts = await db.CoreArtifacts.Where(x => x.OrganizationId == organizationId && ids.Contains(x.Id)).ToListAsync(token);
         if (ids.Count != request.Members.Count || artifacts.Count != ids.Count ||
             request.Members.Any(member => artifacts.Single(x => x.Id == member.ArtifactId).DocumentType != member.RequiredDocumentType))
             throw new ArgumentException("Every package member must be a distinct same-organization document whose type matches the declared package member type.");
+        var workstreamIds = artifacts.Select(x => x.WorkstreamId).Distinct().ToList();
+        var teamIds = artifacts.Select(x => x.TeamId).Distinct().ToList();
+        if (workstreamIds.Count != 1 || teamIds.Count > 1)
+            throw new ArgumentException("Every package member must share one Workstream and team context.");
         var now = clock.GetUtcNow();
         var package = new ArtifactPackage { Id = Guid.NewGuid(), OrganizationId = organizationId, Name = request.Name,
             PackageType = request.PackageType, IdempotencyKey = request.IdempotencyKey,
+            WorkstreamId = workstreamIds[0], TeamId = teamIds.SingleOrDefault(),
             CreatedByOrganizationUserId = actor.OrganizationUserId, CreatedAt = now, UpdatedAt = now };
         foreach (var item in request.Members.OrderBy(x => x.Position)) package.Members.Add(new ArtifactPackageMember
         { Id = Guid.NewGuid(), PackageId = package.Id, ArtifactId = item.ArtifactId, Position = item.Position, RequiredDocumentType = item.RequiredDocumentType });
@@ -330,14 +454,12 @@ public sealed class ArtifactCapabilityHandler(
             return MapPackage(package);
         foreach (var item in package.Members) await RequireFileGrantAsync(organizationId, item.ArtifactId, actor, decide ? ArtifactActions.Decide : ArtifactActions.Submit, token);
         if (decide && package.Members.Any(x => x.Artifact?.AcceptedRevisionId is null)) throw new InvalidOperationException("Every package document needs an accepted revision.");
-        if (package.PackageType == GameDesignDocumentTypes.DetailedPackage &&
-            (package.Members.Count != GameDesignDocumentTypes.RequiredDetailedPackage.Count ||
-             GameDesignDocumentTypes.RequiredDetailedPackage.Any(type => package.Members.Count(x => x.RequiredDocumentType == type) != 1)))
-            throw new InvalidOperationException("The detailed game-design package is incomplete.");
         var now = clock.GetUtcNow(); package.Status = decide ? ArtifactDocumentStatus.Approved : ArtifactDocumentStatus.InReview; package.UpdatedAt = now;
         if (decide) package.LastDecisionIdempotencyKey = request.IdempotencyKey;
         else package.LastSubmissionIdempotencyKey = request.IdempotencyKey;
         if (decide) { package.AcceptedByOrganizationUserId = actor.OrganizationUserId; package.AcceptedAt = now; foreach (var item in package.Members) item.AcceptedRevisionId = item.Artifact!.AcceptedRevisionId; }
+        AddPackageEvent(decide ? W.WorkstreamEventNames.ArtifactPackageDecidedV1 : W.WorkstreamEventNames.ArtifactPackageSubmittedV1,
+            package, decide ? "decided" : "submitted");
         await db.SaveChangesAsync(token);
         await AuditAsync(decide ? "artifact.package.accepted" : "artifact.package.submitted", "Completed",
             organizationId, package.Id, actor, new { package.Version }, token);
@@ -379,16 +501,57 @@ public sealed class ArtifactCapabilityHandler(
         var item = await db.CoreArtifacts.AsNoTracking().Include(x => x.Revisions).SingleOrDefaultAsync(x => x.Id == artifactId && x.OrganizationId == organizationId, token) ?? throw new KeyNotFoundException();
         return new { item.Id, item.Title, item.DocumentType, Status = item.DocumentStatus.ToString(), item.LatestRevisionId,
             item.SubmittedRevisionId, item.AcceptedRevisionId, item.OriginConversationId, item.OriginWorkItemId,
+            item.WorkstreamId, item.TeamId,
             Revisions = item.Revisions.OrderByDescending(x => x.Number).Select(MapRevision).ToList() };
     }
 
     private static object MapRevision(ArtifactRevision x) => new { x.Id, x.Number, x.BaseRevisionId, x.Content, x.ContentSha256, Status = x.Status.ToString(), x.CreatedAt, x.SubmittedAt, x.DecidedAt };
-    private static object MapPackage(ArtifactPackage x) => new { x.Id, x.Name, x.PackageType, x.Version, Status = x.Status.ToString(), Members = x.Members.OrderBy(m => m.Position).Select(m => new { m.ArtifactId, m.AcceptedRevisionId, m.Position, m.RequiredDocumentType }).ToList(), x.AcceptedAt };
+    private static object MapPackage(ArtifactPackage x) => new { x.Id, x.Name, x.PackageType, x.Version, Status = x.Status.ToString(), x.WorkstreamId, x.TeamId, Members = x.Members.OrderBy(m => m.Position).Select(m => new { m.ArtifactId, m.AcceptedRevisionId, m.Position, m.RequiredDocumentType }).ToList(), x.AcceptedAt };
     private static ScopedActionGrant NewGrant(Guid organizationId, Guid artifactId, Guid installationId, string action, DateTimeOffset now) => new()
     { Id = Guid.NewGuid(), OrganizationId = organizationId, SubjectKind = GrantSubjectKind.AgentInstallation, SubjectId = installationId,
       Action = action, ScopeKind = GrantScopeKind.Artifact, ScopeId = artifactId, GrantedBySubjectKind = GrantSubjectKind.AgentInstallation,
       GrantedBySubjectId = installationId, GrantedAt = now };
     private static string Sha256(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+    private void AddArtifactEvent(string eventType, Artifact artifact, ArtifactRevision revision,
+        string action, string typeKey, object metadata)
+    {
+        if (!artifact.WorkstreamId.HasValue) return;
+        var now = clock.GetUtcNow();
+        var context = new W.AgentWorkContext(artifact.OrganizationId, artifact.WorkstreamId.Value, artifact.TeamId,
+            null, artifact.OriginWorkItemId, null, null, Guid.NewGuid(), null, null);
+        var data = new W.GenericResourceEvent(Guid.NewGuid(), now, context, "ArtifactRevision", revision.Id,
+            revision.Number, typeKey, action, JsonSerializer.SerializeToElement(metadata, JsonOptions));
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = artifact.OrganizationId, EventType = eventType,
+            DataJson = JsonSerializer.Serialize(data, JsonOptions),
+            IdempotencyKey = $"{eventType}:{revision.Id:N}:{action}",
+            Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
+        });
+    }
+
+    private void AddPackageEvent(string eventType, ArtifactPackage package, string action)
+    {
+        if (!package.WorkstreamId.HasValue) return;
+        var now = clock.GetUtcNow();
+        var context = new W.AgentWorkContext(package.OrganizationId, package.WorkstreamId.Value, package.TeamId,
+            null, null, null, null, Guid.NewGuid(), null, null);
+        var data = new W.GenericResourceEvent(Guid.NewGuid(), now, context, "ArtifactPackage", package.Id,
+            package.Version, package.PackageType, action,
+            JsonSerializer.SerializeToElement(new
+            {
+                package.Id, package.Version, package.Status,
+                memberArtifactIds = package.Members.OrderBy(x => x.Position).Select(x => x.ArtifactId).ToList()
+            }, JsonOptions));
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = package.OrganizationId, EventType = eventType,
+            DataJson = JsonSerializer.Serialize(data, JsonOptions),
+            IdempotencyKey = $"{eventType}:{package.Id:N}:{package.Version}:{action}",
+            Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
+        });
+    }
 
     private Task DeniedAsync(Guid organizationId, Guid? artifactId, ArtifactAgentActor actor, string action, CancellationToken token) =>
         AuditAsync("artifact.access.denied", "Denied", organizationId, artifactId, actor, new { action }, token, "artifact_access_denied");

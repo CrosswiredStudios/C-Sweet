@@ -14,6 +14,8 @@ public sealed record PluginManifest
     public PluginRuntime Runtime { get; init; } = new();
     public PluginRolePolicy? RolePolicy { get; init; }
     public PluginWorkItemTypes WorkItemTypes { get; init; } = new();
+    public PluginWorkstreamProfiles WorkstreamProfiles { get; init; } = new();
+    public PluginToolchainAdapters ToolchainAdapters { get; init; } = new();
     public PluginProtocol Protocol { get; init; } = new();
     public IReadOnlyList<PluginCapabilityDeclaration> Provides { get; init; } = [];
     public IReadOnlyList<PluginCapabilityRequirement> Requires { get; init; } = [];
@@ -30,6 +32,32 @@ public sealed record PluginManifest
 public sealed record PluginWorkItemTypes
 {
     public IReadOnlyList<string> Requires { get; init; } = [];
+}
+
+public sealed record PluginWorkstreamProfiles
+{
+    public IReadOnlyList<PluginWorkstreamProfileContribution> Provides { get; init; } = [];
+    public IReadOnlyList<string> Requires { get; init; } = [];
+}
+
+public sealed record PluginWorkstreamProfileContribution
+{
+    public string Key { get; init; } = string.Empty;
+    public int Version { get; init; }
+    public string DefinitionResource { get; init; } = string.Empty;
+}
+
+public sealed record PluginToolchainAdapters
+{
+    public IReadOnlyList<PluginToolchainAdapterContribution> Provides { get; init; } = [];
+    public IReadOnlyList<string> Requires { get; init; } = [];
+}
+
+public sealed record PluginToolchainAdapterContribution
+{
+    public string Key { get; init; } = string.Empty;
+    public int Version { get; init; }
+    public string DefinitionResource { get; init; } = string.Empty;
 }
 
 public sealed record PluginRolePolicy

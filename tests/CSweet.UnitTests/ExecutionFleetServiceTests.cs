@@ -836,7 +836,7 @@ public sealed class ExecutionFleetServiceTests
         {
             Providers = [new RegisterOfficeProviderRequest(
                 "firecracker-kvm", "1.0.0", "", "", "", "",
-                DateTimeOffset.MinValue, null, true, true, false, "KVM is unavailable.")]
+                DateTimeOffset.MinValue, null, true, true, true, false, "KVM is unavailable.")]
         };
 
         var claim = await fleet.ClaimNodeAsync(request);
@@ -861,7 +861,7 @@ public sealed class ExecutionFleetServiceTests
         {
             Providers = [new RegisterOfficeProviderRequest(
                 "hyperv-gen2", "1.0.0", "", "", "", "",
-                DateTimeOffset.MinValue, null, true, true, false,
+                DateTimeOffset.MinValue, null, true, true, true, false,
                 "#< CLIXML<Objs Version=\"1.1.0.1\"><Obj S=\"progress\" /></Objs>")]
         };
 
@@ -1047,7 +1047,7 @@ public sealed class ExecutionFleetServiceTests
             "firecracker-kvm", "1.0.0", "1.0",
             Digest('a'), "production-v1",
             Digest('b'), Now.AddHours(-1), Now.AddDays(1),
-            true, true, certified, certified ? null : "Certification missing.")]);
+            true, true, true, certified, certified ? null : "Certification missing.")]);
 
     private static string Digest(char value) => $"sha256:{new string(value, 64)}";
     private static ExecutionFleetService CreateFleet(

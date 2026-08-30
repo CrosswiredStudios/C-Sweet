@@ -1,6 +1,4 @@
 using System.Data;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using CSweet.Application.WorkManagement;
 using CSweet.Contracts.WorkManagement;
@@ -424,8 +422,6 @@ public sealed class WorkOrchestrationService(
         var initialStage = policy.Stages.Single(x => x.Key == policy.InitialStageKey);
         foreach (var item in items)
         {
-            if (board.ProfileKey == Shared.WorkBoardProfileKeys.VideoGameProductionV1)
-                await ValidateGameDesignGateAsync(organizationId, item, errors, cancellationToken);
             if (item.Approvals.Any(x => x.PlanningRevision != item.PlanningRevision ||
                     x.Status is not (CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Approved or
                         CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Waived)))
@@ -499,81 +495,6 @@ public sealed class WorkOrchestrationService(
             }
         }
         return new(errors.Count == 0, boardId, sprintId, policy.Id, errors);
-    }
-
-    private async Task ValidateGameDesignGateAsync(Guid organizationId, WorkTask item,
-        List<Shared.WorkOrchestrationValidationError> errors, CancellationToken token)
-    {
-        Shared.WorkItemPlanningSpecification? planning = null;
-        if (!string.IsNullOrWhiteSpace(item.PlanningSpecificationJson))
-        {
-            try { planning = JsonSerializer.Deserialize<Shared.WorkItemPlanningSpecification>(item.PlanningSpecificationJson, JsonOptions); }
-            catch (JsonException) { }
-        }
-        var digest = planning?.DesignPackageDigest;
-        if (digest is null)
-        {
-            errors.Add(new("game-design.package_required",
-                "Video-game production requires an approved five-document design package. Planning, staffing, estimation, and technical investigation should remain on a non-production board until then.", item.Id));
-            return;
-        }
-        var package = await db.ArtifactPackages.AsNoTracking().Include(x => x.Members)
-            .SingleOrDefaultAsync(x => x.Id == digest.PackageId && x.OrganizationId == organizationId, token);
-        if (package is null || package.Status != ArtifactDocumentStatus.Approved ||
-            package.AcceptedAt != digest.ApprovedAt || package.Version != digest.Version)
-        {
-            errors.Add(new("game-design.package_not_approved",
-                "The referenced game-design package is missing, changed, or is not approved.", item.Id));
-            return;
-        }
-        string[] requiredTypes =
-        [
-            "game-design.gameplay-systems.v1", "game-design.narrative-world.v1",
-            "game-design.art-audio-direction.v1", "game-design.ux-controls-accessibility.v1",
-            "game-design.prototype-content-validation.v1"
-        ];
-        if (package.Members.Count != requiredTypes.Length ||
-            requiredTypes.Any(type => package.Members.Count(x => x.RequiredDocumentType == type) != 1) ||
-            package.Members.Any(x => !x.AcceptedRevisionId.HasValue))
-        {
-            errors.Add(new("game-design.package_incomplete",
-                "The approved package must bind one accepted revision for each of the five required game-design documents.", item.Id));
-            return;
-        }
-        var memberArtifactIds = package.Members.Select(x => x.ArtifactId).ToList();
-        var artifactTypes = await db.CoreArtifacts.AsNoTracking().Where(x =>
-                x.OrganizationId == organizationId && memberArtifactIds.Contains(x.Id))
-            .ToDictionaryAsync(x => x.Id, x => x.DocumentType, token);
-        if (artifactTypes.Count != requiredTypes.Length || package.Members.Any(x =>
-                !artifactTypes.TryGetValue(x.ArtifactId, out var actualType) || actualType != x.RequiredDocumentType))
-        {
-            errors.Add(new("game-design.package_type_mismatch",
-                "A package member's declared type does not match the underlying document type.", item.Id));
-            return;
-        }
-        var revisionIds = package.Members.Select(x => x.AcceptedRevisionId!.Value).ToList();
-        var revisions = await db.ArtifactRevisions.AsNoTracking().Where(x =>
-                x.OrganizationId == organizationId && revisionIds.Contains(x.Id) &&
-                x.Status == ArtifactRevisionStatus.Accepted)
-            .ToDictionaryAsync(x => x.Id, token);
-        var supplied = digest.Documents.ToDictionary(x => x.DocumentType, StringComparer.Ordinal);
-        var valid = revisions.Count == requiredTypes.Length && requiredTypes.All(type =>
-        {
-            var member = package.Members.Single(x => x.RequiredDocumentType == type);
-            return revisions.TryGetValue(member.AcceptedRevisionId!.Value, out var revision) &&
-                   supplied.TryGetValue(type, out var document) && document.ArtifactId == member.ArtifactId &&
-                   document.AcceptedRevisionId == revision.Id &&
-                   string.Equals(document.Sha256, revision.ContentSha256, StringComparison.OrdinalIgnoreCase);
-        });
-        var canonical = string.Join("\n", package.Members.OrderBy(x => x.Position).Select(member =>
-        {
-            var revision = revisions.GetValueOrDefault(member.AcceptedRevisionId!.Value);
-            return $"{member.RequiredDocumentType}|{member.ArtifactId:D}|{member.AcceptedRevisionId:D}|{revision?.ContentSha256}";
-        }));
-        var packageHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
-        if (!valid || !string.Equals(digest.Sha256, packageHash, StringComparison.OrdinalIgnoreCase))
-            errors.Add(new("game-design.package_digest_mismatch",
-                "The planning digest does not match the package's immutable accepted revisions.", item.Id));
     }
 
     private async Task CompleteStageAsync(

@@ -72,6 +72,7 @@ public sealed class LeadershipAssignment
 public sealed class Workstream
 {
     public Guid Id { get; set; }
+    public Guid? SourceProposalId { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid? StrategicObjectiveId { get; set; }
     public Guid? AccountableManagerOrganizationUserId { get; set; }
@@ -86,6 +87,11 @@ public sealed class Workstream
     public DateTimeOffset? TargetDate { get; set; }
     public decimal? BudgetAmount { get; set; }
     public string? BudgetCurrency { get; set; }
+    public string? ProfileKey { get; set; }
+    public int? ProfileVersion { get; set; }
+    public string? ProfileDataJson { get; set; }
+    public string? ProfileDefinitionDigest { get; set; }
+    public long Revision { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

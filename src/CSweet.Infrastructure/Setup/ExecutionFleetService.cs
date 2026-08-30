@@ -1339,7 +1339,7 @@ public sealed class ExecutionFleetService(
             provider.ProviderId, provider.ProviderVersion, provider.BrokerProtocolVersion,
             provider.GuestImageDigest, provider.CertificationSuiteVersion,
             provider.CertificationEvidenceDigest, provider.CertifiedAt, provider.CertificationExpiresAt,
-            provider.SupportsBuilderWorkloads, provider.SupportsRuntimeWorkloads,
+            provider.SupportsBuilderWorkloads, provider.SupportsRuntimeWorkloads, provider.SupportsToolchainBuildWorkloads,
             provider.IsAvailable, provider.UnavailableReason)).ToArray(),
         DeserializeLabels(node.LabelsJson),
         IsLocalMachine(node.MachineName, node.OperatingSystem, Environment.MachineName, LocalOperatingSystem()));
@@ -1402,6 +1402,7 @@ public sealed class ExecutionFleetService(
         CertificationExpiresAt = provider.CertificationExpiresAt?.ToUniversalTime(),
         SupportsBuilderWorkloads = provider.SupportsBuilderWorkloads,
         SupportsRuntimeWorkloads = provider.SupportsRuntimeWorkloads,
+        SupportsToolchainBuildWorkloads = provider.SupportsToolchainBuildWorkloads,
         IsAvailable = provider.IsAvailable,
         UnavailableReason = string.IsNullOrWhiteSpace(provider.UnavailableReason)
             ? null : provider.UnavailableReason.Trim()[..Math.Min(1024, provider.UnavailableReason.Trim().Length)],
@@ -1441,6 +1442,7 @@ public sealed class ExecutionFleetService(
             existing.CertificationExpiresAt = reported.CertificationExpiresAt?.ToUniversalTime();
             existing.SupportsBuilderWorkloads = reported.SupportsBuilderWorkloads;
             existing.SupportsRuntimeWorkloads = reported.SupportsRuntimeWorkloads;
+            existing.SupportsToolchainBuildWorkloads = reported.SupportsToolchainBuildWorkloads;
             existing.IsAvailable = reported.IsAvailable;
             existing.UnavailableReason = string.IsNullOrWhiteSpace(reported.UnavailableReason)
                 ? null : reported.UnavailableReason.Trim()[..Math.Min(1024, reported.UnavailableReason.Trim().Length)];

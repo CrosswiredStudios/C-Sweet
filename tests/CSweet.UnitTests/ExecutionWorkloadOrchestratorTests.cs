@@ -1,9 +1,11 @@
 using CSweet.Application.Setup;
+using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using FleetExecutionNode = CSweet.Domain.Setup.ExecutionNode;
+using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
 
@@ -393,6 +395,88 @@ public sealed class ExecutionWorkloadOrchestratorTests
             (await db.ExecutionWorkloadAssignments.SingleAsync(x => x.Id == reference.AssignmentId)).Status);
     }
 
+    [Fact]
+    public async Task ToolchainBuildRequiresDedicatedCapacityAndDeduplicatesExactBuild()
+    {
+        await using var db = CreateDb();
+        var pool = Pool();
+        var node = Node(pool, Guid.NewGuid());
+        node.Providers.Single().SupportsToolchainBuildWorkloads = false;
+        var runtimeId = Guid.NewGuid();
+        var deliveryBuildId = Guid.NewGuid();
+        db.AddRange(pool, node, new AgentRuntimeInstance
+        {
+            Id = runtimeId,
+            TickId = Guid.NewGuid(),
+            AgentInstallationId = Guid.NewGuid(),
+            QueuedAt = Now,
+            RuntimeDeadlineAt = Now.AddMinutes(30)
+        });
+        await db.SaveChangesAsync();
+        var scheduler = new ExecutionWorkloadOrchestrator(db, new MutableTimeProvider(Now));
+        var request = new ExecutionWorkloadRequest(
+            ExecutionWorkloadKind.ToolchainBuild, null, runtimeId, pool.Id, "business-a", null,
+            Digest, Evidence, 2, 2048, 4096, "{\"kind\":\"toolchainBuild\"}",
+            DeliveryBuildId: deliveryBuildId);
+
+        var first = await scheduler.SubmitAsync(request);
+        var duplicate = await scheduler.SubmitAsync(request);
+        Assert.Equal(first, duplicate);
+        Assert.Equal(0, await scheduler.AssignPendingAsync());
+
+        node.Providers.Single().SupportsToolchainBuildWorkloads = true;
+        await db.SaveChangesAsync();
+        Assert.Equal(1, await scheduler.AssignPendingAsync());
+        var assignment = await db.ExecutionWorkloadAssignments.SingleAsync();
+        Assert.Equal(runtimeId, assignment.AgentRuntimeInstanceId);
+        Assert.Equal(deliveryBuildId, assignment.DeliveryBuildId);
+        Assert.Equal(node.Id, assignment.ExecutionNodeId);
+    }
+
+    [Fact]
+    public async Task ExpiredToolchainExecutionRequeuesBuildAndInvalidatesClaim()
+    {
+        await using var db = CreateDb();
+        var pool = Pool();
+        var node = Node(pool, Guid.NewGuid());
+        var build = DeliveryBuild(W.DeliveryBuildStatuses.Running, attempt: 1, maximumAttempts: 3);
+        var assignment = ToolchainAssignment(pool.Id, node.Id, build.Id, attempt: 1);
+        db.AddRange(pool, node, build, assignment);
+        await db.SaveChangesAsync();
+
+        var scheduler = new ExecutionWorkloadOrchestrator(db, new MutableTimeProvider(Now));
+        Assert.Equal(1, await scheduler.FenceExpiredAsync());
+
+        Assert.Equal(ExecutionAssignmentStatus.Pending, assignment.Status);
+        Assert.Equal(2, assignment.Attempt);
+        Assert.Null(assignment.ExecutionNodeId);
+        Assert.Equal(W.DeliveryBuildStatuses.Queued, build.Status);
+        Assert.Null(build.ClaimId);
+        Assert.Null(build.LeaseExpiresAt);
+        Assert.Equal(8, build.Revision);
+    }
+
+    [Fact]
+    public async Task ExpiredToolchainExecutionExhaustsBuildAtItsAttemptLimit()
+    {
+        await using var db = CreateDb();
+        var pool = Pool();
+        var node = Node(pool, Guid.NewGuid());
+        var build = DeliveryBuild(W.DeliveryBuildStatuses.Running, attempt: 3, maximumAttempts: 3);
+        var assignment = ToolchainAssignment(pool.Id, node.Id, build.Id, attempt: 3);
+        db.AddRange(pool, node, build, assignment);
+        await db.SaveChangesAsync();
+
+        var scheduler = new ExecutionWorkloadOrchestrator(db, new MutableTimeProvider(Now));
+        Assert.Equal(1, await scheduler.FenceExpiredAsync());
+
+        Assert.Equal(ExecutionAssignmentStatus.Failed, assignment.Status);
+        Assert.Equal("assignment-recovery-exhausted", assignment.FailureCode);
+        Assert.Equal(W.DeliveryBuildStatuses.Exhausted, build.Status);
+        Assert.Null(build.LeaseExpiresAt);
+        Assert.Equal(8, build.Revision);
+    }
+
     private static ExecutionPool Pool() => new()
     {
         Id = Guid.NewGuid(), Name = "Default", IsDefaultBuildPool = true,
@@ -418,7 +502,8 @@ public sealed class ExecutionWorkloadOrchestratorTests
             ProviderVersion = "1.0.0", BrokerProtocolVersion = "1.0", GuestImageDigest = Digest,
             CertificationSuiteVersion = "production-v1", CertificationEvidenceDigest = Evidence,
             CertifiedAt = Now.AddDays(-1), SupportsBuilderWorkloads = true,
-            SupportsRuntimeWorkloads = true, IsAvailable = true, UpdatedAt = Now
+            SupportsRuntimeWorkloads = true, SupportsToolchainBuildWorkloads = true,
+            IsAvailable = true, UpdatedAt = Now
         });
         return node;
     }
@@ -432,6 +517,31 @@ public sealed class ExecutionWorkloadOrchestratorTests
         AssignmentTokenHash = new string('c', 64), FencingEpoch = 1, Attempt = 1,
         ReservedCpuCount = cpu, ReservedMemoryMb = memory, ReservedDiskMb = 1024,
         LeaseExpiresAt = Now.AddSeconds(30), QueuedAt = Now, AssignedAt = Now
+    };
+
+    private static DeliveryBuildRecord DeliveryBuild(string status, int attempt, int maximumAttempts) => new()
+    {
+        Id = Guid.NewGuid(), OrganizationId = Guid.NewGuid(), WorkstreamId = Guid.NewGuid(),
+        ToolchainDefinitionId = Guid.NewGuid(), ProviderInstallationId = Guid.NewGuid(),
+        RepositoryId = Guid.NewGuid(), SourceRevision = new string('a', 40), RecipeKey = "test.v1",
+        TargetKey = "linux-x64", DefinitionDigest = Digest, Status = status,
+        Attempt = attempt, MaximumAttempts = maximumAttempts, ClaimId = Guid.NewGuid(),
+        ExecutionNodeId = Guid.NewGuid(), LeaseExpiresAt = Now.AddSeconds(-1),
+        IdempotencyKey = Guid.NewGuid().ToString("N"), RequestedByOrganizationUserId = Guid.NewGuid(),
+        Revision = 7, CreatedAt = Now.AddMinutes(-5), UpdatedAt = Now.AddMinutes(-1)
+    };
+
+    private static ExecutionWorkloadAssignment ToolchainAssignment(
+        Guid poolId, Guid nodeId, Guid deliveryBuildId, int attempt) => new()
+    {
+        Id = Guid.NewGuid(), ExecutionPoolId = poolId, ExecutionNodeId = nodeId,
+        AgentRuntimeInstanceId = Guid.NewGuid(), DeliveryBuildId = deliveryBuildId,
+        WorkloadKind = ExecutionWorkloadKind.ToolchainBuild, Status = ExecutionAssignmentStatus.Running,
+        ProviderId = "firecracker-kvm", GuestImageDigest = Digest,
+        SpecificationJson = "{}", SpecificationDigest = Evidence,
+        AssignmentTokenHash = new string('c', 64), FencingEpoch = 1, Attempt = attempt,
+        ReservedCpuCount = 1, ReservedMemoryMb = 512, ReservedDiskMb = 1024,
+        LeaseExpiresAt = Now.AddSeconds(-1), QueuedAt = Now.AddMinutes(-5), AssignedAt = Now.AddMinutes(-4)
     };
 
     private static ExecutionWorkloadRequest Request(Guid buildId, Guid poolId) => new(

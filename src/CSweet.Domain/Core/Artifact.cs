@@ -8,6 +8,8 @@ public sealed class Artifact
     public Guid OrganizationId { get; set; }
     public Guid? TaskId { get; set; }
     public Guid? TaskRunId { get; set; }
+    public Guid? WorkstreamId { get; set; }
+    public Guid? TeamId { get; set; }
     public ArtifactType Type { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
@@ -81,6 +83,8 @@ public sealed class ArtifactPackage
 {
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
+    public Guid? WorkstreamId { get; set; }
+    public Guid? TeamId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string PackageType { get; set; } = string.Empty;
     public int Version { get; set; } = 1;
@@ -148,6 +152,24 @@ public sealed class ArtifactReviewJob
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset NextAttemptAt { get; set; }
     public string? LastError { get; set; }
+}
+
+public sealed class ArtifactReview
+{
+    public Guid Id { get; set; }
+    public Guid OrganizationId { get; set; }
+    public Guid ArtifactId { get; set; }
+    public Guid RevisionId { get; set; }
+    public string RevisionDigest { get; set; } = string.Empty;
+    public string RubricTypeKey { get; set; } = string.Empty;
+    public string Disposition { get; set; } = string.Empty;
+    public string FindingsJson { get; set; } = "[]";
+    public string? Comment { get; set; }
+    public Guid ReviewerOrganizationUserId { get; set; }
+    public Guid? ReviewerInstallationId { get; set; }
+    public Guid? EvidenceConversationMessageId { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
 }
 
 public sealed class ConversationMessageArtifact

@@ -134,12 +134,29 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<ArtifactPackageMember> ArtifactPackageMembers => Set<ArtifactPackageMember>();
     public DbSet<ArtifactAccessRequest> ArtifactAccessRequests => Set<ArtifactAccessRequest>();
     public DbSet<ArtifactReviewJob> ArtifactReviewJobs => Set<ArtifactReviewJob>();
+    public DbSet<ArtifactReview> ArtifactReviews => Set<ArtifactReview>();
     public DbSet<ConversationMessageArtifact> ConversationMessageArtifacts => Set<ConversationMessageArtifact>();
     public DbSet<BusinessProfile> BusinessProfiles => Set<BusinessProfile>();
     public DbSet<FinancialOperatingProfile> FinancialOperatingProfiles => Set<FinancialOperatingProfile>();
     public DbSet<BusinessDiscoveryAssessment> BusinessDiscoveryAssessments => Set<BusinessDiscoveryAssessment>();
     public DbSet<LeadershipAssignment> LeadershipAssignments => Set<LeadershipAssignment>();
     public DbSet<Workstream> Workstreams => Set<Workstream>();
+    public DbSet<WorkstreamProfileDefinitionRecord> WorkstreamProfileDefinitions => Set<WorkstreamProfileDefinitionRecord>();
+    public DbSet<WorkstreamTeamAssignmentRecord> WorkstreamTeamAssignments => Set<WorkstreamTeamAssignmentRecord>();
+    public DbSet<WorkstreamSupervisionAssignment> WorkstreamSupervisionAssignments => Set<WorkstreamSupervisionAssignment>();
+    public DbSet<WorkstreamAuthorityEnvelopeRecord> WorkstreamAuthorityEnvelopes => Set<WorkstreamAuthorityEnvelopeRecord>();
+    public DbSet<WorkstreamMilestoneRecord> WorkstreamMilestones => Set<WorkstreamMilestoneRecord>();
+    public DbSet<WorkstreamGateRecord> WorkstreamGates => Set<WorkstreamGateRecord>();
+    public DbSet<WorkstreamDecisionRecord> WorkstreamDecisions => Set<WorkstreamDecisionRecord>();
+    public DbSet<ToolchainAdapterDefinitionRecord> ToolchainAdapterDefinitions => Set<ToolchainAdapterDefinitionRecord>();
+    public DbSet<ToolchainCertificationRunRecord> ToolchainCertificationRuns => Set<ToolchainCertificationRunRecord>();
+    public DbSet<ToolchainInstallationEligibilityRecord> ToolchainInstallationEligibilities => Set<ToolchainInstallationEligibilityRecord>();
+    public DbSet<DeliveryBuildRecord> DeliveryBuilds => Set<DeliveryBuildRecord>();
+    public DbSet<DeliveryValidationRecord> DeliveryValidations => Set<DeliveryValidationRecord>();
+    public DbSet<PreviewSessionRecord> PreviewSessions => Set<PreviewSessionRecord>();
+    public DbSet<EvaluationSessionRecord> EvaluationSessions => Set<EvaluationSessionRecord>();
+    public DbSet<ReleaseReadinessRecord> ReleaseReadinessRecords => Set<ReleaseReadinessRecord>();
+    public DbSet<MediaAssetReferenceGrantRecord> MediaAssetReferenceGrants => Set<MediaAssetReferenceGrantRecord>();
     public DbSet<ActionProposal> ActionProposals => Set<ActionProposal>();
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<BudgetReservation> BudgetReservations => Set<BudgetReservation>();
@@ -202,6 +219,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
         CaptureArtifactEvents();
+        CaptureProjectResourceEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -213,6 +231,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
         CaptureArtifactEvents();
+        CaptureProjectResourceEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -247,7 +266,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             };
             if (eventType is not null) QueueCommunicationEvent(chat.OrganizationId, chat.Id, eventType,
                 new CommunicationChatEvent(chat.Id, chat.OrganizationId, chat.Kind.ToString(),
-                    chat.InitiatedByOrganizationUserId, chat.AgentOrganizationUserId, chat.TeamId, chat.ProjectId,
+                    chat.InitiatedByOrganizationUserId, chat.AgentOrganizationUserId, chat.TeamId, chat.WorkstreamId,
                     chat.Title, chat.Description, chat.IsPrivate, chat.IsDeletionProtected,
                     chat.CreatedAt, chat.UpdatedAt, chat.ArchivedAt));
         }
@@ -316,7 +335,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
 
     private static bool HasConversationStateChange(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Conversation> entry) =>
         entry.Property(x => x.Kind).IsModified || entry.Property(x => x.AgentOrganizationUserId).IsModified ||
-        entry.Property(x => x.TeamId).IsModified || entry.Property(x => x.ProjectId).IsModified ||
+        entry.Property(x => x.TeamId).IsModified || entry.Property(x => x.WorkstreamId).IsModified ||
         entry.Property(x => x.Title).IsModified || entry.Property(x => x.Description).IsModified ||
         entry.Property(x => x.IsPrivate).IsModified || entry.Property(x => x.IsDeletionProtected).IsModified ||
         entry.Property(x => x.ArchivedAt).IsModified;
@@ -397,6 +416,71 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 JsonSerializer.Serialize(new DocumentChangedEvent(organizationId, "Changed"), EventJsonOptions),
                 occurredAt, ResolveActiveOrganizationRecipients(organizationId));
         }
+    }
+
+    private void CaptureProjectResourceEvents()
+    {
+        ChangeTracker.DetectChanges();
+        var events = ChangeTracker.Entries<AgentPlatformEventOutboxItem>()
+            .Where(x => x.State == EntityState.Added && IsProjectResourceEvent(x.Entity.EventType))
+            .Select(x => x.Entity)
+            .ToList();
+        foreach (var item in events)
+        {
+            var workstreamId = TryReadWorkstreamId(item.DataJson);
+            if (!workstreamId.HasValue) continue;
+            QueueApplicationRealtimeEvent(item.OrganizationId, null, null, item.EventType,
+                $"organizations/{item.OrganizationId:D}/projects/{workstreamId:D}", item.DataJson,
+                item.OccurredAt, ResolveProjectInspectionRecipients(item.OrganizationId, workstreamId.Value));
+        }
+    }
+
+    private static bool IsProjectResourceEvent(string eventType) =>
+        eventType.StartsWith("com.csweet.workstream.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.work.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.decision.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.artifact.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.build.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.validation.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.evaluation-session.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.media-job.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.release-readiness.", StringComparison.Ordinal);
+
+    private static Guid? TryReadWorkstreamId(string dataJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(dataJson);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("context", out var context) && !root.TryGetProperty("Context", out context))
+                return null;
+            if (!context.TryGetProperty("workstreamId", out var value) && !context.TryGetProperty("WorkstreamId", out value))
+                return null;
+            return value.ValueKind == JsonValueKind.String && Guid.TryParse(value.GetString(), out var parsed)
+                ? parsed : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private IReadOnlyCollection<Guid> ResolveProjectInspectionRecipients(Guid organizationId, Guid workstreamId)
+    {
+        var recipients = CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.IsActive &&
+                x.PermissionLevel >= OrganizationPermissionLevel.Manager)
+            .Select(x => x.Id).ToHashSet();
+        var managerId = Workstreams.AsNoTracking().Where(x => x.Id == workstreamId)
+            .Select(x => x.AccountableManagerOrganizationUserId).SingleOrDefault();
+        if (managerId.HasValue) recipients.Add(managerId.Value);
+        recipients.UnionWith(WorkstreamSupervisionAssignments.AsNoTracking()
+            .Where(x => x.WorkstreamId == workstreamId && x.EndsAt == null)
+            .Select(x => x.SupervisorOrganizationUserId));
+        var teamIds = WorkstreamTeamAssignments.AsNoTracking()
+            .Where(x => x.WorkstreamId == workstreamId && x.EndsAt == null)
+            .Select(x => x.TeamId);
+        recipients.UnionWith(TeamMemberships.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.EndedAt == null && teamIds.Contains(x.TeamId))
+            .Select(x => x.OrganizationUserId));
+        return recipients;
     }
 
     private void CaptureEmployeeDirectoryEvents()
@@ -579,6 +663,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.OperationType).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(x => x.OperationTypeKey).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
             entity.Property(x => x.ModelId).HasMaxLength(512);
             entity.Property(x => x.TemplateJson).HasColumnType("text");
@@ -586,7 +671,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.DefaultsJson).HasColumnType("text");
             entity.HasOne(x => x.ProviderProfile).WithMany().HasForeignKey(x => x.ProviderProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
-            entity.HasIndex(x => new { x.ProviderProfileId, x.OperationType, x.Name }).IsUnique();
+            entity.HasIndex(x => new { x.ProviderProfileId, x.OperationTypeKey, x.Name }).IsUnique();
         });
 
         modelBuilder.Entity<GenAiOperationDefault>(entity =>
@@ -602,6 +687,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.OperationType).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(x => x.OperationTypeKey).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
             entity.Property(x => x.PromptHash).HasMaxLength(64).IsRequired();
             entity.Property(x => x.RequestJson).HasColumnType("text").IsRequired();
@@ -610,12 +696,14 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.ErrorCode).HasMaxLength(160);
             entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
             entity.Property(x => x.LeaseOwner).HasMaxLength(64);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasOne(x => x.OperationConfiguration).WithMany().HasForeignKey(x => x.OperationConfigurationId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(x => new { x.AgentInstallationId, x.OperationType, x.IdempotencyKey })
                 .IsUnique()
                 .HasFilter("\"IdempotencyKey\" IS NOT NULL");
             entity.HasIndex(x => new { x.Status, x.CreatedAt });
+            entity.HasIndex(x => new { x.OrganizationId, x.WorkstreamId, x.CreatedAt });
         });
 
         modelBuilder.Entity<MediaAsset>(entity =>
@@ -625,8 +713,10 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.ContentType).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Sha256).HasMaxLength(64).IsRequired();
             entity.Property(x => x.StorageKey).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.ProvenanceJson).HasColumnType("jsonb").IsRequired();
             entity.HasIndex(x => x.StorageKey).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.CreatedAt });
+            entity.HasIndex(x => new { x.OrganizationId, x.WorkstreamId, x.CreatedAt });
             entity.HasOne(x => x.GenAiJob).WithMany().HasForeignKey(x => x.GenAiJobId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
@@ -640,6 +730,15 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasIndex(x => new { x.OrganizationId, x.Status, x.ExpiresAt });
             entity.HasOne(x => x.MediaAsset).WithMany().HasForeignKey(x => x.MediaAssetId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<MediaAssetReferenceGrantRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.PurposeTypeKey).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.SecretHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.AgentInstallationId, x.ExpiresAt });
+            entity.HasIndex(x => new { x.AssetId, x.WorkstreamId });
         });
 
         modelBuilder.Entity<OnboardingStep>(entity =>
@@ -830,8 +929,9 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         {
             entity.ToTable(table => table.HasCheckConstraint(
                 "CK_ExecutionWorkloadAssignments_ExactlyOneWorkload",
-                "(\"AgentBuildJobId\" IS NOT NULL AND \"AgentRuntimeInstanceId\" IS NULL) OR " +
-                "(\"AgentBuildJobId\" IS NULL AND \"AgentRuntimeInstanceId\" IS NOT NULL)"));
+                "(\"WorkloadKind\" = 'Builder' AND \"AgentBuildJobId\" IS NOT NULL AND \"AgentRuntimeInstanceId\" IS NULL AND \"DeliveryBuildId\" IS NULL) OR " +
+                "(\"WorkloadKind\" = 'Runtime' AND \"AgentBuildJobId\" IS NULL AND \"AgentRuntimeInstanceId\" IS NOT NULL AND \"DeliveryBuildId\" IS NULL) OR " +
+                "(\"WorkloadKind\" = 'ToolchainBuild' AND \"AgentBuildJobId\" IS NULL AND \"AgentRuntimeInstanceId\" IS NOT NULL AND \"DeliveryBuildId\" IS NOT NULL)"));
             entity.HasKey(x => x.Id);
             entity.Property(x => x.WorkloadKind).HasConversion<string>().HasMaxLength(16).IsRequired();
             entity.Property(x => x.BusinessId).HasMaxLength(128);
@@ -861,6 +961,9 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasIndex(x => x.AgentRuntimeInstanceId)
                 .IsUnique()
                 .HasFilter("\"AgentRuntimeInstanceId\" IS NOT NULL AND \"Status\" IN ('Pending','Assigned','Starting','Running','Stopping')");
+            entity.HasIndex(x => x.DeliveryBuildId)
+                .IsUnique()
+                .HasFilter("\"DeliveryBuildId\" IS NOT NULL AND \"Status\" IN ('Pending','Assigned','Starting','Running','Stopping')");
             entity.HasOne(x => x.ExecutionPool)
                 .WithMany()
                 .HasForeignKey(x => x.ExecutionPoolId)

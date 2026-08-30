@@ -19,6 +19,7 @@ using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
+using CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Api.Chat;
 
@@ -216,6 +217,10 @@ public sealed class ChatTurnWorker(
                     return;
                 outputRouter.BindAlias(conversation.Id, turnId);
                 var reader = outputRouter.Subscribe(turnId);
+                var profileKey = conversation.WorkstreamId.HasValue
+                    ? await db.Workstreams.AsNoTracking().Where(x => x.Id == conversation.WorkstreamId.Value)
+                        .Select(x => x.ProfileKey).SingleOrDefaultAsync(hardTimeout.Token)
+                    : null;
                 var payload = new UserMessageReceived(
                     providerId.Value,
                     conversation.Id.ToString(),
@@ -227,7 +232,11 @@ public sealed class ChatTurnWorker(
                     turn.UserMessageId)
                 {
                     Attachments = userMessage.Attachments.Select(x => new UserMessageAttachment(
-                        x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList()
+                        x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList(),
+                    WorkContext = conversation.WorkstreamId.HasValue
+                        ? new AgentWorkContext(conversation.OrganizationId, conversation.WorkstreamId.Value,
+                            conversation.TeamId, null, null, null, null, turnId, userMessage.Id, profileKey)
+                        : null
                 };
 
                 await PublishTraceAsync(turns, turnId, "model", "model.dispatched", "running", "Assistant dispatched",

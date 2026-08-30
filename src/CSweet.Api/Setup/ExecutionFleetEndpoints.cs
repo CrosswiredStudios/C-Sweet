@@ -210,6 +210,7 @@ public static class ExecutionFleetEndpoints
             provider.GuestImageDigest, provider.CertificationSuiteVersion,
             provider.CertificationEvidenceDigest, provider.CertifiedAt,
             provider.CertificationExpiresAt, provider.SupportsBuilderWorkloads,
-            provider.SupportsRuntimeWorkloads, provider.IsAvailable, provider.UnavailableReason)).ToArray(),
+            provider.SupportsRuntimeWorkloads, provider.SupportsToolchainBuildWorkloads,
+            provider.IsAvailable, provider.UnavailableReason)).ToArray(),
         DeserializeDictionary(node.LabelsJson));
 }

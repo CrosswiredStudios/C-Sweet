@@ -19,6 +19,14 @@ public interface IGitHubAgentRepositoryClient
         string commitSha,
         CancellationToken cancellationToken);
 
+    Task<byte[]?> GetRepositoryFileAsync(
+        string repositoryOwner,
+        string repositoryName,
+        string commitSha,
+        string relativePath,
+        int maximumBytes,
+        CancellationToken cancellationToken) => Task.FromResult<byte[]?>(null);
+
     async Task<PluginManifestSource> GetRootPluginManifestAsync(
         string repositoryOwner,
         string repositoryName,

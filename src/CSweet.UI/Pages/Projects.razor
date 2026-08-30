@@ -1,0 +1,203 @@
+@page "/organizations/{OrganizationId:guid}/projects"
+@page "/organizations/{OrganizationId:guid}/projects/{WorkstreamId:guid}"
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.Realtime
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject CSweet.UI.Services.AppRealtimeState Realtime
+@implements IDisposable
+
+<PageTitle>Projects - C-Sweet</PageTitle>
+
+<MudPaper Elevation="0" Class="page-header">
+    <div>
+        <MudText Typo="Typo.h3">Projects</MudText>
+        <MudText Color="Color.Secondary">Inspect delivery status, evidence, decisions, communications, and audit history from one project-scoped view.</MudText>
+    </div>
+    @if (WorkstreamId.HasValue)
+    {
+        <MudButton Href="@PortfolioHref" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ArrowBack">Portfolio</MudButton>
+    }
+</MudPaper>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (!string.IsNullOrWhiteSpace(_error))
+{
+    <MudAlert Severity="Severity.Error">@_error</MudAlert>
+}
+else if (WorkstreamId.HasValue && _project is not null)
+{
+    <MudGrid Class="mt-3">
+        @foreach (var metric in HealthMetrics())
+        {
+            <MudItem xs="6" md="3"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.caption">@metric.Label</MudText><MudText Typo="Typo.h5">@metric.Value</MudText></MudPaper></MudItem>
+        }
+    </MudGrid>
+    <MudTabs @bind-ActivePanelIndex="_tab" Class="mt-4" Rounded="true" ApplyEffectsToContainer="true">
+        <MudTabPanel Text="Overview and health">@ResourcePanel([_project.Project])</MudTabPanel>
+        <MudTabPanel Text="Teams and supervision">@ResourcePanel(_project.Teams)</MudTabPanel>
+        <MudTabPanel Text="Boards, work items, and sprints">@ResourcePanel(_project.Work)</MudTabPanel>
+        <MudTabPanel Text="Documents and reviews">@ResourcePanel(_project.Documents)</MudTabPanel>
+        <MudTabPanel Text="Communications">@ResourcePanel(_project.Communications)</MudTabPanel>
+        <MudTabPanel Text="Decisions, milestones, gates, and authority">@ResourcePanel(_project.Governance)</MudTabPanel>
+        <MudTabPanel Text="Builds, previews, media, evaluations, and release">@ResourcePanel(_project.Evidence)</MudTabPanel>
+        <MudTabPanel Text="Audit timeline">
+            <MudGrid Class="mb-3">
+                <MudItem xs="12" md="3"><MudTextField @bind-Value="_auditActor" Label="Actor" Immediate="true" /></MudItem>
+                <MudItem xs="12" md="3"><MudTextField @bind-Value="_auditResource" Label="Resource or event" Immediate="true" /></MudItem>
+                <MudItem xs="12" md="3"><MudTextField @bind-Value="_auditCorrelation" Label="Correlation or causation" Immediate="true" /></MudItem>
+                <MudItem xs="12" md="3"><MudTextField @bind-Value="_auditOutcome" Label="Outcome" Immediate="true" /></MudItem>
+            </MudGrid>
+            <MudTable Items="@FilteredAudit" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                <HeaderContent><MudTh>When</MudTh><MudTh>Actor</MudTh><MudTh>Event</MudTh><MudTh>Resource</MudTh><MudTh>Outcome</MudTh><MudTh>Correlation</MudTh><MudTh>Hash</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="When">@context.OccurredAt.LocalDateTime</MudTd>
+                    <MudTd DataLabel="Actor">@(context.ActorDisplayName ?? context.ActorAgentId ?? context.ActorKind)</MudTd>
+                    <MudTd DataLabel="Event">@context.EventType</MudTd>
+                    <MudTd DataLabel="Resource">@context.EntityType @context.EntityId</MudTd>
+                    <MudTd DataLabel="Outcome">@context.Outcome</MudTd>
+                    <MudTd DataLabel="Correlation">@context.CorrelationId<br />@context.ParentEventId</MudTd>
+                    <MudTd DataLabel="Hash"><code>@Short(context.RecordHash)</code></MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText Class="pa-4">No audit entries match these filters.</MudText></NoRecordsContent>
+            </MudTable>
+        </MudTabPanel>
+    </MudTabs>
+}
+else if (_portfolio is not null)
+{
+    <MudGrid Class="my-3">
+        <MudItem xs="12" md="3"><MudTextField @bind-Value="_profile" Label="Profile" Immediate="true" /></MudItem>
+        <MudItem xs="12" md="3"><MudTextField @bind-Value="_lifecycle" Label="Lifecycle stage" Immediate="true" /></MudItem>
+        <MudItem xs="12" md="3"><MudTextField @bind-Value="_manager" Label="Manager ID" Immediate="true" /></MudItem>
+        <MudItem xs="12" md="3"><MudSelect T="string" @bind-Value="_health" Label="Health"><MudSelectItem Value="@string.Empty">All</MudSelectItem><MudSelectItem Value="@("blocked")">Blocked</MudSelectItem><MudSelectItem Value="@("decision")">Decision needed</MudSelectItem><MudSelectItem Value="@("build-failed")">Build failed</MudSelectItem><MudSelectItem Value="@("on-track")">On track</MudSelectItem></MudSelect></MudItem>
+        <MudItem xs="12" md="3"><MudSelect T="string" @bind-Value="_team" Label="Team"><MudSelectItem Value="@string.Empty">All</MudSelectItem><MudSelectItem Value="@("assigned")">Assigned</MudSelectItem><MudSelectItem Value="@("missing")">Missing</MudSelectItem></MudSelect></MudItem>
+        <MudItem xs="12" md="3"><MudSelect T="string" @bind-Value="_release" Label="Release readiness"><MudSelectItem Value="@string.Empty">All</MudSelectItem><MudSelectItem Value="@("ready")">Ready</MudSelectItem><MudSelectItem Value="@("not-ready")">Not ready</MudSelectItem></MudSelect></MudItem>
+        <MudItem xs="12" md="3"><MudCheckBox @bind-Value="_onlyBlockers" Label="Only projects with blockers" /></MudItem>
+        <MudItem xs="12" md="3"><MudCheckBox @bind-Value="_targetDue" Label="Target date due or overdue" /></MudItem>
+    </MudGrid>
+    <MudTable Items="@FilteredProjects" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
+        <HeaderContent><MudTh>Project</MudTh><MudTh>Profile / phase</MudTh><MudTh>Health</MudTh><MudTh>Teams</MudTh><MudTh>Target</MudTh><MudTh>Latest build</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Project"><MudLink Href="@ProjectHref(context.Id)">@context.Name</MudLink><br /><MudText Typo="Typo.caption">@context.Outcome</MudText></MudTd>
+            <MudTd DataLabel="Profile / phase">@context.ProfileKey v@context.ProfileVersion<br />@context.LifecycleStage</MudTd>
+            <MudTd DataLabel="Health">@context.Status · @context.OpenItems open · @context.PendingGates gates · @context.OpenDecisions decisions</MudTd>
+            <MudTd DataLabel="Teams">@context.ActiveTeams</MudTd>
+            <MudTd DataLabel="Target">@context.TargetDate?.LocalDateTime.ToShortDateString()</MudTd>
+            <MudTd DataLabel="Latest build">@(context.LatestBuildStatus ?? "No build")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent><MudText Class="pa-4">No authorized projects match these filters.</MudText></NoRecordsContent>
+    </MudTable>
+}
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid? WorkstreamId { get; set; }
+    private ProjectPortfolioResponse? _portfolio;
+    private ProjectInspectionResponse? _project;
+    private bool _loading;
+    private string? _error;
+    private string _profile = "", _lifecycle = "", _manager = "", _health = "", _team = "", _release = "";
+    private string _auditActor = "", _auditResource = "", _auditCorrelation = "", _auditOutcome = "";
+    private bool _onlyBlockers, _targetDue;
+    private int _tab;
+
+    private string PortfolioHref => $"/organizations/{OrganizationId:D}/projects";
+    private string ProjectHref(Guid id) => $"/organizations/{OrganizationId:D}/projects/{id:D}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await RefreshAsync();
+    }
+
+    protected override void OnInitialized() => Realtime.EventReceived += OnRealtimeEvent;
+
+    private async Task RefreshAsync()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            if (WorkstreamId.HasValue)
+                _project = await Http.GetFromJsonAsync<ProjectInspectionResponse>($"api/core/organizations/{OrganizationId:D}/workstreams/{WorkstreamId:D}/inspection");
+            else
+                _portfolio = await Http.GetFromJsonAsync<ProjectPortfolioResponse>($"api/core/organizations/{OrganizationId:D}/workstreams/inspection");
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _loading = false; }
+    }
+
+    private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
+    {
+        if (envelope.OrganizationId != OrganizationId || !IsProjectResourceEvent(envelope.EventType)) return;
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshAsync();
+            StateHasChanged();
+        });
+    }
+
+    internal static bool IsProjectResourceEvent(string eventType) =>
+        eventType == AppRealtimeEvents.WorkBoardChanged ||
+        eventType == AppRealtimeEvents.DocumentChanged ||
+        eventType.StartsWith("com.csweet.workstream.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.work.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.decision.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.artifact.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.build.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.validation.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.evaluation-session.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.media-job.", StringComparison.Ordinal) ||
+        eventType.StartsWith("com.csweet.release-readiness.", StringComparison.Ordinal);
+
+    private IEnumerable<ProjectPortfolioItem> FilteredProjects => (_portfolio?.Projects ?? [])
+        .Where(x => Contains(x.ProfileKey, _profile) && Contains(x.LifecycleStage, _lifecycle))
+        .Where(x => string.IsNullOrWhiteSpace(_manager) || Contains(x.AccountableManagerOrganizationUserId?.ToString(), _manager))
+        .Where(x => _team switch { "assigned" => x.ActiveTeams > 0, "missing" => x.ActiveTeams == 0, _ => true })
+        .Where(x => !_onlyBlockers || x.OpenItems > 0 || x.PendingGates > 0 || x.OpenDecisions > 0 || x.LatestBuildStatus == "Failed")
+        .Where(x => !_targetDue || x.TargetDate <= DateTimeOffset.UtcNow)
+        .Where(x => _health switch { "blocked" => x.OpenItems > 0, "decision" => x.OpenDecisions > 0, "build-failed" => x.LatestBuildStatus == "Failed", "on-track" => x.OpenDecisions == 0 && x.LatestBuildStatus != "Failed", _ => true })
+        .Where(x => _release switch { "ready" => x.Status == "Completed" || x.LifecycleStage is "Launch" or "Post-launch stabilization", "not-ready" => x.Status != "Completed", _ => true });
+
+    private IEnumerable<ProjectAuditEntry> FilteredAudit => (_project?.Audit ?? [])
+        .Where(x => Contains($"{x.ActorDisplayName} {x.ActorAgentId} {x.ActorInstallationId}", _auditActor))
+        .Where(x => Contains($"{x.EventType} {x.EntityType} {x.EntityId}", _auditResource))
+        .Where(x => Contains($"{x.CorrelationId} {x.ParentEventId} {x.TraceId}", _auditCorrelation))
+        .Where(x => Contains(x.Outcome, _auditOutcome));
+
+    private static bool Contains(string? value, string filter) => string.IsNullOrWhiteSpace(filter) ||
+        (value?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false);
+    private static string Short(string? value) => string.IsNullOrEmpty(value) ? "—" : value[..Math.Min(12, value.Length)];
+    private IEnumerable<(string Label, object Value)> HealthMetrics() => _project is null ? [] :
+    [
+        ("Open work", _project.Health.OpenItems), ("Blocked work", _project.Health.BlockedItems),
+        ("Pending gates", _project.Health.PendingGates), ("Open decisions", _project.Health.OpenDecisions),
+        ("Documents in review", _project.Health.DocumentsInReview), ("Failed builds", _project.Health.FailedBuilds),
+        ("Blocking validations", _project.Health.BlockingValidations), ("Release ready", _project.Health.ReleaseReady ? "Yes" : "No")
+    ];
+
+    private RenderFragment ResourcePanel(IEnumerable<ProjectInspectionResource> resources) => builder =>
+    {
+        var sequence = 0;
+        builder.OpenComponent<MudTable<ProjectInspectionResource>>(sequence++);
+        builder.AddAttribute(sequence++, "Items", resources);
+        builder.AddAttribute(sequence++, "Dense", true);
+        builder.AddAttribute(sequence++, "Hover", true);
+        builder.AddAttribute(sequence++, "RowTemplate", (RenderFragment<ProjectInspectionResource>)(item => row =>
+        {
+            var i = 0;
+            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Resource");
+            row.AddContent(i++, (RenderFragment)(link => { link.OpenComponent<MudLink>(0); link.AddAttribute(1, "Href", item.DeepLink); link.AddContent(2, item.Title); link.CloseComponent(); })); row.CloseComponent();
+            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Type"); row.AddContent(i++, $"{item.ResourceType} · {item.TypeKey}"); row.CloseComponent();
+            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Status"); row.AddContent(i++, item.Status); row.CloseComponent();
+            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Revision / hash"); row.AddContent(i++, $"r{item.Revision?.ToString() ?? "—"} · {Short(item.Sha256)}"); row.CloseComponent();
+            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Provider"); row.AddContent(i++, item.ProviderPackageId is null ? "—" : $"{item.ProviderPackageId}@{item.ProviderPackageVersion}"); row.CloseComponent();
+            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Updated"); row.AddContent(i++, item.OccurredAt?.LocalDateTime.ToString() ?? "—"); row.CloseComponent();
+        }));
+        builder.CloseComponent();
+    };
+
+    public void Dispose() => Realtime.EventReceived -= OnRealtimeEvent;
+}

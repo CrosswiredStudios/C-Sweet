@@ -58,6 +58,22 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
                     cancellationToken)).Team
             };
         }
+        if (session.Grant.RequestedCapabilities?.Contains(
+                PlatformCapabilities.PortfolioRead,
+                StringComparer.Ordinal) == true)
+        {
+            identity = identity with
+            {
+                ManagedWorkstreams = await db.WorkstreamSupervisionAssignments.AsNoTracking()
+                    .Where(x => x.OrganizationId == organizationId &&
+                                x.SupervisorOrganizationUserId == employee.Id && x.EndsAt == null)
+                    .OrderBy(x => x.StartsAt)
+                    .Select(x => new CSweet.WorkManagement.Contracts.PortfolioSupervisionAssignment(
+                        x.Id, x.WorkstreamId, x.SupervisorOrganizationUserId, x.RoleKey,
+                        x.StartsAt, x.EndsAt, x.Revision))
+                    .ToListAsync(cancellationToken)
+            };
+        }
         return identity;
     }
 
@@ -249,7 +265,8 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
                 employeeId = identity.ManagerEmployeeId,
                 displayName = EmptyToNull(identity.ManagerDisplayName)
             },
-            team = identity.TeamContext
+            team = identity.TeamContext,
+            managedWorkstreams = identity.ManagedWorkstreams
         }, JsonOptions);
 
         var authoritative = $$"""

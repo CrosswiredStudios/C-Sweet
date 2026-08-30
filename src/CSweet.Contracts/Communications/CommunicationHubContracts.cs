@@ -23,7 +23,11 @@ public sealed record CommunicationChatResponse(
     IReadOnlyList<CommunicationParticipantResponse> Participants,
     string? LastMessage,
     DateTimeOffset? LastMessageAt,
-    int UnreadCount);
+    int UnreadCount)
+{
+    public Guid? WorkstreamId { get; init; }
+    public Guid? TeamId { get; init; }
+}
 
 public sealed record CommunicationParticipantResponse(
     Guid OrganizationUserId,
@@ -246,7 +250,11 @@ public sealed record CreateCommunicationChatRequest(
     bool IsPrivate,
     IReadOnlyList<Guid> ParticipantOrganizationUserIds,
     IReadOnlyList<Guid>? AudienceRoleIds = null,
-    IReadOnlyList<Guid>? AudienceWorkstreamIds = null);
+    IReadOnlyList<Guid>? AudienceWorkstreamIds = null)
+{
+    public Guid? WorkstreamId { get; init; }
+    public Guid? TeamId { get; init; }
+}
 
 public sealed record UpdateCommunicationChatRequest(
     [property: Required, MaxLength(256)] string Title,

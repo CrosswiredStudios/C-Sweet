@@ -129,7 +129,8 @@ public sealed class WorkManagementCapabilityHandler(
                         Read<Wire.CreateWorkItemRequest>(request), cancellationToken)),
                 WorkItemActions.ReadTypes => Success(
                     request.RequestId,
-                    PlatformWorkTypeCatalog.Read(Read<Wire.ReadWorkItemTypesRequest>(request).BoardProfileKey)),
+                    await ReadWorkItemTypesAsync(organizationId, installation.Id,
+                        Read<Wire.ReadWorkItemTypesRequest>(request), cancellationToken)),
                 WorkItemActions.RevisePlanning => Success(
                     request.RequestId,
                     await ReviseItemPlanningAsync(
@@ -538,6 +539,7 @@ public sealed class WorkManagementCapabilityHandler(
                 board.ArchivedAt.HasValue, board.Revision, allowed)
             {
                 TeamId = board.TeamId,
+                WorkstreamId = board.WorkstreamId,
                 ManagerOrganizationUserId = board.ManagerOrganizationUserId,
                 Key = board.Key,
                 ProfileKey = board.ProfileKey
@@ -608,7 +610,8 @@ public sealed class WorkManagementCapabilityHandler(
                 board.ArchivedAt.HasValue, board.Revision,
                 [WorkBoardActions.Read, WorkItemActions.Read])
             {
-                TeamId = board.TeamId
+                TeamId = board.TeamId,
+                WorkstreamId = board.WorkstreamId
             },
             board.Columns.Select(x => new Wire.WorkBoardColumn(
                 x.Id, x.Name, x.Category.ToString(), x.Position,
@@ -1142,7 +1145,7 @@ public sealed class WorkManagementCapabilityHandler(
         CancellationToken cancellationToken)
     {
         var grant = await RequireCreateBoardAsync(
-            organizationId, installation.Id, input.TeamId, cancellationToken);
+            organizationId, installation.Id, input.WorkstreamId, input.TeamId, cancellationToken);
         ValidateIdempotencyKey(input.IdempotencyKey);
         if (string.IsNullOrWhiteSpace(input.Name))
             throw new ArgumentException("Board name is required.");
@@ -1154,17 +1157,33 @@ public sealed class WorkManagementCapabilityHandler(
             x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive,
             cancellationToken) ?? throw new InvalidOperationException(
             "The agent installation must have an active organization-user identity before it can manage a board.");
+        if (input.WorkstreamId.HasValue)
+        {
+            var workstream = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == input.WorkstreamId && x.OrganizationId == organizationId, cancellationToken)
+                ?? throw new ArgumentException("The selected Workstream does not exist in this organization.");
+            var supervisor = await db.WorkstreamSupervisionAssignments.AsNoTracking().AnyAsync(x =>
+                x.WorkstreamId == workstream.Id && x.SupervisorOrganizationUserId == manager.Id && x.EndsAt == null,
+                cancellationToken);
+            var teamAssignment = input.TeamId.HasValue && await db.WorkstreamTeamAssignments.AsNoTracking().AnyAsync(x =>
+                x.WorkstreamId == workstream.Id && x.TeamId == input.TeamId && x.EndsAt == null, cancellationToken);
+            if (workstream.AccountableManagerOrganizationUserId != manager.Id && !supervisor && !teamAssignment)
+                throw new UnauthorizedAccessException("The caller does not manage, supervise, or belong to the assigned team for this Workstream.");
+        }
         var replay = await ReplayAsync<Wire.WorkBoardSummary>(
             installation.Id, WorkBoardActions.Create, input.IdempotencyKey, cancellationToken);
         if (replay is not null) return replay;
 
         var now = DateTimeOffset.UtcNow;
+        var profileKey = await RequireBoardProfileAsync(
+            organizationId, input.WorkstreamId, input.ProfileKey, cancellationToken);
         var board = new WorkBoard
         {
             Id = Guid.NewGuid(),
             OrganizationId = organizationId,
             TeamId = input.TeamId,
-            ProfileKey = PlatformWorkTypeCatalog.RequireProfile(input.ProfileKey).Key,
+            WorkstreamId = input.WorkstreamId,
+            ProfileKey = profileKey,
             ManagerOrganizationUserId = manager.Id,
             Key = await ResolveBoardKeyAsync(organizationId, input.Key, input.Name, cancellationToken),
             Name = input.Name.Trim(),
@@ -1182,6 +1201,7 @@ public sealed class WorkManagementCapabilityHandler(
             [WorkBoardActions.Create])
         {
             TeamId = board.TeamId,
+            WorkstreamId = board.WorkstreamId,
             ManagerOrganizationUserId = board.ManagerOrganizationUserId,
             Key = board.Key,
             ProfileKey = board.ProfileKey
@@ -1197,9 +1217,52 @@ public sealed class WorkManagementCapabilityHandler(
         return result;
     }
 
+    private async Task<string> RequireBoardProfileAsync(
+        Guid organizationId, Guid? workstreamId, string profileKey, CancellationToken cancellationToken)
+    {
+        if (!workstreamId.HasValue) return PlatformWorkTypeCatalog.RequireProfile(profileKey).Key;
+        var expected = await (from workstream in db.Workstreams.AsNoTracking()
+                join profile in db.WorkstreamProfileDefinitions.AsNoTracking()
+                    on new { Key = workstream.ProfileKey!, Version = workstream.ProfileVersion!.Value, Digest = workstream.ProfileDefinitionDigest! }
+                    equals new { profile.Key, profile.Version, Digest = profile.DefinitionDigest }
+                where workstream.OrganizationId == organizationId && workstream.Id == workstreamId.Value
+                select profile.DefaultBoardProfileKey).SingleOrDefaultAsync(cancellationToken);
+        if (expected is null || !string.Equals(expected, profileKey, StringComparison.Ordinal))
+            throw new ArgumentException("The board profile must match the Workstream profile's declared default board profile.");
+        return expected;
+    }
+
+    private async Task<Wire.WorkItemTypeCatalog> ReadWorkItemTypesAsync(
+        Guid organizationId, Guid installationId, Wire.ReadWorkItemTypesRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!request.BoardId.HasValue) return PlatformWorkTypeCatalog.Read(request.BoardProfileKey);
+        var board = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.Id == request.BoardId.Value, cancellationToken)
+            ?? throw new KeyNotFoundException("The work board was not found.");
+        var access = await authorization.AuthorizeAsync(organizationId, GrantSubjectKind.AgentInstallation,
+            installationId, WorkItemActions.ReadTypes, GrantScopeKind.Board, board.Id, cancellationToken);
+        if (!access.Allowed)
+            throw new UnauthorizedAccessException("The installation does not have work-item type access for this board.");
+        if (!board.WorkstreamId.HasValue) return PlatformWorkTypeCatalog.Read(board.ProfileKey);
+        var profile = await (from workstream in db.Workstreams.AsNoTracking()
+                join definition in db.WorkstreamProfileDefinitions.AsNoTracking()
+                    on new { Key = workstream.ProfileKey!, Version = workstream.ProfileVersion!.Value, Digest = workstream.ProfileDefinitionDigest! }
+                    equals new { definition.Key, definition.Version, Digest = definition.DefinitionDigest }
+                where workstream.Id == board.WorkstreamId && definition.DefaultBoardProfileKey == board.ProfileKey
+                select new { definition.DisplayName, definition.LifecyclePolicyKey, definition.DefinitionJson })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (profile is null) return PlatformWorkTypeCatalog.Read(board.ProfileKey);
+        var types = WorkstreamProfileWorkTypeCatalog.Read(profile.DefinitionJson, board.ProfileKey);
+        return new Wire.WorkItemTypeCatalog(1,
+            [new Wire.WorkBoardProfileDefinition(board.ProfileKey, profile.DisplayName,
+                types.Select(x => x.Key).ToList(), profile.LifecyclePolicyKey)], types, []);
+    }
+
     private async Task<ScopedAuthorizationDecision> RequireCreateBoardAsync(
         Guid organizationId,
         Guid installationId,
+        Guid? workstreamId,
         Guid? teamId,
         CancellationToken cancellationToken)
     {
@@ -1208,21 +1271,23 @@ public sealed class WorkManagementCapabilityHandler(
             GrantSubjectKind.AgentInstallation,
             installationId,
             WorkBoardActions.Create,
-            teamId.HasValue ? GrantScopeKind.Team : GrantScopeKind.Organization,
-            teamId,
+            workstreamId.HasValue ? GrantScopeKind.Workstream : teamId.HasValue ? GrantScopeKind.Team : GrantScopeKind.Organization,
+            workstreamId ?? teamId,
             cancellationToken);
         if (decision.Allowed) return decision;
         await WriteAuditAsync(
             organizationId,
             installationId,
-            teamId,
+            workstreamId ?? teamId,
             WorkBoardActions.Create,
             null,
-            new { action = WorkBoardActions.Create, teamId },
+            new { action = WorkBoardActions.Create, workstreamId, teamId },
             cancellationToken,
             outcome: "Denied");
         throw new UnauthorizedAccessException(
-            teamId.HasValue
+            workstreamId.HasValue
+                ? "The installation does not have board-create access for the selected Workstream."
+                : teamId.HasValue
                 ? "The installation does not have board-create access for the selected team."
                 : "The installation does not have organization board-create access.");
     }
@@ -1284,6 +1349,7 @@ public sealed class WorkManagementCapabilityHandler(
             [WorkBoardActions.Read, WorkBoardActions.Configure])
         {
             TeamId = board.TeamId,
+            WorkstreamId = board.WorkstreamId,
             ManagerOrganizationUserId = board.ManagerOrganizationUserId,
             Key = board.Key,
             ProfileKey = board.ProfileKey
@@ -1403,6 +1469,7 @@ public sealed class WorkManagementCapabilityHandler(
                 [WorkBoardActions.Read, WorkBoardActions.ConfigureColumns, WorkItemActions.Read])
             {
                 TeamId = board.TeamId,
+                WorkstreamId = board.WorkstreamId,
                 ManagerOrganizationUserId = board.ManagerOrganizationUserId,
                 Key = board.Key,
                 ProfileKey = board.ProfileKey
@@ -1454,8 +1521,7 @@ public sealed class WorkManagementCapabilityHandler(
                     x.OrganizationId == organizationId && x.BoardId == board.Id)
                 .Select(x => x.TypeKey).SingleOrDefaultAsync(cancellationToken)
             : null;
-        var type = PlatformWorkTypeCatalog.RequireType(
-            board.ProfileKey, input.TypeKey, parentTypeKey);
+        var type = await RequireWorkItemTypeAsync(board, input.TypeKey, parentTypeKey, cancellationToken);
         if (!Enum.TryParse<WorkItemKind>(type.Kind, true, out var kind) || !Enum.IsDefined(kind))
             throw new ArgumentException("The work type has an invalid base kind.");
         if (!string.IsNullOrWhiteSpace(input.Kind) &&
@@ -1769,7 +1835,7 @@ public sealed class WorkManagementCapabilityHandler(
             ? await db.CoreWorkTasks.Where(x => x.Id == input.ParentItemId && x.BoardId == board.Id)
                 .Select(x => x.TypeKey).SingleOrDefaultAsync(cancellationToken)
             : null;
-        PlatformWorkTypeCatalog.RequireType(board.ProfileKey, item.TypeKey, parentTypeKey);
+        _ = await RequireWorkItemTypeAsync(board, item.TypeKey, parentTypeKey, cancellationToken);
         var dependencyIds = input.Planning.DependencyItemIds.Distinct().ToList();
         if (dependencyIds.Contains(item.Id))
             throw new ArgumentException("A work item cannot depend on itself.");
@@ -3208,6 +3274,31 @@ public sealed class WorkManagementCapabilityHandler(
                 report.ActiveForecast.AverageVelocity,
                 report.ActiveForecast.ProjectedSprintsRequired,
                 report.ActiveForecast.IsOverCapacity));
+
+    private async Task<Wire.WorkItemTypeDefinition> RequireWorkItemTypeAsync(
+        WorkBoard board,
+        string typeKey,
+        string? parentTypeKey,
+        CancellationToken cancellationToken)
+    {
+        if (board.WorkstreamId.HasValue)
+        {
+            var definitionJson = await (from workstream in db.Workstreams.AsNoTracking()
+                    join profile in db.WorkstreamProfileDefinitions.AsNoTracking()
+                        on new { Key = workstream.ProfileKey!, Version = workstream.ProfileVersion!.Value, Digest = workstream.ProfileDefinitionDigest! }
+                        equals new { profile.Key, profile.Version, Digest = profile.DefinitionDigest }
+                    where workstream.Id == board.WorkstreamId.Value && profile.DefaultBoardProfileKey == board.ProfileKey
+                    select profile.DefinitionJson).SingleOrDefaultAsync(cancellationToken);
+            if (definitionJson is not null)
+            {
+                var declared = WorkstreamProfileWorkTypeCatalog.Read(definitionJson, board.ProfileKey);
+                if (declared.Count > 0)
+                    return WorkstreamProfileWorkTypeCatalog.RequireType(
+                        definitionJson, board.ProfileKey, typeKey, parentTypeKey);
+            }
+        }
+        return PlatformWorkTypeCatalog.RequireType(board.ProfileKey, typeKey, parentTypeKey);
+    }
 
     private static Guid? ParseGuid(string? value) =>
         Guid.TryParse(value, out var parsed) ? parsed : null;

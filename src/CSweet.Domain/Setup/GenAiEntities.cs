@@ -44,6 +44,7 @@ public sealed class GenAiOperationConfiguration
     public Guid Id { get; set; }
     public Guid ProviderProfileId { get; set; }
     public GenAiOperationType OperationType { get; set; }
+    public string OperationTypeKey { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? ModelId { get; set; }
     public string? TemplateJson { get; set; }
@@ -70,6 +71,10 @@ public sealed class GenAiJob
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid AgentInstallationId { get; set; }
+    public Guid? WorkstreamId { get; set; }
+    public Guid? WorkItemId { get; set; }
+    public Guid ProviderProfileId { get; set; }
+    public string OperationTypeKey { get; set; } = string.Empty;
     public Guid OperationConfigurationId { get; set; }
     public GenAiOperationType OperationType { get; set; }
     public GenAiJobStatus Status { get; set; }
@@ -86,6 +91,7 @@ public sealed class GenAiJob
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
+    public long Revision { get; set; } = 1;
     public GenAiOperationConfiguration? OperationConfiguration { get; set; }
 }
 
@@ -95,6 +101,12 @@ public sealed class MediaAsset
     public Guid OrganizationId { get; set; }
     public Guid? CreatingAgentInstallationId { get; set; }
     public Guid? GenAiJobId { get; set; }
+    public Guid? WorkstreamId { get; set; }
+    public Guid? TeamId { get; set; }
+    public Guid? ArtifactId { get; set; }
+    public Guid? WorkItemId { get; set; }
+    public Guid? BuildId { get; set; }
+    public string ProvenanceJson { get; set; } = "{}";
     public string FileName { get; set; } = string.Empty;
     public string ContentType { get; set; } = string.Empty;
     public long SizeBytes { get; set; }

@@ -6,7 +6,9 @@ using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
 using CSweet.AI.Providers;
 using CSweet.Application.Communications;
+using CSweet.Application.GenAi;
 using CSweet.Contracts.Communications;
+using CSweet.Contracts.GenAi;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -66,6 +68,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
         var handler = new PlatformLlmCapabilityHandler(
             db, new StreamingProviderFactory(), new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()), [resolver],
+            new TestMediaAssetService(),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
         var session = new AgentSession(
             Guid.NewGuid().ToString("N"), "creative-director", installationId.ToString("D"),
@@ -149,6 +152,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             [],
+            new TestMediaAssetService(),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
         var request = new RequestCapability
         {
@@ -266,6 +270,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             [],
+            new TestMediaAssetService(),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
 
         var results = await ReadAsync(handler, providerId);
@@ -298,6 +303,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             [],
+            new TestMediaAssetService(),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
 
         var results = await ReadAsync(handler, providerId);
@@ -488,5 +494,21 @@ public sealed class PlatformLlmCapabilityHandlerTests
 
             return base.SavingChangesAsync(eventData, result, cancellationToken);
         }
+    }
+
+    private sealed class TestMediaAssetService : IMediaAssetService
+    {
+        public Task<MediaAssetResponse> SaveUploadAsync(Guid organizationId, string fileName, string contentType,
+            Stream content, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<MediaAssetResponse?> GetAsync(Guid id, Guid organizationId,
+            CancellationToken cancellationToken = default) => Task.FromResult<MediaAssetResponse?>(null);
+
+        public Task<(MediaAssetResponse Asset, Stream Content)?> OpenReadAsync(Guid id, Guid organizationId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<(MediaAssetResponse Asset, Stream Content)?>(null);
+
+        public Task DeleteAsync(Guid id, Guid organizationId, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 }

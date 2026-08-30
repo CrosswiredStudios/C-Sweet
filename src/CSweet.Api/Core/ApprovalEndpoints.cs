@@ -40,7 +40,8 @@ public static class ApprovalEndpoints
         endpoints.MapPost(
             "/api/core/organizations/{organizationId:guid}/approvals/agent-actions/{proposalId:guid}/decide",
             async (Guid organizationId, Guid proposalId, DecideManagedAgentActionRequest request,
-                HttpContext http, CSweetDbContext db, IAuditEventWriter audit, CancellationToken cancellationToken) =>
+                HttpContext http, CSweetDbContext db, IAuditEventWriter audit,
+                IEnumerable<IManagedActionExecutor> executors, CancellationToken cancellationToken) =>
             {
                 var applicationUserId = http.User.GetApplicationUserId();
                 if (!applicationUserId.HasValue || request.ProposalId != proposalId) return Results.Forbid();
@@ -81,19 +82,47 @@ public static class ApprovalEndpoints
                     !string.Equals(resourceId, request.ResourceId, StringComparison.Ordinal) ||
                     revision != request.ExpectedRevision)
                     return Results.Conflict(new { error = "approval_binding_mismatch", message = "The action changed after review." });
-                proposal.Status = request.Decision switch
+                ManagedActionExecutionResult? execution = null;
+                if (request.Decision == ResourceChangeDecisionKinds.Approve)
                 {
-                    ResourceChangeDecisionKinds.Approve => ProposalStatus.Approved,
-                    ResourceChangeDecisionKinds.Reject => ProposalStatus.Rejected,
-                    _ => ProposalStatus.Cancelled
-                };
+                    var matching = executors.Where(x => x.CanExecute(proposal.ActionType)).ToList();
+                    if (matching.Count != 1)
+                        return Results.Conflict(new
+                        {
+                            error = "managed_action_executor_unavailable",
+                            message = matching.Count == 0
+                                ? $"No executor is registered for '{proposal.ActionType}'. Approval cannot be recorded without executing the bound command."
+                                : $"Multiple executors are registered for '{proposal.ActionType}'."
+                        });
+                    try
+                    {
+                        execution = await matching[0].ExecuteAsync(proposal, actor, cancellationToken);
+                    }
+                    catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or
+                                                       UnauthorizedAccessException or DbUpdateConcurrencyException)
+                    {
+                        return Results.Conflict(new { error = "managed_action_execution_failed", message = exception.Message });
+                    }
+                    proposal.Status = ProposalStatus.Approved;
+                }
+                else
+                {
+                    proposal.Status = request.Decision == ResourceChangeDecisionKinds.Reject
+                        ? ProposalStatus.Rejected
+                        : ProposalStatus.Cancelled;
+                }
                 proposal.DecidedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
+                if (execution is not null)
+                    await audit.WriteAsync($"{proposal.ActionType}.executed", nameof(Workstream), execution.ResourceId,
+                        execution.Summary,
+                        JsonSerializer.Serialize(new { organizationId, proposalId = proposal.Id, execution.Revision,
+                            approver = actor.Id, request.DecisionIdempotencyKey }), cancellationToken);
                 await audit.WriteAsync("managed-action.decided", nameof(CSweet.Domain.Core.ActionProposal), proposal.Id,
                     $"{request.Decision} decision recorded for {proposal.ActionType}.",
                     JsonSerializer.Serialize(new { organizationId, proposal.AgentInstallationId, payloadHash,
                         revision, actionKey, request.DecisionIdempotencyKey, actor = actor.Id }), cancellationToken);
-                return Results.Ok(new { proposal.Id, status = proposal.Status.ToString(), proposal.DecidedAt });
+                return Results.Ok(new { proposal.Id, status = proposal.Status.ToString(), proposal.DecidedAt, execution });
             });
         return endpoints;
     }

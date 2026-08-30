@@ -516,7 +516,6 @@ public sealed class ArtifactDocumentService(
             .SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey, cancellationToken);
         if (replay is not null) return Package(replay);
         if (request.Members.Count == 0) throw new ArgumentException("A package requires at least one document.");
-        ValidateGamePackage(request.PackageType, request.Members);
         var ids = request.Members.Select(x => x.ArtifactId).Distinct().ToList();
         var artifacts = await db.CoreArtifacts.Where(x => x.OrganizationId == organizationId && ids.Contains(x.Id)).ToListAsync(cancellationToken);
         if (ids.Count != request.Members.Count || artifacts.Count != ids.Count)
@@ -582,8 +581,6 @@ public sealed class ArtifactDocumentService(
         if (package.ArchivedAt.HasValue) throw new InvalidOperationException("Archived packages cannot be submitted.");
         foreach (var entry in package.Members)
             await RequireActionAsync(organizationId, member, entry.ArtifactId, ArtifactActions.Submit, cancellationToken);
-        ValidateGamePackage(package.PackageType, package.Members.Select(x =>
-            new ArtifactPackageMemberInput(x.ArtifactId, x.Position, x.RequiredDocumentType)).ToList());
         package.Status = ArtifactDocumentStatus.InReview;
         package.LastSubmissionIdempotencyKey = request.IdempotencyKey;
         package.UpdatedAt = clock.GetUtcNow();
@@ -606,8 +603,6 @@ public sealed class ArtifactDocumentService(
         if (!accept && !request.Decision.Equals("reject", StringComparison.OrdinalIgnoreCase) &&
             !request.Decision.Equals("request-revision", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Decision must be accept, reject, or request-revision.");
-        ValidateGamePackage(package.PackageType, package.Members.Select(x =>
-            new ArtifactPackageMemberInput(x.ArtifactId, x.Position, x.RequiredDocumentType)).ToList());
         if (accept && package.Members.Any(x => x.Artifact?.AcceptedRevisionId is null))
             throw new InvalidOperationException("Every package document must have an accepted revision.");
         var now = clock.GetUtcNow();
@@ -752,7 +747,11 @@ public sealed class ArtifactDocumentService(
         artifact.FolderId, artifact.PackageId, artifact.LatestRevisionId, artifact.SubmittedRevisionId,
         artifact.AcceptedRevisionId, artifact.Revisions.Count == 0 ? artifact.Version : artifact.Revisions.Max(x => x.Number),
         artifact.CreatorDisplayName, artifact.CreatedByOrganizationUserId.HasValue && !activeCreators.Contains(artifact.CreatedByOrganizationUserId.Value),
-        artifact.StewardOrganizationUserId, artifact.CreatedAt, artifact.UpdatedAt, artifact.ArchivedAt);
+        artifact.StewardOrganizationUserId, artifact.CreatedAt, artifact.UpdatedAt, artifact.ArchivedAt)
+    {
+        WorkstreamId = artifact.WorkstreamId,
+        TeamId = artifact.TeamId
+    };
 
     private static ArtifactFolderResponse Folder(ArtifactFolder x) => new(x.Id, x.OrganizationId,
         x.ParentFolderId, x.Name, x.CreatedAt, x.UpdatedAt, x.ArchivedAt);
@@ -808,14 +807,6 @@ public sealed class ArtifactDocumentService(
     }
 
     private static IReadOnlyList<string> DeserializeActions(string json) => JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? [];
-    private static void ValidateGamePackage(string packageType, IReadOnlyList<ArtifactPackageMemberInput> members)
-    {
-        if (!string.Equals(packageType, GameDesignDocumentTypes.DetailedPackage, StringComparison.Ordinal)) return;
-        if (members.Count != GameDesignDocumentTypes.RequiredDetailedPackage.Count ||
-            GameDesignDocumentTypes.RequiredDetailedPackage.Any(type =>
-                members.Count(x => x.RequiredDocumentType == type) != 1))
-            throw new ArgumentException("A detailed game-design package must contain exactly the five required document types.");
-    }
     private static string Sha256(string content) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
     private static KeyNotFoundException NotFound() => new("Document was not found.");
 

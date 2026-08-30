@@ -8,7 +8,7 @@ public sealed class Conversation
     public Guid InitiatedByOrganizationUserId { get; set; }
     public ConversationKind Kind { get; set; } = ConversationKind.DirectHumanAgent;
     public Guid? TeamId { get; set; }
-    public Guid? ProjectId { get; set; }
+    public Guid? WorkstreamId { get; set; }
     public string? Title { get; set; }
     public string? Description { get; set; }
     public bool IsPrivate { get; set; }

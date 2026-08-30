@@ -5,9 +5,11 @@ using CSweet.Contracts.Communications;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Notifications;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Notifications;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
 
@@ -153,6 +155,95 @@ public sealed class ApplicationRealtimeEventTests
         Assert.Equal("Activated", activated.Envelope.Data.Deserialize<EmployeeDirectoryChangedEvent>(JsonOptions)!.ChangeKind);
         Assert.Contains(hire.Id, activated.RecipientOrganizationUserIds);
     }
+
+    [Fact]
+    public async Task GenericProjectEvents_AreLiveRefreshedOnlyToAuthorizedInspectors()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var workstreamId = Guid.NewGuid();
+        var teamId = Guid.NewGuid();
+        var manager = User(organizationId, "Manager", OrganizationPermissionLevel.Manager);
+        var supervisor = User(organizationId, "Supervisor");
+        var teamMember = User(organizationId, "Team member");
+        var outsider = User(organizationId, "Outsider");
+        db.AddRange(manager, supervisor, teamMember, outsider,
+            new Workstream
+            {
+                Id = workstreamId, OrganizationId = organizationId,
+                AccountableManagerOrganizationUserId = manager.Id,
+                Name = "Auditable game", Outcome = "Ship it", CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            },
+            new WorkstreamSupervisionAssignment
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, WorkstreamId = workstreamId,
+                SupervisorOrganizationUserId = supervisor.Id, RoleKey = "creative-director",
+                StartsAt = DateTimeOffset.UtcNow
+            },
+            new WorkstreamTeamAssignmentRecord
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, WorkstreamId = workstreamId,
+                TeamId = teamId, StartsAt = DateTimeOffset.UtcNow
+            },
+            new TeamMembership
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId, TeamId = teamId,
+                OrganizationUserId = teamMember.Id, SourceType = "Workstream",
+                JoinedAt = DateTimeOffset.UtcNow
+            });
+        await db.SaveChangesAsync();
+        db.ApplicationRealtimeOutbox.RemoveRange(db.ApplicationRealtimeOutbox);
+        await db.SaveChangesAsync();
+
+        var context = new W.AgentWorkContext(organizationId, workstreamId, teamId, null, null,
+            null, null, Guid.NewGuid(), null, "video-game-production.v2");
+        var resourceEvent = new W.GenericResourceEvent(Guid.NewGuid(), DateTimeOffset.UtcNow, context,
+            "Build", Guid.NewGuid(), 1, "phaser.web-2d.v1", "Published",
+            JsonSerializer.SerializeToElement(new { status = "Published" }));
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            EventType = W.WorkstreamEventNames.BuildPublishedV1,
+            DataJson = JsonSerializer.Serialize(resourceEvent, JsonOptions),
+            IdempotencyKey = Guid.NewGuid().ToString("N"), Status = AgentPlatformEventOutboxStatus.Pending,
+            NextAttemptAt = DateTimeOffset.UtcNow, OccurredAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var realtime = Assert.Single(db.ApplicationRealtimeOutbox);
+        Assert.Equal(W.WorkstreamEventNames.BuildPublishedV1, realtime.EventType);
+        var recipients = JsonSerializer.Deserialize<List<Guid>>(realtime.RecipientOrganizationUserIdsJson)!;
+        Assert.Contains(manager.Id, recipients);
+        Assert.Contains(supervisor.Id, recipients);
+        Assert.Contains(teamMember.Id, recipients);
+        Assert.DoesNotContain(outsider.Id, recipients);
+    }
+
+    [Fact]
+    public async Task NonProjectAgentEvents_AreNotMirroredToProjectRealtime()
+    {
+        await using var db = CreateDb();
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = Guid.NewGuid(), EventType = "com.example.unrelated.v1",
+            DataJson = "{}", IdempotencyKey = Guid.NewGuid().ToString("N"),
+            Status = AgentPlatformEventOutboxStatus.Pending,
+            NextAttemptAt = DateTimeOffset.UtcNow, OccurredAt = DateTimeOffset.UtcNow
+        });
+
+        await db.SaveChangesAsync();
+
+        Assert.Empty(db.ApplicationRealtimeOutbox);
+    }
+
+    private static OrganizationUser User(Guid organizationId, string name,
+        OrganizationPermissionLevel permission = OrganizationPermissionLevel.Contributor) => new()
+    {
+        Id = Guid.NewGuid(), OrganizationId = organizationId, ApplicationUserId = Guid.NewGuid(),
+        DisplayName = name, EmployeeType = EmployeeType.Human, PermissionLevel = permission,
+        IsActive = true, CreatedAt = DateTimeOffset.UtcNow
+    };
 
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);

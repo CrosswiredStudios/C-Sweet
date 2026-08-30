@@ -73,7 +73,7 @@ public sealed class ManagedExternalResource
     public Guid OrganizationId { get; set; }
     public Guid? OrganizationUserId { get; set; }
     public Guid? TeamId { get; set; }
-    public Guid? ProjectId { get; set; }
+    public Guid? WorkstreamId { get; set; }
     public ManagedResourceKind Kind { get; set; }
     public string Purpose { get; set; } = string.Empty;
     public string ExternalId { get; set; } = string.Empty;

@@ -200,6 +200,7 @@ public sealed class GenAiProviderProfileService(
         var now = DateTimeOffset.UtcNow;
         operation ??= new GenAiOperationConfiguration { Id = Guid.NewGuid(), ProviderProfileId = providerId, CreatedAt = now };
         operation.OperationType = request.OperationType;
+        operation.OperationTypeKey = GenAiOperationTypeKeyMapper.Map(request.OperationType);
         operation.Name = request.Name.Trim();
         operation.ModelId = Normalize(request.ModelId);
         operation.TemplateJson = Normalize(request.TemplateJson);
@@ -506,6 +507,7 @@ public sealed class GenAiJobService(
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, AgentInstallationId = installationId,
             OperationConfigurationId = operation.Id, OperationType = operationType, Status = GenAiJobStatus.Queued,
+            ProviderProfileId = operation.ProviderProfileId, OperationTypeKey = operation.OperationTypeKey,
             PromptHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Prompt))).ToLowerInvariant(),
             RequestJson = JsonSerializer.Serialize(request, JsonOptions), IdempotencyKey = string.IsNullOrWhiteSpace(request.IdempotencyKey) ? null : request.IdempotencyKey.Trim(),
             CreatedAt = now, UpdatedAt = now
@@ -570,4 +572,5 @@ public sealed class GenAiJobService(
             Id = Guid.NewGuid(), OrganizationId = job.OrganizationId, EventType = eventType,
             EntityType = nameof(GenAiJob), EntityId = job.Id, Summary = summary, CreatedAt = DateTimeOffset.UtcNow
         });
+
 }

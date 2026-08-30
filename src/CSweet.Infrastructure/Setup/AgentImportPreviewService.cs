@@ -90,6 +90,10 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         }
 
         ValidateManifest(manifest);
+        var profileDefinitions = await LoadWorkstreamProfileDefinitionsAsync(
+            manifest, repository.Owner, repository.Name, commitSha, cancellationToken);
+        var toolchainDefinitions = await LoadToolchainAdapterDefinitionsAsync(
+            manifest, repository.Owner, repository.Name, commitSha, cancellationToken);
         var warnings = CreateWarnings(manifest);
         var digest = Convert.ToHexString(SHA256.HashData(manifestBytes)).ToLowerInvariant();
         var now = DateTimeOffset.UtcNow;
@@ -151,6 +155,9 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             };
             _dbContext.AgentPackageVersions.Add(version);
         }
+
+        await PersistWorkstreamProfileDefinitionsAsync(manifest, profileDefinitions, now, cancellationToken);
+        await PersistToolchainAdapterDefinitionsAsync(manifest, toolchainDefinitions, now, cancellationToken);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -269,6 +276,8 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         foreach (var typeKey in manifest.WorkItemTypes.Requires)
             if (!availableWorkTypes.Contains(typeKey))
                 errors.Add($"Required work item type '{typeKey}' has no available provider.");
+        ValidateWorkstreamProfileManifest(manifest.WorkstreamProfiles, errors);
+        ValidateToolchainAdapterManifest(manifest.ToolchainAdapters, errors);
         if (manifest.Protocol is null ||
             string.IsNullOrWhiteSpace(manifest.Protocol.MinimumVersion) ||
             string.IsNullOrWhiteSpace(manifest.Protocol.MaximumVersion))
@@ -420,6 +429,145 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                 .Select(DescriptorHash));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
             .ToLowerInvariant();
+    }
+
+    private static void ValidateWorkstreamProfileManifest(
+        PluginWorkstreamProfiles declaration,
+        ICollection<string> errors)
+    {
+        if (declaration.Provides.Count > 16 || declaration.Requires.Count > 32 ||
+            declaration.Provides.Select(x => $"{x.Key}@{x.Version}").Distinct(StringComparer.Ordinal).Count() != declaration.Provides.Count ||
+            declaration.Requires.Distinct(StringComparer.Ordinal).Count() != declaration.Requires.Count)
+        {
+            errors.Add("workstreamProfiles must contain up to 16 unique providers and 32 unique requirements.");
+            return;
+        }
+        foreach (var contribution in declaration.Provides)
+        {
+            var path = contribution.DefinitionResource ?? string.Empty;
+            var segments = path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+            if (string.IsNullOrWhiteSpace(contribution.Key) || contribution.Key.Length > 200 ||
+                contribution.Version < 1 || string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path) ||
+                path.StartsWith('/') || path.StartsWith('\\') || segments.Contains("..", StringComparer.Ordinal) ||
+                !path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                errors.Add("workstreamProfiles.provides entries require a stable key, positive version, and relative JSON definitionResource.");
+        }
+    }
+
+    private static void ValidateToolchainAdapterManifest(PluginToolchainAdapters declaration, ICollection<string> errors)
+    {
+        if (declaration.Provides.Count > 16 || declaration.Requires.Count > 32 ||
+            declaration.Provides.Select(x => $"{x.Key}@{x.Version}").Distinct(StringComparer.Ordinal).Count() != declaration.Provides.Count ||
+            declaration.Requires.Distinct(StringComparer.Ordinal).Count() != declaration.Requires.Count)
+        {
+            errors.Add("toolchainAdapters must contain up to 16 unique providers and 32 unique requirements.");
+            return;
+        }
+        foreach (var contribution in declaration.Provides)
+        {
+            var path = contribution.DefinitionResource ?? string.Empty;
+            var segments = path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+            if (string.IsNullOrWhiteSpace(contribution.Key) || contribution.Key.Length > 200 || contribution.Version < 1 ||
+                string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path) || path.StartsWith('/') || path.StartsWith('\\') ||
+                segments.Contains("..", StringComparer.Ordinal) || !path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                errors.Add("toolchainAdapters.provides entries require a stable key, positive version, and relative JSON definitionResource.");
+        }
+    }
+
+    private async Task<IReadOnlyList<ValidatedWorkstreamProfileDefinition>> LoadWorkstreamProfileDefinitionsAsync(
+        PluginManifest manifest,
+        string owner,
+        string repository,
+        string commitSha,
+        CancellationToken cancellationToken)
+    {
+        var definitions = new List<ValidatedWorkstreamProfileDefinition>();
+        foreach (var contribution in manifest.WorkstreamProfiles.Provides)
+        {
+            var bytes = await _repositoryClient.GetRepositoryFileAsync(owner, repository, commitSha,
+                contribution.DefinitionResource, WorkstreamProfileDefinitionValidator.MaximumDefinitionBytes,
+                cancellationToken) ?? throw new AgentImportPreviewException(
+                    $"Workstream profile resource '{contribution.DefinitionResource}' was not found.");
+            try { definitions.Add(WorkstreamProfileDefinitionValidator.Validate(contribution, bytes)); }
+            catch (ArgumentException exception)
+            {
+                throw new AgentImportPreviewException(
+                    $"Workstream profile resource '{contribution.DefinitionResource}' is invalid: {exception.Message}", exception);
+            }
+        }
+        return definitions;
+    }
+
+    private async Task PersistWorkstreamProfileDefinitionsAsync(
+        PluginManifest manifest,
+        IReadOnlyList<ValidatedWorkstreamProfileDefinition> definitions,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        foreach (var definition in definitions)
+        {
+            var existing = await _dbContext.WorkstreamProfileDefinitions.SingleOrDefaultAsync(
+                x => x.Key == definition.Key && x.Version == definition.Version, cancellationToken);
+            if (existing is not null)
+            {
+                if (!string.Equals(existing.DefinitionDigest, definition.Digest, StringComparison.Ordinal))
+                    throw new AgentImportPreviewException(
+                        $"Workstream profile '{definition.Key}' version {definition.Version} is immutable and already has a different definition.");
+                continue;
+            }
+            _dbContext.WorkstreamProfileDefinitions.Add(new CSweet.Domain.Core.WorkstreamProfileDefinitionRecord
+            {
+                Id = Guid.NewGuid(), Key = definition.Key, Version = definition.Version,
+                DisplayName = definition.DisplayName, MetadataSchemaJson = definition.MetadataSchemaJson,
+                LifecyclePolicyKey = definition.LifecyclePolicyKey,
+                DefaultBoardProfileKey = definition.DefaultBoardProfileKey,
+                AuthorityPolicyKey = definition.AuthorityPolicyKey, Status = "Previewed",
+                ProviderPackageId = manifest.Id, ProviderPackageVersion = manifest.Version,
+                DefinitionDigest = definition.Digest, DefinitionJson = definition.DefinitionJson, CreatedAt = now
+            });
+        }
+    }
+
+    private async Task<IReadOnlyList<ValidatedToolchainAdapterDefinition>> LoadToolchainAdapterDefinitionsAsync(
+        PluginManifest manifest, string owner, string repository, string commitSha, CancellationToken cancellationToken)
+    {
+        var definitions = new List<ValidatedToolchainAdapterDefinition>();
+        foreach (var contribution in manifest.ToolchainAdapters.Provides)
+        {
+            var bytes = await _repositoryClient.GetRepositoryFileAsync(owner, repository, commitSha,
+                contribution.DefinitionResource, ToolchainAdapterDefinitionValidator.MaximumDefinitionBytes, cancellationToken)
+                ?? throw new AgentImportPreviewException($"Toolchain adapter resource '{contribution.DefinitionResource}' was not found.");
+            try { definitions.Add(ToolchainAdapterDefinitionValidator.Validate(contribution, bytes)); }
+            catch (ArgumentException exception)
+            {
+                throw new AgentImportPreviewException($"Toolchain adapter resource '{contribution.DefinitionResource}' is invalid: {exception.Message}", exception);
+            }
+        }
+        return definitions;
+    }
+
+    private async Task PersistToolchainAdapterDefinitionsAsync(
+        PluginManifest manifest, IReadOnlyList<ValidatedToolchainAdapterDefinition> definitions,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        foreach (var definition in definitions)
+        {
+            var existing = await _dbContext.ToolchainAdapterDefinitions.SingleOrDefaultAsync(x =>
+                x.Key == definition.Key && x.Version == definition.Version && x.ProviderPackageId == manifest.Id &&
+                x.ProviderPackageVersion == manifest.Version, cancellationToken);
+            if (existing is not null)
+            {
+                if (existing.DefinitionDigest != definition.Digest)
+                    throw new AgentImportPreviewException($"Toolchain adapter '{definition.Key}' v{definition.Version} is immutable for package {manifest.Id} {manifest.Version}.");
+                continue;
+            }
+            _dbContext.ToolchainAdapterDefinitions.Add(new CSweet.Domain.Core.ToolchainAdapterDefinitionRecord
+            {
+                Id = Guid.NewGuid(), Key = definition.Key, Version = definition.Version, DisplayName = definition.DisplayName,
+                ProviderPackageId = manifest.Id, ProviderPackageVersion = manifest.Version,
+                DefinitionJson = definition.DefinitionJson, DefinitionDigest = definition.Digest, CreatedAt = now
+            });
+        }
     }
 
     private static string DescriptorHash(PluginCapabilityDeclaration capability)

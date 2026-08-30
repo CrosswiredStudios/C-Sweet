@@ -55,7 +55,8 @@ public enum ExecutionAssignmentStatus
 public enum ExecutionWorkloadKind
 {
     Builder = 0,
-    Runtime = 1
+    Runtime = 1,
+    ToolchainBuild = 2
 }
 
 public sealed class ExecutionPool
@@ -123,6 +124,7 @@ public sealed class ExecutionNodeProvider
     public DateTimeOffset? CertificationExpiresAt { get; set; }
     public bool SupportsBuilderWorkloads { get; set; }
     public bool SupportsRuntimeWorkloads { get; set; }
+    public bool SupportsToolchainBuildWorkloads { get; set; }
     public bool IsAvailable { get; set; }
     public string? UnavailableReason { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -190,6 +192,7 @@ public sealed class ExecutionWorkloadAssignment
     public Guid? ExecutionNodeId { get; set; }
     public Guid? AgentBuildJobId { get; set; }
     public Guid? AgentRuntimeInstanceId { get; set; }
+    public Guid? DeliveryBuildId { get; set; }
     public string? BusinessId { get; set; }
     public ExecutionWorkloadKind WorkloadKind { get; set; }
     public ExecutionAssignmentStatus Status { get; set; } = ExecutionAssignmentStatus.Pending;

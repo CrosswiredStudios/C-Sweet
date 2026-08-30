@@ -43,7 +43,11 @@ public sealed class PlatformWorkTypeCatalogTests
         var catalog = PlatformWorkTypeCatalog.Read();
 
         Assert.Equal(PlatformWorkTypeCatalog.Revision, catalog.Revision);
-        Assert.Equal(3, catalog.BoardProfiles.Count);
+        Assert.Equal(2, catalog.BoardProfiles.Count);
+        Assert.DoesNotContain(catalog.BoardProfiles,
+            profile => profile.Key.Contains("video-game", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(catalog.Types,
+            type => type.Key.Contains("video-game", StringComparison.OrdinalIgnoreCase));
         Assert.All(catalog.Types, type => Assert.Equal(PlatformWorkTypeCatalog.ProviderKey, type.ProviderKey));
         Assert.All(catalog.ApprovalPolicies,
             policy => Assert.Equal(PlatformWorkTypeCatalog.ProviderKey, policy.ProviderKey));

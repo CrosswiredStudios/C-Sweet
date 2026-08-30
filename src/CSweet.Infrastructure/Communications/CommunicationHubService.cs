@@ -287,6 +287,12 @@ public sealed class CommunicationHubService(
         if (actor is null) return Failure("actor_not_found", "The chat creator is not an active member of this organization.");
         if (!request.IsDirect && actor.PermissionLevel < OrganizationPermissionLevel.Manager && actor.EmployeeType != EmployeeType.Agent)
             return Failure("not_authorized", "Only managers and granted agents can create group chats.");
+        if (request.WorkstreamId.HasValue && !await db.Workstreams.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == request.WorkstreamId, cancellationToken))
+            return Failure("workstream_not_found", "The selected Workstream does not exist in this organization.");
+        if (request.TeamId.HasValue && !await db.OrganizationTeams.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == request.TeamId && x.ArchivedAt == null, cancellationToken))
+            return Failure("team_not_found", "The selected team is not active in this organization.");
 
         var memberIds = await ExpandMembersAsync(organizationId, actor.Id, request.ParticipantOrganizationUserIds,
             request.AudienceRoleIds, request.AudienceWorkstreamIds, cancellationToken);
@@ -298,6 +304,7 @@ public sealed class CommunicationHubService(
             var candidates = await db.CoreConversations
                 .Where(x => x.OrganizationId == organizationId && x.ArchivedAt == null &&
                     x.Kind == ConversationKind.DirectHumanAgent && x.Participants.Count(p => p.LeftAt == null) == 2 &&
+                    x.WorkstreamId == request.WorkstreamId && x.TeamId == request.TeamId &&
                     x.Participants.Any(p => p.OrganizationUserId == actor.Id && p.LeftAt == null))
                 .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
                 .Include(x => x.Messages).ThenInclude(x => x.Attachments)
@@ -315,6 +322,8 @@ public sealed class CommunicationHubService(
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, InitiatedByOrganizationUserId = actor.Id,
             AgentOrganizationUserId = otherAgent?.Id,
+            WorkstreamId = request.WorkstreamId,
+            TeamId = request.TeamId,
             Kind = request.IsDirect ? ConversationKind.DirectHumanAgent : ConversationKind.Team,
             Title = request.IsDirect ? null : request.Title?.Trim(),
             Description = Clean(request.Description), IsPrivate = request.IsDirect || request.IsPrivate,
@@ -827,7 +836,11 @@ public sealed class CommunicationHubService(
                     presence.Status,
                     presence.Detail);
             }).ToList(),
-            last?.Content, last?.CreatedAt, unreadCount);
+            last?.Content, last?.CreatedAt, unreadCount)
+        {
+            WorkstreamId = chat.WorkstreamId,
+            TeamId = chat.TeamId
+        };
     }
 
     private static CommunicationPresence ResolvePresence(

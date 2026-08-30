@@ -218,6 +218,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 now);
         }
         _dbContext.AgentInstallations.Add(installation);
+        await ActivateWorkstreamProfilesAsync(manifest, packageVersion.Version, cancellationToken);
         _dbContext.AgentCapabilityBindings.AddRange(await CreateCapabilityBindingsAsync(
             installation,
             request.GrantedRequestedCapabilities,
@@ -562,6 +563,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         previous.Schedule!.IsEnabled = false;
         previous.Schedule.NextTickAt = null;
         previous.UpdatedAt = now;
+        await RevokeToolchainEligibilityAsync(
+            previous.Id, "The provider package revision was replaced.", now, cancellationToken);
         await RevokeInstallationSessionsAsync(
             previous.Id,
             "The approved package revision changed.",
@@ -593,6 +596,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         staged.IsEnabled = true;
         staged.RevisionStatus = PluginRevisionStatus.Active;
         staged.UpdatedAt = now;
+        await ActivateWorkstreamProfilesAsync(manifest, staged.PackageVersion!.Version, cancellationToken);
         if (manifest.Configuration.Any(field => !field.Secret))
         {
             staged.Configuration ??= CreateConfiguration(
@@ -636,6 +640,51 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 null,
                 cancellationToken);
         return ToResponse(staged);
+    }
+
+    private async Task ActivateWorkstreamProfilesAsync(
+        PluginManifest manifest, string packageVersion, CancellationToken cancellationToken)
+    {
+        foreach (var contribution in manifest.WorkstreamProfiles.Provides)
+        {
+            var definition = await _dbContext.WorkstreamProfileDefinitions.SingleOrDefaultAsync(x =>
+                x.Key == contribution.Key && x.Version == contribution.Version &&
+                x.ProviderPackageId == manifest.Id && x.ProviderPackageVersion == packageVersion,
+                cancellationToken) ?? throw new AgentInstallationException(
+                $"The immutable Workstream profile '{contribution.Key}' v{contribution.Version} was not imported with this package.");
+            definition.Status = CSweet.WorkManagement.Contracts.WorkstreamProfileStatuses.Active;
+        }
+    }
+
+    private async Task RevokeToolchainEligibilityAsync(
+        Guid installationId,
+        string reason,
+        DateTimeOffset revokedAt,
+        CancellationToken cancellationToken)
+    {
+        var eligibility = await _dbContext.ToolchainInstallationEligibilities
+            .Where(x => x.ProviderInstallationId == installationId && x.RevokedAt == null)
+            .ToListAsync(cancellationToken);
+        foreach (var item in eligibility)
+        {
+            item.RevokedAt = revokedAt;
+            item.RevocationReason = reason;
+        }
+
+        var runs = await _dbContext.ToolchainCertificationRuns
+            .Where(x => x.ProviderInstallationId == installationId &&
+                        (x.Status == CSweet.WorkManagement.Contracts.ToolchainCertificationStatuses.Pending ||
+                         x.Status == CSweet.WorkManagement.Contracts.ToolchainCertificationStatuses.Running ||
+                         x.Status == CSweet.WorkManagement.Contracts.ToolchainCertificationStatuses.Certified))
+            .ToListAsync(cancellationToken);
+        foreach (var run in runs)
+        {
+            run.Status = CSweet.WorkManagement.Contracts.ToolchainCertificationStatuses.Revoked;
+            run.RevocationReason = reason;
+            run.CompletedAt ??= revokedAt;
+            run.ExpiresAt = revokedAt;
+            run.Revision++;
+        }
     }
 
     private async Task<IReadOnlyList<AgentCapabilityBinding>> CreateCapabilityBindingsAsync(
@@ -814,6 +863,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         installation.Schedule!.IsEnabled = false;
         installation.Schedule.NextTickAt = null;
         installation.UpdatedAt = DateTimeOffset.UtcNow;
+        await RevokeToolchainEligibilityAsync(
+            installation.Id, "The provider installation was disabled.", installation.UpdatedAt, cancellationToken);
         await RevokeInstallationSessionsAsync(
             installation.Id,
             "The installation was disabled.",
@@ -903,6 +954,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             installation.Schedule.NextTickAt = null;
         }
         installation.UpdatedAt = DateTimeOffset.UtcNow;
+        await RevokeToolchainEligibilityAsync(
+            installation.Id, "The provider installation was removed.", installation.UpdatedAt, cancellationToken);
         await RevokeInstallationSessionsAsync(
             installation.Id,
             "The installation was removed.",

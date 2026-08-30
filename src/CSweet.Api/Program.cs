@@ -188,6 +188,8 @@ app.MapEmployeeEndpoints();
 app.MapTeamEndpoints();
 app.MapHiringEndpoints();
 app.MapApprovalEndpoints();
+app.MapWorkstreamInspectionEndpoints();
+app.MapToolchainCertificationEndpoints();
 app.MapExecutiveBriefingEndpoints();
 app.MapRoleEndpoints();
 app.MapStrategicObjectiveEndpoints();

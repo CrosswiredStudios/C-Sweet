@@ -294,6 +294,7 @@ public sealed class OfficeGatewayService(
                 DateTimeOffset.FromUnixTimeSeconds(reported.CertificationExpiresAtUnixSeconds);
             existing.SupportsBuilderWorkloads = reported.SupportsBuilderWorkloads;
             existing.SupportsRuntimeWorkloads = reported.SupportsRuntimeWorkloads;
+            existing.SupportsToolchainBuildWorkloads = reported.SupportsToolchainBuildWorkloads;
             existing.IsAvailable = reported.IsAvailable;
             existing.UnavailableReason = string.IsNullOrWhiteSpace(reported.UnavailableReason) ? null : reported.UnavailableReason;
             existing.UpdatedAt = now;
@@ -581,6 +582,8 @@ public sealed class OfficeGatewayService(
                     JsonSerializer.Deserialize<BuilderWorkloadSpecification>(specificationJson)?.WorkloadId,
                 ExecutionWorkloadKind.Runtime =>
                     JsonSerializer.Deserialize<RuntimeWorkloadSpecification>(specificationJson)?.WorkloadId,
+                ExecutionWorkloadKind.ToolchainBuild =>
+                    JsonSerializer.Deserialize<ToolchainBuildWorkloadSpecification>(specificationJson)?.WorkloadId,
                 _ => null
             };
             if (workloadId is null || workloadId == Guid.Empty)

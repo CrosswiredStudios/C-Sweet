@@ -409,6 +409,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IStaffingReplenishmentService, StaffingReplenishmentService>();
         builder.Services.AddScoped<IAgentAttentionInvalidationService, AgentAttentionInvalidationService>();
         builder.Services.AddScoped<IApprovalDashboardService, ApprovalDashboardService>();
+        builder.Services.AddScoped<IManagedActionExecutor, WorkstreamManagedActionExecutor>();
         builder.Services.AddScoped<ICommunicationWorkspaceService, CommunicationWorkspaceService>();
         builder.Services.AddScoped<ICommunicationHubService, CommunicationHubService>();
         builder.Services.AddScoped<IAgentCoordinationService, AgentCoordinationService>();

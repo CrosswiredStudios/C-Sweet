@@ -19,25 +19,13 @@ public static class ArtifactPlatformCapabilities
     public const string Revise = "platform.artifact.revise.v1";
     public const string Submit = "platform.artifact.submit.v1";
     public const string Decide = "platform.artifact.decide.v1";
+    public const string DecideV2 = "platform.artifact.decide.v2";
     public const string RequestAccess = "platform.artifact.request-access.v1";
     public const string PackageCreate = "platform.artifact-package.create.v1";
     public const string PackageRead = "platform.artifact-package.read.v1";
     public const string PackageSubmit = "platform.artifact-package.submit.v1";
     public const string PackageDecide = "platform.artifact-package.decide.v1";
     public const string AccessDecisionEvent = "com.csweet.artifact.access-decision.v1";
-}
-
-public static class GameDesignDocumentTypes
-{
-    public const string HighLevelGdd = "game-design.high-level-gdd.v1";
-    public const string GameplaySystems = "game-design.gameplay-systems.v1";
-    public const string NarrativeWorld = "game-design.narrative-world.v1";
-    public const string ArtAudioDirection = "game-design.art-audio-direction.v1";
-    public const string UxControlsAccessibility = "game-design.ux-controls-accessibility.v1";
-    public const string PrototypeContentValidation = "game-design.prototype-content-validation.v1";
-    public const string DetailedPackage = "game-design.detailed-package.v1";
-    public static readonly IReadOnlyList<string> RequiredDetailedPackage =
-        [GameplaySystems, NarrativeWorld, ArtAudioDirection, UxControlsAccessibility, PrototypeContentValidation];
 }
 
 public sealed record ArtifactDocumentQuery(
@@ -69,7 +57,11 @@ public sealed record ArtifactDocumentSummary(
     Guid? StewardOrganizationUserId,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    DateTimeOffset? ArchivedAt);
+    DateTimeOffset? ArchivedAt)
+{
+    public Guid? WorkstreamId { get; init; }
+    public Guid? TeamId { get; init; }
+}
 
 public sealed record ArtifactRevisionResponse(
     Guid Id,
@@ -101,7 +93,11 @@ public sealed record CreateArtifactDocumentRequest(
     Guid? PackageId = null,
     Guid? OriginConversationId = null,
     Guid? OriginWorkItemId = null,
-    Guid? StewardOrganizationUserId = null);
+    Guid? StewardOrganizationUserId = null)
+{
+    public Guid? WorkstreamId { get; init; }
+    public Guid? TeamId { get; init; }
+}
 
 public sealed record CreateArtifactRevisionRequest(
     Guid ExpectedBaseRevisionId,

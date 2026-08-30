@@ -89,6 +89,23 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
             repositoryOwner, repositoryName, commitSha, cancellationToken));
     }
 
+    public Task<byte[]?> GetRepositoryFileAsync(
+        string repositoryOwner,
+        string repositoryName,
+        string commitSha,
+        string relativePath,
+        int maximumBytes,
+        CancellationToken cancellationToken)
+    {
+        if (maximumBytes is < 1 or > MaximumManifestBytes)
+            throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+        var normalized = relativePath.Replace('\\', '/');
+        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (normalized.StartsWith('/') || Path.IsPathRooted(normalized) || segments.Contains("..", StringComparer.Ordinal))
+            throw new AgentImportPreviewException("Repository resource path is invalid.");
+        return GetFileAsync(repositoryOwner, repositoryName, commitSha, normalized, maximumBytes, cancellationToken);
+    }
+
     private async Task<byte[]?> GetManifestAsync(
         string repositoryOwner,
         string repositoryName,
@@ -96,9 +113,20 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
         string fileName,
         CancellationToken cancellationToken)
     {
+        return await GetFileAsync(repositoryOwner, repositoryName, commitSha, fileName, MaximumManifestBytes, cancellationToken);
+    }
+
+    private async Task<byte[]?> GetFileAsync(
+        string repositoryOwner,
+        string repositoryName,
+        string commitSha,
+        string relativePath,
+        int maximumBytes,
+        CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"repos/{Escape(repositoryOwner)}/{Escape(repositoryName)}/contents/{fileName}?ref={Escape(commitSha)}");
+            $"repos/{Escape(repositoryOwner)}/{Escape(repositoryName)}/contents/{string.Join('/', relativePath.Split('/').Select(Escape))}?ref={Escape(commitSha)}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github.raw+json"));
 
         using var response = await _httpClient.SendAsync(
@@ -106,9 +134,9 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
-        await EnsureSuccessAsync(response, $"The repository does not contain a root {fileName} at the resolved commit.", cancellationToken);
+        await EnsureSuccessAsync(response, $"The repository resource '{relativePath}' could not be read at the resolved commit.", cancellationToken);
 
-        if (response.Content.Headers.ContentLength > MaximumManifestBytes)
+        if (response.Content.Headers.ContentLength > maximumBytes)
         {
             throw new AgentImportPreviewException("Plugin manifest exceeds the 1 MB preview limit.");
         }
@@ -124,7 +152,7 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
                 break;
             }
 
-            if (output.Length + count > MaximumManifestBytes)
+            if (output.Length + count > maximumBytes)
             {
                 throw new AgentImportPreviewException("Plugin manifest exceeds the 1 MB preview limit.");
             }

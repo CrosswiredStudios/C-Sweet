@@ -147,6 +147,7 @@ public sealed record ExecutionNodeProviderResponse(
     DateTimeOffset? CertificationExpiresAt,
     bool SupportsBuilderWorkloads,
     bool SupportsRuntimeWorkloads,
+    bool SupportsToolchainBuildWorkloads,
     bool IsAvailable,
     string? UnavailableReason);
 

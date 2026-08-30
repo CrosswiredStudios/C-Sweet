@@ -111,12 +111,12 @@ public sealed class CommunicationWorkspaceService(
             }));
         var groups = await db.CoreConversations
             .Where(x => x.OrganizationId == organizationId &&
-                ((x.Kind == ConversationKind.Team && x.TeamId != null) || (x.Kind == ConversationKind.Project && x.ProjectId != null)))
-            .Select(x => new { x.Kind, x.TeamId, x.ProjectId, x.Title }).Distinct().ToListAsync(cancellationToken);
+                ((x.Kind == ConversationKind.Team && x.TeamId != null) || (x.Kind == ConversationKind.Project && x.WorkstreamId != null)))
+            .Select(x => new { x.Kind, x.TeamId, x.WorkstreamId, x.Title }).Distinct().ToListAsync(cancellationToken);
         desired.AddRange(groups.SelectMany(x =>
         {
             var prefix = x.Kind == ConversationKind.Team ? "team" : "project";
-            var id = x.TeamId ?? x.ProjectId!.Value;
+            var id = x.TeamId ?? x.WorkstreamId!.Value;
             var name = Slug(x.Title ?? $"{prefix}-{id.ToString("N")[..8]}");
             return new[]
             {

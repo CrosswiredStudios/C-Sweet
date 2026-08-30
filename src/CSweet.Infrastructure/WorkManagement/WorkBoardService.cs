@@ -172,6 +172,8 @@ public sealed class WorkBoardService(
                     .Select(x => x.LeadOrganizationUserId).SingleAsync(cancellationToken)
                 : member.Id);
         await ValidateManagerAsync(organizationId, managerId, cancellationToken);
+        var profileKey = await RequireBoardProfileAsync(
+            organizationId, request.WorkstreamId, request.ProfileKey, cancellationToken);
         var boardKey = await ResolveBoardKeyAsync(
             organizationId, request.Key, request.Name, null, cancellationToken);
         var board = new WorkBoard
@@ -180,7 +182,7 @@ public sealed class WorkBoardService(
             OrganizationId = organizationId,
             WorkstreamId = request.WorkstreamId,
             TeamId = request.TeamId,
-            ProfileKey = PlatformWorkTypeCatalog.RequireProfile(request.ProfileKey).Key,
+            ProfileKey = profileKey,
             ManagerOrganizationUserId = managerId,
             Key = boardKey,
             Name = request.Name.Trim(),
@@ -201,6 +203,21 @@ public sealed class WorkBoardService(
             new { board.Id, board.Name, board.WorkstreamId, board.TeamId },
             cancellationToken);
         return await ToDetailAsync(board, member.Id, cancellationToken);
+    }
+
+    private async Task<string> RequireBoardProfileAsync(
+        Guid organizationId, Guid? workstreamId, string profileKey, CancellationToken cancellationToken)
+    {
+        if (!workstreamId.HasValue) return PlatformWorkTypeCatalog.RequireProfile(profileKey).Key;
+        var expected = await (from workstream in db.Workstreams.AsNoTracking()
+                join profile in db.WorkstreamProfileDefinitions.AsNoTracking()
+                    on new { Key = workstream.ProfileKey!, Version = workstream.ProfileVersion!.Value, Digest = workstream.ProfileDefinitionDigest! }
+                    equals new { profile.Key, profile.Version, Digest = profile.DefinitionDigest }
+                where workstream.OrganizationId == organizationId && workstream.Id == workstreamId.Value
+                select profile.DefaultBoardProfileKey).SingleOrDefaultAsync(cancellationToken);
+        if (expected is null || !string.Equals(expected, profileKey, StringComparison.Ordinal))
+            throw new ArgumentException("The board profile must match the Workstream profile's declared default board profile.");
+        return expected;
     }
 
     public async Task<WorkBoardDetailResponse?> UpdateAsync(
@@ -409,7 +426,7 @@ public sealed class WorkBoardService(
             : null;
         if (string.IsNullOrWhiteSpace(request.TypeKey))
             throw new ArgumentException("A registered work item type key is required.");
-        var type = PlatformWorkTypeCatalog.RequireType(board.ProfileKey, request.TypeKey, parentTypeKey);
+        var type = await RequireWorkItemTypeAsync(board, request.TypeKey, parentTypeKey, cancellationToken);
         var kind = ParseEnum<WorkItemKind>(type.Kind, "work item kind");
         if (!string.IsNullOrWhiteSpace(request.Kind) &&
             !request.Kind.Equals(type.Kind, StringComparison.OrdinalIgnoreCase))
@@ -1184,6 +1201,33 @@ public sealed class WorkBoardService(
             Actor: new AuditActor(
                 "Human", true, member.ApplicationUserId, member.Id, member.DisplayName)),
             cancellationToken);
+
+    private async Task<CSweet.WorkManagement.Contracts.WorkItemTypeDefinition> RequireWorkItemTypeAsync(
+        WorkBoard board,
+        string typeKey,
+        string? parentTypeKey,
+        CancellationToken cancellationToken)
+    {
+        if (board.WorkstreamId.HasValue)
+        {
+            var workstream = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(
+                x => x.Id == board.WorkstreamId.Value, cancellationToken);
+            if (workstream?.ProfileKey is not null && workstream.ProfileVersion.HasValue &&
+                workstream.ProfileDefinitionDigest is not null)
+            {
+                var definitionJson = await db.WorkstreamProfileDefinitions.AsNoTracking().Where(x =>
+                        x.Key == workstream.ProfileKey && x.Version == workstream.ProfileVersion &&
+                        x.DefinitionDigest == workstream.ProfileDefinitionDigest &&
+                        x.DefaultBoardProfileKey == board.ProfileKey)
+                    .Select(x => x.DefinitionJson).SingleOrDefaultAsync(cancellationToken);
+                if (definitionJson is not null &&
+                    WorkstreamProfileWorkTypeCatalog.Read(definitionJson, board.ProfileKey).Count > 0)
+                    return WorkstreamProfileWorkTypeCatalog.RequireType(
+                        definitionJson, board.ProfileKey, typeKey, parentTypeKey);
+            }
+        }
+        return PlatformWorkTypeCatalog.RequireType(board.ProfileKey, typeKey, parentTypeKey);
+    }
 
     private static WorkBoardColumn NewColumn(
         string name,

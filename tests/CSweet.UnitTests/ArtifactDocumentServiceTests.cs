@@ -19,7 +19,7 @@ public sealed class ArtifactDocumentServiceTests
         var actor = new ArtifactHumanActor(owner.ApplicationUserId!.Value);
 
         var created = await service.CreateAsync(organization.Id, actor,
-            new("Vision", "# One", GameDesignDocumentTypes.HighLevelGdd, "create-one"));
+            new("Vision", "# One", "test.document.v1", "create-one"));
         var submitted = await service.SubmitAsync(organization.Id, actor, created.Document.Id,
             new(created.LatestRevision.Id, "submit-one"));
         var accepted = await service.DecideAsync(organization.Id, actor, created.Document.Id,

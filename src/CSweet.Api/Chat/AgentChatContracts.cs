@@ -1,5 +1,7 @@
 namespace CSweet.Api.Chat;
 
+using CSweet.WorkManagement.Contracts;
+
 internal static class AgentChatEvents
 {
     public const string UserMessageReceivedEvent = "com.csweet.user.message.received.v1";
@@ -48,6 +50,7 @@ internal sealed record UserMessageReceived(
     Guid MessageId = default)
 {
     public IReadOnlyList<UserMessageAttachment> Attachments { get; init; } = [];
+    public AgentWorkContext? WorkContext { get; init; }
 }
 
 internal sealed record UserMessageAttachment(

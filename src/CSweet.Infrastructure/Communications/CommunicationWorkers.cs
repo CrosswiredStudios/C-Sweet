@@ -117,7 +117,7 @@ public sealed class CommunicationDeliveryWorker(IServiceScopeFactory scopeFactor
                         resource.UpdatedAt = now;
                         resource.OrganizationUserId = ParseEmployeeId(descriptor.Purpose);
                         resource.TeamId = ParseScopedId(descriptor.Purpose, "team");
-                        resource.ProjectId = ParseScopedId(descriptor.Purpose, "project");
+                        resource.WorkstreamId = ParseScopedId(descriptor.Purpose, "workstream");
                     }
                     connection.Status = delivery.Kind == CommunicationDeliveryKind.DisconnectWorkspace
                         ? CommunicationConnectionStatus.Disconnected : CommunicationConnectionStatus.Connected;

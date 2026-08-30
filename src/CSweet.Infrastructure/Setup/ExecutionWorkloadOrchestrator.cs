@@ -7,6 +7,7 @@ using CSweet.Office.Contracts.Security;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.Setup;
 
@@ -15,7 +16,7 @@ public sealed class ExecutionWorkloadOrchestrator(
     TimeProvider timeProvider) : IExecutionWorkloadOrchestrator
 {
     private static readonly TimeSpan AssignmentLease = TimeSpan.FromSeconds(60);
-    private const int MaximumUnacknowledgedDeliveryAttempts = 3;
+    private const int MaximumAssignmentAttempts = 3;
     private static readonly TimeSpan HeartbeatFreshness = TimeSpan.FromSeconds(30);
     private static readonly ExecutionAssignmentStatus[] ActiveStatuses =
     [
@@ -32,13 +33,20 @@ public sealed class ExecutionWorkloadOrchestrator(
         ArgumentNullException.ThrowIfNull(request);
         Validate(request);
         var poolId = request.ExecutionPoolId ?? await DefaultPoolIdAsync(request.WorkloadKind, cancellationToken);
-        var existing = request.WorkloadKind == ExecutionWorkloadKind.Builder
-            ? await dbContext.ExecutionWorkloadAssignments.FirstOrDefaultAsync(
+        var existing = request.WorkloadKind switch
+        {
+            ExecutionWorkloadKind.Builder => await dbContext.ExecutionWorkloadAssignments.FirstOrDefaultAsync(
                 x => x.AgentBuildJobId == request.AgentBuildJobId &&
                     (x.Status == ExecutionAssignmentStatus.Pending || ActiveStatuses.Contains(x.Status)), cancellationToken)
-            : await dbContext.ExecutionWorkloadAssignments.FirstOrDefaultAsync(
+            ,
+            ExecutionWorkloadKind.Runtime => await dbContext.ExecutionWorkloadAssignments.FirstOrDefaultAsync(
                 x => x.AgentRuntimeInstanceId == request.AgentRuntimeInstanceId &&
-                    (x.Status == ExecutionAssignmentStatus.Pending || ActiveStatuses.Contains(x.Status)), cancellationToken);
+                    (x.Status == ExecutionAssignmentStatus.Pending || ActiveStatuses.Contains(x.Status)), cancellationToken),
+            ExecutionWorkloadKind.ToolchainBuild => await dbContext.ExecutionWorkloadAssignments.FirstOrDefaultAsync(
+                x => x.DeliveryBuildId == request.DeliveryBuildId &&
+                    (x.Status == ExecutionAssignmentStatus.Pending || ActiveStatuses.Contains(x.Status)), cancellationToken),
+            _ => null
+        };
         if (existing is not null)
             return new ExecutionWorkloadReference(existing.Id, existing.FencingEpoch);
 
@@ -50,6 +58,7 @@ public sealed class ExecutionWorkloadOrchestrator(
             ExecutionPoolId = poolId,
             AgentBuildJobId = request.AgentBuildJobId,
             AgentRuntimeInstanceId = request.AgentRuntimeInstanceId,
+            DeliveryBuildId = request.DeliveryBuildId,
             BusinessId = Bound(request.BusinessId, 128),
             WorkloadKind = request.WorkloadKind,
             Status = ExecutionAssignmentStatus.Pending,
@@ -72,12 +81,33 @@ public sealed class ExecutionWorkloadOrchestrator(
     public async Task<int> AssignPendingAsync(CancellationToken cancellationToken = default)
     {
         var now = timeProvider.GetUtcNow();
-        var pendingIds = await dbContext.ExecutionWorkloadAssignments.AsNoTracking()
+        var pending = await dbContext.ExecutionWorkloadAssignments.AsNoTracking()
             .Where(x => x.Status == ExecutionAssignmentStatus.Pending)
             .OrderBy(x => x.QueuedAt)
-            .Take(100)
-            .Select(x => x.Id)
+            .Take(1000)
+            .Select(x => new { x.Id, x.DeliveryBuildId, x.QueuedAt })
             .ToListAsync(cancellationToken);
+        var deliveryIds = pending.Where(x => x.DeliveryBuildId.HasValue).Select(x => x.DeliveryBuildId!.Value).ToArray();
+        var workstreams = await dbContext.DeliveryBuilds.AsNoTracking()
+            .Where(x => deliveryIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.WorkstreamId, cancellationToken);
+        var queues = pending.GroupBy(x => x.DeliveryBuildId.HasValue && workstreams.TryGetValue(x.DeliveryBuildId.Value, out var workstreamId)
+                ? $"workstream:{workstreamId:D}"
+                : $"unscoped:{x.Id:D}", StringComparer.Ordinal)
+            .Select(group => new Queue<(Guid Id, DateTimeOffset QueuedAt)>(group
+                .OrderBy(x => x.QueuedAt).Select(x => (x.Id, x.QueuedAt))))
+            .OrderBy(queue => queue.Peek().QueuedAt)
+            .ToList();
+        var pendingIds = new List<Guid>(Math.Min(100, pending.Count));
+        while (pendingIds.Count < 100 && queues.Count > 0)
+        {
+            foreach (var queue in queues.ToArray())
+            {
+                pendingIds.Add(queue.Dequeue().Id);
+                if (queue.Count == 0) queues.Remove(queue);
+                if (pendingIds.Count == 100) break;
+            }
+        }
         var assigned = 0;
         var postgres = string.Equals(
             dbContext.Database.ProviderName,
@@ -241,6 +271,8 @@ public sealed class ExecutionWorkloadOrchestrator(
                 if (!string.IsNullOrWhiteSpace(result.LogExcerpt))
                     assignment.ResultLogExcerpt = Bound(result.LogExcerpt, 64 * 1024);
             }
+            if (status is ExecutionAssignmentStatus.Completed or ExecutionAssignmentStatus.Failed or ExecutionAssignmentStatus.Cancelled)
+                await ReconcileToolchainBuildTerminationAsync(assignment, status, now, cancellationToken);
             try
             {
                 await dbContext.SaveChangesAsync(cancellationToken);
@@ -251,7 +283,7 @@ public sealed class ExecutionWorkloadOrchestrator(
                 // Artifact-grant consumption deliberately rotates concurrency-protected token fields
                 // in another request scope. Reload once so an otherwise valid Node status cannot tear
                 // down the long-lived control stream merely because that security state changed.
-                dbContext.Entry(assignment).State = EntityState.Detached;
+                dbContext.ChangeTracker.Clear();
             }
         }
         return false;
@@ -271,6 +303,8 @@ public sealed class ExecutionWorkloadOrchestrator(
         assignment.FencingEpoch++;
         assignment.FailureCode = "control-plane-cancelled";
         assignment.SanitizedFailure = Bound(reason, 2048);
+        await ReconcileToolchainBuildTerminationAsync(
+            assignment, ExecutionAssignmentStatus.Cancelled, timeProvider.GetUtcNow(), cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -284,9 +318,15 @@ public sealed class ExecutionWorkloadOrchestrator(
             .ToListAsync(cancellationToken);
         foreach (var assignment in expired)
         {
-            if (assignment.Status == ExecutionAssignmentStatus.Assigned &&
-                assignment.Attempt >= MaximumUnacknowledgedDeliveryAttempts)
+            var deliveryBuild = assignment.DeliveryBuildId.HasValue
+                ? await dbContext.DeliveryBuilds.SingleOrDefaultAsync(
+                    x => x.Id == assignment.DeliveryBuildId.Value, cancellationToken)
+                : null;
+            var exhausted = assignment.Attempt >= MaximumAssignmentAttempts ||
+                deliveryBuild is not null && deliveryBuild.Attempt >= deliveryBuild.MaximumAttempts;
+            if (exhausted)
             {
+                var expiredStatus = assignment.Status;
                 var node = assignment.ExecutionNode;
                 var nodeDescription = node is null
                     ? assignment.ExecutionNodeId?.ToString("D") ?? "unknown"
@@ -295,11 +335,13 @@ public sealed class ExecutionWorkloadOrchestrator(
                 assignment.CompletedAt = now;
                 assignment.LeaseExpiresAt = null;
                 assignment.FencingEpoch++;
-                assignment.FailureCode = "assignment-not-acknowledged";
+                assignment.FailureCode = expiredStatus == ExecutionAssignmentStatus.Assigned
+                    ? "assignment-not-acknowledged"
+                    : "assignment-recovery-exhausted";
                 assignment.SanitizedFailure =
-                    $"Office {nodeDescription} did not acknowledge signed assignment {assignment.Id:D} " +
-                    $"after {assignment.Attempt} delivery attempts. Check the CSweet.Office.Node log for " +
-                    "a control-session or assignment-envelope error.";
+                    $"Office {nodeDescription} did not complete signed assignment {assignment.Id:D} " +
+                    $"after {assignment.Attempt} execution attempts. Check the CSweet.Office.Node and guest logs.";
+                ExhaustToolchainBuild(deliveryBuild, now, assignment.FailureCode, assignment.SanitizedFailure);
                 continue;
             }
             assignment.ExecutionNodeId = null;
@@ -311,10 +353,126 @@ public sealed class ExecutionWorkloadOrchestrator(
             assignment.StartedAt = null;
             assignment.FailureCode = "assignment-lease-expired";
             assignment.SanitizedFailure = "The execution node did not renew its assignment lease; the prior epoch was fenced.";
+            RequeueToolchainBuild(deliveryBuild, now, assignment.FailureCode, assignment.SanitizedFailure);
         }
         if (expired.Count > 0) await dbContext.SaveChangesAsync(cancellationToken);
         return expired.Count;
     }
+
+    private async Task ReconcileToolchainBuildTerminationAsync(
+        ExecutionWorkloadAssignment assignment,
+        ExecutionAssignmentStatus reportedStatus,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (assignment.WorkloadKind != ExecutionWorkloadKind.ToolchainBuild || !assignment.DeliveryBuildId.HasValue)
+            return;
+        var build = await dbContext.DeliveryBuilds.SingleOrDefaultAsync(
+            x => x.Id == assignment.DeliveryBuildId.Value, cancellationToken);
+        if (build is null || IsTerminalBuild(build.Status)) return;
+
+        if (reportedStatus == ExecutionAssignmentStatus.Cancelled ||
+            build.Status == W.DeliveryBuildStatuses.CancelRequested)
+        {
+            build.Status = W.DeliveryBuildStatuses.Cancelled;
+            build.FailureCode = assignment.FailureCode ?? "execution-cancelled";
+            build.FailureSummary = assignment.SanitizedFailure ?? build.CancellationReason;
+            ClearBuildLease(build, now);
+            return;
+        }
+
+        if (reportedStatus == ExecutionAssignmentStatus.Failed &&
+            assignment.Attempt < MaximumAssignmentAttempts && build.Attempt < build.MaximumAttempts)
+        {
+            ResetAssignmentForRetry(assignment, now);
+            RequeueToolchainBuild(build, now,
+                assignment.FailureCode ?? "execution-infrastructure-failure",
+                assignment.SanitizedFailure ?? "The isolated Office workload failed before it could report a durable build result.");
+            return;
+        }
+
+        if (reportedStatus == ExecutionAssignmentStatus.Completed)
+        {
+            build.Status = W.DeliveryBuildStatuses.Failed;
+            build.FailureCode = "build-final-report-missing";
+            build.FailureSummary = "The toolchain workload exited without a durable final build report.";
+            ClearBuildLease(build, now);
+            return;
+        }
+
+        ExhaustToolchainBuild(build, now,
+            assignment.FailureCode ?? "assignment-recovery-exhausted",
+            assignment.SanitizedFailure ?? "The isolated Office workload exhausted its recovery attempts.");
+    }
+
+    private static void ResetAssignmentForRetry(ExecutionWorkloadAssignment assignment, DateTimeOffset now)
+    {
+        assignment.ExecutionNodeId = null;
+        assignment.Status = ExecutionAssignmentStatus.Pending;
+        assignment.FencingEpoch++;
+        assignment.Attempt++;
+        assignment.LeaseExpiresAt = null;
+        assignment.AssignedAt = null;
+        assignment.StartedAt = null;
+        assignment.CompletedAt = null;
+        assignment.QueuedAt = now;
+        assignment.ProviderInstanceId = null;
+        assignment.ResultArtifactLocator = null;
+        assignment.ResultArtifactDigest = null;
+        assignment.ResultArtifactSignature = null;
+        assignment.ResultArtifactFormatVersion = null;
+        assignment.ResultArtifactOperatingSystem = null;
+        assignment.ResultArtifactArchitecture = null;
+    }
+
+    private static void RequeueToolchainBuild(
+        CSweet.Domain.Core.DeliveryBuildRecord? build,
+        DateTimeOffset now,
+        string failureCode,
+        string failureSummary)
+    {
+        if (build is null || IsTerminalBuild(build.Status) || build.Status == W.DeliveryBuildStatuses.CancelRequested)
+            return;
+        build.Status = W.DeliveryBuildStatuses.Queued;
+        build.ClaimId = null;
+        build.ExecutionNodeId = null;
+        build.LeaseExpiresAt = null;
+        build.LastHeartbeatAt = null;
+        build.FailureCode = failureCode;
+        build.FailureSummary = failureSummary;
+        build.Revision++;
+        build.UpdatedAt = now;
+    }
+
+    private static void ExhaustToolchainBuild(
+        CSweet.Domain.Core.DeliveryBuildRecord? build,
+        DateTimeOffset now,
+        string failureCode,
+        string failureSummary)
+    {
+        if (build is null || IsTerminalBuild(build.Status)) return;
+        build.Status = build.Status == W.DeliveryBuildStatuses.CancelRequested
+            ? W.DeliveryBuildStatuses.Cancelled
+            : W.DeliveryBuildStatuses.Exhausted;
+        build.FailureCode = failureCode;
+        build.FailureSummary = failureSummary;
+        ClearBuildLease(build, now);
+    }
+
+    private static void ClearBuildLease(CSweet.Domain.Core.DeliveryBuildRecord build, DateTimeOffset now)
+    {
+        build.ClaimId = null;
+        build.ExecutionNodeId = null;
+        build.LeaseExpiresAt = null;
+        build.LastHeartbeatAt = null;
+        build.Revision++;
+        build.UpdatedAt = now;
+    }
+
+    private static bool IsTerminalBuild(string status) => status is
+        W.DeliveryBuildStatuses.Succeeded or W.DeliveryBuildStatuses.Failed or
+        W.DeliveryBuildStatuses.Blocked or W.DeliveryBuildStatuses.Cancelled or
+        W.DeliveryBuildStatuses.Exhausted;
 
     private async Task<NodeSelection?> SelectNodeAsync(
         ExecutionWorkloadAssignment assignment,
@@ -367,8 +525,7 @@ public sealed class ExecutionWorkloadOrchestrator(
                     (provider.CertificationExpiresAt == null || provider.CertificationExpiresAt > now) &&
                     string.Equals(provider.GuestImageDigest, assignment.GuestImageDigest, StringComparison.Ordinal) &&
                     (string.IsNullOrWhiteSpace(assignment.ProviderId) || string.Equals(provider.ProviderId, assignment.ProviderId, StringComparison.Ordinal)) &&
-                    (assignment.WorkloadKind == ExecutionWorkloadKind.Builder
-                        ? provider.SupportsBuilderWorkloads : provider.SupportsRuntimeWorkloads))
+                    Supports(provider, assignment.WorkloadKind))
                 .Select(provider => Score(node, provider, reservations.GetValueOrDefault(node.Id), assignment)))
             .Where(selection => selection.Fits)
             .OrderBy(selection => selection.DominantUtilization)
@@ -398,15 +555,24 @@ public sealed class ExecutionWorkloadOrchestrator(
     {
         var settings = await dbContext.AgentRuntimeGlobalSettings.AsNoTracking()
             .OrderBy(x => x.UpdatedAt).FirstAsync(cancellationToken);
-        return kind == ExecutionWorkloadKind.Builder
+        return kind is ExecutionWorkloadKind.Builder or ExecutionWorkloadKind.ToolchainBuild
             ? settings.DefaultBuildExecutionPoolId ?? throw new InvalidOperationException("The default build execution pool is not configured.")
             : settings.DefaultRuntimeExecutionPoolId ?? throw new InvalidOperationException("The default runtime execution pool is not configured.");
     }
 
     private static void Validate(ExecutionWorkloadRequest request)
     {
-        if ((request.AgentBuildJobId.HasValue ? 1 : 0) + (request.AgentRuntimeInstanceId.HasValue ? 1 : 0) != 1 ||
-            request.WorkloadKind == ExecutionWorkloadKind.Builder != request.AgentBuildJobId.HasValue ||
+        var bindingIsValid = request.WorkloadKind switch
+        {
+            ExecutionWorkloadKind.Builder => request.AgentBuildJobId.HasValue &&
+                !request.AgentRuntimeInstanceId.HasValue && !request.DeliveryBuildId.HasValue,
+            ExecutionWorkloadKind.Runtime => !request.AgentBuildJobId.HasValue &&
+                request.AgentRuntimeInstanceId.HasValue && !request.DeliveryBuildId.HasValue,
+            ExecutionWorkloadKind.ToolchainBuild => !request.AgentBuildJobId.HasValue &&
+                request.AgentRuntimeInstanceId.HasValue && request.DeliveryBuildId.HasValue,
+            _ => false
+        };
+        if (!bindingIsValid ||
             !IsSha256(request.GuestImageDigest) ||
             request.ArtifactDigest is not null && !IsSha256(request.ArtifactDigest) ||
             request.CpuCount < 1 || request.MemoryMb < 128 || request.DiskMb < 64 ||
@@ -414,6 +580,14 @@ public sealed class ExecutionWorkloadOrchestrator(
             throw new ArgumentException("The execution workload request is invalid.", nameof(request));
         using var _ = JsonDocument.Parse(request.SpecificationJson);
     }
+
+    private static bool Supports(ExecutionNodeProvider provider, ExecutionWorkloadKind kind) => kind switch
+    {
+        ExecutionWorkloadKind.Builder => provider.SupportsBuilderWorkloads,
+        ExecutionWorkloadKind.Runtime => provider.SupportsRuntimeWorkloads,
+        ExecutionWorkloadKind.ToolchainBuild => provider.SupportsToolchainBuildWorkloads,
+        _ => false
+    };
 
     private static bool CanTransition(ExecutionAssignmentStatus current, ExecutionAssignmentStatus next) =>
         (current, next) switch

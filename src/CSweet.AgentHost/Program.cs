@@ -40,6 +40,7 @@ builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService
 builder.Services.AddScoped<AgentEmployeeIdentityResolver>();
 builder.Services.AddScoped<PlatformLlmCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, PlatformGenAiCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, GenericMediaCapabilityHandler>();
 builder.Services.AddHostedService<CSweet.Infrastructure.GenAi.GenAiJobWorker>();
 builder.Services.AddSingleton<IMemoryStore>(_ => new PostgreSqlMemoryStore(
     builder.Configuration.GetConnectionString("Postgres")
@@ -53,6 +54,9 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, MemoryPlatformCapabilityA
 builder.Services.AddScoped<IPlatformCapabilityHandler, WebPlatformCapabilityAdapter>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, WebSocketPlatformCapabilityAdapter>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkforcePlatformCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, WorkstreamGovernanceCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, DeliveryEvidenceCapabilityHandler>();
+builder.Services.AddHostedService<ToolchainCertificationWorker>();
 builder.Services.AddScoped<CSweet.Agent.SDK.IWorkforceCatalogProvider>(services =>
     services.GetRequiredService<CSweet.Infrastructure.Marketplace.MarketplaceDiscoveryClient>());
 if (builder.Environment.IsDevelopment() &&

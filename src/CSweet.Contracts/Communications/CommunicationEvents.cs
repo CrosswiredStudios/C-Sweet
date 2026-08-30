@@ -49,7 +49,7 @@ public sealed record CommunicationChatEvent(
     Guid InitiatedByOrganizationUserId,
     Guid? AgentOrganizationUserId,
     Guid? TeamId,
-    Guid? ProjectId,
+    Guid? WorkstreamId,
     string? Title,
     string? Description,
     bool IsPrivate,

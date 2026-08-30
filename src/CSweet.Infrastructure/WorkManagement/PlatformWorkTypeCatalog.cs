@@ -31,13 +31,7 @@ public static class PlatformWorkTypeCatalog
             [WorkItemApprovalPolicyKeys.SoftwareArchitectureReviewV1]),
         new(WorkItemTypeKeys.SoftwareTaskV1, "Software task", WorkItemKinds.Task,
             [WorkBoardProfileKeys.SoftwareDeliveryV1], [WorkItemTypeKeys.SoftwareStoryV1, WorkItemTypeKeys.SoftwareTaskV1], ProviderKey,
-            [WorkItemApprovalPolicyKeys.SoftwareArchitectureReviewV1]),
-        new(WorkItemTypeKeys.VideoGameEpicV1, "Game epic", WorkItemKinds.Epic,
-            [WorkBoardProfileKeys.VideoGameProductionV1], [], ProviderKey, []),
-        new(WorkItemTypeKeys.VideoGameStoryV1, "Game story", WorkItemKinds.Story,
-            [WorkBoardProfileKeys.VideoGameProductionV1], [WorkItemTypeKeys.VideoGameEpicV1], ProviderKey, []),
-        new(WorkItemTypeKeys.VideoGameTaskV1, "Game production task", WorkItemKinds.Task,
-            [WorkBoardProfileKeys.VideoGameProductionV1], [WorkItemTypeKeys.VideoGameStoryV1, WorkItemTypeKeys.VideoGameTaskV1], ProviderKey, [])
+            [WorkItemApprovalPolicyKeys.SoftwareArchitectureReviewV1])
     ];
 
     private static readonly IReadOnlyList<WorkBoardProfileDefinition> Profiles =
@@ -47,10 +41,7 @@ public static class PlatformWorkTypeCatalog
              WorkItemTypeKeys.GeneralStoryV1, WorkItemTypeKeys.GeneralTaskV1], null),
         new(WorkBoardProfileKeys.SoftwareDeliveryV1, "Software delivery",
             [WorkItemTypeKeys.SoftwareEpicV1, WorkItemTypeKeys.SoftwareStoryV1,
-             WorkItemTypeKeys.SoftwareTaskV1], "software-delivery.v1"),
-        new(WorkBoardProfileKeys.VideoGameProductionV1, "Video-game production",
-            [WorkItemTypeKeys.VideoGameEpicV1, WorkItemTypeKeys.VideoGameStoryV1,
-             WorkItemTypeKeys.VideoGameTaskV1], "software-delivery.v1")
+             WorkItemTypeKeys.SoftwareTaskV1], "software-delivery.v1")
     ];
 
     private static readonly IReadOnlyDictionary<string, WorkItemTypeDefinition> TypesByKey =

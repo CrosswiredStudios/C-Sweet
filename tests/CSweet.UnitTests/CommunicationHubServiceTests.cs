@@ -30,7 +30,7 @@ public sealed class CommunicationHubServiceTests
             new CreateCommunicationChatRequest("vision", null, true, true, [collaborator.Id]))).Chat!;
         var document = await documents.CreateAsync(organization.Id,
             new(owner.ApplicationUserId.Value),
-            new("Game vision", "# Vision", GameDesignDocumentTypes.HighLevelGdd, "chat-create",
+            new("Game vision", "# Vision", "test.document.v1", "chat-create",
                 OriginConversationId: chat.Id));
         await documents.SubmitAsync(organization.Id, new(owner.ApplicationUserId.Value),
             document.Document.Id, new(document.LatestRevision.Id, "chat-submit", chat.Id));

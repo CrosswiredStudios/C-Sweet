@@ -14,6 +14,8 @@ public sealed class AgentCoordinationSession
 {
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
+    public Guid? WorkstreamId { get; set; }
+    public Guid? TeamId { get; set; }
     public Guid ConversationId { get; set; }
     public Guid? SourceConversationId { get; set; }
     public Guid? SourceChatTurnId { get; set; }
