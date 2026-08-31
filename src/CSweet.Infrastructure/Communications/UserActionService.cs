@@ -108,6 +108,7 @@ public sealed class UserActionService(
         new(action.Id, action.WorkflowType, action.Label, action.Description, action.NavigationUri,
             action.Status, action.CreatedAt)
         {
+            HiringRecommendationId = SuggestedUserActionParameters.ReadHiringRecommendationId(action.ParametersJson),
             ResultOrganizationUserId = action.ResultOrganizationUserId,
             CompletedAt = action.CompletedAt
         };
@@ -125,6 +126,26 @@ public sealed class UserActionService(
         var cleaned = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         if (cleaned?.Length > maximum) throw new ArgumentException($"{name} cannot exceed {maximum} characters.");
         return cleaned;
+    }
+}
+
+internal static class SuggestedUserActionParameters
+{
+    public static Guid? ReadHiringRecommendationId(string parametersJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(parametersJson);
+            return document.RootElement.TryGetProperty("recommendationId", out var recommendation) &&
+                   recommendation.ValueKind == JsonValueKind.String &&
+                   recommendation.TryGetGuid(out var recommendationId)
+                ? recommendationId
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }
 

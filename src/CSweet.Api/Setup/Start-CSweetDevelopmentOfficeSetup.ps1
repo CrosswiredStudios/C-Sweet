@@ -40,6 +40,50 @@ function Get-RequiredPositiveIntProperty([object] $InputObject, [string] $Name) 
     return $parsed
 }
 
+function Invoke-CSweetPinnedRestMethod {
+    param(
+        [Parameter(Mandatory = $true)][string] $Method,
+        [Parameter(Mandatory = $true)][uri] $Uri,
+        [Parameter(Mandatory = $true)][string] $Body
+    )
+
+    if ($null -eq $originUri -or
+        $Uri.GetLeftPart([UriPartial]::Authority) -ine $originUri.GetLeftPart([UriPartial]::Authority)) {
+        throw 'A pinned Office setup request targeted an unexpected origin.'
+    }
+
+    $script:controlPlaneRequestFailed = $false
+    $previousCallback = [Net.ServicePointManager]::ServerCertificateValidationCallback
+    try {
+        if (-not [String]::IsNullOrWhiteSpace($expectedControlPlaneCertificateSha256)) {
+            $expectedCertificateSha256 = $expectedControlPlaneCertificateSha256
+            [Net.ServicePointManager]::ServerCertificateValidationCallback = {
+                param($sender, $certificate, $chain, $errors)
+                if ($null -eq $certificate) { return $false }
+                $sha256 = [Security.Cryptography.SHA256]::Create()
+                try {
+                    $actual = [BitConverter]::ToString(
+                        $sha256.ComputeHash($certificate.GetRawCertData())).Replace('-', '').ToLowerInvariant()
+                    return $actual -ceq $expectedCertificateSha256
+                }
+                finally { $sha256.Dispose() }
+            }.GetNewClosure()
+        }
+
+        $response = Invoke-RestMethod -Method $Method -Uri $Uri -ContentType 'application/json' `
+            -Body $Body -TimeoutSec 30 -UseBasicParsing
+        return $response
+    }
+    catch {
+        $responseProperty = $_.Exception.PSObject.Properties['Response']
+        $script:controlPlaneRequestFailed = $null -eq $responseProperty -or $null -eq $responseProperty.Value
+        throw
+    }
+    finally {
+        [Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCallback
+    }
+}
+
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -54,10 +98,11 @@ $progressPath = $null
 $progressHelperLoaded = $false
 $sessionId = [guid]::Empty
 $origin = $null
+$originUri = $null
 $architecture = $null
 $redemption = $null
-$certificatePinInstalled = $false
-$previousCertificateValidationCallback = [Net.ServicePointManager]::ServerCertificateValidationCallback
+$expectedControlPlaneCertificateSha256 = $null
+$controlPlaneRequestFailed = $false
 try {
     $handoff = [IO.File]::ReadAllText($HandoffInputPath, [Text.Encoding]::UTF8).Trim()
     Remove-TransientFile $HandoffInputPath
@@ -73,7 +118,6 @@ try {
         throw 'The C-Sweet Office setup handoff has no one-use authorization.'
     }
     $handoffSecret = [Uri]::UnescapeDataString($fragment.Substring('handoff='.Length))
-    $originUri = $null
     if (-not [Uri]::TryCreate($origin, [UriKind]::Absolute, [ref]$originUri) -or
         -not ($originUri.Scheme -ceq 'https' -or ($originUri.Scheme -ceq 'http' -and $originUri.IsLoopback)) -or
         [String]::IsNullOrWhiteSpace($handoffSecret) -or $handoffSecret.Length -gt 256) {
@@ -100,22 +144,10 @@ try {
         -PercentComplete 0 -EstimatedRemainingMinimumSeconds 5 -EstimatedRemainingMaximumSeconds 45
 
     if ($originUri.Scheme -ceq 'https' -and -not [String]::IsNullOrWhiteSpace($handoffCertificateSha256)) {
-        $expectedCertificateSha256 = $handoffCertificateSha256.Trim().Replace(':', '').Replace('-', '').ToLowerInvariant()
-        if ($expectedCertificateSha256 -notmatch '^[0-9a-f]{64}$') {
+        $expectedControlPlaneCertificateSha256 = $handoffCertificateSha256.Trim().Replace(':', '').Replace('-', '').ToLowerInvariant()
+        if ($expectedControlPlaneCertificateSha256 -notmatch '^[0-9a-f]{64}$') {
             throw 'The C-Sweet Office setup handoff contains an invalid certificate fingerprint.'
         }
-        [Net.ServicePointManager]::ServerCertificateValidationCallback = {
-            param($sender, $certificate, $chain, $errors)
-            if ($null -eq $certificate) { return $false }
-            $sha256 = [Security.Cryptography.SHA256]::Create()
-            try {
-                $actual = [BitConverter]::ToString(
-                    $sha256.ComputeHash($certificate.GetRawCertData())).Replace('-', '').ToLowerInvariant()
-                return $actual -ceq $expectedCertificateSha256
-            }
-            finally { $sha256.Dispose() }
-        }.GetNewClosure()
-        $certificatePinInstalled = $true
     }
 
     $recoveryProbe = Join-Path $officeScriptRoot 'Get-CSweetOfficeRecoveryState.ps1'
@@ -135,8 +167,8 @@ try {
     } | ConvertTo-Json -Compress
     $preflight = $null
     try {
-        $preflight = Invoke-RestMethod -Method Post -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/preflight') `
-            -ContentType 'application/json' -Body $preflightRequest -TimeoutSec 30 -UseBasicParsing
+        $preflight = Invoke-CSweetPinnedRestMethod -Method Post `
+            -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/preflight') -Body $preflightRequest
     }
     catch {
         if ($null -ne $_.ErrorDetails -and -not [String]::IsNullOrWhiteSpace($_.ErrorDetails.Message)) {
@@ -165,8 +197,9 @@ try {
                 operatingSystem = 'windows'
                 architecture = $architecture
             } | ConvertTo-Json -Compress
-            Invoke-RestMethod -Method Post -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/removal-complete') `
-                -ContentType 'application/json' -Body $removalRequest -TimeoutSec 30 -UseBasicParsing | Out-Null
+            Invoke-CSweetPinnedRestMethod -Method Post `
+                -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/removal-complete') `
+                -Body $removalRequest | Out-Null
             $removalCompleted = $true
             Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
                 -State running -PhaseKey removal-complete -PhaseDisplayName 'Starting your fresh Office' `
@@ -181,9 +214,8 @@ try {
                 officeVersion = '0.3.0'
                 existingInstallationState = 'none'
             } | ConvertTo-Json -Compress
-            $preflight = Invoke-RestMethod -Method Post `
-                -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/preflight') `
-                -ContentType 'application/json' -Body $preflightRequest -TimeoutSec 30 -UseBasicParsing
+            $preflight = Invoke-CSweetPinnedRestMethod -Method Post `
+                -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/preflight') -Body $preflightRequest
             if (-not [bool]$preflight.proceedToRedemption) {
                 throw 'C-Sweet could not continue fresh Office installation after removal.'
             }
@@ -208,8 +240,9 @@ try {
                     architecture = $architecture
                 } | ConvertTo-Json -Compress
                 try {
-                    Invoke-RestMethod -Method Post -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/result') `
-                        -ContentType 'application/json' -Body $removalFailure -TimeoutSec 30 -UseBasicParsing | Out-Null
+                    Invoke-CSweetPinnedRestMethod -Method Post `
+                        -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/result') `
+                        -Body $removalFailure | Out-Null
                 } catch { }
             }
             Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
@@ -235,8 +268,8 @@ try {
         architecture = $architecture
         officeVersion = '0.3.0'
     } | ConvertTo-Json -Compress
-    $redemption = Invoke-RestMethod -Method Post -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/redeem') `
-        -ContentType 'application/json' -Body $request -TimeoutSec 30 -UseBasicParsing
+    $redemption = Invoke-CSweetPinnedRestMethod -Method Post `
+        -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/redeem') -Body $request
     if (-not $redemption.succeeded -or [String]::IsNullOrWhiteSpace([string]$redemption.enrollmentToken)) {
         throw 'C-Sweet could not authorize the local Office setup session.'
     }
@@ -310,12 +343,16 @@ try {
     catch {
         $failureMessage = $_.Exception.Message
         $reportedCode = 'office_setup_failed'
+        $bootstrapFailureAlreadyReported = $false
         if (-not [String]::IsNullOrWhiteSpace($progressPath) -and
             (Test-Path -LiteralPath $progressPath -PathType Leaf)) {
             try {
                 $reportedProgress = Get-Content -LiteralPath $progressPath -Raw | ConvertFrom-Json
-                if ([string]$reportedProgress.errorCode -in @('existing_office_detected', 'existing_office_active', 'reconnect_unsafe')) {
-                    $reportedCode = [string]$reportedProgress.errorCode
+                if ([guid]$reportedProgress.jobId -eq $sessionId) {
+                    $bootstrapFailureAlreadyReported = [string]$reportedProgress.state -ceq 'failed'
+                    if ([string]$reportedProgress.errorCode -in @('existing_office_detected', 'existing_office_active', 'reconnect_unsafe')) {
+                        $reportedCode = [string]$reportedProgress.errorCode
+                    }
                 }
             } catch { }
         }
@@ -330,22 +367,17 @@ try {
                 architecture = $architecture
             } | ConvertTo-Json -Compress
             try {
-                Invoke-RestMethod -Method Post -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/result') `
-                    -ContentType 'application/json' -Body $resultRequest -TimeoutSec 30 -UseBasicParsing | Out-Null
+                Invoke-CSweetPinnedRestMethod -Method Post `
+                    -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/result') `
+                    -Body $resultRequest | Out-Null
             } catch { }
         }
         if ($progressHelperLoaded -and $sessionId -ne [guid]::Empty -and
-            -not [String]::IsNullOrWhiteSpace($progressPath)) {
+            -not [String]::IsNullOrWhiteSpace($progressPath) -and -not $bootstrapFailureAlreadyReported) {
             try {
-                $failurePhaseName = 'Windows setup could not continue'
-                $failureUserMessage = 'Windows setup started, but could not continue. Review the error below and try again.'
-                if ($failureMessage -match 'connect|credential|SSL|TLS|secure channel|remote server') {
-                    $failurePhaseName = 'Secure connection to C-Sweet failed'
-                    $failureUserMessage = 'Windows could not establish the certificate-pinned connection to the local Execution Gateway. Restart C-Sweet and try again.'
-                }
                 Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
-                    -State failed -PhaseKey setup-paused -PhaseDisplayName $failurePhaseName `
-                    -Message $failureUserMessage `
+                    -State failed -PhaseKey setup-paused -PhaseDisplayName 'Windows setup could not continue' `
+                    -Message 'Windows setup started, but could not continue. Review the error below and try again.' `
                     -PercentComplete 0 -ErrorCode $reportedCode -ErrorMessage $failureMessage
             } catch { }
         }
@@ -367,9 +399,9 @@ catch {
             if (-not $failureAlreadyReported) {
                 $failurePhaseName = 'Windows setup could not continue'
                 $failureUserMessage = 'Windows setup started, but could not continue. Review the error below and try again.'
-                if ($failureMessage -match 'connect|credential|SSL|TLS|secure channel|trust relationship|remote server') {
+                if ($controlPlaneRequestFailed) {
                     $failurePhaseName = 'Secure connection to C-Sweet failed'
-                    $failureUserMessage = 'Windows could not establish the certificate-pinned connection to the local Execution Gateway. Restart C-Sweet and try again.'
+                    $failureUserMessage = 'Windows could not establish the certificate-pinned connection to C-Sweet. Restart C-Sweet and try again.'
                 }
                 Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
                     -State failed -PhaseKey setup-paused -PhaseDisplayName $failurePhaseName `
@@ -381,9 +413,6 @@ catch {
     throw
 }
 finally {
-    if ($certificatePinInstalled) {
-        [Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCertificateValidationCallback
-    }
     Remove-TransientFile $HandoffInputPath
     Remove-TransientFile $tokenPath
 }

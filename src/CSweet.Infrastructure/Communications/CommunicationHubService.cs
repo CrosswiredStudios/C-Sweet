@@ -1213,6 +1213,7 @@ public sealed class CommunicationHubService(
         new(action.Id, action.WorkflowType, action.Label, action.Description, action.NavigationUri,
             action.Status, action.CreatedAt)
         {
+            HiringRecommendationId = SuggestedUserActionParameters.ReadHiringRecommendationId(action.ParametersJson),
             ResultOrganizationUserId = action.ResultOrganizationUserId,
             ResultOrganizationUserDisplayName = action.ResultOrganizationUserId.HasValue &&
                                                 users.TryGetValue(action.ResultOrganizationUserId.Value, out var result)

@@ -136,13 +136,23 @@ public sealed class OfficeSchemaRepairTests
         Assert.Contains("PhaseKey connect-control-plane", launcher, StringComparison.Ordinal);
         Assert.Contains("$progressHelperLoaded = $false", launcher, StringComparison.Ordinal);
         Assert.Contains("$redemption = $null", launcher, StringComparison.Ordinal);
+        Assert.Contains("function Invoke-CSweetPinnedRestMethod", launcher, StringComparison.Ordinal);
         Assert.Contains("ServerCertificateValidationCallback", launcher, StringComparison.Ordinal);
         Assert.Contains("$expectedCertificateSha256", launcher, StringComparison.Ordinal);
         Assert.Contains("GetRawCertData()", launcher, StringComparison.Ordinal);
+        Assert.Contains("$script:controlPlaneRequestFailed = $null -eq $responseProperty", launcher, StringComparison.Ordinal);
+        Assert.Contains("ServerCertificateValidationCallback = $previousCallback", launcher, StringComparison.Ordinal);
+        Assert.True(System.Text.RegularExpressions.Regex.Matches(
+            launcher, @"\bInvoke-RestMethod\b", System.Text.RegularExpressions.RegexOptions.CultureInvariant).Count == 1);
+        Assert.True(
+            launcher.IndexOf("ServerCertificateValidationCallback = $previousCallback", StringComparison.Ordinal) <
+            launcher.IndexOf("& $OfficeBootstrapScript", StringComparison.Ordinal));
         Assert.Contains("$failureAlreadyReported", launcher, StringComparison.Ordinal);
+        Assert.Contains("$bootstrapFailureAlreadyReported", launcher, StringComparison.Ordinal);
         Assert.Contains("Windows setup started, but could not continue", launcher, StringComparison.Ordinal);
         Assert.Contains("Secure connection to C-Sweet failed", launcher, StringComparison.Ordinal);
         Assert.Contains("certificate-pinned connection", launcher, StringComparison.Ordinal);
+        Assert.DoesNotContain("$failureMessage -match", launcher, StringComparison.Ordinal);
         Assert.Contains("$originUri.IsLoopback", launcher, StringComparison.Ordinal);
         Assert.True(launcher.IndexOf("local-sessions/preflight", StringComparison.Ordinal) <
             launcher.IndexOf("local-sessions/redeem", StringComparison.Ordinal));

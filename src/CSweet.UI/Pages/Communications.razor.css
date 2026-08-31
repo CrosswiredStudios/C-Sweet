@@ -82,12 +82,19 @@
 .hub-message-body { min-width: 0; }
 .hub-message-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin-top: .75rem; }
 .hub-system-action-message { max-width: 38rem; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; margin: 10px 8px 12px 57px; padding: 16px; border: 1px solid #dcd6f8; border-radius: 13px; background: linear-gradient(135deg, #faf9ff, #f4f1ff); box-shadow: 0 5px 18px rgba(63, 48, 135, .08); }
+.hub-system-action-message.completed { border-color: #c8dfd1; background: linear-gradient(135deg, #fbfefc, #f1faf5); box-shadow: 0 5px 18px rgba(38, 112, 72, .08); }
 .hub-system-action-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(145deg, #806de4, #5140b3); }
+.hub-system-action-message.completed .hub-system-action-icon { background: linear-gradient(145deg, #3d9a68, #267048); }
 .hub-system-action-icon ::deep .mud-icon-root { font-size: 21px; }
 .hub-system-action-content { min-width: 0; display: grid; gap: 5px; }
 .hub-system-action-content > span { color: #6750d8; font-size: .64rem; font-weight: 850; letter-spacing: .1em; }
+.hub-system-action-message.completed .hub-system-action-content > span { color: #267048; }
 .hub-system-action-content > strong { color: #201a3b; font-size: .95rem; }
 .hub-system-action-content > p { margin: 0; color: var(--hub-muted); font-size: .8rem; line-height: 1.4; }
+.hub-system-action-key { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; color: var(--hub-muted); font-size: .7rem; }
+.hub-system-action-key > span { font-weight: 750; }
+.hub-system-action-key > code { overflow-wrap: anywhere; color: #514768; font-size: .7rem; }
+.hub-system-action-completed { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 5px; color: #244f38; font-size: .8rem; font-weight: 650; }
 .hub-system-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
 .hub-resource-change-approval { max-width: 42rem; margin: 12px 0 4px; }
 .hub-resource-change-roles { display: grid; gap: 8px; margin-top: 6px; }

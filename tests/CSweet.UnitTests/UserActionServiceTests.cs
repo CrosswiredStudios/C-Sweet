@@ -111,6 +111,7 @@ public sealed class UserActionServiceTests
         Assert.Equal(
             $"/organizations/{organization.Id:D}/marketplace?role=Product%20Manager&recommendationId={recommendationId:D}",
             action.NavigationUri);
+        Assert.Equal(recommendationId, action.HiringRecommendationId);
         Assert.DoesNotContain("attacker", action.NavigationUri, StringComparison.OrdinalIgnoreCase);
         var persistedAction = Assert.Single(await db.SuggestedUserActions.ToListAsync());
         var systemMessage = Assert.Single(
@@ -137,6 +138,7 @@ public sealed class UserActionServiceTests
         Assert.Equal("C-Sweet", systemResponse.SenderDisplayName);
         Assert.Equal("System", systemResponse.SenderEmployeeType);
         Assert.Equal(action.Id, Assert.Single(systemResponse.Actions!).Id);
+        Assert.Equal(recommendationId, Assert.Single(systemResponse.Actions!).HiringRecommendationId);
 
         persistedAction.Status = "Completed";
         persistedAction.ResultOrganizationUserId = other.Id;
@@ -146,6 +148,7 @@ public sealed class UserActionServiceTests
         var completedResponse = Assert.Single(
             Assert.Single(responses!, x => x.MessageType == CommunicationMessageTypes.SystemAction).Actions!);
         Assert.Equal("Completed", completedResponse.Status);
+        Assert.Equal(recommendationId, completedResponse.HiringRecommendationId);
         Assert.Equal(other.Id, completedResponse.ResultOrganizationUserId);
         Assert.Equal(other.DisplayName, completedResponse.ResultOrganizationUserDisplayName);
         Assert.Equal(persistedAction.CompletedAt, completedResponse.CompletedAt);
