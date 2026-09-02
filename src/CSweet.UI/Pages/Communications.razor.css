@@ -49,7 +49,8 @@
 .hub-settings { margin-top: auto; padding: 14px 17px; border-top: 1px solid var(--hub-line); display: flex; align-items: center; gap: 9px; color: #6f7783; font-size: .78rem; text-decoration: none; }
 .hub-settings:hover { color: var(--hub-purple); }
 
-.hub-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: 73px auto minmax(0, 1fr) auto; background: #fff; }
+.hub-main { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: 73px auto minmax(0, 1fr) auto; background: #fff; }
+.hub-conversation-loading { position: absolute; z-index: 40; inset: 73px 0 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--hub-muted); background: rgba(255, 255, 255, .86); backdrop-filter: blur(2px); font-size: .8rem; }
 .hub-chat-header { grid-row: 1; display: flex; align-items: center; justify-content: space-between; padding: 11px 20px; border-bottom: 1px solid var(--hub-line); box-shadow: 0 1px 5px #1d22300a; }
 .hub-title-line { display: flex; align-items: center; gap: 8px; font-size: 1rem; }
 .hub-title-line ::deep .mud-icon-root { color: #707988; font-size: 20px; }

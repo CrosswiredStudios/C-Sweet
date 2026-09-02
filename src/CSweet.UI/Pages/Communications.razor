@@ -942,12 +942,43 @@
         Navigation.NavigateTo(href);
     }
 
-    private Task SelectChatAsync(CommunicationChatResponse chat)
+    private Task SelectChatAsync(CommunicationChatResponse chat) =>
+        SwitchChatAsync(chat, updateLocation: true);
+
+    private async Task SwitchChatAsync(CommunicationChatResponse chat, bool updateLocation)
     {
         _thinkingDialogOpen = false;
         _notice = null;
-        Navigation.NavigateTo(ChatHref(chat.Id));
-        return Task.CompletedTask;
+        if (_selected?.Id != chat.Id)
+        {
+            _selected = chat;
+            _messages.Clear();
+            _coordinationSessions.Clear();
+            _switchingChat = true;
+            await InvokeAsync(StateHasChanged);
+
+            try
+            {
+                await LoadMessagesAsync();
+            }
+            catch (OperationCanceledException) when (_selected?.Id != chat.Id || _disposeCts.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                if (_selected?.Id == chat.Id)
+                    _notice = $"This conversation could not be opened. {exception.Message}";
+            }
+            finally
+            {
+                if (_selected?.Id == chat.Id)
+                    _switchingChat = false;
+            }
+        }
+
+        if (updateLocation && _selected?.Id == chat.Id && ChatId != chat.Id)
+            Navigation.NavigateTo(ChatHref(chat.Id));
     }
 
     private Task OpenDirectEntryAsync(DirectMessageEntry entry) =>
@@ -1482,12 +1513,13 @@
             person.Id == _hub.CurrentOrganizationUserId)
             return;
         var existing = _hub.Chats.FirstOrDefault(x => x.IsDirect && x.Participants.Any(p => p.OrganizationUserId == person.Id));
-        if (existing is not null) { Navigation.NavigateTo(ChatHref(existing.Id)); return; }
+        if (existing is not null) { await SelectChatAsync(existing); return; }
         var request = new CreateCommunicationChatRequest(null, null, true, true, [person.Id]);
         var response = await Http.PostAsJsonAsync($"{BasePath}/chats", request, _disposeCts.Token);
         if (!response.IsSuccessStatusCode) { _notice = await response.Content.ReadAsStringAsync(_disposeCts.Token); return; }
         var chat = await response.Content.ReadFromJsonAsync<CommunicationChatResponse>(_disposeCts.Token);
         if (chat is null) return;
+        await RefreshHubAsync(chat.Id);
         Navigation.NavigateTo(ChatHref(chat.Id));
     }
 
@@ -1532,7 +1564,11 @@
             if (!response.IsSuccessStatusCode) { _editorError = await response.Content.ReadAsStringAsync(_disposeCts.Token); return; }
             var chat = await response.Content.ReadFromJsonAsync<CommunicationChatResponse>(_disposeCts.Token);
             _showEditor = false;
-            if (creating && chat is not null) Navigation.NavigateTo(ChatHref(chat.Id));
+            if (creating && chat is not null)
+            {
+                await RefreshHubAsync(chat.Id);
+                Navigation.NavigateTo(ChatHref(chat.Id));
+            }
             else await RefreshHubAsync(chat?.Id ?? _editing?.Id);
         }
         finally { _editorBusy = false; }
@@ -1550,6 +1586,7 @@
             if (!response.IsSuccessStatusCode) { _editorError = await response.Content.ReadAsStringAsync(_disposeCts.Token); return; }
             _showEditor = false;
             _selected = null;
+            await RefreshHubAsync();
             Navigation.NavigateTo($"/organizations/{OrganizationId}/communications");
         }
         finally { _editorBusy = false; }
@@ -1747,6 +1784,19 @@
         return PerspectiveAgentId.HasValue
             ? $"{href}?perspective={PerspectiveAgentId.Value:D}"
             : href;
+    }
+
+    private string CurrentWorkspaceHref(Guid? artifactId = null)
+    {
+        var href = _selected is null
+            ? $"/organizations/{OrganizationId:D}/communications"
+            : $"/organizations/{OrganizationId:D}/communications/{_selected.Id:D}";
+        var query = new List<string>();
+        if (PerspectiveAgentId.HasValue)
+            query.Add($"perspective={PerspectiveAgentId.Value:D}");
+        if (artifactId.HasValue)
+            query.Add($"artifact={artifactId.Value:D}");
+        return query.Count == 0 ? href : $"{href}?{string.Join("&", query)}";
     }
 
     private void OnRealtimeEvent(CSweet.Contracts.Realtime.AppRealtimeEventEnvelope envelope)
