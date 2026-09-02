@@ -62,44 +62,6 @@ public sealed class PlanningApiClient : IPlanningApiClient
             ?? throw new ApiClientException(response.StatusCode, "Reset response was empty.");
     }
 
-    public async Task<IReadOnlyList<PlanningDocumentResponse>> ListDocumentsAsync(Guid organizationId, CancellationToken cancellationToken = default)
-    {
-        return await _httpClient.GetFromJsonAsync<IReadOnlyList<PlanningDocumentResponse>>(
-                $"api/organizations/{organizationId}/documents", cancellationToken)
-            ?? [];
-    }
-
-    public async Task<PlanningDocumentResponse> GetDocumentAsync(Guid id, CancellationToken cancellationToken = default)
-    {
-        return await _httpClient.GetFromJsonAsync<PlanningDocumentResponse>($"api/documents/{id}", cancellationToken)
-            ?? throw new ApiClientException(System.Net.HttpStatusCode.NotFound, "Document not found.");
-    }
-
-    public async Task<PlanningDocumentResponse> GenerateDocumentAsync(GeneratePlanningDocumentRequest request, CancellationToken cancellationToken = default)
-    {
-        var response = await _httpClient.PostAsJsonAsync(
-            $"api/organizations/{request.OrganizationId}/documents/generate", request, cancellationToken);
-
-        if (response.IsSuccessStatusCode)
-        {
-            return await response.Content.ReadFromJsonAsync<PlanningDocumentResponse>(cancellationToken)
-                ?? throw new ApiClientException(response.StatusCode, "Generate response was empty.");
-        }
-
-        var error = await response.Content.ReadFromJsonAsync<PlanningActionResponse>(cancellationToken);
-        throw new ApiClientException(response.StatusCode, error?.Message ?? "Failed to generate document.");
-    }
-
-    public async Task<PlanningDocumentResponse> UpdateDocumentContentAsync(Guid id, string content, CancellationToken cancellationToken = default)
-    {
-        var response = await _httpClient.PutAsync(
-            $"api/organizations/{id}/documents/{id}/content",
-            new StringContent(content), cancellationToken);
-
-        return await response.Content.ReadFromJsonAsync<PlanningDocumentResponse>(cancellationToken)
-            ?? throw new ApiClientException(response.StatusCode, "Update response was empty.");
-    }
-
     public async Task<IReadOnlyList<PlanningWorkflowResponse>> ListWorkflowsAsync(CancellationToken cancellationToken = default)
     {
         return await _httpClient.GetFromJsonAsync<IReadOnlyList<PlanningWorkflowResponse>>("api/planning-workflows", cancellationToken)

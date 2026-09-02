@@ -87,7 +87,9 @@ public sealed class PlatformLlmCapabilityHandler
 
         if (input.Messages.Count > 128 ||
             input.Messages.Sum(MessageSize) > 262_144 ||
-            (input.Tools?.Count ?? 0) > 128)
+            (input.Tools?.Count ?? 0) > 128 ||
+            input.MaxOutputTokens is < 1 or > 32_768 ||
+            input.Temperature is < 0 or > 2)
         {
             yield return Failure(request.RequestId, "The LLM request exceeds the message, text, or tool limit.");
             yield break;
@@ -195,6 +197,8 @@ public sealed class PlatformLlmCapabilityHandler
         var runStopwatch = Stopwatch.StartNew();
         var options = new ChatOptions
         {
+            Temperature = input.Temperature,
+            MaxOutputTokens = input.MaxOutputTokens,
             Instructions = identity is null
                 ? combinedInstructions
                 : AgentEmployeeIdentityResolver.ApplyToInstructions(session, identity, combinedInstructions),

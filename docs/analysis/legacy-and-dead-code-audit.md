@@ -74,7 +74,7 @@ In either case, expose one management API with one DTO vocabulary. Because there
 
 The repository has a newer brokered/container runtime, but older direct execution remains active:
 
-- `PlanningRunService` and `PlanningDocumentService` inject the in-process `IAgentRunner` (`src/CSweet.Infrastructure/Planning/PlanningRunService.cs:13-23` and `PlanningDocumentService.cs:13-19`).
+- `PlanningRunService` still injects the in-process `IAgentRunner` (`src/CSweet.Infrastructure/Planning/PlanningRunService.cs`). The duplicate `PlanningDocumentService` identified by this audit has since been retired in favor of collaborative artifacts.
 - `AgentFrameworkAgentRunner` calls `ILlmProviderFactory`/`IChatClient` directly rather than using the brokered agent runtime (`src/CSweet.AI/AgentFramework/AgentFrameworkAgentRunner.cs:11-58`).
 - DI registers that direct runner alongside the runtime and planning services (`src/CSweet.Infrastructure/DependencyInjection.cs:146-152`).
 - The chat path first dispatches to an agent, but on failure invokes the model provider directly and deliberately bypasses memory capture (`src/CSweet.Api/Chat/ChatTurnWorker.cs:265-304`). The fallback has its own two-minute timeout (`src/CSweet.Api/Chat/ChatTurnOptions.cs:8-14` and `src/CSweet.Api/appsettings.json:14`).
@@ -111,7 +111,7 @@ The designer files and snapshot repeat the full model many times and make schema
 
 ### 7. P2 — Business constraints still use a legacy catch-all field and parser
 
-The newer `BusinessProfile` stores structured profile fields, but constraints still live in `Organization.ConstraintsJson`. The workforce handler calls `ReadLegacyConstraints`, accepting either an array or an older object with a `constraints` property (`src/CSweet.AgentHost/Broker/WorkforcePlatformCapabilityHandler.cs:81-91` and `:457-461`). Other planning services pass the raw JSON through as text (`src/CSweet.Infrastructure/Planning/PlanningRunService.cs:260-261` and `PlanningDocumentService.cs:158-159`). The legacy field also remains in create/update/response contracts.
+The newer `BusinessProfile` stores structured profile fields, but constraints still live in `Organization.ConstraintsJson`. The workforce handler calls `ReadLegacyConstraints`, accepting either an array or an older object with a `constraints` property (`src/CSweet.AgentHost/Broker/WorkforcePlatformCapabilityHandler.cs:81-91` and `:457-461`). `PlanningRunService` also passes the raw JSON through as text. The legacy field remains in create/update/response contracts.
 
 **Recommendation:** Add one canonical typed/JSONB `Constraints` collection to `BusinessProfile`, update all readers and writers, and remove `Organization.ConstraintsJson` plus its compatibility parser. Fold the database change into the new baseline migration.
 

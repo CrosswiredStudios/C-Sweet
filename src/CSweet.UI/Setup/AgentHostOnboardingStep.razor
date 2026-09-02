@@ -62,7 +62,8 @@
 
         @if (_installationTarget == "local")
         {
-            @LocalExperience()
+            @if (ManualLocalSetup) { @RemoteExperience() }
+            else { @LocalExperience() }
         }
         else
         {
@@ -87,7 +88,7 @@
         }
     }
 
-    @if (_installationTarget == "remote")
+    @if (_installationTarget == "remote" || ManualLocalSetup)
     {
         <footer class="host-onboarding-actions">
             <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">Back</MudButton>
@@ -142,6 +143,11 @@
     {
         await RefreshAsync();
         await RestoreActiveLocalSetupAsync();
+        if (ManualLocalSetup)
+        {
+            _remotePlatform = "linux";
+            await EnsureManualLocalEnrollmentAsync();
+        }
         StartPolling();
     }
 
@@ -167,7 +173,15 @@
     {
         if (target == "remote" && LocalSetupLocksLocation) return;
         _installationTarget = target;
-        if (target == "local") return;
+        if (target == "local")
+        {
+            if (ManualLocalSetup)
+            {
+                _remotePlatform = "linux";
+                await EnsureManualLocalEnrollmentAsync();
+            }
+            return;
+        }
         BeginStatusMutation();
         _busy = true;
         _actionMessage = null;
@@ -433,6 +447,27 @@
         finally
         {
             _automaticEnrollmentInFlight = false;
+            EndStatusMutation();
+        }
+    }
+
+    private async Task EnsureManualLocalEnrollmentAsync()
+    {
+        BeginStatusMutation();
+        _busy = true;
+        try
+        {
+            var result = await SetupApi.SelectExecutionModeAsync("remote");
+            Apply(result);
+            if (result.Succeeded) await EnsureRemoteEnrollmentAsync();
+        }
+        catch
+        {
+            SetAction(false, "C-Sweet could not prepare the Linux connection code. Try again.");
+        }
+        finally
+        {
+            _busy = false;
             EndStatusMutation();
         }
     }
@@ -760,6 +795,8 @@
                             <h2 id="remote-host-title">Install a C-Sweet Office</h2>
                         </div>
                     </div>
+                    @if (!ManualLocalSetup)
+                    {
                     <div class="host-platform-picker" role="group" aria-label="C-Sweet Office operating system">
                         @foreach (var platform in RemotePlatforms)
                         {
@@ -770,6 +807,7 @@
                             </button>
                         }
                     </div>
+                    }
 
                     @if (_status?.Packages is { } packages && !string.IsNullOrWhiteSpace(packages.ControlPlaneUrl))
                     {
@@ -1201,6 +1239,9 @@
     private static bool IsFailed(LocalExecutionNodeProvisioningProgressResponse progress) => progress.State == "failed";
     private static string DisplayPlatform(ExecutionNodeSummaryResponse node) => $"{Title(node.OperatingSystem)} / {node.Architecture}";
     private static string Title(string value) => value switch { "windows" => "Windows", "linux" => "Linux", "macos" => "macOS", _ => value };
+
+    private string LocalPlatform => _status?.LocalOperatingSystem ?? "windows";
+    private bool ManualLocalSetup => _installationTarget == "local" && LocalPlatform == "linux";
 
     private static string FormatDuration(TimeSpan duration)
     {

@@ -2062,7 +2062,7 @@ body { color: var(--cs-navy); }
 .artifact-decision-bar .mud-input-control { flex: 1; }
 .artifact-history-row, .artifact-access-row { display: flex; flex-direction: column; padding: .5rem 0; }
 .artifact-access-row { border-bottom: 1px solid var(--mud-palette-lines-default); }
-.communications-document-layout { display: flex; min-width: 0; }
+.communications-document-layout { display: flex; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .communications-document-layout > .hub-page { flex: 1 1 auto; min-width: 0; }
 .hub-message-artifacts { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .55rem; }
 .hub-message-artifacts button { display: flex; align-items: center; gap: .4rem; border: 1px solid var(--mud-palette-primary); background: transparent; color: var(--mud-palette-primary); border-radius: .5rem; padding: .45rem .65rem; cursor: pointer; }

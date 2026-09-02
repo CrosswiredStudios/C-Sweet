@@ -27,25 +27,6 @@ internal static class PlanningMappers
 
     #endregion
 
-    #region PlanningDocument
-
-    public static PlanningDocumentResponse ToResponse(this PlanningDocument doc)
-    {
-        return new PlanningDocumentResponse(
-            doc.Id,
-            doc.Title,
-            doc.DocumentType,
-            doc.Content,
-            doc.Summary,
-            doc.Version,
-            doc.IsLatest,
-            doc.GeneratedAt,
-            doc.CreatedAt,
-            doc.UpdatedAt);
-    }
-
-    #endregion
-
     #region PlanningWorkflow
 
     public static PlanningWorkflowResponse ToResponse(this PlanningWorkflow workflow)

@@ -135,7 +135,8 @@ public sealed class ExecutionFleetService(
                 "Configure both CSweet:AgentRuntime image digests before enabling production execution."));
         var localCapacity = DetectLocalCapacity();
         IReadOnlyList<ExecutionCapacityCheckResponse> localPrerequisites = localCapacity.IsSupported
-            ? [Passed("local-capacity", "Local Office capacity", "This Windows host has safe capacity for C-Sweet Office.")]
+            ? [Passed("local-capacity", "Local Office capacity",
+                $"This {(OperatingSystem.IsLinux() ? "Linux" : "Windows")} host has safe capacity for C-Sweet Office.")]
             : [Required("local-capacity", "Local Office capacity", localCapacity.UnavailableReason ??
                 "Assisted local setup is unavailable.", "Choose another machine or free resources and try again.")];
         return new ExecutionCapacityOnboardingResponse(
@@ -228,6 +229,12 @@ public sealed class ExecutionFleetService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (OperatingSystem.IsLinux())
+            return await LocalFailureAsync("manual_setup_required",
+                "Linux Office setup uses the signed package and an explicit administrator command.", cancellationToken);
+        if (!OperatingSystem.IsWindows())
+            return await LocalFailureAsync("assisted_setup_unavailable",
+                "Assisted local Office setup is unavailable on this platform.", cancellationToken);
         var now = timeProvider.GetUtcNow();
         await ExpireLocalSetupSessionsAsync(now, cancellationToken);
         var existing = await dbContext.LocalOfficeSetupSessions
@@ -1513,7 +1520,7 @@ public sealed class ExecutionFleetService(
             freeDisk = 0;
         }
         return LocalOfficeCapacityCalculator.Calculate(
-            Environment.ProcessorCount, totalMemory, freeDisk, OperatingSystem.IsWindows());
+            Environment.ProcessorCount, totalMemory, freeDisk, LocalOperatingSystem());
     }
 
     private async Task ExpireLocalSetupSessionsAsync(

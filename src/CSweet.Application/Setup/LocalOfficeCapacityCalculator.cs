@@ -17,8 +17,17 @@ public static class LocalOfficeCapacityCalculator
         int totalCpuCount,
         long totalMemoryBytes,
         long freeDiskBytes,
-        bool isWindows)
+        bool isWindows) => Calculate(totalCpuCount, totalMemoryBytes, freeDiskBytes,
+            isWindows ? "windows" : "unsupported");
+
+    public static LocalOfficeCapacityResponse Calculate(
+        int totalCpuCount,
+        long totalMemoryBytes,
+        long freeDiskBytes,
+        string operatingSystem)
     {
+        var platform = operatingSystem.Trim().ToLowerInvariant();
+        var platformSupported = platform is "windows" or "linux";
         var totalMemoryMb = ToWholeMb(totalMemoryBytes);
         var freeDiskMb = ToWholeMb(freeDiskBytes);
         var reservedCpu = Math.Max(1, DivideRoundUp(Math.Max(1, totalCpuCount), 4));
@@ -27,10 +36,10 @@ public static class LocalOfficeCapacityCalculator
         var safeCpu = Math.Max(0, totalCpuCount - reservedCpu);
         var safeMemory = RoundDown(Math.Max(0, totalMemoryMb - reservedMemory), 1024);
         var safeDisk = RoundDown(Math.Max(0, freeDiskMb - reservedDisk), 1024);
-        var supported = isWindows && safeCpu >= MinimumCpuCount &&
+        var supported = platformSupported && safeCpu >= MinimumCpuCount &&
             safeMemory >= MinimumMemoryMb && safeDisk >= MinimumDiskMb;
-        var reason = !isWindows
-            ? "Assisted local setup is currently available on Windows only."
+        var reason = !platformSupported
+            ? "Assisted local setup is available on Windows and Linux."
             : supported ? null : "This machine does not have enough safe free capacity for C-Sweet Office.";
 
         return new LocalOfficeCapacityResponse(

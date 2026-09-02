@@ -1,5 +1,8 @@
 using System.Text.Json;
 using CSweet.Application.Setup;
+using CSweet.Contracts.Core;
+using CSweet.Domain.Core;
+using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -49,8 +52,13 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             .Distinct()
             .ToArrayAsync(cancellationToken);
         if (driftDefinitionIds.Length == 0)
-            return await new AgentCapabilityBindingReconciler(db, auditWriter)
+        {
+            var artifactGrantChanges = await ReconcileApprovedArtifactCreateGrantsAsync(cancellationToken);
+            if (artifactGrantChanges > 0)
+                await db.SaveChangesAsync(cancellationToken);
+            return artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
                 .ReconcileAsync(cancellationToken: cancellationToken);
+        }
 
         var definitions = await db.AgentDefinitions
             .Include(x => x.PackageVersion)
@@ -69,8 +77,13 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                 .Select(installation => (Definition: definition, Installation: installation)))
             .ToList();
         if (deployments.Count == 0)
-            return await new AgentCapabilityBindingReconciler(db, auditWriter)
+        {
+            var artifactGrantChanges = await ReconcileApprovedArtifactCreateGrantsAsync(cancellationToken);
+            if (artifactGrantChanges > 0)
+                await db.SaveChangesAsync(cancellationToken);
+            return artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
                 .ReconcileAsync(cancellationToken: cancellationToken);
+        }
 
         var installationIds = deployments.Select(x => x.Installation.Id).ToArray();
         var sessions = await db.McpAgentSessions
@@ -224,6 +237,8 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             }
         }
 
+        var artifactGrantChangesAfterDeployment =
+            await ReconcileApprovedArtifactCreateGrantsAsync(cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         foreach (var entry in auditEntries)
         {
@@ -237,7 +252,7 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
 
         var repairedBindings = await new AgentCapabilityBindingReconciler(db, auditWriter)
             .ReconcileAsync(cancellationToken: cancellationToken);
-        return deployments.Count + repairedBindings;
+        return deployments.Count + artifactGrantChangesAfterDeployment + repairedBindings;
 
         bool ProviderOffers(Guid providerInstallationId, string capability)
         {
@@ -251,6 +266,71 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                 .DeserializeManifest(manifestJson)
                 .Provides.Any(x => string.Equals(x.Name, capability, StringComparison.Ordinal));
         }
+    }
+
+    private async Task<int> ReconcileApprovedArtifactCreateGrantsAsync(
+        CancellationToken cancellationToken)
+    {
+        var employees = await db.CoreOrganizationUsers
+            .Include(x => x.AgentInstallation)!
+                .ThenInclude(x => x!.Grant)
+            .Where(x => x.IsActive &&
+                        x.EmployeeType == EmployeeType.Agent &&
+                        x.AgentInstallationId.HasValue &&
+                        x.AgentInstallation != null &&
+                        x.AgentInstallation.IsEnabled &&
+                        x.AgentInstallation.RevisionStatus == PluginRevisionStatus.Active)
+            .ToListAsync(cancellationToken);
+        if (employees.Count == 0)
+            return 0;
+
+        var installationIds = employees.Select(x => x.AgentInstallationId!.Value).ToArray();
+        var grants = await db.ScopedActionGrants
+            .Where(x => installationIds.Contains(x.SubjectId) &&
+                        x.SubjectKind == GrantSubjectKind.AgentInstallation &&
+                        x.ScopeKind == GrantScopeKind.Organization &&
+                        x.Action == ArtifactActions.Create)
+            .ToListAsync(cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var changes = 0;
+
+        foreach (var employee in employees)
+        {
+            var installationId = employee.AgentInstallationId!.Value;
+            var activeGrants = grants.Where(x => x.SubjectId == installationId && x.RevokedAt == null).ToList();
+            var approved = employee.AgentInstallation!.Grant is { ApprovedAt: var approvedAt } grant &&
+                           approvedAt != default &&
+                           DeserializeGrant(grant.RequiredCapabilitiesJson)
+                               .Contains(ArtifactPlatformCapabilities.Create);
+            if (approved)
+            {
+                if (activeGrants.Count > 0 || !employee.ReportsToOrganizationUserId.HasValue)
+                    continue;
+                db.ScopedActionGrants.Add(new ScopedActionGrant
+                {
+                    Id = Guid.NewGuid(),
+                    OrganizationId = employee.OrganizationId,
+                    SubjectKind = GrantSubjectKind.AgentInstallation,
+                    SubjectId = installationId,
+                    Action = ArtifactActions.Create,
+                    ScopeKind = GrantScopeKind.Organization,
+                    GrantedBySubjectKind = GrantSubjectKind.OrganizationUser,
+                    GrantedBySubjectId = employee.ReportsToOrganizationUserId,
+                    GrantedAt = now
+                });
+                changes++;
+                continue;
+            }
+
+            foreach (var activeGrant in activeGrants)
+            {
+                activeGrant.RevokedAt = now;
+                activeGrant.Revision++;
+                changes++;
+            }
+        }
+
+        return changes;
     }
 
     private static Dictionary<string, JsonElement> DeserializeSettings(string json) =>

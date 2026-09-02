@@ -138,7 +138,7 @@
 .hub-turn-running { display: grid; gap: 7px; margin-top: 9px; color: var(--hub-muted); font-size: .76rem; }
 .hub-turn-reasoning, .hub-turn-activity { margin: 8px 0; color: var(--hub-muted); font-size: .78rem; }
 .hub-turn-reasoning summary, .hub-turn-activity summary { cursor: pointer; font-weight: 700; }
-.hub-turn-reasoning-text { margin-top: 6px; white-space: pre-wrap; font-style: italic; color: #7b8190; }
+.hub-turn-reasoning-text { margin-top: 6px; white-space: pre-wrap; color: #646b78; font-size: .76rem; font-style: italic; line-height: 1.45; }
 .hub-turn-activity > div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
 .hub-turn-activity small { text-transform: uppercase; opacity: .72; }
 .hub-turn-draft-label { display: inline-flex; margin: 4px 0 2px; padding: 2px 6px; border-radius: 999px; background: #ece9fb; color: #6256a8; font-size: .64rem; font-weight: 800; letter-spacing: .08em; }

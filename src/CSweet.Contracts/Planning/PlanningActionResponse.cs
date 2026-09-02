@@ -4,5 +4,4 @@ public sealed record PlanningActionResponse(
     bool Succeeded,
     string? ErrorCode,
     string? Message,
-    PlanningRunResponse? PlanningRun = null,
-    PlanningDocumentResponse? Document = null);
+    PlanningRunResponse? PlanningRun = null);

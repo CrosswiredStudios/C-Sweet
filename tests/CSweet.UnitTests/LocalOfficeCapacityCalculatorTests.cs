@@ -49,6 +49,16 @@ public sealed class LocalOfficeCapacityCalculatorTests
     }
 
     [Fact]
+    public void Calculate_SupportsLinuxHostsForManualLocalInstallation()
+    {
+        var capacity = LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 100L << 30, "linux");
+
+        Assert.True(capacity.IsSupported);
+        Assert.Null(capacity.UnavailableReason);
+        Assert.Equal(3, capacity.Presets.Count);
+    }
+
+    [Fact]
     public void Contains_EnforcesSafeBoundsAndWholeGigabyteStorageUnits()
     {
         var capacity = LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 100L << 30, true);

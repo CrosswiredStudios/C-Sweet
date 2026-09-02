@@ -9,7 +9,6 @@ internal static class PlanningConfigurations
     public static void Apply(this ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<PlanningTask>(ConfigurePlanningTask);
-        modelBuilder.Entity<PlanningDocument>(ConfigurePlanningDocument);
         modelBuilder.Entity<PlanningWorkflow>(ConfigurePlanningWorkflow);
     }
 
@@ -32,23 +31,6 @@ internal static class PlanningConfigurations
             .OnDelete(DeleteBehavior.Cascade);
 
         entity.HasIndex(x => new { x.OrganizationId, x.TaskKey });
-    }
-
-    static void ConfigurePlanningDocument(EntityTypeBuilder<PlanningDocument> entity)
-    {
-        entity.HasKey(x => x.Id);
-        entity.Property(x => x.Title).HasMaxLength(512).IsRequired();
-        entity.Property(x => x.DocumentType).HasMaxLength(128).IsRequired();
-        entity.Property(x => x.Content).HasMaxLength(131072).IsRequired();
-        entity.Property(x => x.StructuredJson).HasMaxLength(65536);
-        entity.Property(x => x.Summary).HasMaxLength(8192);
-
-        entity.HasOne(x => x.Organization)
-            .WithMany()
-            .HasForeignKey(x => x.OrganizationId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        entity.HasIndex(x => new { x.OrganizationId, x.DocumentType, x.IsLatest });
     }
 
     static void ConfigurePlanningWorkflow(EntityTypeBuilder<PlanningWorkflow> entity)

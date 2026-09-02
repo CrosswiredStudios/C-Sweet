@@ -285,7 +285,6 @@ public static class DependencyInjection
 
         // Planning services
         builder.Services.AddScoped<IPlanningRunService, PlanningRunService>();
-        builder.Services.AddScoped<IPlanningDocumentService, PlanningDocumentService>();
         builder.Services.AddScoped<IPlanningWorkflowService, PlanningWorkflowService>();
 
         // Core business domain services

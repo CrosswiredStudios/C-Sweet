@@ -177,7 +177,6 @@ app.MapOfficeBootstrapEndpoints();
 app.MapExecutionFleetEndpoints();
 app.MapAgentRuntimeSettingsEndpoints();
 app.MapPlanningRunEndpoints();
-app.MapPlanningDocumentEndpoints();
 app.MapPlanningWorkflowEndpoints();
 
 // Core business domain endpoints

@@ -3,6 +3,7 @@ using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
+using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
@@ -177,6 +178,59 @@ public sealed class AgentDefinitionLifecycleTests
         Assert.Contains("global agent definition",
             (await db.McpAgentSessions.SingleAsync()).RevocationReason,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Reconciliation_MaterializesApprovedOrganizationArtifactCreateGrant()
+    {
+        await using var db = CreateDb();
+        var package = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        package.PackageDigest = $"sha256:{new string('a', 64)}";
+        package.ArtifactSignature = "package-signature";
+        var definition = SeedDefinition(db, package, ActivationMode.AlwaysOn);
+        definition.DefaultRequiredCapabilitiesJson = JsonSerializer.Serialize(
+            new[] { ArtifactPlatformCapabilities.Create });
+        var organizationId = Guid.NewGuid();
+        var installation = RuntimeInstallation(package, organizationId.ToString("D"));
+        installation.AgentDefinitionId = definition.Id;
+        installation.Grant!.RequiredCapabilitiesJson = definition.DefaultRequiredCapabilitiesJson;
+        definition.Installations.Add(installation);
+        var manager = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, DisplayName = "Manager",
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Manager,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        var employee = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, DisplayName = "Creative Director",
+            EmployeeType = EmployeeType.Agent, PermissionLevel = OrganizationPermissionLevel.Contributor,
+            AgentInstallationId = installation.Id, AgentInstallation = installation,
+            ReportsToOrganizationUserId = manager.Id, ReportsToOrganizationUser = manager,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.AddRange(installation, manager, employee);
+        await db.SaveChangesAsync();
+
+        var changed = await new AgentDefinitionInstallationSynchronizer(
+            db, new TestAuditEventWriter()).SynchronizeAsync();
+
+        Assert.Equal(1, changed);
+        var grant = await db.ScopedActionGrants.SingleAsync();
+        Assert.Equal(organizationId, grant.OrganizationId);
+        Assert.Equal(installation.Id, grant.SubjectId);
+        Assert.Equal(ArtifactActions.Create, grant.Action);
+        Assert.Equal(GrantScopeKind.Organization, grant.ScopeKind);
+        Assert.Equal(manager.Id, grant.GrantedBySubjectId);
+        Assert.Null(grant.RevokedAt);
+
+        installation.Grant!.RequiredCapabilitiesJson = "[]";
+        await db.SaveChangesAsync();
+        changed = await new AgentDefinitionInstallationSynchronizer(
+            db, new TestAuditEventWriter()).SynchronizeAsync();
+
+        Assert.Equal(1, changed);
+        Assert.NotNull((await db.ScopedActionGrants.SingleAsync()).RevokedAt);
     }
 
     [Fact]

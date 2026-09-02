@@ -87,7 +87,6 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
 
     // Planning entities
     public DbSet<PlanningTask> PlanningTasks => Set<PlanningTask>();
-    public DbSet<PlanningDocument> PlanningDocuments => Set<PlanningDocument>();
     public DbSet<PlanningWorkflow> PlanningWorkflows => Set<PlanningWorkflow>();
 
     // Core business domain entities

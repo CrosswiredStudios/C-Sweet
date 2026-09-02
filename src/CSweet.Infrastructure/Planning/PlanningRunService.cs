@@ -182,12 +182,6 @@ public sealed class PlanningRunService : IPlanningRunService
 
             await _dbContext.SaveChangesAsync(cancellationToken);
 
-            // Auto-generate document if task completed successfully
-            if (result.Succeeded && !string.IsNullOrWhiteSpace(result.Content))
-            {
-                await CreateDocumentFromTaskAsync(nextTask, result.Content, result.StructuredJson, cancellationToken);
-            }
-
             return new PlanningActionResponse(
                 result.Succeeded,
                 result.Succeeded ? null : "agent_failure",
@@ -303,69 +297,6 @@ public sealed class PlanningRunService : IPlanningRunService
         }
 
         return sb.ToString();
-    }
-
-    async Task CreateDocumentFromTaskAsync(PlanningTask task, string content, string? structuredJson, CancellationToken cancellationToken)
-    {
-        // Determine document type from task key
-        var docType = InferDocumentType(task.TaskKey);
-
-        // Mark previous versions as not latest
-        var previousVersions = await _dbContext.Set<PlanningDocument>()
-            .Where(d => d.OrganizationId == task.OrganizationId && d.DocumentType == docType && d.IsLatest)
-            .ToListAsync(cancellationToken);
-
-        foreach (var prev in previousVersions)
-            prev.IsLatest = false;
-
-        var document = new PlanningDocument
-        {
-            Id = Guid.NewGuid(),
-            OrganizationId = task.OrganizationId,
-            Title = task.DisplayName,
-            DocumentType = docType,
-            Content = content,
-            StructuredJson = structuredJson,
-            Summary = Truncate(content, 500),
-            Version = previousVersions.Count + 1,
-            IsLatest = true,
-            GeneratedByTaskId = task.Id,
-            GeneratedAt = DateTimeOffset.UtcNow,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow
-        };
-
-        _dbContext.Set<PlanningDocument>().Add(document);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-    }
-
-    static string InferDocumentType(string taskKey)
-    {
-        // taskKey format: "workflowKey:taskKey"
-        var parts = taskKey.Split(':');
-        if (parts.Length < 2) return "planning-output";
-
-        var key = parts[1].ToLowerInvariant();
-        return key switch
-        {
-            "situation-analysis" => "situation-analysis",
-            "swot" => "swot-analysis",
-            "market-analysis" => "market-analysis",
-            "competitive-landscape" => "competitive-landscape",
-            "strategic-direction" => "strategic-direction",
-            "operating-model" => "operating-model",
-            "financial-projections" => "financial-projections",
-            "risk-assessment" => "risk-assessment",
-            "implementation-roadmap" => "implementation-roadmap",
-            "executive-summary" => "executive-summary",
-            _ => "planning-output"
-        };
-    }
-
-    static string Truncate(string value, int maxLength)
-    {
-        if (string.IsNullOrEmpty(value)) return value;
-        return value.Length <= maxLength ? value : value[..maxLength] + "...";
     }
 
     static List<(string Key, string DisplayName, string AgentKey, string SystemPrompt, string UserPrompt, bool IsRequired)>

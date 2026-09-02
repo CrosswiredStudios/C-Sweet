@@ -168,6 +168,8 @@ public sealed class PlatformLlmCapabilityHandlerTests
                     new { role = "user", text = "<memory_context>remembered</memory_context>Hello" }
                 },
                 instructions = "Be concise.",
+                temperature = 0.2f,
+                maxOutputTokens = 640,
                 tools = new[]
                 {
                     new
@@ -250,6 +252,8 @@ public sealed class PlatformLlmCapabilityHandlerTests
         Assert.Contains("Follow the agent's creative-direction policy.", chatClient.ReceivedOptions?.Instructions,
             StringComparison.Ordinal);
         Assert.Contains("Be concise.", chatClient.ReceivedOptions?.Instructions, StringComparison.Ordinal);
+        Assert.Equal(0.2f, chatClient.ReceivedOptions?.Temperature);
+        Assert.Equal(640, chatClient.ReceivedOptions?.MaxOutputTokens);
 
         var globalUsage = await new LlmTokenUsageService(db).GetSummaryAsync();
         var agentUsage = Assert.Single(globalUsage.Agents, x => x.AgentKey == "test-agent");
