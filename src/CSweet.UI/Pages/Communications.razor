@@ -137,7 +137,7 @@
             <a class="hub-settings" href="/settings/communications"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" /> Connected apps</a>
         </aside>
 
-        <main class="hub-main">
+        <main class="hub-main" aria-busy="@_switchingChat">
             @if (_selected is null)
             {
                 <div class="hub-empty">
@@ -157,7 +157,6 @@
                         <span>@(_selected.Description ?? ParticipantSummary(_selected))</span>
                     </div>
                     <div class="hub-header-actions">
-                        <button title="Members" @onclick="@(() => _showMembers = !_showMembers)"><MudIcon Icon="@Icons.Material.Outlined.Group" /><span>@_selected.Participants.Count</span></button>
                         @if (_selected.CanManage)
                         {
                             <button title="Manage channel" @onclick="OpenEdit"><MudIcon Icon="@Icons.Material.Outlined.Edit" /></button>
@@ -210,6 +209,14 @@
                     }
                 </div>
 
+
+                @if (_switchingChat)
+                {
+                    <div class="hub-conversation-loading" role="status" aria-live="polite">
+                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Small" />
+                        <span>Opening conversation…</span>
+                    </div>
+                }
                 <section class="hub-message-list" role="log" aria-live="polite" @ref="_messageList">
                     @if (_messages.Count == 0)
                     {
@@ -609,23 +616,6 @@
             }
         </main>
 
-        <aside class="hub-people @(_showMembers ? "open" : null)">
-            <div class="hub-people-header"><strong>@(_selected is null ? "People" : "Members")</strong><button @onclick="@(() => _showMembers = false)"><MudIcon Icon="@Icons.Material.Filled.Close" /></button></div>
-            @foreach (var person in VisiblePeople)
-            {
-                <button class="hub-person"
-                        title="@(_hub.IsReadOnlyPerspective ? "Direct-message actions are disabled in agent perspective." : null)"
-                        @onclick="@(() => StartDirectAsync(person))"
-                        disabled="@(_hub.IsReadOnlyPerspective || person.Id == _hub.CurrentOrganizationUserId)">
-                    <span class="hub-avatar @AvatarClass(person.EmployeeType)">@Initials(person.DisplayName)</span>
-                    <span><strong>@person.DisplayName</strong><small>@(person.EmployeeType == "Agent" ? "AI employee" : person.RoleName ?? "Team member")</small></span>
-                    <span class="presence-dot @PresenceClass(person.PresenceStatus)"
-                          title="@PresenceTitle(person.DisplayName, person.PresenceStatus, person.PresenceDetail)"
-                          aria-label="@PresenceTitle(person.DisplayName, person.PresenceStatus, person.PresenceDetail)"></span>
-                </button>
-            }
-        </aside>
-
         @if (_showEditor)
         {
             <div class="hub-dialog-backdrop" @onclick="CloseEditor">
@@ -777,7 +767,7 @@
     private string? _resourceFeedback;
     private readonly Dictionary<Guid, string> _decisionErrors = [];
     private const string SomethingElseKey = "__something_else__";
-    private bool _loading = true, _sending, _uploadingAttachments, _stoppingTurn, _showMembers, _showEditor, _editorBusy, _editorPrivate, _confirmArchive;
+    private bool _loading = true, _switchingChat, _sending, _uploadingAttachments, _stoppingTurn, _showEditor, _editorBusy, _editorPrivate, _confirmArchive;
     private bool _showMentions, _mentionOpen;
     private int _mentionTriggerOffset, _mentionCaret, _mentionSelection;
     private string _search = string.Empty, _draft = string.Empty, _editorTitle = string.Empty, _editorDescription = string.Empty;
@@ -792,6 +782,10 @@
     private Guid? _observedChatId;
     private Guid? _observedPerspectiveId;
     private Guid? _firstMessageCatchUpChatId;
+    private Guid _loadedOrganizationId;
+    private Guid? _loadedPerspectiveAgentId;
+    private Guid? _loadedSourceMessageId;
+    private bool _workspaceLoaded;
     private string BasePath => $"api/organizations/{OrganizationId}/communications/hub";
     private string PerspectiveApiQuery => PerspectiveAgentId.HasValue
         ? $"?perspectiveOrganizationUserId={PerspectiveAgentId.Value:D}"
@@ -807,9 +801,6 @@
         .FirstOrDefault(x => x.Id == organizationUserId)?.DisplayName ?? fallback;
     private IEnumerable<CommunicationChatResponse> FilteredChats => (_hub?.Chats ?? []).Where(x => string.IsNullOrWhiteSpace(_search) || x.Title.Contains(_search, StringComparison.OrdinalIgnoreCase));
     private IEnumerable<DirectMessageEntry> DirectMessages => BuildDirectMessages();
-    private IEnumerable<CommunicationPersonResponse> VisiblePeople => _selected is null || !_showMembers
-        ? (_hub?.People ?? [])
-        : _hub!.People.Where(x => _selected.Participants.Any(p => p.OrganizationUserId == x.Id));
     private IEnumerable<NotificationResponse> MentionNotifications => _notifications
         .Where(x => x.Category == "Mention" && x.DismissedAt is null)
         .OrderByDescending(x => x.CreatedAt);
@@ -834,21 +825,11 @@
                (optionIds.Contains("revise") || optionIds.Contains("request-revision"));
     }
 
-    private void OpenArtifact(Guid artifactId)
-    {
-        var chatPath = _selected is null
-            ? $"/organizations/{OrganizationId:D}/communications"
-            : $"/organizations/{OrganizationId:D}/communications/{_selected.Id:D}";
-        Navigation.NavigateTo($"{chatPath}?artifact={artifactId:D}");
-    }
+    private void OpenArtifact(Guid artifactId) =>
+        Navigation.NavigateTo(CurrentWorkspaceHref(artifactId));
 
-    private void CloseArtifact()
-    {
-        var chatPath = _selected is null
-            ? $"/organizations/{OrganizationId:D}/communications"
-            : $"/organizations/{OrganizationId:D}/communications/{_selected.Id:D}";
-        Navigation.NavigateTo(chatPath);
-    }
+    private void CloseArtifact() =>
+        Navigation.NavigateTo(CurrentWorkspaceHref());
     private TurnView? BlockingTurn => _selected?.IsDirect == true
         ? _turns.Values
             .Where(x => !IsTerminal(x.Turn.Status))
@@ -866,7 +847,32 @@
         Realtime.Reconnected += OnRealtimeConnectionReady;
     }
 
-    protected override Task OnParametersSetAsync() => LoadAsync();
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_workspaceLoaded ||
+            _loadedOrganizationId != OrganizationId ||
+            _loadedPerspectiveAgentId != PerspectiveAgentId)
+        {
+            await LoadAsync();
+            return;
+        }
+
+        if (ChatId.HasValue && _selected?.Id != ChatId.Value)
+        {
+            var chat = _hub?.Chats.FirstOrDefault(x => x.Id == ChatId.Value);
+            if (chat is null)
+            {
+                _error = "This conversation was not found or is not available to you.";
+                return;
+            }
+
+            await SwitchChatAsync(chat, updateLocation: false);
+        }
+
+        if (SourceMessageId.HasValue && SourceMessageId != _loadedSourceMessageId)
+            await MarkSourceMentionReadAsync(SourceMessageId.Value);
+        _loadedSourceMessageId = SourceMessageId;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -901,6 +907,10 @@
             if (_selected is not null) await LoadMessagesAsync();
             if (SourceMessageId.HasValue)
                 await MarkSourceMentionReadAsync(SourceMessageId.Value);
+            _loadedOrganizationId = OrganizationId;
+            _loadedPerspectiveAgentId = PerspectiveAgentId;
+            _loadedSourceMessageId = SourceMessageId;
+            _workspaceLoaded = true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { _error = ex.Message; }
         finally { _loading = false; }
@@ -923,7 +933,6 @@
         _draftMentions.Clear();
         _notice = null;
         _search = string.Empty;
-        _showMembers = false;
         _showEditor = false;
         _thinkingDialogOpen = false;
 
@@ -935,7 +944,6 @@
 
     private Task SelectChatAsync(CommunicationChatResponse chat)
     {
-        _showMembers = false;
         _thinkingDialogOpen = false;
         _notice = null;
         Navigation.NavigateTo(ChatHref(chat.Id));
