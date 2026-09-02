@@ -6,11 +6,20 @@
 
 <aside class="artifact-workspace" @ref="_panel" aria-label="Document workspace">
     <header class="artifact-workspace-header">
-        <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">DOCUMENT</MudText>
-            <MudText Typo="Typo.h5">@(_detail?.Document.Title ?? "Loading…")</MudText>
+        <div class="artifact-workspace-heading">
+            <span class="artifact-workspace-mark" aria-hidden="true">
+                <MudIcon Icon="@Icons.Material.Outlined.Description" />
+            </span>
+            <div>
+                <span class="artifact-workspace-eyebrow"><i></i>C-SWEET DOCUMENT</span>
+                <MudText Typo="Typo.h5">@(_detail?.Document.Title ?? "Loading…")</MudText>
+                @if (_detail is { } headingDetail)
+                {
+                    <span class="artifact-workspace-type">@FormatDocumentType(headingDetail.Document.DocumentType)</span>
+                }
+            </div>
         </div>
-        <div>
+        <div class="artifact-workspace-header-actions">
             @if (_detail is not null)
             {
                 <MudIconButton Icon="@(_detail.Document.ArchivedAt.HasValue ? Icons.Material.Outlined.Unarchive : Icons.Material.Outlined.Archive)"
@@ -36,11 +45,14 @@
     else if (_detail is { } detail)
     {
         <div class="artifact-workspace-meta">
-            <MudChip T="string" Size="Size.Small" Color="@StatusColor(detail.Document.Status)">@detail.Document.Status</MudChip>
-            <span>Revision @detail.LatestRevision.Number</span>
-            <span>Accepted revision @(detail.AcceptedRevision?.Number.ToString() ?? "none")</span>
-            @if (detail.Document.PackageId.HasValue) { <span>Package @detail.Document.PackageId</span> }
-            <span>Created by @detail.Document.CreatorDisplayName@(detail.Document.CreatorIsFormerEmployee ? " (former employee)" : null)</span>
+            <MudChip T="string" Size="Size.Small" Color="@StatusColor(detail.Document.Status)" Variant="Variant.Filled">@StatusLabel(detail.Document.Status)</MudChip>
+            <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.HistoryEdu" Size="Size.Small" />Revision @detail.LatestRevision.Number</span>
+            <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Verified" Size="Size.Small" />Accepted @(detail.AcceptedRevision is null ? "none" : $"revision {detail.AcceptedRevision.Number}")</span>
+            @if (detail.Document.PackageId.HasValue)
+            {
+                <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Inventory2" Size="Size.Small" />Document package</span>
+            }
+            <span class="artifact-meta-item artifact-meta-owner"><MudIcon Icon="@Icons.Material.Outlined.PersonOutline" Size="Size.Small" />Created by @detail.Document.CreatorDisplayName@(detail.Document.CreatorIsFormerEmployee ? " (former employee)" : null)</span>
         </div>
 
         @if (!string.IsNullOrWhiteSpace(_error))
@@ -48,9 +60,15 @@
             <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_error</MudAlert>
         }
 
-        <MudTabs @bind-ActivePanelIndex="_tab">
+        <MudTabs @bind-ActivePanelIndex="_tab" Class="artifact-workspace-tabs">
             <MudTabPanel Text="Preview" Icon="@Icons.Material.Outlined.Visibility">
-                <div class="artifact-markdown-preview"><ChatMarkdown Content="@detail.LatestRevision.Content" /></div>
+                <div class="artifact-preview-shell">
+                    <div class="artifact-preview-caption">
+                        <span>Revision @detail.LatestRevision.Number</span>
+                        <span>Updated @detail.LatestRevision.CreatedAt.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</span>
+                    </div>
+                    <article class="artifact-markdown-preview"><ChatMarkdown Content="@detail.LatestRevision.Content" /></article>
+                </div>
             </MudTabPanel>
             <MudTabPanel Text="Edit" Icon="@Icons.Material.Outlined.Edit">
                 <MudTextField @bind-Value="_draft" Label="Markdown" Variant="Variant.Outlined"
@@ -113,10 +131,19 @@
         @if (detail.Document.Status == "InReview")
         {
             <footer class="artifact-decision-bar">
-                <MudTextField @bind-Value="_decisionComment" Label="Decision comment" Variant="Variant.Outlined" />
-                <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Outlined.Check"
-                           Disabled="@_busy" OnClick="AcceptAsync">Accept revision</MudButton>
-                <MudButton Color="Color.Warning" Variant="Variant.Outlined" Disabled="@_busy" OnClick="RequestChangesAsync">Request changes</MudButton>
+                <div class="artifact-decision-copy">
+                    <span>REVIEW DECISION</span>
+                    <strong>Approve this revision or return it with focused feedback.</strong>
+                </div>
+                <div class="artifact-decision-controls">
+                    <MudTextField @bind-Value="_decisionComment" Label="Decision comment" Placeholder="Optional for approval; recommended when requesting changes" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <div class="artifact-decision-buttons">
+                        <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Outlined.Check"
+                                   Disabled="@_busy" OnClick="AcceptAsync">Accept revision</MudButton>
+                        <MudButton Color="Color.Warning" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.RateReview"
+                                   Disabled="@_busy" OnClick="RequestChangesAsync">Request changes</MudButton>
+                    </div>
+                </div>
             </footer>
         }
     }
@@ -262,6 +289,13 @@
     }
     private static Color StatusColor(string status) => status switch
     { "Approved" => Color.Success, "InReview" => Color.Info, "ChangesRequested" => Color.Warning, "Archived" => Color.Default, _ => Color.Primary };
+    private static string StatusLabel(string status) => status switch
+    { "InReview" => "In review", "ChangesRequested" => "Changes requested", _ => status };
+    private static string FormatDocumentType(string documentType) => documentType
+        .Replace("video-game.", string.Empty, StringComparison.OrdinalIgnoreCase)
+        .Replace("creative-direction.", string.Empty, StringComparison.OrdinalIgnoreCase)
+        .Replace('-', ' ')
+        .Replace('.', ' ');
 
     public async ValueTask DisposeAsync()
     {

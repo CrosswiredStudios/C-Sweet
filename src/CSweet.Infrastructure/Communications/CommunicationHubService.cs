@@ -128,7 +128,7 @@ public sealed class CommunicationHubService(
                 x.Participants.Any(p => p.OrganizationUserId == viewedUser.Id && p.LeftAt == null))
             .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
             .Include(x => x.Messages).ThenInclude(x => x.Attachments)
-            .Include(x => x.Messages).ThenInclude(x => x.Artifacts)
+            .Include(x => x.Messages).ThenInclude(x => x.Artifacts).ThenInclude(x => x.Artifact)
             .OrderByDescending(x => x.UpdatedAt)
             .ToListAsync(cancellationToken);
 
@@ -195,7 +195,7 @@ public sealed class CommunicationHubService(
             .Include(x => x.Mentions)
                 .ThenInclude(x => x.MentionedOrganizationUser)
             .Include(x => x.Attachments)
-            .Include(x => x.Artifacts)
+            .Include(x => x.Artifacts).ThenInclude(x => x.Artifact)
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         var decisionCards = decisions is null
@@ -308,7 +308,7 @@ public sealed class CommunicationHubService(
                     x.Participants.Any(p => p.OrganizationUserId == actor.Id && p.LeftAt == null))
                 .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
                 .Include(x => x.Messages).ThenInclude(x => x.Attachments)
-                .Include(x => x.Messages).ThenInclude(x => x.Artifacts)
+                .Include(x => x.Messages).ThenInclude(x => x.Artifacts).ThenInclude(x => x.Artifact)
                 .ToListAsync(cancellationToken);
             var existing = candidates.FirstOrDefault(x => x.Participants.Where(p => p.LeftAt == null)
                 .Select(p => p.OrganizationUserId).ToHashSet().SetEquals(memberIds));
@@ -361,7 +361,7 @@ public sealed class CommunicationHubService(
             .Where(x => x.Id == chatId && x.OrganizationId == organizationId && x.ArchivedAt == null)
             .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
             .Include(x => x.Messages).ThenInclude(x => x.Attachments)
-            .Include(x => x.Messages).ThenInclude(x => x.Artifacts)
+            .Include(x => x.Messages).ThenInclude(x => x.Artifacts).ThenInclude(x => x.Artifact)
             .SingleOrDefaultAsync(cancellationToken);
         if (actor is null || chat is null) return Failure("chat_not_found", "The chat was not found.");
         if (chat.IsDeletionProtected) return Failure("protected_chat_immutable", "This agent-instance conversation cannot be modified.");
@@ -460,7 +460,7 @@ public sealed class CommunicationHubService(
             var existing = await db.CoreConversationMessages.AsNoTracking()
                 .Include(x => x.Mentions).ThenInclude(x => x.MentionedOrganizationUser)
                 .Include(x => x.Attachments)
-                .Include(x => x.Artifacts)
+                .Include(x => x.Artifacts).ThenInclude(x => x.Artifact)
                 .SingleOrDefaultAsync(x => x.ConversationId == chat.Id &&
                     x.SenderOrganizationUserId == actor.Id && x.IdempotencyKey == idempotencyKey, cancellationToken);
             if (existing is not null)
@@ -986,7 +986,13 @@ public sealed class CommunicationHubService(
             Attachments = message.Attachments.Select(x => new CommunicationMessageAttachmentResponse(
                 x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList(),
             Artifacts = message.Artifacts.Select(x => new CommunicationMessageArtifactResponse(
-                x.Id, x.MessageId, x.ArtifactId, x.RevisionId)).ToList(),
+                x.Id, x.MessageId, x.ArtifactId, x.RevisionId)
+            {
+                Title = x.Artifact?.Title,
+                Status = x.Artifact?.DocumentStatus.ToString(),
+                SubmittedRevisionId = x.Artifact?.SubmittedRevisionId,
+                AcceptedRevisionId = x.Artifact?.AcceptedRevisionId
+            }).ToList(),
             Mentions = message.Mentions
                 .OrderBy(x => x.Offset)
                 .Select(x => new CommunicationMessageMentionResponse(

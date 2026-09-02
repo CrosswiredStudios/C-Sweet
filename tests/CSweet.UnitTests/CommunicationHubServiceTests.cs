@@ -44,6 +44,19 @@ public sealed class CommunicationHubServiceTests
         var approval = await db.CoreApprovals.SingleAsync(x => x.ArtifactId == document.Document.Id);
         Assert.Equal(sent!.Message.Id, approval.EvidenceConversationMessageId);
         Assert.Equal(document.LatestRevision.Id, approval.ArtifactRevisionId);
+        db.ConversationMessageArtifacts.Add(new ConversationMessageArtifact
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, ConversationId = chat.Id,
+            MessageId = sent.Message.Id, ArtifactId = document.Document.Id,
+            RevisionId = document.LatestRevision.Id, CreatedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var messages = await hub.ListMessagesAsync(organization.Id, chat.Id, owner.Id);
+        var linkedRevision = Assert.Single(messages!.Single(x => x.Id == sent.Message.Id).Artifacts);
+        Assert.Equal("Approved", linkedRevision.Status);
+        Assert.Equal(document.LatestRevision.Id, linkedRevision.AcceptedRevisionId);
+        Assert.Null(linkedRevision.SubmittedRevisionId);
     }
 
     [Fact]

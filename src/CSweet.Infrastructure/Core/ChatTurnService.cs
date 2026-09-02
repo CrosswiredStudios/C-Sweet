@@ -294,7 +294,41 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
                 DateTimeOffset.UtcNow,
                 cancellationToken);
         }
+        await AttachSubmittedArtifactsAsync(turn, assistantMessageId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task AttachSubmittedArtifactsAsync(
+        ChatTurn turn,
+        Guid assistantMessageId,
+        CancellationToken cancellationToken)
+    {
+        var revisions = await db.ArtifactRevisions.AsNoTracking()
+            .Where(x => x.OrganizationId == turn.OrganizationId &&
+                x.CreatedByOrganizationUserId == turn.TargetAgentOrganizationUserId &&
+                x.CreatedAt >= turn.CreatedAt &&
+                x.SubmittedAt != null &&
+                x.Artifact!.OriginConversationId == turn.ConversationId &&
+                x.Artifact.LatestRevisionId == x.Id)
+            .Select(x => new { x.ArtifactId, RevisionId = x.Id })
+            .ToListAsync(cancellationToken);
+        if (revisions.Count == 0) return;
+
+        var existingArtifactIds = await db.ConversationMessageArtifacts.AsNoTracking()
+            .Where(x => x.MessageId == assistantMessageId)
+            .Select(x => x.ArtifactId)
+            .ToListAsync(cancellationToken);
+        foreach (var revision in revisions.Where(x => !existingArtifactIds.Contains(x.ArtifactId)))
+            db.ConversationMessageArtifacts.Add(new ConversationMessageArtifact
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = turn.OrganizationId,
+                ConversationId = turn.ConversationId,
+                MessageId = assistantMessageId,
+                ArtifactId = revision.ArtifactId,
+                RevisionId = revision.RevisionId,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
     }
 
     private static ChatTurnResponse ToResponse(ChatTurn x) => new(

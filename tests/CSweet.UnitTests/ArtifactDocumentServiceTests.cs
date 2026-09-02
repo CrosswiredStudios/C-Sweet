@@ -1,8 +1,10 @@
+using System.Text.Json;
 using CSweet.Application.Core;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
+using CSweet.WorkManagement.Contracts;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
@@ -22,6 +24,7 @@ public sealed class ArtifactDocumentServiceTests
             new("Vision", "# One", "test.document.v1", "create-one"));
         var submitted = await service.SubmitAsync(organization.Id, actor, created.Document.Id,
             new(created.LatestRevision.Id, "submit-one"));
+        Assert.Empty(await db.ArtifactReviewJobs.ToListAsync());
         var accepted = await service.DecideAsync(organization.Id, actor, created.Document.Id,
             new(submitted.LatestRevision.Id, "accept", null, "accept-one"));
         var draft = await service.ReviseAsync(organization.Id, actor, created.Document.Id,
@@ -61,6 +64,50 @@ public sealed class ArtifactDocumentServiceTests
         Assert.Empty(results);
         Assert.Null(read);
         Assert.Contains(audit.Events, x => x.Category == "DocumentAccess" && x.Outcome == "Denied");
+    }
+
+    [Fact]
+    public async Task Human_decision_notifies_the_agent_that_created_an_intake_document()
+    {
+        await using var db = CreateDb();
+        var (organization, owner) = SeedHuman(db, OrganizationPermissionLevel.Owner);
+        var installationId = Guid.NewGuid();
+        var creator = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            DisplayName = "Creative Director", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Contributor,
+            AgentInstallationId = installationId, CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.CoreOrganizationUsers.Add(creator);
+        await db.SaveChangesAsync();
+        var service = new ArtifactDocumentService(db, new TestAuditEventWriter(), TimeProvider.System);
+        var actor = new ArtifactHumanActor(owner.ApplicationUserId!.Value);
+        var conversationId = Guid.NewGuid();
+
+        var created = await service.CreateAsync(organization.Id, actor,
+            new("Game pitch", "# First draft", "video-game.game-vision.v1", "create-pitch",
+                OriginConversationId: conversationId));
+        var artifact = await db.CoreArtifacts.SingleAsync(x => x.Id == created.Document.Id);
+        artifact.CreatedByOrganizationUserId = creator.Id;
+        artifact.CreatorDisplayName = creator.DisplayName;
+        await db.SaveChangesAsync();
+        var submitted = await service.SubmitAsync(organization.Id, actor, artifact.Id,
+            new(created.LatestRevision.Id, "submit-pitch"));
+
+        await service.DecideAsync(organization.Id, actor, artifact.Id,
+            new(submitted.LatestRevision.Id, "accept", "Approved from the document preview.", "accept-pitch"));
+
+        var notification = Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == WorkstreamEventNames.ArtifactRevisionDecidedV1).ToListAsync());
+        Assert.Equal(installationId, notification.TargetInstallationId);
+        var payload = JsonSerializer.Deserialize<GenericResourceEvent>(
+            notification.DataJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(payload);
+        Assert.Equal(submitted.LatestRevision.Id, payload!.AggregateId);
+        Assert.Equal("accepted", payload.Action);
+        Assert.Equal(conversationId, payload.Metadata.GetProperty("originConversationId").GetGuid());
+        Assert.Equal("Approved from the document preview.", payload.Metadata.GetProperty("comment").GetString());
     }
 
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()

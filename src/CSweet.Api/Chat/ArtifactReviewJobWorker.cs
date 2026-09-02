@@ -1,4 +1,5 @@
 using CSweet.Application.Core;
+using CSweet.Contracts.Communications;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
@@ -42,7 +43,7 @@ public sealed class ArtifactReviewJobWorker(
                     earlier.CreatedAt < x.CreatedAt && earlier.ConversationId == x.ConversationId &&
                     earlier.ReviewerInstallationId == x.ReviewerInstallationId), token);
         if (job is null) return false;
-        if (!job.ConversationId.HasValue || !job.ReviewerOrganizationUserId.HasValue || !job.ReviewerInstallationId.HasValue)
+        if (!job.ConversationId.HasValue || !job.ReviewerOrganizationUserId.HasValue)
         {
             job.LastError = "An active agent reviewer and conversation must be assigned.";
             job.NextAttemptAt = now.AddMinutes(15);
@@ -50,6 +51,26 @@ public sealed class ArtifactReviewJobWorker(
             await db.SaveChangesAsync(token);
             return true;
         }
+        var reviewer = await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
+                x.Id == job.ReviewerOrganizationUserId.Value && x.OrganizationId == job.OrganizationId && x.IsActive)
+            .Select(x => new { x.EmployeeType, x.AgentInstallationId })
+            .SingleOrDefaultAsync(token);
+        if (reviewer?.EmployeeType == EmployeeType.Human)
+        {
+            job.Status = ArtifactReviewJobStatus.Completed;
+            job.LastError = null;
+            await db.SaveChangesAsync(token);
+            return true;
+        }
+        if (reviewer?.AgentInstallationId is not Guid reviewerInstallationId)
+        {
+            job.LastError = "An active agent reviewer and conversation must be assigned.";
+            job.NextAttemptAt = now.AddMinutes(15);
+            await NotifyReassignmentAsync(db, job, now, token);
+            await db.SaveChangesAsync(token);
+            return true;
+        }
+        job.ReviewerInstallationId = reviewerInstallationId;
 
         var artifact = await db.CoreArtifacts.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Id == job.ArtifactId && x.OrganizationId == job.OrganizationId, token);
@@ -62,6 +83,13 @@ public sealed class ArtifactReviewJobWorker(
             await db.SaveChangesAsync(token);
             return true;
         }
+        if (artifact.CreatedByOrganizationUserId == job.ReviewerOrganizationUserId)
+        {
+            job.Status = ArtifactReviewJobStatus.Completed;
+            job.LastError = null;
+            await db.SaveChangesAsync(token);
+            return true;
+        }
 
         try
         {
@@ -70,6 +98,8 @@ public sealed class ArtifactReviewJobWorker(
                 $"A document revision was submitted for your review. Use get_artifact with artifactId {artifact.Id:D}, " +
                 $"review exact revision {revision.Id:D} (revision {revision.Number}), and comment, ask questions, or use " +
                 "decide_artifact_revision. Do not assume approval from this notification.",
+                senderOrganizationUserId: artifact.CreatedByOrganizationUserId,
+                sourceProvider: CommunicationMessageTypes.SystemAction,
                 idempotencyKey: $"artifact-review:{job.Id:D}", cancellationToken: token);
             if (started is null)
             {

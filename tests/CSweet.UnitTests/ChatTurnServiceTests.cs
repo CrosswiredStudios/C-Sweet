@@ -83,6 +83,60 @@ public sealed class ChatTurnServiceTests
     }
 
     [Fact]
+    public async Task CompletingTurn_AttachesSubmittedArtifactRevisionCreatedByTargetAgent()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var agentId = Guid.NewGuid();
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentOrganizationUserId = agentId, InitiatedByOrganizationUserId = Guid.NewGuid(),
+            CreatedAt = now, UpdatedAt = now
+        };
+        db.AddRange(CreateAgent(organizationId, agentId), conversation);
+        await db.SaveChangesAsync();
+        var service = new ChatTurnService(db);
+        var started = (await service.StartAsync(organizationId, conversation.Id, "Create the pitch."))!;
+        var artifactId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var artifact = new Artifact
+        {
+            Id = artifactId, OrganizationId = organizationId, Type = ArtifactType.Document,
+            Title = "Game pitch", Content = "# Pitch", DocumentType = "game-vision.v1",
+            CreatorDisplayName = "Test agent", CreatedByOrganizationUserId = agentId,
+            OriginConversationId = conversation.Id, LatestRevisionId = revisionId,
+            SubmittedRevisionId = revisionId, DocumentStatus = ArtifactDocumentStatus.InReview,
+            CreatedAt = now, UpdatedAt = now
+        };
+        var revision = new ArtifactRevision
+        {
+            Id = revisionId, OrganizationId = organizationId, ArtifactId = artifactId,
+            Artifact = artifact, Number = 1, Content = "# Pitch", ContentSha256 = new string('a', 64),
+            Status = ArtifactRevisionStatus.Submitted, CreatorDisplayName = "Test agent",
+            CreatedByOrganizationUserId = agentId, CreatedAt = started.Turn.CreatedAt.AddMilliseconds(1),
+            SubmittedAt = started.Turn.CreatedAt.AddMilliseconds(2), IdempotencyKey = "pitch-revision"
+        };
+        artifact.Revisions.Add(revision);
+        var assistant = new ConversationMessage
+        {
+            Id = Guid.NewGuid(), ConversationId = conversation.Id, ChatTurnId = started.Turn.Id,
+            SenderOrganizationUserId = agentId, Role = ConversationRole.Assistant,
+            Content = "I created the first draft.", CreatedAt = now
+        };
+        db.AddRange(artifact, assistant);
+        await db.SaveChangesAsync();
+
+        await service.CompleteAsync(started.Turn.Id, assistant.Id, memoryWarning: false);
+
+        var link = await db.ConversationMessageArtifacts.SingleAsync();
+        Assert.Equal(assistant.Id, link.MessageId);
+        Assert.Equal(artifactId, link.ArtifactId);
+        Assert.Equal(revisionId, link.RevisionId);
+    }
+
+    [Fact]
     public async Task AttachmentOnlyTurn_PersistsSanitizedDescriptorAndRetryPreservesReference()
     {
         await using var db = CreateDb();

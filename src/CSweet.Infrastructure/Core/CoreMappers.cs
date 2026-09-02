@@ -113,7 +113,13 @@ internal static class CoreMappers
                     x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList(),
             Artifacts = message.Artifacts.Select(x =>
                 new Contracts.Communications.CommunicationMessageArtifactResponse(
-                    x.Id, x.MessageId, x.ArtifactId, x.RevisionId)).ToList()
+                    x.Id, x.MessageId, x.ArtifactId, x.RevisionId)
+                {
+                    Title = x.Artifact?.Title,
+                    Status = x.Artifact?.DocumentStatus.ToString(),
+                    SubmittedRevisionId = x.Artifact?.SubmittedRevisionId,
+                    AcceptedRevisionId = x.Artifact?.AcceptedRevisionId
+                }).ToList()
         };
     }
 

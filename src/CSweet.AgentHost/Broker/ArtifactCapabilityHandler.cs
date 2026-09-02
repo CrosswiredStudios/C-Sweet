@@ -242,11 +242,14 @@ public sealed class ArtifactCapabilityHandler(
         var now = clock.GetUtcNow(); revision.Status = ArtifactRevisionStatus.Submitted; revision.SubmittedAt = now;
         artifact.SubmittedRevisionId = revision.Id; artifact.DocumentStatus = ArtifactDocumentStatus.InReview; artifact.UpdatedAt = now;
         Guid? reviewerId = request.ReviewerOrganizationUserId ?? artifact.StewardOrganizationUserId;
-        Guid? reviewerInstallation = reviewerId.HasValue ? await db.CoreOrganizationUsers.Where(x => x.Id == reviewerId && x.IsActive).Select(x => x.AgentInstallationId).SingleOrDefaultAsync(token) : null;
-        db.ArtifactReviewJobs.Add(new ArtifactReviewJob { Id = Guid.NewGuid(), OrganizationId = organizationId,
-            ArtifactId = artifact.Id, RevisionId = revision.Id, ConversationId = request.ConversationId ?? artifact.OriginConversationId,
-            ReviewerOrganizationUserId = reviewerId, ReviewerInstallationId = reviewerInstallation,
-            IdempotencyKey = request.IdempotencyKey, CreatedAt = now, NextAttemptAt = now });
+        Guid? reviewerInstallation = reviewerId.HasValue ? await db.CoreOrganizationUsers.Where(x =>
+            x.Id == reviewerId && x.OrganizationId == organizationId && x.IsActive)
+            .Select(x => x.AgentInstallationId).SingleOrDefaultAsync(token) : null;
+        if (reviewerInstallation.HasValue && reviewerId != actor.OrganizationUserId)
+            db.ArtifactReviewJobs.Add(new ArtifactReviewJob { Id = Guid.NewGuid(), OrganizationId = organizationId,
+                ArtifactId = artifact.Id, RevisionId = revision.Id, ConversationId = request.ConversationId ?? artifact.OriginConversationId,
+                ReviewerOrganizationUserId = reviewerId, ReviewerInstallationId = reviewerInstallation,
+                IdempotencyKey = request.IdempotencyKey, CreatedAt = now, NextAttemptAt = now });
         AddArtifactEvent(W.WorkstreamEventNames.ArtifactRevisionSubmittedV1, artifact, revision,
             "submitted", artifact.DocumentType, new { artifact.Id, revisionId = revision.Id, revision.ContentSha256 });
         await db.SaveChangesAsync(token);

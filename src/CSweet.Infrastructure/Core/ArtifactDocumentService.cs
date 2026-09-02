@@ -8,6 +8,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Security;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.Core;
 
@@ -170,10 +171,11 @@ public sealed class ArtifactDocumentService(
         artifact.UpdatedAt = now;
         var reviewer = request.ReviewerOrganizationUserId ?? artifact.StewardOrganizationUserId;
         Guid? reviewerInstallation = null;
-        if (reviewer.HasValue)
-            reviewerInstallation = await db.CoreOrganizationUsers.Where(x => x.Id == reviewer && x.IsActive)
+        if (reviewer.HasValue && reviewer != member.Id)
+            reviewerInstallation = await db.CoreOrganizationUsers.Where(x => x.Id == reviewer &&
+                    x.OrganizationId == organizationId && x.IsActive)
                 .Select(x => x.AgentInstallationId).SingleOrDefaultAsync(cancellationToken);
-        if (!await db.ArtifactReviewJobs.AnyAsync(x => x.OrganizationId == organizationId &&
+        if (reviewerInstallation.HasValue && !await db.ArtifactReviewJobs.AnyAsync(x => x.OrganizationId == organizationId &&
             x.IdempotencyKey == request.IdempotencyKey, cancellationToken))
             db.ArtifactReviewJobs.Add(new ArtifactReviewJob
             {
@@ -227,6 +229,13 @@ public sealed class ArtifactDocumentService(
         foreach (var job in await db.ArtifactReviewJobs.Where(x => x.RevisionId == revision.Id &&
                      x.Status != ArtifactReviewJobStatus.Completed).ToListAsync(cancellationToken))
             job.Status = ArtifactReviewJobStatus.Completed;
+        await AddArtifactDecisionEventAsync(
+            artifact,
+            revision,
+            accepted ? "accepted" : "changes-required",
+            request.Comment,
+            member.Id,
+            cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await AuditAsync(accepted ? "artifact.revision.accepted" : "artifact.revision.changes-requested",
             "Completed", organizationId, artifactId, member,
@@ -809,6 +818,72 @@ public sealed class ArtifactDocumentService(
     private static IReadOnlyList<string> DeserializeActions(string json) => JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? [];
     private static string Sha256(string content) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
     private static KeyNotFoundException NotFound() => new("Document was not found.");
+
+    private async Task AddArtifactDecisionEventAsync(
+        Artifact artifact,
+        ArtifactRevision revision,
+        string disposition,
+        string? comment,
+        Guid decidedByOrganizationUserId,
+        CancellationToken cancellationToken)
+    {
+        var creatorInstallationId = artifact.CreatedByOrganizationUserId.HasValue
+            ? await db.CoreOrganizationUsers
+                .Where(x => x.Id == artifact.CreatedByOrganizationUserId.Value &&
+                            x.OrganizationId == artifact.OrganizationId &&
+                            x.IsActive &&
+                            x.AgentInstallationId != null)
+                .Select(x => x.AgentInstallationId)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+        if (!artifact.WorkstreamId.HasValue && !creatorInstallationId.HasValue) return;
+
+        var now = clock.GetUtcNow();
+        var context = new W.AgentWorkContext(
+            artifact.OrganizationId,
+            artifact.WorkstreamId ?? Guid.Empty,
+            artifact.TeamId,
+            null,
+            artifact.OriginWorkItemId,
+            null,
+            null,
+            Guid.NewGuid(),
+            null,
+            null);
+        var metadata = new
+        {
+            artifactId = artifact.Id,
+            revisionId = revision.Id,
+            revision.ContentSha256,
+            artifact.DocumentType,
+            artifact.OriginConversationId,
+            disposition,
+            comment,
+            decidedByOrganizationUserId
+        };
+        var payload = new W.GenericResourceEvent(
+            Guid.NewGuid(),
+            now,
+            context,
+            "ArtifactRevision",
+            revision.Id,
+            revision.Number,
+            artifact.DocumentType,
+            disposition,
+            JsonSerializer.SerializeToElement(metadata, JsonOptions));
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = artifact.OrganizationId,
+            TargetInstallationId = creatorInstallationId,
+            EventType = W.WorkstreamEventNames.ArtifactRevisionDecidedV1,
+            DataJson = JsonSerializer.Serialize(payload, JsonOptions),
+            IdempotencyKey = $"{W.WorkstreamEventNames.ArtifactRevisionDecidedV1}:{revision.Id:N}:{disposition}",
+            Status = AgentPlatformEventOutboxStatus.Pending,
+            NextAttemptAt = now,
+            OccurredAt = now
+        });
+    }
 
     private Task AuditContentAsync(string eventType, Guid organizationId, Artifact artifact,
         ArtifactRevision revision, OrganizationUser actor, CancellationToken token) =>

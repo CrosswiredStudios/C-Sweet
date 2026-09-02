@@ -97,7 +97,13 @@ public sealed record CommunicationMessageArtifactResponse(
     Guid Id,
     Guid MessageId,
     Guid ArtifactId,
-    Guid? RevisionId);
+    Guid? RevisionId)
+{
+    public string? Title { get; init; }
+    public string? Status { get; init; }
+    public Guid? SubmittedRevisionId { get; init; }
+    public Guid? AcceptedRevisionId { get; init; }
+}
 
 public sealed record CommunicationMessageMentionResponse(
     Guid OrganizationUserId,

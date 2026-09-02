@@ -1,0 +1,95 @@
+@using CSweet.Contracts.Communications
+@using CSweet.Contracts.Core
+@inject HttpClient Http
+
+<div class="hub-artifact-action @(IsApproved ? "is-approved" : null)">
+    <button type="button" class="hub-artifact-open" @onclick="OpenAsync"
+            aria-label="Open linked document revision">
+        <span class="hub-artifact-icon">
+            <MudIcon Icon="@(IsApproved ? Icons.Material.Outlined.TaskAlt : Icons.Material.Outlined.Description)" Size="Size.Small" />
+        </span>
+        <span class="hub-artifact-label">
+            <strong>@(IsApproved ? "Revision approved" : "Open document")</strong>
+            <small>@(Artifact.RevisionId.HasValue ? "Linked revision" : "Latest revision")</small>
+        </span>
+    </button>
+    @if (!ReadOnly && IsAwaitingDecision)
+    {
+        <MudMenu Icon="@Icons.Material.Outlined.MoreVert"
+                 Size="Size.Small"
+                 Variant="Variant.Text"
+                 Color="Color.Primary"
+                 Disabled="@_busy"
+                 AriaLabel="More document actions"
+                 Class="hub-artifact-more">
+            <MudMenuItem Icon="@Icons.Material.Outlined.CheckCircle"
+                         Disabled="@_busy"
+                         OnClick="ApproveAsync">
+                Approve linked revision
+            </MudMenuItem>
+            <MudMenuItem Icon="@Icons.Material.Outlined.RateReview"
+                         OnClick="OpenAsync">
+                Review or request changes
+            </MudMenuItem>
+        </MudMenu>
+    }
+</div>
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="hub-artifact-action-error" role="alert">@_error</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public CommunicationMessageArtifactResponse Artifact { get; set; } = default!;
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public EventCallback<Guid> Opened { get; set; }
+    [Parameter] public EventCallback<ArtifactDocumentDetail> Changed { get; set; }
+
+    private bool _busy;
+    private bool _approved;
+    private string? _error;
+    private bool IsApproved => _approved ||
+        Artifact.RevisionId.HasValue && Artifact.AcceptedRevisionId == Artifact.RevisionId;
+    private bool IsAwaitingDecision => Artifact.RevisionId.HasValue &&
+        (Artifact.SubmittedRevisionId == Artifact.RevisionId ||
+         Artifact.Status is null);
+
+    private Task OpenAsync() => Opened.InvokeAsync(Artifact.ArtifactId);
+
+    private async Task ApproveAsync()
+    {
+        if (_busy || Artifact.RevisionId is not Guid revisionId) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/documents/{Artifact.ArtifactId:D}/decisions",
+                new DecideArtifactRevisionRequest(
+                    revisionId,
+                    "accept",
+                    "Approved from the document shortcut in Communications.",
+                    $"ui-message-quick-approve:{revisionId:N}"));
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = response.StatusCode is System.Net.HttpStatusCode.Conflict
+                    ? "This linked revision is no longer awaiting approval. Open the document to review its current status."
+                    : "This revision could not be approved. Open the document to review its status or access.";
+                return;
+            }
+
+            var detail = await response.Content.ReadFromJsonAsync<ArtifactDocumentDetail>();
+            _approved = detail?.Document.AcceptedRevisionId == revisionId;
+            if (detail is not null) await Changed.InvokeAsync(detail);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or NotSupportedException)
+        {
+            _error = "C-Sweet could not reach the document service. Try again or open the document for details.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

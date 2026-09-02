@@ -320,16 +320,16 @@
                                   }
                                   @if (message.Artifacts.Count > 0)
                                   {
-                                      <div class="hub-message-artifacts" aria-label="Linked documents">
-                                          @foreach (var artifact in message.Artifacts)
-                                          {
-                                              <button @onclick="@(() => OpenArtifact(artifact.ArtifactId))">
-                                                  <MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Small" />
-                                                  <span>Open document</span>
-                                                  @if (artifact.RevisionId.HasValue) { <small>linked revision</small> }
-                                              </button>
-                                          }
-                                      </div>
+                                          <div class="hub-message-artifacts" aria-label="Linked documents">
+                                              @foreach (var artifact in message.Artifacts)
+                                              {
+                                                  <MessageArtifactActions OrganizationId="OrganizationId"
+                                                                          Artifact="artifact"
+                                                                          ReadOnly="@_hub.IsReadOnlyPerspective"
+                                                                          Opened="OpenArtifact"
+                                                                          Changed="@(_ => LoadMessagesAsync(false))" />
+                                              }
+                                          </div>
                                   }
                                  @if (message.ResourceChange is { } resourceChange)
                                  {
@@ -430,7 +430,7 @@
                                         }
                                     </div>
                                 }
-                                @if (message.Decision is { } decision)
+                                @if (message.Decision is { } decision && !IsDuplicateArtifactReviewDecision(message, decision))
                                 {
                                     <section class="executive-decision-card" aria-label="Question">
                                         <header>
@@ -823,6 +823,16 @@
             x.PresenceStatus != CommunicationPresenceStatuses.Available)
         : null;
     private bool ComposerBlocked => _selected?.IsDirect == true && HasActiveTurn;
+
+    private static bool IsDuplicateArtifactReviewDecision(
+        CommunicationHubMessageResponse message,
+        ExecutiveDecisionCardResponse decision)
+    {
+        if (!message.Artifacts.Any(artifact => artifact.RevisionId.HasValue)) return false;
+        var optionIds = decision.Options.Select(option => option.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return optionIds.Contains("accept") &&
+               (optionIds.Contains("revise") || optionIds.Contains("request-revision"));
+    }
 
     private void OpenArtifact(Guid artifactId)
     {
