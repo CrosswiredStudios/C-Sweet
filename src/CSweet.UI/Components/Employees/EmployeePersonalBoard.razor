@@ -81,6 +81,21 @@
                                     <MudChip T="string" Size="Size.Small">@item.Priority</MudChip>
                                     @if (item.DueDate.HasValue) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Due @item.DueDate.Value.ToLocalTime().ToString("MMM d")</MudChip> }
                                 </MudStack>
+                                @if (item.WorkContext is not null)
+                                {
+                                    <MudStack Row="true" Spacing="1" Class="mt-2" Style="flex-wrap:wrap">
+                                        @if (item.WorkContext.BoardId.HasValue)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.OpenInNew"
+                                                       Href="@BoardHref(item)">Open team board</MudButton>
+                                        }
+                                        @if (item.WorkContext.WorkItemId.HasValue) { <MudChip T="string" Size="Size.Small">Ticket @Short(item.WorkContext.WorkItemId)</MudChip> }
+                                        @if (item.WorkContext.SprintId.HasValue) { <MudChip T="string" Size="Size.Small">Sprint @Short(item.WorkContext.SprintId)</MudChip> }
+                                        @if (item.WorkContext.GateId.HasValue) { <MudChip T="string" Size="Size.Small">Gate @Short(item.WorkContext.GateId)</MudChip> }
+                                        @if (item.WorkContext.DecisionId.HasValue) { <MudChip T="string" Size="Size.Small">Decision @Short(item.WorkContext.DecisionId)</MudChip> }
+                                        @if (item.WorkContext.CoordinationSessionId.HasValue) { <MudChip T="string" Size="Size.Small">Coordination @Short(item.WorkContext.CoordinationSessionId)</MudChip> }
+                                    </MudStack>
+                                }
                                 @if (!string.IsNullOrWhiteSpace(item.BlockReason)) { <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@item.BlockReason</MudAlert> }
                                 <MudStack Row="true" Spacing="1" Class="mt-2" Style="flex-wrap:wrap">
                                     @if (CanExecute)
@@ -214,6 +229,9 @@
         .OrderBy(x => x.Rank).ToList();
     private IReadOnlyList<Wire.PersonalTodoItem> ArchivedItems => Board.Items
         .Where(x => x.ArchivedAt.HasValue).OrderByDescending(x => x.ArchivedAt).ToList();
+    private string BoardHref(Wire.PersonalTodoItem item) =>
+        $"/organizations/{OrganizationId:D}/work/boards/{item.WorkContext!.BoardId!.Value:D}";
+    private static string Short(Guid? value) => value?.ToString("N")[..8] ?? "unknown";
     private async Task SetIncludeArchivedAsync(bool value) => await IncludeArchivedChanged.InvokeAsync(value);
 
     private async Task AddAsync() => await MutateAsync(async () =>

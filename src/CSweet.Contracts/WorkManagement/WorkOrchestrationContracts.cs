@@ -16,11 +16,17 @@ public static class WorkOrchestrationActions
     public const string Retry = WorkManagementCapabilityNames.OrchestrationRetry;
     public const string ConfigureSoftwareTemplate =
         WorkManagementCapabilityNames.OrchestrationConfigureSoftwareTemplate;
+    public const string ConfigureProfile = WorkManagementCapabilityNames.OrchestrationConfigureProfileV1;
     public const string CompleteManual = "work.orchestration.manual.complete";
     public const string DecideApproval = "work.orchestration.approval.decide";
 
     public static IReadOnlyList<string> All { get; } =
-        [Read, Configure, Publish, ConfigureSoftwareTemplate, Preflight, Start, Pause, Resume, Cancel, Retry, CompleteManual, DecideApproval];
+        [Read, Configure, Publish, ConfigureSoftwareTemplate, ConfigureProfile, Preflight, Start, Pause, Resume, Cancel, Retry, CompleteManual, DecideApproval];
+}
+
+public static class WorkFlowMetricActions
+{
+    public const string Read = WorkManagementCapabilityNames.FlowMetricsReadV1;
 }
 
 public sealed record SaveWorkOrchestrationPolicyRequest(

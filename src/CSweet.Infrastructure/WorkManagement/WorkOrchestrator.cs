@@ -355,6 +355,25 @@ public sealed partial class WorkOrchestrator(
             Status = WorkExecutionAttemptStatus.Pending, CreatedAt = now
         };
         var item = stage.ItemExecution!.WorkItem!;
+        var board = await db.WorkBoards.AsNoTracking().SingleAsync(x =>
+            x.Id == execution.BoardId && x.OrganizationId == execution.OrganizationId, cancellationToken);
+        var planning = string.IsNullOrWhiteSpace(item.PlanningSpecificationJson)
+            ? null
+            : JsonSerializer.Deserialize<Shared.WorkItemPlanningSpecification>(item.PlanningSpecificationJson, JsonOptions);
+        var evidence = await ValidatePlanningPackageAsync(
+            execution.OrganizationId, board, planning?.ArtifactPackageDigest, cancellationToken);
+        var assignmentSnapshot = JsonSerializer.Deserialize<List<AssignmentSnapshot>>(
+                execution.AssignmentSnapshotJson, JsonOptions)?.SingleOrDefault(x =>
+                x.WorkItemId == item.Id && x.StageKey == stage.StageKey)
+            ?? throw new InvalidOperationException("The exact stage assignment snapshot is unavailable.");
+        var assignmentRequirements = string.IsNullOrWhiteSpace(assignmentSnapshot.RequirementsJson)
+            ? null
+            : JsonSerializer.Deserialize<Shared.WorkAssignmentRequirements>(
+                assignmentSnapshot.RequirementsJson, JsonOptions);
+        var assignmentSelection = string.IsNullOrWhiteSpace(assignmentSnapshot.SelectionEvidenceJson)
+            ? null
+            : JsonSerializer.Deserialize<Shared.WorkAssignmentSelectionEvidence>(
+                assignmentSnapshot.SelectionEvidenceJson, JsonOptions);
         var assignment = new Shared.WorkExecutionAssignmentV1(
             execution.Id, stage.ItemExecutionId, stage.Id, attempt.Id,
             execution.OrganizationId, execution.BoardId, execution.SprintId, item.Id,
@@ -366,13 +385,19 @@ public sealed partial class WorkOrchestrator(
             {
                 item.Id, item.Identifier, item.Title, item.Description,
                 kind = item.Kind.ToString(), priority = item.Priority.ToString(),
+                item.TypeKey, item.PlanningRevision, planning,
                 item.DevelopmentBriefJson, item.DeliverySpecificationJson, item.QualityBriefJson
             }, JsonOptions),
-            JsonSerializer.SerializeToElement(new { }, JsonOptions),
+            JsonSerializer.SerializeToElement(new Shared.WorkExecutionInputV1(
+                board.WorkstreamId, board.TeamId, item.PlanningRevision, planning)
+            {
+                AssignmentRequirements = assignmentRequirements,
+                AssignmentSelection = assignmentSelection
+            }, JsonOptions),
             stage.ItemExecution.Stages.SelectMany(x => x.Attempts)
                 .Where(x => !string.IsNullOrWhiteSpace(x.ResultJson))
                 .Select(x => JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(x.ResultJson!, JsonOptions)!)
-                .ToList(), []);
+                .ToList(), evidence);
         var payload = JsonSerializer.SerializeToElement(assignment, JsonOptions);
         var work = await inbox.EnqueueAsync(
             execution.OrganizationId.ToString(), installationId, AgentWorkKind.Capability,
@@ -391,6 +416,53 @@ public sealed partial class WorkOrchestrator(
         await db.SaveChangesAsync(cancellationToken);
         await runtimes.EnsureRuntimeQueuedAsync(installationId,
             $"Board orchestration {item.Identifier} stage {stage.StageKey}", cancellationToken: cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<Shared.WorkExecutionEvidence>> ValidatePlanningPackageAsync(
+        Guid organizationId,
+        WorkBoard board,
+        Shared.ArtifactPackageDigest? expected,
+        CancellationToken token)
+    {
+        if (expected is null) return [];
+        var package = await db.ArtifactPackages.AsNoTracking().Include(x => x.Members)
+            .SingleOrDefaultAsync(x => x.Id == expected.PackageId && x.OrganizationId == organizationId, token)
+            ?? throw new InvalidOperationException("The approved planning artifact package no longer exists.");
+        if (package.Status != ArtifactDocumentStatus.Approved || package.ArchivedAt.HasValue ||
+            package.Version != expected.Version || !package.AcceptedAt.HasValue)
+            throw new InvalidOperationException("The planning artifact package is not the approved version.");
+        if (package.WorkstreamId.HasValue && package.WorkstreamId != board.WorkstreamId)
+            throw new InvalidOperationException("The planning artifact package belongs to another workstream.");
+        if (package.TeamId.HasValue && package.TeamId != board.TeamId)
+            throw new InvalidOperationException("The planning artifact package belongs to another team.");
+        var expectedByRevision = expected.Members.ToDictionary(x => x.AcceptedRevisionId);
+        if (package.Members.Count != expectedByRevision.Count || package.Members.Any(x =>
+                !x.AcceptedRevisionId.HasValue || !expectedByRevision.ContainsKey(x.AcceptedRevisionId.Value)))
+            throw new InvalidOperationException("The planning artifact package membership changed.");
+        var revisionIds = expectedByRevision.Keys.ToList();
+        var revisions = await db.ArtifactRevisions.AsNoTracking().Include(x => x.Artifact)
+            .Where(x => revisionIds.Contains(x.Id) && x.OrganizationId == organizationId)
+            .ToListAsync(token);
+        if (revisions.Count != revisionIds.Count) throw new InvalidOperationException("A planning artifact revision is missing.");
+        foreach (var revision in revisions)
+        {
+            var member = expectedByRevision[revision.Id];
+            if (revision.Status != ArtifactRevisionStatus.Accepted || revision.ArtifactId != member.ArtifactId ||
+                !string.Equals(revision.ContentSha256, member.Sha256, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(revision.Artifact?.DocumentType, member.TypeKey, StringComparison.Ordinal))
+                throw new InvalidOperationException("A planning artifact revision no longer matches its approved digest.");
+        }
+        var digest = Shared.ArtifactPackageDigestCalculator.Calculate(package.Id, package.Version, expected.Members);
+        if (!string.Equals(digest, expected.Sha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The planning artifact package digest is invalid.");
+        return expected.Members.Select(member => new Shared.WorkExecutionEvidence(
+            "artifact-revision", member.TypeKey,
+            JsonSerializer.Serialize(new
+            {
+                member.ArtifactId,
+                revisionId = member.AcceptedRevisionId,
+                sha256 = member.Sha256
+            }, JsonOptions), "application/json")).ToList();
     }
 
     private async Task ExecuteTrustedActionAsync(
@@ -740,7 +812,8 @@ public sealed partial class WorkOrchestrator(
 
     private sealed record AssignmentSnapshot(
         Guid WorkItemId, string StageKey, WorkOrchestrationPrincipalKind PrincipalKind,
-        Guid? OrganizationUserId, Guid? AgentInstallationId, string? PlatformAction);
+        Guid? OrganizationUserId, Guid? AgentInstallationId, string? PlatformAction,
+        string? RequirementsJson, string? SelectionEvidenceJson);
 
     [GeneratedRegex("^[a-z][a-z0-9._-]{0,63}$", RegexOptions.CultureInvariant)]
     private static partial Regex TokenRegex();

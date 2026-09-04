@@ -197,6 +197,7 @@ public sealed class CommunicationHubService(
             .Include(x => x.Attachments)
             .Include(x => x.Artifacts).ThenInclude(x => x.Artifact)
             .OrderBy(x => x.CreatedAt)
+            .ThenBy(x => x.Sequence)
             .ToListAsync(cancellationToken);
         var decisionCards = decisions is null
             ? new Dictionary<Guid, ExecutiveDecisionCardResponse>()
@@ -204,6 +205,7 @@ public sealed class CommunicationHubService(
         var actions = await db.SuggestedUserActions.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.ConversationId == chatId)
             .OrderBy(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
             .ToListAsync(cancellationToken);
         var resourceChangeCards = resourceChanges is null
             ? new Dictionary<Guid, Contracts.Core.ResourceChangeRequestResponse>()
@@ -213,23 +215,70 @@ public sealed class CommunicationHubService(
             ? new Dictionary<Guid, Contracts.Core.HiringWorkflowApprovalResponse>()
             : (await hiring.ListApprovalCardsAsync(organizationId, chatId, cancellationToken))
                 .ToDictionary(x => x.Key, x => x.Value);
-        return messages.Select(x => MapMessage(
-            x,
-            users,
-            decisionCards,
-            actions.Where(action =>
-                action.ConversationMessageId == x.Id ||
-                (x.Role == ConversationRole.Assistant &&
-                 x.ChatTurnId.HasValue &&
-                 action.ChatTurnId == x.ChatTurnId)).Select(action => ToAction(action, users)).ToList(),
-            x.CorrelationId != Guid.Empty && resourceChangeCards.TryGetValue(x.CorrelationId, out var resourceChange)
-                ? resourceChange
-                : null,
-            x.CorrelationId != Guid.Empty && hiringCards.TryGetValue(x.CorrelationId, out var hiringWorkflow)
-                ? hiringWorkflow
-                : null))
-            .ToList();
+        var responses = new List<CommunicationHubMessageResponse>(messages.Count);
+        for (var index = 0; index < messages.Count; index++)
+        {
+            var message = messages[index];
+            var messageActions = ActionsForMessage(message, actions);
+            var highestSequence = message.Sequence;
+
+            if (IsGroupedHiringActionMessage(message, messageActions))
+            {
+                while (index + 1 < messages.Count)
+                {
+                    var candidate = messages[index + 1];
+                    var candidateActions = ActionsForMessage(candidate, actions);
+                    if (candidate.CausationId != message.CausationId ||
+                        !IsGroupedHiringActionMessage(candidate, candidateActions))
+                        break;
+
+                    messageActions.AddRange(candidateActions);
+                    highestSequence = Math.Max(highestSequence, candidate.Sequence);
+                    index++;
+                }
+            }
+
+            var response = MapMessage(
+                message,
+                users,
+                decisionCards,
+                messageActions.Select(action => ToAction(action, users)).ToList(),
+                message.CorrelationId != Guid.Empty &&
+                resourceChangeCards.TryGetValue(message.CorrelationId, out var resourceChange)
+                    ? resourceChange
+                    : null,
+                message.CorrelationId != Guid.Empty &&
+                hiringCards.TryGetValue(message.CorrelationId, out var hiringWorkflow)
+                    ? hiringWorkflow
+                    : null);
+            responses.Add(highestSequence == message.Sequence
+                ? response
+                : response with { Sequence = highestSequence });
+        }
+
+        return responses;
     }
+
+    private static List<SuggestedUserAction> ActionsForMessage(
+        ConversationMessage message,
+        IReadOnlyList<SuggestedUserAction> actions) =>
+        actions.Where(action =>
+                action.ConversationMessageId == message.Id ||
+                (message.Role == ConversationRole.Assistant &&
+                 message.ChatTurnId.HasValue &&
+                 action.ChatTurnId == message.ChatTurnId))
+            .ToList();
+
+    private static bool IsGroupedHiringActionMessage(
+        ConversationMessage message,
+        IReadOnlyList<SuggestedUserAction> actions) =>
+        message.CausationId.HasValue &&
+        string.Equals(message.SourceProvider, CommunicationMessageTypes.SystemAction, StringComparison.Ordinal) &&
+        actions.Count > 0 &&
+        actions.All(action => string.Equals(
+            action.WorkflowType,
+            SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+            StringComparison.Ordinal));
 
     public async Task<CommunicationUnreadSummaryResponse?> GetUnreadSummaryAsync(
         Guid organizationId,
@@ -1220,6 +1269,7 @@ public sealed class CommunicationHubService(
             action.Status, action.CreatedAt)
         {
             HiringRecommendationId = SuggestedUserActionParameters.ReadHiringRecommendationId(action.ParametersJson),
+            HiringRole = SuggestedUserActionParameters.ReadHiringRole(action.ParametersJson),
             ResultOrganizationUserId = action.ResultOrganizationUserId,
             ResultOrganizationUserDisplayName = action.ResultOrganizationUserId.HasValue &&
                                                 users.TryGetValue(action.ResultOrganizationUserId.Value, out var result)

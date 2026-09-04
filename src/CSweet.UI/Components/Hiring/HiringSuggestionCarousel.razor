@@ -1,0 +1,112 @@
+@using CSweet.Contracts.Communications
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<section class="hiring-suggestion-carousel @(AllCompleted ? "completed" : null)"
+         aria-labelledby="@_titleId">
+    <header class="hiring-suggestion-carousel-header">
+        <div class="hiring-suggestion-carousel-title">
+            <span class="hiring-suggestion-carousel-icon" aria-hidden="true">
+                <MudIcon Icon="@Icons.Material.Outlined.Groups" />
+            </span>
+            <span>
+                <small>HIRING PLAN</small>
+                <strong id="@_titleId">Hiring suggestions</strong>
+            </span>
+        </div>
+        <div class="hiring-suggestion-carousel-tools">
+            <span class="hiring-suggestion-count">@Actions.Count @(Actions.Count == 1 ? "role" : "roles")</span>
+            @if (Actions.Count > 1)
+            {
+                <div class="hiring-suggestion-navigation" aria-label="Hiring suggestion navigation">
+                    <button type="button" aria-label="Previous hiring suggestion" @onclick="@(() => ScrollAsync(-1))">
+                        <MudIcon Icon="@Icons.Material.Outlined.ChevronLeft" />
+                    </button>
+                    <button type="button" aria-label="Next hiring suggestion" @onclick="@(() => ScrollAsync(1))">
+                        <MudIcon Icon="@Icons.Material.Outlined.ChevronRight" />
+                    </button>
+                </div>
+            }
+        </div>
+    </header>
+
+    <div class="hiring-suggestion-rail"
+         @ref="_rail"
+         tabindex="0"
+         role="region"
+         aria-label="@($"Hiring suggestions, {Actions.Count} {(Actions.Count == 1 ? "role" : "roles")}")">
+        @foreach (var action in Actions)
+        {
+            var completed = string.Equals(action.Status, "Completed", StringComparison.Ordinal);
+            <article class="hiring-suggestion-tile @(completed ? "completed" : null)" @key="action.Id">
+                <span class="hiring-suggestion-status">
+                    <MudIcon Icon="@(completed ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.RocketLaunch)" />
+                    @(completed ? "Completed" : "Suggested")
+                </span>
+                <strong>@RoleName(action)</strong>
+                <div class="hiring-suggestion-tile-action">
+                    @if (completed)
+                    {
+                        @if (action.ResultOrganizationUserId is Guid resultUserId)
+                        {
+                            <MudLink Href="@($"/organizations/{OrganizationId:D}/employees/{resultUserId:D}")"
+                                     Typo="Typo.body2">
+                                Hired @(action.ResultOrganizationUserDisplayName ?? "agent")
+                            </MudLink>
+                        }
+                        else
+                        {
+                            <span>Hiring action completed</span>
+                        }
+                    }
+                    else if (!ReadOnly)
+                    {
+                        <MudButton Href="@action.NavigationUri"
+                                   Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   EndIcon="@Icons.Material.Outlined.ArrowForward">
+                            Browse candidates
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <span>Awaiting review</span>
+                    }
+                </div>
+            </article>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public IReadOnlyList<SuggestedUserActionResponse> Actions { get; set; } = [];
+    [Parameter] public bool ReadOnly { get; set; }
+
+    private readonly string _titleId = $"hiring-suggestions-{Guid.NewGuid():N}";
+    private ElementReference _rail;
+    private IJSObjectReference? _module;
+    private bool AllCompleted => Actions.Count > 0 && Actions.All(action =>
+        string.Equals(action.Status, "Completed", StringComparison.Ordinal));
+
+    private static string RoleName(SuggestedUserActionResponse action) =>
+        !string.IsNullOrWhiteSpace(action.HiringRole)
+            ? action.HiringRole
+            : !string.IsNullOrWhiteSpace(action.Description)
+                ? action.Description
+                : action.Label;
+
+    private async Task ScrollAsync(int direction)
+    {
+        _module ??= await JS.InvokeAsync<IJSObjectReference>(
+            "import",
+            "./_content/CSweet.UI/js/communications.js");
+        await _module.InvokeVoidAsync("scrollHiringCarousel", _rail, direction);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+            await _module.DisposeAsync();
+    }
+}

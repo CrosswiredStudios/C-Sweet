@@ -28,6 +28,7 @@ using CSweet.Application.Marketplace;
 using CSweet.Application.WorkManagement;
 using CSweet.Application.SourceControl;
 using CSweet.Application.Analytics;
+using CSweet.Application.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.DataProtection;
@@ -41,6 +42,7 @@ using CSweet.Communications.Abstractions;
 using CSweet.Infrastructure.WorkManagement;
 using CSweet.Infrastructure.SourceControl;
 using CSweet.Infrastructure.Analytics;
+using CSweet.Infrastructure.Infrastructure;
 using CSweet.TrustedServices;
 using CSweet.AgentBroker;
 using CSweet.ExecutionArtifacts;
@@ -409,6 +411,14 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentAttentionInvalidationService, AgentAttentionInvalidationService>();
         builder.Services.AddScoped<IApprovalDashboardService, ApprovalDashboardService>();
         builder.Services.AddScoped<IManagedActionExecutor, WorkstreamManagedActionExecutor>();
+        builder.Services.AddScoped<ManifestInfrastructureProviderGateway>();
+        builder.Services.AddScoped<IInfrastructureProviderGateway>(services =>
+            services.GetRequiredService<ManifestInfrastructureProviderGateway>());
+        builder.Services.AddScoped<InfrastructureChangeExecutionService>();
+        builder.Services.AddScoped<IInfrastructureChangeExecutionService>(services =>
+            services.GetRequiredService<InfrastructureChangeExecutionService>());
+        builder.Services.AddScoped<IManagedActionExecutor>(services =>
+            services.GetRequiredService<InfrastructureChangeExecutionService>());
         builder.Services.AddScoped<ICommunicationWorkspaceService, CommunicationWorkspaceService>();
         builder.Services.AddScoped<ICommunicationHubService, CommunicationHubService>();
         builder.Services.AddScoped<IAgentCoordinationService, AgentCoordinationService>();

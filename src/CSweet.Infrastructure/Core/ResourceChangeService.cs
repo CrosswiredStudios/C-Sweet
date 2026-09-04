@@ -70,9 +70,32 @@ public sealed class ResourceChangeService(
             throw new UnauthorizedAccessException("A human-manager proposal requires an active manager chat turn.");
         }
 
-        var desired = ValidateRoles(request.Roles, requester.Id);
+        OrganizationTeam? scopedTeam = null;
+        if (request.TeamId.HasValue)
+        {
+            scopedTeam = await db.OrganizationTeams.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == request.TeamId && x.OrganizationId == organizationId && x.ArchivedAt == null,
+                cancellationToken) ?? throw new ArgumentException("The selected team is not active in this organization.");
+            if (scopedTeam.LeadOrganizationUserId != requester.Id)
+                throw new UnauthorizedAccessException("Only the current team lead may propose a team-scoped capacity change.");
+            if (!request.ExpectedTeamRevision.HasValue || scopedTeam.Revision != request.ExpectedTeamRevision)
+                throw new DbUpdateConcurrencyException("The team changed since the capacity proposal was prepared.");
+        }
+        if (request.WorkstreamId.HasValue)
+        {
+            var linked = await db.WorkstreamTeamAssignments.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.WorkstreamId == request.WorkstreamId &&
+                (!request.TeamId.HasValue || x.TeamId == request.TeamId) && x.EndsAt == null, cancellationToken);
+            if (!linked) throw new ArgumentException("The selected workstream is not actively assigned to this team.");
+        }
+        var evidence = ValidateEvidence(request.Evidence);
+        if (request.TeamId.HasValue && (evidence.Count == 0 || string.IsNullOrWhiteSpace(request.ExpectedEffect)))
+            throw new ArgumentException("Team-scoped capacity changes require trusted evidence and an expected effect.");
+        var desired = ValidateRoles(request.Roles, requester.Id)
+            .Select(role => request.TeamId.HasValue ? role with { TeamId = request.TeamId } : role)
+            .ToList();
         var previous = await ResolvePreviousAsync(
-            organizationId, requester.Id, request.SupersedesRequestId, cancellationToken);
+            organizationId, requester.Id, request.TeamId, request.SupersedesRequestId, cancellationToken);
         var deltas = ComputeDeltas(desired, previous?.Roles.Where(x => x.IsDesired).Select(ToRole).ToList() ?? []);
         if (deltas.Count == 0)
             throw new InvalidOperationException("The proposed team matches the currently approved team.");
@@ -90,13 +113,20 @@ public sealed class ResourceChangeService(
             ConversationMessageId = Guid.NewGuid(),
             SupersedesRequestId = previous?.Id,
             ProductGoal = Required(request.ProductGoal, 2048, nameof(request.ProductGoal)),
-            TeamKey = OptionalTeamField(request.TeamKey, 200, nameof(request.TeamKey)),
-            TeamName = OptionalTeamField(request.TeamName, 160, nameof(request.TeamName)),
-            TeamDescription = OptionalTeamField(request.TeamDescription, 2048, nameof(request.TeamDescription)),
+            TeamId = scopedTeam?.Id,
+            WorkstreamId = request.WorkstreamId,
+            ExpectedTeamRevision = request.ExpectedTeamRevision,
+            TeamKey = scopedTeam?.TeamKey ?? OptionalTeamField(request.TeamKey, 200, nameof(request.TeamKey)),
+            TeamName = scopedTeam?.Name ?? OptionalTeamField(request.TeamName, 160, nameof(request.TeamName)),
+            TeamDescription = scopedTeam?.Description ?? OptionalTeamField(request.TeamDescription, 2048, nameof(request.TeamDescription)),
             Rationale = Required(request.Rationale, 4096, nameof(request.Rationale)),
             ContextRevision = request.ContextRevision,
             AssumptionsJson = JsonSerializer.Serialize(CleanList(request.Assumptions, 20, 1024), JsonOptions),
             ConstraintsJson = JsonSerializer.Serialize(CleanList(request.Constraints, 20, 1024), JsonOptions),
+            EvidenceJson = JsonSerializer.Serialize(evidence, JsonOptions),
+            AlternativesConsideredJson = JsonSerializer.Serialize(
+                CleanList(request.AlternativesConsidered, 20, 1024), JsonOptions),
+            ExpectedEffect = Clean(request.ExpectedEffect, 2048),
             IdempotencyKey = key,
             Status = ResourceChangeRequestStatus.Pending,
             DeliveryStatus = manager.EmployeeType == EmployeeType.Agent ? "QueuedForManagerAgent" : "DeliveredInChat",
@@ -164,7 +194,11 @@ public sealed class ResourceChangeService(
             db.AgentPlatformEventOutbox.Add(NewEvent(
                 organizationId,
                 ResourceChangeEvents.Requested,
-                new ResourceChangeDecisionEvent(record.Id, organizationId, requester.Id, manager.Id, "Pending", now),
+                new ResourceChangeDecisionEvent(record.Id, organizationId, requester.Id, manager.Id, "Pending", now)
+                {
+                    TeamId = record.TeamId,
+                    WorkstreamId = record.WorkstreamId
+                },
                 $"resource-change-requested:{record.Id:N}",
                 manager.AgentInstallationId));
         }
@@ -293,7 +327,9 @@ public sealed class ResourceChangeService(
             await ResolveApprovedTeamAsync(record, token);
             var older = await db.ResourceChangeRequests.Where(x =>
                 x.OrganizationId == organizationId &&
-                x.RequesterOrganizationUserId == record.RequesterOrganizationUserId &&
+                (record.TeamId.HasValue
+                    ? x.TeamId == record.TeamId
+                    : x.RequesterOrganizationUserId == record.RequesterOrganizationUserId) &&
                 x.Id != record.Id &&
                 x.Status == ResourceChangeRequestStatus.Approved).ToListAsync(token);
             foreach (var item in older)
@@ -309,7 +345,12 @@ public sealed class ResourceChangeService(
             ResourceChangeEvents.Decided,
             new ResourceChangeDecisionEvent(
                 record.Id, organizationId, record.RequesterOrganizationUserId, managerId,
-                record.Status.ToString(), record.DecidedAt.Value),
+                record.Status.ToString(), record.DecidedAt.Value)
+            {
+                TeamId = record.TeamId,
+                WorkstreamId = record.WorkstreamId,
+                DecidedByOrganizationUserId = record.DecidedByOrganizationUserId
+            },
             $"resource-change-decided:{record.Id:N}",
             targetInstallationId: null));
         await db.SaveChangesAsync(token);
@@ -435,6 +476,7 @@ public sealed class ResourceChangeService(
     private async Task<ResourceChangeRequestRecord?> ResolvePreviousAsync(
         Guid organizationId,
         Guid requesterId,
+        Guid? teamId,
         Guid? requestedPreviousId,
         CancellationToken token)
     {
@@ -442,13 +484,14 @@ public sealed class ResourceChangeService(
         {
             return await db.ResourceChangeRequests.AsNoTracking().Include(x => x.Roles).SingleOrDefaultAsync(x =>
                 x.Id == requestedPreviousId.Value && x.OrganizationId == organizationId &&
-                x.RequesterOrganizationUserId == requesterId &&
+                (teamId.HasValue ? x.TeamId == teamId : x.RequesterOrganizationUserId == requesterId) &&
                 (x.Status == ResourceChangeRequestStatus.Approved ||
                  x.Status == ResourceChangeRequestStatus.Superseded), token)
                 ?? throw new ArgumentException("The superseded resource-change request is invalid.");
         }
         return await db.ResourceChangeRequests.AsNoTracking().Include(x => x.Roles)
-            .Where(x => x.OrganizationId == organizationId && x.RequesterOrganizationUserId == requesterId &&
+            .Where(x => x.OrganizationId == organizationId &&
+                (teamId.HasValue ? x.TeamId == teamId : x.RequesterOrganizationUserId == requesterId) &&
                 x.Status == ResourceChangeRequestStatus.Approved)
             .OrderByDescending(x => x.DecidedAt).FirstOrDefaultAsync(token);
     }
@@ -582,7 +625,13 @@ public sealed class ResourceChangeService(
             TeamId = record.TeamId,
             TeamKey = record.TeamKey,
             TeamName = record.TeamName,
-            TeamDescription = record.TeamDescription
+            TeamDescription = record.TeamDescription,
+            WorkstreamId = record.WorkstreamId,
+            ExpectedTeamRevision = record.ExpectedTeamRevision,
+            Evidence = JsonSerializer.Deserialize<IReadOnlyList<ResourceChangeEvidence>>(record.EvidenceJson, JsonOptions) ?? [],
+            AlternativesConsidered = ReadStrings(record.AlternativesConsideredJson),
+            ExpectedEffect = record.ExpectedEffect,
+            DecidedByOrganizationUserId = record.DecidedByOrganizationUserId
         };
     }
 
@@ -654,6 +703,18 @@ public sealed class ResourceChangeService(
     private static IReadOnlyList<string> CleanList(IReadOnlyList<string>? values, int maximumCount, int maximumLength) =>
         (values ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => Required(x, maximumLength, "list item"))
             .Distinct(StringComparer.OrdinalIgnoreCase).Take(maximumCount).ToList();
+
+    private static IReadOnlyList<ResourceChangeEvidence> ValidateEvidence(IReadOnlyList<ResourceChangeEvidence>? evidence)
+    {
+        if ((evidence?.Count ?? 0) > 50) throw new ArgumentException("A proposal may contain at most 50 evidence points.");
+        return (evidence ?? []).Select(item => item with
+        {
+            Kind = Required(item.Kind, 80, "evidence.kind"),
+            SourceRevision = Required(item.SourceRevision, 128, "evidence.sourceRevision"),
+            Summary = Required(item.Summary, 2048, "evidence.summary"),
+            Unit = Clean(item.Unit, 40)
+        }).ToList();
+    }
 
     private static string Required(string? value, int maximum, string name)
     {

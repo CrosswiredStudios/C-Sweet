@@ -50,6 +50,29 @@ public sealed class CommunicationsLayoutTests
             StringComparison.Ordinal);
         Assert.Contains("Navigation.NavigateTo(CurrentWorkspaceHref(artifactId));", razor, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void HiringSuggestionCarouselSupportsCompactAccessibleHorizontalNavigation()
+    {
+        var root = FindRepositoryRoot();
+        var component = File.ReadAllText(Path.Combine(
+            root, "src", "CSweet.UI", "Components", "Hiring", "HiringSuggestionCarousel.razor"));
+        var css = File.ReadAllText(Path.Combine(
+            root, "src", "CSweet.UI", "Components", "Hiring", "HiringSuggestionCarousel.razor.css"));
+        var script = File.ReadAllText(Path.Combine(
+            root, "src", "CSweet.UI", "wwwroot", "js", "communications.js"));
+
+        Assert.Contains("Hiring suggestions", component, StringComparison.Ordinal);
+        Assert.Contains("Previous hiring suggestion", component, StringComparison.Ordinal);
+        Assert.Contains("Next hiring suggestion", component, StringComparison.Ordinal);
+        Assert.Contains("else if (!ReadOnly)", component, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hiring key", component, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("overflow-x: auto", css, StringComparison.Ordinal);
+        Assert.Contains("scroll-snap-type: x mandatory", css, StringComparison.Ordinal);
+        Assert.Contains("@media (prefers-reduced-motion: reduce)", css, StringComparison.Ordinal);
+        Assert.Contains("scrollHiringCarousel", script, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot([CallerFilePath] string sourceFile = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFile)!, "..", ".."));
 }

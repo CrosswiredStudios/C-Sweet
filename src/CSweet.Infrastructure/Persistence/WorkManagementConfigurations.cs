@@ -409,6 +409,8 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.StageKey).HasMaxLength(64).IsRequired();
             entity.Property(x => x.PrincipalKind).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.PlatformAction).HasMaxLength(160);
+            entity.Property(x => x.RequirementsJson).HasColumnType("jsonb");
+            entity.Property(x => x.SelectionEvidenceJson).HasColumnType("jsonb");
             entity.HasIndex(x => new { x.WorkItemId, x.StageKey }).IsUnique();
             entity.HasOne(x => x.WorkItem).WithMany(x => x.StageAssignments)
                 .HasForeignKey(x => x.WorkItemId).OnDelete(DeleteBehavior.Cascade);

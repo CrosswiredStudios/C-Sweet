@@ -14,6 +14,34 @@ public static class ApprovalEndpoints
     public static IEndpointRouteBuilder MapApprovalEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet(
+            "/api/core/organizations/{organizationId:guid}/infrastructure/checkout-actions/{actionId:guid}",
+            async (Guid organizationId, Guid actionId, HttpContext http, CSweetDbContext db,
+                IPluginSecretStore secrets, CancellationToken cancellationToken) =>
+            {
+                var applicationUserId = http.User.GetApplicationUserId();
+                if (!applicationUserId.HasValue) return Results.Forbid();
+                var authorized = await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                    x.OrganizationId == organizationId && x.ApplicationUserId == applicationUserId.Value &&
+                    x.IsActive && x.PermissionLevel == OrganizationPermissionLevel.Owner, cancellationToken);
+                if (!authorized) return Results.Forbid();
+                var key = actionId.ToString("N");
+                var action = await db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.OrganizationId == organizationId && x.Kind == "infrastructure.checkout-action" &&
+                    x.ExternalKey == key, cancellationToken);
+                if (action is null) return Results.NotFound();
+                using var payload = JsonDocument.Parse(action.PayloadJson);
+                if (!payload.RootElement.TryGetProperty("expiresAt", out var expiryNode) ||
+                    !expiryNode.TryGetDateTimeOffset(out var expiry) || expiry <= DateTimeOffset.UtcNow)
+                    return Results.BadRequest(new { error = "checkout_action_expired" });
+                var value = await secrets.GetAsync(action.AgentInstallationId,
+                    $"infrastructure.checkout-action.{key}", cancellationToken);
+                if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+                    !(uri.Host.Equals("namecheap.com", StringComparison.OrdinalIgnoreCase) ||
+                      uri.Host.EndsWith(".namecheap.com", StringComparison.OrdinalIgnoreCase)))
+                    return Results.BadRequest(new { error = "checkout_action_invalid" });
+                return Results.Redirect(uri.AbsoluteUri);
+            });
+        endpoints.MapGet(
             "/api/core/organizations/{organizationId:guid}/approvals",
             async (
                 Guid organizationId,
@@ -71,6 +99,19 @@ public static class ApprovalEndpoints
                     return Results.BadRequest(new { error = "feedback_required" });
                 using var stored = JsonDocument.Parse(proposal.PayloadJson);
                 var root = stored.RootElement;
+                if (root.TryGetProperty("change", out var boundChange) &&
+                    boundChange.TryGetProperty("expiresAt", out var expiresNode) &&
+                    expiresNode.TryGetDateTimeOffset(out var expiresAt) && expiresAt <= DateTimeOffset.UtcNow)
+                {
+                    proposal.Status = ProposalStatus.Cancelled;
+                    proposal.DecidedAt = DateTimeOffset.UtcNow;
+                    await db.SaveChangesAsync(cancellationToken);
+                    return Results.Conflict(new
+                    {
+                        error = "approval_expired",
+                        message = "The exact infrastructure proposal expired. Reconcile current provider state and create a new proposal."
+                    });
+                }
                 var payloadHash = root.GetProperty("payloadHash").GetString();
                 var actionKey = root.GetProperty("idempotencyKey").GetString();
                 var resourceId = root.TryGetProperty("resourceId", out var resourceNode) &&

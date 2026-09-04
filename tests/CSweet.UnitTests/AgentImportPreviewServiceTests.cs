@@ -369,6 +369,36 @@ public class AgentImportPreviewServiceTests
         Assert.Contains("unsafe or unsupported", exception.Message);
     }
 
+    [Fact]
+    public void ValidateManifest_AcceptsExactMcpAndConfinedFileTransferDeclarations()
+    {
+        var json = ConnectedManifest("permission-summary")
+            .Replace("\"credentials\":[]", "\"credentials\":[{\"name\":\"sftp\",\"type\":\"username-password-host-key\",\"allowedOrigins\":[]}]", StringComparison.Ordinal)
+            .Replace("\"connections\":[", "\"mcpServers\":[{\"id\":\"namecheap\",\"endpoint\":\"https://mcp.namecheap.com/mcp\",\"transport\":\"streamable-http\",\"connection\":\"provider\",\"protocolVersions\":[\"2025-06-18\"],\"tools\":[{\"capability\":\"namecheap.domains.list.v1\",\"remoteName\":\"domains_list\",\"description\":\"List domains\",\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"descriptorHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"effect\":\"read\"}]}],\"fileTransferTargets\":[{\"id\":\"shared-hosting\",\"protocol\":\"sftp\",\"credential\":\"sftp\",\"allowedHostSuffixes\":[\".web-hosting.com\"],\"port\":21098,\"rootPath\":\"public_html\",\"operations\":[\"probe\",\"list\",\"stat\",\"upload\"]}],\"connections\":[", StringComparison.Ordinal);
+        var manifest = System.Text.Json.JsonSerializer.Deserialize<PluginManifest>(json,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+        AgentImportPreviewService.ValidateManifest(manifest);
+
+        Assert.Single(manifest.McpServers);
+        Assert.Equal(21098, Assert.Single(manifest.FileTransferTargets).Port);
+    }
+
+    [Fact]
+    public void ValidateManifest_RejectsBroadFileTransferRoot()
+    {
+        var json = ConnectedManifest("permission-summary")
+            .Replace("\"credentials\":[]", "\"credentials\":[{\"name\":\"sftp\",\"type\":\"username-password-host-key\",\"allowedOrigins\":[]}]", StringComparison.Ordinal)
+            .Replace("\"connections\":[", "\"fileTransferTargets\":[{\"id\":\"unsafe\",\"protocol\":\"sftp\",\"credential\":\"sftp\",\"allowedHostSuffixes\":[\".example.com\"],\"port\":22,\"rootPath\":\"/\",\"operations\":[\"upload\"]}],\"connections\":[", StringComparison.Ordinal);
+        var manifest = System.Text.Json.JsonSerializer.Deserialize<PluginManifest>(json,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+        var exception = Assert.Throws<AgentImportPreviewException>(() =>
+            AgentImportPreviewService.ValidateManifest(manifest));
+
+        Assert.Contains("rootPath", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static CSweetDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<CSweetDbContext>()

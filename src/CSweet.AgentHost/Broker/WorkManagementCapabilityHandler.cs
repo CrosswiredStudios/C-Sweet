@@ -55,6 +55,8 @@ public sealed class WorkManagementCapabilityHandler(
         WorkOrchestrationActions.Cancel,
         WorkOrchestrationActions.Retry,
         WorkOrchestrationActions.ConfigureSoftwareTemplate,
+        WorkOrchestrationActions.ConfigureProfile,
+        WorkFlowMetricActions.Read,
     ];
 
     public bool CanHandle(string capability) => HandledCapabilities.Contains(capability);
@@ -201,6 +203,11 @@ public sealed class WorkManagementCapabilityHandler(
                     await ReadSprintReportAsync(
                         organizationId, installation.Id,
                         Read<Wire.WorkBoardReference>(request), cancellationToken)),
+                WorkFlowMetricActions.Read => Success(
+                    request.RequestId,
+                    await ReadFlowMetricsAsync(
+                        organizationId, installation.Id,
+                        Read<Wire.ReadWorkFlowMetricsRequest>(request), cancellationToken)),
                 WorkOrchestrationActions.Preflight => Success(
                     request.RequestId,
                     await PreflightOrchestrationAsync(
@@ -231,6 +238,11 @@ public sealed class WorkManagementCapabilityHandler(
                     await ConfigureSoftwareTemplateAsync(
                         organizationId, installation,
                         Read<Wire.ConfigureSoftwareOrchestrationTemplateRequest>(request), cancellationToken)),
+                WorkOrchestrationActions.ConfigureProfile => Success(
+                    request.RequestId,
+                    await ConfigureProfileAsync(
+                        session, organizationId, installation,
+                        Read<Wire.ConfigureProfileOrchestrationRequest>(request), cancellationToken)),
                 _ => Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound,
                     "The work-management capability is not implemented.")
             };
@@ -463,6 +475,109 @@ public sealed class WorkManagementCapabilityHandler(
             WorkOrchestrationActions.ConfigureSoftwareTemplate, grant,
             new { published.RevisionId, input.IdempotencyKey }, cancellationToken);
         return published;
+    }
+
+    private async Task<Wire.ConfigureProfileOrchestrationResponse> ConfigureProfileAsync(
+        AgentSession session,
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.ConfigureProfileOrchestrationRequest input,
+        CancellationToken cancellationToken)
+    {
+        var grant = await RequireAsync(
+            organizationId, installation.Id, WorkOrchestrationActions.ConfigureProfile,
+            input.BoardId, cancellationToken);
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        if (string.IsNullOrWhiteSpace(input.ProfileDefinitionDigest) || input.ProfileDefinitionDigest.Length != 64)
+            throw new ArgumentException("A pinned SHA-256 profile definition digest is required.");
+        var replay = await ReplayAsync<Wire.ConfigureProfileOrchestrationResponse>(
+            installation.Id, WorkOrchestrationActions.ConfigureProfile,
+            input.IdempotencyKey, cancellationToken);
+        if (replay is not null) return replay;
+
+        var workstream = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == input.WorkstreamId && x.OrganizationId == organizationId, cancellationToken)
+            ?? throw new KeyNotFoundException("Workstream was not found.");
+        if (!string.Equals(workstream.ProfileDefinitionDigest, input.ProfileDefinitionDigest, StringComparison.Ordinal))
+            throw new DbUpdateConcurrencyException("The workstream profile definition changed since it was loaded.");
+        var profile = await db.WorkstreamProfileDefinitions.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Key == workstream.ProfileKey && x.Version == workstream.ProfileVersion &&
+            x.DefinitionDigest == input.ProfileDefinitionDigest && x.Status == Wire.WorkstreamProfileStatuses.Active,
+            cancellationToken) ?? throw new KeyNotFoundException("The pinned active workstream profile was not found.");
+        var definition = JsonSerializer.Deserialize<ProfileExecutionDefinition>(profile.DefinitionJson, JsonOptions)
+            ?? throw new ArgumentException("The workstream profile execution definition is invalid.");
+        if (definition.BoardWorkflow?.Columns is not { Count: > 0 } || definition.Orchestration?.Stages is not { Count: > 0 })
+            throw new ArgumentException("The workstream profile does not define a board workflow and orchestration graph.");
+
+        var board = await db.WorkBoards.AsNoTracking().Include(x => x.Columns).SingleOrDefaultAsync(x =>
+            x.Id == input.BoardId && x.OrganizationId == organizationId, cancellationToken)
+            ?? throw new KeyNotFoundException("Board was not found.");
+        if (board.WorkstreamId != workstream.Id)
+            throw new UnauthorizedAccessException("The board is not owned by the selected workstream.");
+        if (board.Revision != input.ExpectedBoardRevision)
+            throw new DbUpdateConcurrencyException(
+                $"Expected board revision {input.ExpectedBoardRevision}, current revision is {board.Revision}.");
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var columns = definition.BoardWorkflow.Columns.Select(column =>
+        {
+            var existing = board.Columns.SingleOrDefault(x =>
+                string.Equals(x.Name, column.Name, StringComparison.OrdinalIgnoreCase));
+            return new Wire.WorkBoardColumnConfiguration(
+                existing?.Id, column.Name, column.Category, column.WipPolicy, column.WipLimit);
+        }).ToList();
+        var configured = await ConfigureBoardColumnsAsync(
+            session, organizationId, installation,
+            new Wire.ConfigureWorkBoardColumnsRequest(
+                input.BoardId, input.ExpectedBoardRevision, columns, $"{input.IdempotencyKey}:columns"),
+            cancellationToken);
+        var columnsByKey = definition.BoardWorkflow.Columns.Select((template, index) =>
+                new { template.Key, Column = configured.Columns[index] })
+            .ToDictionary(x => x.Key, x => x.Column, StringComparer.Ordinal);
+        var stages = definition.Orchestration.Stages.Select(stage => new Wire.WorkOrchestrationStageDefinition(
+            stage.Key, stage.Name, stage.StageType,
+            stage.ColumnKey is null ? null : columnsByKey.TryGetValue(stage.ColumnKey, out var column)
+                ? column.Id : throw new ArgumentException($"Orchestration stage '{stage.Key}' references an unknown column key."),
+            stage.Instructions, stage.InputSchemaJson, stage.OutputSchemaJson, stage.TimeoutSeconds,
+            stage.ConcurrencyLimit, stage.RetryPolicy, stage.PlatformAction, stage.IsSuccessfulTerminal)).ToList();
+        var revision = await orchestration.SavePolicyRevisionAsync(
+            organizationId, input.BoardId, installation.Id,
+            new SaveWorkOrchestrationPolicyRequest(
+                definition.Orchestration.Name, definition.Orchestration.InitialStageKey,
+                definition.Orchestration.MergeMode, definition.Orchestration.Concurrency,
+                stages, definition.Orchestration.Transitions, $"{input.IdempotencyKey}:policy"),
+            cancellationToken);
+        var published = await orchestration.PublishPolicyRevisionAsync(
+            organizationId, input.BoardId, installation.Id,
+            new PublishWorkOrchestrationPolicyRequest(revision.RevisionId, $"{input.IdempotencyKey}:publish"),
+            cancellationToken);
+        var result = new Wire.ConfigureProfileOrchestrationResponse(
+            workstream.Id, configured.Board.Id, configured.Board.Revision, published, configured.Columns);
+        AddReceipt(organizationId, installation.Id, WorkOrchestrationActions.ConfigureProfile,
+            input.IdempotencyKey, published.RevisionId, result);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        await WriteAuditAsync(
+            organizationId, installation.Id, input.BoardId, WorkOrchestrationActions.ConfigureProfile,
+            grant, new { workstream.Id, published.RevisionId, profile.DefinitionDigest, input.IdempotencyKey },
+            cancellationToken, session);
+        return result;
+    }
+
+    private async Task<Wire.WorkFlowMetricsReport> ReadFlowMetricsAsync(
+        Guid organizationId,
+        Guid installationId,
+        Wire.ReadWorkFlowMetricsRequest input,
+        CancellationToken cancellationToken)
+    {
+        await RequireAsync(organizationId, installationId, WorkBoardActions.Read, input.BoardId, cancellationToken);
+        var grant = await RequireAsync(
+            organizationId, installationId, WorkFlowMetricActions.Read, input.BoardId, cancellationToken);
+        var result = await WorkFlowMetricsBuilder.BuildAsync(db, organizationId, input, cancellationToken);
+        await WriteAuditAsync(
+            organizationId, installationId, input.BoardId, WorkFlowMetricActions.Read, grant,
+            new { result.WindowStart, result.WindowEnd, result.SourceRevision }, cancellationToken);
+        return result;
     }
 
     private Task<Wire.WorkItem> MoveItemAsync(
@@ -893,6 +1008,8 @@ public sealed class WorkManagementCapabilityHandler(
         if (item.Revision != input.ExpectedItemRevision)
             throw new DbUpdateConcurrencyException(
                 $"Expected work item revision {input.ExpectedItemRevision}, current revision is {item.Revision}.");
+        if (input.SprintId.HasValue && !item.IsExecutable)
+            throw new ArgumentException("Container work items cannot enter sprint execution scope.");
         if (input.SprintId.HasValue && !await db.WorkSprints.AnyAsync(x =>
                 x.Id == input.SprintId.Value &&
                 x.OrganizationId == organizationId &&
@@ -1540,7 +1657,7 @@ public sealed class WorkManagementCapabilityHandler(
                 x.OrganizationId == organizationId &&
                 x.BoardId == board.Id, cancellationToken))
             throw new ArgumentException("The parent work item must belong to the same board.");
-        var executable = kind is not (WorkItemKind.Initiative or WorkItemKind.Epic);
+        var executable = type.ExecutionMode == Wire.WorkItemExecutionModes.Executable;
         var deliveryReady = executable && input.Delivery is not null;
         if (executable && input.Planning is null && input.Delivery is null)
             throw new ArgumentException("Executable work items require a planning or delivery specification.");
@@ -1556,7 +1673,10 @@ public sealed class WorkManagementCapabilityHandler(
             : null;
         var policyStages = policyRevision?.Stages.ToList() ?? [];
         ValidateStageAssignments(
-            deliveryReady, policyRevision?.InitialStageKey, policyStages, input.StageAssignments);
+            deliveryReady || input.StageAssignments.Count > 0,
+            policyRevision?.InitialStageKey, policyStages, input.StageAssignments);
+        await ValidateAssignmentEligibilityAsync(
+            organizationId, board, input.StageAssignments, cancellationToken);
         if (input.Planning is not null &&
             (input.Planning.Requirements.Count == 0 || input.Planning.AcceptanceCriteria.Count == 0))
             throw new ArgumentException("The planning specification is incomplete.");
@@ -1593,6 +1713,7 @@ public sealed class WorkManagementCapabilityHandler(
             Identifier = $"{board.Key}-{board.NextItemSequence}",
             Kind = kind,
             TypeKey = type.Key,
+            IsExecutable = executable,
             PlanningRevision = 1,
             Title = normalized.Title,
             Description = normalized.Description,
@@ -1650,7 +1771,14 @@ public sealed class WorkManagementCapabilityHandler(
                 PrincipalKind = Enum.Parse<WorkOrchestrationPrincipalKind>(assignment.PrincipalKind, true),
                 OrganizationUserId = assignment.OrganizationUserId,
                 AgentInstallationId = assignment.AgentInstallationId,
-                PlatformAction = assignment.PlatformAction, CreatedAt = now
+                PlatformAction = assignment.PlatformAction,
+                RequirementsJson = assignment.Requirements is null
+                    ? null
+                    : JsonSerializer.Serialize(assignment.Requirements, JsonOptions),
+                SelectionEvidenceJson = assignment.SelectionEvidence is null
+                    ? null
+                    : JsonSerializer.Serialize(assignment.SelectionEvidence, JsonOptions),
+                CreatedAt = now
             });
         var dependencyIds = input.Planning?.DependencyItemIds ?? input.Delivery?.DependencyItemIds ?? [];
         if (dependencyIds.Count > 0)
@@ -1718,8 +1846,8 @@ public sealed class WorkManagementCapabilityHandler(
                 cancellationToken)
             ?? throw new KeyNotFoundException("Work item was not found.");
         EnsureRequiredApprovals(item);
-        if (item.Kind is WorkItemKind.Initiative or WorkItemKind.Epic)
-            throw new ArgumentException("Initiatives and epics do not have executable delivery specifications.");
+        if (!item.IsExecutable)
+            throw new ArgumentException("Container work items do not have executable delivery specifications.");
         if (item.Revision != input.ExpectedRevision)
             throw new DbUpdateConcurrencyException("The work item changed before delivery finalization.");
         var planning = DeserializeJson<Wire.WorkItemPlanningSpecification>(
@@ -1748,6 +1876,8 @@ public sealed class WorkManagementCapabilityHandler(
         var policyStages = policyRevision.Stages.ToList();
         ValidateStageAssignments(
             true, policyRevision.InitialStageKey, policyStages, input.StageAssignments);
+        await ValidateAssignmentEligibilityAsync(
+            organizationId, board, input.StageAssignments, cancellationToken);
 
         item.AccountableOrganizationUserId = input.AccountableOrganizationUserId;
         item.DeliverySpecificationJson = JsonSerializer.Serialize(input.Delivery, JsonOptions);
@@ -1766,6 +1896,12 @@ public sealed class WorkManagementCapabilityHandler(
                 OrganizationUserId = assignment.OrganizationUserId,
                 AgentInstallationId = assignment.AgentInstallationId,
                 PlatformAction = assignment.PlatformAction,
+                RequirementsJson = assignment.Requirements is null
+                    ? null
+                    : JsonSerializer.Serialize(assignment.Requirements, JsonOptions),
+                SelectionEvidenceJson = assignment.SelectionEvidence is null
+                    ? null
+                    : JsonSerializer.Serialize(assignment.SelectionEvidence, JsonOptions),
                 CreatedAt = item.UpdatedAt
             };
             item.StageAssignments.Add(entity);
@@ -2209,6 +2345,9 @@ public sealed class WorkManagementCapabilityHandler(
                 $"Expected work item revision {input.ExpectedItemRevision}, current revision is {item.Revision}.");
         var previousEstimate = item.EstimatePoints;
         item.EstimatePoints = input.EstimatePoints;
+        item.EstimateProvenanceJson = input.Provenance is null
+            ? null
+            : JsonSerializer.Serialize(input.Provenance, JsonOptions);
         item.Revision++;
         item.UpdatedAt = DateTimeOffset.UtcNow;
         var result = ToAgentItem(item);
@@ -2216,7 +2355,7 @@ public sealed class WorkManagementCapabilityHandler(
             organizationId, input.BoardId, item.Id, installation.Id,
             string.IsNullOrWhiteSpace(session.AgentId) ? "Agent" : session.AgentId,
             WorkItemActions.Estimate, "item.estimate.changed", grant,
-            new { previousEstimate, estimatePoints = input.EstimatePoints },
+            new { previousEstimate, estimatePoints = input.EstimatePoints, provenance = input.Provenance },
             item.UpdatedAt, input.IdempotencyKey);
         AddSprintReceipt(
             organizationId, installation.Id, WorkItemActions.Estimate,
@@ -2231,7 +2370,7 @@ public sealed class WorkManagementCapabilityHandler(
         await WriteAuditAsync(
             organizationId, installation.Id, input.BoardId,
             WorkItemActions.Estimate, grant,
-            new { item.Id, previousEstimate, estimatePoints = input.EstimatePoints },
+            new { item.Id, previousEstimate, estimatePoints = input.EstimatePoints, provenance = input.Provenance },
             cancellationToken, session);
         return result;
     }
@@ -2927,6 +3066,9 @@ public sealed class WorkManagementCapabilityHandler(
         DeserializeDevelopmentBrief(item.DevelopmentBriefJson))
     {
         TypeKey = item.TypeKey,
+        ExecutionMode = item.IsExecutable
+            ? Wire.WorkItemExecutionModes.Executable
+            : Wire.WorkItemExecutionModes.Container,
         PlanningRevision = item.PlanningRevision,
         Planning = DeserializeJson<Wire.WorkItemPlanningSpecification>(
             item.PlanningSpecificationJson),
@@ -2938,7 +3080,11 @@ public sealed class WorkManagementCapabilityHandler(
         Mentions = WorkItemMentionCodec.Deserialize(item.StructuredMentionsJson),
         StageAssignments = item.StageAssignments.Select(x => new Wire.WorkStageAssignment(
             x.StageKey, x.PrincipalKind.ToString(), x.OrganizationUserId,
-            x.AgentInstallationId, x.PlatformAction)).ToList(),
+            x.AgentInstallationId, x.PlatformAction)
+        {
+            Requirements = DeserializeJson<Wire.WorkAssignmentRequirements>(x.RequirementsJson),
+            SelectionEvidence = DeserializeJson<Wire.WorkAssignmentSelectionEvidence>(x.SelectionEvidenceJson)
+        }).ToList(),
         Approvals = item.Approvals.Select(ToApprovalContract).ToList(),
         ProposalProvenance = item.ProposalCoordinationSessionId.HasValue &&
                              !string.IsNullOrWhiteSpace(item.ProposalArtifactDigest) &&
@@ -2947,7 +3093,8 @@ public sealed class WorkManagementCapabilityHandler(
                 item.ProposalCoordinationSessionId.Value,
                 item.ProposalArtifactDigest,
                 item.ProposalItemKey)
-            : null
+            : null,
+        EstimateProvenance = DeserializeJson<Wire.WorkEstimateProvenance>(item.EstimateProvenanceJson)
     };
 
     private static Wire.WorkItemApproval ToApprovalContract(WorkItemApproval approval) => new(
@@ -3098,13 +3245,142 @@ public sealed class WorkManagementCapabilityHandler(
         }
     }
 
+    private async Task ValidateAssignmentEligibilityAsync(
+        Guid organizationId,
+        WorkBoard board,
+        IReadOnlyList<Wire.WorkStageAssignment> assignments,
+        CancellationToken cancellationToken)
+    {
+        var agentAssignments = assignments.Where(x => x.AgentInstallationId.HasValue).ToList();
+        if (agentAssignments.Count == 0) return;
+        var installationIds = agentAssignments.Select(x => x.AgentInstallationId!.Value).Distinct().ToList();
+        var installations = await db.AgentInstallations.AsNoTracking()
+            .Include(x => x.PackageVersion)
+            .Include(x => x.Grant)
+            .Include(x => x.Schedule)
+            .Where(x => x.BusinessId == organizationId.ToString("D") && installationIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+        var employeeIds = await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
+                x.OrganizationId == organizationId && x.IsActive && x.AgentInstallationId.HasValue &&
+                installationIds.Contains(x.AgentInstallationId.Value))
+            .Select(x => new { x.Id, InstallationId = x.AgentInstallationId!.Value })
+            .ToListAsync(cancellationToken);
+        var employeeByInstallation = employeeIds.ToDictionary(x => x.InstallationId, x => x.Id);
+        long? teamRevision = null;
+        if (board.TeamId.HasValue)
+        {
+            teamRevision = await db.OrganizationTeams.AsNoTracking().Where(x =>
+                    x.OrganizationId == organizationId && x.Id == board.TeamId && x.ArchivedAt == null)
+                .Select(x => (long?)x.Revision).SingleOrDefaultAsync(cancellationToken);
+            if (!teamRevision.HasValue)
+                throw new ArgumentException("The board assignment team is unavailable.");
+        }
+        string? profileDigest = null;
+        if (board.WorkstreamId.HasValue)
+            profileDigest = await db.Workstreams.AsNoTracking().Where(x =>
+                    x.OrganizationId == organizationId && x.Id == board.WorkstreamId)
+                .Select(x => x.ProfileDefinitionDigest).SingleOrDefaultAsync(cancellationToken);
+
+        foreach (var assignment in agentAssignments)
+        {
+            var requirements = assignment.Requirements;
+            var selection = assignment.SelectionEvidence;
+            if (requirements is null && selection is null) continue;
+            var installationId = assignment.AgentInstallationId!.Value;
+            if (!installations.TryGetValue(installationId, out var installed) ||
+                !installed.IsEnabled || installed.RevisionStatus != PluginRevisionStatus.Active ||
+                installed.Schedule?.IsEnabled != true)
+                throw new ArgumentException($"Stage '{assignment.StageKey}' requires an active, runtime-eligible installation.");
+            if (!employeeByInstallation.TryGetValue(installationId, out var employeeId))
+                throw new ArgumentException($"Stage '{assignment.StageKey}' requires an active employee installation.");
+            if (board.TeamId.HasValue && !await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+                    x.OrganizationId == organizationId && x.TeamId == board.TeamId &&
+                    x.OrganizationUserId == employeeId && x.EndedAt == null, cancellationToken))
+                throw new ArgumentException($"Stage '{assignment.StageKey}' assignee is not an active member of the board team.");
+
+            if (requirements is null || selection is null)
+                throw new ArgumentException($"Stage '{assignment.StageKey}' must carry both assignment requirements and selection evidence.");
+            if (selection.AgentInstallationId != installationId)
+                throw new ArgumentException($"Stage '{assignment.StageKey}' selection evidence identifies a different installation.");
+            if (teamRevision.HasValue && selection.TeamRosterRevision != teamRevision.Value)
+                throw new DbUpdateConcurrencyException("The team roster changed after assignment selection.");
+            if (!string.IsNullOrWhiteSpace(profileDigest) &&
+                !string.Equals(selection.ProfileDefinitionDigest, profileDigest, StringComparison.Ordinal))
+                throw new DbUpdateConcurrencyException("The workstream profile changed after assignment selection.");
+            if (string.IsNullOrWhiteSpace(requirements.RequiredRoleKey) ||
+                !CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(requirements.RequiredRoleKey) ||
+                requirements.RequiredSpecializationKeys.Any(x => !CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(x)) ||
+                requirements.PreferredSpecializationKeys.Any(x => !CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(x)) ||
+                requirements.RequiredCapabilityKeys.Any(string.IsNullOrWhiteSpace))
+                throw new ArgumentException($"Stage '{assignment.StageKey}' has invalid assignment requirements.");
+
+            var (roles, specializations, capabilities) = ReadInstallationAssignmentSupply(
+                installed.PackageVersion?.ManifestJson, installed.Grant?.RequiredCapabilitiesJson);
+            if (!roles.Contains(requirements.RequiredRoleKey, StringComparer.Ordinal))
+                throw new ArgumentException($"Stage '{assignment.StageKey}' assignee does not declare the required role.");
+            var missingSkills = requirements.RequiredSpecializationKeys
+                .Where(x => !specializations.Contains(x, StringComparer.Ordinal)).ToArray();
+            if (missingSkills.Length > 0)
+                throw new ArgumentException($"Stage '{assignment.StageKey}' assignee is missing required specializations: {string.Join(", ", missingSkills)}.");
+            var missingCapabilities = requirements.RequiredCapabilityKeys
+                .Where(x => !capabilities.Contains(x, StringComparer.Ordinal)).ToArray();
+            if (missingCapabilities.Length > 0)
+                throw new ArgumentException($"Stage '{assignment.StageKey}' assignee is missing required capabilities: {string.Join(", ", missingCapabilities)}.");
+            var matched = requirements.RequiredSpecializationKeys.Concat(requirements.PreferredSpecializationKeys)
+                .Where(x => specializations.Contains(x, StringComparer.Ordinal))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            if (!matched.SequenceEqual(selection.MatchedSpecializationKeys.Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal), StringComparer.Ordinal))
+                throw new ArgumentException($"Stage '{assignment.StageKey}' selection evidence does not match the installation manifest.");
+            if (string.IsNullOrWhiteSpace(selection.DecisionFingerprint) || selection.DecisionFingerprint.Length > 128)
+                throw new ArgumentException($"Stage '{assignment.StageKey}' selection fingerprint is invalid.");
+        }
+    }
+
+    private static (IReadOnlyList<string> Roles, IReadOnlyList<string> Specializations, IReadOnlyList<string> Capabilities)
+        ReadInstallationAssignmentSupply(string? manifestJson, string? grantedCapabilitiesJson)
+    {
+        var roles = new List<string>();
+        var specializations = new List<string>();
+        var capabilities = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            using var manifest = JsonDocument.Parse(manifestJson ?? "{}");
+            if (manifest.RootElement.TryGetProperty("rolePolicy", out var policy))
+            {
+                if (policy.TryGetProperty("declaredRoleKeys", out var declared) && declared.ValueKind == JsonValueKind.Array)
+                    roles.AddRange(declared.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!));
+                if (policy.TryGetProperty("specializationKeys", out var skills) && skills.ValueKind == JsonValueKind.Array)
+                    specializations.AddRange(skills.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!));
+            }
+            if (manifest.RootElement.TryGetProperty("provides", out var provides) && provides.ValueKind == JsonValueKind.Array)
+                foreach (var provided in provides.EnumerateArray())
+                    if (provided.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String)
+                        capabilities.Add(name.GetString()!);
+        }
+        catch (JsonException) { }
+        try
+        {
+            foreach (var capability in JsonSerializer.Deserialize<string[]>(grantedCapabilitiesJson ?? "[]") ?? [])
+                if (!string.IsNullOrWhiteSpace(capability)) capabilities.Add(capability);
+        }
+        catch (JsonException) { }
+        return (roles.Distinct(StringComparer.Ordinal).ToArray(),
+            specializations.Distinct(StringComparer.Ordinal).ToArray(), capabilities.ToArray());
+    }
+
     private static void ValidateStageAssignments(
         bool executable,
         string? initialStageKey,
         IReadOnlyList<WorkOrchestrationStage> stages,
         IReadOnlyList<Wire.WorkStageAssignment> assignments)
     {
-        if (!executable) return;
+        if (!executable)
+        {
+            if (assignments.Count > 0)
+                throw new ArgumentException("Container work items cannot have execution-stage assignments.");
+            return;
+        }
         if (stages.Count == 0)
             throw new ArgumentException("The board must have a published orchestration policy before executable work is created.");
         var required = stages.Where(x => x.Type is WorkOrchestrationStageType.AgentExecution or
@@ -3137,6 +3413,11 @@ public sealed class WorkManagementCapabilityHandler(
             if (stage.Type == WorkOrchestrationStageType.TrustedPlatformAction &&
                 (principal != WorkOrchestrationPrincipalKind.PlatformAction || string.IsNullOrWhiteSpace(assignment.PlatformAction)))
                 throw new ArgumentException($"Platform stage '{stage.Key}' requires a trusted action.");
+            if ((assignment.Requirements is null) != (assignment.SelectionEvidence is null))
+                throw new ArgumentException($"Stage '{assignment.StageKey}' requires both assignment requirements and selection evidence.");
+            if (assignment.SelectionEvidence is not null &&
+                assignment.SelectionEvidence.AgentInstallationId != assignment.AgentInstallationId)
+                throw new ArgumentException($"Stage '{assignment.StageKey}' selection evidence identifies a different installation.");
         }
         var initialStage = string.IsNullOrWhiteSpace(initialStageKey)
             ? null
@@ -3310,6 +3591,10 @@ public sealed class WorkManagementCapabilityHandler(
         Guid? OrganizationUserId,
         Guid? AgentInstallationId,
         string? PlatformAction);
+
+    private sealed record ProfileExecutionDefinition(
+        Wire.WorkBoardWorkflowTemplate? BoardWorkflow,
+        Wire.WorkOrchestrationProfileTemplate? Orchestration);
 
     private sealed record VerifiedProposalApproval(
         Guid EmployeeId, Guid InstallationId, Guid SessionId, string ArtifactDigest);

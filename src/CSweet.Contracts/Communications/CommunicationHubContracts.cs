@@ -203,6 +203,7 @@ public sealed record SuggestedUserActionResponse(
     DateTimeOffset CreatedAt)
 {
     public Guid? HiringRecommendationId { get; init; }
+    public string? HiringRole { get; init; }
     public Guid? ResultOrganizationUserId { get; init; }
     public string? ResultOrganizationUserDisplayName { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }

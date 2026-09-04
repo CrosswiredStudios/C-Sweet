@@ -125,18 +125,19 @@ The core can optionally connect to C-Sweet Marketplace for in-app agent browsing
 
 ## Start with a first-party team
 
-C-Sweet's embedded catalog includes six first-party agents that are available to install through the same permission review and hiring workflow used for any other agent.
+C-Sweet's embedded catalog includes seven first-party agents that are available to install through the same permission review and hiring workflow used for any other agent.
 
 | Agent | What it enables |
 |---|---|
 | [**Chief of Staff**](https://github.com/CrosswiredStudios/CSweet.Agent.ChiefOfStaff) | Turns executive direction into priorities, organizational plans, hiring recommendations, coordination, and executive briefings. |
 | [**Product Manager**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareProductManager) | Drives product discovery, strategy, roadmaps, requirements, prioritization, and product-team design. |
-| [**Video Game Creative Director**](https://github.com/CrosswiredStudios/CSweet.Agent.CreativeDirector.VideoGame) | Establishes an accepted video-game vision, hands it to a Product Manager, and provides ongoing creative oversight. |
+| [**Video Game Creative Director**](https://github.com/CrosswiredStudios/CSweet.Agent.CreativeDirector.VideoGame) | Establishes an accepted video-game vision, hands delivery to the Video Game Producer, and provides ongoing creative oversight. |
+| [**Video Game Producer**](https://github.com/CrosswiredStudios/CSweet.Agent.Producer.VideoGame) | Runs sprint readiness and execution, monitors trusted flow metrics and capacity, controls delivery risks, and reports to management. |
 | [**Software Architect**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareArchitect) | Converts approved requirements into architecture decisions, incremental plans, sprints, and developer-ready tickets. |
 | [**Software Developer**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper) | Implements assigned tickets in an isolated Git workspace, validates changes, and opens reviewable pull requests. |
 | [**Software QA**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA) | Validates the assigned commit against acceptance criteria and returns structured release evidence and a pass, fail, or blocked verdict. |
 
-Direction can flow from Chief of Staff or a Video Game Creative Director through product planning, architecture, implementation, and QA. These agents are not automatically installed: importing their GitHub source requires repository access and explicit owner approval.
+Direction can flow from Chief of Staff into software product delivery, or from a Video Game Creative Director through the Video Game Producer and accountable game specialists. These agents are not automatically installed: importing their GitHub source requires repository access and explicit owner approval.
 
 ## Bring your own models and infrastructure
 

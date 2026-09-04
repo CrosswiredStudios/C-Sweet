@@ -7,6 +7,19 @@ export function scrollToBottom(element) {
     element.scrollTop = element.scrollHeight;
 }
 
+export function scrollHiringCarousel(element, direction) {
+    if (!element) return;
+    const card = element.querySelector(".hiring-suggestion-tile");
+    const styles = window.getComputedStyle(element);
+    const gap = Number.parseFloat(styles.columnGap || styles.gap) || 0;
+    const distance = (card?.getBoundingClientRect().width || element.clientWidth * .8) + gap;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    element.scrollBy({
+        left: Math.sign(direction) * distance,
+        behavior: reduceMotion ? "auto" : "smooth"
+    });
+}
+
 export function getComposerCaret(inputId) {
     const input = document.getElementById(inputId);
     return input?.selectionStart ?? input?.value?.length ?? 0;

@@ -23,6 +23,9 @@ public sealed record PluginManifest
     public IReadOnlyList<PluginConfigurationField> Configuration { get; init; } = [];
     public IReadOnlyList<PluginCredentialBinding> Credentials { get; init; } = [];
     public IReadOnlyList<PluginConnectionDeclaration> Connections { get; init; } = [];
+    public IReadOnlyList<PluginMcpServerDeclaration> McpServers { get; init; } = [];
+    public IReadOnlyList<PluginProviderOperationDeclaration> ProviderOperations { get; init; } = [];
+    public IReadOnlyList<PluginFileTransferTargetDeclaration> FileTransferTargets { get; init; } = [];
     public PluginSetupManifest? Setup { get; init; }
     public PluginWebAccess WebAccess { get; init; } = new();
     public IReadOnlyList<PluginUiContribution> Ui { get; init; } = [];
@@ -189,6 +192,52 @@ public sealed record PluginConnectionScopeSet
     public string Purpose { get; init; } = string.Empty;
     public bool Required { get; init; }
     public IReadOnlyList<string> Scopes { get; init; } = [];
+}
+
+public sealed record PluginMcpServerDeclaration
+{
+    public string Id { get; init; } = string.Empty;
+    public string Endpoint { get; init; } = string.Empty;
+    public string Transport { get; init; } = "streamable-http";
+    public string? Connection { get; init; }
+    public IReadOnlyList<string> ProtocolVersions { get; init; } = [];
+    public IReadOnlyList<PluginMcpToolDeclaration> Tools { get; init; } = [];
+}
+
+public sealed record PluginMcpToolDeclaration
+{
+    public string Capability { get; init; } = string.Empty;
+    public string RemoteName { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public JsonElement InputSchema { get; init; }
+    public JsonElement OutputSchema { get; init; }
+    public string DescriptorHash { get; init; } = string.Empty;
+    public string Effect { get; init; } = "read";
+}
+
+public sealed record PluginProviderOperationDeclaration
+{
+    public string Capability { get; init; } = string.Empty;
+    public string ProviderProfile { get; init; } = string.Empty;
+    public string Command { get; init; } = string.Empty;
+    public string ProductionEndpoint { get; init; } = string.Empty;
+    public string? SandboxEndpoint { get; init; }
+    public string Credential { get; init; } = string.Empty;
+    public JsonElement InputSchema { get; init; }
+    public JsonElement OutputSchema { get; init; }
+    public string Effect { get; init; } = "read";
+    public string Idempotency { get; init; } = "provider-reconciliation";
+}
+
+public sealed record PluginFileTransferTargetDeclaration
+{
+    public string Id { get; init; } = string.Empty;
+    public string Protocol { get; init; } = "sftp";
+    public string Credential { get; init; } = string.Empty;
+    public IReadOnlyList<string> AllowedHostSuffixes { get; init; } = [];
+    public int Port { get; init; }
+    public string RootPath { get; init; } = string.Empty;
+    public IReadOnlyList<string> Operations { get; init; } = [];
 }
 
 public sealed record PluginSetupManifest

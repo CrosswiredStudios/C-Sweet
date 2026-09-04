@@ -15,14 +15,26 @@ public static class WorkstreamProfileWorkTypeCatalog
         if (types.GetArrayLength() > 100)
             throw new InvalidOperationException("A Workstream profile cannot declare more than 100 work item types.");
         var profileKey = root.GetProperty("key").GetString()!;
-        var result = types.EnumerateArray().Select(type => new WorkItemTypeDefinition(
-            Required(type, "key", 200),
-            Required(type, "displayName", 200),
-            RequireKind(type),
-            [boardProfileKey],
-            Strings(type, "permittedParentTypeKeys", 100),
-            profileKey,
-            Strings(type, "requiredApprovalPolicyKeys", 32))).ToList();
+        var result = types.EnumerateArray().Select(type =>
+        {
+            var kind = RequireKind(type);
+            var executionMode = type.TryGetProperty("executionMode", out var mode)
+                ? mode.GetString()
+                : WorkItemExecutionModes.DefaultForKind(kind);
+            if (executionMode is null || !WorkItemExecutionModes.All.Contains(executionMode))
+                throw new InvalidOperationException("Workstream profile work item executionMode is invalid.");
+            return new WorkItemTypeDefinition(
+                Required(type, "key", 200),
+                Required(type, "displayName", 200),
+                kind,
+                [boardProfileKey],
+                Strings(type, "permittedParentTypeKeys", 100),
+                profileKey,
+                Strings(type, "requiredApprovalPolicyKeys", 32))
+            {
+                ExecutionMode = executionMode
+            };
+        }).ToList();
         if (result.Select(x => x.Key).Distinct(StringComparer.Ordinal).Count() != result.Count)
             throw new InvalidOperationException("Workstream profile work item type keys must be unique.");
         return result;

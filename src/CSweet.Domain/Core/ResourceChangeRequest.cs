@@ -22,6 +22,8 @@ public sealed class ResourceChangeRequestRecord
     public Guid? SupersedesRequestId { get; set; }
     public string ProductGoal { get; set; } = string.Empty;
     public Guid? TeamId { get; set; }
+    public Guid? WorkstreamId { get; set; }
+    public long? ExpectedTeamRevision { get; set; }
     public string? TeamKey { get; set; }
     public string? TeamName { get; set; }
     public string? TeamDescription { get; set; }
@@ -29,6 +31,9 @@ public sealed class ResourceChangeRequestRecord
     public long ContextRevision { get; set; }
     public string AssumptionsJson { get; set; } = "[]";
     public string ConstraintsJson { get; set; } = "[]";
+    public string EvidenceJson { get; set; } = "[]";
+    public string AlternativesConsideredJson { get; set; } = "[]";
+    public string? ExpectedEffect { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
     public ResourceChangeRequestStatus Status { get; set; } = ResourceChangeRequestStatus.Pending;
     public string DeliveryStatus { get; set; } = "Pending";

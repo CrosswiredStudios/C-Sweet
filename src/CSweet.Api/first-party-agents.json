@@ -3,6 +3,31 @@
     "Marketplace": {
       "FirstPartyAgents": [
         {
+          "Id": "f7a98e3d-4214-4b64-8f15-8ef31f81e3c4",
+          "AgentId": "com.csweet.infrastructure-engineer.namecheap",
+          "ListingSlug": "namecheap-infrastructure-engineer",
+          "Name": "Namecheap Infrastructure Engineer",
+          "Summary": "Bootstraps and operates Namecheap domains, DNS, Shared Hosting, HTTPS, and a deterministic starter site for a solo founder.",
+          "Category": "Infrastructure",
+          "RoleKey": "infrastructure-engineer",
+          "RoleName": "Infrastructure Engineer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "assistant.converse.v1",
+            "namecheap-domains",
+            "namecheap-shared-hosting",
+            "dns-and-https-operations"
+          ],
+          "RoleAliases": [ "Namecheap Administrator", "Domain and Hosting Engineer" ],
+          "SpecializationKeys": [ "namecheap" ],
+          "Keywords": [ "namecheap", "domain", "dns", "shared hosting", "ssl", "sftp" ],
+          "IsFeatured": true,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.InfrastructureEngineer.Namecheap",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.InfrastructureEngineer.Namecheap#readme"
+        },
+        {
           "Id": "01fb264d-1cd9-4bc6-a5d2-08adc63a5f32",
           "AgentId": "com.csweet.chief-of-staff",
           "ListingSlug": "chief-of-staff",
@@ -55,7 +80,7 @@
           "AgentId": "com.csweet.video-game-creative-director",
           "ListingSlug": "video-game-creative-director",
           "Name": "Video Game Creative Director",
-          "Summary": "Leads video-game vision from minimal discovery through iterative pitch approval, Product Manager handoff, and creative production oversight.",
+          "Summary": "Leads video-game vision from minimal discovery through iterative pitch approval, Producer handoff, and creative production oversight.",
           "Category": "Creative",
           "RoleKey": "creative-director",
           "RoleName": "Creative Director",
@@ -73,6 +98,31 @@
           "Availability": "Available",
           "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.CreativeDirector.VideoGame",
           "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.CreativeDirector.VideoGame#readme"
+        },
+        {
+          "Id": "6fd52995-96dc-47e4-ae93-c7fc10b61e0d",
+          "AgentId": "com.csweet.video-game-producer",
+          "ListingSlug": "video-game-producer",
+          "Name": "Video Game Producer",
+          "Summary": "Owns sprint readiness, delivery health, dependencies, forecasting, risks, capacity evidence, and management reporting for game teams.",
+          "Category": "Production",
+          "RoleKey": "game-producer",
+          "RoleName": "Video Game Producer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "work.orchestration.profile.configure.v1",
+            "work.flow-metrics.read.v1",
+            "management.check-in.v1"
+          ],
+          "RoleAliases": [ "Game Producer", "Development Producer", "Delivery Producer" ],
+          "SpecializationKeys": [ "video-game-development", "game-production", "sprint-planning", "delivery-forecasting", "dependency-risk-capacity-management", "management-reporting" ],
+          "Keywords": [ "video games", "production", "sprints", "delivery", "capacity" ],
+          "IsFeatured": true,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Producer.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Producer.VideoGame#readme"
         },
         {
           "Id": "39949c34-fe1e-4c7c-bd01-9a05c0a2ebcc",

@@ -395,12 +395,16 @@ internal static class CoreConfigurations
             entity.Property(x => x.Rationale).HasMaxLength(4096).IsRequired();
             entity.Property(x => x.AssumptionsJson).HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.ConstraintsJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.EvidenceJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.AlternativesConsideredJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.ExpectedEffect).HasMaxLength(2048);
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.DeliveryStatus).HasMaxLength(32).IsRequired();
             entity.Property(x => x.DecisionComment).HasMaxLength(4000);
             entity.Property(x => x.DecisionIdempotencyKey).HasMaxLength(160);
             entity.HasOne<OrganizationTeam>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<Workstream>().WithMany().HasForeignKey(x => x.WorkstreamId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ConversationMessage>().WithMany().HasForeignKey(x => x.ConversationMessageId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -514,6 +518,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.TypeKey).HasMaxLength(200).IsRequired();
         entity.Property(x => x.ProposalArtifactDigest).HasMaxLength(128);
         entity.Property(x => x.ProposalItemKey).HasMaxLength(300);
+        entity.Property(x => x.EstimateProvenanceJson).HasColumnType("jsonb");
         entity.Property(x => x.DeliverySpecificationJson).HasColumnType("text");
         entity.Property(x => x.QualityBriefJson).HasColumnType("text");
         entity.Property(x => x.MergeStatus).HasMaxLength(24).IsRequired();
@@ -525,6 +530,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.CreationIdempotencyKey).HasMaxLength(160);
         entity.Property(x => x.CorrelationId).HasMaxLength(160);
         entity.Property(x => x.CausationId).HasMaxLength(160);
+        entity.Property(x => x.PersonalWorkContextJson).HasColumnType("jsonb");
         entity.Property(x => x.StructuredMentionsJson).HasColumnType("text").IsRequired();
         entity.HasIndex(x => new { x.BoardId, x.Identifier }).IsUnique()
             .HasFilter("\"Identifier\" IS NOT NULL");

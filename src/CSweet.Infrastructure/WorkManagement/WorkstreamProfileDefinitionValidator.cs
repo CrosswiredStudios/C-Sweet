@@ -2,6 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Contracts.Plugins;
+using CSweet.Domain.WorkManagement;
+using Wire = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
@@ -70,6 +72,8 @@ public static class WorkstreamProfileDefinitionValidator
             (milestones.ValueKind != JsonValueKind.Array || milestones.GetArrayLength() > 64))
             throw new ArgumentException("Workstream profile milestones must be an array of at most 64 entries.");
         if (root.TryGetProperty("staffing", out var staffing)) ValidateStaffing(staffing);
+        ValidateExecutionTemplate(root);
+        ValidateAssignmentPolicy(root);
         if (root.TryGetProperty("workItemTypes", out var workItemTypes))
             _ = WorkstreamProfileWorkTypeCatalog.Read(JsonSerializer.Serialize(root), defaultBoardProfileKey);
 
@@ -77,6 +81,117 @@ public static class WorkstreamProfileDefinitionValidator
         var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
         return new(key, version, displayName, JsonSerializer.Serialize(schema), lifecyclePolicyKey,
             defaultBoardProfileKey, authorityPolicyKey, canonical, digest);
+    }
+
+    private static void ValidateExecutionTemplate(JsonElement root)
+    {
+        var hasBoard = root.TryGetProperty("boardWorkflow", out var boardElement);
+        var hasOrchestration = root.TryGetProperty("orchestration", out var orchestrationElement);
+        if (!hasBoard && !hasOrchestration) return;
+        if (!hasBoard || !hasOrchestration)
+            throw new ArgumentException("Profile execution configuration requires both boardWorkflow and orchestration.");
+        var board = boardElement.Deserialize<Wire.WorkBoardWorkflowTemplate>(new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? throw new ArgumentException("The boardWorkflow definition is invalid.");
+        var orchestration = orchestrationElement.Deserialize<Wire.WorkOrchestrationProfileTemplate>(new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? throw new ArgumentException("The orchestration definition is invalid.");
+        if (board.Columns.Count is < 2 or > 32)
+            throw new ArgumentException("A profile board workflow requires between two and 32 columns.");
+        if (board.Columns.Select(x => x.Key).Distinct(StringComparer.Ordinal).Count() != board.Columns.Count ||
+            board.Columns.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != board.Columns.Count)
+            throw new ArgumentException("Profile board column keys and names must be unique.");
+        foreach (var column in board.Columns)
+        {
+            if (string.IsNullOrWhiteSpace(column.Key) || string.IsNullOrWhiteSpace(column.Name))
+                throw new ArgumentException("Every profile board column requires a key and name.");
+            if (!Enum.TryParse<WorkBoardColumnCategory>(column.Category, true, out _) ||
+                !Enum.TryParse<WorkBoardWipPolicy>(column.WipPolicy, true, out _))
+                throw new ArgumentException($"Profile board column '{column.Key}' has an invalid category or WIP policy.");
+            if (!string.Equals(column.WipPolicy, WorkBoardWipPolicy.Disabled.ToString(), StringComparison.OrdinalIgnoreCase) &&
+                column.WipLimit is null or <= 0)
+                throw new ArgumentException($"Profile board column '{column.Key}' requires a positive WIP limit.");
+        }
+        var columnKeys = board.Columns.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+        if (orchestration.Stages.Count is < 1 or > 64 ||
+            orchestration.Stages.Select(x => x.Key).Distinct(StringComparer.Ordinal).Count() != orchestration.Stages.Count)
+            throw new ArgumentException("Profile orchestration requires one to 64 uniquely keyed stages.");
+        var stageKeys = orchestration.Stages.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+        if (!stageKeys.Contains(orchestration.InitialStageKey))
+            throw new ArgumentException("Profile orchestration initial stage is not declared.");
+        if (orchestration.Stages.Any(x => x.ColumnKey is not null && !columnKeys.Contains(x.ColumnKey)))
+            throw new ArgumentException("Profile orchestration references an unknown board column key.");
+        if (orchestration.Transitions.Count > 256 || orchestration.Transitions.Any(x =>
+                !stageKeys.Contains(x.FromStageKey) || !stageKeys.Contains(x.ToStageKey) ||
+                x.FromStageKey == x.ToStageKey))
+            throw new ArgumentException("Profile orchestration transitions are invalid.");
+    }
+
+    private static void ValidateAssignmentPolicy(JsonElement root)
+    {
+        if (!root.TryGetProperty("assignmentPolicy", out var value)) return;
+        var policy = value.Deserialize<Wire.WorkAssignmentPolicyTemplate>(
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? throw new ArgumentException("The profile assignmentPolicy is invalid.");
+        if (!Wire.WorkSkillMatchModes.All.Contains(policy.SkillMatchMode))
+            throw new ArgumentException("The profile assignmentPolicy has an invalid skillMatchMode.");
+        if (policy.Roles.Count is < 1 or > 64 ||
+            policy.Roles.Select(x => x.RoleKey).Distinct(StringComparer.Ordinal).Count() != policy.Roles.Count)
+            throw new ArgumentException("The profile assignmentPolicy requires one to 64 unique role policies.");
+        if (policy.PlanningQuorums.Count > 32 ||
+            policy.PlanningQuorums.Select(x => x.Key).Distinct(StringComparer.Ordinal).Count() != policy.PlanningQuorums.Count)
+            throw new ArgumentException("The profile assignmentPolicy planning quorums must be unique.");
+        foreach (var role in policy.Roles)
+        {
+            ValidateCanonicalKey(role.RoleKey, "assignment role");
+            ValidateCanonicalKeys(role.EligibleWorkItemTypeKeys, 100, "eligible work item types", dotted: true);
+            ValidateCanonicalKeys(role.DefaultRelevantSpecializationKeys, 32, "default specializations");
+            ValidateCapabilityKeys(role.RequiredCapabilityKeys, 32);
+        }
+        var roleKeys = policy.Roles.Select(x => x.RoleKey).ToHashSet(StringComparer.Ordinal);
+        foreach (var quorum in policy.PlanningQuorums)
+        {
+            ValidateCanonicalKey(quorum.Key, "planning quorum");
+            ValidateCanonicalKeys(quorum.LifecycleStageKeys, 64, "quorum lifecycle stages");
+            ValidateCanonicalKeys(quorum.RequiredRoleKeys, 64, "quorum roles");
+            if (quorum.RequiredRoleKeys.Any(x => !roleKeys.Contains(x)))
+                throw new ArgumentException("Every planning quorum role must have an assignment role policy.");
+        }
+        if (root.TryGetProperty("workItemTypes", out var workTypes) && workTypes.ValueKind == JsonValueKind.Array)
+        {
+            var knownTypes = workTypes.EnumerateArray().Select(x => RequiredString(x, "key", 200))
+                .ToHashSet(StringComparer.Ordinal);
+            if (policy.Roles.SelectMany(x => x.EligibleWorkItemTypeKeys).Any(x => !knownTypes.Contains(x)))
+                throw new ArgumentException("Assignment role policies may reference only declared work item types.");
+        }
+    }
+
+    private static void ValidateCanonicalKeys(
+        IReadOnlyList<string> values, int maximum, string label, bool dotted = false)
+    {
+        if (values.Count > maximum || values.Distinct(StringComparer.Ordinal).Count() != values.Count)
+            throw new ArgumentException($"Profile {label} must be unique and contain at most {maximum} entries.");
+        foreach (var value in values)
+        {
+            if (dotted)
+            {
+                if (string.IsNullOrWhiteSpace(value) || value.Length > 200 ||
+                    value.Any(c => !(char.IsLower(c) || char.IsDigit(c) || c is '-' or '.')))
+                    throw new ArgumentException($"Profile {label} contains an invalid key.");
+            }
+            else ValidateCanonicalKey(value, label);
+        }
+    }
+
+    private static void ValidateCanonicalKey(string value, string label)
+    {
+        if (!CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(value))
+            throw new ArgumentException($"Profile {label} contains an invalid canonical key.");
+    }
+
+    private static void ValidateCapabilityKeys(IReadOnlyList<string> values, int maximum)
+    {
+        if (values.Count > maximum || values.Distinct(StringComparer.Ordinal).Count() != values.Count ||
+            values.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 200))
+            throw new ArgumentException("Profile required capability keys are invalid.");
     }
 
     public static void ValidateProfileData(JsonElement schema, JsonElement data)

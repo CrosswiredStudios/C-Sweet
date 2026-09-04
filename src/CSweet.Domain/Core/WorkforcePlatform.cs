@@ -6,6 +6,13 @@ public enum ProposalStatus { Pending, Approved, Rejected, Cancelled }
 public enum BudgetScopeType { Organization, Workstream, Employee, Task }
 public enum BudgetReservationStatus { Active, Committed, Released, Expired }
 
+public static class LeadershipPositionKeys
+{
+    public const string ChiefExecutiveOfficer = "chief-executive-officer";
+    public const string ChiefFinancialOfficer = "chief-financial-officer";
+    public const string ChiefOfStaff = "chief-of-staff";
+}
+
 public sealed class BusinessProfile
 {
     public Guid Id { get; set; }

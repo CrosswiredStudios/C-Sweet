@@ -343,9 +343,28 @@ public sealed class HiringService(
                         x.AgentInstallationId.HasValue &&
                         installationIds.Contains(x.AgentInstallationId.Value))
             .ToDictionaryAsync(x => x.AgentInstallationId!.Value, x => x.DisplayName, cancellationToken);
+        var sourceIds = plans.Where(x => x.SourceResourceChangeRequestId.HasValue)
+            .Select(x => x.SourceResourceChangeRequestId!.Value).Distinct().ToList();
+        var sourceRequests = await db.ResourceChangeRequests.AsNoTracking()
+            .Where(x => sourceIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, cancellationToken);
+        var people = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId)
+            .ToDictionaryAsync(x => x.Id, x => x.DisplayName, cancellationToken);
+        var sourceTeamIds = sourceRequests.Values.Where(x => x.TeamId.HasValue)
+            .Select(x => x.TeamId!.Value).Distinct().ToList();
+        var sourceTeams = await db.OrganizationTeams.AsNoTracking()
+            .Where(x => sourceTeamIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
         return plans.Select(plan => ToRecommendation(plan, ReadIds(plan.AssignmentsJson)
             .Where(candidates.ContainsKey).Select(id => candidates[id]).ToList(),
-            suggestedBy.GetValueOrDefault(plan.RequestingInstallationId))).ToList();
+            suggestedBy.GetValueOrDefault(plan.RequestingInstallationId),
+            plan.SourceResourceChangeRequestId.HasValue && sourceRequests.TryGetValue(plan.SourceResourceChangeRequestId.Value, out var source)
+                ? people.GetValueOrDefault(source.RequesterOrganizationUserId) : null,
+            plan.SourceResourceChangeRequestId.HasValue && sourceRequests.TryGetValue(plan.SourceResourceChangeRequestId.Value, out source) && source.TeamId.HasValue
+                ? sourceTeams.GetValueOrDefault(source.TeamId.Value) : null,
+            plan.SourceResourceChangeRequestId.HasValue && sourceRequests.TryGetValue(plan.SourceResourceChangeRequestId.Value, out source)
+                ? people.GetValueOrDefault(source.ManagerOrganizationUserId) : null,
+            plan.SourceResourceChangeRequestId.HasValue && sourceRequests.TryGetValue(plan.SourceResourceChangeRequestId.Value, out source) && source.DecidedByOrganizationUserId.HasValue
+                ? people.GetValueOrDefault(source.DecidedByOrganizationUserId.Value) : null)).ToList();
     }
 
     public async Task<IReadOnlyList<HiringRecommendationResponse>> ListRecommendationsForInstallationAsync(
@@ -1601,7 +1620,11 @@ CompleteWorkflow:
     private static HiringRecommendationResponse ToRecommendation(
         WorkforcePlan plan,
         IReadOnlyList<WorkforceCandidate> candidates,
-        string? suggestedBy = null)
+        string? suggestedBy = null,
+        string? requestingEmployee = null,
+        string? requestingTeam = null,
+        string? assignedApprover = null,
+        string? actualDecisionMaker = null)
     {
         var byId = candidates.ToDictionary(x => x.Id);
         var ordered = ReadIds(plan.AssignmentsJson).Where(byId.ContainsKey).Select(id => ToCandidate(byId[id])).ToList();
@@ -1617,7 +1640,11 @@ CompleteWorkflow:
             FulfilledHeadcount = plan.FulfilledHeadcount,
             RemainingHeadcount = Math.Max(0, plan.Headcount - plan.FulfilledHeadcount),
             SourceResourceChangeRequestId = plan.SourceResourceChangeRequestId,
-            TeamId = plan.TeamId
+            TeamId = plan.TeamId,
+            RequestingEmployee = requestingEmployee,
+            RequestingTeam = requestingTeam,
+            AssignedApprover = assignedApprover,
+            ActualDecisionMaker = actualDecisionMaker
         };
     }
 

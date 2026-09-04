@@ -175,7 +175,7 @@ public sealed class WorkSprintService(
                     throw new InvalidOperationException("Only a planned sprint can be started.");
                 if (await db.CoreWorkTasks.AnyAsync(x =>
                         x.SprintId == sprint.Id &&
-                        x.Kind != WorkItemKind.Initiative && x.Kind != WorkItemKind.Epic &&
+                        x.IsExecutable &&
                         x.DeliverySpecificationJson == null, cancellationToken))
                     throw new InvalidOperationException(
                         "Planning-only work must be finalized with a repository and base branch before the sprint can start.");

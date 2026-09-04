@@ -6,6 +6,7 @@ using CSweet.Agent.SDK;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
@@ -111,7 +112,8 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
     {
         var workstream = await RequireVisibleWorkstreamAsync(organizationId, actorId, request.WorkstreamId, false, token);
         var staffing = await ReadStaffingRequirementsAsync(workstream, token);
-        return Map(workstream, staffing);
+        var assignmentPolicy = await ReadAssignmentPolicyAsync(workstream, token);
+        return Map(workstream, staffing, assignmentPolicy);
     }
 
     private async Task<MutationResponse> ProposePlanAsync(
@@ -301,7 +303,8 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             .Where(x => profileDigests.Contains(x.DefinitionDigest)).ToDictionaryAsync(x => x.DefinitionDigest, token);
         return new W.PortfolioResponse(workstreams.Select(workstream => new W.PortfolioWorkstream(
             Map(workstream, definitions.TryGetValue(workstream.ProfileDefinitionDigest ?? string.Empty, out var definition)
-                ? EvaluateStaffingRequirements(definition.DefinitionJson, ReadProfileData(workstream)) : []),
+                    ? EvaluateStaffingRequirements(definition.DefinitionJson, ReadProfileData(workstream)) : [],
+                definition is null ? null : ReadAssignmentPolicy(definition.DefinitionJson)),
             teams.Where(x => x.WorkstreamId == workstream.Id).OrderByDescending(x => x.StartsAt).Select(MapTeam).FirstOrDefault(),
             gates.Where(x => x.WorkstreamId == workstream.Id).OrderBy(x => x.DueAt).Select(MapGate).ToList(),
             decisions.Where(x => x.WorkstreamId == workstream.Id).OrderBy(x => x.DueAt).Select(x => x.Summary).ToList())).ToList());
@@ -475,19 +478,72 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             .ThenBy(x => x.OrganizationUser!.DisplayName).ToListAsync(token);
         var lead = members.SingleOrDefault(x => x.OrganizationUserId == team.LeadOrganizationUserId)?.OrganizationUser
             ?? throw new InvalidOperationException("The team has no active lead.");
+        var installationIds = members.Where(x => x.OrganizationUser!.AgentInstallationId.HasValue)
+            .Select(x => x.OrganizationUser!.AgentInstallationId!.Value).Distinct().ToList();
+        var installations = await db.AgentInstallations.AsNoTracking()
+            .Include(x => x.PackageVersion).Include(x => x.Grant).Include(x => x.Schedule)
+            .Where(x => installationIds.Contains(x.Id) && x.BusinessId == organizationId.ToString("D"))
+            .ToDictionaryAsync(x => x.Id, token);
         var pageMembers = members.Skip((page - 1) * pageSize).Take(pageSize).Select(x => new AgentTeammate(
             x.OrganizationUserId.ToString("D"), x.OrganizationUser!.DisplayName, x.OrganizationUser.EmployeeType.ToString(),
             x.OrganizationUser.Role?.Name, x.TeamRole?.Name,
             x.OrganizationUserId == actorId ? "Self" : x.OrganizationUserId == team.LeadOrganizationUserId ? "TeamLead" : "TeamMember", "Active")
         {
             AgentInstallationId = x.OrganizationUser.AgentInstallationId,
-            RuntimeEligibility = x.OrganizationUser.AgentInstallationId.HasValue ? "Eligible" : "NotApplicable",
-            IsAvailable = true
+            EffectiveCapabilities = x.OrganizationUser.AgentInstallationId is { } capabilityId &&
+                                    installations.TryGetValue(capabilityId, out var capabilityInstallation)
+                ? ReadStringArray(capabilityInstallation.Grant?.RequiredCapabilitiesJson) : [],
+            DeclaredRoleKeys = x.OrganizationUser.AgentInstallationId is { } roleId &&
+                               installations.TryGetValue(roleId, out var roleInstallation)
+                ? ReadRolePolicy(roleInstallation.PackageVersion?.ManifestJson).DeclaredRoleKeys : [],
+            SpecializationKeys = x.OrganizationUser.AgentInstallationId is { } skillId &&
+                                 installations.TryGetValue(skillId, out var skillInstallation)
+                ? ReadRolePolicy(skillInstallation.PackageVersion?.ManifestJson).SpecializationKeys : [],
+            RuntimeEligibility = x.OrganizationUser.AgentInstallationId is { } runtimeId &&
+                                 installations.TryGetValue(runtimeId, out var runtimeInstallation) &&
+                                 runtimeInstallation.IsEnabled &&
+                                 runtimeInstallation.RevisionStatus == PluginRevisionStatus.Active &&
+                                 runtimeInstallation.Schedule?.IsEnabled == true ? "Eligible" :
+                x.OrganizationUser.AgentInstallationId.HasValue ? "Unavailable" : "NotApplicable",
+            IsAvailable = !x.OrganizationUser.AgentInstallationId.HasValue ||
+                          (installations.TryGetValue(x.OrganizationUser.AgentInstallationId.Value, out var available) &&
+                           available.IsEnabled && available.RevisionStatus == PluginRevisionStatus.Active &&
+                           available.Schedule?.IsEnabled == true)
         }).ToList();
         var coverage = members.GroupBy(x => x.TeamRole?.Name ?? x.OrganizationUser?.Role?.Name ?? "Unspecified")
             .Select(x => new TeamRoleCoverage(x.Key, x.Count())).OrderBy(x => x.Role).ToList();
         return new AgentTeamContext(team.Id.ToString("D"), team.TeamKey, team.Name, team.Revision,
             lead.Id.ToString("D"), lead.DisplayName, pageMembers, coverage, members.Count, page * pageSize < members.Count);
+    }
+
+    private static IReadOnlyList<string> ReadStringArray(string? json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(json ?? "[]")?
+                .Where(RoleTaxonomy.IsCanonicalKey).Distinct(StringComparer.Ordinal)
+                .OrderBy(x => x, StringComparer.Ordinal).ToList() ?? [];
+        }
+        catch (JsonException) { return []; }
+    }
+
+    private static (IReadOnlyList<string> DeclaredRoleKeys, IReadOnlyList<string> SpecializationKeys)
+        ReadRolePolicy(string? manifestJson)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(manifestJson)) return ([], []);
+            using var document = JsonDocument.Parse(manifestJson);
+            if (!document.RootElement.TryGetProperty("rolePolicy", out var policy)) return ([], []);
+            IReadOnlyList<string> Values(string key) =>
+                policy.TryGetProperty(key, out var values) && values.ValueKind == JsonValueKind.Array
+                    ? values.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String)
+                        .Select(x => x.GetString()!).Where(RoleTaxonomy.IsCanonicalKey)
+                        .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToList()
+                    : [];
+            return (Values("declaredRoleKeys"), Values("specializationKeys"));
+        }
+        catch (JsonException) { return ([], []); }
     }
 
     private void AddEvent(Guid organizationId, string eventType, Workstream workstream,
@@ -581,12 +637,38 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         return result;
     }
 
-    private static W.WorkstreamDetail Map(Workstream value, IReadOnlyList<W.WorkstreamStaffingRequirement>? staffingRequirements = null) => new(
+    private async Task<W.WorkAssignmentPolicyTemplate?> ReadAssignmentPolicyAsync(
+        Workstream workstream, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(workstream.ProfileDefinitionDigest)) return null;
+        var json = await db.WorkstreamProfileDefinitions.AsNoTracking().Where(x =>
+                x.DefinitionDigest == workstream.ProfileDefinitionDigest)
+            .Select(x => x.DefinitionJson).SingleOrDefaultAsync(token);
+        return string.IsNullOrWhiteSpace(json) ? null : ReadAssignmentPolicy(json);
+    }
+
+    private static W.WorkAssignmentPolicyTemplate? ReadAssignmentPolicy(string definitionJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(definitionJson);
+            return document.RootElement.TryGetProperty("assignmentPolicy", out var policy)
+                ? policy.Deserialize<W.WorkAssignmentPolicyTemplate>(JsonOptions)
+                : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static W.WorkstreamDetail Map(
+        Workstream value,
+        IReadOnlyList<W.WorkstreamStaffingRequirement>? staffingRequirements = null,
+        W.WorkAssignmentPolicyTemplate? assignmentPolicy = null) => new(
         value.Id, value.Name, value.Outcome, ReadList<string>(value.SuccessCriteriaJson), value.LifecycleStage,
         value.Status.ToString(), value.AccountableManagerOrganizationUserId ?? Guid.Empty, value.TargetDate,
         value.BudgetAmount, value.BudgetCurrency, value.ProfileKey, value.ProfileVersion,
         string.IsNullOrWhiteSpace(value.ProfileDataJson) ? null : JsonSerializer.Deserialize<JsonElement>(value.ProfileDataJson),
-        value.ProfileDefinitionDigest, value.Revision, staffingRequirements);
+        value.ProfileDefinitionDigest, value.Revision, staffingRequirements)
+        { AssignmentPolicy = assignmentPolicy };
 
     private static W.WorkstreamGateSummary MapGate(WorkstreamGateRecord value) => new(
         value.Id, value.WorkstreamId, value.Key, value.Name, value.LifecycleStage, value.Status, value.Revision, value.DueAt);

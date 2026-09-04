@@ -1,0 +1,223 @@
+.hiring-suggestion-carousel {
+    width: min(70rem, calc(100% - 65px));
+    min-width: 0;
+    margin: 10px 8px 12px 57px;
+    overflow: hidden;
+    border: 1px solid #dcd6f8;
+    border-radius: 13px;
+    background: linear-gradient(135deg, #faf9ff, #f4f1ff);
+    box-shadow: 0 5px 18px rgba(63, 48, 135, .08);
+}
+
+.hiring-suggestion-carousel.completed {
+    border-color: #c8dfd1;
+    background: linear-gradient(135deg, #fbfefc, #f1faf5);
+    box-shadow: 0 5px 18px rgba(38, 112, 72, .08);
+}
+
+.hiring-suggestion-carousel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 14px 16px 8px;
+}
+
+.hiring-suggestion-carousel-title,
+.hiring-suggestion-carousel-tools,
+.hiring-suggestion-navigation,
+.hiring-suggestion-status {
+    display: flex;
+    align-items: center;
+}
+
+.hiring-suggestion-carousel-title {
+    min-width: 0;
+    gap: 10px;
+}
+
+.hiring-suggestion-carousel-title > span:last-child {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+}
+
+.hiring-suggestion-carousel-title small {
+    color: #6750d8;
+    font-size: .61rem;
+    font-weight: 850;
+    letter-spacing: .1em;
+}
+
+.completed .hiring-suggestion-carousel-title small {
+    color: #267048;
+}
+
+.hiring-suggestion-carousel-title strong {
+    overflow: hidden;
+    color: #201a3b;
+    font-size: .95rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.hiring-suggestion-carousel-icon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 11px;
+    background: linear-gradient(145deg, #806de4, #5140b3);
+    color: #fff;
+}
+
+.completed .hiring-suggestion-carousel-icon {
+    background: linear-gradient(145deg, #3d9a68, #267048);
+}
+
+.hiring-suggestion-carousel-icon ::deep .mud-icon-root {
+    font-size: 20px;
+}
+
+.hiring-suggestion-carousel-tools {
+    flex: 0 0 auto;
+    gap: 10px;
+}
+
+.hiring-suggestion-count {
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #e8e3fb;
+    color: #5140a8;
+    font-size: .68rem;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.completed .hiring-suggestion-count {
+    background: #deefe5;
+    color: #267048;
+}
+
+.hiring-suggestion-navigation {
+    gap: 4px;
+}
+
+.hiring-suggestion-navigation button {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    place-items: center;
+    border: 1px solid #d9d2f5;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .85);
+    color: #5c48bf;
+    cursor: pointer;
+}
+
+.hiring-suggestion-navigation button:hover,
+.hiring-suggestion-navigation button:focus-visible {
+    border-color: #806de4;
+    background: #fff;
+    outline: 2px solid rgba(103, 80, 216, .18);
+    outline-offset: 1px;
+}
+
+.hiring-suggestion-navigation ::deep .mud-icon-root {
+    font-size: 20px;
+}
+
+.hiring-suggestion-rail {
+    display: flex;
+    min-width: 0;
+    gap: 12px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 8px 16px 15px;
+    scroll-behavior: smooth;
+    scroll-padding-inline: 16px;
+    scroll-snap-type: x mandatory;
+    scrollbar-color: #b8addf transparent;
+}
+
+.hiring-suggestion-rail:focus-visible {
+    outline: 2px solid rgba(103, 80, 216, .32);
+    outline-offset: -3px;
+}
+
+.hiring-suggestion-tile {
+    display: flex;
+    min-height: 9.5rem;
+    flex: 0 0 18rem;
+    flex-direction: column;
+    gap: 8px;
+    padding: 13px;
+    scroll-snap-align: start;
+    border: 1px solid #e1dcf8;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, .9);
+    box-shadow: 0 3px 10px rgba(63, 48, 135, .06);
+}
+
+.hiring-suggestion-tile.completed {
+    border-color: #c8dfd1;
+}
+
+.hiring-suggestion-status {
+    gap: 5px;
+    color: #6750d8;
+    font-size: .64rem;
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.hiring-suggestion-tile.completed .hiring-suggestion-status {
+    color: #267048;
+}
+
+.hiring-suggestion-status ::deep .mud-icon-root {
+    font-size: 16px;
+}
+
+.hiring-suggestion-tile > strong {
+    color: #292141;
+    font-size: .9rem;
+    line-height: 1.35;
+}
+
+.hiring-suggestion-tile-action {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+    margin-top: auto;
+    color: #466052;
+    font-size: .78rem;
+}
+
+@media (max-width: 720px) {
+    .hiring-suggestion-carousel {
+        width: calc(100% - 16px);
+        margin-left: 8px;
+    }
+
+    .hiring-suggestion-carousel-header {
+        align-items: flex-start;
+    }
+
+    .hiring-suggestion-count {
+        display: none;
+    }
+
+    .hiring-suggestion-tile {
+        flex-basis: min(18rem, calc(100vw - 154px));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hiring-suggestion-rail {
+        scroll-behavior: auto;
+    }
+}

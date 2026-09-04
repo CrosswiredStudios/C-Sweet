@@ -109,6 +109,7 @@ public sealed class UserActionService(
             action.Status, action.CreatedAt)
         {
             HiringRecommendationId = SuggestedUserActionParameters.ReadHiringRecommendationId(action.ParametersJson),
+            HiringRole = SuggestedUserActionParameters.ReadHiringRole(action.ParametersJson),
             ResultOrganizationUserId = action.ResultOrganizationUserId,
             CompletedAt = action.CompletedAt
         };
@@ -131,6 +132,23 @@ public sealed class UserActionService(
 
 internal static class SuggestedUserActionParameters
 {
+    public static string? ReadHiringRole(string parametersJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(parametersJson);
+            if (!document.RootElement.TryGetProperty("role", out var role) ||
+                role.ValueKind != JsonValueKind.String)
+                return null;
+            var value = role.GetString()?.Trim();
+            return string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public static Guid? ReadHiringRecommendationId(string parametersJson)
     {
         try

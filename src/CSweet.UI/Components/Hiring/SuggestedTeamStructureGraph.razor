@@ -8,7 +8,7 @@
                     <span class="suggested-team-avatar" aria-hidden="true">@Initials(Model.ManagerDisplayName)</span>
                     <span>
                         <strong>@Model.ManagerDisplayName</strong>
-                        <small>Product manager's manager</small>
+                        <small>Assigned approver</small>
                     </span>
                 </div>
                 <ol>
@@ -17,7 +17,7 @@
                             <span class="suggested-team-avatar" aria-hidden="true">@Initials(Model.ProductManagerDisplayName)</span>
                             <span>
                                 <strong>@Model.ProductManagerDisplayName</strong>
-                                <small>Product manager</small>
+                                <small>Requesting delivery manager</small>
                             </span>
                         </div>
                         @if (Model.RoleCohorts.Count > 0)

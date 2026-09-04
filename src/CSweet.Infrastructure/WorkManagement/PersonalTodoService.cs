@@ -16,6 +16,7 @@ namespace CSweet.Infrastructure.WorkManagement;
 
 public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider clock) : IWorkItemMutationEngine
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
     private const int SoftOpenItemLimit = 100;
     private const int HardOpenItemLimit = 250;
@@ -310,6 +311,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         var board = await PersonalBoardAsync(organizationId, owner.Id, cancellationToken);
         await RequireGrantAsync(organizationId, board.Id, actor, PersonalTodoActions.Add, cancellationToken);
         ValidateAdd(request);
+        await ValidateWorkContextAsync(organizationId, request.WorkContext, cancellationToken);
 
         var key = request.IdempotencyKey.Trim();
         var existing = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
@@ -356,6 +358,9 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             SourceMessageId = request.SourceMessageId,
             CorrelationId = request.CorrelationId?.Trim(),
             CausationId = request.CausationId?.Trim(),
+            PersonalWorkContextJson = request.WorkContext is null
+                ? null
+                : JsonSerializer.Serialize(request.WorkContext, JsonOptions),
             CreationIdempotencyKey = key,
             Title = normalized.Title, Description = normalized.Description,
             StructuredMentionsJson = normalized.MentionsJson,
@@ -468,6 +473,11 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.StructuredMentionsJson = normalized.MentionsJson;
         item.Priority = Enum.Parse<WorkTaskPriority>(request.Priority, true);
         item.DueDate = request.DueDate;
+        if (request.WorkContext is not null)
+        {
+            await ValidateWorkContextAsync(organizationId, request.WorkContext, cancellationToken);
+            item.PersonalWorkContextJson = JsonSerializer.Serialize(request.WorkContext, JsonOptions);
+        }
         item.Revision++;
         item.UpdatedAt = clock.GetUtcNow();
         await db.SaveChangesAsync(cancellationToken);
@@ -1029,11 +1039,57 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         {
             MentionSpans = mentionSpans,
             CorrelationId = item.CorrelationId,
+            WorkContext = DeserializeWorkContext(item.PersonalWorkContextJson),
             Wait = item.NextReviewAt.HasValue && !string.IsNullOrWhiteSpace(item.WaitingReason)
                 ? new Wire.PersonalTodoWaitState(
                     item.NextReviewAt.Value, item.WaitingReason, item.WaitingOnOrganizationUserId)
                 : null
         };
+    }
+
+    private static Wire.PersonalTodoWorkContext? DeserializeWorkContext(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<Wire.PersonalTodoWorkContext>(json, JsonOptions); }
+        catch (JsonException) { return null; }
+    }
+
+    private async Task ValidateWorkContextAsync(
+        Guid organizationId,
+        Wire.PersonalTodoWorkContext? context,
+        CancellationToken token)
+    {
+        if (context is null) return;
+        if ((context.SourceFingerprint?.Length ?? 0) > 128)
+            throw new ArgumentException("Personal work source fingerprints cannot exceed 128 characters.");
+        if (context.WorkstreamId.HasValue && !await db.Workstreams.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == context.WorkstreamId, token))
+            throw new ArgumentException("The personal work context references an unavailable Workstream.");
+        if (context.TeamId.HasValue && !await db.OrganizationTeams.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == context.TeamId && x.ArchivedAt == null, token))
+            throw new ArgumentException("The personal work context references an unavailable team.");
+        if (context.BoardId.HasValue && !await db.WorkBoards.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == context.BoardId && x.Kind == WorkBoardKind.Standard, token))
+            throw new ArgumentException("The personal work context references an unavailable team board.");
+        if (context.WorkItemId.HasValue && !await db.CoreWorkTasks.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == context.WorkItemId &&
+                (!context.BoardId.HasValue || x.BoardId == context.BoardId), token))
+            throw new ArgumentException("The personal work context references an unavailable work item.");
+        if (context.SprintId.HasValue && !await db.WorkSprints.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == context.SprintId &&
+                (!context.BoardId.HasValue || x.BoardId == context.BoardId), token))
+            throw new ArgumentException("The personal work context references an unavailable sprint.");
+        if (context.GateId.HasValue && !await db.WorkstreamGates.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == context.GateId &&
+                (!context.WorkstreamId.HasValue || x.WorkstreamId == context.WorkstreamId), token))
+            throw new ArgumentException("The personal work context references an unavailable gate.");
+        if (context.DecisionId.HasValue && !await db.WorkstreamDecisions.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == context.DecisionId &&
+                (!context.WorkstreamId.HasValue || x.WorkstreamId == context.WorkstreamId), token))
+            throw new ArgumentException("The personal work context references an unavailable decision.");
+        if (context.CoordinationSessionId.HasValue && !await db.AgentCoordinationSessions.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.Id == context.CoordinationSessionId, token))
+            throw new ArgumentException("The personal work context references an unavailable coordination session.");
     }
 
     private static WorkBoardColumn NewColumn(string name, WorkBoardColumnCategory category, int position) =>

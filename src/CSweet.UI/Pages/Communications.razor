@@ -230,67 +230,72 @@
                     {
                         @if (message.MessageType == CommunicationMessageTypes.SystemAction)
                         {
-                            var primaryAction = message.Actions is { Count: > 0 } ? message.Actions[0] : null;
-                            var actionCompleted = primaryAction?.Status == "Completed";
-                            <article class="hub-system-action-message @(actionCompleted ? "completed" : null)"
-                                     aria-label="@(actionCompleted ? "Completed suggested action" : "Suggested action")">
-                                <div class="hub-system-action-icon">
-                                    <MudIcon Icon="@(actionCompleted ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.RocketLaunch)" />
-                                </div>
-                                <div class="hub-system-action-content">
-                                    <span>@(actionCompleted ? "SUGGESTED ACTION · COMPLETED" : "SUGGESTED ACTION")</span>
-                                    @if (message.Actions is { Count: > 0 })
-                                    {
-                                        <strong>@primaryAction!.Label</strong>
-                                        @if (!string.IsNullOrWhiteSpace(primaryAction.Description))
+                            var hiringActions = (message.Actions ?? [])
+                                .Where(action => action.WorkflowType == SuggestedUserActionWorkflows.BrowseHiringMarketplace)
+                                .ToList();
+                            if (hiringActions.Count > 0 && hiringActions.Count == (message.Actions?.Count ?? 0))
+                            {
+                                <HiringSuggestionCarousel OrganizationId="OrganizationId"
+                                                          Actions="hiringActions"
+                                                          ReadOnly="_hub.IsReadOnlyPerspective" />
+                            }
+                            else
+                            {
+                                var primaryAction = message.Actions is { Count: > 0 } ? message.Actions[0] : null;
+                                var actionCompleted = primaryAction?.Status == "Completed";
+                                <article class="hub-system-action-message @(actionCompleted ? "completed" : null)"
+                                         aria-label="@(actionCompleted ? "Completed suggested action" : "Suggested action")">
+                                    <div class="hub-system-action-icon">
+                                        <MudIcon Icon="@(actionCompleted ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.RocketLaunch)" />
+                                    </div>
+                                    <div class="hub-system-action-content">
+                                        <span>@(actionCompleted ? "SUGGESTED ACTION · COMPLETED" : "SUGGESTED ACTION")</span>
+                                        @if (message.Actions is { Count: > 0 })
                                         {
-                                            <p>@primaryAction.Description</p>
-                                        }
-                                        @if (primaryAction.HiringRecommendationId is Guid hiringRecommendationId)
-                                        {
-                                            <div class="hub-system-action-key">
-                                                <span>Hiring key</span>
-                                                <code>@hiringRecommendationId.ToString("D")</code>
-                                            </div>
-                                        }
-                                        @if (actionCompleted)
-                                        {
-                                            <div class="hub-system-action-completed">
-                                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" />
-                                                <span>Completed</span>
-                                                @if (primaryAction.ResultOrganizationUserId is Guid resultUserId)
-                                                {
-                                                    <MudLink Href="@($"/organizations/{OrganizationId:D}/employees/{resultUserId:D}")"
-                                                             Typo="Typo.body2">
-                                                        Hired @(primaryAction.ResultOrganizationUserDisplayName ?? "agent")
-                                                    </MudLink>
-                                                }
-                                            </div>
-                                        }
-                                        else if (!_hub.IsReadOnlyPerspective)
-                                        {
-                                            <div class="hub-system-action-buttons">
-                                                @foreach (var action in message.Actions)
-                                                {
-                                                    @if (action.Status == "Pending")
+                                            <strong>@primaryAction!.Label</strong>
+                                            @if (!string.IsNullOrWhiteSpace(primaryAction.Description))
+                                            {
+                                                <p>@primaryAction.Description</p>
+                                            }
+                                            @if (actionCompleted)
+                                            {
+                                                <div class="hub-system-action-completed">
+                                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" />
+                                                    <span>Completed</span>
+                                                    @if (primaryAction.ResultOrganizationUserId is Guid resultUserId)
                                                     {
-                                                        <MudButton Href="@action.NavigationUri"
-                                                                   Variant="Variant.Filled"
-                                                                   Color="Color.Primary"
-                                                                   EndIcon="@Icons.Material.Outlined.ArrowForward">
-                                                            @action.Label
-                                                        </MudButton>
+                                                        <MudLink Href="@($"/organizations/{OrganizationId:D}/employees/{resultUserId:D}")"
+                                                                 Typo="Typo.body2">
+                                                            Hired @(primaryAction.ResultOrganizationUserDisplayName ?? "agent")
+                                                        </MudLink>
                                                     }
-                                                }
-                                            </div>
+                                                </div>
+                                            }
+                                            else if (!_hub.IsReadOnlyPerspective)
+                                            {
+                                                <div class="hub-system-action-buttons">
+                                                    @foreach (var action in message.Actions)
+                                                    {
+                                                        @if (action.Status == "Pending")
+                                                        {
+                                                            <MudButton Href="@action.NavigationUri"
+                                                                       Variant="Variant.Filled"
+                                                                       Color="Color.Primary"
+                                                                       EndIcon="@Icons.Material.Outlined.ArrowForward">
+                                                                @action.Label
+                                                            </MudButton>
+                                                        }
+                                                    }
+                                                </div>
+                                            }
                                         }
-                                    }
-                                    else
-                                    {
-                                        <strong>@message.Content</strong>
-                                    }
-                                </div>
-                            </article>
+                                        else
+                                        {
+                                            <strong>@message.Content</strong>
+                                        }
+                                    </div>
+                                </article>
+                            }
                         }
                         else
                         {

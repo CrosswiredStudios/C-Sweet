@@ -3,6 +3,7 @@ using System;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CSweet.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CSweetDbContext))]
-    partial class CSweetDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260903195243_AddTeamCapacityEvidenceAndLineage")]
+    partial class AddTeamCapacityEvidenceAndLineage
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -4822,18 +4825,12 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasPrecision(8, 2)
                         .HasColumnType("numeric(8,2)");
 
-                    b.Property<string>("EstimateProvenanceJson")
-                        .HasColumnType("jsonb");
-
                     b.Property<string>("Identifier")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
                     b.Property<long?>("IdentifierSequence")
                         .HasColumnType("bigint");
-
-                    b.Property<bool>("IsExecutable")
-                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsQaTrackingDefect")
                         .HasColumnType("boolean");
@@ -4872,9 +4869,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid?>("ParentWorkTaskId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("PersonalWorkContextJson")
-                        .HasColumnType("jsonb");
 
                     b.Property<long>("PlanningRevision")
                         .HasColumnType("bigint");
@@ -10759,12 +10753,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
-
-                    b.Property<string>("RequirementsJson")
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("SelectionEvidenceJson")
-                        .HasColumnType("jsonb");
 
                     b.Property<string>("StageKey")
                         .IsRequired()

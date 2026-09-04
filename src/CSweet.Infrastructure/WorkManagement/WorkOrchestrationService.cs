@@ -174,7 +174,7 @@ public sealed class WorkOrchestrationService(
             .SingleAsync(x => x.Id == preflight.PolicyRevisionId, cancellationToken);
         var board = await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == boardId, cancellationToken);
         var items = await db.CoreWorkTasks.Include(x => x.StageAssignments)
-            .Where(x => x.SprintId == sprintId && x.Kind != WorkItemKind.Initiative && x.Kind != WorkItemKind.Epic)
+            .Where(x => x.SprintId == sprintId && x.IsExecutable)
             .OrderByDescending(x => x.Priority).ThenBy(x => x.BoardRank).ThenBy(x => x.CreatedAt).ThenBy(x => x.Identifier)
             .ToListAsync(cancellationToken);
         var now = timeProvider.GetUtcNow();
@@ -188,7 +188,8 @@ public sealed class WorkOrchestrationService(
                 item.StageAssignments.Select(assignment => new AssignmentSnapshot(
                     item.Id, assignment.StageKey, assignment.PrincipalKind,
                     assignment.OrganizationUserId, assignment.AgentInstallationId,
-                    assignment.PlatformAction))), JsonOptions),
+                    assignment.PlatformAction, assignment.RequirementsJson,
+                    assignment.SelectionEvidenceJson))), JsonOptions),
             StartedAt = now, UpdatedAt = now
         };
         foreach (var item in items)
@@ -405,7 +406,7 @@ public sealed class WorkOrchestrationService(
             await db.WorkBoardColumns.AsNoTracking().Where(x => x.BoardId == boardId).Select(x => x.Id).ToHashSetAsync(cancellationToken)));
         var items = await db.CoreWorkTasks.AsNoTracking()
             .Include(x => x.StageAssignments).Include(x => x.Approvals)
-            .Where(x => x.SprintId == sprintId && x.Kind != WorkItemKind.Initiative && x.Kind != WorkItemKind.Epic)
+            .Where(x => x.SprintId == sprintId && x.IsExecutable)
             .ToListAsync(cancellationToken);
         if (items.Count == 0) errors.Add(new("sprint.empty", "The sprint has no executable work items."));
         var sprintIds = items.Select(x => x.Id).ToHashSet();
@@ -460,6 +461,13 @@ public sealed class WorkOrchestrationService(
                         : null;
                     if (installation is null || !ProvidesExecutionCapability(installation.PackageVersion?.ManifestJson))
                         errors.Add(new("assignment.agent", "Assigned installation is inactive or does not provide work.execution.run.v1.", item.Id, stage.Key, assignment.Id));
+                    else
+                    {
+                        var eligibility = await ValidateAssignmentEvidenceAsync(
+                            organizationId, board, assignment, installation, cancellationToken);
+                        if (eligibility is not null)
+                            errors.Add(new("assignment.eligibility", eligibility, item.Id, stage.Key, assignment.Id));
+                    }
                 }
                 if (stage.Type == WorkOrchestrationStageType.ManualWork &&
                     (!assignment.OrganizationUserId.HasValue ||
@@ -529,7 +537,9 @@ public sealed class WorkOrchestrationService(
                 {
                     StageKey = x.StageKey, PrincipalKind = x.PrincipalKind,
                     OrganizationUserId = x.OrganizationUserId, AgentInstallationId = x.AgentInstallationId,
-                    PlatformAction = x.PlatformAction
+                    PlatformAction = x.PlatformAction,
+                    RequirementsJson = x.RequirementsJson,
+                    SelectionEvidenceJson = x.SelectionEvidenceJson
                 }).ToList();
             CreateStageExecution(stage.ItemExecution, next, assignments,
                 (await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == execution.BoardId, cancellationToken)).ManagerOrganizationUserId!.Value, now);
@@ -666,6 +676,73 @@ public sealed class WorkOrchestrationService(
         catch (JsonException) { return false; }
     }
 
+    private async Task<string?> ValidateAssignmentEvidenceAsync(
+        Guid organizationId,
+        WorkBoard board,
+        WorkItemStageAssignment assignment,
+        AgentInstallation installation,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(assignment.RequirementsJson) ||
+            string.IsNullOrWhiteSpace(assignment.SelectionEvidenceJson))
+            return string.IsNullOrWhiteSpace(assignment.RequirementsJson) &&
+                   string.IsNullOrWhiteSpace(assignment.SelectionEvidenceJson)
+                ? null
+                : "Assigned work must provide both canonical role/skill requirements and assignment-selection evidence.";
+        Shared.WorkAssignmentRequirements? requirements;
+        Shared.WorkAssignmentSelectionEvidence? selection;
+        try
+        {
+            requirements = JsonSerializer.Deserialize<Shared.WorkAssignmentRequirements>(assignment.RequirementsJson, JsonOptions);
+            selection = JsonSerializer.Deserialize<Shared.WorkAssignmentSelectionEvidence>(assignment.SelectionEvidenceJson, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return "Assignment requirements or selection evidence is malformed.";
+        }
+        if (requirements is null || selection is null || selection.AgentInstallationId != installation.Id)
+            return "Assignment selection does not bind the exact installation.";
+        if (!board.TeamId.HasValue || !board.WorkstreamId.HasValue)
+            return "Eligible agent execution requires team and workstream board context.";
+        var teamRevision = await db.OrganizationTeams.AsNoTracking().Where(x =>
+                x.Id == board.TeamId && x.OrganizationId == organizationId && x.ArchivedAt == null)
+            .Select(x => (long?)x.Revision).SingleOrDefaultAsync(cancellationToken);
+        var profileDigest = await db.Workstreams.AsNoTracking().Where(x =>
+                x.Id == board.WorkstreamId && x.OrganizationId == organizationId)
+            .Select(x => x.ProfileDefinitionDigest).SingleOrDefaultAsync(cancellationToken);
+        if (selection.TeamRosterRevision != teamRevision ||
+            !string.Equals(selection.ProfileDefinitionDigest, profileDigest, StringComparison.Ordinal))
+            return "Assignment selection is stale relative to the current team roster or pinned profile.";
+        var employee = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive,
+            cancellationToken);
+        if (employee is null || !await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+                x.TeamId == board.TeamId && x.OrganizationUserId == employee.Id && x.EndedAt == null,
+                cancellationToken))
+            return "Assigned installation is not an active member of the board team.";
+        try
+        {
+            using var manifest = JsonDocument.Parse(installation.PackageVersion!.ManifestJson);
+            var rolePolicy = manifest.RootElement.GetProperty("rolePolicy");
+            var roles = rolePolicy.GetProperty("declaredRoleKeys").EnumerateArray()
+                .Select(x => x.GetString()).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
+            var skills = rolePolicy.GetProperty("specializationKeys").EnumerateArray()
+                .Select(x => x.GetString()).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
+            if (!roles.Contains(requirements.RequiredRoleKey))
+                return "Assigned installation no longer declares the exact accountable role.";
+            if (requirements.RequiredSpecializationKeys.Any(x => !skills.Contains(x)))
+                return "Assigned installation no longer declares every required specialization.";
+            if (requirements.RequiredSpecializationKeys.Any(x =>
+                    !selection.MatchedSpecializationKeys.Contains(x, StringComparer.Ordinal)))
+                return "Assignment-selection evidence does not prove every required specialization.";
+        }
+        catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return "Assigned installation manifest does not contain valid role and specialization policy.";
+        }
+        return null;
+    }
+
     private static IReadOnlyList<Shared.WorkOrchestrationValidationError> ValidateRevision(
         WorkOrchestrationPolicyRevision revision, IReadOnlySet<Guid> columns) =>
         WorkOrchestrationPolicyValidator.Validate(
@@ -743,7 +820,8 @@ public sealed class WorkOrchestrationService(
 
     private sealed record AssignmentSnapshot(
         Guid WorkItemId, string StageKey, WorkOrchestrationPrincipalKind PrincipalKind,
-        Guid? OrganizationUserId, Guid? AgentInstallationId, string? PlatformAction);
+        Guid? OrganizationUserId, Guid? AgentInstallationId, string? PlatformAction,
+        string? RequirementsJson, string? SelectionEvidenceJson);
 }
 
 public sealed class WorkOrchestrationValidationException(

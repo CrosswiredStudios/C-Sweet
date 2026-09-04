@@ -151,6 +151,8 @@ public sealed class WorkItemStageAssignment
     public Guid? OrganizationUserId { get; set; }
     public Guid? AgentInstallationId { get; set; }
     public string? PlatformAction { get; set; }
+    public string? RequirementsJson { get; set; }
+    public string? SelectionEvidenceJson { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 
     public WorkTask? WorkItem { get; set; }

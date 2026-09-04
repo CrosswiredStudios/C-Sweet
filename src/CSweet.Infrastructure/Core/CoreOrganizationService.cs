@@ -213,6 +213,14 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         };
 
         _dbContext.CoreOrganizationUsers.Add(ceo);
+        _dbContext.LeadershipAssignments.Add(new LeadershipAssignment
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            OrganizationUserId = ceo.Id,
+            PositionKey = LeadershipPositionKeys.ChiefExecutiveOfficer,
+            StartsAt = now
+        });
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 

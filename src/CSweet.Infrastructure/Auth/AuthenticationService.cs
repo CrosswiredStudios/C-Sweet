@@ -445,6 +445,18 @@ public sealed class AuthenticationService : IAuthenticationService
             owner.ApplicationUserId = user.Id;
             owner.Email = user.Email;
             owner.DisplayName = user.DisplayName;
+            if (!await _dbContext.LeadershipAssignments.AnyAsync(x =>
+                    x.OrganizationId == organization.Id &&
+                    x.PositionKey == LeadershipPositionKeys.ChiefExecutiveOfficer && x.EndsAt == null,
+                    cancellationToken))
+            {
+                _dbContext.LeadershipAssignments.Add(new LeadershipAssignment
+                {
+                    Id = Guid.NewGuid(), OrganizationId = organization.Id, OrganizationUserId = owner.Id,
+                    PositionKey = LeadershipPositionKeys.ChiefExecutiveOfficer,
+                    StartsAt = DateTimeOffset.UtcNow
+                });
+            }
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);

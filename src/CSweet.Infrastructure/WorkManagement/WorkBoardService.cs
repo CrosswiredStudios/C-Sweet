@@ -447,7 +447,7 @@ public sealed class WorkBoardService(
                 x.BoardId == boardId, cancellationToken))
             throw new ArgumentException("The parent work item must belong to the same board.");
 
-        var executable = kind is not (WorkItemKind.Initiative or WorkItemKind.Epic);
+        var executable = type.ExecutionMode == CSweet.WorkManagement.Contracts.WorkItemExecutionModes.Executable;
         if (executable && !request.AccountableOrganizationUserId.HasValue)
             throw new ArgumentException("Executable work items require an accountable organization user.");
         if (request.AccountableOrganizationUserId.HasValue)
@@ -489,6 +489,7 @@ public sealed class WorkBoardService(
             ParentWorkTaskId = request.ParentItemId,
             Kind = kind,
             TypeKey = type.Key,
+            IsExecutable = executable,
             PlanningRevision = 1,
             Title = normalized.Title,
             Description = normalized.Description,
@@ -536,6 +537,12 @@ public sealed class WorkBoardService(
                 OrganizationUserId = assignment.OrganizationUserId,
                 AgentInstallationId = assignment.AgentInstallationId,
                 PlatformAction = assignment.PlatformAction,
+                RequirementsJson = assignment.Requirements is null
+                    ? null
+                    : JsonSerializer.Serialize(assignment.Requirements, JsonOptions),
+                SelectionEvidenceJson = assignment.SelectionEvidence is null
+                    ? null
+                    : JsonSerializer.Serialize(assignment.SelectionEvidence, JsonOptions),
                 CreatedAt = now
             });
         }
@@ -728,6 +735,9 @@ public sealed class WorkBoardService(
         item.UpdatedAt)
     {
         TypeKey = item.TypeKey,
+        ExecutionMode = item.IsExecutable
+            ? CSweet.WorkManagement.Contracts.WorkItemExecutionModes.Executable
+            : CSweet.WorkManagement.Contracts.WorkItemExecutionModes.Container,
         PlanningRevision = item.PlanningRevision,
         Identifier = item.Identifier,
         AccountableOrganizationUserId = item.AccountableOrganizationUserId,
@@ -743,6 +753,8 @@ public sealed class WorkBoardService(
             ? new CSweet.WorkManagement.Contracts.WorkItemProposalProvenance(
                 item.ProposalCoordinationSessionId.Value, item.ProposalArtifactDigest, item.ProposalItemKey)
             : null,
+        EstimateProvenance = DeserializeJson<CSweet.WorkManagement.Contracts.WorkEstimateProvenance>(
+            item.EstimateProvenanceJson),
         Approvals = item.Approvals.Select(ToApprovalContract).ToList()
     };
 
@@ -768,7 +780,13 @@ public sealed class WorkBoardService(
             assignment.PrincipalKind.ToString(),
             assignment.OrganizationUserId,
             assignment.AgentInstallationId,
-            assignment.PlatformAction);
+            assignment.PlatformAction)
+        {
+            Requirements = DeserializeJson<CSweet.WorkManagement.Contracts.WorkAssignmentRequirements>(
+                assignment.RequirementsJson),
+            SelectionEvidence = DeserializeJson<CSweet.WorkManagement.Contracts.WorkAssignmentSelectionEvidence>(
+                assignment.SelectionEvidenceJson)
+        };
 
     private static void ValidateStageAssignments(
         bool executable,
@@ -776,6 +794,12 @@ public sealed class WorkBoardService(
         IReadOnlyList<WorkOrchestrationStage> stages,
         IReadOnlyList<CSweet.WorkManagement.Contracts.WorkStageAssignment> assignments)
     {
+        if (!executable)
+        {
+            if (assignments.Count > 0)
+                throw new ArgumentException("Container work items cannot have execution-stage assignments.");
+            return;
+        }
         if (assignments.Select(x => x.StageKey).Distinct(StringComparer.Ordinal).Count() != assignments.Count)
             throw new ArgumentException("A stage may have only one assignment.");
         var stageByKey = stages.ToDictionary(x => x.Key, StringComparer.Ordinal);
@@ -803,8 +827,12 @@ public sealed class WorkBoardService(
             if (stage.Type == WorkOrchestrationStageType.TrustedPlatformAction &&
                 (kind != WorkOrchestrationPrincipalKind.PlatformAction || string.IsNullOrWhiteSpace(assignment.PlatformAction)))
                 throw new ArgumentException($"Platform stage '{stage.Key}' requires a registered platform action.");
+            if ((assignment.Requirements is null) != (assignment.SelectionEvidence is null))
+                throw new ArgumentException($"Stage '{assignment.StageKey}' requires both assignment requirements and selection evidence.");
+            if (assignment.SelectionEvidence is not null &&
+                assignment.SelectionEvidence.AgentInstallationId != assignment.AgentInstallationId)
+                throw new ArgumentException($"Stage '{assignment.StageKey}' selection evidence identifies a different installation.");
         }
-        if (!executable) return;
         var initialStage = stages.SingleOrDefault(x => x.Key == initialStageKey)
             ?? throw new ArgumentException("The published work policy does not have a valid initial work stage.");
         if ((initialStage.Type is WorkOrchestrationStageType.AgentExecution or

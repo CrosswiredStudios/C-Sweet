@@ -60,6 +60,10 @@ public sealed record HiringRecommendationResponse(
     public Guid? TeamId { get; init; }
     public int FulfilledHeadcount { get; init; }
     public int RemainingHeadcount { get; init; }
+    public string? RequestingEmployee { get; init; }
+    public string? RequestingTeam { get; init; }
+    public string? AssignedApprover { get; init; }
+    public string? ActualDecisionMaker { get; init; }
 }
 
 public sealed record HiringBacklogResponse(IReadOnlyList<HiringRecommendationResponse> Recommendations);

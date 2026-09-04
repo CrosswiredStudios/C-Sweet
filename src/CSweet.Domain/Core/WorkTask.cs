@@ -32,16 +32,19 @@ public sealed class WorkTask
     public string? CreationIdempotencyKey { get; set; }
     public string? CorrelationId { get; set; }
     public string? CausationId { get; set; }
+    public string? PersonalWorkContextJson { get; set; }
     public string StructuredMentionsJson { get; set; } = "[]";
     public long? IdentifierSequence { get; set; }
     public string? Identifier { get; set; }
     public string? DevelopmentBriefJson { get; set; }
     public string? PlanningSpecificationJson { get; set; }
     public string TypeKey { get; set; } = "general.task.v1";
+    public bool IsExecutable { get; set; } = true;
     public long PlanningRevision { get; set; } = 1;
     public Guid? ProposalCoordinationSessionId { get; set; }
     public string? ProposalArtifactDigest { get; set; }
     public string? ProposalItemKey { get; set; }
+    public string? EstimateProvenanceJson { get; set; }
     public string? DeliverySpecificationJson { get; set; }
     public string? QualityBriefJson { get; set; }
     public bool IsQaTrackingDefect { get; set; }

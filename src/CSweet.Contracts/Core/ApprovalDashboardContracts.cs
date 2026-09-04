@@ -29,6 +29,9 @@ public sealed record ApprovalDashboardItemResponse(
 {
     public ManagedAgentActionApprovalResponse? AgentAction { get; init; }
     public ArtifactAccessRequestResponse? ArtifactAccess { get; init; }
+    public string? RequestingTeam { get; init; }
+    public string? ActualDecisionMaker { get; init; }
+    public Guid? SourceResourceChangeRequestId { get; init; }
 }
 
 public sealed record ManagedAgentActionApprovalResponse(
@@ -39,7 +42,10 @@ public sealed record ManagedAgentActionApprovalResponse(
     long? ExpectedRevision,
     string IdempotencyKey,
     bool AlwaysRequiresApproval,
-    string? ResourceId = null);
+    string? ResourceId = null,
+    string? FiscalSummary = null,
+    string? ApprovalRoute = null,
+    DateTimeOffset? ExpiresAt = null);
 
 public sealed record DecideManagedAgentActionRequest(
     Guid ProposalId,

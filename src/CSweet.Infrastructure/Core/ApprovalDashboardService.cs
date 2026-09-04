@@ -66,7 +66,14 @@ public sealed class ApprovalDashboardService(
             $"/organizations/{organizationId:D}/communications/{request.ConversationId:D}",
             request.Status == ResourceChangeRequestStatus.Pending.ToString() &&
             request.ManagerOrganizationUserId == actor.Id,
-            request)));
+            request)
+        {
+            RequestingTeam = request.TeamName ?? request.TeamId?.ToString("D"),
+            ActualDecisionMaker = request.DecidedByOrganizationUserId.HasValue
+                ? Name(names, request.DecidedByOrganizationUserId.Value, "Decision maker")
+                : null,
+            SourceResourceChangeRequestId = request.Id
+        }));
 
         var agentActions = await db.ActionProposals.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId)
@@ -295,6 +302,11 @@ public sealed class ApprovalDashboardService(
             if (!root.TryGetProperty("channelId", out var channel) ||
                 !root.TryGetProperty("payloadHash", out var hash) ||
                 !root.TryGetProperty("idempotencyKey", out var idempotency)) return null;
+            var fiscalSummary = ReadInfrastructureFiscalSummary(root);
+            var approvalRoute = ReadInfrastructureApprovalRoute(root);
+            var expiresAt = root.TryGetProperty("change", out var change) &&
+                change.TryGetProperty("expiresAt", out var expiry) && expiry.TryGetDateTimeOffset(out var parsedExpiry)
+                    ? parsedExpiry : (DateTimeOffset?)null;
             return new(proposal.Id,
                 root.TryGetProperty("actionType", out var action) ? action.GetString() ?? proposal.ActionType : proposal.ActionType,
                 channel.GetString() ?? string.Empty,
@@ -303,9 +315,31 @@ public sealed class ApprovalDashboardService(
                 idempotency.GetString() ?? string.Empty,
                 root.TryGetProperty("alwaysRequiresApproval", out var always) && always.GetBoolean(),
                 root.TryGetProperty("resourceId", out var resource) && resource.ValueKind == JsonValueKind.String
-                    ? resource.GetString() : null);
+                    ? resource.GetString() : null,
+                fiscalSummary, approvalRoute, expiresAt);
         }
         catch (JsonException) { return null; }
+    }
+
+    private static string? ReadInfrastructureFiscalSummary(JsonElement root)
+    {
+        if (!root.TryGetProperty("change", out var change) ||
+            !change.TryGetProperty("fiscalImpact", out var fiscal) ||
+            !fiscal.TryGetProperty("hasFiscalImpact", out var hasFiscal) || !hasFiscal.GetBoolean()) return null;
+        var currency = fiscal.TryGetProperty("currency", out var currencyNode) ? currencyNode.GetString() ?? "USD" : "USD";
+        var maximum = fiscal.TryGetProperty("maximumAmount", out var maximumNode) && maximumNode.TryGetDecimal(out var amount)
+            ? amount.ToString("0.00") : "unknown";
+        var recurring = fiscal.TryGetProperty("recurring", out var recurringNode) && recurringNode.GetBoolean();
+        var cadence = fiscal.TryGetProperty("renewalCadence", out var cadenceNode) ? cadenceNode.GetString() : null;
+        var budget = fiscal.TryGetProperty("budgetStatus", out var budgetNode) ? budgetNode.GetString() : null;
+        return $"Maximum initial charge: {currency} {maximum}; renewal: {(recurring ? cadence ?? "recurring" : "none")}; budget: {budget ?? "unknown"}.";
+    }
+
+    private static string? ReadInfrastructureApprovalRoute(JsonElement root)
+    {
+        if (!root.TryGetProperty("approvalRoute", out var route) || route.ValueKind != JsonValueKind.Array) return null;
+        return string.Join(" → ", route.EnumerateArray().Select(stage =>
+            stage.TryGetProperty("kind", out var kind) ? kind.GetString() : null).Where(x => !string.IsNullOrWhiteSpace(x))!);
     }
 
     private static string Name(

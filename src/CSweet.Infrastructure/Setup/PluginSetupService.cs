@@ -93,8 +93,22 @@ public sealed class PluginSetupService(
             foreach (var key in step.ConfigurationKeys)
                 if (request.Values.TryGetValue(key, out var value))
                 {
-                    data.Values[key] = value.Clone();
-                    merged[key] = value.Clone();
+                    var declaration = manifest.Configuration.Single(x => x.Key == key);
+                    if (declaration.Secret || declaration.Type.Equals("secret", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
+                            throw new InvalidOperationException($"Secure field '{key}' requires a non-empty value.");
+                        await secrets.SetAsync(installation.Id, ConfigurationSecretKey(key), value.GetString()!, cancellationToken);
+                        var reference = JsonSerializer.SerializeToElement(
+                            $"vault://plugin/{installation.Id:N}/configuration/{Uri.EscapeDataString(key)}", JsonOptions);
+                        data.Values[key] = reference;
+                        merged[key] = reference;
+                    }
+                    else
+                    {
+                        data.Values[key] = value.Clone();
+                        merged[key] = value.Clone();
+                    }
                 }
             await configurations.SaveAsync(installation.Id, current?.SchemaVersion ?? "1", merged, cancellationToken);
         }
@@ -341,6 +355,9 @@ public sealed class PluginSetupService(
                 catch (HttpRequestException) { /* local disable and purge remain fail-closed */ }
         }
         await secrets.RemoveAsync(installation.Id, TokenKey(connection.Id), cancellationToken);
+        foreach (var field in Manifest(installation).Configuration.Where(x =>
+                     x.Secret || x.Type.Equals("secret", StringComparison.OrdinalIgnoreCase)))
+            await secrets.RemoveAsync(installation.Id, ConfigurationSecretKey(field.Key), cancellationToken);
         connection.Status = PluginConnectionStatus.Revoked;
         connection.RevokedAt = connection.UpdatedAt = DateTimeOffset.UtcNow;
         connection.BoundResourceId = null;
@@ -438,6 +455,7 @@ public sealed class PluginSetupService(
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private static string VerifierKey(Guid id) => $"oauth.attempt.{id:N}.verifier";
     private static string TokenKey(Guid id) => $"oauth.connection.{id:N}.token";
+    public static string ConfigurationSecretKey(string fieldKey) => $"configuration.{fieldKey}.secret";
     private static string Query(string endpoint, IReadOnlyDictionary<string, string> values) =>
         endpoint + (endpoint.Contains('?') ? '&' : '?') + string.Join('&', values.Select(x =>
             $"{Uri.EscapeDataString(x.Key)}={Uri.EscapeDataString(x.Value)}"));

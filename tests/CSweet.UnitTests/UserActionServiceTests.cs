@@ -112,6 +112,7 @@ public sealed class UserActionServiceTests
             $"/organizations/{organization.Id:D}/marketplace?role=Product%20Manager&recommendationId={recommendationId:D}",
             action.NavigationUri);
         Assert.Equal(recommendationId, action.HiringRecommendationId);
+        Assert.Equal("Product Manager", action.HiringRole);
         Assert.DoesNotContain("attacker", action.NavigationUri, StringComparison.OrdinalIgnoreCase);
         var persistedAction = Assert.Single(await db.SuggestedUserActions.ToListAsync());
         var systemMessage = Assert.Single(
@@ -139,6 +140,7 @@ public sealed class UserActionServiceTests
         Assert.Equal("System", systemResponse.SenderEmployeeType);
         Assert.Equal(action.Id, Assert.Single(systemResponse.Actions!).Id);
         Assert.Equal(recommendationId, Assert.Single(systemResponse.Actions!).HiringRecommendationId);
+        Assert.Equal("Product Manager", Assert.Single(systemResponse.Actions!).HiringRole);
 
         persistedAction.Status = "Completed";
         persistedAction.ResultOrganizationUserId = other.Id;
@@ -164,6 +166,92 @@ public sealed class UserActionServiceTests
                 null,
                 JsonSerializer.SerializeToElement(new { role = "Engineering Manager" }),
                 "other-message-action")));
+    }
+
+    [Fact]
+    public async Task HiringActions_WithTheSameSource_AreReturnedAsOneHistoricalCarouselGroup()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organization = new Organization
+        {
+            Id = Guid.NewGuid(), Name = "Example", CreatedAt = now, UpdatedAt = now
+        };
+        var agent = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentInstallationId = Guid.NewGuid(),
+            DisplayName = "Chief", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Manager, CreatedAt = now
+        };
+        var owner = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            DisplayName = "Owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, CreatedAt = now
+        };
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentOrganizationUserId = agent.Id,
+            InitiatedByOrganizationUserId = owner.Id, Kind = ConversationKind.DirectHumanAgent,
+            CreatedAt = now, UpdatedAt = now
+        };
+        conversation.Participants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), OrganizationUserId = agent.Id,
+            Role = ConversationParticipantRole.Member, JoinedAt = now
+        });
+        conversation.Participants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), OrganizationUserId = owner.Id,
+            Role = ConversationParticipantRole.Member, JoinedAt = now
+        });
+        var source = Message(conversation.Id, agent.Id, "Hiring suggestions", now, 1);
+        var firstCard = SystemActionMessage(conversation.Id, source.Id, "Producer", now.AddSeconds(1), 2);
+        var secondCard = SystemActionMessage(conversation.Id, source.Id, "Designer", now.AddSeconds(2), 3);
+        var genericCard = SystemActionMessage(conversation.Id, source.Id, "Review budget", now.AddSeconds(3), 4);
+        var otherSourceCard = SystemActionMessage(
+            conversation.Id, Guid.NewGuid(), "Engineer", now.AddSeconds(4), 5);
+        var firstAction = HiringAction(organization.Id, agent.AgentInstallationId!.Value,
+            conversation.Id, firstCard.Id, "Producer", now.AddSeconds(1));
+        var secondAction = HiringAction(organization.Id, agent.AgentInstallationId.Value,
+            conversation.Id, secondCard.Id, "Designer", now.AddSeconds(2));
+        secondAction.Status = "Completed";
+        secondAction.ResultOrganizationUserId = owner.Id;
+        secondAction.CompletedAt = now.AddMinutes(1);
+        var genericAction = new SuggestedUserAction
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            OriginatingInstallationId = agent.AgentInstallationId.Value, ConversationId = conversation.Id,
+            ConversationMessageId = genericCard.Id, WorkflowType = "budget.review.v1",
+            Label = "Review budget", ParametersJson = "{}", NavigationUri = "/budget",
+            IdempotencyKey = $"action-{Guid.NewGuid():N}", Status = "Pending",
+            CreatedAt = now.AddSeconds(3)
+        };
+        var otherAction = HiringAction(organization.Id, agent.AgentInstallationId.Value,
+            conversation.Id, otherSourceCard.Id, "Engineer", now.AddSeconds(4));
+        db.AddRange(organization, agent, owner, conversation, source, firstCard, secondCard, genericCard,
+            otherSourceCard, firstAction, secondAction, genericAction, otherAction);
+        await db.SaveChangesAsync();
+
+        var hub = new CommunicationHubService(
+            db,
+            new TestAuditEventWriter(),
+            new CSweet.Infrastructure.Core.ChatTurnService(db));
+        var responses = (await hub.ListMessagesAsync(
+            organization.Id, conversation.Id, owner.Id))!.ToList();
+
+        Assert.Equal(4, responses.Count);
+        var grouped = responses.Single(x => x.MessageType == CommunicationMessageTypes.SystemAction &&
+                                            x.Actions!.Count == 2);
+        Assert.Equal(firstCard.Id, grouped.Id);
+        Assert.Equal(secondCard.Sequence, grouped.Sequence);
+        Assert.Equal(["Producer", "Designer"], grouped.Actions!.Select(x => x.HiringRole!).ToArray());
+        var completed = grouped.Actions![1];
+        Assert.Equal("Completed", completed.Status);
+        Assert.Equal(owner.Id, completed.ResultOrganizationUserId);
+        Assert.Equal(owner.DisplayName, completed.ResultOrganizationUserDisplayName);
+        Assert.Equal("budget.review.v1", Assert.Single(responses.Single(x => x.Id == genericCard.Id).Actions!).WorkflowType);
+        Assert.Single(responses.Single(x => x.Id == otherSourceCard.Id).Actions!);
     }
 
     [Fact]
@@ -265,4 +353,46 @@ public sealed class UserActionServiceTests
         new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options);
+
+    private static ConversationMessage Message(
+        Guid conversationId,
+        Guid senderId,
+        string content,
+        DateTimeOffset createdAt,
+        long sequence) => new()
+        {
+            Id = Guid.NewGuid(), ConversationId = conversationId, SenderOrganizationUserId = senderId,
+            Role = ConversationRole.Assistant, Content = content, CorrelationId = Guid.NewGuid(),
+            CreatedAt = createdAt, Sequence = sequence
+        };
+
+    private static ConversationMessage SystemActionMessage(
+        Guid conversationId,
+        Guid causationId,
+        string content,
+        DateTimeOffset createdAt,
+        long sequence) => new()
+        {
+            Id = Guid.NewGuid(), ConversationId = conversationId, Role = ConversationRole.Assistant,
+            Content = content, CorrelationId = Guid.NewGuid(), CausationId = causationId,
+            SourceProvider = CommunicationMessageTypes.SystemAction, CreatedAt = createdAt, Sequence = sequence
+        };
+
+    private static SuggestedUserAction HiringAction(
+        Guid organizationId,
+        Guid installationId,
+        Guid conversationId,
+        Guid messageId,
+        string role,
+        DateTimeOffset createdAt) => new()
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            OriginatingInstallationId = installationId, ConversationId = conversationId,
+            ConversationMessageId = messageId,
+            WorkflowType = SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+            Label = "Browse candidates", Description = $"Review Marketplace candidates for the {role} role.",
+            ParametersJson = JsonSerializer.Serialize(new { role, recommendationId = Guid.NewGuid() }),
+            NavigationUri = $"/marketplace?role={Uri.EscapeDataString(role)}",
+            IdempotencyKey = $"action-{Guid.NewGuid():N}", Status = "Pending", CreatedAt = createdAt
+        };
 }

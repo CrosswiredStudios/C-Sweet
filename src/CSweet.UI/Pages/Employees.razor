@@ -116,6 +116,16 @@
                                 {
                                     <MudText Typo="Typo.caption" Color="Color.Secondary">Suggested by @recommendation.SuggestedBy</MudText>
                                 }
+                                @if (recommendation.SourceResourceChangeRequestId.HasValue)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        Requested by @(recommendation.RequestingEmployee ?? "delivery manager")
+                                        · team @(recommendation.RequestingTeam ?? recommendation.TeamId?.ToString("D") ?? "not scoped")
+                                        · assigned to @(recommendation.AssignedApprover ?? "manager")
+                                        · decided by @(recommendation.ActualDecisionMaker ?? "pending")
+                                        · source @recommendation.SourceResourceChangeRequestId
+                                    </MudText>
+                                }
                                 <MudText Typo="Typo.caption" Color="Color.Secondary">Candidate sourcing, security review, installation, and approval continue in Marketplace.</MudText>
                             </MudStack>
                         </MudPaper>

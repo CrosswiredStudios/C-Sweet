@@ -234,6 +234,7 @@ public sealed record WorkBoardItemResponse(
     long AssignmentRevision = 0)
 {
     public string TypeKey { get; init; } = string.Empty;
+    public string ExecutionMode { get; init; } = CSweet.WorkManagement.Contracts.WorkItemExecutionModes.Executable;
     public long PlanningRevision { get; init; }
     public string? Identifier { get; init; }
     public Guid? AccountableOrganizationUserId { get; init; }
@@ -243,6 +244,7 @@ public sealed record WorkBoardItemResponse(
     public WorkItemPlanningSpecification? Planning { get; init; }
     public WorkItemDeliverySpecification? Delivery { get; init; }
     public WorkItemProposalProvenance? ProposalProvenance { get; init; }
+    public CSweet.WorkManagement.Contracts.WorkEstimateProvenance? EstimateProvenance { get; init; }
 }
 
 public sealed record CreateBoardWorkItemRequest(

@@ -76,6 +76,14 @@
                         <div class="approval-meta">
                             <span><strong>Requested by</strong>@item.RequestedBy</span>
                             <span><strong>Assigned to</strong>@item.AssignedTo</span>
+                            @if (!string.IsNullOrWhiteSpace(item.RequestingTeam))
+                            {
+                                <span><strong>Requesting team</strong>@item.RequestingTeam</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(item.ActualDecisionMaker))
+                            {
+                                <span><strong>Decided by</strong>@item.ActualDecisionMaker</span>
+                            }
                             <span><strong>Created</strong>@item.CreatedAt.ToLocalTime().ToString("g")</span>
                         </div>
 
@@ -84,6 +92,9 @@
                             <SuggestedTeamStructureGraph Request="request"
                                                          ProductManagerDisplayName="item.RequestedBy"
                                                          ManagerDisplayName="item.AssignedTo" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                Source request @request.Id · workstream @(request.WorkstreamId?.ToString("D") ?? "not scoped")
+                            </MudText>
                             <div class="approval-role-list">
                                 @foreach (var delta in request.Deltas)
                                 {
@@ -139,6 +150,18 @@
                                     <MudItem xs="12"><strong>Resource</strong><br />@agentAction.ResourceId</MudItem>
                                 }
                                 <MudItem xs="12"><strong>Payload binding</strong><br /><code>@agentAction.PayloadHash</code></MudItem>
+                                @if (!string.IsNullOrWhiteSpace(agentAction.FiscalSummary))
+                                {
+                                    <MudItem xs="12"><strong>Fiscal commitment</strong><br />@agentAction.FiscalSummary</MudItem>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(agentAction.ApprovalRoute))
+                                {
+                                    <MudItem xs="12"><strong>Approval route</strong><br />@agentAction.ApprovalRoute</MudItem>
+                                }
+                                @if (agentAction.ExpiresAt.HasValue)
+                                {
+                                    <MudItem xs="12" md="6"><strong>Approval expires</strong><br />@agentAction.ExpiresAt.Value.ToLocalTime().ToString("g")</MudItem>
+                                }
                             </MudGrid>
                             @if (item.CanDecide && item.Status == "Pending")
                             {

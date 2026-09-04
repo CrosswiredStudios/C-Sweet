@@ -93,6 +93,14 @@ public sealed class OrganizationDataPurgeService(
 
     private async Task DeleteScopedRelationalRowsAsync(Guid organizationId, CancellationToken cancellationToken)
     {
+        // Approvals are scoped through their artifact rather than by their own
+        // OrganizationId column. Their restrictive revision foreign key prevents
+        // revisions from being removed before the artifact cascade can reach them.
+        await dbContext.CoreApprovals
+            .Where(approval => dbContext.CoreArtifacts.Any(artifact =>
+                artifact.Id == approval.ArtifactId && artifact.OrganizationId == organizationId))
+            .ExecuteDeleteAsync(cancellationToken);
+
         var scopedTypes = ScopedEntityTypes(dbContext.Model);
         var tables = PurgeTables(scopedTypes);
         var sqlHelper = dbContext.GetService<ISqlGenerationHelper>();
