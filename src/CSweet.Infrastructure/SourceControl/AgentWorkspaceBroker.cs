@@ -8,6 +8,8 @@ namespace CSweet.Infrastructure.SourceControl;
 
 public interface IAgentWorkspaceBroker
 {
+    Task<AgentBrokerWorkspaceOperationResult> ExecuteAsync(AgentBrokerWorkspaceOperationRequest request,
+        string publicBaseUrl, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Workspace operation is unavailable.");
     Task<AgentBrokerWorkspacePrepareResult> PrepareAsync(
         AgentBrokerWorkspacePrepareRequest request,
         CancellationToken cancellationToken = default);
@@ -18,7 +20,7 @@ public interface IAgentWorkspaceBroker
 /// repository coordinates are introduced only after every opaque assignment identifier has been
 /// matched against persisted state, then removed again before the response reaches AgentHost.
 /// </summary>
-public sealed class AgentWorkspaceBroker(
+public sealed partial class AgentWorkspaceBroker(
     CSweetDbContext db,
     ITrustedSourceControlHostClient gitHost,
     IWorkspaceVolumeBridge volumes) : IAgentWorkspaceBroker
@@ -69,13 +71,16 @@ public sealed class AgentWorkspaceBroker(
             repository.ArchivedAt is not null ||
             !repository.IsPrivate ||
             connection.Status != SourceControlConnectionStatus.Connected ||
-            connection.Provider != SourceControlProvider.GitHub ||
-            connection.SourceAccessInstallationId is not > 0)
-            throw new InvalidOperationException("The assigned private GitHub repository is not ready.");
+            (connection.Provider != SourceControlProvider.InternalGit &&
+                (connection.Provider != SourceControlProvider.GitHub || connection.SourceAccessInstallationId is not > 0)))
+            throw new InvalidOperationException("The assigned private repository is not ready.");
 
-        var snapshot = await gitHost.PrepareWorkspaceAsync(
+        var snapshot = connection.Provider == SourceControlProvider.InternalGit
+            ? await gitHost.PrepareInternalWorkspaceAsync(new(request.OrganizationId, repository.Id, workspace.Id,
+                repository.DefaultBranch, workspace.BranchName, request.ExpectedCommitSha, request.IdempotencyKey), cancellationToken)
+            : await gitHost.PrepareWorkspaceAsync(
             new TrustedWorkspaceSnapshotRequest(
-                connection.SourceAccessInstallationId.Value,
+                connection.SourceAccessInstallationId!.Value,
                 repository.Owner,
                 repository.Name,
                 repository.DefaultBranch,

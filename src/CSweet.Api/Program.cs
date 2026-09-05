@@ -132,6 +132,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
                                ForwardedHeaders.XForwardedHost |
                                ForwardedHeaders.XForwardedProto;
+    foreach (var proxy in builder.Configuration.GetSection("CSweet:Http:KnownProxies").Get<string[]>() ?? [])
+        options.KnownProxies.Add(System.Net.IPAddress.Parse(proxy));
 });
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IApplicationRealtimePublisher, SignalRApplicationRealtimePublisher>();
@@ -207,6 +209,7 @@ app.MapMarketplaceDiscoveryEndpoints();
 app.MapAgentCatalogEndpoints();
 app.MapWorkBoardEndpoints();
 app.MapSourceControlEndpoints();
+app.MapInternalGitHttpEndpoints();
 app.MapAgentWorkspaceBrokerEndpoints();
 app.MapAnalyticsEndpoints();
 

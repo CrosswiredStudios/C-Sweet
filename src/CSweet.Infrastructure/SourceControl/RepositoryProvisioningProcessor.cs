@@ -9,18 +9,22 @@ namespace CSweet.Infrastructure.SourceControl;
 /// Executes one Core-authorized provisioning job. Provider coordinates come only from persisted
 /// connection/template records; the agent-provided request cannot select an owner or repository.
 /// </summary>
-public sealed class RepositoryProvisioningProcessor(
+public sealed partial class RepositoryProvisioningProcessor(
     CSweetDbContext db,
     ITrustedProvisioningHostClient provisioner,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ITrustedSourceControlHostClient? gitHost = null,
+    CSweet.Application.Security.IScopedActionAuthorizationService? authorization = null)
 {
     public async Task<bool> TryProcessNextAsync(CancellationToken cancellationToken = default)
     {
+        var abandonedBefore = timeProvider.GetUtcNow().AddMinutes(-2);
         var request = await db.RepositoryProvisioningRequests
             .Include(candidate => candidate.Connection)
             .Include(candidate => candidate.Policy)
             .Include(candidate => candidate.Template)
-            .Where(candidate => candidate.Status == RepositoryProvisioningStatus.Pending)
+            .Where(candidate => candidate.Status == RepositoryProvisioningStatus.Pending ||
+                (candidate.Connection!.Provider == SourceControlProvider.InternalGit && candidate.Status == RepositoryProvisioningStatus.Provisioning && candidate.UpdatedAt < abandonedBefore))
             .OrderBy(candidate => candidate.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
         if (request is null)
@@ -34,6 +38,9 @@ public sealed class RepositoryProvisioningProcessor(
             await db.SaveChangesAsync(cancellationToken);
             return true;
         }
+
+        if (request.Connection!.Provider == SourceControlProvider.InternalGit)
+            return await ProcessInternalAsync(request, cancellationToken);
 
         request.Status = RepositoryProvisioningStatus.Provisioning;
         request.UpdatedAt = now;
@@ -145,6 +152,15 @@ public sealed class RepositoryProvisioningProcessor(
 
     private static string? Validate(RepositoryProvisioningRequest request)
     {
+        if (request.Policy is null || !request.Policy.IsEnabled || request.Policy.Revision != request.PolicyRevision)
+            return "The provisioning policy changed after this request was authorized.";
+        if (request.Template is null || !request.Template.IsEnabled || request.Template.OrganizationId != request.OrganizationId ||
+            request.Template.ConnectionId != request.ConnectionId || request.Policy.ConnectionId != request.ConnectionId ||
+            request.Policy.OrganizationId != request.OrganizationId || request.Connection?.OrganizationId != request.OrganizationId)
+            return "The repository provisioning scope is no longer valid.";
+        if (request.Connection?.Provider == SourceControlProvider.InternalGit)
+            return request.Connection.Status == SourceControlConnectionStatus.Connected && request.Template.Name == "empty"
+                ? null : "The internal repository connection or template is unavailable.";
         if (request.Connection is null ||
             request.Connection.Mode != SourceControlConnectionMode.ManagedGitHub ||
             request.Connection.Provider != SourceControlProvider.GitHub ||

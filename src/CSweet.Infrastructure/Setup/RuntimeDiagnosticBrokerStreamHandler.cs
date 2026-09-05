@@ -14,6 +14,17 @@ internal sealed class RuntimeDiagnosticBrokerStreamHandler(
 
     public string? Latest { get; private set; }
 
+    // Builder guests may only send diagnostics in GuestExit. Even streaming guests can
+    // exit before their first periodic chunk, so preserve the final bounded tail as well.
+    public void CaptureExitDetail(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail)) return;
+        Latest = new string(detail
+            .Where(character => !char.IsControl(character) || character is '\r' or '\n' or '\t')
+            .TakeLast(MaximumDiagnosticCharacters)
+            .ToArray());
+    }
+
     public Task HandleAsync(GuestBrokerStreamContext chunk, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

@@ -18,6 +18,8 @@ public sealed record WorkspaceVolumeExport(
     byte[] Archive,
     WorkspaceArtifactManifest Manifest);
 
+public sealed class WorkspaceSnapshotUnavailableException() : InvalidOperationException("The brokered workspace snapshot is unavailable.");
+
 public interface IWorkspaceVolumeBridge
 {
     Task<WorkspaceArtifactManifest> ImportAsync(
@@ -25,6 +27,9 @@ public interface IWorkspaceVolumeBridge
         Stream archive,
         WorkspaceArtifactManifest? expectedManifest = null,
         CancellationToken cancellationToken = default);
+
+    Task RemoveAsync(WorkspaceVolumeLease lease, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException("Workspace cleanup is unavailable.");
 
     Task<WorkspaceVolumeExport> ExportAsync(
         WorkspaceVolumeLease lease,
@@ -90,10 +95,18 @@ public sealed class WorkspaceVolumeBridge(
     {
         await AuthorizeAsync(lease, allowPreparing: false, cancellationToken);
         var path = SnapshotPath(lease);
-        if (!File.Exists(path)) throw new InvalidOperationException("The brokered workspace snapshot is unavailable.");
+        if (!File.Exists(path)) throw new WorkspaceSnapshotUnavailableException();
         var manifest = await ReadManifestAsync(path, cancellationToken);
         var archive = await File.ReadAllBytesAsync(path, cancellationToken);
         return new WorkspaceVolumeExport(archive, manifest);
+    }
+
+    public async Task RemoveAsync(WorkspaceVolumeLease lease, CancellationToken cancellationToken = default)
+    {
+        await AuthorizeAsync(lease, allowPreparing: false, cancellationToken);
+        var path = SnapshotPath(lease);
+        File.Delete(path);
+        File.Delete(path + ".manifest.json");
     }
 
     private async Task AuthorizeAsync(
@@ -111,7 +124,7 @@ public sealed class WorkspaceVolumeBridge(
             x.AssignmentRevision == lease.AssignmentRevision,
             cancellationToken) ?? throw new UnauthorizedAccessException(
                 "The workspace lease does not match persisted source-control state.");
-        if (workspace.Status != SourceControlWorkspaceStatus.Ready &&
+        if (workspace.Status != SourceControlWorkspaceStatus.Ready && workspace.Status != SourceControlWorkspaceStatus.Published &&
             !(allowPreparing && workspace.Status == SourceControlWorkspaceStatus.Preparing))
             throw new InvalidOperationException("The source-control workspace is not available for this operation.");
         if (!await db.CoreWorkTasks.AsNoTracking().AnyAsync(x =>

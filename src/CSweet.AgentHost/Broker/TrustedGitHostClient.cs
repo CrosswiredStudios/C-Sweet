@@ -72,7 +72,9 @@ public sealed record TrustedWorkspacePublication(
     string DeliveryKind,
     string BranchName,
     string CommitSha,
-    Uri? PullRequestUrl);
+    Uri? PullRequestUrl,
+    IReadOnlyList<string>? ChangedFiles = null,
+    string? DiffSummary = null);
 
 public sealed record TrustedWorkspaceCleanupRequest(
     TrustedWorkspaceOperationRequest Workspace,

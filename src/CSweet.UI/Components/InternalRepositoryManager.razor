@@ -1,0 +1,212 @@
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+
+<MudPaper Outlined="true" Class="pa-4">
+    <MudStack Spacing="3">
+        <MudText Typo="Typo.h5">Internal repositories</MudText>
+        <MudText Color="Color.Secondary">Private Git storage in C-Sweet. Create repositories when your projects need them; no GitHub account is required.</MudText>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        @if (CanManage)
+        {
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                <MudTextField @bind-Value="_name" Label="Repository name" Disabled="_busy" />
+                <MudTextField @bind-Value="_branch" Label="Initial branch" Disabled="_busy" />
+                <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name))" Variant="Variant.Filled" Color="Color.Primary">Create repository</MudButton>
+            </MudStack>
+        }
+        @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+        <MudTable Items="_repositories" Dense="true" Hover="true">
+            <HeaderContent><MudTh>Name</MudTh><MudTh>Default branch</MudTh><MudTh>Status</MudTh><MudTh>Inspect</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd><MudTd>@context.DefaultBranch</MudTd><MudTd>@context.Status</MudTd>
+                <MudTd><MudButton Disabled="_busy" OnClick="@(() => InspectAsync(context.Id))">Open</MudButton></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No repositories yet. Create one when a project needs source control.</MudText></NoRecordsContent>
+        </MudTable>
+        @if (_details is not null)
+        {
+            <MudDivider />
+            <MudText Typo="Typo.h6">@_details.Repository.Name</MudText>
+            @if (CanManage)
+            {
+                <MudTextField @bind-Value="_editName" Label="Name" Disabled="_busy" />
+                <MudTextField @bind-Value="_editBranch" Label="Default branch" Disabled="_busy" />
+                <MudCheckBox @bind-Value="_archived" Label="Archived (blocks new work; keeps history)" Disabled="_busy" />
+                <MudButton OnClick="SaveAsync" Disabled="_busy" Variant="Variant.Outlined">Save repository</MudButton>
+                @if (_details.Repository.Status == "Archived")
+                {
+                    <MudAlert Severity="Severity.Warning">Deletion permanently removes Git history. Repositories with team assignments or work history must remain archived.</MudAlert>
+                    <MudTextField @bind-Value="_deleteName" Label="Type the repository name to confirm deletion" />
+                    <MudButton OnClick="DeleteAsync" Color="Color.Error" Disabled="@(_busy || _deleteName != _details.Repository.Name)">Delete repository permanently</MudButton>
+                }
+                else if (_details.Repository.Status == "Ready")
+                {
+                    <MudSelect T="Guid" @bind-Value="_team" Label="Assign to team">
+                        @foreach (var team in _teams) { <MudSelectItem T="Guid" Value="team.Id">@team.Name</MudSelectItem> }
+                    </MudSelect>
+                    <MudCheckBox @bind-Value="_primary" Label="Use as the team's primary repository" />
+                    <MudSelect T="string" @bind-Value="_mergePolicy" Label="Merge approval">
+                        <MudSelectItem T="string" Value="@("LeadAuthorizedAutoMerge")">QA and team lead</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("LeadAndAdministratorApproval")">QA, team lead and administrator</MudSelectItem>
+                    </MudSelect>
+                    <MudButton OnClick="AssignTeamAsync" Disabled="@(_busy || _team == Guid.Empty)">Save team access</MudButton>
+                }
+            }
+            <InternalGitClientAccess @key="_details.Repository.Id" OrganizationId="OrganizationId" RepositoryId="_details.Repository.Id" CanManage="CanManage" />
+            <MudText Typo="Typo.subtitle1">Team access</MudText>
+            @foreach (var access in _teamAccess)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudText>@access.TeamName · @(access.Disabled ? "revoked" : access.IsPrimary ? "primary" : "available") · @(access.MergeApprovalMode == "LeadAndAdministratorApproval" ? "QA, lead and administrator" : "QA and lead")</MudText>
+                    @if (CanManage)
+                    {
+                        <MudButton Disabled="_busy" OnClick="@(() => EditTeam(access))">Edit access</MudButton>
+                        @if (!access.Disabled) { <MudButton Disabled="_busy" Color="Color.Error" OnClick="@(() => RevokeTeamAsync(access))">Revoke access</MudButton> }
+                    }
+                </MudStack>
+            }
+            <MudText Typo="Typo.subtitle1">Proposed changes</MudText>
+            @foreach (var proposal in _proposals)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudText>@proposal.Branch to @proposal.TargetBranch · @proposal.CommitSha[..8] · @proposal.Status · QA: @(proposal.QaPassed ? "passed" : "pending")</MudText>
+                    <MudButton OnClick="@(() => InspectProposalAsync(proposal.Id))" Disabled="_busy">Review diff</MudButton>
+                </MudStack>
+            }
+            @if (_proposalDiff is not null) { <pre style="white-space:pre-wrap;max-height:32rem;overflow:auto">@_proposalDiff</pre> }
+            <MudText Typo="Typo.subtitle1">Branches and tags</MudText>
+            @if (CanManage && _details.Repository.Status == "Ready")
+            {
+                <MudTextField @bind-Value="_newRef" Label="New ref (refs/heads/name or refs/tags/name)" Disabled="_busy" />
+                <MudTextField @bind-Value="_refTarget" Label="Target commit SHA" Disabled="_busy" />
+                <MudButton OnClick="CreateRefAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_newRef) || string.IsNullOrWhiteSpace(_refTarget))">Create branch or tag</MudButton>
+            }
+            @foreach (var reference in _details.Inspection.Refs)
+            {
+                <MudButton OnClick="@(() => InspectAsync(_details.Repository.Id, reference.Name))" Disabled="_busy">@reference.Name · @reference.Sha[..8]</MudButton>
+                @if (CanManage && _details.Repository.Status == "Ready" && reference.Name != "refs/heads/" + _details.Repository.DefaultBranch)
+                {
+                    <MudButton Color="Color.Error" OnClick="@(() => _deleteRef = reference)" Disabled="_busy">Delete ref</MudButton>
+                }
+            }
+            @if (_deleteRef is not null)
+            {
+                <MudAlert Severity="Severity.Warning">Delete @_deleteRef.Name at @_deleteRef.Sha[..8]?</MudAlert>
+                <MudButton Color="Color.Error" OnClick="DeleteRefAsync" Disabled="_busy">Confirm ref deletion</MudButton>
+                <MudButton OnClick="@(() => _deleteRef = null)">Cancel</MudButton>
+            }
+            <MudText Typo="Typo.subtitle1">Recent commits</MudText>
+            @foreach (var commit in _details.Inspection.Commits) { <MudText Typo="Typo.body2">@commit.Sha[..8] · @commit.Subject · @commit.Author</MudText> }
+            <MudText Typo="Typo.subtitle1">Files</MudText>
+            @foreach (var file in _details.Inspection.Files) { <MudButton OnClick="@(() => InspectAsync(_details.Repository.Id, _selectedRef, file))" Disabled="_busy">@file</MudButton> }
+            @if (_details.Inspection.Content is not null) { <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:32rem;overflow:auto">@_details.Inspection.Content</pre> }
+            @if (_details.Inspection.Refs.Count == 0) { <MudText Color="Color.Secondary">This repository has no commits yet.</MudText> }
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public bool CanManage { get; set; }
+    [Parameter] public Guid? SelectedRepository { get; set; }
+    [Parameter] public string? SelectedReference { get; set; }
+    private IReadOnlyList<SourceControlRepositorySummary> _repositories = [];
+    private IReadOnlyList<TeamSummaryResponse> _teams = [];
+    private IReadOnlyList<InternalGitTeamAccess> _teamAccess = [];
+    private IReadOnlyList<InternalGitProposalSummary> _proposals = [];
+    private InternalRepositoryDetails? _details;
+    private string _name = "", _branch = "main", _editName = "", _editBranch = "main";
+    private string? _error, _selectedRef, _proposalDiff;
+    private string _deleteName = "", _newRef = "", _refTarget = "", _mergePolicy = "LeadAuthorizedAutoMerge";
+    private Guid _team;
+    private bool _primary = true;
+    private InternalGitRef? _deleteRef;
+    private bool _busy, _archived;
+    private string Endpoint => $"api/organizations/{OrganizationId:D}/source-control/internal/repositories";
+    protected override async Task OnParametersSetAsync()
+    {
+        await RunAsync(async () =>
+        {
+            await LoadAsync();
+            if (CanManage)
+            {
+                var teams = await Http.GetFromJsonAsync<TeamDirectoryResponse>($"api/core/organizations/{OrganizationId:D}/teams?includeArchived=false");
+                _teams = teams?.Teams.Where(t => !t.IsArchived).ToList() ?? [];
+            }
+        });
+        if (SelectedRepository is { } id && _repositories.Any(r => r.Id == id)) await InspectAsync(id, SelectedReference);
+    }
+    private async Task LoadAsync() => _repositories = await Http.GetFromJsonAsync<List<SourceControlRepositorySummary>>(Endpoint) ?? [];
+    private async Task CreateAsync() => await RunAsync(async () =>
+    {
+        using var response = await Http.PostAsJsonAsync(Endpoint, new CreateInternalRepositoryRequest(_name, _branch));
+        await CheckAsync(response); _name = ""; await LoadAsync();
+    });
+    private async Task InspectAsync(Guid id, string? reference = null, string? file = null) => await RunAsync(async () =>
+    {
+        _details = await Http.GetFromJsonAsync<InternalRepositoryDetails>($"{Endpoint}/{id:D}?reference={Uri.EscapeDataString(reference ?? "")}&file={Uri.EscapeDataString(file ?? "")}");
+        if (_details is null) return;
+        _teamAccess = await Http.GetFromJsonAsync<List<InternalGitTeamAccess>>($"{Endpoint}/{id:D}/team") ?? [];
+        _team = Guid.Empty;
+        _proposals = await Http.GetFromJsonAsync<List<InternalGitProposalSummary>>($"{Endpoint}/{id:D}/proposals") ?? [];
+        _proposalDiff = null; _deleteName = ""; _deleteRef = null; _selectedRef = reference;
+        _editName = _details.Repository.Name; _editBranch = _details.Repository.DefaultBranch; _archived = _details.Repository.Status == "Archived";
+    });
+    private async Task SaveAsync() => await RunAsync(async () =>
+    {
+        if (_details is null) return;
+        using var response = await Http.PutAsJsonAsync($"{Endpoint}/{_details.Repository.Id:D}", new UpdateInternalRepositoryRequest(_editName, _editBranch, _archived, _details.Revision));
+        await CheckAsync(response); _details = null; await LoadAsync();
+    });
+    private async Task DeleteAsync() => await RunAsync(async () =>
+    {
+        if (_details is null) return;
+        using var response = await Http.PostAsJsonAsync($"{Endpoint}/{_details.Repository.Id:D}/delete", new DeleteInternalRepositoryRequest(_deleteName, _details.Revision));
+        await CheckAsync(response); _details = null; _deleteName = ""; await LoadAsync();
+    });
+    private Task CreateRefAsync() => ChangeRefAsync(new("create", _newRef, new string('0', 40), _refTarget));
+    private Task DeleteRefAsync() => _deleteRef is null ? Task.CompletedTask : ChangeRefAsync(new("delete", _deleteRef.Name, _deleteRef.Sha));
+    private async Task ChangeRefAsync(InternalGitRefRequest request) => await RunAsync(async () =>
+    {
+        if (_details is null) return;
+        using var response = await Http.PostAsJsonAsync($"{Endpoint}/{_details.Repository.Id:D}/refs", request);
+        await CheckAsync(response);
+        _details = _details with { Inspection = (await response.Content.ReadFromJsonAsync<InternalGitRepositoryInspection>())! };
+        _deleteRef = null; _newRef = ""; _refTarget = "";
+    });
+    private async Task AssignTeamAsync() => await RunAsync(async () =>
+    {
+        if (_details is null) return;
+        using var response = await Http.PutAsJsonAsync($"{Endpoint}/{_details.Repository.Id:D}/team", new SetInternalRepositoryTeamRequest(_team, _primary, _mergePolicy, _teamAccess.SingleOrDefault(a => a.TeamId == _team)?.Revision ?? 0));
+        await CheckAsync(response);
+        _teamAccess = await Http.GetFromJsonAsync<List<InternalGitTeamAccess>>($"{Endpoint}/{_details.Repository.Id:D}/team") ?? [];
+    });
+    private void EditTeam(InternalGitTeamAccess access) { _team = access.TeamId; _primary = access.IsPrimary; _mergePolicy = access.MergeApprovalMode; }
+    private async Task RevokeTeamAsync(InternalGitTeamAccess access) => await RunAsync(async () =>
+    {
+        if (_details is null) return;
+        using var response = await Http.PutAsJsonAsync($"{Endpoint}/{_details.Repository.Id:D}/team", new SetInternalRepositoryTeamRequest(access.TeamId, false, access.MergeApprovalMode, access.Revision, true));
+        await CheckAsync(response);
+        _teamAccess = await Http.GetFromJsonAsync<List<InternalGitTeamAccess>>($"{Endpoint}/{_details.Repository.Id:D}/team") ?? [];
+    });
+    private async Task InspectProposalAsync(Guid proposalId) => await RunAsync(async () =>
+    {
+        if (_details is null) return;
+        var diff = await Http.GetFromJsonAsync<InternalGitRepositoryInspection>($"{Endpoint}/{_details.Repository.Id:D}/proposals/{proposalId:D}");
+        _proposalDiff = diff?.Content;
+    });
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true; _error = null;
+        try { await action(); } catch (Exception ex) { _error = ex.Message; } finally { _busy = false; }
+    }
+    private static async Task CheckAsync(HttpResponseMessage response)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            throw new InvalidOperationException(body.TryGetProperty("message", out var message) ? message.GetString() : "Repository operation failed.");
+        }
+    }
+}

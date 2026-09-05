@@ -1,3 +1,4 @@
+using CSweet.Infrastructure.WorkManagement;
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
@@ -131,6 +132,7 @@ public sealed class AgentCoordinationService(
             Content = request.InitialMessage.Trim(),
             IdempotencyKey = $"coordination:{session.Id:N}:initial", CreatedAt = now
         };
+        await ValidateProfileArtifactAsync(session, request.Artifact, cancellationToken);
         ApplyArtifact(initialTurn, request.Artifact);
         session.Turns.Add(initialTurn);
         db.AgentCoordinationSessions.Add(session);
@@ -260,6 +262,7 @@ public sealed class AgentCoordinationService(
             Content = request.InitialMessage.Trim(),
             IdempotencyKey = $"coordination:{session.Id:N}:initial", CreatedAt = now
         };
+        await ValidateProfileArtifactAsync(session, request.Artifact, cancellationToken);
         ApplyArtifact(initialTurn, request.Artifact);
         session.Turns.Add(initialTurn);
         db.AgentCoordinationSessions.Add(session);
@@ -354,6 +357,7 @@ public sealed class AgentCoordinationService(
             Content = request.InitialMessage.Trim(),
             IdempotencyKey = $"coordination:{session.Id:N}:initial", CreatedAt = now
         };
+        await ValidateProfileArtifactAsync(session, request.Artifact, cancellationToken);
         ApplyArtifact(initialTurn, request.Artifact);
         session.Turns.Add(initialTurn);
         db.AgentCoordinationSessions.Add(session);
@@ -415,6 +419,7 @@ public sealed class AgentCoordinationService(
             IdempotencyKey = request.IdempotencyKey.Trim(),
             CreatedAt = now
         };
+        await ValidateProfileArtifactAsync(session, request.Artifact, cancellationToken);
         ApplyArtifact(responseTurn, request.Artifact);
         session.Turns.Add(responseTurn);
         db.AgentCoordinationTurns.Add(responseTurn);
@@ -824,6 +829,17 @@ public sealed class AgentCoordinationService(
             AgentCoordinationDispositions.Completed or AgentCoordinationDispositions.Blocked))
             throw new ArgumentException("Disposition must be Continue, Completed, or Blocked.");
         ValidateArtifact(request.Artifact);
+    }
+
+    private async Task ValidateProfileArtifactAsync(DomainSession session,
+        AgentCoordinationArtifactSubmission? artifact, CancellationToken token)
+    {
+        if (artifact is null) return;
+        var definition = await ProfileArtifactMetadata.ReadDefinitionAsync(
+            db, session.OrganizationId, session.WorkstreamId, token);
+        if (definition is null) return;
+        using var profile = JsonDocument.Parse(definition);
+        ProfileArtifactMetadata.ValidatePayload(profile.RootElement, artifact.Type, artifact.SchemaVersion, artifact.Payload);
     }
 
     private static void ApplyArtifact(DomainTurn turn, AgentCoordinationArtifactSubmission? artifact)

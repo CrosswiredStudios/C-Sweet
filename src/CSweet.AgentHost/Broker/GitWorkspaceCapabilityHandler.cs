@@ -155,7 +155,7 @@ public sealed class GitWorkspaceCapabilityHandler(
                 connection.Provider.ToString(),
                 repository.CanonicalPath,
                 repository.DefaultBranch,
-                connection.Provider == SourceControlProvider.GitHub
+                (connection.Provider == SourceControlProvider.GitHub || connection.Provider == SourceControlProvider.InternalGit)
                     ? GitDeliveryKinds.PullRequest
                     : GitDeliveryKinds.BranchOnly))
             .ToListAsync(cancellationToken);
@@ -171,8 +171,8 @@ public sealed class GitWorkspaceCapabilityHandler(
         RequireBounded(input.ProjectDisplayName, 160, "project display name");
         if (input.Description?.Length > 350)
             throw new ArgumentException("The project description is too long.");
-        if (input.ProductOrWorkstreamId == Guid.Empty || input.TemplateId == Guid.Empty)
-            throw new ArgumentException("A workstream and approved template are required.");
+        if (input.ProductOrWorkstreamId == Guid.Empty)
+            throw new ArgumentException("A workstream is required.");
 
         await RequireAuthorizationAsync(
             organizationId, installationId,
@@ -183,66 +183,64 @@ public sealed class GitWorkspaceCapabilityHandler(
             x.AgentInstallationId == installationId && x.IsActive,
             cancellationToken) ?? throw new UnauthorizedAccessException(
             "The installation has no active organization identity.");
-        var agentId = await (
-            from installation in db.AgentInstallations.AsNoTracking()
-            join package in db.AgentPackageVersions.AsNoTracking()
-                on installation.PackageVersionId equals package.Id
-            where installation.Id == installationId
-            select package.AgentId)
-            .SingleAsync(cancellationToken);
-        if (agentId is not ("com.csweet.software-product-manager" or
-                            "com.csweet.software-architect"))
-            throw new UnauthorizedAccessException(
-                "Only an explicitly granted Product Manager or Software Architect may request a code project.");
         if (!await db.Workstreams.AsNoTracking().AnyAsync(x =>
                 x.OrganizationId == organizationId && x.Id == input.ProductOrWorkstreamId,
                 cancellationToken))
             throw new KeyNotFoundException("The requested workstream was not found.");
 
-        var replay = await db.RepositoryProvisioningRequests.AsNoTracking()
+        var replay = await db.RepositoryProvisioningRequests.AsNoTracking().Include(r => r.Connection)
             .SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
                                        x.IdempotencyKey == input.IdempotencyKey,
                 cancellationToken);
         if (replay is not null)
+        {
+            if (replay.RequestedByAgentInstallationId != installationId || replay.WorkstreamId != input.ProductOrWorkstreamId ||
+                replay.ProjectDisplayName != input.ProjectDisplayName.Trim() || replay.Description != (input.Description?.Trim() ?? "") ||
+                (input.TemplateId != Guid.Empty && replay.TemplateId != input.TemplateId) ||
+                (input.TemplateId == Guid.Empty && replay.Connection?.Provider != SourceControlProvider.InternalGit))
+                throw new InvalidOperationException("The provisioning key was already used for a different request.");
             return ToProvisioningResult(replay);
+        }
+        if (input.TemplateId == Guid.Empty)
+            await CSweet.Infrastructure.SourceControl.InternalGitProvisioningDefaults.EnsureAsync(db, organizationId, cancellationToken);
 
-        var policies = await db.RepositoryProvisioningPolicies.AsNoTracking()
-            .Include(x => x.Connection)
-            .Where(x => x.OrganizationId == organizationId && x.IsEnabled &&
-                        x.Connection!.Mode == SourceControlConnectionMode.ManagedGitHub &&
-                        x.Connection.Status == SourceControlConnectionStatus.Connected &&
-                        x.Connection.AccountType == "Organization")
-            .ToListAsync(cancellationToken);
-        if (policies.Count != 1)
-            return new RepositoryProvisioningResult(
-                Guid.Empty, "Blocked", null, null,
-                policies.Count == 0
-                    ? "Connect one Managed GitHub organization and enable its private-project policy."
-                    : "Choose one default Managed GitHub organization in Source Control settings.");
-        var policy = policies[0];
-        var approvedTemplateIds = JsonSerializer.Deserialize<IReadOnlyList<Guid>>(
-            policy.ApprovedTemplatesJson, JsonOptions) ?? [];
-        if (!approvedTemplateIds.Contains(input.TemplateId))
-            throw new UnauthorizedAccessException(
-                "The requested repository template is not approved by this business policy.");
-        var template = await db.SourceControlRepositoryTemplates.AsNoTracking()
-            .SingleOrDefaultAsync(candidate =>
-                candidate.OrganizationId == organizationId &&
-                candidate.ConnectionId == policy.ConnectionId &&
-                candidate.Id == input.TemplateId &&
-                candidate.IsEnabled,
-                cancellationToken)
-            ?? throw new UnauthorizedAccessException(
-                "The approved repository template is unavailable or disabled.");
+        var template = await db.SourceControlRepositoryTemplates.AsNoTracking().Include(t => t.Connection)
+            .SingleOrDefaultAsync(t => t.OrganizationId == organizationId && t.IsEnabled &&
+                (input.TemplateId == Guid.Empty ? t.Connection!.Provider == SourceControlProvider.InternalGit && t.Name == "empty" : t.Id == input.TemplateId), cancellationToken)
+            ?? throw new UnauthorizedAccessException("The repository template is unavailable or disabled.");
+        var policy = await db.RepositoryProvisioningPolicies.AsTracking().Include(p => p.Connection)
+            .SingleOrDefaultAsync(p => p.OrganizationId == organizationId && p.ConnectionId == template.ConnectionId && p.IsEnabled &&
+                p.Connection!.Status == SourceControlConnectionStatus.Connected, cancellationToken);
+        if (policy is null) return new RepositoryProvisioningResult(Guid.Empty, "Blocked", null, null, "Repository creation is disabled for this connection.");
+        var approvedTemplateIds = JsonSerializer.Deserialize<IReadOnlyList<Guid>>(policy.ApprovedTemplatesJson, JsonOptions) ?? [];
+        if (!approvedTemplateIds.Contains(template.Id)) throw new UnauthorizedAccessException("The template is not approved by this business policy.");
+        if (policy.Connection!.Provider != SourceControlProvider.InternalGit &&
+            (policy.Connection.Provider != SourceControlProvider.GitHub || policy.Connection.Mode != SourceControlConnectionMode.ManagedGitHub))
+            throw new InvalidOperationException("This connection does not support repository creation.");
         var createdCount = await db.SourceControlRepositories.AsNoTracking().CountAsync(x =>
             x.OrganizationId == organizationId && x.ConnectionId == policy.ConnectionId &&
             x.IsManaged && x.ArchivedAt == null,
             cancellationToken);
-        if (createdCount >= policy.MaximumRepositories)
+        var reservedCount = await db.RepositoryProvisioningRequests.AsNoTracking().CountAsync(r => r.OrganizationId == organizationId &&
+            r.ConnectionId == policy.ConnectionId && r.RepositoryId == null && (r.Status == RepositoryProvisioningStatus.Pending ||
+                r.Status == RepositoryProvisioningStatus.Provisioning || r.Status == RepositoryProvisioningStatus.AwaitingApproval), cancellationToken);
+        if (createdCount + reservedCount >= policy.MaximumRepositories)
             return new RepositoryProvisioningResult(
                 Guid.Empty, "Blocked", null, null,
-                "The Managed GitHub private-project quota has been reached.");
+                "The repository creation quota has been reached.");
 
+        var teamId = policy.DefaultTeamId;
+        if (policy.Connection.Provider == SourceControlProvider.InternalGit)
+        {
+            var teams = await (from membership in db.TeamMemberships.AsNoTracking()
+                join team in db.OrganizationTeams.AsNoTracking() on membership.TeamId equals team.Id
+                where membership.OrganizationId == organizationId && membership.OrganizationUserId == caller.Id && membership.EndedAt == null &&
+                    team.OrganizationId == organizationId && team.ArchivedAt == null
+                select team.Id).Distinct().ToListAsync(cancellationToken);
+            if (teamId is null && teams.Count == 1) teamId = teams[0];
+            if (teamId is null || !teams.Contains(teamId.Value))
+                return new RepositoryProvisioningResult(Guid.Empty, "Blocked", null, null, "Select a provisioning team that the requesting agent belongs to in Source Control settings.");
+        }
         var slug = Slug(input.ProjectDisplayName);
         var repositoryName = string.IsNullOrWhiteSpace(policy.NamePrefix)
             ? slug
@@ -259,7 +257,7 @@ public sealed class GitWorkspaceCapabilityHandler(
             RequestedByOrganizationUserId = caller.Id,
             RequestedByAgentInstallationId = installationId,
             WorkstreamId = input.ProductOrWorkstreamId,
-            TeamId = policy.DefaultTeamId,
+            TeamId = teamId,
             TemplateId = template.Id,
             PolicyRevision = policy.Revision,
             ProjectDisplayName = input.ProjectDisplayName.Trim(),
@@ -272,6 +270,8 @@ public sealed class GitWorkspaceCapabilityHandler(
             CreatedAt = now,
             UpdatedAt = now
         };
+        policy.Connection!.Revision++; // Serialize quota reservations using the existing optimistic concurrency token.
+        policy.Connection.UpdatedAt = now;
         db.RepositoryProvisioningRequests.Add(provisioning);
         if (policy.RequiresManagerApproval)
         {
@@ -469,6 +469,11 @@ public sealed class GitWorkspaceCapabilityHandler(
         if (result.DeliveryKind == GitDeliveryKinds.BranchOnly && result.PullRequestUrl is not null)
             throw new InvalidOperationException("Branch-only publication returned an unexpected pull request.");
 
+        var replay = await db.SourceControlPublications.AsNoTracking().SingleOrDefaultAsync(p =>
+            p.OrganizationId == organizationId && p.WorkspaceId == context.Workspace.Id && p.CommitSha == commitSha, cancellationToken);
+        if (replay is not null)
+            return new(replay.Id, context.Workspace.Id, context.Repository.Id, result.Provider, result.DeliveryKind,
+                result.BranchName, commitSha, result.PullRequestUrl, replay.Status.ToString());
         var now = DateTimeOffset.UtcNow;
         var superseded = await (
             from prior in db.SourceControlPublications
@@ -482,6 +487,7 @@ public sealed class GitWorkspaceCapabilityHandler(
                   prior.Status != SourceControlPublicationStatus.BranchPublishedExternalMerge &&
                   prior.Status != SourceControlPublicationStatus.Superseded
             select prior)
+            .AsTracking()
             .ToListAsync(cancellationToken);
         foreach (var prior in superseded)
         {
@@ -516,13 +522,14 @@ public sealed class GitWorkspaceCapabilityHandler(
             Status = result.DeliveryKind == GitDeliveryKinds.BranchOnly
                 ? SourceControlPublicationStatus.BranchPublishedExternalMerge
                 : SourceControlPublicationStatus.AwaitingValidation,
-            ChangedFilesJson = "[]",
+            ChangedFilesJson = JsonSerializer.Serialize(result.ChangedFiles ?? [], JsonOptions),
             ValidationResultsJson = JsonSerializer.Serialize(validations, JsonOptions),
             CreatedAt = now,
             UpdatedAt = now
         };
         db.SourceControlPublications.Add(publication);
         context.Workspace.Status = SourceControlWorkspaceStatus.Published;
+        context.Workspace.BaseCommitSha = commitSha;
         context.Workspace.UpdatedAt = now;
         context.Workspace.Revision++;
         await db.SaveChangesAsync(cancellationToken);
@@ -599,7 +606,7 @@ public sealed class GitWorkspaceCapabilityHandler(
             repositoryName, publication.CommitSha,
             Uri.TryCreate(publication.PullRequestUrl, UriKind.Absolute, out var pr) ? pr : null,
             $"Candidate {publication.CommitSha[..Math.Min(12, publication.CommitSha.Length)]} for team {lead.TeamId:D}.",
-            evidence, [], publication.Status.ToString());
+            evidence, JsonSerializer.Deserialize<List<string>>(publication.ChangedFilesJson, JsonOptions) ?? [], publication.Status.ToString());
     }
 
     private async Task<GitMergeAuthorizationResult> AuthorizeMergeAsync(
@@ -875,7 +882,7 @@ public sealed class GitWorkspaceCapabilityHandler(
             path,
             workspace.RepositoryId,
             context.Repository.Connection?.Provider.ToString() ?? SourceControlProvider.GenericGit.ToString(),
-            context.Repository.Connection?.Provider == SourceControlProvider.GitHub
+            context.Repository.Connection?.Provider is SourceControlProvider.GitHub or SourceControlProvider.InternalGit
                 ? GitDeliveryKinds.PullRequest
                 : GitDeliveryKinds.BranchOnly,
             workspace.BaseCommitSha,

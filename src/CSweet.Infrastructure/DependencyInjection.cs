@@ -316,6 +316,8 @@ public static class DependencyInjection
             services.GetRequiredService<SourceControlPlatformSetupService>());
         builder.Services.AddScoped<ISourceControlPlatformConfigurationProvider>(services =>
             services.GetRequiredService<SourceControlPlatformSetupService>());
+        builder.Services.AddScoped<InternalRepositoryManagementService>();
+        builder.Services.AddScoped<InternalGitAccessService>();
         builder.Services.AddScoped<ISourceControlOnboardingService, SourceControlOnboardingService>();
         builder.Services.AddScoped<ISourceControlApprovalService, SourceControlApprovalService>();
         builder.Services.AddHttpClient<IPlatformGitHubManifestClient, GitHubAppManifestClient>(client =>
@@ -349,6 +351,9 @@ public static class DependencyInjection
         builder.Services.AddScoped<IWorkOrchestrationService, WorkOrchestrationService>();
         builder.Services.AddScoped<IWorkOrchestrator, WorkOrchestrator>();
         var trustedServiceKey = builder.Configuration["CSweet:SourceControl:TrustedServiceKeyBase64"];
+        var trustedServiceKeyFile = builder.Configuration["CSweet:SourceControl:TrustedServiceKeyFile"];
+        if (string.IsNullOrWhiteSpace(trustedServiceKey) && !string.IsNullOrWhiteSpace(trustedServiceKeyFile))
+            trustedServiceKey = TrustedServiceKeyFile.Read(trustedServiceKeyFile);
         var trustedServiceKeyId = builder.Configuration["CSweet:SourceControl:TrustedServiceKeyId"] ?? "core";
         var hasTrustedServiceKey = TryDecodeTrustedServiceKey(trustedServiceKey);
         if (hasTrustedServiceKey)

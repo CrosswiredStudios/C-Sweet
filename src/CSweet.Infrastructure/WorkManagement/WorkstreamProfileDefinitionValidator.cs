@@ -74,6 +74,7 @@ public static class WorkstreamProfileDefinitionValidator
         if (root.TryGetProperty("staffing", out var staffing)) ValidateStaffing(staffing);
         ValidateExecutionTemplate(root);
         ValidateAssignmentPolicy(root);
+        ValidateArtifactTypes(root);
         if (root.TryGetProperty("workItemTypes", out var workItemTypes))
             _ = WorkstreamProfileWorkTypeCatalog.Read(JsonSerializer.Serialize(root), defaultBoardProfileKey);
 
@@ -83,6 +84,57 @@ public static class WorkstreamProfileDefinitionValidator
             defaultBoardProfileKey, authorityPolicyKey, canonical, digest);
     }
 
+    private static void ValidateArtifactTypes(JsonElement root)
+    {
+        if (!root.TryGetProperty("artifactTypes", out var types)) return;
+        if (types.ValueKind != JsonValueKind.Array || types.GetArrayLength() > 128)
+            throw new ArgumentException("A profile may declare at most 128 artifact types.");
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var type in types.EnumerateArray())
+        {
+            if (type.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException("Artifact type metadata must be an object.");
+            if (!keys.Add(RequiredString(type, "key", 200)))
+                throw new ArgumentException("Artifact type keys must be unique within a profile.");
+            _ = RequiredString(type, "displayName", 256);
+            _ = RequiredString(type, "schemaVersion", 50);
+            if (type.TryGetProperty("payloadSchema", out var schema))
+            {
+                if (schema.ValueKind != JsonValueKind.Object)
+                    throw new ArgumentException("An artifact payload schema must be an object.");
+                ValidateSchema(schema, 0);
+                ValidateArtifactSchemaKeywords(schema);
+            }
+        }
+    }
+
+    private static void ValidateArtifactSchemaKeywords(JsonElement schema)
+    {
+        foreach (var property in schema.EnumerateObject())
+            if (property.Name is not ("type" or "properties" or "required" or "additionalProperties" or "items" or "enum" or "title" or "description"))
+                throw new ArgumentException($"Unsupported artifact schema keyword '{property.Name}'.");
+        var type = schema.GetProperty("type").GetString();
+        if (schema.TryGetProperty("required", out var required))
+        {
+            if (type != "object" || required.ValueKind != JsonValueKind.Array || required.GetArrayLength() > 128 ||
+                required.EnumerateArray().Any(x => x.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(x.GetString())))
+                throw new ArgumentException("Artifact schema required fields must be a bounded array of names.");
+        }
+        if (schema.TryGetProperty("additionalProperties", out var additional) &&
+            (type != "object" || additional.ValueKind is not (JsonValueKind.True or JsonValueKind.False)))
+            throw new ArgumentException("Artifact schema additionalProperties must be boolean.");
+        if (schema.TryGetProperty("enum", out var choices) &&
+            (type != "string" || choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() is < 1 or > 128 ||
+             choices.EnumerateArray().Any(x => x.ValueKind != JsonValueKind.String)))
+            throw new ArgumentException("Artifact schema enum must contain between one and 128 strings.");
+        if (schema.TryGetProperty("properties", out var properties))
+            foreach (var property in properties.EnumerateObject()) ValidateArtifactSchemaKeywords(property.Value);
+        if (schema.TryGetProperty("items", out var items))
+        {
+            if (type != "array") throw new ArgumentException("Only array schemas may declare items.");
+            ValidateArtifactSchemaKeywords(items);
+        }
+    }
     private static void ValidateExecutionTemplate(JsonElement root)
     {
         var hasBoard = root.TryGetProperty("boardWorkflow", out var boardElement);

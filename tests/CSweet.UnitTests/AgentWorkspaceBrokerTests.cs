@@ -1,4 +1,5 @@
 using CSweet.Application.SourceControl;
+using CSweet.Contracts.SourceControl;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -46,6 +47,90 @@ public sealed class AgentWorkspaceBrokerTests
 
         Assert.Null(host.Request);
         Assert.Null(volumes.Lease);
+    }
+
+    [Theory]
+    [InlineData("inspect")]
+    [InlineData("publish")]
+    [InlineData("refresh")]
+    [InlineData("cleanup")]
+    public async Task InternalOperationsResolvePersistedAuthorityAndRetainDirtyCleanup(string operation)
+    {
+        await using var db = CreateDb();
+        var request = await SeedOperationAsync(db, operation);
+        var host = new FakeHost(); var volumes = new FakeVolumes();
+        var result = await new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost:5097");
+        Assert.Equal(request.WorkspaceId, host.Operation!.WorkspaceId);
+        Assert.Equal(request.RepositoryId, host.Operation.RepositoryId);
+        Assert.Equal("csweet/safe-work", host.Operation.Branch);
+        Assert.Equal(new string('a', 40), host.Operation.BaseSha);
+        if (operation == "cleanup") { Assert.Equal("Retained", result.Status); Assert.False(volumes.Removed); }
+        if (operation == "publish") Assert.Contains("source-control?repository=", result.ReviewUrl);
+    }
+
+    [Theory]
+    [InlineData("assignment")]
+    [InlineData("policy")]
+    [InlineData("membership")]
+    [InlineData("identity")]
+    public async Task RevokedWorkspaceAuthorityRejectsBeforeSnapshotExport(string revoked)
+    {
+        await using var db = CreateDb();
+        var request = await SeedOperationAsync(db, "publish");
+        if (revoked == "assignment") (await db.CoreWorkTasks.SingleAsync()).AssignmentRevision++;
+        if (revoked == "policy") (await db.TeamRepositoryPolicies.SingleAsync()).DisabledAt = DateTimeOffset.UtcNow;
+        if (revoked == "membership") (await db.TeamMemberships.SingleAsync()).EndedAt = DateTimeOffset.UtcNow;
+        if (revoked == "identity") (await db.CoreOrganizationUsers.SingleAsync()).IsActive = false;
+        await db.SaveChangesAsync();
+        var host = new FakeHost(); var volumes = new FakeVolumes();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost"));
+        Assert.Null(host.Operation); Assert.Null(volumes.Lease);
+    }
+
+    [Fact]
+    public async Task RefreshDoesNotReplaceDirtyWorkspaceWhenRemoteChanged()
+    {
+        await using var db = CreateDb();
+        var request = await SeedOperationAsync(db, "refresh");
+        var host = new FakeHost { LatestSha = new string('c', 40) }; var volumes = new FakeVolumes();
+        var result = await new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost");
+        Assert.Equal("Conflict", result.Status); Assert.Null(volumes.Manifest);
+        Assert.Equal(new string('a', 40), result.BaseSha);
+    }
+
+    [Fact]
+    public async Task CleanupRetryCompletesWhenSnapshotWasAlreadyRemoved()
+    {
+        await using var db = CreateDb(); var request = await SeedOperationAsync(db, "cleanup");
+        var host = new FakeHost(); var volumes = new FakeVolumes { Missing = true };
+        var result = await new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost");
+        Assert.True(result.Removed); Assert.True(volumes.Removed); Assert.Null(host.Operation);
+    }
+
+    [Fact]
+    public async Task RefreshRetryRecognizesSnapshotAlreadyAtLatestSha()
+    {
+        await using var db = CreateDb(); var request = await SeedOperationAsync(db, "refresh");
+        var host = new FakeHost { LatestSha = new string('c', 40), CleanAtLatest = true }; var volumes = new FakeVolumes();
+        var result = await new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost");
+        Assert.Equal("Refreshed", result.Status); Assert.Equal(host.LatestSha, result.BaseSha); Assert.Null(volumes.Manifest);
+    }
+
+    private static async Task<AgentBrokerWorkspaceOperationRequest> SeedOperationAsync(CSweetDbContext db, string operation)
+    {
+        await SeedAsync(db);
+        var workspace = await db.SourceControlWorkspaces.SingleAsync();
+        workspace.Status = SourceControlWorkspaceStatus.Ready; workspace.BaseCommitSha = new string('a', 40); workspace.WorkspaceKey = "opaque";
+        (await db.SourceControlConnections.SingleAsync()).Provider = SourceControlProvider.InternalGit;
+        var employee = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = workspace.OrganizationId,
+            AgentInstallationId = workspace.AgentInstallationId, IsActive = true, DisplayName = "Developer" };
+        db.CoreOrganizationUsers.Add(employee);
+        db.OrganizationTeams.Add(new() { Id = workspace.TeamId, OrganizationId = workspace.OrganizationId, Name = "Development" });
+        db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = workspace.OrganizationId, TeamId = workspace.TeamId, OrganizationUserId = employee.Id });
+        db.TeamRepositoryPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = workspace.OrganizationId, TeamId = workspace.TeamId, RepositoryId = workspace.RepositoryId });
+        await db.SaveChangesAsync();
+        return new(workspace.OrganizationId, workspace.RepositoryId, workspace.Id, workspace.WorkItemId, workspace.AssignmentRevision,
+            workspace.WorkspaceKey, "operation-1", operation);
     }
 
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
@@ -131,6 +216,14 @@ public sealed class AgentWorkspaceBrokerTests
 
     private sealed class FakeHost : ITrustedSourceControlHostClient
     {
+        public InternalGitSnapshotOperation? Operation { get; private set; }
+        public bool CleanAtLatest { get; set; }
+        public string? LatestSha { get; set; }
+        public Task<InternalGitSnapshotResult> ApplyInternalSnapshotAsync(InternalGitSnapshotOperation request, CancellationToken cancellationToken = default)
+        {
+            Operation = request;
+            return Task.FromResult(new InternalGitSnapshotResult("Published", request.BaseSha, new string('b', 40), CleanAtLatest && request.BaseSha == LatestSha ? [] : ["README.md"], "1 file changed", LatestSha));
+        }
         public TrustedWorkspaceSnapshotRequest? Request { get; private set; }
 
         public Task<TrustedWorkspaceSnapshot> PrepareWorkspaceAsync(
@@ -155,6 +248,9 @@ public sealed class AgentWorkspaceBrokerTests
 
     private sealed class FakeVolumes : IWorkspaceVolumeBridge
     {
+        public bool Missing { get; set; }
+        public bool Removed { get; private set; }
+        public Task RemoveAsync(WorkspaceVolumeLease lease, CancellationToken cancellationToken = default) { Removed = true; return Task.CompletedTask; }
         public WorkspaceVolumeLease? Lease { get; private set; }
         public WorkspaceArtifactManifest? Manifest { get; private set; }
 
@@ -171,6 +267,7 @@ public sealed class AgentWorkspaceBrokerTests
 
         public Task<WorkspaceVolumeExport> ExportAsync(
             WorkspaceVolumeLease lease,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        { if (Missing) throw new WorkspaceSnapshotUnavailableException(); Lease = lease; return Task.FromResult(new WorkspaceVolumeExport([1, 2, 3, 4], new(new string('b', 64), 1, 4))); }
     }
 }

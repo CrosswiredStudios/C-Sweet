@@ -36,6 +36,21 @@ public static class AgentWorkspaceBrokerEndpoints
                 }
             })
             .AllowAnonymous();
+        endpoints.MapPost("/agent-broker/v2/workspaces/operate", async (
+            AgentBrokerWorkspaceOperationRequest request, IAgentWorkspaceBroker broker, HttpContext http,
+            IConfiguration configuration, CancellationToken ct) =>
+        {
+            try
+            {
+                var publicBase = configuration["CSweet:PublicAppUrl"] ?? configuration["CSweet:Smtp:PublicAppUrl"]
+                    ?? $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}";
+                return Results.Ok(await broker.ExecuteAsync(request, publicBase, ct));
+            }
+            catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
+            catch (ArgumentException) { return Results.BadRequest(); }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or HttpRequestException)
+            { return Results.Conflict(new { error = "workspace_operation_failed" }); }
+        }).AllowAnonymous();
         return endpoints;
     }
 }

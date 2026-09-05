@@ -342,6 +342,35 @@ public sealed class AgentCoordinationServiceTests
                 "Continue investigating without a terminal outcome.", "support-turn-2")));
     }
 
+    [Fact]
+    public async Task ProfileRegisteredArtifact_RejectsInvalidPayloadBeforePersistingTurn()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var workstreamId = Guid.NewGuid();
+        fixture.Db.Workstreams.Add(new Workstream
+        {
+            Id = workstreamId, OrganizationId = fixture.OrganizationId,
+            ProfileKey = "campaign.v1", ProfileVersion = 1, ProfileDefinitionDigest = "pinned"
+        });
+        fixture.Db.WorkstreamProfileDefinitions.Add(new WorkstreamProfileDefinitionRecord
+        {
+            Id = Guid.NewGuid(), Key = "campaign.v1", Version = 1, DefinitionDigest = "pinned",
+            DefinitionJson = """
+                {"artifactTypes":[{"key":"publisher.brief.v1","displayName":"Brief","schemaVersion":"1.0",
+                "payloadSchema":{"type":"object","required":["Audience"],"properties":{"Audience":{"type":"string"}}}}]}
+                """
+        });
+        var session = await fixture.Db.AgentCoordinationSessions.SingleAsync(x => x.Id == fixture.SessionId);
+        session.WorkstreamId = workstreamId;
+        await fixture.Db.SaveChangesAsync();
+        var request = new RespondToAgentCoordinationRequest(
+            fixture.SessionId, 1, 1, AgentCoordinationDispositions.Continue, "Brief attached.", "invalid-brief",
+            new AgentCoordinationArtifactSubmission("publisher.brief.v1", "1.0", "brief", 0, true,
+                JsonSerializer.SerializeToElement(new { Audience = 42 })));
+        await Assert.ThrowsAsync<ArgumentException>(() => fixture.Service.RespondAsync(
+            fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId, request));
+        Assert.False(await fixture.Db.AgentCoordinationTurns.AnyAsync(x => x.SessionId == fixture.SessionId && x.Ordinal == 1));
+    }
     private sealed class Fixture : IAsyncDisposable
     {
         public required CSweetDbContext Db { get; init; }

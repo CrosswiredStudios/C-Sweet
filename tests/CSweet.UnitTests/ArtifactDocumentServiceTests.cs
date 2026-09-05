@@ -110,6 +110,33 @@ public sealed class ArtifactDocumentServiceTests
         Assert.Equal("Approved from the document preview.", payload.Metadata.GetProperty("comment").GetString());
     }
 
+    [Fact]
+    public async Task DocumentLabelComesFromThePinnedExtensionProfile()
+    {
+        await using var db = CreateDb();
+        var (organization, owner) = SeedHuman(db, OrganizationPermissionLevel.Owner);
+        await db.SaveChangesAsync();
+        var service = new ArtifactDocumentService(db, new TestAuditEventWriter(), TimeProvider.System);
+        var actor = new ArtifactHumanActor(owner.ApplicationUserId!.Value);
+        var created = await service.CreateAsync(organization.Id, actor,
+            new("Brief", "Audience notes", "publisher.campaign-brief.v1", "create-brief"));
+        var workstreamId = Guid.NewGuid();
+        db.Workstreams.Add(new Workstream
+        {
+            Id = workstreamId, OrganizationId = organization.Id, ProfileKey = "campaign.v1",
+            ProfileVersion = 1, ProfileDefinitionDigest = "pinned"
+        });
+        db.WorkstreamProfileDefinitions.Add(new WorkstreamProfileDefinitionRecord
+        {
+            Id = Guid.NewGuid(), Key = "campaign.v1", Version = 1, DefinitionDigest = "pinned",
+            DefinitionJson = """{"artifactTypes":[{"key":"publisher.campaign-brief.v1","displayName":"Audience brief","schemaVersion":"1.0"}]}"""
+        });
+        (await db.CoreArtifacts.SingleAsync(x => x.Id == created.Document.Id)).WorkstreamId = workstreamId;
+        await db.SaveChangesAsync();
+        var detail = await service.GetAsync(organization.Id, actor, created.Document.Id);
+        Assert.Equal("Audience brief", detail!.DocumentTypeDisplayName);
+        Assert.Equal("publisher.campaign-brief.v1", detail.Document.DocumentType);
+    }
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 

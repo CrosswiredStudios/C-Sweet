@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 var builder = DistributedApplication.CreateBuilder(args);
 
 // Visual Studio can start the AppHost debug session without providing the
@@ -145,6 +146,11 @@ if (HasGitHubAppConfiguration(sourceAccessAppId, sourceAccessPrivateKey))
 {
     gitHost.WithEnvironment("GitHubApp__AppId", sourceAccessAppId!)
         .WithEnvironment("GitHubApp__PrivateKeyBase64", sourceAccessPrivateKey!);
+}
+foreach (var setting in builder.Configuration.GetSection("CSweet:SourceControl:Storage").AsEnumerable())
+{
+    if (setting.Value is not null)
+        gitHost.WithEnvironment(setting.Key.Replace(":", "__"), setting.Value);
 }
 var gitHostEndpoint = gitHost.GetEndpoint("http");
 

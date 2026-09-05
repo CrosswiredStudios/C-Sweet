@@ -1,3 +1,4 @@
+using CSweet.Domain.Setup;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Core;
@@ -78,6 +79,7 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
 
         _dbContext.CoreOrganizations.Add(org);
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await CSweet.Infrastructure.SourceControl.InternalGitProvisioningDefaults.EnsureAsync(_dbContext, org.Id, cancellationToken);
 
         // Seed default roles for new organization
         await _roleService.EnsureDefaultsAsync(org.Id, cancellationToken);

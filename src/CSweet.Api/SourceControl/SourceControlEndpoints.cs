@@ -1,3 +1,4 @@
+using CSweet.Infrastructure.SourceControl;
 using CSweet.Api.Auth;
 using CSweet.Application.SourceControl;
 using CSweet.Contracts.SourceControl;
@@ -15,6 +16,9 @@ public static class SourceControlEndpoints
                 CancellationToken cancellationToken) =>
                 Results.Ok(await service.GetReadinessAsync(cancellationToken)))
             .RequireAuthorization("SourceControlAdministration");
+
+        endpoints.MapGet("/api/source-control/storage", async (ITrustedSourceControlHostClient host, CancellationToken ct) =>
+            Results.Ok(await host.GetInternalStorageStatusAsync(ct))).RequireAuthorization("SourceControlAdministration");
 
         var platform = endpoints.MapGroup("/api/source-control/platform-setup")
             .RequireAuthorization("SourceControlAdministration");
@@ -132,6 +136,54 @@ public static class SourceControlEndpoints
         var group = endpoints.MapGroup("/api/organizations/{organizationId:guid}/source-control")
             .RequireAuthorization();
 
+        group.MapGet("/internal/repositories", async (Guid organizationId, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.ListAsync(organizationId, user, ct)));
+        group.MapPost("/internal/repositories", async (Guid organizationId, CreateInternalRepositoryRequest request, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.CreateAsync(organizationId, user, request, ct)));
+        group.MapGet("/internal/repositories/{id:guid}", async (Guid organizationId, Guid id, string? reference, string? file, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.InspectAsync(organizationId, user, id, reference, file, ct)));
+        group.MapPut("/internal/repositories/{id:guid}", async (Guid organizationId, Guid id, UpdateInternalRepositoryRequest request, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.UpdateAsync(organizationId, user, id, request, ct)));
+
+        group.MapPost("/internal/repositories/{id:guid}/delete", async (Guid organizationId, Guid id, DeleteInternalRepositoryRequest request, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.DeleteAsync(organizationId, user, id, request, ct)));
+        group.MapPost("/internal/repositories/{id:guid}/refs", async (Guid organizationId, Guid id, InternalGitRefRequest request, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.ChangeRefAsync(organizationId, user, id, request, ct)));
+
+        group.MapGet("/internal/repositories/{id:guid}/proposals", async (Guid organizationId, Guid id, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.ProposalsAsync(organizationId, user, id, ct)));
+        group.MapGet("/internal/repositories/{id:guid}/proposals/{proposalId:guid}", async (Guid organizationId, Guid id, Guid proposalId, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.ProposalDiffAsync(organizationId, user, id, proposalId, ct)));
+        group.MapGet("/internal/repositories/{id:guid}/access", async (Guid organizationId, Guid id, HttpContext http, IConfiguration configuration, InternalGitAccessService service, CancellationToken ct) =>
+            await ExecuteAsync(http, async user => new InternalGitAccessList(
+                $"{(configuration["CSweet:SourceControl:PublicGitBaseUrl"] ?? $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}").TrimEnd('/')}/git/{organizationId:D}/{id:D}.git",
+                await service.ListAsync(organizationId, id, user, ct))));
+        group.MapPost("/internal/repositories/{id:guid}/access", async (Guid organizationId, Guid id, CreateInternalGitAccessRequest request, HttpContext http, InternalGitAccessService service, CancellationToken ct) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            return await ExecuteAsync(http, user => service.CreateAsync(organizationId, id, user, request, ct));
+        });
+        group.MapDelete("/internal/repositories/{id:guid}/access/{credential:guid}", async (Guid organizationId, Guid id, Guid credential, HttpContext http, InternalGitAccessService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.RevokeAsync(organizationId, id, user, credential, ct)));
+        group.MapGet("/internal/provisioning", async (Guid organizationId, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.ProvisioningSettingsAsync(organizationId, user, ct)));
+        group.MapPut("/internal/provisioning", async (Guid organizationId, UpdateInternalGitProvisioningSettings request, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.UpdateProvisioningSettingsAsync(organizationId, user, request, ct)));
+        group.MapGet("/internal/repositories/{id:guid}/team", async (Guid organizationId, Guid id, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.TeamAccessAsync(organizationId, user, id, ct)));
+        group.MapPut("/internal/repositories/{id:guid}/team", async (Guid organizationId, Guid id, SetInternalRepositoryTeamRequest request, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.SetTeamAsync(organizationId, user, id, request, ct)));
+
         group.MapGet("/dashboard", async (
             Guid organizationId,
             HttpContext http,
@@ -226,6 +278,10 @@ public static class SourceControlEndpoints
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {
             return Results.BadRequest(new { error = "source_control_setup_failed", message = exception.Message });
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
+        {
+            return Results.Json(new { error = "source_control_unavailable", message = "Repository storage is unavailable. Check GitHost health and retry." }, statusCode: 503);
         }
         catch (DbUpdateConcurrencyException exception)
         {

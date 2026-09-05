@@ -114,6 +114,7 @@ public sealed class ExecutionBrokerSessionRunner(
         }
         finally
         {
+            diagnostics.CaptureExitDetail(session.WorkloadExit?.Detail);
             await PersistRuntimeDiagnosticsAsync(
                 assignment, workload.WorkloadId, diagnostics.Latest);
         }
@@ -254,6 +255,7 @@ public sealed class ExecutionBrokerSessionRunner(
             }
             finally
             {
+                diagnostics.CaptureExitDetail(session.WorkloadExit?.Detail);
                 await PersistBuilderDiagnosticsAsync(assignment.Id, diagnostics.Latest);
             }
             var result = await resultTask;
@@ -425,6 +427,7 @@ public sealed class ExecutionBrokerSessionRunner(
             }
             finally
             {
+                diagnostics.CaptureExitDetail(session.WorkloadExit?.Detail);
                 await PersistBuilderDiagnosticsAsync(assignment.Id, diagnostics.Latest);
             }
             var result = await resultTask;

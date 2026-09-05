@@ -1,3 +1,4 @@
+using CSweet.Contracts.SourceControl;
 using System.Net.Http.Json;
 using CSweet.Application.SourceControl;
 using CSweet.TrustedServices;
@@ -9,6 +10,47 @@ public sealed class TrustedSourceControlHostClient(
     HttpClient http,
     IOptions<TrustedServiceAuthenticationOptions> authentication) : ITrustedSourceControlHostClient
 {
+    public Task<InternalGitLfsTransferResult> TransferInternalLfsAsync(InternalGitLfsTransfer request, CancellationToken ct = default) =>
+        SendInternalAsync<InternalGitLfsTransfer, InternalGitLfsTransferResult>("internal/v3/lfs", request, ct);
+    public Task<InternalGitHttpResponse> ExchangeInternalGitAsync(InternalGitHttpRequest request, CancellationToken ct = default) =>
+        SendInternalAsync<InternalGitHttpRequest, InternalGitHttpResponse>("internal/v3/git", request, ct);
+
+    public Task<InternalGitSnapshotResult> ApplyInternalSnapshotAsync(InternalGitSnapshotOperation request, CancellationToken cancellationToken = default) =>
+        SendInternalAsync<InternalGitSnapshotOperation, InternalGitSnapshotResult>("internal/v3/workspaces/apply", request, cancellationToken);
+    public Task<InternalGitMergeResult> MergeInternalAsync(InternalGitMergeRequest request, CancellationToken cancellationToken = default) =>
+        SendInternalAsync<InternalGitMergeRequest, InternalGitMergeResult>("internal/v3/merge", request, cancellationToken);
+    private async Task<TResponse> SendInternalAsync<TRequest, TResponse>(string path, TRequest request, CancellationToken ct)
+    {
+        using var response = await http.PostAsJsonAsync(path, request, ct);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException("The trusted repository operation was rejected or conflicted. Refresh the workspace and retry.");
+        return await response.Content.ReadFromJsonAsync<TResponse>(ct) ?? throw new InvalidOperationException("GitHost returned an empty response.");
+    }
+
+    public async Task<TrustedWorkspaceSnapshot> PrepareInternalWorkspaceAsync(InternalGitWorkspaceRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync("internal/v3/workspaces/prepare", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await response.Content.LoadIntoBufferAsync(MaximumWorkspaceArchiveBytes, cancellationToken);
+        var snapshot = await response.Content.ReadFromJsonAsync<GitHubWorkspaceSnapshot>(cancellationToken)
+            ?? throw new InvalidOperationException("GitHost returned no snapshot.");
+        return new(snapshot.WorkspaceKey, snapshot.BaseCommitSha, snapshot.Resumed, snapshot.Archive,
+            snapshot.Manifest.Sha256, snapshot.Manifest.FileCount, snapshot.Manifest.TotalBytes);
+    }
+
+    public async Task<InternalGitStorageStatus> GetInternalStorageStatusAsync(CancellationToken cancellationToken = default) =>
+        await http.GetFromJsonAsync<InternalGitStorageStatus>("internal/v3/storage", cancellationToken)
+            ?? throw new InvalidOperationException("GitHost returned no storage status.");
+
+    public async Task<InternalGitRepositoryInspection> ExecuteInternalAsync(InternalGitRepositoryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync("internal/v3/repositories/execute", request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException("GitHost rejected the repository operation. Check service health and the selected revision.");
+        return await response.Content.ReadFromJsonAsync<InternalGitRepositoryInspection>(cancellationToken)
+            ?? throw new InvalidOperationException("GitHost returned no repository data.");
+    }
+
     private const long MaximumWorkspaceArchiveBytes = 600L * 1024 * 1024;
     public Task<TrustedGitHubAppConfigurationStatus> GetConfigurationStatusAsync(
         CancellationToken cancellationToken = default) =>

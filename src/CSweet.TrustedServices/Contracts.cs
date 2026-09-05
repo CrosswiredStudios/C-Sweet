@@ -99,3 +99,9 @@ public static class WorkspaceSnapshotHeaders
     public const string ArtifactFileCount = "X-CSweet-Artifact-File-Count";
     public const string ArtifactTotalBytes = "X-CSweet-Artifact-Total-Bytes";
 }
+public sealed record AgentBrokerWorkspaceOperationRequest(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
+    Guid WorkItemId, long AssignmentRevision, string WorkspaceKey, string IdempotencyKey, string Operation,
+    string? CommitMessage = null, bool RetainOnFailure = true);
+public sealed record AgentBrokerWorkspaceOperationResult(string Status, string BaseSha,
+    IReadOnlyList<string> ChangedFiles, string DiffSummary, string? CommitSha = null, string? Branch = null,
+    string? ReviewUrl = null, bool Removed = false, DateTimeOffset? RetainUntil = null);

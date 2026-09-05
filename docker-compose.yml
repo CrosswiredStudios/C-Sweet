@@ -1,4 +1,25 @@
 services:
+  csweet-githost:
+    build:
+      context: .
+      dockerfile: docker/githost.Dockerfile
+    expose:
+      - "8080"
+    environment:
+      TrustedServiceAuthentication__KeyId: core
+      TrustedServiceAuthentication__KeyFile: /trust/git.key
+      CSweet__SourceControl__Storage__RepositoryRoot: /data/repositories
+      CSweet__SourceControl__Storage__ExpectedStoreId: ${CSWEET_GIT_STORE_ID:-csweet-local-git}
+      CSweet__SourceControl__Storage__TemporaryRoot: /tmp/csweet-git
+    volumes:
+      - ${CSWEET_GIT_DATA_VOLUME:-csweet-git-data}:/data
+      - csweet-git-trust:/trust
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ---------------------------------------------------------
   # Public web entry point (Blazor WASM served by nginx)
   # ---------------------------------------------------------
@@ -49,6 +70,8 @@ services:
         condition: service_healthy
       csweet-migrator:
         condition: service_completed_successfully
+      csweet-githost:
+        condition: service_healthy
       csweet-agenthost:
         condition: service_started
     environment:
@@ -68,12 +91,16 @@ services:
       CSWEET_LLM__DEFAULT_BASE_URL: ${CSWEET_LLM__DEFAULT_BASE_URL:-http://host.docker.internal:1234/v1}
       CSWEET_LLM__DEFAULT_API_KEY: ${CSWEET_LLM__DEFAULT_API_KEY:-lm-studio}
       CSWEET_AGENT_PACKAGE_CACHE: /var/lib/csweet/agents/packages
+      CSweet__SourceControl__GitHostBaseUrl: http://csweet-githost:8080
+      CSweet__SourceControl__TrustedServiceKeyId: core
+      CSweet__SourceControl__TrustedServiceKeyFile: /trust/git.key
       CSweet__Secrets__FilePath: /state/provider-secrets.json
       CSweet__GenAi__MediaRoot: /media
       CSweet__AgentCatalog__LocalDirectoryPath: /var/lib/csweet/plugins/agents
     volumes:
       - csweet-agent-packages:/var/lib/csweet/agents/packages:ro
       - csweet-provider-secrets:/state
+      - csweet-git-trust:/trust:ro
       - csweet-media:/media
       - ${CSWEET_LOCAL_AGENTS_PATH:-./Plugins/Agents}:/var/lib/csweet/plugins/agents:ro
     healthcheck:
@@ -95,6 +122,8 @@ services:
         condition: service_healthy
       csweet-migrator:
         condition: service_completed_successfully
+      csweet-githost:
+        condition: service_healthy
       csweet-api:
         condition: service_healthy
       csweet-agenthost:
@@ -135,16 +164,22 @@ services:
         condition: service_healthy
       csweet-migrator:
         condition: service_completed_successfully
+      csweet-githost:
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       DOTNET_ENVIRONMENT: ${DOTNET_ENVIRONMENT:-Production}
       ConnectionStrings__Postgres: ${CSWEET_CONNECTIONSTRINGS__POSTGRES:-Host=postgres;Port=5432;Database=csweet;Username=csweet;Password=change-me-in-production}
+      CSweet__SourceControl__GitHostBaseUrl: http://csweet-githost:8080
+      CSweet__SourceControl__TrustedServiceKeyId: core
+      CSweet__SourceControl__TrustedServiceKeyFile: /trust/git.key
       CSweet__Secrets__FilePath: /state/provider-secrets.json
       CSweet__GenAi__MediaRoot: /media
       CSweet__AgentCatalog__LocalDirectoryPath: /var/lib/csweet/plugins/agents
       CSWEET_AGENT_SOURCE_ROOT: /var/lib/csweet/agents/sources
     volumes:
       - csweet-provider-secrets:/state
+      - csweet-git-trust:/trust:ro
       - csweet-media:/media
       - csweet-agent-sources:/var/lib/csweet/agents/sources
       - ${CSWEET_LOCAL_AGENTS_PATH:-./Plugins/Agents}:/var/lib/csweet/plugins/agents:ro
@@ -169,6 +204,10 @@ services:
       retries: 5
 
 volumes:
+  csweet-git-data:
+    driver: local
+  csweet-git-trust:
+    driver: local
   csweet-postgres:
     driver: local
   csweet-agent-sources:

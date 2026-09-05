@@ -82,7 +82,10 @@ public sealed record ArtifactDocumentDetail(
     ArtifactRevisionResponse? AcceptedRevision,
     IReadOnlyList<ArtifactRevisionResponse> Revisions,
     IReadOnlyList<ArtifactGrantResponse> Grants,
-    IReadOnlyList<ArtifactAccessRequestResponse> AccessRequests);
+    IReadOnlyList<ArtifactAccessRequestResponse> AccessRequests)
+{
+    public string? DocumentTypeDisplayName { get; init; }
+}
 
 public sealed record CreateArtifactDocumentRequest(
     string Title,

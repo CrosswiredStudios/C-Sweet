@@ -1,3 +1,4 @@
+using CSweet.Contracts.SourceControl;
 namespace CSweet.Application.SourceControl;
 
 /// <summary>
@@ -6,6 +7,22 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface ITrustedSourceControlHostClient
 {
+    Task<InternalGitLfsTransferResult> TransferInternalLfsAsync(InternalGitLfsTransfer request, CancellationToken ct = default) => throw new InvalidOperationException("LFS client transfer is unavailable.");
+    Task<InternalGitHttpResponse> ExchangeInternalGitAsync(InternalGitHttpRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Git client transport is unavailable.");
+    Task<InternalGitSnapshotResult> ApplyInternalSnapshotAsync(InternalGitSnapshotOperation request,
+        CancellationToken cancellationToken = default) => throw new InvalidOperationException("Internal publication is unavailable.");
+    Task<InternalGitMergeResult> MergeInternalAsync(InternalGitMergeRequest request,
+        CancellationToken cancellationToken = default) => throw new InvalidOperationException("Internal merge is unavailable.");
+
+    Task<TrustedWorkspaceSnapshot> PrepareInternalWorkspaceAsync(InternalGitWorkspaceRequest request,
+        CancellationToken cancellationToken = default) => throw new InvalidOperationException("Internal GitHost is unavailable.");
+
+    Task<InternalGitStorageStatus> GetInternalStorageStatusAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new InternalGitStorageStatus(false, "", "", "filesystem", "", "filesystem", "", "Internal GitHost is unavailable."));
+
+    Task<InternalGitRepositoryInspection> ExecuteInternalAsync(InternalGitRepositoryRequest request,
+        CancellationToken cancellationToken = default) => throw new InvalidOperationException("Internal GitHost is unavailable.");
+
     Task<TrustedGitHubAppConfigurationStatus> GetConfigurationStatusAsync(
         CancellationToken cancellationToken = default) => Task.FromResult(
         new TrustedGitHubAppConfigurationStatus(false, null, 0, null, null, "Configuration management is unavailable."));

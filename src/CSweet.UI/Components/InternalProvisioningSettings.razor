@@ -1,0 +1,65 @@
+@using CSweet.Contracts.SourceControl
+@using CSweet.Contracts.Core
+@inject HttpClient Http
+
+<MudExpansionPanels><MudExpansionPanel Text="Agent repository creation">
+    <MudStack Spacing="2">
+        <MudText>Authorized agents can create private internal repositories without a GitHub account. A repository is created only when an agent requests one for a workstream.</MudText>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        @if (_settings is not null)
+        {
+            <MudCheckBox @bind-Value="_enabled" Label="Allow internal repository creation" Disabled="_busy" />
+            <MudCheckBox @bind-Value="_approval" Label="Require manager approval for each repository" Disabled="_busy" />
+            <MudNumericField T="int" @bind-Value="_maximum" Min="1" Max="10000" Label="Repository quota" Disabled="_busy" />
+            <MudTextField @bind-Value="_prefix" Label="Repository name prefix (optional)" Disabled="_busy" />
+            <MudTextField @bind-Value="_branch" Label="Initial branch" Disabled="_busy" />
+            <MudSelect T="Guid?" @bind-Value="_team" Label="Default team" Disabled="_busy" Clearable="true" HelperText="If unset, an agent with one active team uses that team. The requesting agent must belong to the selected team.">
+                @foreach (var team in _teams) { <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem> }
+            </MudSelect>
+            <MudText Color="Color.Secondary">Changing this policy invalidates queued requests authorized under the previous policy. Agent capability grants are managed separately.</MudText>
+            <MudButton OnClick="SaveAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">Save creation policy</MudButton>
+            <MudText Typo="Typo.subtitle1">Recent creation requests</MudText>
+            @foreach (var job in _settings.Jobs)
+            {
+                <MudText>@job.Name · @job.Status @job.Message</MudText>
+            }
+        }
+        <MudButton OnClick="LoadAsync" Disabled="_busy">Refresh</MudButton>
+    </MudStack>
+</MudExpansionPanel></MudExpansionPanels>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    private InternalGitProvisioningSettings? _settings;
+    private IReadOnlyList<TeamSummaryResponse> _teams = [];
+    private bool _enabled, _approval, _busy;
+    private int _maximum;
+    private Guid? _team;
+    private string _prefix = "", _branch = "main";
+    private string? _error;
+    private string Endpoint => $"api/organizations/{OrganizationId:D}/source-control/internal/provisioning";
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private async Task LoadAsync() => await RunAsync(async () =>
+    {
+        Apply((await Http.GetFromJsonAsync<InternalGitProvisioningSettings>(Endpoint))!);
+        _teams = (await Http.GetFromJsonAsync<TeamDirectoryResponse>($"api/core/organizations/{OrganizationId:D}/teams?includeArchived=false"))?.Teams.Where(t => !t.IsArchived).ToList() ?? [];
+    });
+    private async Task SaveAsync() => await RunAsync(async () =>
+    {
+        if (_settings is null) return;
+        using var response = await Http.PutAsJsonAsync(Endpoint, new UpdateInternalGitProvisioningSettings(_enabled, _approval, _maximum, _team, _prefix, _branch, _settings.Revision));
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            throw new InvalidOperationException(error.TryGetProperty("message", out var message) ? message.GetString() : "Could not save creation policy.");
+        }
+        Apply((await response.Content.ReadFromJsonAsync<InternalGitProvisioningSettings>())!);
+    });
+    private void Apply(InternalGitProvisioningSettings settings)
+    {
+        _settings = settings; _enabled = settings.Enabled; _approval = settings.RequiresApproval; _maximum = settings.MaximumRepositories;
+        _team = settings.DefaultTeamId; _prefix = settings.NamePrefix; _branch = settings.DefaultBranch;
+    }
+    private async Task RunAsync(Func<Task> action)
+    { _busy = true; _error = null; try { await action(); } catch (Exception ex) { _error = ex.Message; } finally { _busy = false; } }
+}

@@ -11,15 +11,15 @@
         <div>
             <MudText Typo="Typo.h4">Source control</MudText>
             <MudText Typo="Typo.body1" Color="Color.Secondary">
-                Connect code projects once. Your software team can build, test, and publish changes
-                without receiving GitHub passwords, provider tokens, or direct repository access.
+                Manage private repositories in C-Sweet or connect GitHub. Inspect project history and control
+                repository access without giving agents provider credentials.
             </MudText>
         </div>
 
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
             C-Sweet keeps Git credentials and the <code>.git</code> directory outside agent
-            workspaces. Agents edit and run code in isolated workspaces; trusted platform services
-            fetch, commit, publish proposed changes, and perform approved merges.
+            workspaces. Repository access is resolved by trusted platform services using the business
+            and assignment permissions.
         </MudAlert>
 
         @if (!string.IsNullOrWhiteSpace(_error))
@@ -39,28 +39,14 @@
                 Try again
             </MudButton>
         }
-        else if (!_dashboard.PlatformReadiness.ExistingGitHubAvailable)
-        {
-            <MudPaper Outlined="true" Class="pa-5" role="status">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                    <MudIcon Icon="@Icons.Material.Outlined.AdminPanelSettings" Color="Color.Primary" Size="Size.Large" />
-                    <div>
-                        <MudText Typo="Typo.h6">Finish the one-time GitHub setup</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">
-                            A C-Sweet administrator needs to finish the guided GitHub setup once.
-                            After that, each business can connect with one click—no tokens to create or copy.
-                        </MudText>
-                        <MudButton Href="/settings/source-control" Variant="Variant.Outlined"
-                                   Color="Color.Primary" Class="mt-3"
-                                   EndIcon="@Icons.Material.Outlined.ArrowForward">
-                            Finish GitHub setup
-                        </MudButton>
-                    </div>
-                </MudStack>
-            </MudPaper>
-        }
         else
         {
+            @if (_dashboard.CanManageSourceControl) { <InternalProvisioningSettings OrganizationId="OrganizationId" /> }
+            <InternalRepositoryManager OrganizationId="OrganizationId" CanManage="_dashboard.CanManageSourceControl" SelectedRepository="SelectedRepository" SelectedReference="SelectedReference" />
+            @if (!_dashboard.PlatformReadiness.ExistingGitHubAvailable)
+            {
+                <MudAlert Severity="Severity.Info">Internal repositories do not require GitHub. To optionally connect GitHub, an administrator can configure it in <MudLink Href="/settings/source-control">source-control settings</MudLink>.</MudAlert>
+            }
             @if (_dashboard.CanManageSourceControl)
             {
                 @if (_dashboard.ActiveOnboarding is { } onboarding)
@@ -185,7 +171,7 @@
                         <MudIcon Icon="@Icons.Custom.Brands.GitHub" Color="Color.Primary" />
                         <MudText Typo="Typo.h6" Class="mt-2">Use my GitHub account</MudText>
                         <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Class="my-2">
-                            Recommended
+                            Optional
                         </MudChip>
                         <MudText Typo="Typo.body2" Class="mt-2">
                             Works with a personal account or an organization. Sign in at GitHub and
@@ -299,7 +285,7 @@
                 <MudAlert Severity="@(_dashboard.CanManageSourceControl ? Severity.Warning : Severity.Normal)"
                           Variant="Variant.Outlined" Class="mt-3">
                     @(_dashboard.CanManageSourceControl
-                        ? "No code project is ready yet. Complete setup before assigning development work."
+                        ? "Create an internal repository above or connect a GitHub project when needed."
                         : "No code project is available yet. A business owner or manager can complete source-control setup.")
                 </MudAlert>
             }
@@ -330,6 +316,8 @@
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
+    [SupplyParameterFromQuery(Name = "repository")] public Guid? SelectedRepository { get; set; }
+    [SupplyParameterFromQuery(Name = "reference")] public string? SelectedReference { get; set; }
 
     private SourceControlDashboardResponse? _dashboard;
     private bool _loading;

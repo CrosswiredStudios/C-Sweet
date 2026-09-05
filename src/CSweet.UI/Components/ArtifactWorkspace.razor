@@ -15,7 +15,7 @@
                 <MudText Typo="Typo.h5">@(_detail?.Document.Title ?? "Loading…")</MudText>
                 @if (_detail is { } headingDetail)
                 {
-                    <span class="artifact-workspace-type">@FormatDocumentType(headingDetail.Document.DocumentType)</span>
+                    <span class="artifact-workspace-type">@(headingDetail.DocumentTypeDisplayName ?? FormatDocumentType(headingDetail.Document.DocumentType))</span>
                 }
             </div>
         </div>
@@ -292,8 +292,6 @@
     private static string StatusLabel(string status) => status switch
     { "InReview" => "In review", "ChangesRequested" => "Changes requested", _ => status };
     private static string FormatDocumentType(string documentType) => documentType
-        .Replace("video-game.", string.Empty, StringComparison.OrdinalIgnoreCase)
-        .Replace("creative-direction.", string.Empty, StringComparison.OrdinalIgnoreCase)
         .Replace('-', ' ')
         .Replace('.', ' ');
 

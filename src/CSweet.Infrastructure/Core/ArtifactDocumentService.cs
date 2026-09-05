@@ -1,3 +1,4 @@
+using CSweet.Infrastructure.WorkManagement;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -695,8 +696,16 @@ public sealed class ArtifactDocumentService(
         var requestIds = await db.ArtifactAccessRequests.AsNoTracking().Where(x => x.ArtifactId == artifact.Id)
             .OrderByDescending(x => x.CreatedAt).Select(x => x.Id).ToListAsync(token);
         var requests = await Task.WhenAll(requestIds.Select(id => AccessResponseByIdAsync(id, token)));
+        string? displayName = null;
+        var definition = await ProfileArtifactMetadata.ReadDefinitionAsync(db, artifact.OrganizationId, artifact.WorkstreamId, token);
+        if (definition is not null)
+        {
+            using var profile = JsonDocument.Parse(definition);
+            displayName = ProfileArtifactMetadata.Find(profile.RootElement, artifact.DocumentType)?
+                .GetProperty("displayName").GetString();
+        }
         return new ArtifactDocumentDetail(Summary(artifact, activeIds), latest, accepted, revisions,
-            await GrantResponsesAsync(artifact.OrganizationId, artifact.Id, token), requests);
+            await GrantResponsesAsync(artifact.OrganizationId, artifact.Id, token), requests) { DocumentTypeDisplayName = displayName };
     }
 
     private async Task<ArtifactAccessRequestResponse> AccessResponseByIdAsync(Guid id, CancellationToken token) =>

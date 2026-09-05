@@ -1,15 +1,21 @@
+using CSweet.Contracts.SourceControl;
 using CSweet.TrustedServices;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
+var trustedKeyFile = builder.Configuration["TrustedServiceAuthentication:KeyFile"];
+if (string.IsNullOrWhiteSpace(builder.Configuration["TrustedServiceAuthentication:SharedKeyBase64"]) && !string.IsNullOrWhiteSpace(trustedKeyFile))
+    builder.Configuration["TrustedServiceAuthentication:SharedKeyBase64"] = TrustedServiceKeyFile.GetOrCreate(trustedKeyFile);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddTrustedServiceAuthentication(builder.Configuration);
 builder.Services.AddGitHubAppClient(builder.Configuration);
 builder.Services.AddSingleton<WorkspaceArtifactValidator>();
 builder.Services.AddTransient<GitHubWorkspaceSnapshotService>();
 
+builder.Services.Configure<InternalGitStorageOptions>(builder.Configuration.GetSection(InternalGitStorageOptions.SectionName));
+builder.Services.AddSingleton<InternalGitRepositoryStore>();
 var app = builder.Build();
 app.UseTrustedServiceAuthentication();
 app.MapHealthChecks("/health");
@@ -120,6 +126,47 @@ app.MapPost("/internal/v2/workspaces/prepare", async (
     }
 });
 
+app.MapPost("/internal/v3/lfs", async (InternalGitLfsTransfer request, InternalGitRepositoryStore store, CancellationToken ct) =>
+    Results.Ok(await store.TransferLfsAsync(request, ct))).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(180L * 1024 * 1024));
+
+app.MapPost("/internal/v3/git", async (InternalGitHttpRequest request, InternalGitRepositoryStore store, CancellationToken ct) =>
+    Results.Ok(await store.ExchangeAsync(request, ct))).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(180L * 1024 * 1024));
+
+app.MapGet("/internal/v3/storage", async (InternalGitRepositoryStore store, CancellationToken ct) =>
+    Results.Ok(await store.StatusAsync(ct)));
+app.MapPost("/internal/v3/repositories/execute", async (InternalGitRepositoryRequest request,
+    InternalGitRepositoryStore store, CancellationToken ct) =>
+{
+    try { return Results.Ok(await store.ExecuteAsync(request, ct)); }
+    catch (ArgumentException) { return Results.BadRequest(new { error = "invalid_repository_operation" }); }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+    catch (Exception ex) when (ex is IOException or InvalidOperationException)
+    { return Results.Conflict(new { error = "repository_operation_failed" }); }
+});
+app.MapPost("/internal/v3/workspaces/prepare", async (InternalGitWorkspaceRequest request,
+    InternalGitRepositoryStore store, WorkspaceArtifactValidator artifacts, CancellationToken ct) =>
+{
+    try { return Results.Ok(await store.PrepareAsync(request, artifacts, ct)); }
+    catch (ArgumentException) { return Results.BadRequest(); }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+    catch (Exception ex) when (ex is IOException or InvalidOperationException) { return Results.Conflict(); }
+});
+app.MapPost("/internal/v3/workspaces/apply", async (InternalGitSnapshotOperation request,
+    InternalGitRepositoryStore store, WorkspaceArtifactValidator artifacts, CancellationToken ct) =>
+{
+    try { return Results.Ok(await store.ApplySnapshotAsync(request, artifacts, ct)); }
+    catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
+    catch (ArgumentException) { return Results.BadRequest(); }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+    catch (Exception ex) when (ex is IOException or InvalidOperationException) { return Results.Conflict(); }
+}).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(850L * 1024 * 1024));
+app.MapPost("/internal/v3/merge", async (InternalGitMergeRequest request, InternalGitRepositoryStore store, CancellationToken ct) =>
+{
+    try { return Results.Ok(await store.MergeInternalAsync(request, ct)); }
+    catch (ArgumentException) { return Results.BadRequest(); }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+    catch (Exception ex) when (ex is IOException or InvalidOperationException) { return Results.Conflict(); }
+});
 app.Run();
 
 public partial class Program;

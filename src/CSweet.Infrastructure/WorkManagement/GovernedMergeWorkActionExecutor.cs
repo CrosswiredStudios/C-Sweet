@@ -44,6 +44,7 @@ public sealed class GovernedMergeWorkActionExecutor(
                   candidate.Status != SourceControlPublicationStatus.Superseded
             orderby candidate.CreatedAt descending
             select new { Publication = candidate, Workspace = workspace })
+            .AsTracking()
             .FirstOrDefaultAsync(cancellationToken);
         if (publication is null)
             return Blocked("Governed merge requires a current source publication.");
@@ -65,12 +66,13 @@ public sealed class GovernedMergeWorkActionExecutor(
                 candidate.Id == publication.Publication.RepositoryId,
                 cancellationToken);
         if (repository?.Connection is null ||
-            repository.Connection.Provider != SourceControlProvider.GitHub ||
+            repository.ArchivedAt is not null || repository.Status != SourceControlRepositoryStatus.Ready ||
             repository.Connection.Status != SourceControlConnectionStatus.Connected ||
-            !repository.Connection.SourceAccessInstallationId.HasValue)
-            return Blocked("Governed merge requires an active GitHub Source Access connection.");
-        if (!int.TryParse(publication.Publication.PullRequestId, out var pullRequestNumber) ||
-            pullRequestNumber <= 0)
+            (repository.Connection.Provider != SourceControlProvider.InternalGit &&
+                (repository.Connection.Provider != SourceControlProvider.GitHub || !repository.Connection.SourceAccessInstallationId.HasValue)))
+            return Blocked("Governed merge requires an active repository connection.");
+        var pullRequestNumber = 0;
+        if (repository.Connection.Provider == SourceControlProvider.GitHub && (!int.TryParse(publication.Publication.PullRequestId, out pullRequestNumber) || pullRequestNumber <= 0))
             return Blocked("Governed merge requires a provider-confirmed proposed-change identifier.");
 
         var validation = await db.SourceControlValidations.AsNoTracking()
@@ -207,13 +209,21 @@ public sealed class GovernedMergeWorkActionExecutor(
         TrustedMergeResult result;
         try
         {
-            result = await sourceControlHost.MergeAsync(
+            if (repository.Connection.Provider == SourceControlProvider.InternalGit)
+            {
+                var internalResult = await sourceControlHost.MergeInternalAsync(new(context.OrganizationId, repository.Id,
+                    publication.Publication.Id, publication.Publication.TicketBranch, publication.Publication.TargetBranch,
+                    publication.Publication.CommitSha, idempotencyKey), cancellationToken);
+                result = new(internalResult.Merged, internalResult.HeadMatched, internalResult.MergeCommitSha,
+                    internalResult.FailureCode, internalResult.FailureMessage);
+            }
+            else result = await sourceControlHost.MergeAsync(
                 new TrustedMergeRequest(
                     context.OrganizationId,
                     publication.Publication.RepositoryId,
                     publication.Publication.Id,
                     job.Id,
-                    repository.Connection.SourceAccessInstallationId.Value,
+                    repository.Connection.SourceAccessInstallationId!.Value,
                     repository.Owner,
                     repository.Name,
                     pullRequestNumber,
@@ -221,7 +231,7 @@ public sealed class GovernedMergeWorkActionExecutor(
                     idempotencyKey),
                 cancellationToken);
         }
-        catch (InvalidOperationException exception)
+        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
         {
             job.Status = SourceControlMergeStatus.Failed;
             job.FailureCode = "trusted_host_unavailable";

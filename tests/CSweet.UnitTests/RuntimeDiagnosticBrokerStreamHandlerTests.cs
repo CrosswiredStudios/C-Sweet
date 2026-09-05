@@ -7,6 +7,18 @@ namespace CSweet.UnitTests;
 public sealed class RuntimeDiagnosticBrokerStreamHandlerTests
 {
     [Fact]
+    public void CapturesBoundedExitDetailWhenBuilderNeverStreamsDiagnostics()
+    {
+        var handler = new RuntimeDiagnosticBrokerStreamHandler(Guid.NewGuid(), Guid.NewGuid());
+        handler.CaptureExitDetail(new string('x', 9000) + "\0\npermission denied");
+        Assert.Equal(8192, handler.Latest!.Length);
+        Assert.EndsWith("\npermission denied", handler.Latest);
+        Assert.DoesNotContain('\0', handler.Latest);
+        handler.CaptureExitDetail(null);
+        Assert.EndsWith("\npermission denied", handler.Latest);
+    }
+
+    [Fact]
     public async Task AcceptsOrderedBoundedRuntimeDiagnosticsAndRemovesUnsafeControls()
     {
         var workloadId = Guid.NewGuid();

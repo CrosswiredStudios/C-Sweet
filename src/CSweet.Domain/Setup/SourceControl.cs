@@ -3,7 +3,8 @@ namespace CSweet.Domain.Setup;
 public enum SourceControlProvider
 {
     GitHub,
-    GenericGit
+    GenericGit,
+    InternalGit
 }
 
 public enum SourceControlConnectionMode
@@ -11,7 +12,8 @@ public enum SourceControlConnectionMode
     ManagedGitHub,
     ExistingGitHub,
     GenericGitHttps,
-    GenericGitSsh
+    GenericGitSsh,
+    InternalGit
 }
 
 public enum SourceControlConnectionStatus
@@ -25,7 +27,8 @@ public enum SourceControlConnectionStatus
 public enum SourceControlCredentialKind
 {
     HttpsToken,
-    SshPrivateKey
+    SshPrivateKey,
+    InternalGitAccess
 }
 
 public enum SourceControlRepositoryStatus
