@@ -1,0 +1,50 @@
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+
+<MudPaper Outlined="true" Class="pa-4">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.h6">Default source control for new repositories</MudText>
+        <MudText>Agents use this choice when requesting a repository without a specific template. New businesses use internal Git. Existing repositories and queued requests keep their provider.</MudText>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        @if (_saved) { <MudAlert Severity="Severity.Success">Default source control saved.</MudAlert> }
+        @if (_settings is not null)
+        {
+            <MudSelect T="Guid" @bind-Value="_selected" Label="Provider and template" Disabled="_busy">
+                @foreach (var option in _settings.Options)
+                { <MudSelectItem T="Guid" Value="@(option.TemplateId ?? Guid.Empty)" Disabled="@(!option.Available)">@option.ConnectionName · @option.TemplateName</MudSelectItem> }
+            </MudSelect>
+            @if (!_settings.Options.Any(o => o.TemplateId == _settings.DefaultTemplateId && o.Available))
+            { <MudAlert Severity="Severity.Warning">The saved default is unavailable. New requests will be blocked until it is available or you select another provider.</MudAlert> }
+            @foreach (var option in _settings.Options.Where(o => !o.Available))
+            { <MudText Color="Color.Secondary">@option.ConnectionName · @option.TemplateName: @option.UnavailableReason</MudText> }
+            <MudText Color="Color.Secondary">GitHub choices require an approved template and a connected Managed GitHub organization with repository creation configured. Personal GitHub repository creation is not available yet.</MudText>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="@(_busy || !_settings.Options.Any(o => (o.TemplateId ?? Guid.Empty) == _selected && o.Available))">Save default</MudButton>
+        }
+        <MudButton OnClick="LoadAsync" Disabled="_busy">Refresh</MudButton>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    private BusinessSourceControlDefaults? _settings;
+    private Guid _selected;
+    private bool _busy, _saved;
+    private string? _error;
+    private string Endpoint => $"api/organizations/{OrganizationId:D}/source-control/defaults";
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private Task LoadAsync() => RunAsync(async () => Apply(await Http.GetFromJsonAsync<BusinessSourceControlDefaults>(Endpoint)));
+    private void Apply(BusinessSourceControlDefaults? settings) { _settings = settings; _selected = settings?.DefaultTemplateId ?? Guid.Empty; }
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        if (_settings is null) return;
+        using var response = await Http.PutAsJsonAsync(Endpoint, new UpdateBusinessSourceControlDefaults(_selected == Guid.Empty ? null : _selected, _settings.Revision));
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            throw new InvalidOperationException(body.TryGetProperty("message", out var message) ? message.GetString() : "Could not save the default provider.");
+        }
+        Apply(await response.Content.ReadFromJsonAsync<BusinessSourceControlDefaults>()); _saved = true;
+    });
+    private async Task RunAsync(Func<Task> action)
+    { _busy = true; _error = null; _saved = false; try { await action(); } catch (Exception ex) { _error = ex.Message; } finally { _busy = false; } }
+}

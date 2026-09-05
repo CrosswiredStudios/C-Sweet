@@ -68,6 +68,7 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
     public async Task<TrustedWorkspacePublication> PublishAsync(TrustedWorkspacePublishRequest request, CancellationToken ct)
     {
         var result = await ExecuteAsync(request.Workspace, "publish", ct, request.CommitMessage);
+        if (result.Status == "Locked") throw new InvalidOperationException(result.DiffSummary);
         return new("InternalGit", CSweet.Agent.SDK.GitDeliveryKinds.PullRequest, result.Branch!, result.CommitSha!,
             new Uri(result.ReviewUrl!, UriKind.Absolute), result.ChangedFiles, result.DiffSummary);
     }

@@ -277,8 +277,6 @@ public static class DependencyInjection
             .Bind(builder.Configuration.GetSection(AgentCatalogOptions.SectionName));
         builder.Services.AddScoped<IAgentCatalogProvider, InstalledAgentCatalogProvider>();
         builder.Services.AddScoped<LocalDirectoryAgentCatalogProvider>();
-        builder.Services.AddScoped<IAgentCatalogProvider>(
-            services => services.GetRequiredService<LocalDirectoryAgentCatalogProvider>());
         builder.Services.AddScoped<ILocalAgentSourceArchiveService>(
             services => services.GetRequiredService<LocalDirectoryAgentCatalogProvider>());
         builder.Services.AddScoped<IAgentCatalogProvider, FirstPartyAgentCatalogProvider>();

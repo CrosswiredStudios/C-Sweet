@@ -337,6 +337,7 @@ public sealed class RepositoryProvisioningRequest
     public Guid? ApprovalId { get; set; }
     public Guid? RepositoryId { get; set; }
     public Guid TemplateId { get; set; }
+    public bool? UsedBusinessDefault { get; set; }
     public long PolicyRevision { get; set; }
     public string ProjectDisplayName { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;

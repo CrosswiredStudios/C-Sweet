@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.SourceControl;
 
-public sealed class InternalGitAccessService(CSweetDbContext db, ITrustedSourceControlHostClient host, IAuditEventWriter audit, TimeProvider clock)
+public sealed partial class InternalGitAccessService(CSweetDbContext db, ITrustedSourceControlHostClient host, IAuditEventWriter audit, TimeProvider clock)
 {
     private sealed record Access(Guid RepositoryId, Guid UserId, string Name, string Hash, bool CanPush, bool AllowDefaultBranchWrites, DateTimeOffset ExpiresAt);
     private static Access Read(SourceControlCredential credential) => JsonSerializer.Deserialize<Access>(credential.ProtectedPayload)
@@ -44,7 +44,7 @@ public sealed class InternalGitAccessService(CSweetDbContext db, ITrustedSourceC
     public async Task<bool> RevokeAsync(Guid business, Guid repositoryId, Guid user, Guid id, CancellationToken ct)
     {
         var actor = await MemberAsync(business, user, ct);
-        var credential = await db.SourceControlCredentials.SingleOrDefaultAsync(c => c.Id == id && c.OrganizationId == business && c.Kind == SourceControlCredentialKind.InternalGitAccess, ct)
+        var credential = await db.SourceControlCredentials.AsTracking().SingleOrDefaultAsync(c => c.Id == id && c.OrganizationId == business && c.Kind == SourceControlCredentialKind.InternalGitAccess, ct)
             ?? throw new KeyNotFoundException("Credential not found.");
         var access = Read(credential);
         if (access.RepositoryId != repositoryId || (access.UserId != user && actor.PermissionLevel < OrganizationPermissionLevel.Manager)) throw new UnauthorizedAccessException();
@@ -81,7 +81,7 @@ public sealed class InternalGitAccessService(CSweetDbContext db, ITrustedSourceC
             w.Status != SourceControlWorkspaceStatus.Removed && w.Status != SourceControlWorkspaceStatus.Failed).Select(w => w.BranchName).Distinct().ToListAsync(ct);
         if (!access.AllowDefaultBranchWrites) protectedBranches.Add(repository.DefaultBranch);
         if (push && !advertise) await RecordAsync(business, repositoryId, access.UserId, "PushStarted", new { credential.Id }, ct);
-        var result = await host.ExchangeInternalGitAsync(new(business, repositoryId, service, advertise, body, protectedBranches), ct);
+        var result = await host.ExchangeInternalGitAsync(new(business, repositoryId, service, advertise, body, protectedBranches, access.UserId), ct);
         if (push && !advertise) await RecordAsync(business, repositoryId, access.UserId, "PushTransferCompleted", new { credential.Id }, ct);
         return result;
     }

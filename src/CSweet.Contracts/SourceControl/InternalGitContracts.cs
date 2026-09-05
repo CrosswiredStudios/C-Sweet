@@ -37,7 +37,7 @@ public sealed record InternalGitProvisioningJob(Guid Id, string Name, string Sta
 public sealed record UpdateInternalGitProvisioningSettings(bool Enabled, bool RequiresApproval, int MaximumRepositories,
     Guid? DefaultTeamId, string NamePrefix, string DefaultBranch, long ExpectedRevision);
 public sealed record InternalGitHttpRequest(Guid OrganizationId, Guid RepositoryId, string Service, bool Advertise,
-    byte[] Body, IReadOnlyList<string> ProtectedBranches);
+    byte[] Body, IReadOnlyList<string> ProtectedBranches, Guid? ActorId = null);
 public sealed record InternalGitHttpResponse(string ContentType, byte[] Body);
 public sealed record CreateInternalGitAccessRequest(string Name, bool CanPush = false, bool AllowDefaultBranchWrites = false, int LifetimeDays = 30);
 public sealed record InternalGitAccessSummary(Guid Id, string Name, bool CanPush, bool AllowDefaultBranchWrites, DateTimeOffset ExpiresAt, bool Revoked);
@@ -47,3 +47,19 @@ public sealed record InternalGitLfsTransfer(Guid OrganizationId, Guid Repository
 public sealed record InternalGitLfsTransferResult(byte[] Body);
 public sealed record InternalGitLfsBatch(string Operation, IReadOnlyList<InternalGitLfsObject> Objects, IReadOnlyList<string>? Transfers = null, [property: System.Text.Json.Serialization.JsonPropertyName("hash_algo")] string? HashAlgo = null);
 public sealed record InternalGitLfsObject(string Oid, long Size);
+public sealed record InternalGitBackupRequest(Guid OrganizationId, Guid RepositoryId, Guid BackupId);
+public sealed record InternalGitBackupRestoreRequest(Guid OrganizationId, Guid RepositoryId, Guid BackupId, Guid TargetRepositoryId);
+public sealed record InternalGitBackupSummary(Guid Id, Guid RepositoryId, DateTimeOffset CreatedAt, string DefaultBranch,
+    long ArchiveBytes, string ArchiveSha256, int RefCount, int LfsObjectCount);
+public sealed record CreateInternalGitBackupRequest(Guid BackupId);
+public sealed record RestoreInternalGitBackupRequest(Guid RestoreId, string Name);
+
+public sealed record InternalGitFileLock(string Id, string Path, Guid OwnerId, string OwnerName, DateTimeOffset LockedAt);
+public sealed record InternalGitLockRequest(Guid OrganizationId, Guid RepositoryId, Guid ActorId, string ActorName,
+    string Operation, string? Path = null, string? Id = null, bool Force = false, bool CanForce = false, string? Cursor = null, int Limit = 100);
+public sealed record InternalGitLockResult(int StatusCode, IReadOnlyList<InternalGitFileLock> Locks, string? NextCursor = null, string? Message = null);
+public sealed record ManageInternalGitLockRequest(string Operation, string? Path = null, string? Id = null, bool Force = false, string? Cursor = null);
+
+public sealed record BusinessSourceControlDefaults(Guid? DefaultTemplateId, long Revision, IReadOnlyList<BusinessSourceControlDefaultOption> Options);
+public sealed record BusinessSourceControlDefaultOption(Guid? TemplateId, string Provider, string ConnectionName, string TemplateName, bool Available, string? UnavailableReason);
+public sealed record UpdateBusinessSourceControlDefaults(Guid? DefaultTemplateId, long ExpectedRevision);

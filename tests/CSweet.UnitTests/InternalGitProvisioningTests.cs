@@ -90,7 +90,7 @@ public sealed class InternalGitProvisioningTests
     {
         await using var db = Database(); var fixture = await SeedAsync(db); var auth = new Authorization();
         var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = fixture.Business, Provider = SourceControlProvider.GitHub,
-            Mode = SourceControlConnectionMode.ManagedGitHub, Status = SourceControlConnectionStatus.Connected, AccountLogin = "company", AccountType = "Organization" };
+            Mode = SourceControlConnectionMode.ManagedGitHub, Status = SourceControlConnectionStatus.Connected, AccountLogin = "company", AccountType = "Organization", ProvisionerInstallationId = 42, SourceAccessInstallationId = 41 };
         var template = new SourceControlRepositoryTemplate { Id = Guid.NewGuid(), OrganizationId = fixture.Business, ConnectionId = connection.Id, Name = "approved" };
         db.AddRange(connection, template, new RepositoryProvisioningPolicy { Id = Guid.NewGuid(), OrganizationId = fixture.Business, ConnectionId = connection.Id,
             MaximumRepositories = 10, ApprovedTemplatesJson = JsonSerializer.Serialize(new[] { template.Id }) });
@@ -100,6 +100,49 @@ public sealed class InternalGitProvisioningTests
         Assert.False((await InvokeAsync(db, fixture, auth)).Succeeded);
         Assert.Single(db.SourceControlConnections);
         Assert.False((await InvokeAsync(db, fixture, auth, "foreign-template", Guid.NewGuid())).Succeeded);
+    }
+
+    [Fact]
+    public async Task BusinessDefaultRoutesNewRequestsAndReplayKeepsOriginalProvider()
+    {
+        await using var db = Database(); var fixture = await SeedAsync(db); var auth = new Authorization();
+        var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = fixture.Business, Provider = SourceControlProvider.GitHub,
+            Mode = SourceControlConnectionMode.ManagedGitHub, Status = SourceControlConnectionStatus.Connected, AccountLogin = "company", AccountType = "Organization", ProvisionerInstallationId = 42, SourceAccessInstallationId = 41 };
+        var template = new SourceControlRepositoryTemplate { Id = Guid.NewGuid(), OrganizationId = fixture.Business, ConnectionId = connection.Id, Name = "approved" };
+        db.AddRange(connection, template, new RepositoryProvisioningPolicy { Id = Guid.NewGuid(), OrganizationId = fixture.Business, ConnectionId = connection.Id,
+            MaximumRepositories = 10, RequiresManagerApproval = false, ApprovedTemplatesJson = JsonSerializer.Serialize(new[] { template.Id }) });
+        var settings = new SourceControlBusinessSettings { OrganizationId = fixture.Business, DefaultTemplateId = template.Id };
+        db.Add(settings); await db.SaveChangesAsync();
+        Assert.True((await InvokeAsync(db, fixture, auth)).Succeeded);
+        var queued = await db.RepositoryProvisioningRequests.SingleAsync(); Assert.Equal(connection.Id, queued.ConnectionId); Assert.True(queued.UsedBusinessDefault);
+        Assert.Equal(fixture.Team, queued.TeamId);
+        settings.DefaultTemplateId = null; settings.Revision++; await db.SaveChangesAsync();
+        Assert.True((await InvokeAsync(db, fixture, auth)).Succeeded); // Same key stays on GitHub.
+        Assert.Single(db.RepositoryProvisioningRequests);
+        Assert.False((await InvokeAsync(db, fixture, auth, template: template.Id)).Succeeded); // Explicit/default cannot impersonate one another.
+        Assert.True((await InvokeAsync(db, fixture, auth, "next-request")).Succeeded);
+        Assert.Equal(2, await db.RepositoryProvisioningRequests.CountAsync());
+        Assert.Equal(1, await db.RepositoryProvisioningRequests.CountAsync(r => r.ConnectionId == connection.Id));
+        settings.DefaultTemplateId = template.Id; connection.Status = SourceControlConnectionStatus.Disconnected; await db.SaveChangesAsync();
+        await InvokeAsync(db, fixture, auth, "unavailable");
+        Assert.Equal(2, await db.RepositoryProvisioningRequests.CountAsync()); // Never silently substitutes internal Git.
+    }
+
+    [Fact]
+    public async Task GitHubWorkerRechecksAgentGrantBeforeCallingExternalProvider()
+    {
+        await using var db = Database(); var fixture = await SeedAsync(db); var auth = new Authorization();
+        var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = fixture.Business, Provider = SourceControlProvider.GitHub,
+            Mode = SourceControlConnectionMode.ManagedGitHub, Status = SourceControlConnectionStatus.Connected, AccountLogin = "company", AccountType = "Organization", ProvisionerInstallationId = 42, SourceAccessInstallationId = 41 };
+        var template = new SourceControlRepositoryTemplate { Id = Guid.NewGuid(), OrganizationId = fixture.Business, ConnectionId = connection.Id, Name = "approved" };
+        db.AddRange(connection, template, new RepositoryProvisioningPolicy { Id = Guid.NewGuid(), OrganizationId = fixture.Business, ConnectionId = connection.Id,
+            MaximumRepositories = 10, RequiresManagerApproval = false, ApprovedTemplatesJson = JsonSerializer.Serialize(new[] { template.Id }) });
+        await db.SaveChangesAsync();
+        Assert.True((await InvokeAsync(db, fixture, auth, template: template.Id)).Succeeded);
+        auth.Allowed = false;
+        Assert.True(await Processor(db, new Host(), auth).TryProcessNextAsync());
+        var queued = await db.RepositoryProvisioningRequests.SingleAsync();
+        Assert.Equal(RepositoryProvisioningStatus.Failed, queued.Status); Assert.Equal("grant_revoked", queued.FailureCode);
     }
 
     private static RepositoryProvisioningProcessor Processor(CSweetDbContext db, Host host, Authorization auth) => new(db, new UnavailableTrustedProvisioningHostClient(), TimeProvider.System, host, auth);

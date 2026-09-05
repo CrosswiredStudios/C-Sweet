@@ -5,8 +5,10 @@ namespace CSweet.Infrastructure.SourceControl;
 
 public sealed partial class RepositoryProvisioningProcessor
 {
-    private async Task<bool> ProcessInternalAsync(RepositoryProvisioningRequest request, CancellationToken ct)
+    private async Task<bool> RejectRevokedAgentAsync(RepositoryProvisioningRequest request, CancellationToken ct)
     {
+        // Legacy human-managed GitHub requests do not carry an agent installation.
+        if (request.RequestedByAgentInstallationId is null && request.Connection?.Provider != SourceControlProvider.InternalGit) return false;
         var now = timeProvider.GetUtcNow();
         var employee = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(u => u.Id == request.RequestedByOrganizationUserId &&
             u.OrganizationId == request.OrganizationId && u.IsActive && u.AgentInstallationId == request.RequestedByAgentInstallationId, ct);
@@ -26,6 +28,13 @@ public sealed partial class RepositoryProvisioningProcessor
             Fail(request, "grant_revoked", "Repository creation permission is no longer granted.", now);
             await db.SaveChangesAsync(ct); return true;
         }
+        return false;
+    }
+
+    private async Task<bool> ProcessInternalAsync(RepositoryProvisioningRequest request, CancellationToken ct)
+    {
+        var now = timeProvider.GetUtcNow();
+        var teamId = request.TeamId ?? throw new InvalidOperationException("Provisioning team is missing.");
         var canonical = $"internal/{request.OrganizationId:N}/{request.RepositoryName.ToLowerInvariant()}";
         var existing = await db.SourceControlRepositories.SingleOrDefaultAsync(r => r.OrganizationId == request.OrganizationId && r.CanonicalPath == canonical, ct);
         if (existing is not null && existing.Id != request.Id)
@@ -55,7 +64,7 @@ public sealed partial class RepositoryProvisioningProcessor
             await db.SaveChangesAsync(ct); return true;
         }
         if (!await db.TeamRepositoryPolicies.AnyAsync(p => p.OrganizationId == request.OrganizationId && p.RepositoryId == repository.Id && p.TeamId == request.TeamId, ct))
-            db.TeamRepositoryPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId, RepositoryId = repository.Id, TeamId = request.TeamId.Value,
+            db.TeamRepositoryPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId, RepositoryId = repository.Id, TeamId = teamId,
                 IsPrimary = !await db.TeamRepositoryPolicies.AnyAsync(p => p.OrganizationId == request.OrganizationId && p.TeamId == request.TeamId && p.IsPrimary && p.DisabledAt == null, ct),
                 CreatedAt = now, UpdatedAt = now });
         repository.Status = SourceControlRepositoryStatus.Ready; repository.LastHealthError = null; repository.LastVerifiedAt = timeProvider.GetUtcNow(); repository.Revision++;

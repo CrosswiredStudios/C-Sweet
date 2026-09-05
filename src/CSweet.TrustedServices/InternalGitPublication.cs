@@ -58,6 +58,8 @@ public sealed partial class InternalGitRepositoryStore
             }
             if (source is not null && source != request.BaseSha)
                 throw new InvalidOperationException("The work branch changed. Prepare or refresh its exact current revision before publishing.");
+            if (await FindLockedChangeAsync(repository, request.BaseSha, tree, ct) is { } lockedPath)
+                return new("Locked", request.BaseSha, null, changed, $"Publication changes locked file {lockedPath}. Ask its owner to release the lock before publishing.", target);
             var commit = (await RunAsync(repository, ["commit-tree", tree, "-p", request.BaseSha, "-m", request.CommitMessage!], ct)).Trim();
             var transaction = $"start\nupdate refs/heads/{request.Branch} {commit} {source ?? new string('0', 40)}\ncreate {receiptRef} {commit}\nprepare\ncommit\n";
             await RunAsync(repository, ["update-ref", "--stdin"], ct, input: transaction);
@@ -142,6 +144,8 @@ public sealed partial class InternalGitRepositoryStore
         try { tree = (await RunAsync(repository, ["merge-tree", "--write-tree", target, source], ct)).Split('\n')[0].Trim(); }
         catch (InvalidOperationException) { return new(false, true, null, "merge_conflict", "Resolve conflicts and obtain validation for the updated proposal."); }
         ValidateSha(tree);
+        if (await FindLockedChangeAsync(repository, target, tree, ct) is { } lockedPath)
+            return new(false, true, null, "file_locked", $"Merge changes locked file {lockedPath}. Release the lock before retrying.");
         var commit = (await RunAsync(repository, ["commit-tree", tree, "-p", target, "-p", source,
             "-m", message], ct)).Trim();
         await RunAsync(repository, ["update-ref", "--stdin"], ct, input:

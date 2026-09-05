@@ -19,7 +19,7 @@ public sealed partial class RepositoryProvisioningProcessor(
     public async Task<bool> TryProcessNextAsync(CancellationToken cancellationToken = default)
     {
         var abandonedBefore = timeProvider.GetUtcNow().AddMinutes(-2);
-        var request = await db.RepositoryProvisioningRequests
+        var request = await db.RepositoryProvisioningRequests.AsTracking()
             .Include(candidate => candidate.Connection)
             .Include(candidate => candidate.Policy)
             .Include(candidate => candidate.Template)
@@ -38,6 +38,8 @@ public sealed partial class RepositoryProvisioningProcessor(
             await db.SaveChangesAsync(cancellationToken);
             return true;
         }
+
+        if (await RejectRevokedAgentAsync(request, cancellationToken)) return true;
 
         if (request.Connection!.Provider == SourceControlProvider.InternalGit)
             return await ProcessInternalAsync(request, cancellationToken);
@@ -158,6 +160,14 @@ public sealed partial class RepositoryProvisioningProcessor(
             request.Template.ConnectionId != request.ConnectionId || request.Policy.ConnectionId != request.ConnectionId ||
             request.Policy.OrganizationId != request.OrganizationId || request.Connection?.OrganizationId != request.OrganizationId)
             return "The repository provisioning scope is no longer valid.";
+        if (!BusinessSourceControlDefaultResolver.SupportsCreation(request.Connection!))
+            return "The selected source-control connection is no longer ready for repository creation.";
+        try
+        {
+            if (!(System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(request.Policy.ApprovedTemplatesJson) ?? []).Contains(request.TemplateId))
+                return "The template is no longer approved by the business policy.";
+        }
+        catch (System.Text.Json.JsonException) { return "The template approval policy is invalid."; }
         if (request.Connection?.Provider == SourceControlProvider.InternalGit)
             return request.Connection.Status == SourceControlConnectionStatus.Connected && request.Template.Name == "empty"
                 ? null : "The internal repository connection or template is unavailable.";

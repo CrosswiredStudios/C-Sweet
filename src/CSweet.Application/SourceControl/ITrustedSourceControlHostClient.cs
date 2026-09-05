@@ -7,6 +7,11 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface ITrustedSourceControlHostClient
 {
+    Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken ct = default) => throw new InvalidOperationException("LFS locking is unavailable.");
+    Task<IReadOnlyList<InternalGitBackupSummary>> ListInternalBackupsAsync(Guid business, CancellationToken ct = default) => throw new InvalidOperationException("Backup inspection is unavailable.");
+    Task<InternalGitBackupSummary> CreateInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Backup creation is unavailable.");
+    Task<InternalGitBackupSummary> RestoreInternalBackupAsync(InternalGitBackupRestoreRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Backup restore is unavailable.");
+    Task DeleteInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Backup deletion is unavailable.");
     Task<InternalGitLfsTransferResult> TransferInternalLfsAsync(InternalGitLfsTransfer request, CancellationToken ct = default) => throw new InvalidOperationException("LFS client transfer is unavailable.");
     Task<InternalGitHttpResponse> ExchangeInternalGitAsync(InternalGitHttpRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Git client transport is unavailable.");
     Task<InternalGitSnapshotResult> ApplyInternalSnapshotAsync(InternalGitSnapshotOperation request,

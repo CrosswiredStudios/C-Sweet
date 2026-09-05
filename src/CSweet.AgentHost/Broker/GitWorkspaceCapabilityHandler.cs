@@ -197,16 +197,18 @@ public sealed class GitWorkspaceCapabilityHandler(
             if (replay.RequestedByAgentInstallationId != installationId || replay.WorkstreamId != input.ProductOrWorkstreamId ||
                 replay.ProjectDisplayName != input.ProjectDisplayName.Trim() || replay.Description != (input.Description?.Trim() ?? "") ||
                 (input.TemplateId != Guid.Empty && replay.TemplateId != input.TemplateId) ||
-                (input.TemplateId == Guid.Empty && replay.Connection?.Provider != SourceControlProvider.InternalGit))
+                (replay.UsedBusinessDefault is { } usedDefault ? usedDefault != (input.TemplateId == Guid.Empty) :
+                    input.TemplateId == Guid.Empty && replay.Connection?.Provider != SourceControlProvider.InternalGit))
                 throw new InvalidOperationException("The provisioning key was already used for a different request.");
             return ToProvisioningResult(replay);
         }
-        if (input.TemplateId == Guid.Empty)
-            await CSweet.Infrastructure.SourceControl.InternalGitProvisioningDefaults.EnsureAsync(db, organizationId, cancellationToken);
+        var templateId = input.TemplateId == Guid.Empty
+            ? await CSweet.Infrastructure.SourceControl.BusinessSourceControlDefaultResolver.ResolveAsync(db, organizationId, cancellationToken)
+            : input.TemplateId;
 
         var template = await db.SourceControlRepositoryTemplates.AsNoTracking().Include(t => t.Connection)
             .SingleOrDefaultAsync(t => t.OrganizationId == organizationId && t.IsEnabled &&
-                (input.TemplateId == Guid.Empty ? t.Connection!.Provider == SourceControlProvider.InternalGit && t.Name == "empty" : t.Id == input.TemplateId), cancellationToken)
+                t.Id == templateId, cancellationToken)
             ?? throw new UnauthorizedAccessException("The repository template is unavailable or disabled.");
         var policy = await db.RepositoryProvisioningPolicies.AsTracking().Include(p => p.Connection)
             .SingleOrDefaultAsync(p => p.OrganizationId == organizationId && p.ConnectionId == template.ConnectionId && p.IsEnabled &&
@@ -214,9 +216,8 @@ public sealed class GitWorkspaceCapabilityHandler(
         if (policy is null) return new RepositoryProvisioningResult(Guid.Empty, "Blocked", null, null, "Repository creation is disabled for this connection.");
         var approvedTemplateIds = JsonSerializer.Deserialize<IReadOnlyList<Guid>>(policy.ApprovedTemplatesJson, JsonOptions) ?? [];
         if (!approvedTemplateIds.Contains(template.Id)) throw new UnauthorizedAccessException("The template is not approved by this business policy.");
-        if (policy.Connection!.Provider != SourceControlProvider.InternalGit &&
-            (policy.Connection.Provider != SourceControlProvider.GitHub || policy.Connection.Mode != SourceControlConnectionMode.ManagedGitHub))
-            throw new InvalidOperationException("This connection does not support repository creation.");
+        if (!CSweet.Infrastructure.SourceControl.BusinessSourceControlDefaultResolver.SupportsCreation(policy.Connection!))
+            return new RepositoryProvisioningResult(Guid.Empty, "Blocked", null, null, "The selected connection is not ready for repository creation.");
         var createdCount = await db.SourceControlRepositories.AsNoTracking().CountAsync(x =>
             x.OrganizationId == organizationId && x.ConnectionId == policy.ConnectionId &&
             x.IsManaged && x.ArchivedAt == null,
@@ -230,7 +231,7 @@ public sealed class GitWorkspaceCapabilityHandler(
                 "The repository creation quota has been reached.");
 
         var teamId = policy.DefaultTeamId;
-        if (policy.Connection.Provider == SourceControlProvider.InternalGit)
+        // Both providers require an active team for immediate agent handoff.
         {
             var teams = await (from membership in db.TeamMemberships.AsNoTracking()
                 join team in db.OrganizationTeams.AsNoTracking() on membership.TeamId equals team.Id
@@ -259,6 +260,7 @@ public sealed class GitWorkspaceCapabilityHandler(
             WorkstreamId = input.ProductOrWorkstreamId,
             TeamId = teamId,
             TemplateId = template.Id,
+            UsedBusinessDefault = input.TemplateId == Guid.Empty,
             PolicyRevision = policy.Revision,
             ProjectDisplayName = input.ProjectDisplayName.Trim(),
             Description = input.Description?.Trim() ?? string.Empty,

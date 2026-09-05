@@ -79,7 +79,7 @@ public sealed partial class AgentWorkspaceBroker
             await volumes.ImportAsync(lease, archive, new(snapshot.ArtifactSha256, snapshot.FileCount, snapshot.TotalBytes), cancellationToken);
             return new("Refreshed", latest, [], "");
         }
-        var url = request.Operation == "publish"
+        var url = request.Operation == "publish" && result.Status == "Published"
             ? $"{publicBaseUrl.TrimEnd('/')}/organizations/{workspace.OrganizationId:D}/source-control?repository={repository.Id:D}&reference={Uri.EscapeDataString("refs/heads/" + workspace.BranchName)}"
             : null;
         return new(result.Status, result.BaseSha, result.ChangedFiles, result.DiffSummary, result.CommitSha, workspace.BranchName, url);

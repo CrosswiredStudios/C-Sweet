@@ -25,6 +25,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     {
     }
 
+    public DbSet<SourceControlBusinessSettings> SourceControlBusinessSettings => Set<SourceControlBusinessSettings>();
+
     // Setup entities
     public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
     public DbSet<LlmProviderProfile> LlmProviderProfiles => Set<LlmProviderProfile>();

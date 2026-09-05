@@ -1,0 +1,67 @@
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+
+<MudExpansionPanels><MudExpansionPanel Text="LFS file locks">
+    <MudStack Spacing="2">
+        <MudText>Locks protect files across this repository. GitHost rejects changes by other users, including clients that skip verification. Agent publications and merges wait for conflicting locks to be released.</MudText>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        <MudButton OnClick="RefreshAsync" Disabled="_busy">Refresh locks</MudButton>
+        @if (CanManage)
+        {
+            <MudTextField @bind-Value="_path" Label="Repository-relative file path" Placeholder="art/texture.bin" Disabled="_busy" />
+            <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_path))">Lock file</MudButton>
+        }
+        @if (_locks.Count == 0) { <MudText>No active file locks.</MudText> }
+        @foreach (var item in _locks)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudText>@item.Path · @item.OwnerName · @item.LockedAt.ToLocalTime().ToString("g")</MudText>
+                @if (CanManage) { <MudButton Color="Color.Warning" OnClick="@(() => _unlock = item)" Disabled="_busy">Release lock</MudButton> }
+            </MudStack>
+        }
+        @if (_cursor is not null) { <MudButton OnClick="MoreAsync" Disabled="_busy">Load more locks</MudButton> }
+        @if (_unlock is not null)
+        {
+            <MudAlert Severity="Severity.Warning">Release @_unlock.OwnerName's lock on @_unlock.Path? Coordinate with the owner before releasing a lock on work in progress.</MudAlert>
+            <MudButton Color="Color.Warning" OnClick="UnlockAsync" Disabled="_busy">Confirm release</MudButton>
+            <MudButton OnClick="@(() => _unlock = null)" Disabled="_busy">Cancel</MudButton>
+        }
+    </MudStack>
+</MudExpansionPanel></MudExpansionPanels>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid RepositoryId { get; set; }
+    [Parameter] public bool CanManage { get; set; }
+    private List<InternalGitFileLock> _locks = [];
+    private InternalGitFileLock? _unlock;
+    private string? _cursor, _error;
+    private string _path = "";
+    private bool _busy;
+    private string Endpoint => $"api/organizations/{OrganizationId:D}/source-control/internal/repositories/{RepositoryId:D}/locks";
+    protected override Task OnParametersSetAsync() { _unlock = null; return RefreshAsync(); }
+    private Task RefreshAsync() => RunAsync(() => LoadAsync(false));
+    private Task MoreAsync() => RunAsync(() => LoadAsync(true));
+    private async Task<InternalGitLockResult> SendAsync(ManageInternalGitLockRequest request)
+    {
+        using var response = await Http.PostAsJsonAsync(Endpoint, request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            throw new InvalidOperationException(body.TryGetProperty("message", out var message) ? message.GetString() : "Lock operation failed.");
+        }
+        var result = await response.Content.ReadFromJsonAsync<InternalGitLockResult>() ?? throw new InvalidOperationException("Empty lock response.");
+        if (result.StatusCode >= 400) throw new InvalidOperationException(result.Message ?? "Lock operation failed.");
+        return result;
+    }
+    private async Task LoadAsync(bool more)
+    {
+        var result = await SendAsync(new("list", Cursor: more ? _cursor : null));
+        _locks = (more ? _locks.Concat(result.Locks) : result.Locks).DistinctBy(l => l.Id).ToList(); _cursor = result.NextCursor;
+    }
+    private Task CreateAsync() => RunAsync(async () => { await SendAsync(new("create", Path: _path)); _path = ""; await LoadAsync(false); });
+    private Task UnlockAsync() => RunAsync(async () =>
+    { if (_unlock is null) return; await SendAsync(new("unlock", Id: _unlock.Id, Force: true)); _unlock = null; await LoadAsync(false); });
+    private async Task RunAsync(Func<Task> action)
+    { _busy = true; _error = null; try { await action(); } catch (Exception ex) { _error = ex.Message; } finally { _busy = false; } }
+}

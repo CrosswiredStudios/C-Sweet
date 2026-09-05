@@ -67,22 +67,22 @@ public sealed class InternalGitLfsStore(IOptions<InternalGitStorageOptions> opti
         finally { File.Delete(temporary); }
     }
 
-    public async Task CopyToAsync(Guid business, Guid repository, string oid, Stream destination, CancellationToken ct = default)
+    public async Task CopyToAsync(Guid business, Guid repository, string oid, Stream destination, CancellationToken ct = default, long? expectedSize = null)
     {
         var key = Key(business, repository, oid);
         if (Settings.Provider == "s3")
         {
             using var response = await Client.GetObjectAsync(Settings.BucketName, key, ct);
-            await CopyVerifiedAsync(response.ResponseStream, destination, oid, ct);
+            await CopyVerifiedAsync(response.ResponseStream, destination, oid, ct, expectedSize);
         }
         else
         {
             await using var source = File.OpenRead(FilePath(key));
-            await CopyVerifiedAsync(source, destination, oid, ct);
+            await CopyVerifiedAsync(source, destination, oid, ct, expectedSize);
         }
     }
 
-    private async Task CopyVerifiedAsync(Stream source, Stream destination, string oid, CancellationToken ct)
+    private async Task CopyVerifiedAsync(Stream source, Stream destination, string oid, CancellationToken ct, long? expectedSize)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var buffer = new byte[81920];
@@ -95,6 +95,7 @@ public sealed class InternalGitLfsStore(IOptions<InternalGitStorageOptions> opti
             hash.AppendData(buffer, 0, count);
             await destination.WriteAsync(buffer.AsMemory(0, count), ct);
         }
+        if (expectedSize is not null && total != expectedSize) throw new InvalidDataException("LFS object size differs from its pointer.");
         if (!string.Equals(Convert.ToHexString(hash.GetHashAndReset()), oid, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Stored LFS object failed its SHA-256 integrity check.");
     }

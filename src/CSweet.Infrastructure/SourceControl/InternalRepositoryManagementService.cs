@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.SourceControl;
 
-public sealed class InternalRepositoryManagementService(CSweetDbContext db, ITrustedSourceControlHostClient host,
+public sealed partial class InternalRepositoryManagementService(CSweetDbContext db, ITrustedSourceControlHostClient host,
     IAuditEventWriter audit, TimeProvider clock)
 {
     public async Task<IReadOnlyList<SourceControlRepositorySummary>> ListAsync(Guid business, Guid user, CancellationToken ct)

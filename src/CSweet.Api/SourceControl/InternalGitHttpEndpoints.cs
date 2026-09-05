@@ -10,10 +10,12 @@ using CSweet.TrustedServices;
 
 namespace CSweet.Api.SourceControl;
 
-public static class InternalGitHttpEndpoints
+public static partial class InternalGitHttpEndpoints
 {
     private static async Task<IResult> LfsAsync(Guid business, Guid repository, string path, string token, HttpContext http, InternalGitAccessService service, CancellationToken ct)
     {
+        if (path == "info/lfs/locks" || path.StartsWith("info/lfs/locks/", StringComparison.Ordinal))
+            return await LocksAsync(business, repository, path, token, http, service, ct);
         const string media = "application/vnd.git-lfs+json";
         if (path == "info/lfs/objects/batch" && HttpMethods.IsPost(http.Request.Method))
         {

@@ -2,7 +2,7 @@
 @using CSweet.Contracts.Core
 @inject HttpClient Http
 
-<MudExpansionPanels><MudExpansionPanel Text="Agent repository creation">
+<MudExpansionPanels><MudExpansionPanel Text="Internal repository creation policy">
     <MudStack Spacing="2">
         <MudText>Authorized agents can create private internal repositories without a GitHub account. A repository is created only when an agent requests one for a workstream.</MudText>
         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }

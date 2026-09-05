@@ -45,6 +45,54 @@ public sealed class InternalGitPublicationTests : IDisposable
     }
 
     [Fact]
+    public async Task LocksBlockAgentPublicationMergeAndRefChangesButPreserveCompletedRetries()
+    {
+        var initial = await InitializeAsync(); var owner = Guid.NewGuid();
+        var locked = await _store.LocksAsync(new(_business, _repository, owner, "Artist", "create", "asset.bin"));
+        var publication = await RequestAsync(initial, "publish", "work/one", "locked-publication", ("asset.bin", "new asset"));
+        Assert.Equal("Locked", (await _store.ApplySnapshotAsync(publication, _artifacts)).Status);
+        Assert.DoesNotContain((await _store.ExecuteAsync(new(_business, _repository, "inspect"))).Refs, r => r.Name == "refs/heads/work/one");
+        await _store.LocksAsync(new(_business, _repository, owner, "Artist", "unlock", Id: locked.Locks[0].Id));
+        var published = await _store.ApplySnapshotAsync(publication, _artifacts);
+        locked = await _store.LocksAsync(new(_business, _repository, owner, "Artist", "create", "asset.bin"));
+        Assert.Equal(published.CommitSha, (await _store.ApplySnapshotAsync(publication, _artifacts)).CommitSha);
+        var merge = new InternalGitMergeRequest(_business, _repository, Guid.NewGuid(), "work/one", "main", published.CommitSha!, "locked-merge");
+        var blocked = await _store.MergeInternalAsync(merge);
+        Assert.False(blocked.Merged); Assert.Equal("file_locked", blocked.FailureCode);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _store.ExecuteAsync(new(_business, _repository, "update-ref", Ref: "refs/heads/main", ExpectedSha: initial, TargetSha: published.CommitSha)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _store.ExecuteAsync(new(_business, _repository, "delete-ref", Ref: "refs/heads/work/one", ExpectedSha: published.CommitSha)));
+        Assert.Equal(initial, (await _store.ExecuteAsync(new(_business, _repository, "inspect"))).Commits[0].Sha);
+        await _store.LocksAsync(new(_business, _repository, owner, "Artist", "unlock", Id: locked.Locks[0].Id));
+        var merged = await _store.MergeInternalAsync(merge); Assert.True(merged.Merged);
+        await _store.LocksAsync(new(_business, _repository, owner, "Artist", "create", "asset.bin"));
+        Assert.Equal(merged.MergeCommitSha, (await _store.MergeInternalAsync(merge)).MergeCommitSha);
+    }
+
+    [Fact]
+    public async Task CorruptLockMetadataFailsClosedWithoutPublishing()
+    {
+        var initial = await InitializeAsync();
+        var lockFile = Path.Combine(_root, "repositories", _business.ToString("N"), _repository.ToString("N") + ".git", "csweet-lfs-locks.json");
+        await File.WriteAllTextAsync(lockFile, "invalid metadata");
+        var request = await RequestAsync(initial, "publish", "work/one", "corrupt-locks", ("file.txt", "change"));
+        await Assert.ThrowsAsync<System.Text.Json.JsonException>(() => _store.ApplySnapshotAsync(request, _artifacts));
+        var inspection = await _store.ExecuteAsync(new(_business, _repository, "inspect"));
+        Assert.Equal(initial, inspection.Commits[0].Sha); Assert.DoesNotContain(inspection.Refs, r => r.Name == "refs/heads/work/one");
+    }
+
+    [Fact]
+    public async Task UnchangedLockedFileDoesNotBlockUnrelatedPublication()
+    {
+        var initial = await InitializeAsync();
+        var first = await _store.ApplySnapshotAsync(await RequestAsync(initial, "publish", "work/one", "first", ("asset.bin", "asset")), _artifacts);
+        await _store.LocksAsync(new(_business, _repository, Guid.NewGuid(), "Artist", "create", "asset.bin"));
+        var second = await _store.ApplySnapshotAsync(await RequestAsync(first.CommitSha!, "publish", "work/one", "second", ("asset.bin", "asset"), ("code.txt", "new code")), _artifacts);
+        Assert.Equal("Published", second.Status);
+        var renamed = await RequestAsync(second.CommitSha!, "publish", "work/one", "delete-asset", ("renamed.bin", "asset"), ("code.txt", "new code"));
+        Assert.Equal("Locked", (await _store.ApplySnapshotAsync(renamed, _artifacts)).Status);
+    }
+
+    [Fact]
     public async Task PublishesExactContentWithoutChangingMainAndReplaysIdempotently()
     {
         var initial = await InitializeAsync();

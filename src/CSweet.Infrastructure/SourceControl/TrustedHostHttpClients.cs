@@ -10,6 +10,19 @@ public sealed class TrustedSourceControlHostClient(
     HttpClient http,
     IOptions<TrustedServiceAuthenticationOptions> authentication) : ITrustedSourceControlHostClient
 {
+    public Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken ct = default) =>
+        SendInternalAsync<InternalGitLockRequest, InternalGitLockResult>("internal/v3/lfs/locks", request, ct);
+    public async Task<IReadOnlyList<InternalGitBackupSummary>> ListInternalBackupsAsync(Guid business, CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<List<InternalGitBackupSummary>>($"internal/v3/backups/{business:D}", ct) ?? [];
+    public Task<InternalGitBackupSummary> CreateInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) =>
+        SendInternalAsync<InternalGitBackupRequest, InternalGitBackupSummary>("internal/v3/backups/create", request, ct);
+    public Task<InternalGitBackupSummary> RestoreInternalBackupAsync(InternalGitBackupRestoreRequest request, CancellationToken ct = default) =>
+        SendInternalAsync<InternalGitBackupRestoreRequest, InternalGitBackupSummary>("internal/v3/backups/restore", request, ct);
+    public async Task DeleteInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("internal/v3/backups/delete", request, ct); response.EnsureSuccessStatusCode();
+    }
+
     public Task<InternalGitLfsTransferResult> TransferInternalLfsAsync(InternalGitLfsTransfer request, CancellationToken ct = default) =>
         SendInternalAsync<InternalGitLfsTransfer, InternalGitLfsTransferResult>("internal/v3/lfs", request, ct);
     public Task<InternalGitHttpResponse> ExchangeInternalGitAsync(InternalGitHttpRequest request, CancellationToken ct = default) =>

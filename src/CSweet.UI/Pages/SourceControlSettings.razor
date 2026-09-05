@@ -51,9 +51,9 @@
                 </MudAlert>
                 <MudText>Repositories: @_storage.RepositoryRoot</MudText>
                 <MudText>Temporary work: @_storage.TemporaryRoot</MudText>
-                <MudText>LFS configuration: @_storage.LfsProvider · @_storage.LfsLocation</MudText>
-                <MudText>Backup configuration: @_storage.BackupProvider · @_storage.BackupLocation</MudText>
-                <MudText Color="Color.Secondary" Class="mt-3">Storage paths are configured on GitHost under CSweet:SourceControl:Storage. Use a host directory or mounted NAS share for repositories. LFS and backup configuration supports filesystem or S3-compatible endpoints such as MinIO. Object-store configuration shown here is not a connectivity check.</MudText>
+                <MudText>LFS configuration: @_storage.LfsProvider Â· @_storage.LfsLocation</MudText>
+                <MudText>Backup storage: @_storage.BackupProvider Â· @_storage.BackupLocation</MudText>
+                <MudText Color="Color.Secondary" Class="mt-3">Storage paths are configured on GitHost under CSweet:SourceControl:Storage. Use a host directory or mounted NAS share for repositories. LFS and backup configuration supports filesystem or S3-compatible endpoints such as MinIO. Choose each business's default provider and manage repository backups on its source-control page. New businesses default to internal Git. Object-store configuration shown here is not a connectivity check.</MudText>
                 <MudText Color="Color.Secondary">Relocation requires a maintenance window: stop writes, copy and verify data, update configuration, and restart. A custom repository root requires ExpectedStoreId and a matching .csweet-git-store marker.</MudText>
             </MudPaper>
         }

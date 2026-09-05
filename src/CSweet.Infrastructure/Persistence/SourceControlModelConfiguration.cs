@@ -7,6 +7,15 @@ internal static class SourceControlModelConfiguration
 {
     public static void Configure(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<SourceControlBusinessSettings>(entity =>
+        {
+            entity.HasKey(x => x.OrganizationId);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasOne<SourceControlRepositoryTemplate>().WithMany()
+                .HasForeignKey(x => new { x.OrganizationId, x.DefaultTemplateId })
+                .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<PlatformGitHubAppCredential>(entity =>
         {
             entity.HasKey(x => x.Id);

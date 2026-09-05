@@ -126,6 +126,13 @@ app.MapPost("/internal/v2/workspaces/prepare", async (
     }
 });
 
+app.MapGet("/internal/v3/backups/{business:guid}", async (Guid business, InternalGitRepositoryStore store, CancellationToken ct) => Results.Ok(await store.ListBackupsAsync(business, ct)));
+app.MapPost("/internal/v3/backups/create", async (InternalGitBackupRequest request, InternalGitRepositoryStore store, CancellationToken ct) => Results.Ok(await store.CreateBackupAsync(request, ct)));
+app.MapPost("/internal/v3/backups/restore", async (InternalGitBackupRestoreRequest request, InternalGitRepositoryStore store, CancellationToken ct) => Results.Ok(await store.RestoreBackupAsync(request, ct)));
+app.MapPost("/internal/v3/backups/delete", async (InternalGitBackupRequest request, InternalGitRepositoryStore store, CancellationToken ct) => { await store.DeleteBackupAsync(request, ct); return Results.NoContent(); });
+
+app.MapPost("/internal/v3/lfs/locks", async (InternalGitLockRequest request, InternalGitRepositoryStore store, CancellationToken ct) => Results.Ok(await store.LocksAsync(request, ct)));
+
 app.MapPost("/internal/v3/lfs", async (InternalGitLfsTransfer request, InternalGitRepositoryStore store, CancellationToken ct) =>
     Results.Ok(await store.TransferLfsAsync(request, ct))).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(180L * 1024 * 1024));
 

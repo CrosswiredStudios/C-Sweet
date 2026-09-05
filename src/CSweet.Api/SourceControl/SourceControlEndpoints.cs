@@ -136,6 +136,24 @@ public static class SourceControlEndpoints
         var group = endpoints.MapGroup("/api/organizations/{organizationId:guid}/source-control")
             .RequireAuthorization();
 
+        group.MapGet("/defaults", async (Guid organizationId, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.BusinessDefaultsAsync(organizationId, user, ct)));
+        group.MapPut("/defaults", async (Guid organizationId, UpdateBusinessSourceControlDefaults request, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.UpdateBusinessDefaultsAsync(organizationId, user, request, ct)));
+
+        group.MapGet("/internal/backups", async (Guid organizationId, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.BackupsAsync(organizationId, user, ct)));
+        group.MapPost("/internal/repositories/{id:guid}/backups", async (Guid organizationId, Guid id, CreateInternalGitBackupRequest request, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.BackupAsync(organizationId, user, id, request, ct)));
+        group.MapPost("/internal/backups/{source:guid}/{backup:guid}/restore", async (Guid organizationId, Guid source, Guid backup, RestoreInternalGitBackupRequest request, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.RestoreBackupAsync(organizationId, user, source, backup, request, ct)));
+        group.MapDelete("/internal/backups/{source:guid}/{backup:guid}", async (Guid organizationId, Guid source, Guid backup, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.DeleteBackupAsync(organizationId, user, source, backup, ct)));
+
         group.MapGet("/internal/repositories", async (Guid organizationId, HttpContext http,
             InternalRepositoryManagementService service, CancellationToken ct) =>
             await ExecuteAsync(http, user => service.ListAsync(organizationId, user, ct)));
@@ -162,6 +180,8 @@ public static class SourceControlEndpoints
         group.MapGet("/internal/repositories/{id:guid}/proposals/{proposalId:guid}", async (Guid organizationId, Guid id, Guid proposalId, HttpContext http,
             InternalRepositoryManagementService service, CancellationToken ct) =>
             await ExecuteAsync(http, user => service.ProposalDiffAsync(organizationId, user, id, proposalId, ct)));
+        group.MapPost("/internal/repositories/{id:guid}/locks", async (Guid organizationId, Guid id, ManageInternalGitLockRequest request, HttpContext http, InternalGitAccessService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.ManageLocksAsync(organizationId, id, user, request, ct)));
         group.MapGet("/internal/repositories/{id:guid}/access", async (Guid organizationId, Guid id, HttpContext http, IConfiguration configuration, InternalGitAccessService service, CancellationToken ct) =>
             await ExecuteAsync(http, async user => new InternalGitAccessList(
                 $"{(configuration["CSweet:SourceControl:PublicGitBaseUrl"] ?? $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}").TrimEnd('/')}/git/{organizationId:D}/{id:D}.git",

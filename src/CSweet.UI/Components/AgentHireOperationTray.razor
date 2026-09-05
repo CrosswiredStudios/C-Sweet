@@ -10,7 +10,7 @@
     <aside class="agent-hire-tray" aria-live="polite" aria-label="Background operation progress">
         @foreach (var operation in HireOperations.Operations)
         {
-            <MudPaper Class="@ToastClass(operation)" Elevation="0">
+            <section class="@ToastClass(operation)">
                 <div class="agent-hire-toast-icon" aria-hidden="true">
                     <MudIcon Icon="@StatusIcon(operation.Status)" />
                 </div>
@@ -77,11 +77,11 @@
                         }
                     </div>
                 </div>
-            </MudPaper>
+            </section>
         }
         @foreach (var operation in BusinessOnboardingOperations.Operations)
         {
-            <MudPaper Class="@BusinessToastClass(operation)" Elevation="0">
+            <section class="@BusinessToastClass(operation)">
                 <div class="agent-hire-toast-icon" aria-hidden="true">
                     <MudIcon Icon="@BusinessStatusIcon(operation.Status)" />
                 </div>
@@ -152,7 +152,7 @@
                         }
                     </div>
                 </div>
-            </MudPaper>
+            </section>
         }
     </aside>
 }

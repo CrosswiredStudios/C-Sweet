@@ -6,6 +6,11 @@ The marketplace is a unified catalog of labor and capability. It should support 
 
 The marketplace is optional for self-hosted installations. The open-source core must support included workers and direct provider connections without requiring the official marketplace.
 
+## First-party agent sources
+
+The checked-in catalog is `src/CSweet.Api/first-party-agents.json`. Every first-party agent must have an available listing with its hosted GitHub repository URL, agent ID, role, and specializations. Hiring previews the repository manifest and pins the resolved commit before building through Office, as it does for Chief of Staff. The project's build path comes from that repository's manifest.
+
+Hiring does not scan local agent folders or sibling checkouts. Add new agents to this catalog when their repositories are ready; a local checkout alone does not make an agent available for hiring. Refresh candidate searches after updating the catalog; previously selected local-source candidates need to be replaced with the first-party listing.
 ## Marketplace offering types
 
 ### Local open-source worker

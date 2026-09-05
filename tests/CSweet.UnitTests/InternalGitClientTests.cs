@@ -115,6 +115,140 @@ public sealed class InternalGitClientTests
         Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(second, "texture.bin")));
     }
 
+    [Fact]
+    public async Task NativeLfsLocksPersistAcrossTokensAndRequireExplicitForceForAnotherOwner()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        var first = await fixture.CreateAsync(new("First writer", true));
+        var clone = Path.Combine(fixture.Root, "locks");
+        await fixture.GitOkAsync(first.Token, "clone", fixture.Url, clone);
+        await fixture.GitOkAsync(first.Token, "-C", clone, "lfs", "install", "--local");
+        await fixture.GitOkAsync(first.Token, "-C", clone, "lfs", "lock", "art/texture.bin");
+        Assert.NotEqual(0, (await fixture.GitAsync(first.Token, "-C", clone, "lfs", "lock", "art/texture.bin")).Code);
+        var rotated = await fixture.CreateAsync(new("Rotated writer", true));
+        var verification = await fixture.LockHttpAsync(rotated.Token, "POST", "locks/verify", "{}");
+        Assert.Equal(200, verification.Code);
+        using (var json = System.Text.Json.JsonDocument.Parse(verification.Body))
+        { Assert.Single(json.RootElement.GetProperty("ours").EnumerateArray()); Assert.Empty(json.RootElement.GetProperty("theirs").EnumerateArray()); }
+        var otherUser = Guid.NewGuid();
+        await fixture.WithDbAsync(async db => { db.CoreOrganizationUsers.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.Business,
+            ApplicationUserId = otherUser, DisplayName = "Other manager", EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Manager, IsActive = true }); await db.SaveChangesAsync(); });
+        var other = await fixture.CreateAsync(new("Other writer", true), otherUser);
+        Assert.NotEqual(0, (await fixture.GitAsync(other.Token, "-C", clone, "lfs", "unlock", "art/texture.bin")).Code);
+        await fixture.GitOkAsync(other.Token, "-C", clone, "lfs", "unlock", "--force", "art/texture.bin");
+        await fixture.GitOkAsync(rotated.Token, "-C", clone, "lfs", "lock", "art/texture.bin");
+        await fixture.GitOkAsync(first.Token, "-C", clone, "lfs", "unlock", "art/texture.bin");
+    }
+
+    [Fact]
+    public async Task LockApiPaginatesRejectsUnsafePathsAndRechecksRevokedAccess()
+    {
+        await using var fixture = await Fixture.StartAsync(); var writer = await fixture.CreateAsync(new("Writer", true));
+        var read = await fixture.CreateAsync(new("Read only"));
+        Assert.Equal(403, (await fixture.LockHttpAsync(read.Token, "POST", "locks", "{\"path\":\"asset.bin\"}")).Code);
+        Assert.Equal(400, (await fixture.LockHttpAsync(writer.Token, "POST", "locks", "{\"path\":\"../asset.bin\"}")).Code);
+        foreach (var path in new[] { "first.bin", "second.bin" })
+            Assert.Equal(201, (await fixture.LockHttpAsync(writer.Token, "POST", "locks", System.Text.Json.JsonSerializer.Serialize(new { path }))).Code);
+        var first = await fixture.LockHttpAsync(read.Token, "GET", "locks?limit=1");
+        using var page = System.Text.Json.JsonDocument.Parse(first.Body);
+        Assert.Single(page.RootElement.GetProperty("locks").EnumerateArray());
+        var lockedId = page.RootElement.GetProperty("locks")[0].GetProperty("id").GetString();
+        Assert.Equal(403, (await fixture.LockHttpAsync(read.Token, "POST", $"locks/{lockedId}/unlock", "{\"force\":true}")).Code);
+        Assert.Equal(403, (await fixture.LockHttpAsync(read.Token, "POST", "locks/verify", "{}")).Code);
+        var cursor = page.RootElement.GetProperty("next_cursor").GetString(); Assert.False(string.IsNullOrWhiteSpace(cursor));
+        var second = await fixture.LockHttpAsync(read.Token, "GET", "locks?limit=1&cursor=" + cursor);
+        using var next = System.Text.Json.JsonDocument.Parse(second.Body);
+        Assert.Single(next.RootElement.GetProperty("locks").EnumerateArray());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, next.RootElement.GetProperty("next_cursor").ValueKind);
+        await fixture.WithAccessAsync(s => s.RevokeAsync(fixture.Business, fixture.Repository, fixture.User, writer.Credential.Id, default));
+        Assert.Equal(401, (await fixture.LockHttpAsync(writer.Token, "GET", "locks")).Code);
+        Assert.Equal(200, (await fixture.LockHttpAsync(read.Token, "GET", "locks")).Code);
+    }
+
+    [Fact]
+    public async Task NativeLfsVerificationBlocksAnotherUsersLockedAssetPush()
+    {
+        await using var fixture = await Fixture.StartAsync(); var owner = await fixture.CreateAsync(new("Owner", true));
+        var clone = Path.Combine(fixture.Root, "locked-push");
+        await fixture.GitOkAsync(owner.Token, "clone", fixture.Url, clone);
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "lfs", "install", "--local");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "checkout", "-b", "locked-assets");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "lfs", "track", "--lockable", "*.bin");
+        await File.WriteAllTextAsync(Path.Combine(clone, "asset.bin"), "original asset");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "add", ".");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "commit", "-m", "Original asset");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "push", "origin", "HEAD");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "lfs", "lock", "asset.bin");
+        var user = Guid.NewGuid();
+        await fixture.WithDbAsync(async db => { db.CoreOrganizationUsers.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.Business, ApplicationUserId = user,
+            DisplayName = "Contributor", EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Manager, IsActive = true }); await db.SaveChangesAsync(); });
+        var contributor = await fixture.CreateAsync(new("Contributor", true), user);
+        await File.WriteAllTextAsync(Path.Combine(clone, "asset.bin"), "competing asset");
+        await fixture.GitOkAsync(contributor.Token, "-C", clone, "add", ".");
+        await fixture.GitOkAsync(contributor.Token, "-C", clone, "commit", "-m", "Competing asset");
+        var push = await fixture.GitAsync(contributor.Token, "-C", clone, "-c", "lfs.locksverify=true", "push", "origin", "HEAD");
+        Assert.NotEqual(0, push.Code); Assert.Contains("locked", push.Output, StringComparison.OrdinalIgnoreCase);
+        var bypass = await fixture.GitAsync(contributor.Token, "-C", clone, "-c", "core.hooksPath=", "-c", "lfs.locksverify=false", "push", "origin", "HEAD");
+        Assert.NotEqual(0, bypass.Code); Assert.Contains("locked file", bypass.Output, StringComparison.OrdinalIgnoreCase);
+        var newBranchBypass = await fixture.GitAsync(contributor.Token, "-C", clone, "-c", "core.hooksPath=", "push", "origin", "HEAD:bypass-branch");
+        Assert.NotEqual(0, newBranchBypass.Code); Assert.Contains("locked file", newBranchBypass.Output, StringComparison.OrdinalIgnoreCase);
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "-c", "lfs.locksverify=true", "push", "origin", "HEAD");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "lfs", "unlock", "asset.bin");
+        await fixture.GitOkAsync(contributor.Token, "-C", clone, "-c", "lfs.locksverify=true", "push", "origin", "HEAD");
+    }
+
+    [Fact]
+    public async Task LockManagementRequiresManagerAndArchivedRepositoriesRemainInspectable()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        var viewer = Guid.NewGuid();
+        await fixture.WithDbAsync(async db => { db.CoreOrganizationUsers.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.Business, ApplicationUserId = viewer,
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Viewer, IsActive = true }); await db.SaveChangesAsync(); });
+        await fixture.WithAccessAsync(async service =>
+        {
+            var created = await service.ManageLocksAsync(fixture.Business, fixture.Repository, fixture.User, new("create", Path: "art.bin"), default);
+            Assert.Equal(201, created.StatusCode);
+            Assert.Single((await service.ManageLocksAsync(fixture.Business, fixture.Repository, viewer, new("list"), default)).Locks);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ManageLocksAsync(fixture.Business, fixture.Repository, viewer, new("unlock", Id: created.Locks[0].Id, Force: true), default));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ManageLocksAsync(Guid.NewGuid(), fixture.Repository, fixture.User, new("list"), default));
+        });
+        await fixture.WithDbAsync(async db => { var repo = await db.SourceControlRepositories.SingleAsync(); repo.Status = SourceControlRepositoryStatus.Archived; repo.ArchivedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(); });
+        await fixture.WithAccessAsync(async service =>
+        {
+            Assert.Single((await service.ManageLocksAsync(fixture.Business, fixture.Repository, fixture.User, new("list"), default)).Locks);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ManageLocksAsync(fixture.Business, fixture.Repository, fixture.User, new("create", Path: "other.bin"), default));
+        });
+    }
+
+    [Fact]
+    public async Task ServerLocksUseLiteralPathsAndRejectRenameAndDeleteWithoutClientHooks()
+    {
+        await using var fixture = await Fixture.StartAsync(); var owner = await fixture.CreateAsync(new("Owner", true, true));
+        var clone = Path.Combine(fixture.Root, "literal-locks"); await fixture.GitOkAsync(owner.Token, "clone", fixture.Url, clone);
+        const string lockedPath = "asset [d] $.bin";
+        await File.WriteAllTextAsync(Path.Combine(clone, lockedPath), "original");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "add", ".");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "commit", "-m", "Original");
+        await fixture.GitOkAsync(owner.Token, "-C", clone, "push", "origin", "main");
+        Assert.Equal(201, (await fixture.LockHttpAsync(owner.Token, "POST", "locks", System.Text.Json.JsonSerializer.Serialize(new { path = lockedPath }))).Code);
+        var user = Guid.NewGuid();
+        await fixture.WithDbAsync(async db => { db.CoreOrganizationUsers.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.Business, ApplicationUserId = user,
+            DisplayName = "Other", EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Manager, IsActive = true }); await db.SaveChangesAsync(); });
+        var other = await fixture.CreateAsync(new("Other", true, true), user);
+        await File.WriteAllTextAsync(Path.Combine(clone, "asset d $.bin"), "unrelated");
+        await fixture.GitOkAsync(other.Token, "-C", clone, "add", ".");
+        await fixture.GitOkAsync(other.Token, "-C", clone, "commit", "-m", "Unrelated");
+        await fixture.GitOkAsync(other.Token, "-C", clone, "-c", "core.hooksPath=", "push", "origin", "main");
+        await fixture.GitOkAsync(other.Token, "-C", clone, "mv", "--", lockedPath, "renamed.bin");
+        await fixture.GitOkAsync(other.Token, "-C", clone, "commit", "-m", "Rename locked file");
+        var rename = await fixture.GitAsync(other.Token, "-C", clone, "-c", "core.hooksPath=", "push", "origin", "main");
+        Assert.NotEqual(0, rename.Code); Assert.Contains("locked file", rename.Output);
+        await fixture.GitOkAsync(other.Token, "-C", clone, "rm", "renamed.bin");
+        await fixture.GitOkAsync(other.Token, "-C", clone, "commit", "-m", "Delete locked file");
+        var deletion = await fixture.GitAsync(other.Token, "-C", clone, "-c", "core.hooksPath=", "push", "origin", "main");
+        Assert.NotEqual(0, deletion.Code); Assert.Contains("locked file", deletion.Output);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "csweet-client-tests", Guid.NewGuid().ToString("N"));
@@ -146,12 +280,19 @@ public sealed class InternalGitClientTests
             });
             await fixture._app.StartAsync(); return fixture;
         }
-        public async Task<CreatedInternalGitAccess> CreateAsync(CreateInternalGitAccessRequest request)
-        { using var scope = _app.Services.CreateScope(); return await scope.ServiceProvider.GetRequiredService<InternalGitAccessService>().CreateAsync(Business, Repository, User, request, default); }
+        public async Task<CreatedInternalGitAccess> CreateAsync(CreateInternalGitAccessRequest request, Guid? user = null)
+        { using var scope = _app.Services.CreateScope(); return await scope.ServiceProvider.GetRequiredService<InternalGitAccessService>().CreateAsync(Business, Repository, user ?? User, request, default); }
         public async Task WithAccessAsync(Func<InternalGitAccessService, Task> action)
         { using var scope = _app.Services.CreateScope(); await action(scope.ServiceProvider.GetRequiredService<InternalGitAccessService>()); }
         public async Task WithDbAsync(Func<CSweetDbContext, Task> action)
         { using var scope = _app.Services.CreateScope(); await action(scope.ServiceProvider.GetRequiredService<CSweetDbContext>()); }
+        public async Task<(int Code, string Body)> LockHttpAsync(string token, string method, string path, string? body = null)
+        {
+            using var client = new HttpClient(); using var request = new HttpRequestMessage(new HttpMethod(method), Url + "/info/lfs/" + path);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes("csweet:" + token)));
+            if (body is not null) request.Content = new StringContent(body, Encoding.UTF8, "application/vnd.git-lfs+json");
+            using var response = await client.SendAsync(request); return ((int)response.StatusCode, await response.Content.ReadAsStringAsync());
+        }
         public async Task GitOkAsync(string token, params string[] args)
         { var result = await GitAsync(token, args); Assert.True(result.Code == 0, result.Output); }
         public async Task<(int Code, string Output)> GitAsync(string token, params string[] args)
@@ -183,6 +324,7 @@ public sealed class InternalGitClientTests
     }
     private sealed class Host(InternalGitRepositoryStore store) : ITrustedSourceControlHostClient
     {
+        public Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken ct = default) => store.LocksAsync(request, ct);
         public Task<InternalGitLfsTransferResult> TransferInternalLfsAsync(InternalGitLfsTransfer request, CancellationToken ct = default) => store.TransferLfsAsync(request, ct);
         public Task<InternalGitHttpResponse> ExchangeInternalGitAsync(InternalGitHttpRequest request, CancellationToken ct = default) => store.ExchangeAsync(request, ct);
         public Task<TrustedInstallationDescriptor> DescribeInstallationAsync(long id, CancellationToken cancellationToken = default) => throw new NotSupportedException();

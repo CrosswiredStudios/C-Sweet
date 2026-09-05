@@ -1,0 +1,98 @@
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+
+<MudExpansionPanels><MudExpansionPanel Text="Repository backups">
+    <MudStack Spacing="2">
+        <MudText>Back up Git history and all referenced LFS files to the configured backup storage. Restore creates a separate private repository; assign its team access after inspection.</MudText>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        @if (_message is not null) { <MudAlert Severity="Severity.Success">@_message</MudAlert> }
+        <MudButton OnClick="RefreshAsync" Disabled="_busy">Refresh backups and repositories</MudButton>
+        <MudSelect T="Guid" @bind-Value="_repository" Label="Repository to back up" Disabled="@(_busy || _pendingBackup is not null)">
+            @foreach (var repository in _repositories.Where(r => r.Status is "Ready" or "Archived"))
+            { <MudSelectItem Value="repository.Id">@repository.Name</MudSelectItem> }
+        </MudSelect>
+        <MudButton OnClick="CreateAsync" Disabled="@(_busy || _repository == Guid.Empty)">@(_pendingBackup is null ? "Create backup" : "Retry backup")</MudButton>
+        @if (_backups.Count == 0) { <MudText>No completed backups in the configured storage.</MudText> }
+        @foreach (var backup in _backups)
+        {
+            <MudPaper Outlined="true" Class="pa-3">
+                <MudText>@RepositoryName(backup.RepositoryId) · @backup.CreatedAt.ToLocalTime().ToString("g")</MudText>
+                <MudText Typo="Typo.body2">@backup.RefCount refs · @backup.LfsObjectCount LFS files · @backup.ArchiveBytes.ToString("N0") bytes · default branch @backup.DefaultBranch</MudText>
+                <MudText Typo="Typo.caption">Backup @backup.Id</MudText>
+                <MudText Typo="Typo.caption" Style="overflow-wrap:anywhere">SHA-256: @backup.ArchiveSha256</MudText>
+                <MudButton OnClick="@(() => SelectRestore(backup))" Disabled="@(_busy || _restoreAttempted)">Restore into new repository</MudButton>
+                <MudButton Color="Color.Error" OnClick="@(() => _delete = backup)" Disabled="_busy">Delete backup</MudButton>
+            </MudPaper>
+        }
+        @if (_restore is not null)
+        {
+            <MudText>Restore backup @_restore.Id. Existing repositories will remain intact.</MudText>
+            <MudTextField @bind-Value="_restoreName" Label="New repository name" Disabled="@(_busy || _restoreAttempted)" />
+            <MudButton OnClick="RestoreAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_restoreName))">@(_restoreAttempted ? "Retry restore" : "Restore backup")</MudButton>
+            @if (_restoreAttempted)
+            {
+                <MudText>A failed or interrupted restore may leave a pending repository. Retry to finish it, or dismiss this form to start another restore.</MudText>
+                <MudButton OnClick="@(() => { _restore = null; _restoreAttempted = false; })" Disabled="_busy">Dismiss restore</MudButton>
+            }
+            @if (!_restoreAttempted) { <MudButton OnClick="@(() => _restore = null)" Disabled="_busy">Cancel</MudButton> }
+        }
+        @if (_delete is not null)
+        {
+            <MudAlert Severity="Severity.Warning">Permanently delete backup @_delete.Id? This removes its archived history and LFS files from backup storage.</MudAlert>
+            <MudButton Color="Color.Error" OnClick="DeleteAsync" Disabled="_busy">Confirm backup deletion</MudButton>
+            <MudButton OnClick="@(() => _delete = null)" Disabled="_busy">Cancel</MudButton>
+        }
+    </MudStack>
+</MudExpansionPanel></MudExpansionPanels>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    private List<SourceControlRepositorySummary> _repositories = [];
+    private List<InternalGitBackupSummary> _backups = [];
+    private Guid _repository, _restoreId;
+    private Guid? _pendingBackup;
+    private InternalGitBackupSummary? _restore, _delete;
+    private bool _busy, _restoreAttempted;
+    private string _restoreName = "";
+    private string? _error, _message;
+    private string Endpoint => $"api/organizations/{OrganizationId:D}/source-control/internal";
+    protected override Task OnInitializedAsync() => RefreshAsync();
+    private string RepositoryName(Guid id) => _repositories.FirstOrDefault(r => r.Id == id)?.Name ?? id.ToString();
+    private Task RefreshAsync() => RunAsync(LoadAsync);
+    private async Task LoadAsync()
+    {
+        _repositories = await Http.GetFromJsonAsync<List<SourceControlRepositorySummary>>($"{Endpoint}/repositories") ?? [];
+        _backups = await Http.GetFromJsonAsync<List<InternalGitBackupSummary>>($"{Endpoint}/backups") ?? [];
+    }
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        _pendingBackup ??= Guid.NewGuid();
+        using var response = await Http.PostAsJsonAsync($"{Endpoint}/repositories/{_repository:D}/backups", new CreateInternalGitBackupRequest(_pendingBackup.Value));
+        await CheckAsync(response); _pendingBackup = null; _message = "Backup completed."; await LoadAsync();
+    });
+    private void SelectRestore(InternalGitBackupSummary backup)
+    { _restore = backup; _restoreId = Guid.NewGuid(); _restoreName = ""; _restoreAttempted = false; }
+    private Task RestoreAsync() => RunAsync(async () =>
+    {
+        if (_restore is null) return;
+        _restoreAttempted = true;
+        using var response = await Http.PostAsJsonAsync($"{Endpoint}/backups/{_restore.RepositoryId:D}/{_restore.Id:D}/restore", new RestoreInternalGitBackupRequest(_restoreId, _restoreName));
+        await CheckAsync(response);
+        _message = $"Restored into {_restoreName}. Refresh the repository list to inspect it and assign team access.";
+        _restore = null; _restoreAttempted = false; await LoadAsync();
+    });
+    private Task DeleteAsync() => RunAsync(async () =>
+    {
+        if (_delete is null) return;
+        using var response = await Http.DeleteAsync($"{Endpoint}/backups/{_delete.RepositoryId:D}/{_delete.Id:D}");
+        await CheckAsync(response); _delete = null; _message = "Backup deleted."; await LoadAsync();
+    });
+    private static async Task CheckAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var body = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        throw new InvalidOperationException(body.TryGetProperty("message", out var message) ? message.GetString() : "Backup operation failed.");
+    }
+    private async Task RunAsync(Func<Task> action)
+    { _busy = true; _error = null; _message = null; try { await action(); } catch (Exception ex) { _error = ex.Message; } finally { _busy = false; } }
+}

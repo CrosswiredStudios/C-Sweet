@@ -21,9 +21,12 @@ public sealed partial class InternalGitRepositoryStore
         Directory.CreateDirectory(hooks);
         var protectedRefs = Path.Combine(hooks, "protected-refs");
         await File.WriteAllTextAsync(protectedRefs, string.Join("\n", request.ProtectedBranches.Select(b => "refs/heads/" + b)) + "\n", new UTF8Encoding(false), ct);
+        var lockedPaths = Path.Combine(hooks, "locked-paths");
+        var locks = request.Service == "git-receive-pack" && !request.Advertise ? await ReadFileLocksAsync(repository, ct) : [];
+        await File.WriteAllTextAsync(lockedPaths, string.Join("\n", locks.Where(l => l.OwnerId != request.ActorId).Select(l => l.Path)) + "\n", new UTF8Encoding(false), ct);
         var hook = Path.Combine(hooks, "pre-receive");
         // This is trusted host code, never sourced from a repository tree. Values enter through a data file.
-        const string script = "#!/bin/sh\nwhile read old new ref; do\n case \"$ref\" in refs/heads/*|refs/tags/*) ;; *) echo 'Unsupported ref namespace' >&2; exit 1 ;; esac\n while IFS= read -r protected; do\n  if [ \"$ref\" = \"$protected\" ]; then echo 'C-Sweet protects this branch' >&2; exit 1; fi\n done < \"$CSWEET_PROTECTED_REFS\"\ndone\nexit 0\n";
+        const string script = "#!/bin/sh\nzero=0000000000000000000000000000000000000000\nwhile read old new ref; do\n case \"$ref\" in refs/heads/*|refs/tags/*) ;; *) echo 'Unsupported ref namespace' >&2; exit 1 ;; esac\n while IFS= read -r protected; do\n  if [ \"$ref\" = \"$protected\" ]; then echo 'C-Sweet protects this branch' >&2; exit 1; fi\n done < \"$CSWEET_PROTECTED_REFS\"\n while IFS= read -r locked; do\n  [ -n \"$locked\" ] || continue\n  before=\"$old\"\n  after=\"$new\"\n  if [ \"$old\" = \"$zero\" ]; then\n   before=$(\"$CSWEET_GIT_EXECUTABLE\" merge-base HEAD \"$new\" 2>/dev/null) || before=$(\"$CSWEET_GIT_EXECUTABLE\" hash-object -t tree --stdin </dev/null) || exit 1\n  fi\n  if [ \"$new\" = \"$zero\" ]; then\n   after=$(\"$CSWEET_GIT_EXECUTABLE\" hash-object -t tree --stdin </dev/null) || exit 1\n  fi\n  if ! \"$CSWEET_GIT_EXECUTABLE\" -c core.longpaths=true diff --quiet --no-ext-diff --no-textconv --no-renames \"$before\" \"$after\" -- \":(literal)$locked\"; then\n   echo \"C-Sweet rejects changes to locked file: $locked\" >&2\n   exit 1\n  fi\n done < \"$CSWEET_LOCKED_PATHS\"\ndone\nexit 0\n";
         await File.WriteAllTextAsync(hook, script, new UTF8Encoding(false), ct);
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         var start = new ProcessStartInfo(_options.GitExecutable) { UseShellExecute = false, CreateNoWindow = true,
@@ -32,6 +35,8 @@ public sealed partial class InternalGitRepositoryStore
         start.Environment["GIT_CONFIG_NOSYSTEM"] = "1";
         start.Environment["GIT_CONFIG_GLOBAL"] = OperatingSystem.IsWindows() ? "NUL" : "/dev/null";
         start.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        start.Environment["CSWEET_GIT_EXECUTABLE"] = _options.GitExecutable.Replace('\\', '/');
+        start.Environment["CSWEET_LOCKED_PATHS"] = lockedPaths.Replace('\\', '/');
         start.Environment["CSWEET_PROTECTED_REFS"] = protectedRefs.Replace('\\', '/');
         foreach (var config in new[] { "core.hooksPath=" + hooks.Replace('\\', '/'), "core.longpaths=true", "protocol.allow=never",
             "uploadpack.hideRefs=refs/csweet", "receive.hideRefs=refs/csweet", "receive.fsckObjects=true", "receive.denyNonFastForwards=true", "receive.advertiseAtomic=true" })

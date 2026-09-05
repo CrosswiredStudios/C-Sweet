@@ -101,6 +101,7 @@ public sealed class RepositoryProvisioningProcessorTests
             DisplayName = "Approved template", DefaultBranch = "main", IsEnabled = true,
             CreatedAt = now, UpdatedAt = now
         };
+        policy.ApprovedTemplatesJson = System.Text.Json.JsonSerializer.Serialize(new[] { template.Id });
         var request = new RepositoryProvisioningRequest
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, ConnectionId = connection.Id,

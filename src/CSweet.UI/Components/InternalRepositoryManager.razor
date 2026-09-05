@@ -54,6 +54,7 @@
                 }
             }
             <InternalGitClientAccess @key="_details.Repository.Id" OrganizationId="OrganizationId" RepositoryId="_details.Repository.Id" CanManage="CanManage" />
+            <InternalGitLocks OrganizationId="OrganizationId" RepositoryId="_details.Repository.Id" CanManage="@(CanManage && _details.Repository.Status == "Ready")" />
             <MudText Typo="Typo.subtitle1">Team access</MudText>
             @foreach (var access in _teamAccess)
             {

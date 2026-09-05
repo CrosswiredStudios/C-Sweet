@@ -192,6 +192,436 @@
           "Availability": "Available",
           "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA",
           "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA#readme"
+        },
+        {
+          "Id": "bc0aa80d-f238-4d81-bd1a-18a49ae90d36",
+          "AgentId": "com.csweet.video-game-art-director",
+          "ListingSlug": "video-game-art-director",
+          "Name": "Video Game Art Director",
+          "Summary": "Owns art direction, visual targets, asset briefs, consistency review, and final visual findings.",
+          "Category": "Creative",
+          "RoleKey": "game-art-director",
+          "RoleName": "Video Game Art Director",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "art-direction"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.ArtDirector.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.ArtDirector.VideoGame#readme"
+        },
+        {
+          "Id": "295762ef-ab27-4ece-8e97-3a4d42c93a73",
+          "AgentId": "com.csweet.video-game-artist",
+          "ListingSlug": "video-game-artist",
+          "Name": "Video Game Artist",
+          "Summary": "Creates and curates project assets under the approved asset-production strategy.",
+          "Category": "Creative",
+          "RoleKey": "game-artist",
+          "RoleName": "Video Game Artist",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "asset-production"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Artist.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Artist.VideoGame#readme"
+        },
+        {
+          "Id": "1da78215-23c3-4067-b2ad-06a7ef3094fa",
+          "AgentId": "com.csweet.video-game-audio-designer",
+          "ListingSlug": "video-game-audio-designer",
+          "Name": "Video Game Audio Designer",
+          "Summary": "Owns audio direction, assets or briefs, implementation metadata, loudness, looping, and accessibility.",
+          "Category": "Creative",
+          "RoleKey": "audio-designer",
+          "RoleName": "Video Game Audio Designer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "audio-design"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.AudioDesigner.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.AudioDesigner.VideoGame#readme"
+        },
+        {
+          "Id": "705cadca-2018-4da7-a4e3-c8197431cc95",
+          "AgentId": "com.csweet.video-game-build-release-engineer",
+          "ListingSlug": "video-game-build-release-engineer",
+          "Name": "Video Game Build Release Engineer",
+          "Summary": "Owns build configuration, adapter operations, packaging, release-readiness evidence, and publication proposals.",
+          "Category": "Engineering",
+          "RoleKey": "game-build-release-engineer",
+          "RoleName": "Video Game Build Release Engineer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "build-release-engineering",
+            "build-diagnostics"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.BuildReleaseEngineer.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.BuildReleaseEngineer.VideoGame#readme"
+        },
+        {
+          "Id": "69c1a382-5223-41cf-a68d-6c7ff1fcfc26",
+          "AgentId": "com.csweet.video-game-engineer",
+          "ListingSlug": "video-game-engineer",
+          "Name": "Video Game Engineer",
+          "Summary": "Implements tested gameplay and runtime code, integrations, source-control delivery, and build fixes.",
+          "Category": "Engineering",
+          "RoleKey": "game-engineer",
+          "RoleName": "Video Game Engineer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "gameplay-programming",
+            "gameplay-systems",
+            "engine-integration",
+            "automated-testing",
+            "build-diagnostics"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Engineer.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Engineer.VideoGame#readme"
+        },
+        {
+          "Id": "0ac38b06-d168-4bfa-8c7f-1aad901a649d",
+          "AgentId": "com.csweet.video-game-designer",
+          "ListingSlug": "video-game-designer",
+          "Name": "Video Game Designer",
+          "Summary": "Accountable game designer for mechanics, gameplay systems, progression, balance, prototype hypotheses, and content rules.",
+          "Category": "Creative",
+          "RoleKey": "game-designer",
+          "RoleName": "Video Game Designer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [
+            "Game Designer",
+            "Systems Designer"
+          ],
+          "SpecializationKeys": [
+            "video-game-development",
+            "game-design",
+            "gameplay-systems",
+            "progression-balance",
+            "game-content",
+            "prototype-design"
+          ],
+          "Keywords": [
+            "game design",
+            "gameplay systems",
+            "progression",
+            "balance"
+          ],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.GameDesigner",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.GameDesigner#readme"
+        },
+        {
+          "Id": "cf2e1dac-ed84-4296-9ee2-fa428c5b31ed",
+          "AgentId": "com.csweet.video-game-level-designer",
+          "ListingSlug": "video-game-level-designer",
+          "Name": "Video Game Level Designer",
+          "Summary": "Owns level flows, encounters, pacing, content assembly, metrics, and playable level evidence.",
+          "Category": "Design",
+          "RoleKey": "level-designer",
+          "RoleName": "Video Game Level Designer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "level-design",
+            "game-content"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.LevelDesigner.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.LevelDesigner.VideoGame#readme"
+        },
+        {
+          "Id": "0d6466a6-7610-4ed0-af45-61bcd4a506eb",
+          "AgentId": "com.csweet.video-game-narrative-designer",
+          "ListingSlug": "video-game-narrative-designer",
+          "Name": "Video Game Narrative Designer",
+          "Summary": "Owns world, story, characters, dialogue, narrative systems, and implementation specifications.",
+          "Category": "Creative",
+          "RoleKey": "narrative-designer",
+          "RoleName": "Video Game Narrative Designer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "narrative-design"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.NarrativeDesigner.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.NarrativeDesigner.VideoGame#readme"
+        },
+        {
+          "Id": "f6aed414-763e-4578-b724-f87e9c1d1fc5",
+          "AgentId": "com.csweet.video-game-playtest-researcher",
+          "ListingSlug": "video-game-playtest-researcher",
+          "Name": "Video Game Playtest Researcher",
+          "Summary": "Plans consent-governed evaluations and produces evidence-backed playtest findings.",
+          "Category": "Research",
+          "RoleKey": "playtest-researcher",
+          "RoleName": "Video Game Playtest Researcher",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "playtest-planning",
+            "research-design",
+            "consent-governance",
+            "research-analysis"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.PlaytestResearcher.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.PlaytestResearcher.VideoGame#readme"
+        },
+        {
+          "Id": "53067896-63fd-47d4-be26-9365bbbefef4",
+          "AgentId": "com.csweet.video-game-qa",
+          "ListingSlug": "video-game-qa",
+          "Name": "Video Game QA",
+          "Summary": "Owns test plans, build validation, reproducible defects, regression, compatibility, accessibility checks, and evidence.",
+          "Category": "Quality",
+          "RoleKey": "game-quality-assurance",
+          "RoleName": "Video Game QA",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "test-planning",
+            "build-validation",
+            "defect-reproduction",
+            "regression-testing",
+            "compatibility-testing",
+            "accessibility-testing"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.QA.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.QA.VideoGame#readme"
+        },
+        {
+          "Id": "e29d39dd-50e3-49e5-9aca-f9bfb13ef544",
+          "AgentId": "com.csweet.video-game-technical-artist",
+          "ListingSlug": "video-game-technical-artist",
+          "Name": "Video Game Technical Artist",
+          "Summary": "Owns import pipelines, shaders, materials, rigs, compression, engine readiness, and visual performance.",
+          "Category": "Creative",
+          "RoleKey": "technical-artist",
+          "RoleName": "Video Game Technical Artist",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "asset-pipelines",
+            "engine-integration",
+            "visual-performance"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.TechnicalArtist.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.TechnicalArtist.VideoGame#readme"
+        },
+        {
+          "Id": "11d9e498-982c-4096-be71-9d99822b7348",
+          "AgentId": "com.csweet.video-game-technical-director",
+          "ListingSlug": "video-game-technical-director",
+          "Name": "Video Game Technical Director",
+          "Summary": "Owns engine feasibility, runtime architecture, performance budgets, technical standards, and technical approvals.",
+          "Category": "Engineering",
+          "RoleKey": "game-technical-director",
+          "RoleName": "Video Game Technical Director",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "technical-feasibility",
+            "runtime-architecture",
+            "engine-integration",
+            "performance-budgets",
+            "technical-decomposition"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.TechnicalDirector.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.TechnicalDirector.VideoGame#readme"
+        },
+        {
+          "Id": "6c9cdfb2-8114-4b09-91a8-24eebb8db0fe",
+          "AgentId": "com.csweet.video-game-ui-ux-accessibility-designer",
+          "ListingSlug": "video-game-ui-ux-accessibility-designer",
+          "Name": "Video Game UI UX Accessibility Designer",
+          "Summary": "Owns flows, HUD, controls, input alternatives, readability, usability, and accessibility acceptance.",
+          "Category": "Design",
+          "RoleKey": "game-ui-ux-accessibility-designer",
+          "RoleName": "Video Game UI UX Accessibility Designer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "work.execution.run.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1"
+          ],
+          "RoleAliases": [],
+          "SpecializationKeys": [
+            "video-game-development",
+            "ui-ux-accessibility-design",
+            "accessibility-testing"
+          ],
+          "Keywords": [],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.UiUxAccessibilityDesigner.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.UiUxAccessibilityDesigner.VideoGame#readme"
+        },
+        {
+          "Id": "f46d3cab-7d85-42ab-bf88-d794cb9208ec",
+          "AgentId": "com.csweet.youtube-account-manager",
+          "ListingSlug": "youtube-account-manager",
+          "Name": "YouTube Account Manager",
+          "Summary": "Securely manages one YouTube channel's content, engagement, live operations, and official metrics.",
+          "Category": "Marketing",
+          "RoleKey": "youtube-account-manager",
+          "RoleName": "YouTube Account Manager",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "assistant.converse.v1",
+            "management.check-in.v1",
+            "agent.configuration.describe.v1",
+            "agent.configuration.update.v1",
+            "youtube.setup.channels.v1",
+            "youtube.setup.validate.v1",
+            "youtube.account.sync.v1",
+            "youtube.video.publish.v1",
+            "youtube.video.manage.v1",
+            "youtube.engagement.manage.v1",
+            "youtube.live.manage.v1",
+            "youtube.partner.manage.v1",
+            "youtube.analytics.report.v1"
+          ],
+          "RoleAliases": [
+            "YouTube Manager",
+            "Video Content Manager",
+            "Community Manager"
+          ],
+          "SpecializationKeys": [
+            null
+          ],
+          "Keywords": [
+            "youtube",
+            "video",
+            "comments",
+            "analytics",
+            "live"
+          ],
+          "IsFeatured": false,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.YouTubeAccountManager",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.YouTubeAccountManager#readme"
         }
       ]
     }

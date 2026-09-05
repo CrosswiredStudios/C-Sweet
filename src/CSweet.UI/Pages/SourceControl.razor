@@ -41,7 +41,7 @@
         }
         else
         {
-            @if (_dashboard.CanManageSourceControl) { <InternalProvisioningSettings OrganizationId="OrganizationId" /> }
+            @if (_dashboard.CanManageSourceControl) { <BusinessSourceControlDefaultsEditor OrganizationId="OrganizationId" /><InternalProvisioningSettings OrganizationId="OrganizationId" /><InternalGitBackups OrganizationId="OrganizationId" /> }
             <InternalRepositoryManager OrganizationId="OrganizationId" CanManage="_dashboard.CanManageSourceControl" SelectedRepository="SelectedRepository" SelectedReference="SelectedReference" />
             @if (!_dashboard.PlatformReadiness.ExistingGitHubAvailable)
             {

@@ -1,3 +1,4 @@
+using CSweet.Application.Agents;
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Infrastructure.Agents;
@@ -169,6 +170,48 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
             capability => capability.GetString() == "engineering.quality");
     }
 
+    [Theory]
+    [InlineData("com.csweet.infrastructure-engineer.namecheap", "https://github.com/CrosswiredStudios/CSweet.Agent.InfrastructureEngineer.Namecheap")]
+    [InlineData("com.csweet.chief-of-staff", "https://github.com/CrosswiredStudios/CSweet.Agent.ChiefOfStaff")]
+    [InlineData("com.csweet.product-manager", "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareProductManager")]
+    [InlineData("com.csweet.video-game-creative-director", "https://github.com/CrosswiredStudios/CSweet.Agent.CreativeDirector.VideoGame")]
+    [InlineData("com.csweet.video-game-producer", "https://github.com/CrosswiredStudios/CSweet.Agent.Producer.VideoGame")]
+    [InlineData("com.csweet.software-developer", "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper")]
+    [InlineData("com.csweet.software-architect", "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareArchitect")]
+    [InlineData("com.csweet.software-qa", "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA")]
+    [InlineData("com.csweet.video-game-art-director", "https://github.com/CrosswiredStudios/CSweet.Agent.ArtDirector.VideoGame")]
+    [InlineData("com.csweet.video-game-artist", "https://github.com/CrosswiredStudios/CSweet.Agent.Artist.VideoGame")]
+    [InlineData("com.csweet.video-game-audio-designer", "https://github.com/CrosswiredStudios/CSweet.Agent.AudioDesigner.VideoGame")]
+    [InlineData("com.csweet.video-game-build-release-engineer", "https://github.com/CrosswiredStudios/CSweet.Agent.BuildReleaseEngineer.VideoGame")]
+    [InlineData("com.csweet.video-game-engineer", "https://github.com/CrosswiredStudios/CSweet.Agent.Engineer.VideoGame")]
+    [InlineData("com.csweet.video-game-designer", "https://github.com/CrosswiredStudios/CSweet.Agent.GameDesigner")]
+    [InlineData("com.csweet.video-game-level-designer", "https://github.com/CrosswiredStudios/CSweet.Agent.LevelDesigner.VideoGame")]
+    [InlineData("com.csweet.video-game-narrative-designer", "https://github.com/CrosswiredStudios/CSweet.Agent.NarrativeDesigner.VideoGame")]
+    [InlineData("com.csweet.video-game-playtest-researcher", "https://github.com/CrosswiredStudios/CSweet.Agent.PlaytestResearcher.VideoGame")]
+    [InlineData("com.csweet.video-game-qa", "https://github.com/CrosswiredStudios/CSweet.Agent.QA.VideoGame")]
+    [InlineData("com.csweet.video-game-technical-artist", "https://github.com/CrosswiredStudios/CSweet.Agent.TechnicalArtist.VideoGame")]
+    [InlineData("com.csweet.video-game-technical-director", "https://github.com/CrosswiredStudios/CSweet.Agent.TechnicalDirector.VideoGame")]
+    [InlineData("com.csweet.video-game-ui-ux-accessibility-designer", "https://github.com/CrosswiredStudios/CSweet.Agent.UiUxAccessibilityDesigner.VideoGame")]
+    [InlineData("com.csweet.youtube-account-manager", "https://github.com/CrosswiredStudios/CSweet.Agent.YouTubeAccountManager")]
+    public async Task FirstPartyAgent_ResolvesHostedRepository(string agentId, string repositoryUrl)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(RepositoryRoot(), "src", "CSweet.Api", "first-party-agents.json")));
+        var options = document.RootElement.GetProperty("CSweet").GetProperty("Marketplace")
+            .Deserialize<MarketplaceOptions>()!;
+        Assert.Equal(options.FirstPartyAgents.Count, options.FirstPartyAgents.Select(x => x.Id).Distinct().Count());
+        Assert.Equal(options.FirstPartyAgents.Count, options.FirstPartyAgents.Select(x => x.AgentId).Distinct().Count());
+        var provider = new FirstPartyAgentCatalogProvider(Options.Create(options));
+        var result = await provider.SearchAsync(null, new AvailableAgentSearchQuery());
+        var agent = Assert.Single(result.Agents, x => x.AgentId == agentId);
+        Assert.Equal(repositoryUrl, agent.RepositoryUrl);
+        Assert.Equal(AgentAvailabilityState.AvailableToInstall, agent.Availability);
+        Assert.False(string.IsNullOrWhiteSpace(agent.RoleKey));
+        var resolved = await provider.ResolveAsync(null, agent.AgentReference);
+        Assert.NotNull(resolved);
+        Assert.Equal(repositoryUrl, resolved.RepositoryUrl);
+        Assert.Equal(AgentCatalogSource.FirstPartyCatalog, resolved.Source);
+    }
     private static string RepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

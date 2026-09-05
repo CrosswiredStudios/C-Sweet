@@ -29,9 +29,6 @@ var postgresServer = builder.AddPostgres("postgres", userName: postgresUserName,
 var postgres = postgresServer.AddDatabase("csweet", postgresDatabaseName);
 
 var repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
-var localAgentDirectory = ResolveLocalAgentDirectory(
-    builder.Configuration["CSweet:AgentCatalog:LocalDirectoryPath"],
-    repositoryRoot);
 var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 var localStateDirectory = string.IsNullOrWhiteSpace(localAppData)
     ? Path.Combine(repositoryRoot, ".csweet")
@@ -83,7 +80,6 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WithReference(postgres)
     .WithReference(agentHostEndpoint)
     .WithEnvironment("CSweet__AgentRuntime__AgentHostBroker__BaseUrl", agentHostEndpoint)
-    .WithEnvironment("CSweet__AgentCatalog__LocalDirectoryPath", localAgentDirectory)
     .WithEnvironment("CSweet__GenAi__MediaRoot", Path.Combine(localStateDirectory, "media"))
     .WithEnvironment("CSweet__Marketplace__Enabled", marketplaceEnabled)
     .WithEnvironment("CSweet__Marketplace__BaseUrl", marketplaceBaseUrl)
@@ -304,32 +300,5 @@ static string? DeriveScopedKey(string? rootKeyBase64, string purpose)
     catch (FormatException)
     {
         return null;
-    }
-}
-
-static string ResolveLocalAgentDirectory(string? configured, string repositoryRoot)
-{
-    if (!string.IsNullOrWhiteSpace(configured))
-        return Path.GetFullPath(Path.IsPathRooted(configured)
-            ? configured
-            : Path.Combine(repositoryRoot, configured));
-
-    var workspaceRoot = Directory.GetParent(repositoryRoot)?.FullName;
-    if (!string.IsNullOrWhiteSpace(workspaceRoot) && ContainsAgentCheckout(workspaceRoot))
-        return workspaceRoot;
-
-    return Path.Combine(repositoryRoot, "Plugins", "Agents");
-}
-
-static bool ContainsAgentCheckout(string directory)
-{
-    try
-    {
-        return Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly)
-            .Any(candidate => File.Exists(Path.Combine(candidate, "csweet-plugin.json")));
-    }
-    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-    {
-        return false;
     }
 }
