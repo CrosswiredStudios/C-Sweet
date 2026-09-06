@@ -4,6 +4,10 @@ using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using CSweet.Contracts.Plugins;
+using CSweet.Domain.Setup;
+using CSweet.Infrastructure.Setup;
 
 namespace CSweet.Infrastructure.Communications;
 
@@ -110,6 +114,26 @@ public sealed class AgentCommunicationOnboardingService : IAgentCommunicationOnb
             }
         }
 
+        if (!queueLifecycleEvent)
+        {
+            var packageJson = await _db.AgentInstallations.AsNoTracking()
+                .Where(x => x.Id == agent.AgentInstallationId && x.BusinessId == organizationId.ToString())
+                .Select(x => x.PackageVersion!.ManifestJson).SingleOrDefaultAsync(cancellationToken);
+            var manifest = JsonSerializer.Deserialize<PluginManifest>(packageJson ?? "{}", new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            if (manifest is not null && PluginSetupAssistancePolicy.Enabled(manifest))
+            {
+                var obligation = _db.PluginSetupObligations.Local.FirstOrDefault(x => x.InstallationId == agent.AgentInstallationId)
+                    ?? await _db.PluginSetupObligations.SingleOrDefaultAsync(x => x.InstallationId == agent.AgentInstallationId, cancellationToken);
+                if (obligation is null)
+                    _db.PluginSetupObligations.Add(new PluginSetupObligation
+                    {
+                        Id = Guid.NewGuid(), OrganizationId = organizationId, InstallationId = agent.AgentInstallationId.Value,
+                        AgentOrganizationUserId = agent.Id, HumanOrganizationUserId = hiringUser.Id,
+                        ConversationId = conversation.Id, CreatedAt = now
+                    });
+                // A later visitor cannot silently replace the designated participant or conversation.
+            }
+        }
         if (existing is null) _db.CoreConversations.Add(conversation);
         return new AgentCommunicationOnboardingResult(
             true,

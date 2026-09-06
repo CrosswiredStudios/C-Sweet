@@ -278,7 +278,7 @@ public sealed partial class InternalRepositoryManagementService(CSweetDbContext 
 
     private Task<Guid> AuditAsync(Guid business, Guid user, Guid id, string operation, string outcome, object details, CancellationToken ct) =>
         audit.AppendAsync(new AuditEventWriteRequest("SourceControl.Repository." + operation, Category: "SourceControl", Outcome: outcome,
-            OrganizationId: business, EntityType: operation switch { "DefaultProvider" => "SourceControlBusinessSettings", "ProvisioningPolicy" => "SourceControlConnection", _ => "SourceControlRepository" }, EntityId: id,
+            OrganizationId: business, EntityType: operation switch { "DefaultProvider" => "SourceControlBusinessSettings", "ProvisioningPolicy" => "SourceControlConnection", "BackupJobDismiss" => "SourceControlBackupJob", _ => "SourceControlRepository" }, EntityId: id,
             MetadataJson: JsonSerializer.Serialize(details), Actor: new AuditActor("User", ApplicationUserId: user)), ct);
 
     private static string ValidateName(string name)

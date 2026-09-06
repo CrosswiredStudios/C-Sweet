@@ -31,6 +31,8 @@ public sealed record CompletePluginSetupStepRequest(
     string IdempotencyKey);
 
 public sealed record BeginPluginAuthorizationRequest(string ScopeSetId);
+public sealed record BindConnectorRequest(Guid ConnectorInstallationId);
+public sealed record ApproveConnectorProfileRequest(string PackageDigest, string ProfileId);
 public sealed record BeginPluginAuthorizationResponse(string AuthorizationUrl, DateTimeOffset ExpiresAt);
 public sealed record PluginAuthorizationCompletion(Guid OrganizationId, Guid InstallationId);
 public sealed record CompletePluginSetupResponse(bool Ready, string Message, Guid? ConversationId = null);

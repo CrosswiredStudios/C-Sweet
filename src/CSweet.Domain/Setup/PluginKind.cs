@@ -4,7 +4,8 @@ namespace CSweet.Domain.Setup;
 public enum PluginKind
 {
     Agent,
-    Service
+    Service,
+    Connector
 }
 
 /// <summary>Controls whether a plugin is bound to one organization or to the C-Sweet installation.</summary>

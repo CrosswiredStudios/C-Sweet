@@ -9,6 +9,15 @@ namespace CSweet.AgentHost.Broker;
 /// </summary>
 public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHostClient
 {
+    public async Task<CSweet.Agent.SDK.GitWorkspaceLockResult> LocksAsync(TrustedWorkspaceOperationRequest request, string operation, string? path, string? id, string? cursor, CancellationToken ct)
+    {
+        using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/locks", new AgentBrokerWorkspaceLockRequest(
+            new(request.OrganizationId, request.RepositoryId, request.WorkspaceId, request.WorkItemId, request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey, "locks"),
+            operation, path, id, cursor), ct);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Core rejected the workspace lock operation. Check current assignment and repository access.");
+        var result = await response.Content.ReadFromJsonAsync<AgentBrokerWorkspaceLockResult>(ct) ?? throw new InvalidOperationException("Core returned an empty lock response.");
+        return new(result.Status, result.Locks.Select(l => new CSweet.Agent.SDK.GitWorkspaceFileLock(l.Id, l.Path, l.OwnerName, l.OwnedByCaller, l.LockedAt)).ToArray(), result.NextCursor, result.Message);
+    }
     public async Task<TrustedWorkspaceMaterialization> PrepareAsync(
         TrustedWorkspacePrepareRequest request,
         CancellationToken cancellationToken)

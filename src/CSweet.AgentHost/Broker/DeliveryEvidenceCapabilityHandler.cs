@@ -180,7 +180,8 @@ public sealed class DeliveryEvidenceCapabilityHandler : IPlatformCapabilityHandl
             throw new ArgumentException("The recipe does not support the requested build target.");
         var repository = await db.SourceControlRepositories.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Id == request.RepositoryId && x.OrganizationId == organizationId &&
-            x.Status == SourceControlRepositoryStatus.Ready && x.ArchivedAt == null, token)
+            x.Status == SourceControlRepositoryStatus.Ready && x.ArchivedAt == null &&
+            x.Connection != null && x.Connection.Status == SourceControlConnectionStatus.Connected, token)
             ?? throw new ArgumentException("The source repository is not ready or does not belong to this organization.");
         var provider = await db.AgentInstallations.AsNoTracking()
             .Include(x => x.PackageVersion)

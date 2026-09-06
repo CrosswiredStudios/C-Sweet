@@ -21,11 +21,13 @@
         @if (_disconnectPlan is { } plan)
         {
             <MudDivider />
-            <MudText Typo="Typo.h6">Disconnect unused connection</MudText>
-            @foreach (var blocker in plan.Blockers) { <MudText Color="Color.Secondary">@blocker</MudText> }
-            @if (plan.CanDisconnect)
+            <MudText Typo="Typo.h6">Disconnect connection</MudText>
+            <MudCheckBox T="bool" @bind-Value="_suspendDependencies" Disabled="_busy" Label="Also suspend access to attached repositories and disable creation policies" />
+            @foreach (var blocker in (_suspendDependencies ? plan.DependencyBlockers ?? [] : plan.Blockers)) { <MudText Color="Color.Secondary">@blocker</MudText> }
+            @if (_suspendDependencies ? plan.CanDisconnectWithDependencies : plan.CanDisconnect)
             {
                 <MudText>This stops C-Sweet using this connection and revokes its C-Sweet credentials. GitHub repositories and the GitHub App installation remain in GitHub. Reconnecting requires GitHub setup again.</MudText>
+                @if (_suspendDependencies) { <MudText>Repository records, team grants, and history are retained. Creation policies and templates must be enabled again after reconnecting.</MudText> }
                 <MudTextField @bind-Value="_confirmName" Label="Confirm the exact connection name" Disabled="_busy" />
                 <MudButton OnClick="DisconnectAsync" Disabled="@(_busy || _confirmName != details.Name)" Color="Color.Error" Variant="Variant.Outlined">Disconnect</MudButton>
             }
@@ -49,13 +51,14 @@
     private SourceControlConnectionHealth? _health;
     private SourceControlConnectionDisconnectPlan? _disconnectPlan;
     private string _confirmName = "";
+    private bool _suspendDependencies;
     private string _name = "";
     private string? _error;
     private bool _busy;
     private string Endpoint => $"api/organizations/{OrganizationId:D}/source-control/connections/{ConnectionId:D}";
     private Task OpenAsync() => RunAsync(async () => {
         _details = await Http.GetFromJsonAsync<SourceControlConnectionDetails>(Endpoint) ?? throw new HttpRequestException();
-        _name = _details.Name; _health = null; _confirmName = "";
+        _name = _details.Name; _health = null; _confirmName = ""; _suspendDependencies = false;
         _disconnectPlan = await Http.GetFromJsonAsync<SourceControlConnectionDisconnectPlan>(Endpoint + "/disconnect-plan");
     });
     private Task SaveAsync() => RunAsync(async () => {
@@ -66,7 +69,7 @@
         _name = _details.Name; await OnChanged.InvokeAsync();
     });
     private Task DisconnectAsync() => RunAsync(async () => {
-        using var response = await Http.PostAsJsonAsync(Endpoint + "/disconnect", new DisconnectSourceControlConnectionRequest(_confirmName, _details!.Revision));
+        using var response = await Http.PostAsJsonAsync(Endpoint + "/disconnect", new DisconnectSourceControlConnectionRequest(_confirmName, _details!.Revision, _suspendDependencies));
         if (response.StatusCode is System.Net.HttpStatusCode.Conflict or System.Net.HttpStatusCode.BadRequest)
         { _error = "The connection changed or still has dependencies. Open it again to review the current disconnect requirements."; return; }
         response.EnsureSuccessStatusCode();

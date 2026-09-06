@@ -6,5 +6,6 @@ public sealed record SourceControlConnectionDetails(Guid Id, string Name, string
 public sealed record RenameSourceControlConnectionRequest(string Name, long ExpectedRevision);
 public sealed record SourceControlConnectionHealth(bool Available, string Scope, string Message, DateTimeOffset CheckedAt);
 
-public sealed record SourceControlConnectionDisconnectPlan(bool CanDisconnect, IReadOnlyList<string> Blockers);
-public sealed record DisconnectSourceControlConnectionRequest(string ConfirmName, long ExpectedRevision);
+public sealed record SourceControlConnectionDisconnectPlan(bool CanDisconnect, IReadOnlyList<string> Blockers,
+    bool CanDisconnectWithDependencies = false, IReadOnlyList<string>? DependencyBlockers = null);
+public sealed record DisconnectSourceControlConnectionRequest(string ConfirmName, long ExpectedRevision, bool SuspendDependentAccess = false);

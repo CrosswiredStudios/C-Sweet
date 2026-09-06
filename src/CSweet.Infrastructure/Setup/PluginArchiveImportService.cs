@@ -113,7 +113,7 @@ public sealed class PluginArchiveImportService(
             {
                 Id = Guid.NewGuid(), PackageSourceId = source.Id, CommitSha = commit, ManifestDigest = manifestDigest,
                 ManifestJson = envelope.ManifestJson, ManifestFileName = envelope.ManifestFileName,
-                PluginKind = envelope.Kind == "agent" ? PluginKind.Agent : PluginKind.Service,
+                PluginKind = envelope.Kind == "agent" ? PluginKind.Agent : envelope.Kind == "connector" ? PluginKind.Connector : PluginKind.Service,
                 AgentId = manifest.Id, AgentName = manifest.Name, Version = manifest.Version,
                 PublisherId = manifest.Publisher.Id, PublisherName = manifest.Publisher.Name,
                 RuntimeType = manifest.Runtime.Type, ProjectPath = manifest.Runtime.ProjectPath,

@@ -12,6 +12,37 @@ namespace CSweet.UnitTests;
 public sealed class AgentWorkInboxTests
 {
     [Fact]
+    public async Task QueuedOrdinaryWorkCannotBeClaimedAfterSetupBecomesRequired()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var installation = Installation(now);
+        var runtime = Runtime(installation, now);
+        db.AddRange(installation, runtime); await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+        var work = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Capability,
+            "example.execute.v1", Json("""{"companyData":"restricted"}"""), "queued-before-disconnect", now.AddHours(1));
+        installation.SetupState = PluginSetupState.ConnectionRequired;
+        await db.SaveChangesAsync();
+        Assert.Null(await inbox.ClaimAsync(Session(installation, runtime), default));
+        Assert.Equal(AgentWorkStatus.Pending, work.Status);
+        Assert.Equal(0, work.AttemptCount);
+    }
+
+    [Fact]
+    public async Task ExistingIdempotencyKeyDoesNotBypassTenantAuthorization()
+    {
+        await using var db = CreateDb();
+        var installation = Installation(DateTimeOffset.UtcNow);
+        db.Add(installation); await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+        await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Capability,
+            "example.execute.v1", Json("{}"), "existing", DateTimeOffset.UtcNow.AddHours(1));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => inbox.EnqueueAsync("another-tenant", installation.Id,
+            AgentWorkKind.Capability, "example.execute.v1", Json("{}"), "existing", DateTimeOffset.UtcNow.AddHours(1)));
+    }
+
+    [Fact]
     public async Task NeedsSetup_AllowsOnlyDeclaredBootstrapCallbacksFromSetupSource()
     {
         await using var db = CreateDb();

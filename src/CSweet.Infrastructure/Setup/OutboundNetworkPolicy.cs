@@ -2,9 +2,9 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 
-namespace CSweet.AgentHost.Broker;
+namespace CSweet.Infrastructure.Setup;
 
-internal static class OutboundNetworkPolicy
+public static class OutboundNetworkPolicy
 {
     public static string NormalizeHost(string host)
     {
@@ -78,7 +78,7 @@ internal static class OutboundNetworkPolicy
                (bytes[0] & 0xfe) == 0xfc;
     }
 
-    internal readonly record struct CidrRange(byte[] Network, int PrefixLength)
+    public readonly record struct CidrRange(byte[] Network, int PrefixLength)
     {
         public static bool TryParse(string value, out CidrRange range)
         {

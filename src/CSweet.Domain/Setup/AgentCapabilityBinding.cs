@@ -13,6 +13,8 @@ public sealed class AgentCapabilityBinding
     public string OrganizationId { get; set; } = string.Empty;
     public Guid RequesterInstallationId { get; set; }
     public string Capability { get; set; } = string.Empty;
+    public string? DependencyId { get; set; }
+    public string? ProviderPackageDigest { get; set; }
     public Guid ProviderInstallationId { get; set; }
     public long GrantRevision { get; set; }
     public string Origin { get; set; } = AgentCapabilityBindingOrigins.Explicit;

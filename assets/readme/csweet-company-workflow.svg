@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640" role="img" aria-labelledby="title desc">
+  <title id="title">From direction to company memory</title>
+  <desc id="desc">Follow the numbered path: Direction, Plan, Team, Work, Review, Company memory. Learning returns to Direction to inform the next decision.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fffcf7"/>
+      <stop offset="1" stop-color="#edf6f0"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 8 4 0 8Z" fill="#23845c"/>
+    </marker>
+  </defs>
+  <rect width="960" height="640" rx="28" fill="url(#paper)"/>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <text x="56" y="66" fill="#23845c" font-size="22" font-weight="700" letter-spacing="3">THE COMPANY AT WORK</text>
+    <text x="56" y="111" fill="#18233f" font-size="36" font-weight="700">You set the direction. Work moves forward.</text>
+
+    <!-- The path follows the numbered cards clockwise, then returns to Direction. -->
+    <g fill="none" stroke="#23845c" stroke-width="3" marker-end="url(#arrow)">
+      <path d="M310 260H348"/>
+      <path d="M610 260H648"/>
+      <path d="M780 348V387"/>
+      <path d="M650 480H612"/>
+      <path d="M350 480H312"/>
+      <path d="M180 562V600H26V260H47" stroke-dasharray="6 6"/>
+    </g>
+
+    <rect x="50" y="168" width="260" height="180" rx="18" fill="#18233f"/>
+    <text x="74" y="205" fill="#a8e8c5" font-size="22" font-weight="700">01</text>
+    <text x="74" y="250" fill="#fff" font-size="32" font-weight="700">Direction</text>
+    <text x="74" y="288" fill="#e0e6ef" font-size="25">Name the outcome.</text>
+    <text x="74" y="319" fill="#e0e6ef" font-size="25">Set the boundaries.</text>
+
+    <rect x="350" y="168" width="260" height="180" rx="18" fill="#fff" stroke="#d5dfdb"/>
+    <text x="374" y="205" fill="#23845c" font-size="22" font-weight="700">02</text>
+    <text x="374" y="250" fill="#18233f" font-size="32" font-weight="700">Plan</text>
+    <text x="374" y="288" fill="#435168" font-size="25">Shape priorities</text>
+    <text x="374" y="319" fill="#435168" font-size="25">with your chief.</text>
+
+    <rect x="650" y="168" width="260" height="180" rx="18" fill="#fff" stroke="#d5dfdb"/>
+    <text x="674" y="205" fill="#23845c" font-size="22" font-weight="700">03</text>
+    <text x="674" y="250" fill="#18233f" font-size="32" font-weight="700">Team</text>
+    <text x="674" y="288" fill="#435168" font-size="25">Assign roles and</text>
+    <text x="674" y="319" fill="#435168" font-size="25">grant capabilities.</text>
+
+    <rect x="650" y="390" width="260" height="172" rx="18" fill="#fff" stroke="#d5dfdb"/>
+    <text x="674" y="427" fill="#23845c" font-size="22" font-weight="700">04</text>
+    <text x="674" y="469" fill="#18233f" font-size="32" font-weight="700">Work</text>
+    <text x="674" y="507" fill="#435168" font-size="25">Turn assignments</text>
+    <text x="674" y="538" fill="#435168" font-size="25">into artifacts.</text>
+
+    <rect x="350" y="390" width="260" height="172" rx="18" fill="#fff" stroke="#d5dfdb"/>
+    <text x="374" y="427" fill="#23845c" font-size="22" font-weight="700">05</text>
+    <text x="374" y="469" fill="#18233f" font-size="32" font-weight="700">Review</text>
+    <text x="374" y="507" fill="#435168" font-size="25">Inspect results.</text>
+    <text x="374" y="538" fill="#435168" font-size="25">Make decisions.</text>
+
+    <rect x="50" y="390" width="260" height="172" rx="18" fill="#e0f0e6" stroke="#b6d8c4"/>
+    <text x="74" y="427" fill="#1c6648" font-size="22" font-weight="700">06</text>
+    <text x="74" y="469" fill="#18233f" font-size="26" font-weight="700">Company memory</text>
+    <text x="74" y="507" fill="#344f43" font-size="25">Keep the context.</text>
+    <text x="74" y="538" fill="#344f43" font-size="25">Build on learning.</text>
+
+    <text x="218" y="609" fill="#1c6648" font-size="23" font-weight="600">What you learn informs the next direction.</text>
+  </g>
+</svg>

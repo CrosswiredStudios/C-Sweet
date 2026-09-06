@@ -16,6 +16,18 @@ public sealed class TrustedSourceControlHostClient(
         SendInternalAsync<InternalGitLockRequest, InternalGitLockResult>("internal/v3/lfs/locks", request, ct);
     public async Task<IReadOnlyList<InternalGitBackupSummary>> ListInternalBackupsAsync(Guid business, CancellationToken ct = default) =>
         await http.GetFromJsonAsync<List<InternalGitBackupSummary>>($"internal/v3/backups/{business:D}", ct) ?? [];
+    public async Task<IReadOnlyList<InternalGitBackupJob>> ListInternalBackupJobsAsync(Guid business, CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<List<InternalGitBackupJob>>($"internal/v3/backup-jobs/{business:D}", ct) ?? [];
+    public Task<InternalGitBackupJob> QueueInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) =>
+        SendInternalAsync<InternalGitBackupRequest, InternalGitBackupJob>("internal/v3/backup-jobs/queue", request, ct);
+    public async Task DismissInternalBackupJobAsync(Guid business, Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"internal/v3/backup-jobs/{business:D}/{id:D}", ct); response.EnsureSuccessStatusCode();
+    }
+    public async Task<InternalGitBackupSchedule> InternalBackupScheduleAsync(Guid business, Guid repository, CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<InternalGitBackupSchedule>($"internal/v3/backup-schedules/{business:D}/{repository:D}", ct) ?? throw new IOException("Backup schedule response was empty.");
+    public Task<InternalGitBackupSchedule> SaveInternalBackupScheduleAsync(InternalGitBackupScheduleCommand request, CancellationToken ct = default) =>
+        SendInternalAsync<InternalGitBackupScheduleCommand, InternalGitBackupSchedule>("internal/v3/backup-schedules", request, ct);
     public Task<InternalGitBackupSummary> CreateInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) =>
         SendInternalAsync<InternalGitBackupRequest, InternalGitBackupSummary>("internal/v3/backups/create", request, ct);
     public Task<InternalGitBackupSummary> RestoreInternalBackupAsync(InternalGitBackupRestoreRequest request, CancellationToken ct = default) =>

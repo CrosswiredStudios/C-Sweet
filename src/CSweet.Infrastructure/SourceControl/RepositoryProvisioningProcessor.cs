@@ -175,7 +175,7 @@ public sealed partial class RepositoryProvisioningProcessor(
             request.Connection.Mode != SourceControlConnectionMode.ManagedGitHub ||
             request.Connection.Provider != SourceControlProvider.GitHub ||
             request.Connection.Status != SourceControlConnectionStatus.Connected ||
-            !string.Equals(request.Connection.AccountType, "Organization", StringComparison.OrdinalIgnoreCase) ||
+            (!string.Equals(request.Connection.AccountType, "Organization", StringComparison.OrdinalIgnoreCase) && !string.Equals(request.Connection.AccountType, "User", StringComparison.OrdinalIgnoreCase)) ||
             !request.Connection.ProvisionerInstallationId.HasValue)
             return "The Managed GitHub provisioner connection is no longer ready.";
         if (request.Policy is null || !request.Policy.IsEnabled ||

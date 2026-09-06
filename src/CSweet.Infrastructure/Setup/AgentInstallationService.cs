@@ -68,7 +68,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var packageVersion = await _dbContext.AgentPackageVersions
             .SingleOrDefaultAsync(x => x.Id == importId, cancellationToken)
             ?? throw new AgentInstallationException("The import preview was not found.");
-        if (packageVersion.PluginKind != PluginKind.Service)
+        if (packageVersion.PluginKind is not (PluginKind.Service or PluginKind.Connector))
             throw new AgentInstallationException(
                 "Agent packages must be imported as global agent definitions through the agent API and hired before a runtime installation is created.");
         return await InstallCoreAsync(packageVersion, request, cancellationToken);
@@ -107,6 +107,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
 
         var activationMode = ParseActivationMode(request.ActivationMode);
         var scope = ParsePluginScope(request.PluginScope);
+        if (packageVersion.PluginKind == PluginKind.Connector && scope != PluginInstallationScope.Organization)
+            throw new AgentInstallationException("Connectors must be scoped to one organization.");
         if (packageVersion.PluginKind == PluginKind.Service &&
             (scope != PluginInstallationScope.System || activationMode != ActivationMode.AlwaysOn))
             throw new AgentInstallationException("Communication providers must be system-scoped and always-on.");
@@ -709,8 +711,17 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var bindings = new List<AgentCapabilityBinding>();
         foreach (var capability in grantedRequiredCapabilities.Distinct(StringComparer.Ordinal))
         {
+            var dependencyRequirement = DeserializeManifest(requester.PackageVersion?.ManifestJson ??
+                (await _dbContext.AgentPackageVersions.SingleAsync(x => x.Id == requester.PackageVersionId, cancellationToken)).ManifestJson)
+                .Requires.SingleOrDefault(x => x.Name == capability && x.Dependency is not null);
+            if (dependencyRequirement is not null)
+            {
+                if (selections.ContainsKey(capability))
+                    throw new AgentInstallationException("Select connector accounts through dependency setup after installation.");
+                continue;
+            }
             var providers = candidates
-                .Where(x => providedByInstallation[x.Id].Contains(capability))
+                .Where(x => x.PackageVersion!.PluginKind != PluginKind.Connector && providedByInstallation[x.Id].Contains(capability))
                 .ToList();
             if (providers.Count == 0)
             {
@@ -964,6 +975,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         await RemoveRuntimeWorkloadsAsync(installation, cancellationToken);
+        var setupObligations = await _dbContext.PluginSetupObligations.Where(x =>
+            x.InstallationId == installation.Id && x.CancelledAt == null).ToListAsync(cancellationToken);
+        foreach (var obligation in setupObligations) obligation.CancelledAt = DateTimeOffset.UtcNow;
         await RemoveAgentWorkHistoryAsync(installation.Id, cancellationToken);
 
         var sourceId = package.PackageSourceId;
@@ -1748,6 +1762,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             RevisionStatus = installation.RevisionStatus.ToString(),
             SetupState = installation.SetupState.ToString(),
             SetupFlowId = installation.SetupFlowId,
+            ConnectionDeclarations = package.PluginKind == PluginKind.Connector ? DeserializeManifest(package.ManifestJson).Connections : [],
             SetupStepId = installation.SetupStepId
         };
     }

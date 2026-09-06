@@ -8,6 +8,8 @@ namespace CSweet.AgentHost.Broker;
 /// </summary>
 public interface ITrustedGitHostClient
 {
+    Task<GitWorkspaceLockResult> LocksAsync(TrustedWorkspaceOperationRequest request, string operation, string? path, string? id, string? cursor, CancellationToken ct) =>
+        throw new InvalidOperationException("Workspace locks are unavailable.");
     Task<TrustedWorkspaceMaterialization> PrepareAsync(
         TrustedWorkspacePrepareRequest request,
         CancellationToken cancellationToken);

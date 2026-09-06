@@ -160,6 +160,17 @@ public static class SourceControlEndpoints
         group.MapGet("/internal/backups", async (Guid organizationId, HttpContext http,
             InternalRepositoryManagementService service, CancellationToken ct) =>
             await ExecuteAsync(http, user => service.BackupsAsync(organizationId, user, ct)));
+        group.MapGet("/internal/backup-jobs", async (Guid organizationId, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.BackupJobsAsync(organizationId, user, ct)));
+        group.MapGet("/internal/repositories/{id:guid}/backup-schedule", async (Guid organizationId, Guid id, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.BackupScheduleAsync(organizationId, user, id, ct)));
+        group.MapPut("/internal/repositories/{id:guid}/backup-schedule", async (Guid organizationId, Guid id, SaveInternalGitBackupSchedule request, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.SaveBackupScheduleAsync(organizationId, user, id, request, ct)));
+        group.MapDelete("/internal/backup-jobs/{id:guid}", async (Guid organizationId, Guid id, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.DismissBackupJobAsync(organizationId, user, id, ct)));
+        group.MapPost("/internal/repositories/{id:guid}/backup-jobs", async (Guid organizationId, Guid id, CreateInternalGitBackupRequest request, HttpContext http,
+            InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.QueueBackupAsync(organizationId, user, id, request, ct)));
         group.MapPost("/internal/repositories/{id:guid}/backups", async (Guid organizationId, Guid id, CreateInternalGitBackupRequest request, HttpContext http,
             InternalRepositoryManagementService service, CancellationToken ct) =>
             await ExecuteAsync(http, user => service.BackupAsync(organizationId, user, id, request, ct)));

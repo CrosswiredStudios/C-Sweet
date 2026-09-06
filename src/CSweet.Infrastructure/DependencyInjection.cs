@@ -175,6 +175,11 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginProviderProfileRegistry, PluginProviderProfileRegistry>();
         builder.Services.AddScoped<IPluginStandingPolicyService, PluginStandingPolicyService>();
         builder.Services.AddScoped<IPluginSetupService, PluginSetupService>();
+        builder.Services.AddScoped<ConnectorBindingService>();
+        builder.Services.AddScoped<ConnectorProfileApprovalService>();
+        builder.Services.AddScoped<ConnectorPlanService>();
+        builder.Services.AddScoped<IConnectorHttpTransport, ConnectorHttpTransport>();
+        builder.Services.AddScoped<ConnectorReadExecutor>();
         builder.Services.AddScoped<IPluginBootstrapCapabilityService, PluginBootstrapCapabilityService>();
         builder.Services.AddScoped<AgentInstallationConfigurationService>();
         builder.Services.AddScoped<IAgentInstallationConfigurationService>(sp =>
@@ -202,6 +207,8 @@ public static class DependencyInjection
         builder.Services.AddScoped<AgentRuntimeStartupCleanupService>();
         builder.Services.AddOptions<AgentRuntimeManagerOptions>()
             .Bind(builder.Configuration.GetSection(AgentRuntimeManagerOptions.SectionName));
+        builder.Services.AddOptions<GitHubAgentRepositoryOptions>()
+            .Bind(builder.Configuration.GetSection(GitHubAgentRepositoryOptions.SectionName));
         builder.Services.AddHttpClient<GitHubAgentRepositoryClient>(client =>
         {
             client.BaseAddress = new Uri("https://api.github.com/");
@@ -427,6 +434,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentCoordinationService, AgentCoordinationService>();
         builder.Services.AddScoped<IUserActionService, UserActionService>();
         builder.Services.AddScoped<IUserActionWorkflowResolver, HiringMarketplaceUserActionWorkflowResolver>();
+        builder.Services.AddScoped<IUserActionWorkflowResolver, PluginSetupUserActionWorkflowResolver>();
         builder.Services.AddScoped<IExecutiveDecisionService, ExecutiveDecisionService>();
         builder.Services.AddScoped<IAgentCommunicationOnboardingService, AgentCommunicationOnboardingService>();
         builder.Services.AddScoped<IApplicationRealtimeOutboxDispatcher, ApplicationRealtimeOutboxDispatcher>();

@@ -6,6 +6,7 @@ using CSweet.Contracts.Plugins;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using W = CSweet.WorkManagement.Contracts;
 
@@ -419,6 +420,11 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             var manifest = JsonSerializer.Deserialize<PluginManifest>(
                 binding.ProviderInstallation!.PackageVersion!.ManifestJson,
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            if (binding.ProviderInstallation!.PackageVersion!.PluginKind == PluginKind.Connector &&
+                (manifest?.ProviderOperations.SingleOrDefault(x => x.Capability == binding.Capability)?.Effect != "read" ||
+                 !Guid.TryParse(session.BusinessId, out var organizationId) ||
+                 !await new ConnectorPlanService(db).IsAvailableAsync(organizationId, requesterId, binding.Capability, cancellationToken)))
+                continue;
             var declaration = manifest?.Provides.SingleOrDefault(
                 x => string.Equals(x.Name, binding.Capability, StringComparison.Ordinal));
             if (declaration is null ||

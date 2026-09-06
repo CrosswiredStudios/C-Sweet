@@ -84,13 +84,13 @@ public sealed partial class InternalGitRepositoryStore
         if (await FindLockedChangeAsync(repository, before, after, ct) is { } lockedPath)
             throw new InvalidOperationException($"Ref change affects locked file {lockedPath}. Release the lock before retrying.");
     }
-    private async Task<string?> FindLockedChangeAsync(string repository, string before, string after, CancellationToken ct)
+    private async Task<string?> FindLockedChangeAsync(string repository, string before, string after, CancellationToken ct, Guid? allowedOwner = null)
     {
         var locks = await ReadFileLocksAsync(repository, ct);
         if (locks.Count == 0) return null;
         var changed = (await RunAsync(repository, ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", before, after, "--"], ct))
             .Split('\0', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
-        return locks.FirstOrDefault(l => changed.Contains(l.Path))?.Path;
+        return locks.FirstOrDefault(l => l.OwnerId != allowedOwner && changed.Contains(l.Path))?.Path;
     }
     private static void ValidateLockPath(string? path)
     {

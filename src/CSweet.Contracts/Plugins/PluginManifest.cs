@@ -19,6 +19,7 @@ public sealed record PluginManifest
     public PluginProtocol Protocol { get; init; } = new();
     public IReadOnlyList<PluginCapabilityDeclaration> Provides { get; init; } = [];
     public IReadOnlyList<PluginCapabilityRequirement> Requires { get; init; } = [];
+    public IReadOnlyList<PluginDependencyDeclaration> Dependencies { get; init; } = [];
     public PluginEventDeclarations Events { get; init; } = new();
     public IReadOnlyList<PluginConfigurationField> Configuration { get; init; } = [];
     public IReadOnlyList<PluginCredentialBinding> Credentials { get; init; } = [];
@@ -135,6 +136,7 @@ public sealed record PluginCapabilityDeclaration
 
 public sealed record PluginCapabilityRequirement
 {
+    public string? Dependency { get; init; }
     public string Name { get; init; } = string.Empty;
     public string Scope { get; init; } = "organization";
     public string? Purpose { get; init; }
@@ -177,6 +179,7 @@ public sealed record PluginCredentialBinding
 
 public sealed record PluginConnectionDeclaration
 {
+    public OAuthProviderMetadata? Provider { get; init; }
     public string Id { get; init; } = string.Empty;
     public string Type { get; init; } = "oauth2";
     public string ProviderProfile { get; init; } = string.Empty;
@@ -217,6 +220,7 @@ public sealed record PluginMcpToolDeclaration
 
 public sealed record PluginProviderOperationDeclaration
 {
+    public ConnectorHttpOperation? Http { get; init; }
     public string Capability { get; init; } = string.Empty;
     public string ProviderProfile { get; init; } = string.Empty;
     public string Command { get; init; } = string.Empty;
@@ -242,6 +246,7 @@ public sealed record PluginFileTransferTargetDeclaration
 
 public sealed record PluginSetupManifest
 {
+    public PluginSetupAssistance? Assistance { get; init; }
     public bool Required { get; init; } = true;
     public string EntryFlow { get; init; } = string.Empty;
     public IReadOnlyList<PluginSetupFlow> Flows { get; init; } = [];

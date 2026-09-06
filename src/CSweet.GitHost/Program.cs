@@ -18,6 +18,8 @@ builder.Services.AddTransient<GitHubWorkspaceOperationsService>();
 
 builder.Services.Configure<InternalGitStorageOptions>(builder.Configuration.GetSection(InternalGitStorageOptions.SectionName));
 builder.Services.AddSingleton<InternalGitRepositoryStore>();
+builder.Services.AddSingleton<InternalGitBackupJobs>();
+builder.Services.AddHostedService<InternalGitBackupWorker>();
 var app = builder.Build();
 app.UseTrustedServiceAuthentication();
 app.MapHealthChecks("/health");
@@ -129,6 +131,11 @@ app.MapPost("/internal/v2/workspaces/prepare", async (
 });
 
 app.MapGet("/internal/v3/backups/{business:guid}", async (Guid business, InternalGitRepositoryStore store, CancellationToken ct) => Results.Ok(await store.ListBackupsAsync(business, ct)));
+app.MapGet("/internal/v3/backup-jobs/{business:guid}", async (Guid business, InternalGitBackupJobs jobs, CancellationToken ct) => Results.Ok(await jobs.ListAsync(business, ct)));
+app.MapPost("/internal/v3/backup-jobs/queue", async (InternalGitBackupRequest request, InternalGitBackupJobs jobs, CancellationToken ct) => Results.Ok(await jobs.QueueAsync(request, ct)));
+app.MapDelete("/internal/v3/backup-jobs/{business:guid}/{id:guid}", async (Guid business, Guid id, InternalGitBackupJobs jobs, CancellationToken ct) => { await jobs.DismissAsync(business, id, ct); return Results.NoContent(); });
+app.MapGet("/internal/v3/backup-schedules/{business:guid}/{repository:guid}", async (Guid business, Guid repository, InternalGitBackupJobs jobs, CancellationToken ct) => Results.Ok(await jobs.ScheduleAsync(business, repository, ct)));
+app.MapPost("/internal/v3/backup-schedules", async (InternalGitBackupScheduleCommand request, InternalGitBackupJobs jobs, CancellationToken ct) => Results.Ok(await jobs.SaveScheduleAsync(request, ct)));
 app.MapPost("/internal/v3/backups/create", async (InternalGitBackupRequest request, InternalGitRepositoryStore store, CancellationToken ct) => Results.Ok(await store.CreateBackupAsync(request, ct)));
 app.MapPost("/internal/v3/backups/restore", async (InternalGitBackupRestoreRequest request, InternalGitRepositoryStore store, CancellationToken ct) => Results.Ok(await store.RestoreBackupAsync(request, ct)));
 app.MapPost("/internal/v3/backups/delete", async (InternalGitBackupRequest request, InternalGitRepositoryStore store, CancellationToken ct) => { await store.DeleteBackupAsync(request, ct); return Results.NoContent(); });

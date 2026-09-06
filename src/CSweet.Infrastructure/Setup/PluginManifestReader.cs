@@ -24,18 +24,18 @@ public sealed class PluginManifestReader : IPluginManifestReader
         }
 
         var kind = Required(root, "kind");
-        if (kind is not ("agent" or "service"))
+        if (kind is not ("agent" or "service" or "connector"))
         {
-            throw new JsonException("Plugin manifest kind must be 'agent' or 'service'.");
+            throw new JsonException("Plugin manifest kind must be 'agent', 'service' or 'connector'.");
         }
 
         var manifest = JsonSerializer.Deserialize<PluginManifest>(jsonBytes.Span, new JsonSerializerOptions(JsonSerializerDefaults.Web)
         {
             PropertyNameCaseInsensitive = false
         }) ?? throw new JsonException("Plugin manifest is empty.");
-        if (!string.Equals(manifest.Protocol.MinimumVersion, "2.0", StringComparison.Ordinal) ||
+        if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1") ||
             !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
-            throw new JsonException("Executable plugins must require MCP runtime protocol 2.0.");
+            throw new JsonException("Executable plugins must require a supported C-Sweet runtime protocol (2.0 or 2.1).");
         if (kind == "agent")
         {
             if (manifest.Catalog.Role is not { } role ||
@@ -67,6 +67,7 @@ public sealed class PluginManifestReader : IPluginManifestReader
                     $"Provided capability '{capability.Name}' must declare description, input/output schemas, " +
                     $"an execution timeout between 1 and {PluginCapabilityDeclaration.MaximumExecutionTimeoutSeconds} seconds, and idempotency.");
         }
+        ValidateConnectorContracts(manifest);
         return new PluginManifestEnvelope(
             manifestFileName,
             kind,
@@ -80,6 +81,18 @@ public sealed class PluginManifestReader : IPluginManifestReader
         => bytes.Length >= 3 && bytes.Span[0] == 0xEF && bytes.Span[1] == 0xBB && bytes.Span[2] == 0xBF
             ? bytes[3..]
             : bytes;
+
+    internal static void ValidateConnectorContracts(PluginManifest manifest)
+    {
+        if (manifest.Kind != "connector" && manifest.Dependencies.Count == 0 &&
+            !manifest.ProviderOperations.Any(x => x.Http is not null) &&
+            !manifest.Connections.Any(x => x.Provider is not null) && manifest.Setup?.Assistance is null) return;
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var packaging = JsonSerializer.Deserialize<CSweet.Agent.Contracts.Packaging.AgentManifest>(
+            JsonSerializer.Serialize(manifest, options), options) ?? throw new JsonException("Invalid manifest.");
+        var errors = CSweet.Agent.SDK.ConnectorContractValidator.Validate(packaging);
+        if (errors.Count > 0) throw new JsonException(string.Join(" ", errors));
+    }
 
     private static string Required(JsonElement root, string propertyName) =>
         root.TryGetProperty(propertyName, out var property) && !string.IsNullOrWhiteSpace(property.GetString())

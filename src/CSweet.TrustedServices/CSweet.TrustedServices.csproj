@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="CSweet.UnitTests" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\CSweet.Contracts\CSweet.Contracts.csproj" />
     <PackageReference Include="AWSSDK.S3" />

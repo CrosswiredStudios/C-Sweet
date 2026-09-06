@@ -7,6 +7,7 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -34,6 +35,7 @@ public static class McpGatewayEndpoints
         CSweetDbContext db,
         IPlatformCapabilityDispatcher dispatcher,
         IAgentRuntimeSignalService runtimeSignals,
+        ConnectorReadExecutor connectorReads,
         IAuditEventWriter audit,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -93,6 +95,7 @@ public static class McpGatewayEndpoints
                         catalog,
                         db,
                         dispatcher,
+                        connectorReads,
                         inbox,
                         audit,
                         loggerFactory.CreateLogger("CSweet.AgentHost.Broker.McpGateway"),
@@ -264,6 +267,7 @@ public static class McpGatewayEndpoints
         McpToolCatalog catalog,
         CSweetDbContext db,
         IPlatformCapabilityDispatcher dispatcher,
+        ConnectorReadExecutor connectorReads,
         AgentWorkInbox inbox,
         IAuditEventWriter audit,
         ILogger logger,
@@ -286,7 +290,17 @@ public static class McpGatewayEndpoints
             Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(arguments, JsonOptions))
         };
         CapabilityResult? terminal;
-        if (tool.ProviderInstallationId is { } providerInstallationId)
+        if (tool.ProviderInstallationId is { } connectorId && await db.AgentInstallations.AnyAsync(x =>
+                x.Id == connectorId && x.PackageVersion!.PluginKind == PluginKind.Connector, cancellationToken))
+        {
+            var key = arguments.TryGetProperty("idempotencyKey", out var connectorKey) && connectorKey.ValueKind == JsonValueKind.String
+                ? connectorKey.GetString()! : request.RequestId;
+            var result = await connectorReads.ExecuteAsync(Guid.Parse(session.BusinessId), Guid.Parse(session.InstallationId),
+                tool.Capability, arguments, key, cancellationToken);
+            terminal = new CapabilityResult { RequestId = request.RequestId, Succeeded = true,
+                Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(result, JsonOptions)) };
+        }
+        else if (tool.ProviderInstallationId is { } providerInstallationId)
         {
             var timeout = TimeSpan.FromSeconds(Math.Clamp(tool.ExecutionTimeoutSeconds, 1, 900));
             var callerKey = arguments.ValueKind == JsonValueKind.Object &&

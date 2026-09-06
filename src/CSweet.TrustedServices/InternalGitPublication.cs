@@ -9,7 +9,7 @@ namespace CSweet.TrustedServices;
 public sealed partial class InternalGitRepositoryStore
 {
     public async Task<InternalGitSnapshotResult> ApplySnapshotAsync(InternalGitSnapshotOperation request,
-        WorkspaceArtifactValidator artifacts, CancellationToken ct = default)
+        WorkspaceArtifactValidator artifacts, CancellationToken ct = default, bool rejectPointers = false)
     {
         ValidateSha(request.BaseSha); ValidateBranch(request.Branch); ValidateBranch(request.DefaultBranch);
         if (request.Operation is not ("inspect" or "publish" or "refresh") || request.WorkspaceId == Guid.Empty ||
@@ -38,6 +38,7 @@ public sealed partial class InternalGitRepositoryStore
             var manifest = await artifacts.ExtractZipAsync(archive, extracted, ct);
             if (manifest != new WorkspaceArtifactManifest(request.ArchiveManifestSha, request.FileCount, request.TotalBytes))
                 throw new InvalidDataException("Workspace snapshot differs from its broker manifest.");
+            if (rejectPointers) await GitHubWorkspaceContent.ValidateAsync(extracted, ct);
             var tree = await WriteSnapshotTreeAsync(repository, extracted, temporary, request.BaseSha, request.OrganizationId, request.RepositoryId, ct, request.AllowLfs);
             var changed = (await RunAsync(repository, ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", request.BaseSha, tree, "--"], ct))
                 .Split('\0', StringSplitOptions.RemoveEmptyEntries);
@@ -58,7 +59,7 @@ public sealed partial class InternalGitRepositoryStore
             }
             if (source is not null && source != request.BaseSha)
                 throw new InvalidOperationException("The work branch changed. Prepare or refresh its exact current revision before publishing.");
-            if (await FindLockedChangeAsync(repository, request.BaseSha, tree, ct) is { } lockedPath)
+            if (await FindLockedChangeAsync(repository, request.BaseSha, tree, ct, request.LockOwnerId) is { } lockedPath)
                 return new("Locked", request.BaseSha, null, changed, $"Publication changes locked file {lockedPath}. Ask its owner to release the lock before publishing.", target);
             var commit = (await RunAsync(repository, ["commit-tree", tree, "-p", request.BaseSha, "-m", request.CommitMessage!], ct)).Trim();
             var transaction = $"start\nupdate refs/heads/{request.Branch} {commit} {source ?? new string('0', 40)}\ncreate {receiptRef} {commit}\nprepare\ncommit\n";

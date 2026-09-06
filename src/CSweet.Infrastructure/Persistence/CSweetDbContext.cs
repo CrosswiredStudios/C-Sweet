@@ -70,6 +70,9 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<PluginOperationalState> PluginOperationalStates => Set<PluginOperationalState>();
     public DbSet<PluginProviderProfile> PluginProviderProfiles => Set<PluginProviderProfile>();
     public DbSet<PluginStandingPolicy> PluginStandingPolicies => Set<PluginStandingPolicy>();
+    public DbSet<ConnectorProfileApproval> ConnectorProfileApprovals => Set<ConnectorProfileApproval>();
+    public DbSet<ConnectorExecution> ConnectorExecutions => Set<ConnectorExecution>();
+    public DbSet<PluginSetupObligation> PluginSetupObligations => Set<PluginSetupObligation>();
     public DbSet<SourceControlConnection> SourceControlConnections => Set<SourceControlConnection>();
     public DbSet<SourceControlCredential> SourceControlCredentials => Set<SourceControlCredential>();
     public DbSet<SourceControlRepository> SourceControlRepositories => Set<SourceControlRepository>();
@@ -579,6 +582,9 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfiguration(new ConnectorExecutionConfiguration());
+        modelBuilder.ApplyConfiguration(new ConnectorProfileApprovalConfiguration());
+        modelBuilder.Entity<PluginSetupObligation>().HasIndex(x => x.InstallationId).IsUnique();
         SourceControlModelConfiguration.Configure(modelBuilder);
 
         modelBuilder.Entity<ApplicationUser>(entity =>

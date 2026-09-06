@@ -13,23 +13,10 @@ public sealed partial class AgentWorkspaceBroker
         if (request.Operation is not ("inspect" or "publish" or "refresh" or "cleanup") ||
             string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160)
             throw new ArgumentException("Invalid workspace operation.");
-        var workspace = await db.SourceControlWorkspaces.AsNoTracking().Include(w => w.Repository!).ThenInclude(r => r.Connection)
-            .SingleOrDefaultAsync(w => w.OrganizationId == request.OrganizationId && w.Id == request.WorkspaceId &&
-                w.RepositoryId == request.RepositoryId && w.WorkItemId == request.WorkItemId &&
-                w.AssignmentRevision == request.AssignmentRevision && w.WorkspaceKey == request.WorkspaceKey, cancellationToken)
-            ?? throw new UnauthorizedAccessException("Workspace operation does not match its persisted assignment.");
-        if (workspace.Status is not (SourceControlWorkspaceStatus.Ready or SourceControlWorkspaceStatus.Published))
-            throw new InvalidOperationException("Workspace is not available for this operation.");
+        var workspace = await AuthorizeWorkspaceOperationAsync(request, cancellationToken);
         var repository = workspace.Repository!;
-        if (!repository.IsPrivate || repository.ArchivedAt is not null || repository.Status != SourceControlRepositoryStatus.Ready ||
-            repository.Connection?.Provider is not (SourceControlProvider.InternalGit or SourceControlProvider.GitHub) || repository.Connection.Status != SourceControlConnectionStatus.Connected)
-            throw new InvalidOperationException("An active supported repository is required for this operation.");
-        if (!await db.CoreWorkTasks.AsNoTracking().AnyAsync(w => w.Id == workspace.WorkItemId && w.OrganizationId == workspace.OrganizationId &&
-            w.AssignmentRevision == workspace.AssignmentRevision && w.AssignedAgentInstallationId == workspace.AgentInstallationId, cancellationToken) ||
-            !await db.AgentInstallations.AsNoTracking().AnyAsync(i => i.Id == workspace.AgentInstallationId && i.IsEnabled &&
-                i.BusinessId == workspace.OrganizationId.ToString("D"), cancellationToken))
-            throw new UnauthorizedAccessException("Workspace assignment is stale.");
-        await AuthorizeWorkspaceTeamAsync(workspace, cancellationToken);
+        var lockOwner = await db.CoreOrganizationUsers.AsNoTracking().Where(u => u.OrganizationId == workspace.OrganizationId &&
+            u.AgentInstallationId == workspace.AgentInstallationId && u.IsActive).Select(u => u.Id).SingleAsync(cancellationToken);
         var lease = new WorkspaceVolumeLease(workspace.OrganizationId, workspace.AgentInstallationId, workspace.Id,
             workspace.WorkItemId, workspace.AssignmentRevision);
         WorkspaceVolumeExport export;
@@ -46,8 +33,8 @@ public sealed partial class AgentWorkspaceBroker
         {
             var snapshot = new InternalGitSnapshotOperation(workspace.OrganizationId, workspace.RepositoryId, workspace.Id, verb, baseSha,
                 workspace.BranchName, repository.DefaultBranch, request.IdempotencyKey, export.Archive, export.Manifest.Sha256,
-                export.Manifest.FileCount, export.Manifest.TotalBytes, request.CommitMessage);
-            if (repository.Connection.Provider == SourceControlProvider.InternalGit) return await gitHost.ApplyInternalSnapshotAsync(snapshot, cancellationToken);
+                export.Manifest.FileCount, export.Manifest.TotalBytes, request.CommitMessage, LockOwnerId: lockOwner);
+            if (repository.Connection!.Provider == SourceControlProvider.InternalGit) return await gitHost.ApplyInternalSnapshotAsync(snapshot, cancellationToken);
             if (repository.Connection.SourceAccessInstallationId is not > 0 || !long.TryParse(repository.ExternalRepositoryId, out var externalId) || externalId <= 0)
                 throw new InvalidOperationException("The GitHub source access identity is unavailable.");
             var github = await gitHost.ApplyGitHubSnapshotAsync(new(repository.Connection.SourceAccessInstallationId.Value, externalId, repository.Owner,
@@ -74,7 +61,7 @@ public sealed partial class AgentWorkspaceBroker
                 return new("Conflict", workspace.BaseCommitSha, result.ChangedFiles,
                     "The remote branch changed while the workspace has edits. Publish or resolve those edits before refreshing.");
             }
-            var snapshot = repository.Connection.Provider == SourceControlProvider.InternalGit
+            var snapshot = repository.Connection!.Provider == SourceControlProvider.InternalGit
                 ? await gitHost.PrepareInternalWorkspaceAsync(new(workspace.OrganizationId, repository.Id, workspace.Id,
                     repository.DefaultBranch, workspace.BranchName, latest, request.IdempotencyKey), cancellationToken)
                 : await gitHost.PrepareWorkspaceAsync(new(repository.Connection.SourceAccessInstallationId!.Value, long.Parse(repository.ExternalRepositoryId!), repository.Owner, repository.Name,
@@ -86,8 +73,30 @@ public sealed partial class AgentWorkspaceBroker
         var url = request.Operation == "publish" && result.Status == "Published"
             ? $"{publicBaseUrl.TrimEnd('/')}/organizations/{workspace.OrganizationId:D}/source-control?repository={repository.Id:D}&reference={Uri.EscapeDataString("refs/heads/" + workspace.BranchName)}"
             : null;
-        return new(result.Status, result.BaseSha, result.ChangedFiles, result.DiffSummary, result.CommitSha, workspace.BranchName, githubReviewUrl ?? url, Provider: repository.Connection.Provider.ToString());
+        return new(result.Status, result.BaseSha, result.ChangedFiles, result.DiffSummary, result.CommitSha, workspace.BranchName, githubReviewUrl ?? url, Provider: repository.Connection!.Provider.ToString());
     }
+    private async Task<SourceControlWorkspace> AuthorizeWorkspaceOperationAsync(AgentBrokerWorkspaceOperationRequest request, CancellationToken cancellationToken)
+    {
+        var workspace = await db.SourceControlWorkspaces.AsNoTracking().Include(w => w.Repository!).ThenInclude(r => r.Connection)
+            .SingleOrDefaultAsync(w => w.OrganizationId == request.OrganizationId && w.Id == request.WorkspaceId &&
+                w.RepositoryId == request.RepositoryId && w.WorkItemId == request.WorkItemId &&
+                w.AssignmentRevision == request.AssignmentRevision && w.WorkspaceKey == request.WorkspaceKey, cancellationToken)
+            ?? throw new UnauthorizedAccessException("Workspace operation does not match its persisted assignment.");
+        if (workspace.Status is not (SourceControlWorkspaceStatus.Ready or SourceControlWorkspaceStatus.Published))
+            throw new InvalidOperationException("Workspace is not available for this operation.");
+        var repository = workspace.Repository!;
+        if (!repository.IsPrivate || repository.ArchivedAt is not null || repository.Status != SourceControlRepositoryStatus.Ready ||
+            repository.Connection?.Provider is not (SourceControlProvider.InternalGit or SourceControlProvider.GitHub) || repository.Connection.Status != SourceControlConnectionStatus.Connected)
+            throw new InvalidOperationException("An active supported repository is required for this operation.");
+        if (!await db.CoreWorkTasks.AsNoTracking().AnyAsync(w => w.Id == workspace.WorkItemId && w.OrganizationId == workspace.OrganizationId &&
+            w.AssignmentRevision == workspace.AssignmentRevision && w.AssignedAgentInstallationId == workspace.AgentInstallationId, cancellationToken) ||
+            !await db.AgentInstallations.AsNoTracking().AnyAsync(i => i.Id == workspace.AgentInstallationId && i.IsEnabled &&
+                i.BusinessId == workspace.OrganizationId.ToString("D"), cancellationToken))
+            throw new UnauthorizedAccessException("Workspace assignment is stale.");
+        await AuthorizeWorkspaceTeamAsync(workspace, cancellationToken);
+        return workspace;
+    }
+
     private async Task AuthorizeWorkspaceTeamAsync(SourceControlWorkspace workspace, CancellationToken cancellationToken)
     {
         if (!await db.TeamRepositoryPolicies.AsNoTracking().AnyAsync(p => p.OrganizationId == workspace.OrganizationId &&

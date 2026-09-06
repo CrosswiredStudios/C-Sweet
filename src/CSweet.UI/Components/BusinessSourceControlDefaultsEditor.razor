@@ -17,7 +17,7 @@
             { <MudAlert Severity="Severity.Warning">The saved default is unavailable. New requests will be blocked until it is available or you select another provider.</MudAlert> }
             @foreach (var option in _settings.Options.Where(o => !o.Available))
             { <MudText Color="Color.Secondary">@option.ConnectionName · @option.TemplateName: @option.UnavailableReason</MudText> }
-            <MudText Color="Color.Secondary">GitHub choices require an approved template and a connected Managed GitHub organization with repository creation configured. Personal GitHub repository creation is not available yet.</MudText>
+            <MudText Color="Color.Secondary">GitHub choices require an approved template and a connected Managed GitHub account with repository creation configured. Personal accounts and organizations are supported; creating an empty GitHub repository without a template is not available yet.</MudText>
             <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="@(_busy || !_settings.Options.Any(o => (o.TemplateId ?? Guid.Empty) == _selected && o.Available))">Save default</MudButton>
         }
         <MudButton OnClick="LoadAsync" Disabled="_busy">Refresh</MudButton>

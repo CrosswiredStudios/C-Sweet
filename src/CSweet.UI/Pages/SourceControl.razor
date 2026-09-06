@@ -6,7 +6,7 @@
 
 <PageTitle>Source Control</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
+<MudContainer @key="OrganizationId" MaxWidth="MaxWidth.Large" Class="py-6">
     <MudStack Spacing="3">
         <div>
             <MudText Typo="Typo.h4">Source control</MudText>
@@ -74,7 +74,7 @@
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
                         @(setup.CurrentStep == "choose-projects"
                             ? "GitHub did not return any available code projects. Check which projects the Source Access App can use."
-                            : "No template projects are available. Mark an organization project as a template and grant the Provisioner App access to it.")
+                            : "No template projects are available. Mark an account project as a template and grant the Provisioner App access to it.")
                     </MudAlert>
                 }
                 else
@@ -148,7 +148,7 @@
                         <MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Color="Color.Primary" />
                         <MudText Typo="Typo.h6" Class="mt-2">Full access</MudText>
                         <MudText Typo="Typo.body2">
-                            Best for non-technical teams. Connect a GitHub organization and let
+                            Best for non-technical teams. Connect a GitHub account and let
                             C-Sweet create private code projects within your approved rules.
                         </MudText>
                         <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-2">
@@ -160,7 +160,7 @@
                         <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                    Disabled="@(_starting || !(_dashboard?.PlatformReadiness.ManagedGitHubAvailable ?? false))"
                                    OnClick="@(() => StartAsync("ManagedGitHub"))">
-                            Connect GitHub organization
+                            Connect GitHub account
                         </MudButton>
                     </MudCardActions>
                 </MudCard>
@@ -338,47 +338,70 @@
     private int _maximumProjects = 20;
     private bool _managerApprovalRequired = true;
     private Guid _defaultTeamId;
+    private long _loadVersion;
+    private Guid _loadedBusiness;
 
     protected override async Task OnParametersSetAsync() => await LoadAsync();
 
     private async Task LoadAsync()
     {
+        var business = OrganizationId;
+        var version = ++_loadVersion;
+        if (_loadedBusiness != business)
+        {
+            _loadedBusiness = business; _dashboard = null; _availableProjects = []; _teams = [];
+            _selectedProjectIds = []; _defaultTeamId = Guid.Empty; _namePrefix = "csweet";
+            _maximumProjects = 20; _managerApprovalRequired = true;
+        }
         _loading = true;
         _error = null;
         try
         {
-            _dashboard = await Http.GetFromJsonAsync<SourceControlDashboardResponse>(
-                $"api/organizations/{OrganizationId:D}/source-control/dashboard");
+            var dashboard = await Http.GetFromJsonAsync<SourceControlDashboardResponse>(
+                $"api/organizations/{business:D}/source-control/dashboard");
+            if (version != _loadVersion || business != OrganizationId) return;
+            _dashboard = dashboard;
             if (_dashboard is { CanManageSourceControl: true,
                                 ActiveOnboarding: { ConnectionId: { } connectionId } active } &&
                 active.CurrentStep is "choose-projects" or "configure-managed-projects")
             {
                 await LoadProjectSetupAsync(
                     connectionId,
-                    active.CurrentStep == "configure-managed-projects");
+                    active.CurrentStep == "configure-managed-projects", business, version);
             }
         }
         catch (Exception exception)
         {
-            _error = exception.Message;
+            if (version == _loadVersion && business == OrganizationId)
+            {
+                _dashboard = null;
+                _error = exception is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden }
+                    ? "You do not have access to source control for this business. Choose a business you can access."
+                    : exception is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized }
+                        ? "Your session has expired. Sign in again to view source control."
+                        : "Source control could not be loaded. Try again when the service is available.";
+            }
         }
         finally
         {
-            _loading = false;
+            if (version == _loadVersion) _loading = false;
         }
     }
 
-    private async Task LoadProjectSetupAsync(Guid connectionId, bool templates)
+    private async Task LoadProjectSetupAsync(Guid connectionId, bool templates, Guid business, long version)
     {
         _loadingSetup = true;
         try
         {
-            _availableProjects = await Http.GetFromJsonAsync<IReadOnlyList<AvailableSourceControlRepository>>(
-                $"api/organizations/{OrganizationId:D}/source-control/connections/{connectionId:D}/available-projects?templates={templates.ToString().ToLowerInvariant()}") ?? [];
+            var projects = await Http.GetFromJsonAsync<IReadOnlyList<AvailableSourceControlRepository>>(
+                $"api/organizations/{business:D}/source-control/connections/{connectionId:D}/available-projects?templates={templates.ToString().ToLowerInvariant()}") ?? [];
+            if (version != _loadVersion || business != OrganizationId) return;
+            _availableProjects = projects;
             if (templates)
             {
                 var directory = await Http.GetFromJsonAsync<TeamDirectoryResponse>(
-                    $"api/core/organizations/{OrganizationId:D}/teams?includeArchived=false");
+                    $"api/core/organizations/{business:D}/teams?includeArchived=false");
+                if (version != _loadVersion || business != OrganizationId) return;
                 _teams = directory?.Teams.Where(team => !team.IsArchived).ToList() ?? [];
                 if (_defaultTeamId == Guid.Empty && _teams.Count > 0)
                     _defaultTeamId = _teams[0].Id;
@@ -386,7 +409,7 @@
         }
         finally
         {
-            _loadingSetup = false;
+            if (version == _loadVersion) _loadingSetup = false;
         }
     }
 

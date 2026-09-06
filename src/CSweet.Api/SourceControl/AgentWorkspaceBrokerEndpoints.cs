@@ -51,6 +51,14 @@ public static class AgentWorkspaceBrokerEndpoints
             catch (Exception ex) when (ex is IOException or InvalidOperationException or HttpRequestException)
             { return Results.Conflict(new { error = "workspace_operation_failed" }); }
         }).AllowAnonymous();
+        endpoints.MapPost("/agent-broker/v2/workspaces/locks", async (AgentBrokerWorkspaceLockRequest request, IAgentWorkspaceBroker broker, CancellationToken ct) =>
+        {
+            try { return Results.Ok(await broker.LocksAsync(request, ct)); }
+            catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
+            catch (ArgumentException) { return Results.BadRequest(); }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or HttpRequestException)
+            { return Results.Conflict(new { error = "workspace_lock_failed" }); }
+        }).AllowAnonymous();
         return endpoints;
     }
 }

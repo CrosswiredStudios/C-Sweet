@@ -153,7 +153,7 @@ public sealed class SourceControlOnboardingServiceTests
     }
 
     [Fact]
-    public async Task ManagedSetupRejectsPersonalInstallation()
+    public async Task ManagedSetupAcceptsPersonalInstallationAndRequiresProvisioner()
     {
         var organizationId = Guid.NewGuid();
         var applicationUserId = Guid.NewGuid();
@@ -167,14 +167,15 @@ public sealed class SourceControlOnboardingServiceTests
             organizationId, applicationUserId,
             new StartSourceControlOnboardingRequest("ManagedGitHub"));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.CompleteGitHubInstallationAsync(
-                organizationId, applicationUserId, started.SessionId,
-                new CompleteGitHubAppInstallationRequest(
-                    ReadState(started.AuthorizationUrl), 10, "SourceAccess", "oauth-code")));
-
-        Assert.Contains("organizations only", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(db.SourceControlConnections);
+        var next = await service.CompleteGitHubInstallationAsync(
+            organizationId, applicationUserId, started.SessionId,
+            new CompleteGitHubAppInstallationRequest(ReadState(started.AuthorizationUrl), 10, "SourceAccess", "oauth-code"));
+        var connection = Assert.Single(db.SourceControlConnections);
+        Assert.Equal("User", connection.AccountType);
+        Assert.Equal(10, connection.SourceAccessInstallationId);
+        Assert.Null(connection.ProvisionerInstallationId);
+        Assert.NotEqual(SourceControlConnectionStatus.Connected, connection.Status);
+        Assert.NotNull(next.NextAuthorizationUrl);
     }
 
     [Fact]

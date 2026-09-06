@@ -28,7 +28,7 @@ public sealed class GitHubRepositoryTransport(InternalGitRepositoryStore store) 
     private static string[] LfsConfiguration(GitHubRepositoryDescriptor repository, string storage) =>
         ["-c", "lfs.url=" + Url(repository) + "/info/lfs", "-c", "lfs.pushurl=" + Url(repository) + "/info/lfs",
          "-c", "lfs.storage=" + storage, "-c", "lfs.basictransfersonly=true", "-c", "lfs.standalonetransferagent=",
-         "-c", "lfs.fetchrecentalways=false", "-c", "lfs.concurrenttransfers=1", "-c", "lfs.locksverify=false"];
+         "-c", "lfs.fetchrecentalways=false", "-c", "lfs.concurrenttransfers=1"];
     public async Task<IReadOnlyDictionary<string, string>> RefsAsync(GitHubRepositoryDescriptor repository, string token, CancellationToken ct)
     {
         var output = await store.RunGitHubNetworkAsync(null, repository, token, ["ls-remote", "--heads", Url(repository)], ct);

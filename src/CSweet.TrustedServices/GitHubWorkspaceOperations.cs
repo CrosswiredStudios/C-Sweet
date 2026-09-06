@@ -30,7 +30,7 @@ public sealed partial class InternalGitRepositoryStore
     public async Task<InternalGitSnapshotResult> ApplyGitHubSnapshotAsync(GitHubSnapshotOperation operation, GitHubRepositoryDescriptor remote,
         string token, WorkspaceArtifactValidator artifacts, IGitHubRepositoryTransport transport, CancellationToken ct = default)
     {
-        var request = operation.Workspace with { AllowLfs = false };
+        var request = operation.Workspace with { AllowLfs = true };
         ValidateBranch(request.Branch); ValidateBranch(request.DefaultBranch); ValidateSha(request.BaseSha);
         if (request.Operation is not ("inspect" or "publish" or "refresh") || request.WorkspaceId == Guid.Empty || string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160 ||
             (request.Operation == "publish" && request.Branch == request.DefaultBranch)) throw new ArgumentException("Invalid GitHub workspace operation.");
@@ -81,12 +81,13 @@ public sealed partial class InternalGitRepositoryStore
             if (head is null) await RunAsync(cache, ["update-ref", "-d", "refs/heads/" + request.Branch], ct);
             else await RunAsync(cache, ["update-ref", "refs/heads/" + request.Branch, head], ct);
         }
-        var result = await ApplySnapshotAsync(request, artifacts, ct);
+        var result = await ApplySnapshotAsync(request, artifacts, ct, rejectPointers: true);
         if (request.Operation != "publish") return result with { LatestTargetSha = head ?? target };
         if (result.Status != "Published") return result;
         if (head != result.CommitSha)
         {
             if (head != attempt!.ExpectedHead) throw new InvalidOperationException("The GitHub branch changed before publication.");
+            await UploadGitHubLfsAsync(cache, remote, token, result.CommitSha!, request.OrganizationId, request.RepositoryId, artifacts, transport, ct);
             await WriteAttemptAsync(attempt with { PushAttempted = true });
             await transport.PushAsync(cache, remote, token, request.Branch, result.CommitSha!, attempt.ExpectedHead, ct);
             if ((await transport.RefsAsync(remote, token, ct)).GetValueOrDefault("refs/heads/" + request.Branch) != result.CommitSha)

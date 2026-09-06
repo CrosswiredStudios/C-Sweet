@@ -68,7 +68,7 @@ public sealed class UserActionService(
         var resolver = resolvers.SingleOrDefault(x =>
             string.Equals(x.WorkflowType, workflowType, StringComparison.Ordinal))
             ?? throw new ArgumentException("The requested workflow type is not registered.");
-        var resolution = resolver.Resolve(organizationId, request.Parameters);
+        var resolution = resolver.Resolve(organizationId, originatingInstallationId, request.Parameters);
         var now = DateTimeOffset.UtcNow;
         var label = Required(request.Label, 120, nameof(request.Label));
         var description = Clean(request.Description, 500, nameof(request.Description));

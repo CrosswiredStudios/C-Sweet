@@ -4,288 +4,192 @@
   <p><strong>Your idea. Your company. Your workforce.</strong></p>
   <p>
     A self-hostable operating environment for agent-first companies.<br />
-    Tell your Chief of Staff what you want to build; C-Sweet helps turn that intent into a company that can plan, staff, execute, and improve.
+    Tell your Chief of Staff what you want to build. C-Sweet helps turn that intent into a company that can plan, staff, execute, and improve.
+  </p>
+  <p><strong>Help build this future.</strong> <a href="https://ko-fi.com/O7F226H4A2">Support C-Sweet's development on Ko-fi.</a></p>
+  <p>
+    <a href="https://ko-fi.com/O7F226H4A2"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support C-Sweet on Ko-fi" height="36" /></a>
   </p>
   <p>
-    <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&amp;logoColor=white" alt=".NET 10" /></a>
-    <a href="https://dotnet.microsoft.com/apps/aspnet/web-apps/blazor"><img src="https://img.shields.io/badge/UI-Blazor-512BD4?logo=blazor&amp;logoColor=white" alt="Blazor" /></a>
-    <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&amp;logoColor=white" alt="PostgreSQL 17" /></a>
-    <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Infrastructure-Docker-2496ED?logo=docker&amp;logoColor=white" alt="Docker infrastructure" /></a>
-    <a href="#security-is-part-of-the-operating-model"><img src="https://img.shields.io/badge/Security-Permission--first-23845C" alt="Permission-first security" /></a>
-    <a href="#bring-your-own-models-and-infrastructure"><img src="https://img.shields.io/badge/Cloud-Optional-1E6B52" alt="Cloud optional" /></a>
+    <a href="#your-company-your-control"><img src="https://img.shields.io/badge/Deployment-Self--hosted-23845C" alt="Self-hosted" /></a>
+    <a href="#under-the-hood"><img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&amp;logoColor=white" alt=".NET 10" /></a>
     <a href="#project-status"><img src="https://img.shields.io/badge/Status-Developer_Preview-E6A84A" alt="Developer preview" /></a>
     <a href="https://github.com/CrosswiredStudios/csweet/stargazers"><img src="https://img.shields.io/github/stars/CrosswiredStudios/csweet?style=flat&amp;logo=github&amp;label=Stars" alt="GitHub stars" /></a>
   </p>
   <p>
-    <a href="#a-company-can-start-with-one-person">Why C-Sweet?</a> ·
-    <a href="#security-is-part-of-the-operating-model">Security</a> ·
-    <a href="#run-c-sweet">Run it</a> ·
+    <a href="#a-company-can-start-with-one-person">Meet C-Sweet</a> ·
+    <a href="#get-started">Get started</a> ·
+    <a href="#under-the-hood">Under the hood</a> ·
     <a href="docs/00-product-vision.md">Explore the vision</a>
   </p>
 </div>
 
-![A founder directing an AI-assisted company from a calm command center](assets/readme/csweet-hero.webp)
+![Concept illustration of a founder directing connected planning, software, creative, and review workspaces](assets/readme/csweet-founder-hero.png)
 
 <div align="center">
-  <strong>Control</strong> &nbsp;·&nbsp; <strong>Transparency</strong> &nbsp;·&nbsp; <strong>Choice</strong> &nbsp;·&nbsp; <strong>Durable knowledge</strong>
+  <strong>Lead the company. Give the work somewhere to go.</strong>
 </div>
-
-## Security is part of the operating model
-
-C-Sweet assumes that agent code, prompts, model output, tools, retrieved content, and provider responses can all be hostile. A useful agent is not automatically a trusted principal: **workers propose actions; application-enforced policy grants authority**.
-
-![C-Sweet applies policy and approval controls before work reaches hardware-isolated agents](assets/readme/csweet-security.svg)
-
-| Principle | How C-Sweet applies it |
-|---|---|
-| **Your control plane** | Self-host the core, choose local or hosted OpenAI-compatible models, and keep company state and memory in PostgreSQL you operate. The marketplace remains optional. |
-| **Explicit authority** | Installations receive narrow, organization-scoped capability grants. Resource identity and ownership are resolved server-side rather than trusted from agent input. |
-| **Human control of consequences** | Material actions can require an owner or manager decision bound to the exact payload, revision, and scope being approved. |
-| **Hardware isolation for untrusted code** | Builds and runtimes are scheduled to independently installed C-Sweet Offices. Certified providers place workloads in hardware virtual machines with no guest network device, no host shares, and ephemeral writable state. |
-| **Observable and revocable** | Short-lived, workload-bound sessions, bounded schemas and quotas, durable audit events, cancellation, and grant revocation limit and expose misuse. |
-
-The broker is the key boundary between reasoning and authority. Agents do not receive database credentials, the Docker socket, host filesystem access, or general infrastructure control. Network and platform operations pass through declarative, schema-bound capabilities where C-Sweet can enforce tenant scope, destinations, approvals, budgets, limits, and audit policy.
-
-> [!IMPORTANT]
-> Isolation reduces blast radius; it does not make granted authority harmless. An agent can still abuse every capability intentionally granted to it. C-Sweet is a developer preview, and the security architecture is not a claim of production certification. Read the [agent runtime threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md) and [Office operations guide](Documentation/Operations/DISTRIBUTED_EXECUTION_FLEET.md) before enabling untrusted workloads.
 
 ## A company can start with one person
 
 Starting a business should not require you to already know how to run every department.
 
-C-Sweet gives a founder an executive layer between an idea and the work required to make it real. You act as the CEO: set the direction, define the boundaries, approve the important decisions, and stay focused on the outcome. Your Personal Assistant or Chief of Staff helps translate that direction into plans, roles, tasks, delegated work, briefings, and deliverables.
+C-Sweet gives you an executive layer between an idea and the work required to make it real. You act as the CEO: set the direction, define the boundaries, and approve the important decisions. Your Personal Assistant or Chief of Staff helps translate that direction into plans, roles, delegated work, briefings, and deliverables.
 
-That means you can begin with a sentence:
+Start with an outcome:
 
 > “Research this market, assemble the team we need, and show me the first plan.”
 
-Then grow deliberately—from one goal, to one team, to a company with durable knowledge and a way of working that belongs to you.
+Then give that work a home. Conversations connect to a business. People and agents have roles and reporting relationships. Tasks have owners, work produces artifacts, and decisions become part of company memory.
 
-## From idea to outcome
+<picture>
+  <source media="(max-width: 600px)" srcset="assets/readme/csweet-company-workflow-mobile.svg" />
+  <img src="assets/readme/csweet-company-workflow.svg" alt="Direction flows into a plan, a team, work, review, and company memory; learning feeds back into the next direction" />
+</picture>
 
-```mermaid
-flowchart LR
-    A["Your idea"] --> B["Chief of Staff"]
-    B --> C["Plan and capabilities"]
-    C --> D["AI agents"]
-    C --> E["Human experts"]
-    C --> F["Hybrid services"]
-    D --> G["Tasks and artifacts"]
-    E --> G
-    F --> G
-    G --> H["Review and approval"]
-    H --> I["Business outcome"]
-    I --> J["Company memory"]
-    J --> B
-```
+**Direction → Plan → Team → Work → Review → Company memory.** Set an objective, organize the work with your Chief of Staff, assign configured agents, inspect the results, and carry what you learn into the next decision. Execution depends on the agents, providers, and permissions you configure.
 
-C-Sweet is **agent-first, not agent-only**. Routine digital work can go to capable agents; people join where judgment, credentials, relationships, accountability, or physical action matter most. Everyone works inside the same organizational model, with explicit responsibilities and authority.
+## What will you build?
 
-## What C-Sweet brings to the table
+**A software product.** Organize requirements, architecture, implementation, and QA around shared work boards. Brokered Git workspaces and reviewable changes give software assignments a path from a ticket to delivery evidence.
 
-| | Capability | What it means for you |
-|---|---|---|
-| 💬 | **Executive-first workspace** | Lead through a Personal Assistant instead of managing a wall of disconnected chats. |
-| 🧭 | **Command center** | See goals, roles, open work, artifacts, approvals, risks, and recommended next actions in one place. |
-| 🧑‍💼 | **One mixed workforce** | Organize local agents, remote services, and people as employees with clear roles and reporting lines. |
-| ✅ | **Authority by design** | Decide what can be recommended, drafted, approved, or executed autonomously—by capability and scope. |
-| 🧠 | **Company-owned memory** | Keep decisions, work history, conversations, artifacts, and organizational knowledge when models or providers change. |
-| 📣 | **Proactive briefings** | Let your Chief of Staff summarize progress and bring the decisions that actually need a CEO. |
-| 🧩 | **Extensible platform** | Import agent packages, connect communication providers, and grow capabilities through plugins and provider APIs. |
-| 🏠 | **Local-first deployment** | Run the core stack on infrastructure you control and choose local or hosted OpenAI-compatible model endpoints. |
+**A game studio.** Bring creative direction, production, and specialist roles into one organization. The catalog spans design, engineering, art, audio, playtesting, and release work; team boards provide sprint planning, capacity, and delivery reporting. Each specialist still needs installation and configuration before it can contribute.
 
-## The CEO experience
+**An operating company.** Keep business objectives, conversations, hiring decisions, approvals, and executive briefings connected. Start with one business and manage additional businesses from the enterprise view as your ambitions grow.
 
-1. **Name the outcome.** Start a business, launch a product, research an opportunity, or run an operating function.
-2. **Set the rules.** Define budget, risk, privacy, quality, timing, approval, and autonomy boundaries.
-3. **Build the workforce.** Assign installed agents today and evolve toward specialist services and human professionals as the platform grows.
-4. **Review decisions, not noise.** Receive executive briefings, approve high-impact actions, and inspect work when you choose.
-5. **Keep what your company learns.** Plans, artifacts, decisions, and performance history remain part of the company.
+These are ways to explore the current preview, not promises of autonomous business success. The broader vision includes remote agents, human professionals, and hybrid services working together. Today's employee model includes humans and agents; a complete marketplace for engaging every workforce type remains part of that vision. Explore the [example companies and workflows](docs/12-example-scenarios.md) for inspiration.
 
-The ambition is simple: make entrepreneurship feel less like juggling every job at once and more like leading a capable organization.
+## Give ambition an operating system
 
-## Available in the current prototype
-
-- Guided first-run setup for the root administrator, model providers, optional email, and communications
-- Multi-business enterprise view and business onboarding
-- CEO command center with objectives, roles, tasks, workers, artifacts, approvals, and next actions
-- Unified Communications workspace with durable human and agent conversations, streaming, retry, cancellation, and execution traces
-- Agent import, validation, configuration, company memory, and hardware-isolated execution through C-Sweet Offices
-- Human and agent employee directory with reporting relationships
-- Scheduled and on-demand executive briefings
-- Team-scoped work boards with Kanban workflows, sprint planning, estimates, capacity, collaboration, and delivery reports
-- Role-driven hiring recommendations with explicit owner review and approval
-- Brokered Git workspaces for software-development assignments and reviewable pull-request handoff
-- Plugin foundations and communication-provider integrations
-- Persistent PostgreSQL state, migrations, health checks, and OpenTelemetry foundations
-
-![C-Sweet sign-in screen for the self-hosted command center](assets/readme/csweet-login.png)
-
-The core can optionally connect to C-Sweet Marketplace for in-app agent browsing and Chief-of-Staff capability matching while continuing to work offline. Marketplace purchase and verified-install handoff remain link-based. See [marketplace discovery integration](docs/MARKETPLACE_INTEGRATION.md), the [product vision](docs/00-product-vision.md), and the [prototype roadmap](docs/09-prototype-roadmap.md).
-
-## Start with a first-party team
-
-C-Sweet's embedded catalog includes seven first-party agents that are available to install through the same permission review and hiring workflow used for any other agent.
-
-| Agent | What it enables |
+| What you need | What C-Sweet provides today |
 |---|---|
-| [**Chief of Staff**](https://github.com/CrosswiredStudios/CSweet.Agent.ChiefOfStaff) | Turns executive direction into priorities, organizational plans, hiring recommendations, coordination, and executive briefings. |
-| [**Product Manager**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareProductManager) | Drives product discovery, strategy, roadmaps, requirements, prioritization, and product-team design. |
-| [**Video Game Creative Director**](https://github.com/CrosswiredStudios/CSweet.Agent.CreativeDirector.VideoGame) | Establishes an accepted video-game vision, hands delivery to the Video Game Producer, and provides ongoing creative oversight. |
-| [**Video Game Producer**](https://github.com/CrosswiredStudios/CSweet.Agent.Producer.VideoGame) | Runs sprint readiness and execution, monitors trusted flow metrics and capacity, controls delivery risks, and reports to management. |
-| [**Software Architect**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareArchitect) | Converts approved requirements into architecture decisions, incremental plans, sprints, and developer-ready tickets. |
-| [**Software Developer**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper) | Implements assigned tickets in an isolated Git workspace, validates changes, and opens reviewable pull requests. |
-| [**Software QA**](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareQA) | Validates the assigned commit against acceptance criteria and returns structured release evidence and a pass, fail, or blocked verdict. |
+| **A clear view of the company** | A CEO command center for objectives, roles, tasks, workers, artifacts, approvals, and next actions; scheduled and on-demand executive briefings. |
+| **Work that stays connected** | Durable human and agent conversations with streaming, retry, cancellation, and execution traces; team work boards with Kanban, sprints, estimates, and capacity planning. |
+| **A team with responsibilities** | Employee reporting relationships, agent discovery and import, and role-driven hiring recommendations that require owner review. |
+| **Deliverables you can inspect** | Artifacts, brokered software workspaces, GitHub pull-request handoffs, and internal Git repositories with proposed changes and governed review/merge workflows. |
+| **Knowledge that stays with you** | Persistent company memory, conversation history, decisions, and work records backed by PostgreSQL. Repository and media files use their own configured storage. |
+| **Room for creative work** | Configurable image/video generation and editing providers, including local ComfyUI workflows and hosted adapters. Supported operations depend on the provider and its configuration. |
+| **Capabilities you can extend** | Agent packages, plugin SDK contracts, communication-provider integrations, and an optional marketplace discovery connection. |
 
-Direction can flow from Chief of Staff into software product delivery, or from a Video Game Creative Director through the Video Game Producer and accountable game specialists. These agents are not automatically installed: importing their GitHub source requires repository access and explicit owner approval.
+Internal Git hosting gives the company a repository store it can operate itself. The complete offline developer workflow is still in progress; see [internal Git hosting](docs/implementation/internal-git-hosting.md) for implemented behavior and remaining work.
 
-## Bring your own models and infrastructure
+## Start with a team, then make it yours
 
-C-Sweet is provider-neutral by design. The setup flow supports OpenAI-compatible endpoints, so a company can choose the balance that fits its privacy, cost, and capability needs.
+The [embedded first-party catalog](src/CSweet.Api/first-party-agents.json) currently lists **22 agents**, organized around complementary roles:
 
-- Use a local model server such as LM Studio, Ollama, or vLLM.
-- Connect a compatible hosted endpoint when stronger or specialized models are useful.
-- Use Docker for trusted application infrastructure such as PostgreSQL while independently installed Offices keep untrusted agent execution behind a certified hardware-virtualization boundary.
-- Keep framework-specific agent code behind C-Sweet-owned abstractions.
+| Team | Catalog roles |
+|---|---|
+| **Executive coordination** | Chief of Staff |
+| **Software product delivery** | Product Manager, Software Architect, Software Developer, Software QA |
+| **Game direction and production** | Video Game Creative Director, Video Game Producer, Video Game Technical Director |
+| **Game design and experience** | Video Game Designer, Video Game Level Designer, Video Game Narrative Designer, Video Game UI UX Accessibility Designer |
+| **Game art and audio** | Video Game Art Director, Video Game Artist, Video Game Technical Artist, Video Game Audio Designer |
+| **Game engineering and quality** | Video Game Engineer, Video Game QA, Video Game Playtest Researcher, Video Game Build Release Engineer |
+| **Specialist operations** | Namecheap Infrastructure Engineer, YouTube Account Manager |
 
-Local-first does not mean isolated. It means your company can decide when the network adds value.
+Catalog entries are discoverable source packages, not preinstalled staff or a guarantee of validated end-to-end delivery. Review each agent's repository, license, dependencies, and required capabilities. Source access, import validation, permission approval, provider setup, and a ready Office determine what can actually run.
 
-## Run C-Sweet
+The optional [C-Sweet Marketplace connection](docs/MARKETPLACE_INTEGRATION.md) adds in-app discovery and Chief-of-Staff capability matching. It is disabled by default; installed and embedded catalog discovery remain available without it. Purchases follow marketplace listing links; automatic entitlement synchronization and a verified install handoff remain future work.
 
-### Prerequisites
+## Your company, your control
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with the Linux container engine running. The Aspire AppHost uses it for PostgreSQL, so C-Sweet cannot start from source while the Docker engine is stopped.
-- The [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) pinned by [`global.json`](global.json).
-- Git.
-- An OpenAI-compatible model endpoint; [LM Studio](https://lmstudio.ai/) is the default local preset.
-- To execute untrusted agents: a separately installed [C-Sweet Office](https://github.com/CrosswiredStudios/CSweet.Office) with a supported, certified hardware-isolation provider. The current Windows path uses Hyper-V and requires Windows Professional, Enterprise, or Education with hardware virtualization.
+**Choose where your company runs.** Self-host Headquarters and its data stores on infrastructure you operate. Connect local or hosted OpenAI-compatible model endpoints; LM Studio is the default local preset, with Ollama and vLLM also described in setup. Model capabilities and endpoint compatibility still matter for agent work.
+
+**Decide what agents can do.** Agents propose actions through a broker. Application-enforced capability grants, tenant scope, approval rules, quotas, and audit records govern their authority. A useful agent is not automatically a trusted principal.
+
+**Keep execution behind a boundary.** Untrusted agent builds and runtimes belong in independently installed C-Sweet Offices using certified hardware-isolation providers. Docker runs trusted development infrastructure such as PostgreSQL. It is not the sandbox for untrusted agents.
+
+![Headquarters applies policy and approval controls before bounded work reaches hardware-isolated agents in an Office](assets/readme/csweet-security.svg)
+
+The runtime boundary is designed around dedicated virtual machines without a guest network device or host shares. Agents reach approved platform capabilities through the broker rather than receiving database credentials, a Docker socket, or general host access. If no approved Office reports current certification, untrusted execution stays disabled.
+
+Local operation depends on local models, available agent artifacts, and local dependencies. Hosted models, repository imports, marketplace discovery, and external integrations need their respective services and network access. Self-hosting gives you that choice; it does not make every workflow offline.
 
 > [!IMPORTANT]
-> Docker is required infrastructure, but it is **not** the security boundary for untrusted agents. Docker runs trusted dependencies such as the development PostgreSQL database. Untrusted agent code runs only in a separately installed Office through a certified hardware-isolation provider; on Windows that boundary is a dedicated Hyper-V virtual machine.
+> Isolation limits exposure; agents can still misuse capabilities you grant. Provider certification checks are not a claim that C-Sweet is production-certified. Review the [runtime threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md) and [Office operations guide](Documentation/Operations/DISTRIBUTED_EXECUTION_FLEET.md) before enabling untrusted workloads.
 
-### Start from a Windows source checkout
+## Get started
 
-1. Clone the repository.
-2. Ensure Docker Desktop is running and reports that its Linux container engine is ready.
-3. Double-click [`Start-CSweet.cmd`](Start-CSweet.cmd). The launcher checks .NET and Docker, attempts to start Docker Desktop when necessary, starts Aspire, and opens C-Sweet in the browser.
-4. Create the root administrator, save the ten offline recovery codes, and follow guided setup for models and optional services.
-5. To build or run imported agents, install an Office, create its one-use enrollment under Agent Execution setup, verify the claimed fingerprint, and approve it.
+The current source-development path is **Windows + .NET + Docker Desktop**, with a separately installed Office for agent execution.
 
-Developers can instead run the AppHost from Visual Studio or use:
+### What you need
+
+- **.NET 10 SDK**, following the version and roll-forward policy in [`global.json`](global.json).
+- **Docker Desktop with its Linux container engine running.** Aspire uses Docker for PostgreSQL; `docker info` must succeed before the stack can start.
+- **Git** and an **OpenAI-compatible model endpoint**, local or hosted.
+- **For untrusted agent execution:** a separately installed [C-Sweet Office](https://github.com/CrosswiredStudios/CSweet.Office) with a supported hardware-isolation provider. The Windows Hyper-V path requires Windows Professional, Enterprise, or Education and hardware virtualization.
+
+### Start your company workspace
+
+1. Clone this repository and start Docker Desktop.
+2. Double-click [`Start-CSweet.cmd`](Start-CSweet.cmd). It checks .NET and Docker, attempts to start Docker Desktop when necessary, launches Aspire, and opens the browser.
+3. Create the root administrator, save the **ten offline recovery codes**, and complete guided setup for models and optional services. Email is optional.
+4. In **Agent Execution** setup, follow the separate Office installation flow. Verify the installer signature, create a one-use enrollment, compare the claimed fingerprint with the Office machine, and approve it. Wait for healthy status and current builder/runtime certification.
+5. Create a business and follow onboarding to configure your Chief of Staff and workforce.
+
+For terminal or IDE startup, run the AppHost directly:
 
 ```powershell
 dotnet run --project src/CSweet.AppHost/CSweet.AppHost.csproj --launch-profile https
 ```
 
-If startup fails before the dashboard is usable, verify Docker first:
-
-```powershell
-docker info
-```
-
-That command must succeed. Starting the Docker Desktop window is not sufficient; wait for its engine status to show **Running**.
-
-### Docker Compose deployment status
-
-Docker Compose remains the intended packaging path for the trusted C-Sweet core. The checked-in Compose topology is being migrated away from the former Docker-based agent runner and must not be treated as the supported untrusted-agent execution path. For current Windows development and end-to-end isolation testing, run Headquarters through the Aspire AppHost flow above and connect a separately installed Office.
-
 > [!IMPORTANT]
-> A fresh instance trusts its first visitor to claim the root administrator account. Complete registration and onboarding on a trusted network before exposing C-Sweet publicly. SMTP is optional; offline recovery codes are available during registration.
+> The first visitor to a fresh instance can claim the root administrator account. Finish registration and onboarding on a trusted network before exposing the application publicly.
 
-For the current container topology, migration limitations, environment variables, and data persistence, read the [Docker infrastructure guide](docs/deployment/docker.md).
+**Docker Compose:** the checked-in topology is an incomplete deployment path for the trusted core, not a supported end-to-end Office execution deployment. Use Aspire and a separately installed Office for current Windows development. See the [Docker infrastructure guide](docs/deployment/docker.md) for persistence, configuration, and limitations.
 
-## Architecture at a glance
+<details>
+<summary><strong>Startup troubleshooting</strong></summary>
 
-C-Sweet separates the trusted company control plane from untrusted execution. Docker and an Office's hardware-virtualization provider have deliberately different jobs:
+Run `docker info` and wait for the engine to report that it is running. An open Docker Desktop window alone does not mean the engine is ready. Starting AppHost directly does not start Docker Desktop for you.
 
-```mermaid
-flowchart LR
-    User["User browser"]
+AppHost starts Headquarters services; it does not launch Office. An unavailable Office blocks untrusted execution rather than falling back to a container or host process. See the [debug guide](docs/implementation/debug-guide.md) and [Office fleet operations](Documentation/Operations/DISTRIBUTED_EXECUTION_FLEET.md).
 
-    subgraph HQ["C-Sweet Headquarters — trusted control plane"]
-        App["C-Sweet UI"]
-        API["API and WorkerHost"]
-        AgentHost["AgentHost<br/>policy and MCP broker"]
-        Gateway["ExecutionGateway<br/>enrollment, leases, and relay"]
-        ArtifactStore["Validated content-addressed<br/>agent artifacts"]
-        App --> API
-        API --> AgentHost
-        API --> Gateway
-        Gateway --> ArtifactStore
-    end
+</details>
 
-    subgraph Docker["Docker — trusted infrastructure"]
-        Postgres[("PostgreSQL")]
-    end
+## Under the hood
 
-    subgraph Office["Independently installed Office"]
-        OfficeService["Authenticated office service"]
-        BuilderGuest["Certified builder VM"]
-        RuntimeGuest["Certified runtime VM<br/>no network device"]
-        OfficeService --> BuilderGuest
-        RuntimeGuest -->|"authenticated broker channel"| OfficeService
-    end
+Headquarters owns company state and policy. Offices own isolated execution. Trusted source-control services manage repository access and provisioning outside agent guests.
 
-    User --> App
-    API --> Postgres
-    OfficeService <-->|"mutual authentication,<br/>leases, and bounded transfers"| Gateway
-    Gateway -->|"bounded capability relay"| AgentHost
-```
-
-Docker stopping prevents the development stack from starting because PostgreSQL is unavailable. It does not cause C-Sweet to downgrade agent execution into a container or host process. AppHost never launches an Office. If no approved office reports current certification, untrusted agent execution remains disabled while the trusted control plane stays available.
+<details>
+<summary><strong>Architecture and trust boundaries</strong></summary>
 
 | Component | Responsibility |
 |---|---|
 | `CSweet.App` + `CSweet.UI` | Blazor web experience and shared UI |
-| `CSweet.Api` | Authentication, setup, company operations, chat, planning, and provider APIs |
+| `CSweet.Api` | Authentication, setup, company operations, conversations, planning, and provider APIs |
 | `CSweet.WorkerHost` | Durable background work and execution-fleet orchestration |
-| `CSweet.AgentHost` | Unprivileged policy enforcement and brokered MCP access; it does not own the VM lifecycle |
-| `CSweet.ExecutionGateway` | Headquarters enrollment, scheduling, lease, artifact-grant, and broker-relay gateway for Offices |
-| `CSweet.Migrator` | One-shot database migrations and initial seed data |
-| PostgreSQL | Company state, history, memory, and operational records |
-| [C-Sweet Office](https://github.com/CrosswiredStudios/CSweet.Office) | Separately installed, certified execution plane that owns privileged VM lifecycle and reports capacity and health to Headquarters |
+| `CSweet.AgentHost` | Policy enforcement and brokered MCP capabilities; no privileged VM lifecycle control |
+| `CSweet.ExecutionGateway` | Office enrollment, placement, leases, artifact grants, and broker relay |
+| `CSweet.GitHost` | Trusted Git operations, internal repository storage, and brokered workspaces |
+| `CSweet.SourceControlProvisionerHost` | Separate trusted service for managed GitHub repository provisioning |
+| `CSweet.Migrator` + PostgreSQL | Database migrations, seed data, and persistent company state |
+| [C-Sweet Office](https://github.com/CrosswiredStudios/CSweet.Office) | Independently installed execution plane that manages hardware-isolated builds/runtimes and reports capacity and health |
 
-The repository also contains MAUI host foundations, plugin SDK contracts, unit and integration tests, Docker assets, and detailed architecture plans.
+Protocol-v2 executable agents use the transport-neutral SDK, private brokered MCP runtime, and durable work inbox. Runtime guests communicate through Office and ExecutionGateway to the broker; they do not connect directly to company storage or infrastructure.
 
-<details>
-<summary><strong>Technology stack</strong></summary>
-
-- .NET 10, ASP.NET Core, Blazor WebAssembly, and MudBlazor
-- Microsoft Agent Framework and Microsoft.Extensions.AI
-- PostgreSQL 17 and Entity Framework Core
-- Docker/Aspire for trusted development infrastructure and PostgreSQL
-- Independently installed Offices and certified hardware virtual machines for untrusted agent execution
-- OpenTelemetry for observability
-- Server-sent events for browser streaming and private Streamable HTTP MCP for SDK-managed agent work
+Read the [MCP runtime architecture](Documentation/Architecture/MCP_AGENT_RUNTIME.md), [Software Developer runtime](Documentation/Architecture/SOFTWARE_DEVELOPER_RUNTIME.md), and [operations runbook](Documentation/Operations/MCP_AGENT_RUNTIME_RUNBOOK.md).
 
 </details>
 
-### Agent runtime documentation
+<details>
+<summary><strong>Technology stack and extension points</strong></summary>
 
-Protocol-v2 executable agents use the transport-neutral SDK over C-Sweet's private, brokered MCP runtime and durable work inbox:
+- .NET 10, ASP.NET Core, Blazor WebAssembly, and MudBlazor.
+- Microsoft Agent Framework and Microsoft.Extensions.AI behind C-Sweet abstractions.
+- PostgreSQL and Entity Framework Core; the checked-in Compose database image uses PostgreSQL 17.
+- Aspire and Docker for trusted development infrastructure; separate Offices for hardware-isolated agent execution.
+- OpenTelemetry foundations, server-sent events for browser streaming, and private Streamable HTTP MCP for agent work.
+- Agent SDK and plugin SDK contracts, with communication providers and configurable media-generation adapters.
 
-- [Architecture](Documentation/Architecture/MCP_AGENT_RUNTIME.md)
-- [Software Developer runtime](Documentation/Architecture/SOFTWARE_DEVELOPER_RUNTIME.md)
-- [Threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md)
-- [Office fleet operations](Documentation/Operations/DISTRIBUTED_EXECUTION_FLEET.md)
-- [Implementation and migration](Documentation/Implementation/MCP_ONLY_AGENT_MIGRATION.md)
-- [Operations runbook](Documentation/Operations/MCP_AGENT_RUNTIME_RUNBOOK.md)
+Explore the [plugin platform](docs/plugin-platform/README.md) and [agent runtime documentation](Documentation/Architecture/MCP_AGENT_RUNTIME.md) to build capabilities that fit the same authority model.
 
-## Documentation
+</details>
 
-| Start here | Go deeper |
-|---|---|
-| [Product vision](docs/00-product-vision.md) | [Domain model](docs/01-domain-model.md) |
-| [Example companies and workflows](docs/12-example-scenarios.md) | [Agent orchestration](docs/02-agent-orchestration.md) |
-| [Prototype roadmap](docs/09-prototype-roadmap.md) | [Security, privacy, and trust](docs/07-security-privacy-and-trust.md) |
-| [Docker deployment](docs/deployment/docker.md) | [Application architecture](docs/08-application-architecture.md) |
-| [Implementation plans](docs/implementation/README.md) | [Budgeting and governance](docs/06-budgeting-and-governance.md) |
+<details>
+<summary><strong>Build and test from source</strong></summary>
 
-The main document index lives in [`docs/README.md`](docs/README.md).
-
-## Build and test
-
-The repository targets the SDK pinned in [`global.json`](global.json).
+Use the SDK selected by [`global.json`](global.json):
 
 ```bash
 dotnet restore CSweet.sln
@@ -294,35 +198,40 @@ dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
 dotnet test tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj
 ```
 
-Optional local sibling checkouts of `CSweetAgentSdk` and `CSweet.Memory` are detected automatically by local .NET builds. Without them, local builds and Docker use the centrally pinned package versions.
+Local builds automatically detect sibling checkouts for the Agent SDK, Memory, WorkManagement Contracts, and Office Contracts. Without those checkouts, builds use the package versions pinned in [`Directory.Packages.props`](Directory.Packages.props). The switches and paths live in [`Directory.Build.props`](Directory.Build.props).
 
-## Help build the company OS
+</details>
 
-C-Sweet is for founders, operators, agent builders, designers, and developers who believe powerful tools should make ambition more accessible—not bury it under more software.
+## Explore further
 
-Good ways to contribute:
+| Your next step | Start here |
+|---|---|
+| Understand the ambition | [Product vision](docs/00-product-vision.md) · [Example companies](docs/12-example-scenarios.md) |
+| Set up and operate the preview | [Docker infrastructure](docs/deployment/docker.md) · [Office fleet](Documentation/Operations/DISTRIBUTED_EXECUTION_FLEET.md) |
+| Understand authority and execution | [Threat model](Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md) · [Runtime architecture](Documentation/Architecture/MCP_AGENT_RUNTIME.md) |
+| Build on the platform | [Plugin platform](docs/plugin-platform/README.md) · [Implementation plans](docs/implementation/README.md) |
+| Find the rest | [Documentation index](docs/README.md) · [Prototype roadmap](docs/09-prototype-roadmap.md) |
 
-- Try one of the [example business scenarios](docs/12-example-scenarios.md) and report where the experience breaks down.
-- Improve an implementation plan or turn one into working code.
-- Build an agent or plugin that gives a small company a capability it could not easily afford before.
-- Strengthen security, accessibility, observability, testing, and deployment.
-- Open an [issue](https://github.com/CrosswiredStudios/csweet/issues) with a focused problem or proposal.
-
-If this is a future you want to help create, [star the repository](https://github.com/CrosswiredStudios/csweet) and build with us.
+Vision, roadmap, and implementation-plan documents include future work; they are not availability guarantees.
 
 ## Project status
 
-> [!NOTE]
-> C-Sweet is an active developer preview. Core workflows are implemented, but the product is not yet production-ready. APIs, deployment requirements, and data models may change. `CSweet` is also a working name pending final brand and trademark review.
+C-Sweet is an **active developer preview**, not yet production-ready. Core workflows are implemented, while APIs, deployment requirements, and data models may change. `CSweet` is a working name pending final brand and trademark review.
+
+## Help build the company OS
+
+Try a business workflow and tell us where it breaks down. Build an agent or plugin. Improve accessibility, security, documentation, or deployment. Founders, operators, designers, and developers all have a role in making the company easier to lead.
+
+Open a focused [issue](https://github.com/CrosswiredStudios/csweet/issues), explore an [implementation plan](docs/implementation/README.md), or [star the repository](https://github.com/CrosswiredStudios/csweet) to support the project.
 
 ---
 
 <div align="center">
   <strong>You bring the ambition. C-Sweet helps you build the company around it.</strong>
   <br /><br />
-  <a href="docs/00-product-vision.md">Read the vision</a>
+  <a href="#get-started">Start your workspace</a>
   ·
-  <a href="docs/12-example-scenarios.md">Imagine your company</a>
+  <a href="docs/00-product-vision.md">Read the vision</a>
   ·
   <a href="https://github.com/CrosswiredStudios/csweet/issues">Join the conversation</a>
 </div>

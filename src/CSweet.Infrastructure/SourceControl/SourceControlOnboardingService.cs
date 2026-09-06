@@ -181,8 +181,8 @@ public sealed class SourceControlOnboardingService(
         if (installation.Suspended)
             throw new InvalidOperationException(installation.SuspendedReason ?? "The GitHub App installation is suspended.");
         if (session.SelectedMode == SourceControlConnectionMode.ManagedGitHub &&
-            !string.Equals(installation.AccountType, "Organization", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Full access supports GitHub organizations only; personal accounts cannot create managed projects.");
+            (!string.Equals(installation.AccountType, "Organization", StringComparison.OrdinalIgnoreCase) && !string.Equals(installation.AccountType, "User", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Full access requires a GitHub organization or personal account.");
 
         SourceControlConnection connection;
         if (session.ConnectionId.HasValue)
@@ -191,7 +191,7 @@ public sealed class SourceControlOnboardingService(
                 candidate.OrganizationId == organizationId && candidate.Id == session.ConnectionId.Value,
                 cancellationToken);
             if (connection.ProviderAccountId != installation.AccountId.ToString())
-                throw new InvalidOperationException("Both GitHub Apps must be installed on the same organization.");
+                throw new InvalidOperationException("Both GitHub Apps must be installed on the same account.");
         }
         else
         {
@@ -373,8 +373,8 @@ public sealed class SourceControlOnboardingService(
         if (connection.Mode != SourceControlConnectionMode.ManagedGitHub ||
             !connection.SourceAccessInstallationId.HasValue ||
             !connection.ProvisionerInstallationId.HasValue ||
-            !string.Equals(connection.AccountType, "Organization", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Full access requires both GitHub Apps on one organization.");
+            (!string.Equals(connection.AccountType, "Organization", StringComparison.OrdinalIgnoreCase) && !string.Equals(connection.AccountType, "User", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Full access requires both GitHub Apps on one account.");
         var prefix = NormalizePrefix(request.NamePrefix);
         if (request.MaximumProjects is < 1 or > 500)
             throw new ArgumentException("The managed private-project quota must be between 1 and 500.");

@@ -179,6 +179,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
     {
         "agent" => PluginKind.Agent,
         "service" => PluginKind.Service,
+        "connector" => PluginKind.Connector,
         _ => throw new AgentImportPreviewException($"Unsupported plugin kind '{value}'.")
     };
 
@@ -284,7 +285,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         {
             errors.Add("Agent manifest protocol minimumVersion and maximumVersion are required.");
         }
-        else if (!string.Equals(manifest.Protocol.MinimumVersion, "2.0", StringComparison.Ordinal) ||
+        else if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1") ||
                  !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
         {
             errors.Add("Executable plugins must require MCP runtime protocol 2.0 through 2.x.");
@@ -831,6 +832,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         foreach (var operation in manifest.ProviderOperations)
         {
             capabilities.Add(operation.Capability);
+            if (operation.Http is not null) continue;
             if (string.IsNullOrWhiteSpace(operation.ProviderProfile) || !IdentifierRegex().IsMatch(operation.ProviderProfile))
                 errors.Add($"Provider operation '{operation.Capability}' providerProfile is invalid.");
             if (string.IsNullOrWhiteSpace(operation.Command) || operation.Command.Length > 200)

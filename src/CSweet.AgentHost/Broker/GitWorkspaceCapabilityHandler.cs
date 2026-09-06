@@ -33,6 +33,9 @@ public sealed class GitWorkspaceCapabilityHandler(
         GitWorkspaceCapabilities.Inspect,
         GitWorkspaceCapabilities.Publish,
         GitWorkspaceCapabilities.Cleanup,
+        GitWorkspaceCapabilities.ListLocks,
+        GitWorkspaceCapabilities.LockFile,
+        GitWorkspaceCapabilities.UnlockFile,
         GitMergeCapabilities.Review,
         GitMergeCapabilities.Authorize,
         SourceControlCapabilities.TeamRepositoryOptions,
@@ -69,6 +72,9 @@ public sealed class GitWorkspaceCapabilityHandler(
                 GitWorkspaceCapabilities.Prepare => await PrepareAsync(
                     organizationId, installationId,
                     Read<PrepareGitWorkspaceRequest>(request), cancellationToken),
+                GitWorkspaceCapabilities.ListLocks => await ListLocksAsync(organizationId, installationId, Read<ListGitWorkspaceLocksRequest>(request), cancellationToken),
+                GitWorkspaceCapabilities.LockFile => await LockFileAsync(organizationId, installationId, Read<LockGitWorkspaceFileRequest>(request), cancellationToken),
+                GitWorkspaceCapabilities.UnlockFile => await UnlockFileAsync(organizationId, installationId, Read<UnlockGitWorkspaceFileRequest>(request), cancellationToken),
                 GitWorkspaceCapabilities.Refresh => await RefreshAsync(
                     organizationId, installationId,
                     Read<RefreshGitWorkspaceRequest>(request), cancellationToken),
@@ -424,6 +430,26 @@ public sealed class GitWorkspaceCapabilityHandler(
         return new GitWorkspaceRefreshResult(
             context.Workspace.Id, result.Status, result.BaseCommitSha,
             result.Conflicts.Take(100).ToList());
+    }
+
+    private Task<GitWorkspaceLockResult> ListLocksAsync(Guid business, Guid installation, ListGitWorkspaceLocksRequest request, CancellationToken ct) =>
+        WorkspaceLocksAsync(business, installation, request.WorkspaceId, request.AssignmentRevision, GitWorkspaceCapabilities.ListLocks, "list", "list-locks", null, null, request.Cursor, ct);
+
+    private Task<GitWorkspaceLockResult> LockFileAsync(Guid business, Guid installation, LockGitWorkspaceFileRequest request, CancellationToken ct) =>
+        WorkspaceLocksAsync(business, installation, request.WorkspaceId, request.AssignmentRevision, GitWorkspaceCapabilities.LockFile, "create", request.IdempotencyKey, request.Path, null, null, ct);
+
+    private Task<GitWorkspaceLockResult> UnlockFileAsync(Guid business, Guid installation, UnlockGitWorkspaceFileRequest request, CancellationToken ct) =>
+        WorkspaceLocksAsync(business, installation, request.WorkspaceId, request.AssignmentRevision, GitWorkspaceCapabilities.UnlockFile, "unlock", request.IdempotencyKey, null, request.LockId, null, ct);
+
+    private async Task<GitWorkspaceLockResult> WorkspaceLocksAsync(Guid business, Guid installation, Guid workspace, long revision,
+        string capability, string operation, string key, string? path, string? id, string? cursor, CancellationToken ct)
+    {
+        ValidateAssignmentRevision(revision); ValidateIdempotencyKey(key);
+        if (operation == "create") RequireBounded(path ?? "", 1024, "lock path");
+        if (operation == "unlock" && !Guid.TryParseExact(id, "N", out _)) throw new ArgumentException("Invalid file lock identity.");
+        if (cursor is not null && !Guid.TryParseExact(cursor, "N", out _)) throw new ArgumentException("Invalid lock page cursor.");
+        var context = await RequireWorkspaceContextAsync(business, installation, workspace, revision, capability, ct);
+        return await gitHost.LocksAsync(Operation(context, key), operation, path, id, cursor, ct);
     }
 
     private async Task<GitWorkspaceInspection> InspectAsync(

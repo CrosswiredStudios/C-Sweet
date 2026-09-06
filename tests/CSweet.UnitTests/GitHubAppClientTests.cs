@@ -22,7 +22,7 @@ public sealed class GitHubAppClientTests
             new { id = repositoryId, owner = new { login = owner }, name, full_name = owner + "/" + name,
                 clone_url = "https://github.com/owner/repo.git", default_branch = "main", @private = isPrivate, archived, is_template = false } } });
         var handler = new SequenceHandler(Json(HttpStatusCode.Created, "{\"token\":\"installation-secret\"}"), Json(HttpStatusCode.OK, payload));
-        var service = new GitHubWorkspaceSnapshotService(CreateClient(handler), new WorkspaceArtifactValidator());
+        var service = new GitHubWorkspaceSnapshotService(CreateClient(handler), new WorkspaceArtifactValidator(), null!);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.PrepareAsync(
             new(12, 42, "owner", "repo", "main", Guid.NewGuid(), "work/one", null, "prepare")));
         Assert.Equal(2, handler.Requests.Count);
@@ -34,7 +34,7 @@ public sealed class GitHubAppClientTests
     public async Task WorkspacePreparationRequiresRepositoryIdentityBeforeProviderAccess(long identity)
     {
         var handler = new SequenceHandler();
-        var service = new GitHubWorkspaceSnapshotService(CreateClient(handler), new WorkspaceArtifactValidator());
+        var service = new GitHubWorkspaceSnapshotService(CreateClient(handler), new WorkspaceArtifactValidator(), null!);
         await Assert.ThrowsAsync<ArgumentException>(() => service.PrepareAsync(
             new(12, identity, "owner", "repo", "main", Guid.NewGuid(), "work/one", null, "prepare")));
         Assert.Empty(handler.Requests);
@@ -126,12 +126,14 @@ public sealed class GitHubAppClientTests
         Assert.DoesNotContain("installation-secret", JsonSerializer.Serialize(result));
     }
 
-    [Fact]
-    public async Task ProvisioningAlwaysRequestsPrivateAndFixedProtection()
+    [Theory]
+    [InlineData("Organization")]
+    [InlineData("User")]
+    public async Task ProvisioningAlwaysRequestsPrivateAndFixedProtection(string accountType)
     {
         var handler = new SequenceHandler(
             Json(HttpStatusCode.OK,
-                "{\"id\":12,\"account\":{\"id\":99,\"login\":\"approved-org\",\"type\":\"Organization\"},\"suspended_at\":null,\"suspended_by\":null}"),
+                JsonSerializer.Serialize(new { id = 12, account = new { id = 99, login = "approved-org", type = accountType }, suspended_at = (string?)null, suspended_by = (string?)null })),
             Json(HttpStatusCode.Created, "{\"token\":\"installation-secret\"}"),
             Json(HttpStatusCode.Created,
                 "{\"id\":42,\"name\":\"private-project\",\"private\":true,\"default_branch\":\"main\",\"owner\":{\"id\":99,\"login\":\"approved-org\",\"type\":\"Organization\"}}"),

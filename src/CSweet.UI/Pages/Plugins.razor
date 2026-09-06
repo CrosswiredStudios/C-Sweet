@@ -22,6 +22,8 @@
         <MudAlert Severity="@(_error ? Severity.Error : Severity.Success)" Variant="Variant.Outlined">@_message</MudAlert>
     }
 
+    @if (_installations.Any(x => x.PluginKind == "Connector") || _preview?.PluginKind == "Connector")
+    {
     <MudPaper Elevation="1" Class="surface-panel">
         <MudText Typo="Typo.h6">OAuth provider profiles</MudText>
         <MudText Color="Color.Secondary">Configure a provider once for all compatible plugins. Client secrets are encrypted by C-Sweet and are never returned to this page or to an agent.</MudText>
@@ -40,7 +42,7 @@
                        Disabled="@(_busy || _editingManagedProfile || string.IsNullOrWhiteSpace(_providerId) || string.IsNullOrWhiteSpace(_providerClientId))">Save provider profile</MudButton>
             <MudButton Variant="Variant.Text" OnClick="ResetProviderForm" Disabled="_busy">Clear</MudButton>
         </MudStack>
-        @foreach (var profile in _providerProfiles)
+        @foreach (var profile in _providerProfiles.Where(x => RequiredProviderIds.Contains(x.Id)))
         {
             <MudPaper Elevation="0" Outlined="true" Class="pa-3 mt-3">
                 <div class="configuration-section-header">
@@ -65,6 +67,7 @@
         }
     </MudPaper>
 
+    }
     <MudPaper Elevation="1" Class="surface-panel">
         <MudText Typo="Typo.h6">Import from GitHub</MudText>
         <MudText Color="Color.Secondary">Use an exact 40-character commit SHA for reproducible imports. The manifest digest is shown before approval.</MudText>
@@ -142,6 +145,9 @@
 @code {
     private readonly List<AgentInstallationResponse> _installations = [];
     private readonly List<PluginProviderProfileResponse> _providerProfiles = [];
+    private HashSet<string> RequiredProviderIds => _installations.Where(x => x.PluginKind == "Connector")
+        .SelectMany(x => x.ConnectionDeclarations).Concat(_preview?.PluginKind == "Connector" ? _preview.Connections : [])
+        .Select(x => x.ProviderProfile).ToHashSet(StringComparer.Ordinal);
     private AgentImportPreviewResponse? _preview;
     private string _repositoryUrl = string.Empty;
     private string _commitSha = string.Empty;
@@ -151,11 +157,11 @@
     private bool _error;
     private bool _approve;
     private readonly Dictionary<string, string> _configurationValues = new(StringComparer.Ordinal);
-    private string _providerId = "com.csweet.google.youtube";
-    private string _providerDisplayName = "Google / YouTube";
-    private string _providerAuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
-    private string _providerTokenEndpoint = "https://oauth2.googleapis.com/token";
-    private string _providerRevocationEndpoint = "https://oauth2.googleapis.com/revoke";
+    private string _providerId = string.Empty;
+    private string _providerDisplayName = string.Empty;
+    private string _providerAuthorizationEndpoint = string.Empty;
+    private string _providerTokenEndpoint = string.Empty;
+    private string _providerRevocationEndpoint = string.Empty;
     private string _providerClientId = string.Empty;
     private string _providerClientSecret = string.Empty;
     private bool _providerEnabled = true;
@@ -218,10 +224,10 @@
 
     private void ResetProviderForm()
     {
-        _providerId = "com.csweet.google.youtube"; _providerDisplayName = "Google / YouTube";
-        _providerAuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
-        _providerTokenEndpoint = "https://oauth2.googleapis.com/token";
-        _providerRevocationEndpoint = "https://oauth2.googleapis.com/revoke";
+        _providerId = string.Empty; _providerDisplayName = string.Empty;
+        _providerAuthorizationEndpoint = string.Empty;
+        _providerTokenEndpoint = string.Empty;
+        _providerRevocationEndpoint = string.Empty;
         _providerClientId = string.Empty; _providerClientSecret = string.Empty; _providerEnabled = true;
         _editingManagedProfile = false;
     }

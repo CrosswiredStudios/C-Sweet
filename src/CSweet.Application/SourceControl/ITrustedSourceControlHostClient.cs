@@ -7,6 +7,11 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface ITrustedSourceControlHostClient
 {
+    Task<InternalGitBackupJob> QueueInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Background backups are unavailable.");
+    Task<IReadOnlyList<InternalGitBackupJob>> ListInternalBackupJobsAsync(Guid business, CancellationToken ct = default) => throw new InvalidOperationException("Background backups are unavailable.");
+    Task DismissInternalBackupJobAsync(Guid business, Guid id, CancellationToken ct = default) => throw new InvalidOperationException("Background backups are unavailable.");
+    Task<InternalGitBackupSchedule> InternalBackupScheduleAsync(Guid business, Guid repository, CancellationToken ct = default) => throw new InvalidOperationException("Backup schedules are unavailable.");
+    Task<InternalGitBackupSchedule> SaveInternalBackupScheduleAsync(InternalGitBackupScheduleCommand request, CancellationToken ct = default) => throw new InvalidOperationException("Backup schedules are unavailable.");
     Task<GitHubSnapshotResult> ApplyGitHubSnapshotAsync(GitHubSnapshotOperation request, CancellationToken ct = default) => throw new InvalidOperationException("GitHub workspace operations are unavailable.");
     Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken ct = default) => throw new InvalidOperationException("LFS locking is unavailable.");
     Task<IReadOnlyList<InternalGitBackupSummary>> ListInternalBackupsAsync(Guid business, CancellationToken ct = default) => throw new InvalidOperationException("Backup inspection is unavailable.");

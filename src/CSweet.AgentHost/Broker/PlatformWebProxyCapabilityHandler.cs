@@ -1,3 +1,4 @@
+using CSweet.Infrastructure.Setup;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -140,10 +141,12 @@ public sealed class PlatformWebProxyCapabilityHandler(
                 var body = input.Method == "HEAD"
                     ? (Bytes: Array.Empty<byte>(), Truncated: false)
                     : await ReadBoundedAsync(response.Content, timeout.Token);
-                if (!string.IsNullOrWhiteSpace(input.Connection) && !body.Truncated && body.Bytes.Length > 0)
+                if (!string.IsNullOrWhiteSpace(input.Connection) && body.Bytes.Length > 0)
                 {
                     var declaration = manifest.Connections.Single(x => x.Id == input.Connection);
-                    body = (await ExtractSecretFieldsAsync(installationId, declaration, body.Bytes, timeout.Token), false);
+                    if (body.Truncated && declaration.SecretResponseFields.Count > 0)
+                        return Failure(request.RequestId, "A truncated secret-bearing response was withheld.");
+                    body = (await ExtractSecretFieldsAsync(installationId, declaration, body.Bytes, timeout.Token), body.Truncated);
                 }
                 var result = new PlatformWebFetchResponse(
                     (int)response.StatusCode,
@@ -161,6 +164,10 @@ public sealed class PlatformWebProxyCapabilityHandler(
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return Failure(request.RequestId, "The web proxy request timed out.");
+        }
+        catch (InvalidOperationException)
+        {
+            return Failure(request.RequestId, "The provider response could not be safely processed.");
         }
         catch (Exception exception) when (exception is HttpRequestException or SocketException or IOException)
         {
@@ -194,33 +201,17 @@ public sealed class PlatformWebProxyCapabilityHandler(
         return null;
     }
 
-    private async Task<byte[]> ExtractSecretFieldsAsync(Guid installationId,
-        PluginConnectionDeclaration declaration, byte[] body, CancellationToken cancellationToken)
-    {
-        if (declaration.SecretResponseFields.Count == 0) return body;
-        JsonNode? root;
-        try { root = JsonNode.Parse(body); }
-        catch (JsonException) { return body; }
-        if (root is null) return body;
-        foreach (var pointer in declaration.SecretResponseFields)
+    private Task<byte[]> ExtractSecretFieldsAsync(Guid installationId,
+        PluginConnectionDeclaration declaration, byte[] body, CancellationToken cancellationToken) =>
+        SecretResponseSanitizer.SanitizeAsync(body, declaration.SecretResponseFields, async (pointer, value, token) =>
         {
-            var segments = pointer.Split('/', StringSplitOptions.RemoveEmptyEntries)
-                .Select(x => x.Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal)).ToArray();
-            JsonNode? current = root;
-            for (var index = 0; index < segments.Length - 1; index++) current = current?[segments[index]];
-            if (current is not JsonObject parent || segments.Length == 0 || parent[segments[^1]] is not { } secretNode) continue;
-            var secretValue = secretNode is JsonValue value && value.TryGetValue<string>(out var textValue)
-                ? textValue : secretNode.ToJsonString();
-            if (string.IsNullOrWhiteSpace(secretValue)) continue;
             var reference = $"plugin-secret:{Guid.NewGuid():N}";
-            await secrets.SetAsync(installationId, $"response.{reference[14..]}", secretValue, cancellationToken);
-            parent[segments[^1]] = new JsonObject { ["secretReference"] = reference };
+            await secrets.SetAsync(installationId, $"response.{reference[14..]}", value, token);
             await audit.WriteAsync("plugin.response-secret.extracted", "PluginInstallation", installationId,
                 $"Extracted a declared secret response field for connection {declaration.Id}.",
-                JsonSerializer.Serialize(new { installationId, connection = declaration.Id, pointer, reference }), cancellationToken);
-        }
-        return JsonSerializer.SerializeToUtf8Bytes(root, JsonOptions);
-    }
+                JsonSerializer.Serialize(new { installationId, connection = declaration.Id, pointer, reference }), token);
+            return reference;
+        }, cancellationToken);
 
     private async Task<CapabilityResult> DeniedAsync(string requestId, Guid installationId, Uri uri, string reason, CancellationToken token)
     {

@@ -2,17 +2,27 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using CSweet.Application.Setup;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.Setup;
+
+public sealed class GitHubAgentRepositoryOptions
+{
+    public const string SectionName = "GitHubAgentRepository";
+    public string AccessToken { get; set; } = string.Empty;
+}
 
 public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, IPluginSourceResolver
 {
     private const int MaximumManifestBytes = 1024 * 1024;
     private readonly HttpClient _httpClient;
 
-    public GitHubAgentRepositoryClient(HttpClient httpClient)
+    public GitHubAgentRepositoryClient(HttpClient httpClient, IOptions<GitHubAgentRepositoryOptions>? options = null)
     {
         _httpClient = httpClient;
+        var token = options?.Value.AccessToken;
+        if (!string.IsNullOrWhiteSpace(token))
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Trim());
     }
 
     public async Task<string> GetDefaultBranchAsync(
@@ -181,6 +191,28 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
         }
 
         var detail = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (response.StatusCode == HttpStatusCode.TooManyRequests ||
+            (response.StatusCode == HttpStatusCode.Forbidden &&
+             ((response.Headers.TryGetValues("X-RateLimit-Remaining", out var remaining) && remaining.Contains("0")) ||
+              response.Headers.RetryAfter is not null ||
+              detail.Contains("rate limit", StringComparison.OrdinalIgnoreCase))))
+        {
+            var retry = "Please wait before retrying.";
+            if (response.Headers.RetryAfter?.Delta is { } delay)
+                retry = $"Retry after {Math.Ceiling(delay.TotalSeconds)} seconds.";
+            else if (response.Headers.RetryAfter?.Date is { } retryDate)
+                retry = $"Retry after {retryDate.UtcDateTime:u}.";
+            else if (response.Headers.TryGetValues("X-RateLimit-Reset", out var resets) &&
+                     long.TryParse(resets.FirstOrDefault(), out var reset) && reset is >= 0 and <= 253402300799)
+                retry = $"Retry after {DateTimeOffset.FromUnixTimeSeconds(reset).UtcDateTime:u}.";
+
+            throw new AgentImportPreviewException(
+                $"GitHub temporarily rate-limited repository access. {retry} " +
+                "An administrator can configure authenticated catalog access to increase the API allowance.");
+        }
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+            throw new AgentImportPreviewException(
+                "GitHub rejected the catalog access credential. Ask an administrator to update it before retrying.");
         throw new AgentImportPreviewException(
             $"GitHub request failed with status {(int)response.StatusCode}: {detail}");
     }

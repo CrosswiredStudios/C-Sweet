@@ -89,11 +89,16 @@ public sealed class AgentWorkInbox(
             throw new InvalidOperationException(
                 "Event work requires the originating event ID.");
 
+        var installation = await db.AgentInstallations.AsNoTracking().SingleAsync(
+            x => x.Id == installationId && x.IsEnabled && x.BusinessId == organizationId &&
+                x.RevisionStatus == PluginRevisionStatus.Active,
+            cancellationToken);
         var existing = await db.AgentWorkItems.SingleOrDefaultAsync(
             x => x.AgentInstallationId == installationId &&
                  x.IdempotencyKey == idempotencyKey,
             cancellationToken);
         if (existing is not null &&
+            existing.OrganizationId == organizationId && existing.Kind == kind && existing.Name == name &&
             existing.PayloadHash == payloadHash &&
             (kind != AgentWorkKind.Event ||
              string.Equals(existing.SourceId, sourceId, StringComparison.OrdinalIgnoreCase)))
@@ -102,9 +107,6 @@ public sealed class AgentWorkInbox(
             throw new InvalidOperationException(
                 "The idempotency key is already bound to different work content.");
 
-        var installation = await db.AgentInstallations.AsNoTracking().SingleAsync(
-            x => x.Id == installationId && x.IsEnabled && x.BusinessId == organizationId,
-            cancellationToken);
         if (installation.SetupState != PluginSetupState.Ready)
         {
             var manifestJson = await db.AgentPackageVersions.AsNoTracking()
@@ -114,7 +116,10 @@ public sealed class AgentWorkInbox(
                 ?? throw new InvalidOperationException("The plugin manifest is unavailable during setup.");
             var isBootstrap = kind == AgentWorkKind.Capability && sourceType == "plugin-setup" &&
                 manifest.Provides.Any(x => x.Name == name && x.RiskClass == "bootstrap");
-            if (!isBootstrap)
+            var isAssistance = PluginSetupAssistancePolicy.Enabled(manifest) &&
+                await new PluginSetupAssistancePolicy(db).AllowsWorkAsync(organizationId, installationId,
+                    kind, name, payload, sourceType, cancellationToken);
+            if (!isBootstrap && !isAssistance)
                 throw new InvalidOperationException("Only manifest-declared bootstrap callbacks may run before setup completes.");
         }
         var queueDepth = await db.AgentWorkItems.CountAsync(
@@ -173,6 +178,10 @@ public sealed class AgentWorkInbox(
         CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
+        var installation = await db.AgentInstallations.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == session.AgentInstallationId && x.BusinessId == session.OrganizationId &&
+                x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, cancellationToken);
+        if (installation is null) return null;
         var isolationLevel = db.Database.IsNpgsql()
             ? IsolationLevel.ReadCommitted
             : IsolationLevel.Serializable;
@@ -245,6 +254,30 @@ public sealed class AgentWorkInbox(
             return null;
         }
 
+        // Setup state can change after enqueue (for example on disconnection). Never release an
+        // earlier ordinary-work payload into the restricted setup runtime.
+        var payload = JsonDocument.Parse(_protector.Unprotect(item.ProtectedPayload)).RootElement.Clone();
+        if (installation.SetupState != PluginSetupState.Ready)
+        {
+            var manifestJson = await db.AgentPackageVersions.AsNoTracking()
+                .Where(x => x.Id == installation.PackageVersionId).Select(x => x.ManifestJson)
+                .SingleOrDefaultAsync(cancellationToken);
+            var manifest = JsonSerializer.Deserialize<PluginManifest>(manifestJson ?? "{}", JsonOptions);
+            var bootstrap = item.Kind == AgentWorkKind.Capability && item.SourceType == "plugin-setup" &&
+                manifest?.Provides.Any(x => x.Name == item.Name && x.RiskClass == "bootstrap") == true;
+            var assistance = manifest is not null && PluginSetupAssistancePolicy.Enabled(manifest) &&
+                await new PluginSetupAssistancePolicy(db).AllowsWorkAsync(session.OrganizationId, installation.Id,
+                    item.Kind, item.Name, payload, item.SourceType, cancellationToken);
+            if (!bootstrap && !assistance)
+            {
+                item.AvailableAt = now.AddMinutes(5);
+                item.LastError = "Ordinary work is paused until setup is ready.";
+                await db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return null;
+            }
+        }
+
         var leaseToken = Base64Url(RandomNumberGenerator.GetBytes(32));
         item.Status = AgentWorkStatus.Leased;
         item.AttemptCount++;
@@ -263,7 +296,6 @@ public sealed class AgentWorkInbox(
         await transaction.CommitAsync(cancellationToken);
         AgentRuntimeMetrics.WorkClaimed(item.Kind, now - item.CreatedAt);
 
-        var payload = JsonDocument.Parse(_protector.Unprotect(item.ProtectedPayload)).RootElement.Clone();
         return new ClaimedAgentWork(
             item.Id,
             attempt.Attempt,

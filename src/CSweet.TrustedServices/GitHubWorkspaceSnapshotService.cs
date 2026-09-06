@@ -113,8 +113,15 @@ public sealed class GitHubWorkspaceSnapshotService(
         startInfo.Environment.Clear();
         CopyHostEnvironment(startInfo, "PATH");
         CopyHostEnvironment(startInfo, "SystemRoot");
-        foreach (var argument in arguments)
-            startInfo.ArgumentList.Add(argument);
+        var firstArgument = 0;
+        if (arguments.Count >= 2 && arguments[0] == "--git-dir")
+        {
+            startInfo.WorkingDirectory = arguments[1];
+            startInfo.ArgumentList.Add("--git-dir"); startInfo.ArgumentList.Add(".");
+            firstArgument = 2;
+        }
+        for (var index = firstArgument; index < arguments.Count; index++)
+            startInfo.ArgumentList.Add(arguments[index]);
         foreach (var value in environment)
             startInfo.Environment[value.Key] = value.Value;
         using var process = new Process { StartInfo = startInfo };

@@ -17,7 +17,9 @@ public sealed class GitHubWorkspaceOperationTests : IDisposable
     {
         Directory.CreateDirectory(root);
         File.WriteAllText(Path.Combine(root, ".csweet-git-store"), "tests");
-        store = new(Options.Create(new InternalGitStorageOptions { RepositoryRoot = root, ExpectedStoreId = "tests", TemporaryRoot = Path.Combine(root, "temp") }));
+        Directory.CreateDirectory(Path.Combine(root, "lfs")); File.WriteAllText(Path.Combine(root, "lfs", ".csweet-object-store"), "tests");
+        store = new(Options.Create(new InternalGitStorageOptions { RepositoryRoot = root, ExpectedStoreId = "tests", TemporaryRoot = Path.Combine(root, "temp"),
+            Lfs = new() { RootPath = Path.Combine(root, "lfs"), ExpectedStoreId = "tests" } }));
         transport = new(Path.Combine(root, "remote.git"));
     }
     private async Task<GitHubSnapshotOperation> RequestAsync(params (string Name, string Content)[] files)
@@ -65,14 +67,33 @@ public sealed class GitHubWorkspaceOperationTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => Apply(request)); Assert.Equal(1, transport.Pushes);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task LfsAssetsAndPointersCannotBePublished(bool pointer)
+    [Fact]
+    public async Task UnresolvedLfsPointersCannotBePublished()
     {
-        var request = pointer ? await RequestAsync(("asset.bin", "version https://git-lfs.github.com/spec/v1\noid sha256:" + new string('a', 64) + "\nsize 10\n"))
-            : await RequestAsync((".gitattributes", "*.bin filter=lfs diff=lfs merge=lfs -text\n"), ("asset.bin", "asset"));
+        var request = await RequestAsync(("asset.bin", "version https://git-lfs.github.com/spec/v1\noid sha256:" + new string('a', 64) + "\nsize 10\n"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => Apply(request)); Assert.Equal(0, transport.Pushes);
+    }
+
+    [Fact]
+    public async Task LfsUploadFailureLeavesRemoteUnchangedAndRetryMaterializesVerifiedAsset()
+    {
+        var request = await RequestAsync((".gitattributes", "*.bin filter=lfs diff=lfs merge=lfs -text\n"), ("asset.bin", "original asset"));
+        transport.FailLfs = true;
+        await Assert.ThrowsAsync<IOException>(() => Apply(request)); Assert.Equal(0, transport.Pushes);
+        Assert.Equal(request.Workspace.BaseSha, (await Git(transport.Path, "rev-parse", "main")).Trim());
+        transport.FailLfs = false;
+        var result = await Apply(request); Assert.Equal(1, transport.Pushes);
+        Assert.Equal(result.CommitSha, (await Apply(request)).CommitSha); Assert.Equal(1, transport.Pushes);
+        var pointer = await Git(transport.Path, "show", result.CommitSha + ":asset.bin");
+        Assert.StartsWith("version https://git-lfs.github.com/spec/v1", pointer);
+        var directory = System.IO.Path.Combine(root, "materialized"); Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(System.IO.Path.Combine(directory, "asset.bin"), pointer);
+        await GitHubWorkspaceLfs.MaterializeAsync(directory, System.IO.Path.Combine(root, "cache"), Remote, "secret", result.CommitSha!, transport, default);
+        Assert.Equal("original asset", await File.ReadAllTextAsync(System.IO.Path.Combine(directory, "asset.bin")));
+        await File.WriteAllTextAsync(System.IO.Path.Combine(directory, "asset.bin"), pointer);
+        transport.CorruptLfs = true;
+        await Assert.ThrowsAsync<InvalidDataException>(() => GitHubWorkspaceLfs.MaterializeAsync(directory, System.IO.Path.Combine(root, "cache"), Remote, "secret", result.CommitSha!, transport, default));
+        Assert.Equal(pointer, await File.ReadAllTextAsync(System.IO.Path.Combine(directory, "asset.bin")));
     }
 
     [Fact]
@@ -87,6 +108,27 @@ public sealed class GitHubWorkspaceOperationTests : IDisposable
     {
         public string Path => path;
         public bool LoseResponse; public string? RaceSha; public int Pushes;
+        public bool FailLfs, CorruptLfs;
+        private readonly Dictionary<string, byte[]> assets = [];
+        public async Task UploadLfsAsync(string cache, GitHubRepositoryDescriptor repo, string token, string storage, IReadOnlyList<GitHubLfsObject> objects, CancellationToken ct)
+        {
+            if (FailLfs) throw new IOException("Simulated LFS failure");
+            foreach (var asset in objects)
+            {
+                var file = GitHubWorkspaceLfs.ObjectPath(storage, asset.Oid);
+                await GitHubWorkspaceLfs.VerifyAsync(file, asset, ct);
+                assets[asset.Oid] = await File.ReadAllBytesAsync(file, ct);
+            }
+        }
+        public async Task DownloadLfsAsync(string cache, GitHubRepositoryDescriptor repo, string token, string sha, string storage, CancellationToken ct)
+        {
+            foreach (var asset in assets)
+            {
+                var file = GitHubWorkspaceLfs.ObjectPath(storage, asset.Key); Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file)!);
+                var bytes = asset.Value.ToArray(); if (CorruptLfs) bytes[0] ^= 1;
+                await File.WriteAllBytesAsync(file, bytes, ct);
+            }
+        }
         public async Task<IReadOnlyDictionary<string, string>> RefsAsync(GitHubRepositoryDescriptor repo, string token, CancellationToken ct) =>
             (await Git(path, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/")).Split('\n', StringSplitOptions.RemoveEmptyEntries)
                 .Select(line => line.Trim().Split(' ', 2)).ToDictionary(parts => parts[1], parts => parts[0]);

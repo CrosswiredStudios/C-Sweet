@@ -21,6 +21,7 @@ builder.AddServiceDefaults();
 builder.AddCSweetInfrastructure();
 builder.Services.AddHostedService<AgentCatalogWarmupService>();
 builder.Services.AddScoped<IPlatformCapabilityDispatcher, PlatformCapabilityDispatcher>();
+builder.Services.AddScoped<CSweet.Infrastructure.Setup.PluginSetupAssistancePolicy>();
 builder.Services.AddScoped<McpToolCatalog>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<AgentWorkInbox>();
@@ -34,6 +35,8 @@ builder.Services
 builder.Services.AddHostedService<ManagementReviewScheduler>();
 builder.Services.AddHostedService<AgentAttentionScheduler>();
 builder.Services.AddHostedService<AgentOnboardingEventDispatcher>();
+builder.Services.AddScoped<CSweet.Infrastructure.Setup.PluginSetupObligationDispatcher>();
+builder.Services.AddHostedService<PluginSetupObligationWorker>();
 builder.Services.AddHostedService<AgentPlatformEventDispatcher>();
 builder.Services.AddHostedService<PersonalTodoReconciliationWorker>();
 builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService>();

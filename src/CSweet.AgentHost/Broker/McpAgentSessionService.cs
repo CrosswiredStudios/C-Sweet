@@ -286,6 +286,17 @@ public sealed class McpAgentSessionService(
                 Deserialize(grant.EventSubscriptionsJson), Deserialize(grant.RequiredCapabilitiesJson),
                 grant.GrantRevision);
         var manifest = JsonSerializer.Deserialize<PluginManifest>(package.ManifestJson, JsonOptions);
+        if (manifest is not null && PluginSetupAssistancePolicy.Enabled(manifest))
+        {
+            var provides = Deserialize(grant.ProvidedCapabilitiesJson)
+                .Where(x => x == PluginSetupAssistancePolicy.AssistantCapability).ToHashSet(StringComparer.Ordinal);
+            var subscriptions = Deserialize(grant.EventSubscriptionsJson)
+                .Where(x => x is PluginSetupAssistancePolicy.MessageEvent or PluginSetupAssistancePolicy.RequestedEvent)
+                .ToHashSet(StringComparer.Ordinal);
+            var conversationRequired = Deserialize(grant.RequiredCapabilitiesJson)
+                .Where(PluginSetupAssistancePolicy.Capabilities.Contains).ToHashSet(StringComparer.Ordinal);
+            return new AuthorizedAgentGrant(provides, subscriptions, conversationRequired, grant.GrantRevision);
+        }
         var bootstrap = (manifest?.Provides ?? [])
             .Where(x => string.Equals(x.RiskClass, "bootstrap", StringComparison.Ordinal))
             .Select(x => x.Name).ToHashSet(StringComparer.Ordinal);

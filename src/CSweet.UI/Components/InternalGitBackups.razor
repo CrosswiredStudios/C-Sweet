@@ -12,8 +12,43 @@
             { <MudSelectItem Value="repository.Id">@repository.Name</MudSelectItem> }
         </MudSelect>
         <MudButton OnClick="CreateAsync" Disabled="@(_busy || _repository == Guid.Empty)">@(_pendingBackup is null ? "Create backup" : "Retry backup")</MudButton>
+        <MudButton OnClick="LoadScheduleAsync" Disabled="@(_busy || _repository == Guid.Empty)">Manage automatic backups</MudButton>
+        @if (_schedule is { } schedule && schedule.RepositoryId == _repository)
+        {
+            <MudPaper Outlined="true" Class="pa-3">
+                <MudText>Automatic backups for @RepositoryName(schedule.RepositoryId)</MudText>
+                <MudCheckBox T="bool" @bind-Value="_scheduleEnabled" Disabled="_busy" Label="Enable automatic backups" />
+                <MudNumericField T="int" @bind-Value="_intervalHours" Min="1" Max="8760" Label="Interval in hours" Disabled="_busy" />
+                <MudText>A backup is queued when enabled, then once per UTC interval. Missed intervals do not create a backlog.</MudText>
+                <MudCheckBox T="bool" @bind-Value="_retainAll" Disabled="_busy" Label="Keep all completed backups" />
+                @if (!_retainAll)
+                {
+                    <MudNumericField T="int" @bind-Value="_keepLatest" Min="1" Max="100" Label="Number of backups to retain" Disabled="_busy" />
+                    <MudAlert Severity="Severity.Warning">After a scheduled backup succeeds, older backups for this repository, including manual backups, will be permanently deleted beyond this count.</MudAlert>
+                    <MudCheckBox T="bool" @bind-Value="_confirmRetention" Disabled="_busy" Label="I approve automatic deletion under this retention policy" />
+                }
+                <MudButton OnClick="SaveScheduleAsync" Disabled="@(_busy || _scheduleEnabled && !_retainAll && !_confirmRetention)">Save automatic backup settings</MudButton>
+            </MudPaper>
+        }
+        @foreach (var job in _jobs.Where(j => j.Status is "Queued" or "Running" or "Failed").Concat(_jobs.Where(j => j.Status == "Completed").Take(5)))
+        {
+            <MudPaper Outlined="true" Class="pa-3">
+                <MudText>@RepositoryName(job.RepositoryId) · backup job @job.Id · @job.Status</MudText>
+                @if (job.FailureMessage is not null) { <MudText>@job.FailureMessage</MudText> }
+                @if (job.Status == "Failed") { <MudButton OnClick="@(() => RetryJobAsync(job))" Disabled="_busy">Retry backup job</MudButton> }
+                @if (job.Status is "Completed" or "Failed") { <MudButton OnClick="@(() => DismissJobAsync(job))" Disabled="_busy">Dismiss job (keep backup)</MudButton> }
+            </MudPaper>
+        }
         @if (_backups.Count == 0) { <MudText>No completed backups in the configured storage.</MudText> }
-        @foreach (var backup in _backups)
+        @if (_backups.Count > 0)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudButton OnClick="@(() => _page--)" Disabled="@(_busy || _page == 0)">Newer backups</MudButton>
+                <MudText>Page @(_page + 1) of @PageCount · @_backups.Count backups</MudText>
+                <MudButton OnClick="@(() => _page++)" Disabled="@(_busy || _page + 1 >= PageCount)">Older backups</MudButton>
+            </MudStack>
+        }
+        @foreach (var backup in _backups.Skip(_page * PageSize).Take(PageSize))
         {
             <MudPaper Outlined="true" Class="pa-3">
                 <MudText>@RepositoryName(backup.RepositoryId) · @backup.CreatedAt.ToLocalTime().ToString("g")</MudText>
@@ -49,6 +84,13 @@
     [Parameter] public Guid OrganizationId { get; set; }
     private List<SourceControlRepositorySummary> _repositories = [];
     private List<InternalGitBackupSummary> _backups = [];
+    private List<InternalGitBackupJob> _jobs = [];
+    private InternalGitBackupSchedule? _schedule;
+    private bool _scheduleEnabled, _confirmRetention, _retainAll = true;
+    private int _intervalHours = 24, _keepLatest = 10;
+    private const int PageSize = 10;
+    private int _page;
+    private int PageCount => Math.Max(1, (_backups.Count + PageSize - 1) / PageSize);
     private Guid _repository, _restoreId;
     private Guid? _pendingBackup;
     private InternalGitBackupSummary? _restore, _delete;
@@ -59,16 +101,39 @@
     protected override Task OnInitializedAsync() => RefreshAsync();
     private string RepositoryName(Guid id) => _repositories.FirstOrDefault(r => r.Id == id)?.Name ?? id.ToString();
     private Task RefreshAsync() => RunAsync(LoadAsync);
+    private Task LoadScheduleAsync() => RunAsync(async () => {
+        _schedule = await Http.GetFromJsonAsync<InternalGitBackupSchedule>($"{Endpoint}/repositories/{_repository:D}/backup-schedule") ?? throw new IOException("Backup schedule response was empty.");
+        _scheduleEnabled = _schedule.Enabled; _intervalHours = _schedule.IntervalHours;
+        _retainAll = _schedule.KeepLatest is null; _keepLatest = _schedule.KeepLatest ?? 10; _confirmRetention = false;
+    });
+    private Task SaveScheduleAsync() => RunAsync(async () => {
+        if (_schedule is null) return;
+        using var response = await Http.PutAsJsonAsync($"{Endpoint}/repositories/{_schedule.RepositoryId:D}/backup-schedule",
+            new SaveInternalGitBackupSchedule(_scheduleEnabled, _intervalHours, _retainAll ? null : _keepLatest, _schedule.Revision, _confirmRetention));
+        await CheckAsync(response); _schedule = await response.Content.ReadFromJsonAsync<InternalGitBackupSchedule>();
+        _confirmRetention = false; _message = "Automatic backup settings saved.";
+    });
     private async Task LoadAsync()
     {
         _repositories = await Http.GetFromJsonAsync<List<SourceControlRepositorySummary>>($"{Endpoint}/repositories") ?? [];
         _backups = await Http.GetFromJsonAsync<List<InternalGitBackupSummary>>($"{Endpoint}/backups") ?? [];
+        _jobs = await Http.GetFromJsonAsync<List<InternalGitBackupJob>>($"{Endpoint}/backup-jobs") ?? [];
+        _backups = _backups.OrderByDescending(b => b.CreatedAt).ThenBy(b => b.Id).ToList();
+        _page = Math.Min(_page, PageCount - 1);
     }
     private Task CreateAsync() => RunAsync(async () =>
     {
         _pendingBackup ??= Guid.NewGuid();
-        using var response = await Http.PostAsJsonAsync($"{Endpoint}/repositories/{_repository:D}/backups", new CreateInternalGitBackupRequest(_pendingBackup.Value));
-        await CheckAsync(response); _pendingBackup = null; _message = "Backup completed."; await LoadAsync();
+        using var response = await Http.PostAsJsonAsync($"{Endpoint}/repositories/{_repository:D}/backup-jobs", new CreateInternalGitBackupRequest(_pendingBackup.Value));
+        await CheckAsync(response); _pendingBackup = null; _message = "Backup queued. Refresh to check progress; you can leave this page while it runs."; await LoadAsync();
+    });
+    private Task RetryJobAsync(InternalGitBackupJob job) => RunAsync(async () => {
+        using var response = await Http.PostAsJsonAsync($"{Endpoint}/repositories/{job.RepositoryId:D}/backup-jobs", new CreateInternalGitBackupRequest(job.Id));
+        await CheckAsync(response); await LoadAsync();
+    });
+    private Task DismissJobAsync(InternalGitBackupJob job) => RunAsync(async () => {
+        using var response = await Http.DeleteAsync($"{Endpoint}/backup-jobs/{job.Id:D}");
+        await CheckAsync(response); await LoadAsync();
     });
     private void SelectRestore(InternalGitBackupSummary backup)
     { _restore = backup; _restoreId = Guid.NewGuid(); _restoreName = ""; _restoreAttempted = false; }

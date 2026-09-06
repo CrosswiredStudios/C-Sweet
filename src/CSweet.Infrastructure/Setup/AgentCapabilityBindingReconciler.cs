@@ -51,6 +51,9 @@ internal sealed class AgentCapabilityBindingReconciler(
             var required = DeserializeGrant(requester.Grant?.RequiredCapabilitiesJson);
             foreach (var capability in required)
             {
+                var requesterManifest = AgentConfigurationRules.DeserializeManifest(requester.PackageVersion!.ManifestJson);
+                if (requesterManifest.Requires.Any(x => x.Name == capability && x.Dependency is not null))
+                    continue; // Connector account selection and digest approval are always explicit.
                 var existing = activeBindings.FirstOrDefault(x =>
                     x.RequesterInstallationId == requester.Id &&
                     string.Equals(x.Capability, capability, StringComparison.Ordinal));
@@ -71,6 +74,7 @@ internal sealed class AgentCapabilityBindingReconciler(
                 }
 
                 var providers = installations.Where(provider =>
+                        provider.PackageVersion!.PluginKind != PluginKind.Connector &&
                         provider.Id != requester.Id &&
                         provider.BusinessId == requester.BusinessId &&
                         provided[provider.Id].Contains(capability))

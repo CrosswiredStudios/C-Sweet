@@ -31,6 +31,23 @@ public static class PluginSetupEndpoints
             IPluginSetupService setup, CancellationToken cancellationToken) =>
             Results.Ok(await setup.GetAsync(organizationId, installationId, cancellationToken)));
 
+        group.MapPut("/{installationId:guid}/dependencies/{dependencyId}", async (Guid organizationId,
+            Guid installationId, string dependencyId, BindConnectorRequest request, ConnectorBindingService bindings,
+            CancellationToken cancellationToken) =>
+        {
+            await bindings.BindAsync(organizationId, installationId, dependencyId, request.ConnectorInstallationId, cancellationToken);
+            return Results.NoContent();
+        });
+        group.MapPut("/{installationId:guid}/provider-profile-approval", async (Guid organizationId,
+            Guid installationId, ApproveConnectorProfileRequest request, HttpContext http,
+            ConnectorProfileApprovalService approvals, CancellationToken cancellationToken) =>
+        {
+            if (http.User.GetApplicationUserId() is not { } userId) return Results.Forbid();
+            await approvals.ApproveAsync(organizationId, installationId, userId, request.PackageDigest,
+                request.ProfileId, cancellationToken);
+            return Results.NoContent();
+        }).RequireAuthorization("PluginAdministration");
+
         group.MapPost("/{installationId:guid}/steps/{stepId}/complete", async (Guid organizationId,
             Guid installationId, string stepId, CompletePluginSetupStepRequest request,
             IPluginSetupService setup, CancellationToken cancellationToken) =>

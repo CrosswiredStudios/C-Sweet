@@ -180,11 +180,11 @@ public sealed partial class GitHubAppClient(
             throw new ArgumentException("The description or required default branch is invalid.");
         var installation = await DescribeInstallationAsync(request.InstallationId, cancellationToken);
         if (installation.Suspended ||
-            !string.Equals(installation.AccountType, "Organization", StringComparison.OrdinalIgnoreCase) ||
+            (!string.Equals(installation.AccountType, "Organization", StringComparison.OrdinalIgnoreCase) && !string.Equals(installation.AccountType, "User", StringComparison.OrdinalIgnoreCase)) ||
             !string.Equals(installation.AccountLogin, request.OrganizationLogin, StringComparison.OrdinalIgnoreCase))
         {
             return new GitHubProvisionRepositoryResult(false, false, null, null, null, null,
-                "installation_not_eligible", "Managed repositories require an active matching organization installation.");
+                "installation_not_eligible", "Managed repositories require an active matching organization or personal-account installation.");
         }
 
         var token = await CreateInstallationTokenAsync(request.InstallationId, cancellationToken);
@@ -210,6 +210,10 @@ public sealed partial class GitHubAppClient(
         await EnsureSuccessAsync(createResponse, cancellationToken);
         var created = await createResponse.Content.ReadFromJsonAsync<RepositoryPayload>(cancellationToken)
             ?? throw new InvalidOperationException("GitHub returned an empty repository response.");
+        if (created.Id <= 0 || created.Owner.Id != installation.AccountId ||
+            !string.Equals(created.Owner.Login, request.OrganizationLogin, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(created.Name, request.RepositoryName, StringComparison.OrdinalIgnoreCase) || created.Archived)
+            return Quarantined(created, "repository_identity_not_confirmed", "The provider did not confirm the requested active repository identity.");
         if (!created.Private)
             return Quarantined(created, "private_visibility_not_confirmed", "The provider did not confirm private visibility.");
 
@@ -383,7 +387,8 @@ public sealed partial class GitHubAppClient(
         bool Private,
         [property: System.Text.Json.Serialization.JsonPropertyName("default_branch")]
         string DefaultBranch,
-        AccountPayload Owner);
+        AccountPayload Owner,
+        bool Archived = false);
     private sealed record RepositoriesPayload(
         [property: System.Text.Json.Serialization.JsonPropertyName("total_count")]
         int TotalCount,

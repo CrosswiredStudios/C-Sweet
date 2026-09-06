@@ -55,13 +55,34 @@ public sealed class AgentWorkspaceBrokerTests
             var operation = new AgentBrokerWorkspaceOperationRequest(request.OrganizationId, request.RepositoryId, request.WorkspaceId,
                 request.WorkItemId, request.AssignmentRevision, prepared.WorkspaceKey, "publish-once", "inspect", "Offline feature");
             Assert.Equal("Modified", (await broker.ExecuteAsync(operation, "http://localhost")).Status);
+            var acquired = await broker.LocksAsync(new(operation, "create", "asset.bin"));
+            var fileLock = Assert.Single(acquired.Locks);
+            Assert.Equal("Locked", acquired.Status); Assert.True(fileLock.OwnedByCaller);
+            Assert.Equal(fileLock.Id, Assert.Single((await broker.LocksAsync(new(operation, "create", "asset.bin"))).Locks).Id);
+            Assert.Equal(fileLock.Id, Assert.Single((await broker.LocksAsync(new(operation, "list"))).Locks).Id);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => broker.LocksAsync(new(operation with { AssignmentRevision = operation.AssignmentRevision + 1 }, "list")));
+            var foreign = await store.LocksAsync(new(request.OrganizationId, request.RepositoryId, Guid.NewGuid(), "Other employee", "create", "README.md"));
+            var foreignId = Assert.Single(foreign.Locks).Id;
+            Assert.Equal("Denied", (await broker.LocksAsync(new(operation, "unlock", Id: foreignId))).Status);
+            Assert.NotEqual("Published", (await broker.ExecuteAsync(operation with { Operation = "publish" }, "http://localhost")).Status);
+            await store.LocksAsync(new(request.OrganizationId, request.RepositoryId, foreign.Locks[0].OwnerId, "Other employee", "unlock", Id: foreignId));
             var published = await broker.ExecuteAsync(operation with { Operation = "publish" }, "http://localhost");
             Assert.Equal("Published", published.Status); Assert.Equal("InternalGit", published.Provider);
             Assert.Equal(published.CommitSha, (await broker.ExecuteAsync(operation with { Operation = "publish" }, "http://localhost")).CommitSha);
             var before = await store.ExecuteAsync(new(request.OrganizationId, request.RepositoryId, "inspect"));
             Assert.Equal(prepared.BaseCommitSha, before.Refs.Single(r => r.Name == "refs/heads/main").Sha);
+            Assert.Equal("Unlocked", (await broker.LocksAsync(new(operation, "unlock", Id: fileLock.Id))).Status);
+            Assert.Equal("Unlocked", (await broker.LocksAsync(new(operation, "unlock", Id: fileLock.Id))).Status);
             var merged = await store.MergeInternalAsync(new(request.OrganizationId, request.RepositoryId, Guid.NewGuid(), workspace.BranchName, "main", published.CommitSha!, "merge-once"));
             Assert.True(merged.Merged);
+            var buildRepository = await db.SourceControlRepositories.Include(r => r.Connection).SingleAsync();
+            var buildSource = await CSweet.Infrastructure.Setup.ToolchainTrustedSource.PrepareAsync(host, buildRepository,
+                new DeliveryBuildRecord { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId,
+                    RepositoryId = request.RepositoryId, SourceRevision = merged.MergeCommitSha! }, 1024 * 1024, default);
+            var buildDirectory = Path.Combine(root, "build-source"); using var buildArchive = new MemoryStream(buildSource.Archive);
+            await artifacts.ExtractZipAsync(buildArchive, buildDirectory);
+            Assert.Equal("Offline feature", await File.ReadAllTextAsync(Path.Combine(buildDirectory, "README.md")));
+            Assert.Equal(new byte[] { 0, 1, 2, 255 }, await File.ReadAllBytesAsync(Path.Combine(buildDirectory, "asset.bin")));
             var recovered = await store.PrepareAsync(new(request.OrganizationId, request.RepositoryId, Guid.NewGuid(), "main", "work/verify", merged.MergeCommitSha, "verify"), artifacts);
             var restored = Path.Combine(root, "restored"); using var archive = new MemoryStream(recovered.Archive);
             await artifacts.ExtractZipAsync(archive, restored);
@@ -332,6 +353,7 @@ public sealed class AgentWorkspaceBrokerTests
     private sealed class FakeHost : ITrustedSourceControlHostClient
     {
         public InternalGitRepositoryStore? NativeStore { get; set; }
+        public Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken cancellationToken = default) => NativeStore!.LocksAsync(request, cancellationToken);
         public async Task<TrustedWorkspaceSnapshot> PrepareInternalWorkspaceAsync(InternalGitWorkspaceRequest request, CancellationToken cancellationToken = default)
         {
             var snapshot = await NativeStore!.PrepareAsync(request, new WorkspaceArtifactValidator(), cancellationToken);

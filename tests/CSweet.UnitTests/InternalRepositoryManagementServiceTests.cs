@@ -11,6 +11,36 @@ namespace CSweet.UnitTests;
 
 public sealed class InternalRepositoryManagementServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExplicitDependentDisconnectRetainsHistoryDisablesCreationAndBlocksActiveWork(bool active)
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid(); Seed(db, business, user, OrganizationPermissionLevel.Manager);
+        var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = business, Name = "GitHub", Provider = SourceControlProvider.GitHub, Status = SourceControlConnectionStatus.Connected };
+        var repository = new SourceControlRepository { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id, Connection = connection, Name = "retained" };
+        var policy = new RepositoryProvisioningPolicy { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id, IsEnabled = true };
+        var template = new SourceControlRepositoryTemplate { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id, IsEnabled = true };
+        db.AddRange(connection, repository, policy, template,
+            new RepositoryProvisioningRequest { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id, Status = RepositoryProvisioningStatus.Completed });
+        if (active) db.SourceControlWorkspaces.Add(new() { Id = Guid.NewGuid(), OrganizationId = business, RepositoryId = repository.Id, Repository = repository, Status = SourceControlWorkspaceStatus.Ready });
+        await db.SaveChangesAsync(); db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking; db.ChangeTracker.Clear();
+        var service = new InternalRepositoryManagementService(db, new Host(), new Audit(), TimeProvider.System);
+        var plan = await service.ConnectionDisconnectPlanAsync(business, user, connection.Id, default);
+        Assert.False(plan.CanDisconnect); Assert.Equal(!active, plan.CanDisconnectWithDependencies);
+        if (active)
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.DisconnectConnectionAsync(business, user, connection.Id, new(connection.Name, 1, true), default));
+        else
+        {
+            await service.DisconnectConnectionAsync(business, user, connection.Id, new(connection.Name, 1, true), default);
+            db.ChangeTracker.Clear();
+            Assert.Equal(SourceControlConnectionStatus.Disconnected, (await db.SourceControlConnections.SingleAsync()).Status);
+            Assert.False((await db.RepositoryProvisioningPolicies.SingleAsync()).IsEnabled);
+            Assert.False((await db.SourceControlRepositoryTemplates.SingleAsync()).IsEnabled);
+            Assert.Single(db.SourceControlRepositories); Assert.Single(db.RepositoryProvisioningRequests);
+        }
+    }
+
     [Fact]
     public async Task RepositoryRetryAndEditsPersistWhenQueriesDoNotTrackByDefault()
     {
@@ -418,14 +448,21 @@ public sealed class InternalRepositoryManagementServiceTests
         var host = new Host(); var service = new InternalRepositoryManagementService(db, host, new Audit(), TimeProvider.System);
         var source = Guid.NewGuid(); var backup = Guid.NewGuid();
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.BackupsAsync(business, user, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.BackupJobsAsync(business, user, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.QueueBackupAsync(business, user, source, new(backup), default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.DismissBackupJobAsync(business, user, backup, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.BackupScheduleAsync(business, user, source, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.SaveBackupScheduleAsync(business, user, source, new(true, 24, 1, 0, true), default));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.BackupAsync(business, user, source, new(backup), default));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.DeleteBackupAsync(business, user, source, backup, default));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.RestoreBackupAsync(business, user, source, backup, new(Guid.NewGuid(), "restore"), default));
         Assert.Equal(0, host.Calls); Assert.Empty(db.SourceControlRepositories);
     }
 
-    [Fact]
-    public async Task BusinessDefaultsAreInternalInitiallyAndPersistManagerChoiceWithRevisionChecks()
+    [Theory]
+    [InlineData("Organization")]
+    [InlineData("User")]
+    public async Task BusinessDefaultsAreInternalInitiallyAndPersistManagerChoiceWithRevisionChecks(string accountType)
     {
         await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid();
         Seed(db, business, user, OrganizationPermissionLevel.Owner); await db.SaveChangesAsync();
@@ -434,7 +471,7 @@ public sealed class InternalRepositoryManagementServiceTests
         var initial = await service.BusinessDefaultsAsync(business, user, default);
         Assert.Null(initial.DefaultTemplateId); Assert.Equal(0, initial.Revision); Assert.True(Assert.Single(initial.Options).Available);
         var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = business, Name = "Company GitHub", Provider = SourceControlProvider.GitHub,
-            Mode = SourceControlConnectionMode.ManagedGitHub, AccountType = "Organization", Status = SourceControlConnectionStatus.Connected, ProvisionerInstallationId = 7, SourceAccessInstallationId = 8 };
+            Mode = SourceControlConnectionMode.ManagedGitHub, AccountType = accountType, Status = SourceControlConnectionStatus.Connected, ProvisionerInstallationId = 7, SourceAccessInstallationId = 8 };
         var template = new SourceControlRepositoryTemplate { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id, Name = "starter", DisplayName = "Starter" };
         db.AddRange(connection, template, new RepositoryProvisioningPolicy { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id,
             ApprovedTemplatesJson = System.Text.Json.JsonSerializer.Serialize(new[] { template.Id }), MaximumRepositories = 10 });

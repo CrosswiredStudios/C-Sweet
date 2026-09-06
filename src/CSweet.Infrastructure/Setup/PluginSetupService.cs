@@ -160,6 +160,7 @@ public sealed class PluginSetupService(
             ?? throw new ArgumentException("The permission set is not declared by this plugin.");
         var profile = await providerProfiles.ResolveAsync(declaration.ProviderProfile, cancellationToken)
             ?? throw new InvalidOperationException("The administrator has not configured this verified provider profile.");
+        await ValidateConnectorProfileAsync(installation, declaration, profile, cancellationToken);
         if (!Uri.TryCreate(redirectUri, UriKind.Absolute, out var redirect) || redirect.Scheme != Uri.UriSchemeHttps)
             throw new InvalidOperationException("OAuth callbacks require the configured HTTPS platform origin.");
 
@@ -179,13 +180,15 @@ public sealed class PluginSetupService(
         await secrets.SetAsync(installation.Id, VerifierKey(attemptId), verifier, cancellationToken);
 
         var challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
-        var uri = Query(profile.AuthorizationEndpoint, new Dictionary<string, string>
+        var parameters = new Dictionary<string, string>(declaration.Provider?.AuthorizationParameters
+            ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+        foreach (var parameter in new Dictionary<string, string>
         {
             ["client_id"] = profile.ClientId, ["redirect_uri"] = redirectUri, ["response_type"] = "code",
             ["scope"] = string.Join(' ', scopeSet.Scopes), ["state"] = state,
-            ["code_challenge"] = challenge, ["code_challenge_method"] = "S256",
-            ["access_type"] = "offline", ["include_granted_scopes"] = "true", ["prompt"] = "consent"
-        });
+            ["code_challenge"] = challenge, ["code_challenge_method"] = "S256"
+        }) parameters.Add(parameter.Key, parameter.Value);
+        var uri = Query(profile.AuthorizationEndpoint, parameters);
         return new BeginPluginAuthorizationResponse(uri, expires);
     }
 
@@ -213,6 +216,7 @@ public sealed class PluginSetupService(
         var scopeSet = declaration.ScopeSets.Single(x => x.Id == attempt.ScopeSetId);
         var profile = await providerProfiles.ResolveAsync(declaration.ProviderProfile, cancellationToken)
             ?? throw new InvalidOperationException("The administrator has not configured this verified provider profile.");
+        await ValidateConnectorProfileAsync(installation, declaration, profile, cancellationToken);
         var verifier = await secrets.GetAsync(installation.Id, VerifierKey(attempt.Id), cancellationToken)
             ?? throw new InvalidOperationException("The PKCE verifier is unavailable.");
         using var response = await httpClients.CreateClient(nameof(PluginSetupService)).PostAsync(profile.TokenEndpoint,
@@ -315,11 +319,22 @@ public sealed class PluginSetupService(
             if (flow.Steps.Any(x => x.Kind == "account-selector") && string.IsNullOrWhiteSpace(connection.BoundResourceId))
                 throw new InvalidOperationException("Confirm the provider account before activation.");
         }
+        await new ConnectorBindingService(db).ValidateRequiredBindingsAsync(installation, cancellationToken);
         installation.SetupState = PluginSetupState.Ready;
+        var setupObligation = await db.PluginSetupObligations.SingleOrDefaultAsync(x =>
+            x.InstallationId == installation.Id && x.OrganizationId == organizationId, cancellationToken);
+        if (setupObligation is not null) setupObligation.CompletedAt = DateTimeOffset.UtcNow;
         installation.SetupStepId = null;
         installation.IsEnabled = true;
         if (installation.Schedule is not null) installation.Schedule.IsEnabled = true;
         installation.UpdatedAt = DateTimeOffset.UtcNow;
+        if (installation.PackageVersion!.PluginKind == PluginKind.Connector)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await audit.WriteAsync("plugin-setup.activated", nameof(AgentInstallation), installation.Id,
+                "Connector setup validated; no employee or agent lifecycle event was created.", null, cancellationToken);
+            return new(true, "The connection is ready.", null);
+        }
         var agent = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive,
             cancellationToken) ?? throw new InvalidOperationException("The installed agent employee was not found.");
@@ -335,6 +350,19 @@ public sealed class PluginSetupService(
         return new(true, "The agent is connected and ready.", onboardingResult.ConversationId);
     }
 
+    private async Task ValidateConnectorProfileAsync(AgentInstallation installation,
+        PluginConnectionDeclaration declaration, PluginOAuthProviderProfile profile, CancellationToken token)
+    {
+        if (installation.PackageVersion!.PluginKind != PluginKind.Connector) return;
+        var metadata = declaration.Provider ?? throw new InvalidOperationException("Provider metadata is required.");
+        if (profile.AuthorizationEndpoint != metadata.AuthorizationEndpoint || profile.TokenEndpoint != metadata.TokenEndpoint ||
+            profile.RevocationEndpoint != metadata.RevocationEndpoint ||
+            !await db.ConnectorProfileApprovals.AnyAsync(x => x.ConnectorInstallationId == installation.Id &&
+                x.PackageDigest == installation.PackageVersion.PackageDigest && x.ProfileId == profile.Id &&
+                x.RevokedAt == null, token))
+            throw new InvalidOperationException("An administrator must approve this exact connector build and OAuth profile.");
+    }
+
     public async Task DisconnectAsync(Guid organizationId, Guid installationId, string connectionId,
         CancellationToken cancellationToken = default)
     {
@@ -342,6 +370,13 @@ public sealed class PluginSetupService(
         var connection = await db.PluginConnections.SingleOrDefaultAsync(x =>
             x.AgentInstallationId == installation.Id && x.DeclarationId == connectionId, cancellationToken);
         if (connection is null) return;
+        // Persist the local deny before waiting on a remote revocation endpoint.
+        connection.Status = PluginConnectionStatus.Revoked;
+        connection.RevokedAt = connection.UpdatedAt = DateTimeOffset.UtcNow;
+        installation.SetupState = PluginSetupState.ConnectionRequired;
+        installation.IsEnabled = false;
+        if (installation.Schedule is not null) installation.Schedule.IsEnabled = false;
+        await db.SaveChangesAsync(cancellationToken);
         var profile = await providerProfiles.ResolveAsync(connection.ProviderProfile, cancellationToken);
         var tokenJson = await secrets.GetAsync(installation.Id, TokenKey(connection.Id), cancellationToken);
         if (profile is not null && !string.IsNullOrWhiteSpace(profile.RevocationEndpoint) && tokenJson is not null)
@@ -409,7 +444,7 @@ public sealed class PluginSetupService(
 
     private async Task<AgentInstallation> RequireInstallationAsync(Guid organizationId, Guid installationId,
         CancellationToken cancellationToken) => await db.AgentInstallations
-        .Include(x => x.PackageVersion).Include(x => x.Schedule)
+        .Include(x => x.PackageVersion).Include(x => x.Schedule).Include(x => x.Grant)
         .SingleOrDefaultAsync(x => x.Id == installationId && x.BusinessId == organizationId.ToString("D"), cancellationToken)
         ?? throw new KeyNotFoundException("The plugin installation was not found in this organization.");
 

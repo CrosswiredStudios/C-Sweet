@@ -18,7 +18,7 @@ public static class BusinessSourceControlDefaultResolver
     }
     public static bool SupportsCreation(SourceControlConnection c) => c.Status == SourceControlConnectionStatus.Connected &&
         (c.Provider == SourceControlProvider.InternalGit || (c.Provider == SourceControlProvider.GitHub && c.Mode == SourceControlConnectionMode.ManagedGitHub &&
-            c.AccountType.Equals("Organization", StringComparison.OrdinalIgnoreCase) && c.ProvisionerInstallationId > 0 && c.SourceAccessInstallationId > 0));
+            (c.AccountType.Equals("Organization", StringComparison.OrdinalIgnoreCase) || c.AccountType.Equals("User", StringComparison.OrdinalIgnoreCase)) && c.ProvisionerInstallationId > 0 && c.SourceAccessInstallationId > 0));
 }
 
 public sealed partial class InternalRepositoryManagementService
@@ -39,7 +39,7 @@ public sealed partial class InternalRepositoryManagementService
             if (!builtIn && connection.Provider != SourceControlProvider.GitHub) continue;
             var policy = policies.SingleOrDefault(p => p.ConnectionId == connection.Id);
             var approved = policy is not null && (JsonSerializer.Deserialize<List<Guid>>(policy.ApprovedTemplatesJson) ?? []).Contains(template.Id);
-            var reason = !BusinessSourceControlDefaultResolver.SupportsCreation(connection) ? (builtIn ? "Internal Git is disconnected." : "A connected Managed GitHub organization with source access and a provisioner is required for GitHub creation.")
+            var reason = !BusinessSourceControlDefaultResolver.SupportsCreation(connection) ? (builtIn ? "Internal Git is disconnected." : "A connected Managed GitHub account with source access and a provisioner is required for GitHub creation.")
                 : !template.IsEnabled ? "Template is disabled." : policy?.IsEnabled != true ? "Repository creation is disabled." : !approved ? "Template is not approved by the business policy." : null;
             options.Add(new(builtIn ? null : template.Id, connection.Provider.ToString(), connection.Name, builtIn ? "Empty internal repository" : template.DisplayName, reason is null, reason));
         }

@@ -20,7 +20,7 @@ public sealed record DeleteInternalRepositoryRequest(string ConfirmName, long Ex
 public sealed record InternalGitRefRequest(string Operation, string Ref, string ExpectedSha, string? TargetSha = null);
 public sealed record InternalGitSnapshotOperation(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
     string Operation, string BaseSha, string Branch, string DefaultBranch, string IdempotencyKey,
-    byte[] Archive, string ArchiveManifestSha, int FileCount, long TotalBytes, string? CommitMessage = null, bool AllowLfs = true);
+    byte[] Archive, string ArchiveManifestSha, int FileCount, long TotalBytes, string? CommitMessage = null, bool AllowLfs = true, Guid? LockOwnerId = null);
 public sealed record InternalGitSnapshotResult(string Status, string BaseSha, string? CommitSha,
     IReadOnlyList<string> ChangedFiles, string DiffSummary, string? LatestTargetSha = null);
 public sealed record InternalGitMergeRequest(Guid OrganizationId, Guid RepositoryId, Guid PublicationId,
@@ -52,6 +52,12 @@ public sealed record InternalGitBackupRestoreRequest(Guid OrganizationId, Guid R
 public sealed record InternalGitBackupSummary(Guid Id, Guid RepositoryId, DateTimeOffset CreatedAt, string DefaultBranch,
     long ArchiveBytes, string ArchiveSha256, int RefCount, int LfsObjectCount);
 public sealed record CreateInternalGitBackupRequest(Guid BackupId);
+public sealed record InternalGitBackupJob(Guid Id, Guid OrganizationId, Guid RepositoryId, string Status,
+    DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, string? FailureMessage = null);
+public sealed record InternalGitBackupSchedule(Guid OrganizationId, Guid RepositoryId, bool Enabled, int IntervalHours,
+    int? KeepLatest, long Revision, long? LastWindow = null, Guid? LastJobId = null);
+public sealed record SaveInternalGitBackupSchedule(bool Enabled, int IntervalHours, int? KeepLatest, long ExpectedRevision, bool ConfirmRetention = false);
+public sealed record InternalGitBackupScheduleCommand(Guid OrganizationId, Guid RepositoryId, SaveInternalGitBackupSchedule Settings);
 public sealed record RestoreInternalGitBackupRequest(Guid RestoreId, string Name);
 
 public sealed record InternalGitFileLock(string Id, string Path, Guid OwnerId, string OwnerName, DateTimeOffset LockedAt);
