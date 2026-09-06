@@ -38,7 +38,7 @@ public sealed partial class InternalGitRepositoryStore
             var manifest = await artifacts.ExtractZipAsync(archive, extracted, ct);
             if (manifest != new WorkspaceArtifactManifest(request.ArchiveManifestSha, request.FileCount, request.TotalBytes))
                 throw new InvalidDataException("Workspace snapshot differs from its broker manifest.");
-            var tree = await WriteSnapshotTreeAsync(repository, extracted, temporary, request.BaseSha, request.OrganizationId, request.RepositoryId, ct);
+            var tree = await WriteSnapshotTreeAsync(repository, extracted, temporary, request.BaseSha, request.OrganizationId, request.RepositoryId, ct, request.AllowLfs);
             var changed = (await RunAsync(repository, ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", request.BaseSha, tree, "--"], ct))
                 .Split('\0', StringSplitOptions.RemoveEmptyEntries);
             var summary = await RunAsync(repository, ["diff", "--no-ext-diff", "--no-textconv", "--stat", request.BaseSha, tree, "--"], ct);
@@ -69,8 +69,9 @@ public sealed partial class InternalGitRepositoryStore
     }
 
     private async Task<string> WriteSnapshotTreeAsync(string repository, string directory, string temporary,
-        string baseSha, Guid business, Guid repositoryId, CancellationToken ct)
+        string baseSha, Guid business, Guid repositoryId, CancellationToken ct, bool allowLfs = true)
     {
+        if (!allowLfs) await GitHubWorkspaceContent.ValidateAsync(directory, ct);
         var environment = new Dictionary<string, string> { ["GIT_INDEX_FILE"] = Path.Combine(temporary, "index") };
         await RunAsync(repository, ["read-tree", "--empty"], ct, environment);
         var entries = (await RunAsync(repository, ["ls-tree", "-r", "-z", baseSha], ct)).Split('\0', StringSplitOptions.RemoveEmptyEntries);
@@ -84,6 +85,7 @@ public sealed partial class InternalGitRepositoryStore
             string.Join('\0', files.Select(f => f.Relative)) + "\0")).Split('\0', StringSplitOptions.RemoveEmptyEntries);
         var lfsPaths = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i + 2 < attributes.Length; i += 3) if (attributes[i + 2] == "lfs") lfsPaths.Add(attributes[i]);
+        if (!allowLfs && lfsPaths.Count > 0) throw new InvalidOperationException("GitHub LFS publication is not yet supported. No remote branch was changed.");
         using var lfs = new InternalGitLfsStore(Options.Create(_options));
         foreach (var file in files)
         {

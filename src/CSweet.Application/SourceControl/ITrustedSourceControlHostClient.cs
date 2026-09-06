@@ -7,6 +7,7 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface ITrustedSourceControlHostClient
 {
+    Task<GitHubSnapshotResult> ApplyGitHubSnapshotAsync(GitHubSnapshotOperation request, CancellationToken ct = default) => throw new InvalidOperationException("GitHub workspace operations are unavailable.");
     Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken ct = default) => throw new InvalidOperationException("LFS locking is unavailable.");
     Task<IReadOnlyList<InternalGitBackupSummary>> ListInternalBackupsAsync(Guid business, CancellationToken ct = default) => throw new InvalidOperationException("Backup inspection is unavailable.");
     Task<InternalGitBackupSummary> CreateInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Backup creation is unavailable.");
@@ -112,6 +113,7 @@ public sealed record TrustedMergeResult(
 
 public sealed record TrustedWorkspaceSnapshotRequest(
     long InstallationId,
+    long ExternalRepositoryId,
     string Owner,
     string Repository,
     string DefaultBranch,

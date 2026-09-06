@@ -145,6 +145,28 @@ public sealed class InternalGitProvisioningTests
         Assert.Equal(RepositoryProvisioningStatus.Failed, queued.Status); Assert.Equal("grant_revoked", queued.FailureCode);
     }
 
+    [Fact]
+    public async Task ProvisioningCannotAssociateAnUnrelatedTeamWithTheProduct()
+    {
+        await using var db = Database(); var fixture = await SeedAsync(db);
+        db.WorkstreamTeamAssignments.RemoveRange(db.WorkstreamTeamAssignments);
+        await db.SaveChangesAsync();
+        await InvokeAsync(db, fixture, new Authorization());
+        Assert.Empty(db.RepositoryProvisioningRequests);
+    }
+
+    [Fact]
+    public async Task WorkerRechecksProductTeamBeforeCreatingRepository()
+    {
+        await using var db = Database(); var fixture = await SeedAsync(db); var auth = new Authorization();
+        Assert.True((await InvokeAsync(db, fixture, auth)).Succeeded);
+        db.WorkstreamTeamAssignments.RemoveRange(db.WorkstreamTeamAssignments);
+        await db.SaveChangesAsync(); var host = new Host();
+        Assert.True(await Processor(db, host, auth).TryProcessNextAsync());
+        Assert.Equal(0, host.Calls);
+        Assert.Equal("assignment_revoked", (await db.RepositoryProvisioningRequests.SingleAsync()).FailureCode);
+    }
+
     private static RepositoryProvisioningProcessor Processor(CSweetDbContext db, Host host, Authorization auth) => new(db, new UnavailableTrustedProvisioningHostClient(), TimeProvider.System, host, auth);
     private static CSweetDbContext Database() => new(new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
     private sealed record Fixture(Guid Business, Guid Agent, Guid Team, Guid Workstream);
@@ -156,6 +178,7 @@ public sealed class InternalGitProvisioningTests
         db.AgentInstallations.Add(new() { Id = fixture.Agent, BusinessId = fixture.Business.ToString("D"), IsEnabled = true });
         db.OrganizationTeams.Add(new() { Id = fixture.Team, OrganizationId = fixture.Business, Name = "Delivery" });
         db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.Business, TeamId = fixture.Team, OrganizationUserId = employee.Id });
+        db.WorkstreamTeamAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.Business, WorkstreamId = fixture.Workstream, TeamId = fixture.Team, StartsAt = DateTimeOffset.UtcNow.AddDays(-1) });
         db.Workstreams.Add(new() { Id = fixture.Workstream, OrganizationId = fixture.Business, Name = "Product" });
         await db.SaveChangesAsync(); return fixture;
     }

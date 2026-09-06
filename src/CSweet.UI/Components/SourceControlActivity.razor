@@ -1,0 +1,112 @@
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+
+<MudExpansionPanels>
+    <MudExpansionPanel Text="Source-control activity">
+        <MudStack Spacing="3">
+            <MudText Color="Color.Secondary">Inspect repository changes, access, locks, backups, and provisioning settings. Started records show attempts; completed records show that the recorded operation finished.</MudText>
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                <MudSelect T="Guid?" Label="Repository" @bind-Value="_repository" Disabled="_busy" Clearable="true">
+                    @foreach (var repository in Repositories)
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)repository.Id)">@repository.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" Label="Outcome" @bind-Value="_outcome" Disabled="_busy" Clearable="true">
+                    <MudSelectItem T="string" Value='@("Started")'>Started</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("Completed")'>Completed</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("Failed")'>Failed</MudSelectItem>
+                </MudSelect>
+                <MudButton OnClick="RefreshAsync" Disabled="_busy" Variant="Variant.Outlined">Apply filters / refresh</MudButton>
+            </MudStack>
+            @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+            @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="Loading source-control activity" /> }
+            <MudTable Items="_items" Dense="true" Hover="true">
+                <HeaderContent><MudTh>Time (UTC)</MudTh><MudTh>Activity</MudTh><MudTh>Outcome</MudTh><MudTh>Target</MudTh><MudTh>Actor</MudTh><MudTh>Inspect</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Time (UTC)">@context.OccurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                    <MudTd DataLabel="Activity">@ActivityLabel(context.EventType)</MudTd>
+                    <MudTd DataLabel="Outcome">@context.Outcome</MudTd>
+                    <MudTd DataLabel="Target">@TargetLabel(context)</MudTd>
+                    <MudTd DataLabel="Actor">@(context.ActorDisplayName ?? context.ActorKind)</MudTd>
+                    <MudTd DataLabel="Inspect"><MudButton OnClick="@(() => _selected = context)" Size="Size.Small">Details</MudButton></MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>No recorded activity matches these filters.</MudText></NoRecordsContent>
+            </MudTable>
+            <MudStack Row="true" Justify="Justify.SpaceBetween">
+                <MudButton OnClick="PreviousAsync" Disabled="@(_busy || _previous.Count == 0)">Newer</MudButton>
+                <MudButton OnClick="NextAsync" Disabled="@(_busy || _next is null)">Older</MudButton>
+            </MudStack>
+            @if (_selected is { } entry)
+            {
+                <MudPaper Outlined="true" Class="pa-3">
+                    <MudText Typo="Typo.h6">Activity details</MudText>
+                    <MudText>Event: @entry.EventType</MudText>
+                    <MudText>Event ID: @entry.Id Â· sequence: @entry.Sequence</MudText>
+                    <MudText>Target: @entry.EntityType Â· @entry.EntityId</MudText>
+                    <MudText>Actor: @(entry.ActorDisplayName ?? entry.ActorKind) Â· user: @entry.ActorApplicationUserId Â· installation: @entry.ActorInstallationId</MudText>
+                    <MudText>Trace: @entry.TraceId</MudText>
+                    <MudButton OnClick="@(() => _selected = null)">Close details</MudButton>
+                </MudPaper>
+            }
+        </MudStack>
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public IReadOnlyList<SourceControlRepositorySummary> Repositories { get; set; } = [];
+    private Guid _loadedOrganization;
+    private Guid? _repository, _appliedRepository;
+    private string? _outcome, _appliedOutcome, _error;
+    private long? _before, _next;
+    private readonly Stack<long?> _previous = new();
+    private IReadOnlyList<SourceControlActivityEntry> _items = [];
+    private SourceControlActivityEntry? _selected;
+    private bool _busy;
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedOrganization == OrganizationId) return;
+        _loadedOrganization = OrganizationId; _repository = null; _outcome = null;
+        _items = []; _selected = null;
+        await RefreshAsync();
+    }
+    private async Task RefreshAsync()
+    {
+        _appliedRepository = _repository; _appliedOutcome = _outcome;
+        _before = null; _previous.Clear(); _next = null; _items = [];
+        await LoadAsync(null);
+    }
+    private async Task NextAsync()
+    {
+        if (_next is not { } next) return;
+        if (await LoadAsync(next)) { _previous.Push(_before); _before = next; }
+    }
+    private async Task PreviousAsync()
+    {
+        if (_previous.Count == 0) return;
+        var previous = _previous.Peek();
+        if (await LoadAsync(previous)) { _previous.Pop(); _before = previous; }
+    }
+    private async Task<bool> LoadAsync(long? before)
+    {
+        _busy = true; _error = null; _selected = null;
+        var business = OrganizationId;
+        try
+        {
+            var url = $"api/organizations/{business:D}/source-control/activity?pageSize=25";
+            if (_appliedRepository.HasValue) url += $"&repositoryId={_appliedRepository:D}";
+            if (!string.IsNullOrEmpty(_appliedOutcome)) url += "&outcome=" + Uri.EscapeDataString(_appliedOutcome);
+            if (before.HasValue) url += $"&beforeSequence={before}";
+            var page = await Http.GetFromJsonAsync<SourceControlActivityPage>(url) ?? throw new HttpRequestException();
+            if (business != OrganizationId) return false;
+            _items = page.Items; _next = page.NextBeforeSequence; return true;
+        }
+        catch (HttpRequestException) { if (business == OrganizationId) { _items = []; _next = null; _error = "Activity could not be loaded. Check your business permissions and try again."; } return false; }
+        finally { _busy = false; }
+    }
+    private static string ActivityLabel(string type) => type.StartsWith("SourceControl.", StringComparison.Ordinal) ? type[14..].Replace('.', ' ') : type;
+    private string TargetLabel(SourceControlActivityEntry entry) => entry.EntityType == "SourceControlRepository"
+        ? Repositories.FirstOrDefault(r => r.Id == entry.EntityId)?.Name ?? entry.EntityId?.ToString() ?? "Repository"
+        : entry.EntityType;
+}

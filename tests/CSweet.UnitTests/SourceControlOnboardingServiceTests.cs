@@ -13,6 +13,24 @@ namespace CSweet.UnitTests;
 public sealed class SourceControlOnboardingServiceTests
 {
     [Fact]
+    public async Task AuthenticatedReconnectionPreservesNameAndClearsDisconnectedTimestamp()
+    {
+        var business = Guid.NewGuid(); var user = Guid.NewGuid(); await using var db = CreateDb(); SeedManager(db, business, user);
+        var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = business, Name = "My project hosting", Provider = SourceControlProvider.GitHub,
+            Mode = SourceControlConnectionMode.ExistingGitHub, ProviderAccountId = "99", AccountLogin = "approved-org", AccountType = "Organization",
+            Status = SourceControlConnectionStatus.Disconnected, DisconnectedAt = DateTimeOffset.UtcNow.AddDays(-1) };
+        db.Add(connection); await db.SaveChangesAsync();
+        var host = new InstallationHost(new TrustedInstallationDescriptor(10, 99, "approved-org", "Organization", false, null));
+        var service = CreateService(db, host, host);
+        var started = await service.StartAsync(business, user, new StartSourceControlOnboardingRequest("ExistingGitHub"));
+        await service.CompleteGitHubInstallationAsync(business, user, started.SessionId,
+            new CompleteGitHubAppInstallationRequest(ReadState(started.AuthorizationUrl), 10, "SourceAccess", "oauth-code"));
+        db.ChangeTracker.Clear(); var reconnected = await db.SourceControlConnections.SingleAsync();
+        Assert.Equal(connection.Id, reconnected.Id); Assert.Equal("My project hosting", reconnected.Name);
+        Assert.Equal(SourceControlConnectionStatus.Connected, reconnected.Status); Assert.Null(reconnected.DisconnectedAt);
+    }
+
+    [Fact]
     public void RuntimeDependencyInjectionHasSinglePublicConstructor()
     {
         Assert.Single(typeof(SourceControlOnboardingService).GetConstructors());

@@ -117,7 +117,7 @@ public sealed class GovernedMergeWorkActionExecutor(
             return Blocked("The team-lead merge authorization signature is invalid.");
 
         var idempotencyKey = $"merge:{publication.Publication.Id:N}:{publication.Publication.CommitSha}";
-        var job = await db.SourceControlMergeJobs.SingleOrDefaultAsync(x =>
+        var job = await db.SourceControlMergeJobs.AsTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == context.OrganizationId && x.IdempotencyKey == idempotencyKey,
             cancellationToken);
         if (job?.Status == SourceControlMergeStatus.Merged &&
@@ -296,7 +296,7 @@ public sealed class GovernedMergeWorkActionExecutor(
         publication.Status = SourceControlPublicationStatus.Superseded;
         publication.UpdatedAt = now;
         publication.Revision++;
-        var validations = await db.SourceControlValidations.Where(x =>
+        var validations = await db.SourceControlValidations.AsTracking().Where(x =>
             x.OrganizationId == publication.OrganizationId &&
             x.PublicationId == publication.Id &&
             x.Status != SourceControlValidationStatus.Superseded)
@@ -307,7 +307,7 @@ public sealed class GovernedMergeWorkActionExecutor(
             validation.SupersededAt = now;
             validation.UpdatedAt = now;
         }
-        var authorization = await db.SourceControlMergeAuthorizations
+        var authorization = await db.SourceControlMergeAuthorizations.AsTracking()
             .SingleAsync(x => x.Id == authorizationId, cancellationToken);
         authorization.RevokedAt = now;
         authorization.RevocationReason = "The proposed-change head changed.";

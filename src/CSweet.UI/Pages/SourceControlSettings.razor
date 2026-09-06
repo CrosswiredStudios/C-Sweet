@@ -35,13 +35,9 @@
             </MudText>
         </MudAlert>
     }
-    else if (!string.IsNullOrWhiteSpace(_error))
+    else
     {
-        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">Try again</MudButton>
-    }
-    else if (_setup is not null)
-    {
+        @if (_storageError is not null) { <MudAlert Severity="Severity.Warning" Class="mb-4">@_storageError</MudAlert> }
         @if (_storage is not null)
         {
             <MudPaper Outlined="true" Class="pa-4 mb-4">
@@ -58,14 +54,15 @@
             </MudPaper>
         }
         <MudText Typo="Typo.h5" Class="my-3">Optional GitHub integration</MudText>
-        @if (_setup.Readiness.ConfigurationMode == "ExternallyManaged")
+        @if (_setupError is not null) { <MudAlert Severity="Severity.Warning">@_setupError</MudAlert> }
+        @if (_setup?.Readiness.ConfigurationMode == "ExternallyManaged")
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
                 This installation uses operator-managed GitHub credentials. They remain active and
                 have not been imported into C-Sweet.
             </MudAlert>
         }
-        <SourceControlPlatformSetupWizard Setup="_setup" SetupChanged="HandleSetupChanged" />
+        @if (_setup is not null) { <SourceControlPlatformSetupWizard Setup="_setup" SetupChanged="HandleSetupChanged" /> }
     }
 </div>
 
@@ -74,34 +71,20 @@
     private InternalGitStorageStatus? _storage;
     private bool _loading = true;
     private bool _accessDenied;
-    private string? _error;
+    private string? _storageError, _setupError;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
     {
         _loading = true;
-        _accessDenied = false;
-        _error = null;
+        _accessDenied = false; _storage = null; _setup = null;
+        _storageError = null; _setupError = null;
         try
         {
-            using var response = await Http.GetAsync("api/source-control/platform-setup/");
-            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-            {
-                _accessDenied = true;
-                _setup = null;
-                return;
-            }
-            response.EnsureSuccessStatusCode();
-            try { _storage = await Http.GetFromJsonAsync<InternalGitStorageStatus>("api/source-control/storage"); }
-            catch { _storage = new(false, "", "", "filesystem", "", "filesystem", "", "GitHost storage status is unavailable."); }
-            _setup = await response.Content.ReadFromJsonAsync<PlatformSourceControlSetupResponse>()
-                ?? throw new InvalidOperationException("Enterprise source-control setup returned no data.");
-        }
-        catch (Exception exception)
-        {
-            _setup = null;
-            _error = exception.Message;
+            var state = await CSweet.UI.Services.SourceControlSettingsState.LoadAsync(Http);
+            _storage = state.Storage; _setup = state.Setup; _accessDenied = state.AccessDenied;
+            _storageError = state.StorageError; _setupError = state.SetupError;
         }
         finally { _loading = false; }
     }

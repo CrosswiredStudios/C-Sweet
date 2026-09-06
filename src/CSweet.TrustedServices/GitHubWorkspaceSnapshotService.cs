@@ -10,7 +10,8 @@ namespace CSweet.TrustedServices;
 /// </summary>
 public sealed class GitHubWorkspaceSnapshotService(
     GitHubAppClient github,
-    WorkspaceArtifactValidator artifacts)
+    WorkspaceArtifactValidator artifacts,
+    IGitHubRepositoryTransport transport)
 {
     public async Task<GitHubWorkspaceSnapshot> PrepareAsync(
         GitHubWorkspacePrepareRequest request,
@@ -20,6 +21,7 @@ public sealed class GitHubWorkspaceSnapshotService(
         var repositories = await github.ListInstallationRepositoriesAsync(
             request.InstallationId, cancellationToken);
         var repository = repositories.SingleOrDefault(candidate =>
+            candidate.RepositoryId == request.ExternalRepositoryId &&
             string.Equals(candidate.Owner, request.Owner, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(candidate.Name, request.Repository, StringComparison.OrdinalIgnoreCase) &&
             candidate.IsPrivate && !candidate.IsArchived)
@@ -34,13 +36,23 @@ public sealed class GitHubWorkspaceSnapshotService(
         {
             var token = await github.CreateInstallationTokenAsync(request.InstallationId, cancellationToken);
             var environment = CreateGitEnvironment(temporaryRoot, token);
-            await RunGitAsync(["init", "--bare", bareRepository], environment, cancellationToken);
+            await RunGitAsync(["init", "--bare", "--template=", bareRepository], environment, cancellationToken);
             var remote = $"https://github.com/{repository.Owner}/{repository.Name}.git";
             await RunGitAsync(
                 ["--git-dir", bareRepository, "remote", "add", "origin", remote],
                 environment,
                 cancellationToken);
-            var sourceRef = request.ExpectedCommitSha ?? $"refs/heads/{request.DefaultBranch}";
+            var sourceRef = request.ExpectedCommitSha;
+            if (sourceRef is null)
+            {
+                var heads = await RunGitAsync(["--git-dir", bareRepository, "ls-remote", "--heads", "origin",
+                    "refs/heads/" + request.DeterministicBranch, "refs/heads/" + request.DefaultBranch], environment, cancellationToken);
+                var refs = heads.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim().Split('\t', 2))
+                    .ToDictionary(parts => parts[1], parts => parts[0], StringComparer.Ordinal);
+                sourceRef = refs.GetValueOrDefault("refs/heads/" + request.DeterministicBranch)
+                    ?? refs.GetValueOrDefault("refs/heads/" + request.DefaultBranch)
+                    ?? throw new InvalidOperationException("The GitHub repository has no source branch.");
+            }
             await RunGitAsync(
                 ["--git-dir", bareRepository, "fetch", "--no-tags", "--depth=1", "origin", sourceRef],
                 environment,
@@ -54,6 +66,8 @@ public sealed class GitHubWorkspaceSnapshotService(
                 !string.Equals(head, request.ExpectedCommitSha, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("GitHub returned a commit other than the exact requested source commit.");
 
+            Directory.CreateDirectory(Path.Combine(bareRepository, "info"));
+            await File.WriteAllTextAsync(Path.Combine(bareRepository, "info", "attributes"), "* -export-ignore -export-subst\n", cancellationToken);
             await RunGitAsync(
                 ["--git-dir", bareRepository, "archive", "--format=zip", $"--output={rawArchive}", "FETCH_HEAD"],
                 environment,
@@ -64,6 +78,7 @@ public sealed class GitHubWorkspaceSnapshotService(
             {
                 await artifacts.ExtractZipAsync(source, sanitized, cancellationToken);
             }
+            await GitHubWorkspaceLfs.MaterializeAsync(sanitized, bareRepository, repository, token, head, transport, cancellationToken);
             await using var output = new MemoryStream();
             var manifest = await artifacts.CreateZipAsync(sanitized, output, cancellationToken);
             return new GitHubWorkspaceSnapshot(
@@ -84,6 +99,9 @@ public sealed class GitHubWorkspaceSnapshotService(
         IReadOnlyDictionary<string, string> environment,
         CancellationToken cancellationToken)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(2));
+        cancellationToken = timeout.Token;
         var startInfo = new ProcessStartInfo
         {
             FileName = "git",
@@ -109,8 +127,23 @@ public sealed class GitHubWorkspaceSnapshotService(
         {
             throw new InvalidOperationException("Git is unavailable in the trusted GitHost runtime.", exception);
         }
-        var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var error = process.StandardError.ReadToEndAsync(cancellationToken);
+        var output = ReadBoundedAsync(process.StandardOutput);
+        var error = ReadBoundedAsync(process.StandardError);
+        async Task<string> ReadBoundedAsync(StreamReader reader)
+        {
+            var result = new StringBuilder(); var buffer = new char[8192];
+            int count;
+            while ((count = await reader.ReadAsync(buffer.AsMemory(), cancellationToken)) > 0)
+            {
+                if (result.Length + count > 4 * 1024 * 1024)
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    throw new InvalidOperationException("GitHub command output exceeded its limit.");
+                }
+                result.Append(buffer, 0, count);
+            }
+            return result.ToString();
+        }
         try
         {
             await process.WaitForExitAsync(cancellationToken);
@@ -148,8 +181,9 @@ public sealed class GitHubWorkspaceSnapshotService(
             ["GIT_CONFIG_NOSYSTEM"] = "1",
             ["GIT_TERMINAL_PROMPT"] = "0",
             ["GIT_LFS_SKIP_SMUDGE"] = "1",
-            ["GIT_CONFIG_COUNT"] = "7",
-            ["GIT_CONFIG_KEY_0"] = "http.extraHeader",
+            ["GIT_CONFIG_GLOBAL"] = OperatingSystem.IsWindows() ? "NUL" : "/dev/null",
+            ["GIT_CONFIG_COUNT"] = "11",
+            ["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraHeader",
             ["GIT_CONFIG_VALUE_0"] = "Authorization: Basic " + Convert.ToBase64String(
                 Encoding.UTF8.GetBytes($"x-access-token:{token}")),
             ["GIT_CONFIG_KEY_1"] = "credential.helper",
@@ -163,14 +197,20 @@ public sealed class GitHubWorkspaceSnapshotService(
             ["GIT_CONFIG_KEY_5"] = "submodule.recurse",
             ["GIT_CONFIG_VALUE_5"] = "false",
             ["GIT_CONFIG_KEY_6"] = "fetch.recurseSubmodules",
-            ["GIT_CONFIG_VALUE_6"] = "false"
+            ["GIT_CONFIG_VALUE_6"] = "false",
+            ["GIT_CONFIG_KEY_7"] = "http.followRedirects", ["GIT_CONFIG_VALUE_7"] = "false",
+            ["GIT_CONFIG_KEY_8"] = "protocol.allow", ["GIT_CONFIG_VALUE_8"] = "never",
+            ["GIT_CONFIG_KEY_9"] = "protocol.https.allow", ["GIT_CONFIG_VALUE_9"] = "always",
+            ["GIT_CONFIG_KEY_10"] = "core.longpaths", ["GIT_CONFIG_VALUE_10"] = "true"
         };
     }
 
     private static void Validate(GitHubWorkspacePrepareRequest request)
     {
-        if (request.InstallationId <= 0 || request.WorkspaceId == Guid.Empty)
-            throw new ArgumentException("A GitHub installation and workspace are required.");
+        if (request.InstallationId <= 0 || request.ExternalRepositoryId <= 0 || request.WorkspaceId == Guid.Empty)
+            throw new ArgumentException("A GitHub installation, repository identity, and workspace are required.");
+        InternalGitRepositoryStore.ValidateBranch(request.DefaultBranch);
+        InternalGitRepositoryStore.ValidateBranch(request.DeterministicBranch);
         if (!IsCoordinate(request.Owner) || !IsCoordinate(request.Repository) ||
             !IsBranch(request.DefaultBranch) || !IsBranch(request.DeterministicBranch))
             throw new ArgumentException("The repository or branch coordinates are invalid.");
@@ -181,7 +221,7 @@ public sealed class GitHubWorkspaceSnapshotService(
     }
 
     private static bool IsCoordinate(string value) =>
-        value.Length is >= 1 and <= 100 &&
+        value.Length is >= 1 and <= 100 && value is not ("." or "..") &&
         value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.');
 
     private static bool IsBranch(string value) =>

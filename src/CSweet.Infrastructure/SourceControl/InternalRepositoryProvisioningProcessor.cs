@@ -15,9 +15,12 @@ public sealed partial class RepositoryProvisioningProcessor
         if (employee is null || request.RequestedByAgentInstallationId is null || request.TeamId is null ||
             !await db.AgentInstallations.AnyAsync(i => i.Id == request.RequestedByAgentInstallationId && i.IsEnabled && i.BusinessId == request.OrganizationId.ToString("D"), ct) ||
             !await db.TeamMemberships.AnyAsync(m => m.OrganizationId == request.OrganizationId && m.TeamId == request.TeamId && m.OrganizationUserId == employee.Id && m.EndedAt == null, ct) ||
+            !await db.WorkstreamTeamAssignments.AnyAsync(a => a.OrganizationId == request.OrganizationId &&
+                a.WorkstreamId == request.WorkstreamId && a.TeamId == request.TeamId &&
+                a.StartsAt <= now && (a.EndsAt == null || a.EndsAt > now), ct) ||
             !await db.OrganizationTeams.AnyAsync(t => t.Id == request.TeamId && t.OrganizationId == request.OrganizationId && t.ArchivedAt == null, ct))
         {
-            Fail(request, "assignment_revoked", "The requesting agent must remain an active member of the provisioning team.", now);
+            Fail(request, "assignment_revoked", "The requesting agent must remain an active member of the provisioning team assigned to the product.", now);
             await db.SaveChangesAsync(ct); return true;
         }
         var grant = authorization is null ? null : await authorization.AuthorizeAsync(request.OrganizationId,

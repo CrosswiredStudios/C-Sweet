@@ -191,7 +191,8 @@ public sealed partial class InternalGitRepositoryStore
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var key in start.Environment.Keys.Where(k => k.StartsWith("GIT_", StringComparison.OrdinalIgnoreCase)).ToArray()) start.Environment.Remove(key);
         start.Environment["GIT_CONFIG_NOSYSTEM"] = "1"; start.Environment["GIT_CONFIG_GLOBAL"] = OperatingSystem.IsWindows() ? "NUL" : "/dev/null";
-        foreach (var arg in new[] { "-c", "core.longpaths=true", "-c", "protocol.allow=never", "--git-dir", repository, "cat-file", "--batch" }) start.ArgumentList.Add(arg);
+        start.WorkingDirectory = repository;
+        foreach (var arg in new[] { "-c", "core.longpaths=true", "-c", "protocol.allow=never", "--git-dir", ".", "cat-file", "--batch" }) start.ArgumentList.Add(arg);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct); timeout.CancelAfter(TimeSpan.FromSeconds(_options.OperationTimeoutSeconds));
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Git could not start.");
         using var registration = timeout.Token.Register(() => { try { process.Kill(true); } catch (InvalidOperationException) { } });

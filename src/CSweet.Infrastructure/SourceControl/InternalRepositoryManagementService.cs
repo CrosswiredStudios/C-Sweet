@@ -33,7 +33,7 @@ public sealed partial class InternalRepositoryManagementService(CSweetDbContext 
             throw new ArgumentException("Choose a team belonging to this business.");
         var connection = await EnsureConnectionAsync(business, ct);
         var path = $"internal/{business:N}/{name.ToLowerInvariant()}";
-        var repository = await db.SourceControlRepositories.SingleOrDefaultAsync(r => r.OrganizationId == business && r.CanonicalPath == path, ct);
+        var repository = await db.SourceControlRepositories.AsTracking().SingleOrDefaultAsync(r => r.OrganizationId == business && r.CanonicalPath == path, ct);
         if (repository is not null && repository.Status != SourceControlRepositoryStatus.Provisioning)
             throw new ArgumentException("A repository with this name already exists, including archived repositories.");
         var now = clock.GetUtcNow();
@@ -207,7 +207,7 @@ public sealed partial class InternalRepositoryManagementService(CSweetDbContext 
         if (!Enum.TryParse<TeamMergeApprovalMode>(request.MergeApprovalMode, out var mode) || !Enum.IsDefined(mode))
             throw new ArgumentException("Choose a supported merge approval policy.");
         await AuditAsync(business, user, repositoryId, "Team", "Started", request, ct);
-        var policies = await db.TeamRepositoryPolicies.Where(p => p.OrganizationId == business && p.TeamId == request.TeamId).ToListAsync(ct);
+        var policies = await db.TeamRepositoryPolicies.AsTracking().Where(p => p.OrganizationId == business && p.TeamId == request.TeamId).ToListAsync(ct);
         var policy = policies.SingleOrDefault(p => p.RepositoryId == repositoryId);
         if ((policy?.Revision ?? 0) != request.ExpectedRevision)
             throw new DbUpdateConcurrencyException("Team access changed; reload before saving.");
@@ -249,9 +249,9 @@ public sealed partial class InternalRepositoryManagementService(CSweetDbContext 
         if (request.DefaultTeamId is { } team && !await db.OrganizationTeams.AnyAsync(t => t.OrganizationId == business && t.Id == team && t.ArchivedAt == null, ct))
             throw new ArgumentException("Choose an active team in this business.");
         var connection = await EnsureConnectionAsync(business, ct);
-        var policy = await db.RepositoryProvisioningPolicies.SingleAsync(p => p.OrganizationId == business && p.ConnectionId == connection.Id, ct);
+        var policy = await db.RepositoryProvisioningPolicies.AsTracking().SingleAsync(p => p.OrganizationId == business && p.ConnectionId == connection.Id, ct);
         if (policy.Revision != request.ExpectedRevision) throw new DbUpdateConcurrencyException("Provisioning settings changed; reload before saving.");
-        var template = await db.SourceControlRepositoryTemplates.SingleAsync(t => t.OrganizationId == business && t.ConnectionId == connection.Id && t.Name == "empty", ct);
+        var template = await db.SourceControlRepositoryTemplates.AsTracking().SingleAsync(t => t.OrganizationId == business && t.ConnectionId == connection.Id && t.Name == "empty", ct);
         await AuditAsync(business, user, connection.Id, "ProvisioningPolicy", "Started", request, ct);
         policy.IsEnabled = request.Enabled; policy.RequiresManagerApproval = request.RequiresApproval; policy.MaximumRepositories = request.MaximumRepositories;
         policy.DefaultTeamId = request.DefaultTeamId; policy.NamePrefix = request.NamePrefix; policy.Revision++; policy.UpdatedAt = clock.GetUtcNow();
@@ -273,12 +273,12 @@ public sealed partial class InternalRepositoryManagementService(CSweetDbContext 
     }
 
     private async Task<SourceControlRepository> FindAsync(Guid business, Guid id, CancellationToken ct) =>
-        await db.SourceControlRepositories.Include(r => r.Connection).SingleOrDefaultAsync(r => r.OrganizationId == business && r.Id == id &&
+        await db.SourceControlRepositories.AsTracking().Include(r => r.Connection).SingleOrDefaultAsync(r => r.OrganizationId == business && r.Id == id &&
             r.Connection!.Provider == SourceControlProvider.InternalGit, ct) ?? throw new KeyNotFoundException("Internal repository not found.");
 
     private Task<Guid> AuditAsync(Guid business, Guid user, Guid id, string operation, string outcome, object details, CancellationToken ct) =>
         audit.AppendAsync(new AuditEventWriteRequest("SourceControl.Repository." + operation, Category: "SourceControl", Outcome: outcome,
-            OrganizationId: business, EntityType: "SourceControlRepository", EntityId: id,
+            OrganizationId: business, EntityType: operation switch { "DefaultProvider" => "SourceControlBusinessSettings", "ProvisioningPolicy" => "SourceControlConnection", _ => "SourceControlRepository" }, EntityId: id,
             MetadataJson: JsonSerializer.Serialize(details), Actor: new AuditActor("User", ApplicationUserId: user)), ct);
 
     private static string ValidateName(string name)

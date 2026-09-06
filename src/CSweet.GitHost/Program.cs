@@ -13,6 +13,8 @@ builder.Services.AddTrustedServiceAuthentication(builder.Configuration);
 builder.Services.AddGitHubAppClient(builder.Configuration);
 builder.Services.AddSingleton<WorkspaceArtifactValidator>();
 builder.Services.AddTransient<GitHubWorkspaceSnapshotService>();
+builder.Services.AddTransient<IGitHubRepositoryTransport, GitHubRepositoryTransport>();
+builder.Services.AddTransient<GitHubWorkspaceOperationsService>();
 
 builder.Services.Configure<InternalGitStorageOptions>(builder.Configuration.GetSection(InternalGitStorageOptions.SectionName));
 builder.Services.AddSingleton<InternalGitRepositoryStore>();
@@ -158,6 +160,14 @@ app.MapPost("/internal/v3/workspaces/prepare", async (InternalGitWorkspaceReques
     catch (KeyNotFoundException) { return Results.NotFound(); }
     catch (Exception ex) when (ex is IOException or InvalidOperationException) { return Results.Conflict(); }
 });
+app.MapPost("/internal/v3/github/workspaces/apply", async (GitHubSnapshotOperation request, GitHubWorkspaceOperationsService service, CancellationToken ct) =>
+{
+    try { return Results.Ok(await service.ApplyAsync(request, ct)); }
+    catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
+    catch (ArgumentException) { return Results.BadRequest(); }
+    catch (Exception ex) when (ex is IOException or InvalidOperationException or HttpRequestException) { return Results.Conflict(); }
+}).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(850L * 1024 * 1024));
+
 app.MapPost("/internal/v3/workspaces/apply", async (InternalGitSnapshotOperation request,
     InternalGitRepositoryStore store, WorkspaceArtifactValidator artifacts, CancellationToken ct) =>
 {

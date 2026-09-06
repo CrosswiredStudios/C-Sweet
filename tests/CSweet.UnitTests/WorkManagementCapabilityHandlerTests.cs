@@ -15,7 +15,7 @@ using SharedWork = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
 
-public sealed class WorkManagementCapabilityHandlerTests
+public sealed partial class WorkManagementCapabilityHandlerTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 

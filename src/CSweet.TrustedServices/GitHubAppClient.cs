@@ -61,7 +61,7 @@ public static class GitHubAppServiceExtensions
     }
 }
 
-public sealed class GitHubAppClient(
+public sealed partial class GitHubAppClient(
     HttpClient http,
     GitHubAppCredentialProvider credentials,
     TimeProvider timeProvider)

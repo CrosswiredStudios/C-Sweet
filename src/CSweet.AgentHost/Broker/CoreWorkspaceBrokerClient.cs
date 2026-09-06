@@ -67,9 +67,9 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
 
     public async Task<TrustedWorkspacePublication> PublishAsync(TrustedWorkspacePublishRequest request, CancellationToken ct)
     {
-        var result = await ExecuteAsync(request.Workspace, "publish", ct, request.CommitMessage);
+        var result = await ExecuteAsync(request.Workspace, "publish", ct, request.CommitMessage, title: request.ProposedChangeTitle, body: request.ProposedChangeBody);
         if (result.Status == "Locked") throw new InvalidOperationException(result.DiffSummary);
-        return new("InternalGit", CSweet.Agent.SDK.GitDeliveryKinds.PullRequest, result.Branch!, result.CommitSha!,
+        return new(result.Provider, CSweet.Agent.SDK.GitDeliveryKinds.PullRequest, result.Branch!, result.CommitSha!,
             new Uri(result.ReviewUrl!, UriKind.Absolute), result.ChangedFiles, result.DiffSummary);
     }
 
@@ -80,11 +80,11 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
     }
 
     private async Task<AgentBrokerWorkspaceOperationResult> ExecuteAsync(TrustedWorkspaceOperationRequest request,
-        string operation, CancellationToken ct, string? message = null, bool retain = true)
+        string operation, CancellationToken ct, string? message = null, bool retain = true, string? title = null, string? body = null)
     {
         using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/operate",
             new AgentBrokerWorkspaceOperationRequest(request.OrganizationId, request.RepositoryId, request.WorkspaceId,
-                request.WorkItemId, request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey, operation, message, retain), ct);
+                request.WorkItemId, request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey, operation, message, retain, title, body), ct);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Core rejected the workspace operation. Check current assignment and repository state.");
         return await response.Content.ReadFromJsonAsync<AgentBrokerWorkspaceOperationResult>(ct)
             ?? throw new InvalidOperationException("Core returned an empty workspace operation response.");

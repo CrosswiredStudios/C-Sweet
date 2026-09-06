@@ -217,7 +217,13 @@ public sealed partial class InternalGitRepositoryStore(IOptions<InternalGitStora
         start.ArgumentList.Add("-c"); start.ArgumentList.Add("core.longpaths=true");
         start.ArgumentList.Add("-c"); start.ArgumentList.Add("user.name=C-Sweet");
         start.ArgumentList.Add("-c"); start.ArgumentList.Add("user.email=csweet@localhost");
-        if (repository is not null) { start.ArgumentList.Add("--git-dir"); start.ArgumentList.Add(repository); }
+        if (repository is not null)
+        {
+            // Keep GIT_DIR short: native Git subprocesses can reject long absolute paths on Windows
+            // even with core.longpaths enabled, notably while verifying a restore bundle.
+            start.WorkingDirectory = repository;
+            start.ArgumentList.Add("--git-dir"); start.ArgumentList.Add(".");
+        }
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Git could not start.");
         using var registration = timeout.Token.Register(() => { try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } });

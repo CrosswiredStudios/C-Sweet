@@ -1950,10 +1950,11 @@ public sealed class WorkManagementCapabilityHandler(
             input.Planning.AcceptanceCriteria.Count == 0)
             throw new ArgumentException("Title, requirements, and acceptance criteria are required.");
 
-        var board = await db.WorkBoards.SingleOrDefaultAsync(x =>
+        var board = await db.WorkBoards.Include(x => x.OrchestrationPolicies).ThenInclude(x => x.Revisions).ThenInclude(x => x.Stages).SingleOrDefaultAsync(x =>
             x.Id == input.BoardId && x.OrganizationId == organizationId && x.ArchivedAt == null,
             cancellationToken) ?? throw new KeyNotFoundException("Board was not found.");
         var item = await db.CoreWorkTasks
+            .Include(x => x.StageAssignments)
             .Include(x => x.Approvals)
             .Include(x => x.Dependencies)
             .SingleOrDefaultAsync(x => x.Id == input.ItemId && x.BoardId == input.BoardId &&
@@ -1979,7 +1980,52 @@ public sealed class WorkManagementCapabilityHandler(
                 dependencyIds.Contains(x.Id), cancellationToken) != dependencyIds.Count)
             throw new ArgumentException("Every planning dependency must exist on the same board.");
 
+        if (input.StageAssignments is not null)
+        {
+            var policy = board.OrchestrationPolicies.SingleOrDefault();
+            var published = policy?.Revisions.SingleOrDefault(x => x.Id == policy.PublishedRevisionId);
+            ValidateStageAssignments(item.IsExecutable && input.StageAssignments.Count > 0,
+                published?.InitialStageKey, published?.Stages.ToList() ?? [], input.StageAssignments);
+            foreach (var assignment in input.StageAssignments)
+            {
+                var recommendation = input.Planning.DelegationRecommendations.SingleOrDefault(x => x.StageKey == assignment.StageKey);
+                if (recommendation is not null && (assignment.Requirements is not { } requirements ||
+                    requirements.RequiredRoleKey != recommendation.RequiredRoleKey ||
+                    !recommendation.RequiredSpecializationKeys.All(requirements.RequiredSpecializationKeys.Contains) ||
+                    !recommendation.RequiredCapabilityKeys.All(requirements.RequiredCapabilityKeys.Contains)))
+                    throw new ArgumentException("Assignment must satisfy the ticket's explicit delegation requirements.");
+            }
+            await ValidateAssignmentEligibilityAsync(organizationId, board, input.StageAssignments, cancellationToken);
+            if (input.AccountableOrganizationUserId.HasValue && !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                    x.Id == input.AccountableOrganizationUserId && x.OrganizationId == organizationId && x.IsActive, cancellationToken))
+                throw new ArgumentException("The accountable organization user is not active.");
+            if (input.AccountableOrganizationUserId.HasValue && !input.StageAssignments.Any(x => x.OrganizationUserId == input.AccountableOrganizationUserId))
+                throw new ArgumentException("The accountable owner must match an eligible stage assignment.");
+        }
+
         var now = DateTimeOffset.UtcNow;
+        if (input.StageAssignments is not null)
+        {
+            db.WorkItemStageAssignments.RemoveRange(item.StageAssignments);
+            item.StageAssignments.Clear();
+            foreach (var assignment in input.StageAssignments)
+            {
+                var entity = new WorkItemStageAssignment
+                {
+                    Id = Guid.NewGuid(), OrganizationId = organizationId, BoardId = board.Id,
+                    WorkItemId = item.Id, StageKey = assignment.StageKey,
+                    PrincipalKind = Enum.Parse<WorkOrchestrationPrincipalKind>(assignment.PrincipalKind, true),
+                    OrganizationUserId = assignment.OrganizationUserId, AgentInstallationId = assignment.AgentInstallationId,
+                    PlatformAction = assignment.PlatformAction,
+                    RequirementsJson = assignment.Requirements is null ? null : JsonSerializer.Serialize(assignment.Requirements, JsonOptions),
+                    SelectionEvidenceJson = assignment.SelectionEvidence is null ? null : JsonSerializer.Serialize(assignment.SelectionEvidence, JsonOptions),
+                    CreatedAt = now
+                };
+                item.StageAssignments.Add(entity);
+                db.Entry(entity).State = EntityState.Added;
+            }
+            item.AccountableOrganizationUserId = input.AccountableOrganizationUserId;
+        }
         item.Title = input.Title.Trim();
         item.Description = input.Description?.Trim() ?? string.Empty;
         item.ParentWorkTaskId = input.ParentItemId;

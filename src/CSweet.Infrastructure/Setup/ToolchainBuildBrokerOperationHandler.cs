@@ -38,15 +38,15 @@ internal sealed class ToolchainBuildBrokerOperationHandler(
     {
         var fetch = JsonSerializer.Deserialize<FetchRequest>(context.Body.Span, JsonOptions)
             ?? throw new InvalidDataException("The source fetch request is empty.");
-        if (!Uri.TryCreate(fetch.Url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+        if (!Uri.TryCreate(fetch.Url, UriKind.Absolute, out var uri) ||
             fetch.Offset < 0 || fetch.MaximumBytes is < 1 or > MaximumFetchBytes || !IsAllowedSource(uri))
             throw new UnauthorizedAccessException("The source fetch request is outside the exact repository revision.");
 
         if (prepareTrustedSource is not null)
         {
-            trustedSource ??= await prepareTrustedSource(cancellationToken);
-            if (trustedSource is not null)
-                return FetchTrustedSource(fetch, trustedSource);
+            trustedSource ??= await prepareTrustedSource(cancellationToken)
+                ?? throw new InvalidDataException("The approved private source snapshot is unavailable.");
+            return FetchTrustedSource(fetch, trustedSource);
         }
 
         using var response = await SendSafeAsync(uri, fetch.Offset, fetch.MaximumBytes, cancellationToken);
@@ -121,6 +121,10 @@ internal sealed class ToolchainBuildBrokerOperationHandler(
 
     private bool IsAllowedSource(Uri uri)
     {
+        if (prepareTrustedSource is not null && uri.AbsoluteUri == ToolchainTrustedSource.ArchiveUri(workload.DeliveryBuildId, workload.SourceRepository.CommitSha))
+            return true;
+        if (uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0)
+            return false;
         if (!uri.Host.Equals("codeload.github.com", StringComparison.OrdinalIgnoreCase) ||
             !Uri.TryCreate(workload.SourceRepository.RepositoryUrl, UriKind.Absolute, out var repository) ||
             !repository.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) return false;

@@ -1,0 +1,88 @@
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+
+<MudButton OnClick="OpenAsync" Disabled="_busy">Manage connection</MudButton>
+@if (_error is not null) { <MudAlert Severity="Severity.Error" Class="ma-3">@_error</MudAlert> }
+@if (_details is { } details)
+{
+    <MudStack Spacing="2" Class="pa-4">
+        <MudText Typo="Typo.h6">Connection details</MudText>
+        <MudText>@details.Provider · @details.Mode · @details.Status</MudText>
+        <MudText>Account: @details.AccountLogin (@details.AccountType)</MudText>
+        <MudText>Repositories (including archived): @details.RepositoryCount · active workspaces: @details.ActiveWorkspaceCount · templates: @details.TemplateCount</MudText>
+        <MudText>Default for new projects: @(details.IsBusinessDefault ? "Yes" : "No")</MudText>
+        <MudText>Last recorded verification: @(details.LastVerifiedAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'") ?? "Not recorded")</MudText>
+        <MudTextField @bind-Value="_name" Label="Connection name" MaxLength="100" Disabled="_busy" HelperText="A label for this business. The provider account and repositories keep their names." />
+        <MudStack Row="true" Wrap="Wrap.Wrap">
+            <MudButton OnClick="SaveAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name))" Variant="Variant.Outlined">Save name</MudButton>
+            <MudButton OnClick="CheckAsync" Disabled="_busy" Variant="Variant.Outlined">Check source access</MudButton>
+            <MudButton OnClick="@(() => { _details = null; _health = null; })" Disabled="_busy">Close</MudButton>
+        </MudStack>
+        @if (_disconnectPlan is { } plan)
+        {
+            <MudDivider />
+            <MudText Typo="Typo.h6">Disconnect unused connection</MudText>
+            @foreach (var blocker in plan.Blockers) { <MudText Color="Color.Secondary">@blocker</MudText> }
+            @if (plan.CanDisconnect)
+            {
+                <MudText>This stops C-Sweet using this connection and revokes its C-Sweet credentials. GitHub repositories and the GitHub App installation remain in GitHub. Reconnecting requires GitHub setup again.</MudText>
+                <MudTextField @bind-Value="_confirmName" Label="Confirm the exact connection name" Disabled="_busy" />
+                <MudButton OnClick="DisconnectAsync" Disabled="@(_busy || _confirmName != details.Name)" Color="Color.Error" Variant="Variant.Outlined">Disconnect</MudButton>
+            }
+        }
+        @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="Checking source-control connection" /> }
+        @if (_health is { } health)
+        {
+            <MudAlert Severity="@(health.Available ? Severity.Success : Severity.Warning)">
+                <MudText>@health.Scope: @health.Message</MudText>
+                <MudText Typo="Typo.caption">Checked @health.CheckedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</MudText>
+            </MudAlert>
+        }
+    </MudStack>
+}
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid ConnectionId { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    private SourceControlConnectionDetails? _details;
+    private SourceControlConnectionHealth? _health;
+    private SourceControlConnectionDisconnectPlan? _disconnectPlan;
+    private string _confirmName = "";
+    private string _name = "";
+    private string? _error;
+    private bool _busy;
+    private string Endpoint => $"api/organizations/{OrganizationId:D}/source-control/connections/{ConnectionId:D}";
+    private Task OpenAsync() => RunAsync(async () => {
+        _details = await Http.GetFromJsonAsync<SourceControlConnectionDetails>(Endpoint) ?? throw new HttpRequestException();
+        _name = _details.Name; _health = null; _confirmName = "";
+        _disconnectPlan = await Http.GetFromJsonAsync<SourceControlConnectionDisconnectPlan>(Endpoint + "/disconnect-plan");
+    });
+    private Task SaveAsync() => RunAsync(async () => {
+        using var response = await Http.PutAsJsonAsync(Endpoint + "/name", new RenameSourceControlConnectionRequest(_name, _details!.Revision));
+        if (response.StatusCode == System.Net.HttpStatusCode.Conflict) { _error = "This connection changed. Open it again to load the latest revision before saving."; return; }
+        response.EnsureSuccessStatusCode();
+        _details = await response.Content.ReadFromJsonAsync<SourceControlConnectionDetails>() ?? throw new HttpRequestException();
+        _name = _details.Name; await OnChanged.InvokeAsync();
+    });
+    private Task DisconnectAsync() => RunAsync(async () => {
+        using var response = await Http.PostAsJsonAsync(Endpoint + "/disconnect", new DisconnectSourceControlConnectionRequest(_confirmName, _details!.Revision));
+        if (response.StatusCode is System.Net.HttpStatusCode.Conflict or System.Net.HttpStatusCode.BadRequest)
+        { _error = "The connection changed or still has dependencies. Open it again to review the current disconnect requirements."; return; }
+        response.EnsureSuccessStatusCode();
+        _details = await response.Content.ReadFromJsonAsync<SourceControlConnectionDetails>();
+        _disconnectPlan = null; _health = null; _confirmName = ""; await OnChanged.InvokeAsync();
+    });
+    private Task CheckAsync() => RunAsync(async () => {
+        _health = null;
+        using var response = await Http.PostAsync(Endpoint + "/check", null); response.EnsureSuccessStatusCode();
+        _health = await response.Content.ReadFromJsonAsync<SourceControlConnectionHealth>();
+    });
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true; _error = null;
+        try { await action(); }
+        catch (HttpRequestException) { _error = "The connection could not be loaded or updated. Check your business permissions and try again."; }
+        finally { _busy = false; }
+    }
+}

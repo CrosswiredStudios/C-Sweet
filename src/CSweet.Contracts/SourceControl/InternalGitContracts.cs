@@ -20,7 +20,7 @@ public sealed record DeleteInternalRepositoryRequest(string ConfirmName, long Ex
 public sealed record InternalGitRefRequest(string Operation, string Ref, string ExpectedSha, string? TargetSha = null);
 public sealed record InternalGitSnapshotOperation(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
     string Operation, string BaseSha, string Branch, string DefaultBranch, string IdempotencyKey,
-    byte[] Archive, string ArchiveManifestSha, int FileCount, long TotalBytes, string? CommitMessage = null);
+    byte[] Archive, string ArchiveManifestSha, int FileCount, long TotalBytes, string? CommitMessage = null, bool AllowLfs = true);
 public sealed record InternalGitSnapshotResult(string Status, string BaseSha, string? CommitSha,
     IReadOnlyList<string> ChangedFiles, string DiffSummary, string? LatestTargetSha = null);
 public sealed record InternalGitMergeRequest(Guid OrganizationId, Guid RepositoryId, Guid PublicationId,
@@ -63,3 +63,7 @@ public sealed record ManageInternalGitLockRequest(string Operation, string? Path
 public sealed record BusinessSourceControlDefaults(Guid? DefaultTemplateId, long Revision, IReadOnlyList<BusinessSourceControlDefaultOption> Options);
 public sealed record BusinessSourceControlDefaultOption(Guid? TemplateId, string Provider, string ConnectionName, string TemplateName, bool Available, string? UnavailableReason);
 public sealed record UpdateBusinessSourceControlDefaults(Guid? DefaultTemplateId, long ExpectedRevision);
+
+public sealed record GitHubSnapshotOperation(long InstallationId, long ExternalRepositoryId, string Owner, string Repository,
+    InternalGitSnapshotOperation Workspace, string? ProposedChangeTitle = null, string? ProposedChangeBody = null);
+public sealed record GitHubSnapshotResult(InternalGitSnapshotResult Snapshot, string? PullRequestUrl = null);

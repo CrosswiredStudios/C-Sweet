@@ -10,6 +10,8 @@ public sealed class TrustedSourceControlHostClient(
     HttpClient http,
     IOptions<TrustedServiceAuthenticationOptions> authentication) : ITrustedSourceControlHostClient
 {
+    public Task<GitHubSnapshotResult> ApplyGitHubSnapshotAsync(GitHubSnapshotOperation request, CancellationToken ct = default) =>
+        SendInternalAsync<GitHubSnapshotOperation, GitHubSnapshotResult>("internal/v3/github/workspaces/apply", request, ct);
     public Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken ct = default) =>
         SendInternalAsync<InternalGitLockRequest, InternalGitLockResult>("internal/v3/lfs/locks", request, ct);
     public async Task<IReadOnlyList<InternalGitBackupSummary>> ListInternalBackupsAsync(Guid business, CancellationToken ct = default) =>
@@ -132,6 +134,7 @@ public sealed class TrustedSourceControlHostClient(
             "internal/v2/workspaces/prepare",
             new GitHubWorkspacePrepareRequest(
                 request.InstallationId,
+                request.ExternalRepositoryId,
                 request.Owner,
                 request.Repository,
                 request.DefaultBranch,

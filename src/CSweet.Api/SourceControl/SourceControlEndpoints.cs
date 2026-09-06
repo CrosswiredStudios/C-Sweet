@@ -136,6 +136,22 @@ public static class SourceControlEndpoints
         var group = endpoints.MapGroup("/api/organizations/{organizationId:guid}/source-control")
             .RequireAuthorization();
 
+        group.MapGet("/connections/{id:guid}/disconnect-plan", async (Guid organizationId, Guid id, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.ConnectionDisconnectPlanAsync(organizationId, user, id, ct)));
+        group.MapPost("/connections/{id:guid}/disconnect", async (Guid organizationId, Guid id, DisconnectSourceControlConnectionRequest request, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.DisconnectConnectionAsync(organizationId, user, id, request, ct)));
+
+        group.MapGet("/connections/{id:guid}", async (Guid organizationId, Guid id, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.ConnectionAsync(organizationId, user, id, ct)));
+        group.MapPut("/connections/{id:guid}/name", async (Guid organizationId, Guid id, RenameSourceControlConnectionRequest request, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.RenameConnectionAsync(organizationId, user, id, request, ct)));
+        group.MapPost("/connections/{id:guid}/check", async (Guid organizationId, Guid id, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.CheckConnectionAsync(organizationId, user, id, ct)));
+
+        group.MapGet("/activity", async (Guid organizationId, Guid? repositoryId, string? outcome, long? beforeSequence, int? pageSize,
+            HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
+            await ExecuteAsync(http, user => service.ActivityAsync(organizationId, user, repositoryId, outcome, beforeSequence, pageSize ?? 25, ct)));
+
         group.MapGet("/defaults", async (Guid organizationId, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>
             await ExecuteAsync(http, user => service.BusinessDefaultsAsync(organizationId, user, ct)));
         group.MapPut("/defaults", async (Guid organizationId, UpdateBusinessSourceControlDefaults request, HttpContext http, InternalRepositoryManagementService service, CancellationToken ct) =>

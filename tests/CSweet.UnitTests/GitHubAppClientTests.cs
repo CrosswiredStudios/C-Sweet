@@ -9,6 +9,75 @@ namespace CSweet.UnitTests;
 
 public sealed class GitHubAppClientTests
 {
+    [Theory]
+    [InlineData(99, "owner", "repo", true, false)]
+    [InlineData(42, "other", "repo", true, false)]
+    [InlineData(42, "owner", "other", true, false)]
+    [InlineData(42, "owner", "repo", false, false)]
+    [InlineData(42, "owner", "repo", true, true)]
+    public async Task WorkspacePreparationRejectsReplacedOrUnavailableRepositoryBeforeGitTransfer(
+        long repositoryId, string owner, string name, bool isPrivate, bool archived)
+    {
+        var payload = JsonSerializer.Serialize(new { total_count = 1, repositories = new[] {
+            new { id = repositoryId, owner = new { login = owner }, name, full_name = owner + "/" + name,
+                clone_url = "https://github.com/owner/repo.git", default_branch = "main", @private = isPrivate, archived, is_template = false } } });
+        var handler = new SequenceHandler(Json(HttpStatusCode.Created, "{\"token\":\"installation-secret\"}"), Json(HttpStatusCode.OK, payload));
+        var service = new GitHubWorkspaceSnapshotService(CreateClient(handler), new WorkspaceArtifactValidator());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.PrepareAsync(
+            new(12, 42, "owner", "repo", "main", Guid.NewGuid(), "work/one", null, "prepare")));
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task WorkspacePreparationRequiresRepositoryIdentityBeforeProviderAccess(long identity)
+    {
+        var handler = new SequenceHandler();
+        var service = new GitHubWorkspaceSnapshotService(CreateClient(handler), new WorkspaceArtifactValidator());
+        await Assert.ThrowsAsync<ArgumentException>(() => service.PrepareAsync(
+            new(12, identity, "owner", "repo", "main", Guid.NewGuid(), "work/one", null, "prepare")));
+        Assert.Empty(handler.Requests);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task WorkspacePullRequestCreatesOrReusesExactHead(bool existing)
+    {
+        var sha = new string('a', 40);
+        var pull = JsonSerializer.Serialize(new { number = 7, state = "open", head = new { sha, @ref = "work/one", repo = new { id = 42 } },
+            @base = new { @ref = "main", repo = new { id = 42 } }, html_url = "https://untrusted.invalid/" });
+        var handler = existing ? new SequenceHandler(Json(HttpStatusCode.OK, "[" + pull + "]"))
+            : new SequenceHandler(Json(HttpStatusCode.OK, "[]"), Json(HttpStatusCode.Created, pull));
+        var request = new CSweet.Contracts.SourceControl.GitHubSnapshotOperation(12, 42, "owner", "repo",
+            new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "publish", sha, "work/one", "main", "once", [], "", 0, 0, "Feature"), "Feature", "Description");
+        Assert.Equal("https://github.com/owner/repo/pull/7", await CreateClient(handler).EnsureWorkspacePullRequestAsync(request, sha, "secret", CancellationToken.None));
+        Assert.Equal(existing ? 1 : 2, handler.Requests.Count);
+        if (!existing)
+        {
+            using var body = JsonDocument.Parse(handler.Requests.Last().Body);
+            Assert.Equal("work/one", body.RootElement.GetProperty("head").GetString());
+            Assert.False(body.RootElement.GetProperty("maintainer_can_modify").GetBoolean());
+        }
+    }
+
+    [Theory]
+    [InlineData("closed", 42, false)]
+    [InlineData("open", 99, false)]
+    [InlineData("open", 42, true)]
+    public async Task WorkspacePullRequestRejectsClosedForeignOrChangedHead(string state, int repoId, bool changed)
+    {
+        var sha = new string('a', 40);
+        var pull = JsonSerializer.Serialize(new { number = 7, state, head = new { sha = changed ? new string('b', 40) : sha, @ref = "work/one", repo = new { id = repoId } },
+            @base = new { @ref = "main", repo = new { id = 42 } } });
+        var handler = new SequenceHandler(Json(HttpStatusCode.OK, "[" + pull + "]"));
+        var request = new CSweet.Contracts.SourceControl.GitHubSnapshotOperation(12, 42, "owner", "repo",
+            new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "publish", sha, "work/one", "main", "once", [], "", 0, 0, "Feature"), "Feature");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => CreateClient(handler).EnsureWorkspacePullRequestAsync(request, sha, "secret", CancellationToken.None));
+        Assert.Single(handler.Requests);
+    }
+
     [Fact]
     public async Task ExactShaMergeStopsBeforeMutationWhenHeadChanged()
     {

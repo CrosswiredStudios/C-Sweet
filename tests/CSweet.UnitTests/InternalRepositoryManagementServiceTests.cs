@@ -12,6 +12,232 @@ namespace CSweet.UnitTests;
 public sealed class InternalRepositoryManagementServiceTests
 {
     [Fact]
+    public async Task RepositoryRetryAndEditsPersistWhenQueriesDoNotTrackByDefault()
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid();
+        Seed(db, business, user, OrganizationPermissionLevel.Owner); await db.SaveChangesAsync();
+        db.ChangeTracker.Clear(); db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        var host = new Host { Fail = true }; var service = new InternalRepositoryManagementService(db, host, new Audit(), TimeProvider.System);
+        await Assert.ThrowsAsync<IOException>(() => service.CreateAsync(business, user, new("engine"), default));
+        db.ChangeTracker.Clear(); host.Fail = false;
+        var created = await service.CreateAsync(business, user, new("engine"), default);
+        db.ChangeTracker.Clear(); Assert.Equal(SourceControlRepositoryStatus.Ready, (await db.SourceControlRepositories.SingleAsync()).Status);
+        var details = await service.InspectAsync(business, user, created.Id, null, null, default);
+        await service.UpdateAsync(business, user, created.Id, new("renamed", "main", true, details.Revision), default);
+        db.ChangeTracker.Clear(); var archived = await db.SourceControlRepositories.SingleAsync();
+        Assert.Equal("renamed", archived.Name); Assert.NotNull(archived.ArchivedAt); Assert.Equal(SourceControlRepositoryStatus.Archived, archived.Status);
+        await service.UpdateAsync(business, user, created.Id, new("renamed", "main", false, archived.Revision), default);
+        db.ChangeTracker.Clear(); Assert.Null((await db.SourceControlRepositories.SingleAsync()).ArchivedAt);
+    }
+
+    [Fact]
+    public async Task PrimaryTeamReassignmentAndRevocationPersistWithoutImplicitTracking()
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid(); var team = Guid.NewGuid();
+        Seed(db, business, user, OrganizationPermissionLevel.Owner); db.OrganizationTeams.Add(new() { Id = team, OrganizationId = business, Name = "Development" });
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear(); db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        var service = new InternalRepositoryManagementService(db, new Host(), new Audit(), TimeProvider.System);
+        var first = await service.CreateAsync(business, user, new("engine"), default);
+        var second = await service.CreateAsync(business, user, new("tools"), default);
+        await service.SetTeamAsync(business, user, first.Id, new(team, true, "LeadAuthorizedAutoMerge"), default); db.ChangeTracker.Clear();
+        await service.SetTeamAsync(business, user, second.Id, new(team, true, "LeadAndAdministratorApproval"), default); db.ChangeTracker.Clear();
+        Assert.False((await service.TeamAccessAsync(business, user, first.Id, default)).Single().IsPrimary);
+        var access = (await service.TeamAccessAsync(business, user, second.Id, default)).Single();
+        await service.SetTeamAsync(business, user, second.Id, new(team, false, access.MergeApprovalMode, access.Revision, true), default); db.ChangeTracker.Clear();
+        var revoked = (await service.TeamAccessAsync(business, user, second.Id, default)).Single(); Assert.True(revoked.Disabled); Assert.False(revoked.IsPrimary);
+    }
+
+    [Fact]
+    public async Task ProvisioningPolicyAndTemplateChangesPersistWithoutImplicitTracking()
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid();
+        Seed(db, business, user, OrganizationPermissionLevel.Owner); await db.SaveChangesAsync();
+        db.ChangeTracker.Clear(); db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        var service = new InternalRepositoryManagementService(db, new Host(), new Audit(), TimeProvider.System);
+        var settings = await service.ProvisioningSettingsAsync(business, user, default); db.ChangeTracker.Clear();
+        await service.UpdateProvisioningSettingsAsync(business, user, new(false, true, 7, null, "project", "trunk", settings.Revision), default);
+        db.ChangeTracker.Clear(); var saved = await service.ProvisioningSettingsAsync(business, user, default);
+        Assert.False(saved.Enabled); Assert.True(saved.RequiresApproval); Assert.Equal(7, saved.MaximumRepositories);
+        Assert.Equal("project", saved.NamePrefix); Assert.Equal("trunk", saved.DefaultBranch); Assert.Equal(settings.Revision + 1, saved.Revision);
+    }
+
+    [Fact]
+    public async Task DisconnectUnusedGitHubChecksConfirmationRevisionAndRevokesCredentials()
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid(); var viewer = Guid.NewGuid();
+        Seed(db, business, user, OrganizationPermissionLevel.Manager); Seed(db, business, viewer, OrganizationPermissionLevel.Viewer);
+        var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = business, Name = "Unused GitHub", Provider = SourceControlProvider.GitHub,
+            Status = SourceControlConnectionStatus.Connected, SourceAccessInstallationId = 12 };
+        var credential = new SourceControlCredential { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id, ProtectedPayload = "secret" };
+        db.AddRange(connection, credential); await db.SaveChangesAsync(); db.ChangeTracker.Clear(); db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        var audit = new Audit(); var host = new Host(); var service = new InternalRepositoryManagementService(db, host, audit, TimeProvider.System);
+        Assert.True((await service.ConnectionDisconnectPlanAsync(business, user, connection.Id, default)).CanDisconnect);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.DisconnectConnectionAsync(business, viewer, connection.Id, new(connection.Name, 1), default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ConnectionDisconnectPlanAsync(Guid.NewGuid(), user, connection.Id, default));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.DisconnectConnectionAsync(business, user, connection.Id, new("Wrong", 1), default));
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => service.DisconnectConnectionAsync(business, user, connection.Id, new(connection.Name, 0), default));
+        var result = await service.DisconnectConnectionAsync(business, user, connection.Id, new(connection.Name, 1), default);
+        Assert.Equal("Disconnected", result.Status); Assert.Equal(2, result.Revision);
+        db.ChangeTracker.Clear(); var persisted = await db.SourceControlConnections.SingleAsync(); Assert.NotNull(persisted.DisconnectedAt); Assert.Equal(12, persisted.SourceAccessInstallationId);
+        Assert.NotNull((await db.SourceControlCredentials.SingleAsync()).RevokedAt); Assert.Equal(0, host.Calls);
+        Assert.False((await service.ConnectionDisconnectPlanAsync(business, user, connection.Id, default)).CanDisconnect);
+        Assert.Equal(new[] { "Started", "Completed" }, audit.Events.Select(e => e.Outcome));
+    }
+
+    [Theory]
+    [InlineData("internal")]
+    [InlineData("repository")]
+    [InlineData("archived")]
+    [InlineData("template")]
+    [InlineData("policy")]
+    [InlineData("request")]
+    [InlineData("setup")]
+    public async Task DisconnectRechecksDependenciesAndPreservesHistory(string dependency)
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid(); Seed(db, business, user, OrganizationPermissionLevel.Manager);
+        var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = business, Name = "Connection", Provider = SourceControlProvider.GitHub, Status = SourceControlConnectionStatus.Connected };
+        db.Add(connection); await db.SaveChangesAsync();
+        var audit = new Audit(); var service = new InternalRepositoryManagementService(db, new Host(), audit, TimeProvider.System);
+        Assert.True((await service.ConnectionDisconnectPlanAsync(business, user, connection.Id, default)).CanDisconnect);
+        if (dependency == "internal") connection.Provider = SourceControlProvider.InternalGit;
+        if (dependency is "repository" or "archived") db.SourceControlRepositories.Add(new() { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id,
+            Name = "repo", CanonicalPath = "owner/repo", ProviderRepositoryKey = "github:42", ArchivedAt = dependency == "archived" ? DateTimeOffset.UtcNow : null });
+        if (dependency == "template") db.SourceControlRepositoryTemplates.Add(new() { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id, Name = "starter" });
+        if (dependency == "policy") db.RepositoryProvisioningPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id });
+        if (dependency == "request") db.RepositoryProvisioningRequests.Add(new() { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id, Status = RepositoryProvisioningStatus.Completed });
+        if (dependency == "setup") db.SourceControlOnboardingSessions.Add(new() { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id, Status = SourceControlOnboardingStatus.AwaitingProvider });
+        await db.SaveChangesAsync();
+        var plan = await service.ConnectionDisconnectPlanAsync(business, user, connection.Id, default); Assert.False(plan.CanDisconnect); Assert.NotEmpty(plan.Blockers);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DisconnectConnectionAsync(business, user, connection.Id, new(connection.Name, 1), default));
+        Assert.Equal(SourceControlConnectionStatus.Connected, (await db.SourceControlConnections.AsNoTracking().SingleAsync()).Status); Assert.Empty(audit.Events);
+    }
+
+    [Fact]
+    public async Task ConnectionRenamePersistsWithNoTrackingAndChecksRevisionAndAuthority()
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid(); var viewer = Guid.NewGuid();
+        Seed(db, business, user, OrganizationPermissionLevel.Manager); Seed(db, business, viewer, OrganizationPermissionLevel.Viewer);
+        var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = business, Name = "Internal", Provider = SourceControlProvider.InternalGit,
+            Mode = SourceControlConnectionMode.InternalGit, Status = SourceControlConnectionStatus.Connected };
+        db.Add(connection); await db.SaveChangesAsync(); db.ChangeTracker.Clear(); db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        var audit = new Audit(); var service = new InternalRepositoryManagementService(db, new Host(), audit, TimeProvider.System);
+        var details = await service.ConnectionAsync(business, user, connection.Id, default);
+        Assert.True(details.IsBusinessDefault); Assert.Equal(0, details.RepositoryCount);
+        var renamed = await service.RenameConnectionAsync(business, user, connection.Id, new(" Company Git ", details.Revision), default);
+        Assert.Equal("Company Git", renamed.Name); Assert.Equal(2, renamed.Revision);
+        db.ChangeTracker.Clear(); Assert.Equal("Company Git", (await db.SourceControlConnections.SingleAsync()).Name);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => service.RenameConnectionAsync(business, user, connection.Id, new("Stale", 1), default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.RenameConnectionAsync(business, viewer, connection.Id, new("Viewer", 2), default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ConnectionAsync(Guid.NewGuid(), user, connection.Id, default));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.ConnectionAsync(business, user, Guid.NewGuid(), default));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.RenameConnectionAsync(business, user, connection.Id, new("bad\nname", 2), default));
+        Assert.Equal(2, audit.Events.Count); Assert.All(audit.Events, e => Assert.Equal("SourceControlConnection", e.EntityType));
+        Assert.All(audit.Events, e => Assert.Equal(user, e.Actor!.ApplicationUserId));
+    }
+
+    [Theory]
+    [InlineData("ready", true)]
+    [InlineData("account", false)]
+    [InlineData("installation", false)]
+    [InlineData("suspended", false)]
+    [InlineData("public", false)]
+    [InlineData("repository", false)]
+    [InlineData("disconnected", false)]
+    [InlineData("unavailable", false)]
+    public async Task ConnectionHealthChecksExactGitHubIdentityAndNeverChangesConnection(string scenario, bool available)
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid();
+        Seed(db, business, user, OrganizationPermissionLevel.Manager);
+        var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = business, Name = "GitHub", Provider = SourceControlProvider.GitHub,
+            Mode = SourceControlConnectionMode.ExistingGitHub, Status = scenario == "disconnected" ? SourceControlConnectionStatus.Disconnected : SourceControlConnectionStatus.Connected,
+            SourceAccessInstallationId = 12, ProviderAccountId = "99", AccountLogin = "owner", AccountType = "User" };
+        db.AddRange(connection, new SourceControlRepository { Id = Guid.NewGuid(), OrganizationId = business, ConnectionId = connection.Id,
+            ExternalRepositoryId = "42", Owner = "owner", Name = "repo", CanonicalPath = "owner/repo", ProviderRepositoryKey = "github:42" });
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+        var host = new Host { Descriptor = new(scenario == "installation" ? 13 : 12, scenario == "account" ? 100 : 99, "owner", "User", scenario == "suspended", null),
+            AvailableRepositories = [new(scenario == "repository" ? 43 : 42, "owner", "repo", "owner/repo", "https://github.com/owner/repo.git", "main", scenario != "public", false, false)],
+            Fail = scenario == "unavailable" };
+        var service = new InternalRepositoryManagementService(db, host, new Audit(), TimeProvider.System);
+        var result = await service.CheckConnectionAsync(business, user, connection.Id, default);
+        Assert.Equal(available, result.Available);
+        Assert.DoesNotContain("provider-secret", System.Text.Json.JsonSerializer.Serialize(result));
+        var persisted = await db.SourceControlConnections.AsNoTracking().SingleAsync(); Assert.Equal(1, persisted.Revision); Assert.Null(persisted.LastVerifiedAt);
+        if (scenario == "disconnected") Assert.Equal(0, host.Calls);
+        var calls = host.Calls;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.CheckConnectionAsync(Guid.NewGuid(), user, connection.Id, default));
+        Assert.Equal(calls, host.Calls);
+    }
+
+    [Fact]
+    public async Task InternalConnectionHealthDoesNotExposeStoragePaths()
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid(); Seed(db, business, user, OrganizationPermissionLevel.Manager);
+        var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = business, Provider = SourceControlProvider.InternalGit, Name = "Internal", Status = SourceControlConnectionStatus.Connected };
+        db.Add(connection); await db.SaveChangesAsync();
+        var service = new InternalRepositoryManagementService(db, new Host(), new Audit(), TimeProvider.System);
+        var result = await service.CheckConnectionAsync(business, user, connection.Id, default); Assert.True(result.Available);
+        Assert.DoesNotContain("private-storage-path", System.Text.Json.JsonSerializer.Serialize(result));
+    }
+
+    [Fact]
+    public async Task ActivityIsBusinessScopedAndPaginationDoesNotRepeatNewerEvents()
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid(); var repository = Guid.NewGuid();
+        Seed(db, business, user, OrganizationPermissionLevel.Manager);
+        AuditEvent Event(long sequence, Guid? tenant, string category = "SourceControl", string outcome = "Completed") => new()
+        {
+            Id = Guid.NewGuid(), Sequence = sequence, OrganizationId = tenant, Category = category, Outcome = outcome,
+            EntityType = "SourceControlRepository", EntityId = repository, EventType = "SourceControl.Repository.Update",
+            OccurredAt = DateTimeOffset.UtcNow, MetadataJson = "sensitive metadata", PayloadPreview = "credential material", ErrorMessage = "provider secret"
+        };
+        db.AuditEvents.AddRange(Event(1, business), Event(2, business, outcome: "Started"), Event(3, business),
+            Event(4, Guid.NewGuid()), Event(5, null), Event(6, business, "Authentication"));
+        await db.SaveChangesAsync();
+        var service = new InternalRepositoryManagementService(db, new Host(), new Audit(), TimeProvider.System);
+        var page = await service.ActivityAsync(business, user, null, null, null, 2, default);
+        Assert.Equal(new long[] { 3, 2 }, page.Items.Select(e => e.Sequence)); Assert.Equal(2, page.NextBeforeSequence);
+        db.AuditEvents.Add(Event(7, business)); await db.SaveChangesAsync();
+        var older = await service.ActivityAsync(business, user, null, null, page.NextBeforeSequence, 2, default);
+        Assert.Equal(1, Assert.Single(older.Items).Sequence); Assert.Null(older.NextBeforeSequence);
+        var filtered = await service.ActivityAsync(business, user, repository, "Started", null, 25, default);
+        Assert.Equal(2, Assert.Single(filtered.Items).Sequence); Assert.Null(filtered.NextBeforeSequence);
+        Assert.Empty((await service.ActivityAsync(business, user, Guid.NewGuid(), null, null, 25, default)).Items);
+        var json = System.Text.Json.JsonSerializer.Serialize(page);
+        Assert.DoesNotContain("sensitive metadata", json); Assert.DoesNotContain("credential material", json); Assert.DoesNotContain("provider secret", json);
+        // No live repository row exists: deleted repository history is still visible to its business manager.
+        Assert.Empty(db.SourceControlRepositories);
+    }
+
+    [Theory]
+    [InlineData("viewer")]
+    [InlineData("inactive")]
+    [InlineData("foreign")]
+    public async Task ActivityRequiresCurrentBusinessManager(string rejected)
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid();
+        Seed(db, business, user, rejected == "viewer" ? OrganizationPermissionLevel.Viewer : OrganizationPermissionLevel.Manager);
+        await db.SaveChangesAsync();
+        if (rejected == "inactive") (await db.CoreOrganizationUsers.SingleAsync()).IsActive = false;
+        await db.SaveChangesAsync();
+        var service = new InternalRepositoryManagementService(db, new Host(), new Audit(), TimeProvider.System);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ActivityAsync(rejected == "foreign" ? Guid.NewGuid() : business, user, null, null, null, 25, default));
+    }
+
+    [Theory]
+    [InlineData(0, null, null)]
+    [InlineData(101, null, null)]
+    [InlineData(25, 0L, null)]
+    [InlineData(25, -1L, null)]
+    [InlineData(25, null, "unknown")]
+    public async Task ActivityRejectsUnboundedOrInvalidFilters(int pageSize, long? before, string? outcome)
+    {
+        await using var db = Database(); var business = Guid.NewGuid(); var user = Guid.NewGuid();
+        Seed(db, business, user, OrganizationPermissionLevel.Manager); await db.SaveChangesAsync();
+        var service = new InternalRepositoryManagementService(db, new Host(), new Audit(), TimeProvider.System);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ActivityAsync(business, user, null, outcome, before, pageSize, default));
+    }
+
+    [Fact]
     public async Task ManagerCanCreateInspectRenameArchiveAndRestoreWithAudit()
     {
         await using var db = Database();
@@ -269,8 +495,13 @@ public sealed class InternalRepositoryManagementServiceTests
             Calls++; if (Fail) throw new IOException("Storage unavailable.");
             return Task.FromResult(new InternalGitBackupSummary(request.BackupId, request.RepositoryId, DateTimeOffset.UtcNow, "trunk", 22, new string('a', 64), 0, 0));
         }
-        public Task<TrustedInstallationDescriptor> DescribeInstallationAsync(long id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<TrustedRepositoryDescriptor>> ListRepositoriesAsync(long id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public TrustedInstallationDescriptor Descriptor { get; set; } = new(12, 99, "owner", "User", false, null);
+        public IReadOnlyList<TrustedRepositoryDescriptor> AvailableRepositories { get; set; } = [];
+        public Task<InternalGitStorageStatus> GetInternalStorageStatusAsync(CancellationToken cancellationToken = default) => Task.FromResult(new InternalGitStorageStatus(true, "private-storage-path", "", "filesystem", "", "filesystem", "", null));
+        public Task<TrustedInstallationDescriptor> DescribeInstallationAsync(long id, CancellationToken cancellationToken = default)
+        { Calls++; if (Fail) throw new HttpRequestException("provider-secret"); return Task.FromResult(Descriptor); }
+        public Task<IReadOnlyList<TrustedRepositoryDescriptor>> ListRepositoriesAsync(long id, CancellationToken cancellationToken = default)
+        { Calls++; return Task.FromResult(AvailableRepositories); }
         public Task<TrustedMergeResult> MergeAsync(TrustedMergeRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TrustedWorkspaceSnapshot> PrepareWorkspaceAsync(TrustedWorkspaceSnapshotRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }

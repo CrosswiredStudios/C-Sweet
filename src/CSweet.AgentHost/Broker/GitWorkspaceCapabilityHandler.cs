@@ -230,17 +230,21 @@ public sealed class GitWorkspaceCapabilityHandler(
                 Guid.Empty, "Blocked", null, null,
                 "The repository creation quota has been reached.");
 
+        var assignmentTime = DateTimeOffset.UtcNow;
         var teamId = policy.DefaultTeamId;
         // Both providers require an active team for immediate agent handoff.
         {
             var teams = await (from membership in db.TeamMemberships.AsNoTracking()
                 join team in db.OrganizationTeams.AsNoTracking() on membership.TeamId equals team.Id
                 where membership.OrganizationId == organizationId && membership.OrganizationUserId == caller.Id && membership.EndedAt == null &&
-                    team.OrganizationId == organizationId && team.ArchivedAt == null
+                    team.OrganizationId == organizationId && team.ArchivedAt == null &&
+                    db.WorkstreamTeamAssignments.Any(a => a.OrganizationId == organizationId &&
+                        a.WorkstreamId == input.ProductOrWorkstreamId && a.TeamId == team.Id &&
+                        a.StartsAt <= assignmentTime && (a.EndsAt == null || a.EndsAt > assignmentTime))
                 select team.Id).Distinct().ToListAsync(cancellationToken);
             if (teamId is null && teams.Count == 1) teamId = teams[0];
             if (teamId is null || !teams.Contains(teamId.Value))
-                return new RepositoryProvisioningResult(Guid.Empty, "Blocked", null, null, "Select a provisioning team that the requesting agent belongs to in Source Control settings.");
+                return new RepositoryProvisioningResult(Guid.Empty, "Blocked", null, null, "Select a provisioning team assigned to this product that the requesting agent belongs to in Source Control settings.");
         }
         var slug = Slug(input.ProjectDisplayName);
         var repositoryName = string.IsNullOrWhiteSpace(policy.NamePrefix)

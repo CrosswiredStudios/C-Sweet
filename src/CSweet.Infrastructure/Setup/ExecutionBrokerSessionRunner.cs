@@ -409,6 +409,8 @@ public sealed class ExecutionBrokerSessionRunner(
             start.Environment.Add("CSWEET_BUILD_CONFIGURATION_JSON", workload.ConfigurationJson);
             start.Environment.Add("CSWEET_BUILD_SOURCE_URL", workload.SourceRepository.RepositoryUrl);
             start.Environment.Add("CSWEET_BUILD_SOURCE_COMMIT", workload.SourceRepository.CommitSha);
+            if (sourceRepository.Connection?.Provider == SourceControlProvider.InternalGit)
+                start.Environment.Add("CSWEET_BUILD_SOURCE_ARCHIVE_URL", ToolchainTrustedSource.ArchiveUri(deliveryBuild.Id, deliveryBuild.SourceRevision));
             start.Environment.Add("CSWEET_BUILD_INPUT_ROOT", "/run/csweet/workload/source");
             start.Environment.Add("CSWEET_BUILD_OUTPUT_ROOT", "/run/csweet/workload/output");
             start.Environment.Add("CSWEET_BUILD_MAXIMUM_SOURCE_BYTES", workload.MaximumSourceBytes.ToString(CultureInfo.InvariantCulture));
@@ -443,24 +445,10 @@ public sealed class ExecutionBrokerSessionRunner(
         ToolchainBuildWorkloadSpecification workload,
         CancellationToken cancellationToken)
     {
-        var connection = repository.Connection
-            ?? throw new InvalidOperationException("The private source repository connection is unavailable.");
-        if (connection.SourceAccessInstallationId is not > 0)
-            throw new InvalidOperationException("The private source repository has no active credential-isolated GitHub App installation.");
-        var snapshot = await sourceControlHost.PrepareWorkspaceAsync(new TrustedWorkspaceSnapshotRequest(
-            connection.SourceAccessInstallationId.Value,
-            repository.Owner,
-            repository.Name,
-            repository.DefaultBranch,
-            build.Id,
-            $"build/{build.Id:N}",
-            build.SourceRevision,
-            $"delivery-build-source:{build.Id:N}:{build.SourceRevision}"), cancellationToken);
-        if (!string.Equals(snapshot.BaseCommitSha, build.SourceRevision, StringComparison.Ordinal) ||
-            snapshot.Archive.LongLength > workload.MaximumSourceBytes ||
-            snapshot.TotalBytes > workload.MaximumSourceBytes ||
-            snapshot.ArtifactSha256.Length != 64 || snapshot.ArtifactSha256.Any(character => !Uri.IsHexDigit(character)))
-            throw new InvalidDataException("GitHost did not return the exact bounded source revision requested by the build.");
-        return new ToolchainSourceArchive(snapshot.Archive, snapshot.ArtifactSha256.ToLowerInvariant());
+        if (build.Id != workload.DeliveryBuildId || build.SourceRevision != workload.SourceRepository.CommitSha)
+            throw new InvalidDataException("The workload no longer matches its exact persisted source revision.");
+        var current = await dbContext.SourceControlRepositories.AsNoTracking().Include(x => x.Connection)
+            .SingleAsync(x => x.Id == repository.Id && x.OrganizationId == build.OrganizationId, cancellationToken);
+        return await ToolchainTrustedSource.PrepareAsync(sourceControlHost, current, build, workload.MaximumSourceBytes, cancellationToken);
     }
 }

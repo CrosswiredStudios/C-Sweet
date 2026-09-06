@@ -75,6 +75,7 @@ public sealed record AgentBrokerWorkspacePrepareResult(
 
 public sealed record GitHubWorkspacePrepareRequest(
     long InstallationId,
+    long ExternalRepositoryId,
     string Owner,
     string Repository,
     string DefaultBranch,
@@ -101,7 +102,7 @@ public static class WorkspaceSnapshotHeaders
 }
 public sealed record AgentBrokerWorkspaceOperationRequest(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
     Guid WorkItemId, long AssignmentRevision, string WorkspaceKey, string IdempotencyKey, string Operation,
-    string? CommitMessage = null, bool RetainOnFailure = true);
+    string? CommitMessage = null, bool RetainOnFailure = true, string? ProposedChangeTitle = null, string? ProposedChangeBody = null);
 public sealed record AgentBrokerWorkspaceOperationResult(string Status, string BaseSha,
     IReadOnlyList<string> ChangedFiles, string DiffSummary, string? CommitSha = null, string? Branch = null,
-    string? ReviewUrl = null, bool Removed = false, DateTimeOffset? RetainUntil = null);
+    string? ReviewUrl = null, bool Removed = false, DateTimeOffset? RetainUntil = null, string Provider = "InternalGit");

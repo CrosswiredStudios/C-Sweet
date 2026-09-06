@@ -187,7 +187,7 @@ public sealed class SourceControlOnboardingService(
         SourceControlConnection connection;
         if (session.ConnectionId.HasValue)
         {
-            connection = await db.SourceControlConnections.SingleAsync(candidate =>
+            connection = await db.SourceControlConnections.AsTracking().SingleAsync(candidate =>
                 candidate.OrganizationId == organizationId && candidate.Id == session.ConnectionId.Value,
                 cancellationToken);
             if (connection.ProviderAccountId != installation.AccountId.ToString())
@@ -195,7 +195,7 @@ public sealed class SourceControlOnboardingService(
         }
         else
         {
-            connection = await db.SourceControlConnections.SingleOrDefaultAsync(candidate =>
+            connection = await db.SourceControlConnections.AsTracking().SingleOrDefaultAsync(candidate =>
                 candidate.OrganizationId == organizationId &&
                 candidate.Provider == SourceControlProvider.GitHub &&
                 candidate.ProviderAccountId == installation.AccountId.ToString(),
@@ -209,7 +209,7 @@ public sealed class SourceControlOnboardingService(
                     CreatedAt = now
                 };
             connection.Mode = session.SelectedMode;
-            connection.Name = installation.AccountLogin;
+            if (string.IsNullOrWhiteSpace(connection.Name)) connection.Name = installation.AccountLogin;
             connection.AccountLogin = installation.AccountLogin;
             connection.AccountType = installation.AccountType;
             if (db.Entry(connection).State == EntityState.Detached)
@@ -248,6 +248,7 @@ public sealed class SourceControlOnboardingService(
             session.Status = SourceControlOnboardingStatus.InProgress;
             setupComplete = true;
         }
+        connection.DisconnectedAt = null;
         connection.LastHealthError = null;
         connection.UpdatedAt = now;
         connection.Revision++;

@@ -42,6 +42,7 @@
         else
         {
             @if (_dashboard.CanManageSourceControl) { <BusinessSourceControlDefaultsEditor OrganizationId="OrganizationId" /><InternalProvisioningSettings OrganizationId="OrganizationId" /><InternalGitBackups OrganizationId="OrganizationId" /> }
+            @if (_dashboard.CanManageSourceControl) { <SourceControlActivity @key="OrganizationId" OrganizationId="OrganizationId" Repositories="_dashboard.Repositories" /> }
             <InternalRepositoryManager OrganizationId="OrganizationId" CanManage="_dashboard.CanManageSourceControl" SelectedRepository="SelectedRepository" SelectedReference="SelectedReference" />
             @if (!_dashboard.PlatformReadiness.ExistingGitHubAvailable)
             {
@@ -124,7 +125,7 @@
                     </MudPaper>
                 }
 
-                @if (!_dashboard.PlatformReadiness.ManagedGitHubAvailable)
+                @if (_dashboard.PlatformReadiness.ExistingGitHubAvailable && !_dashboard.PlatformReadiness.ManagedGitHubAvailable)
                 {
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
                         Existing GitHub projects can be connected. Full access remains unavailable until
@@ -240,7 +241,8 @@
                                 <MudCardContent>
                                     <MudStack Row="true" AlignItems="AlignItems.Center">
                                         <div>
-                                            <MudText Typo="Typo.subtitle1">@connection.AccountLogin</MudText>
+                                            <MudText Typo="Typo.subtitle1">@connection.Name</MudText>
+                                            <MudText Typo="Typo.body2">@connection.AccountLogin</MudText>
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">
                                                 @ModeLabel(connection.Mode) · @connection.AccountType
                                             </MudText>
@@ -252,12 +254,12 @@
                                     </MudStack>
                                     <MudDivider Class="my-3" />
                                     <MudText Typo="Typo.body2">
-                                        Code access: @(connection.SourceAccessConnected ? "Connected" : "Needs setup")
+                                        Code access: @(connection.Provider == "InternalGit" ? "Built in" : connection.SourceAccessConnected ? "Configured" : "Needs setup")
                                     </MudText>
                                     @if (connection.Mode == "ManagedGitHub")
                                     {
                                         <MudText Typo="Typo.body2">
-                                            Private-project creation: @(connection.ProvisionerConnected ? "Connected" : "Needs setup")
+                                            Private-project creation: @(connection.ProvisionerConnected ? "Configured" : "Needs setup")
                                         </MudText>
                                     }
                                     <MudText Typo="Typo.body2">Code projects: @connection.RepositoryCount</MudText>
@@ -268,6 +270,10 @@
                                         </MudAlert>
                                     }
                                 </MudCardContent>
+                                @if (_dashboard.CanManageSourceControl)
+                                {
+                                    <SourceControlConnectionEditor @key="connection.Id" OrganizationId="OrganizationId" ConnectionId="connection.Id" OnChanged="LoadAsync" />
+                                }
                             </MudCard>
                         </MudItem>
                     }

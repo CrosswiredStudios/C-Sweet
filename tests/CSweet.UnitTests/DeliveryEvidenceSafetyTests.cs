@@ -111,8 +111,10 @@ public sealed class DeliveryEvidenceSafetyTests
         Assert.Equal(forward, reverse);
     }
 
-    [Fact]
-    public async Task PrivateSourceFetchUsesOneCredentialIsolatedExactRevisionSnapshot()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PrivateSourceFetchUsesOneCredentialIsolatedExactRevisionSnapshot(bool internalGit)
     {
         var workloadId = Guid.NewGuid();
         var installationId = Guid.NewGuid();
@@ -126,7 +128,7 @@ public sealed class DeliveryEvidenceSafetyTests
                 "sha256:" + new string('c', 64), DateTimeOffset.UtcNow.AddMinutes(1)),
             new AgentArtifactReference("sha256:" + new string('c', 64), "signature", "1.0", "linux", "x64"),
             new RuntimeAgentIdentity(installationId, Guid.NewGuid().ToString("D"), Guid.NewGuid()),
-            new RepositoryDescriptor("https://github.com/example/private-game.git", commit, false, "recipe", "1"),
+            new RepositoryDescriptor(internalGit ? "http://localhost/internal.git" : "https://github.com/example/private-game.git", commit, false, "recipe", "1"),
             buildId, 1, "recipe", "linux-x64", "{}", ["adapter"], [], 1024, 1024);
         var archive = Encoding.UTF8.GetBytes("trusted-source");
         var preparations = 0;
@@ -142,8 +144,14 @@ public sealed class DeliveryEvidenceSafetyTests
             },
             NullLogger.Instance);
 
-        var first = await handler.HandleAsync(Fetch(workloadId, installationId, commit, 0, 7), default);
-        var second = await handler.HandleAsync(Fetch(workloadId, installationId, commit, 7, 20), default);
+        var source = internalGit ? ToolchainTrustedSource.ArchiveUri(buildId, commit) : null;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => handler.HandleAsync(Fetch(workloadId, installationId, commit, 0, 7,
+            ToolchainTrustedSource.ArchiveUri(Guid.NewGuid(), commit)), default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => handler.HandleAsync(Fetch(workloadId, installationId, commit, 0, 7,
+            ToolchainTrustedSource.ArchiveUri(buildId, new string('b', 40))), default));
+        Assert.Equal(0, preparations);
+        var first = await handler.HandleAsync(Fetch(workloadId, installationId, commit, 0, 7, source), default);
+        var second = await handler.HandleAsync(Fetch(workloadId, installationId, commit, 7, 20, source), default);
 
         Assert.Equal("trusted", Encoding.UTF8.GetString(first.Body.Span));
         Assert.Equal("-source", Encoding.UTF8.GetString(second.Body.Span));
@@ -156,7 +164,7 @@ public sealed class DeliveryEvidenceSafetyTests
         new(path, new string('a', 64), size, contentType, "package");
 
     private static BrokerOperationContext Fetch(
-        Guid workloadId, Guid installationId, string commit, long offset, int maximumBytes) => new(
+        Guid workloadId, Guid installationId, string commit, long offset, int maximumBytes, string? source = null) => new(
             workloadId,
             installationId,
             Guid.NewGuid().ToString("N"),
@@ -166,7 +174,7 @@ public sealed class DeliveryEvidenceSafetyTests
             new Dictionary<string, string>(),
             JsonSerializer.SerializeToUtf8Bytes(new
             {
-                url = $"https://codeload.github.com/example/private-game/zip/{commit}",
+                url = source ?? $"https://codeload.github.com/example/private-game/zip/{commit}",
                 offset,
                 maximumBytes
             }));

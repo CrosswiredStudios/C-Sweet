@@ -75,12 +75,20 @@ public sealed partial class AgentWorkspaceBroker(
                 (connection.Provider != SourceControlProvider.GitHub || connection.SourceAccessInstallationId is not > 0)))
             throw new InvalidOperationException("The assigned private repository is not ready.");
 
+        await AuthorizeWorkspaceTeamAsync(workspace, cancellationToken);
+
+        long externalRepositoryId = 0;
+        if (connection.Provider == SourceControlProvider.GitHub &&
+            (!long.TryParse(repository.ExternalRepositoryId, out externalRepositoryId) || externalRepositoryId <= 0))
+            throw new InvalidOperationException("The assigned GitHub repository identity is unavailable.");
+
         var snapshot = connection.Provider == SourceControlProvider.InternalGit
             ? await gitHost.PrepareInternalWorkspaceAsync(new(request.OrganizationId, repository.Id, workspace.Id,
                 repository.DefaultBranch, workspace.BranchName, request.ExpectedCommitSha, request.IdempotencyKey), cancellationToken)
             : await gitHost.PrepareWorkspaceAsync(
             new TrustedWorkspaceSnapshotRequest(
                 connection.SourceAccessInstallationId!.Value,
+                externalRepositoryId,
                 repository.Owner,
                 repository.Name,
                 repository.DefaultBranch,
