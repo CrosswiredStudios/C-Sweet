@@ -27,6 +27,13 @@
     <Project Path="tests/CSweet.UnitTests/CSweet.UnitTests.csproj" />
   </Folder>
   <Folder Name="/dependencies/">
+    <Project Path="../CSweet.Memory/src/CSweet.Memory.Abstractions/CSweet.Memory.Abstractions.csproj" />
+    <Project Path="../CSweet.Memory/src/CSweet.Memory.Broker/CSweet.Memory.Broker.csproj" />
+    <Project Path="../CSweet.Memory/src/CSweet.Memory.PostgreSql/CSweet.Memory.PostgreSql.csproj" />
+    <Project Path="../CSweet.Memory/src/CSweet.Memory.Sqlite/CSweet.Memory.Sqlite.csproj" />
+    <Project Path="../CSweet.Memory/src/CSweet.Memory/CSweet.Memory.csproj" />
     <Project Path="../CSweet.Office.Contracts/src/CSweet.Office.Contracts/CSweet.Office.Contracts.csproj" />
+    <Project Path="../CSweet.WorkManagement.Contracts/src/CSweet.WorkManagement.Contracts/CSweet.WorkManagement.Contracts.csproj" />
+    <Project Path="../CSweetAgentSdk/src/CSweet.Agent.SDK/CSweet.Agent.SDK.csproj" />
   </Folder>
 </Solution>

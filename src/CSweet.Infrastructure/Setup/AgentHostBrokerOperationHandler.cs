@@ -135,7 +135,8 @@ public sealed class AgentHostBrokerOperationHandler(
                 method.ValueKind == JsonValueKind.String &&
                 method.GetString() is "initialize" or "ping" or "csweet/session/renew" or
                     "csweet/work/claim" or "csweet/work/renew" or "csweet/work/progress" or
-                    "csweet/work/complete" or "csweet/work/fail" or "csweet/runtime/complete")
+                    "csweet/work/complete" or "csweet/work/fail" or "csweet/runtime/complete" or
+                    "csweet/llm/start" or "csweet/llm/read" or "csweet/llm/cancel")
                 return options.ControlRequestTimeoutSeconds;
         }
         catch (JsonException)

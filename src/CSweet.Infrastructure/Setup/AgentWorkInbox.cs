@@ -311,6 +311,10 @@ public sealed class AgentWorkInbox(
             item.CorrelationId);
     }
 
+    public async Task<DateTimeOffset> ReadDeadlineAsync(McpAgentSession session, Guid workId,
+        int attempt, string leaseToken, CancellationToken token) =>
+        (await GetActiveAttemptAsync(session, workId, attempt, leaseToken, token)).AgentWorkItem!.DeadlineAt;
+
     public async Task<DateTimeOffset> RenewAsync(
         McpAgentSession session,
         Guid workId,

@@ -25,6 +25,8 @@ public sealed class PlatformLlmCapabilityHandler
     private readonly IAgentConfigurationService _configurations;
     private readonly IReadOnlyList<IConversationAttachmentSourceResolver> _attachmentResolvers;
     private readonly IMediaAssetService _mediaAssets;
+    private readonly TimeSpan _generationTimeout;
+    private readonly PlatformLlmJobService? _jobs;
 
     public PlatformLlmCapabilityHandler(
         CSweetDbContext dbContext,
@@ -33,7 +35,9 @@ public sealed class PlatformLlmCapabilityHandler
         IAgentConfigurationService configurations,
         IEnumerable<IConversationAttachmentSourceResolver> attachmentResolvers,
         IMediaAssetService mediaAssets,
-        ILogger<PlatformLlmCapabilityHandler> logger)
+        ILogger<PlatformLlmCapabilityHandler> logger,
+        PlatformLlmJobOptions? jobOptions = null,
+        PlatformLlmJobService? jobs = null)
     {
         _dbContext = dbContext;
         _providerFactory = providerFactory;
@@ -42,12 +46,15 @@ public sealed class PlatformLlmCapabilityHandler
         _attachmentResolvers = attachmentResolvers.ToList();
         _mediaAssets = mediaAssets;
         _logger = logger;
+        _generationTimeout = TimeSpan.FromSeconds(jobOptions?.GenerationTimeoutSeconds ?? 120);
+        _jobs = jobs;
     }
 
     public async IAsyncEnumerable<CapabilityResult> StreamAsync(
         AgentSession session,
         RequestCapability request,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken,
+        bool providerSlotAcquired = false)
     {
         if (request.Payload.Length > 1_048_576)
         {
@@ -96,7 +103,7 @@ public sealed class PlatformLlmCapabilityHandler
         }
 
         using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        requestTimeout.CancelAfter(TimeSpan.FromMinutes(2));
+        requestTimeout.CancelAfter(_generationTimeout);
         var requestToken = requestTimeout.Token;
 
         var profile = await _dbContext.LlmProviderProfiles
@@ -221,6 +228,11 @@ public sealed class PlatformLlmCapabilityHandler
         long? inputTokenCount = null;
         long? outputTokenCount = null;
         var streamSequence = 0;
+
+        // Older SDKs still serialize with queued jobs, but need an SDK update for
+        // short polling and acknowledged-wait deadline accounting.
+        using var providerPermit = providerSlotAcquired || _jobs is null ? null :
+            await _jobs.AcquireProviderAsync(input.ProviderProfileId, requestToken);
 
         IAsyncEnumerator<ChatResponseUpdate>? updates = null;
         string? providerError = null;

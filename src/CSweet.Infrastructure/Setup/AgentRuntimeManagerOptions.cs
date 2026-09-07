@@ -20,6 +20,9 @@ public sealed class AgentRuntimeManagerOptions
         "agent-build-logs");
     public int MaximumScheduleClaimsPerIteration { get; set; } = 10;
     public int InteractiveIdleTimeoutSeconds { get; set; } = 300;
+    // Reserve wall-clock VM/broker lifetime for host-verified inference waits.
+    // Agent execution still uses its original schedule budget.
+    public int InferenceWaitAllowanceSeconds { get; set; } = 86400;
     public string? PreferredIsolationProviderId { get; set; }
     public string RuntimeGuestImageId { get; set; } = "csweet-runtime-base";
     public string RuntimeGuestImageVersion { get; set; } = string.Empty;

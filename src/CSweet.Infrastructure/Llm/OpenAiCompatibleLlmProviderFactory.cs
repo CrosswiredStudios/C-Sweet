@@ -7,6 +7,7 @@ using OpenAI;
 using OpenAI.Chat;
 using System.ClientModel;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 
 namespace CSweet.Infrastructure.Llm;
 
@@ -17,15 +18,19 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
     private readonly CSweetDbContext _dbContext;
     private readonly ILlmProviderSecretStore _secretStore;
     private readonly ILogger<OpenAiCompatibleLlmProviderFactory> _logger;
+    private readonly TimeSpan _networkTimeout;
 
     public OpenAiCompatibleLlmProviderFactory(
         CSweetDbContext dbContext,
         ILlmProviderSecretStore secretStore,
-        ILogger<OpenAiCompatibleLlmProviderFactory> logger)
+        ILogger<OpenAiCompatibleLlmProviderFactory> logger,
+        IConfiguration? configuration = null)
     {
         _dbContext = dbContext;
         _secretStore = secretStore;
         _logger = logger;
+        _networkTimeout = TimeSpan.FromSeconds(Math.Clamp(
+            configuration?.GetValue<int?>("CSweet:Llm:Queue:GenerationTimeoutSeconds") ?? 900, 1, 86400));
     }
 
     public async Task<IChatClient> CreateChatClientAsync(
@@ -94,7 +99,7 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
             profile.SupportsStreaming);
 
         var apiKey = await ResolveApiKeyAsync(profile, cancellationToken);
-        var options = new OpenAIClientOptions { Endpoint = endpoint };
+        var options = new OpenAIClientOptions { Endpoint = endpoint, NetworkTimeout = _networkTimeout };
         var chatClient = new ChatClient(selectedModel, new ApiKeyCredential(apiKey), options);
 
         return chatClient.AsIChatClient();

@@ -89,6 +89,7 @@ public sealed class ChatTurnWorker(
         var userMessage = turn.UserMessage!;
 
         using var hardTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        Task? workPump = null;
         var remaining = RemainingTurnTime(turn.CreatedAt, options.Value.HardTimeout, DateTimeOffset.UtcNow);
         if (remaining <= TimeSpan.Zero)
             hardTimeout.Cancel();
@@ -260,7 +261,7 @@ public sealed class ChatTurnWorker(
                     sourceId: turnId.ToString("D"),
                     maximumAttempts: 3,
                     cancellationToken: hardTimeout.Token);
-                _ = PumpAgentWorkAsync(work.Id, turnId, turn.Attempt, hardTimeout.Token);
+                workPump = PumpAgentWorkAsync(work.Id, turnId, turn.Attempt, hardTimeout);
                 await turns.SetStatusAsync(turnId, ChatTurnStatus.Running.ToString(), cancellationToken: hardTimeout.Token);
 
                 var pendingOutput = new System.Text.StringBuilder();
@@ -472,6 +473,12 @@ public sealed class ChatTurnWorker(
         finally
         {
             await hardTimeout.CancelAsync();
+            if (workPump is not null)
+            {
+                try { await workPump; }
+                catch (OperationCanceledException) when (hardTimeout.IsCancellationRequested) { }
+                catch (Exception exception) { logger.LogWarning(exception, "Chat work progress pump ended for {TurnId}.", turnId); }
+            }
             outputRouter.Complete(turnId);
             outputRouter.UnbindAlias(conversation.Id, turnId);
             eventRouter.Complete(turnId);
@@ -555,13 +562,46 @@ public sealed class ChatTurnWorker(
         Guid workId,
         Guid turnId,
         int attempt,
-        CancellationToken cancellationToken)
+        CancellationTokenSource turnDeadline)
     {
+        try { await PumpAgentWorkCoreAsync(workId, turnId, attempt, turnDeadline); }
+        catch (OperationCanceledException) when (turnDeadline.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Chat work progress could not be read for {TurnId}.", turnId);
+            outputRouter.Publish(turnId, new ChatStreamChunk(
+                0, "The agent's work status could not be read. Please retry when the service is available.",
+                true, "agent_progress_unavailable", "error", Attempt: attempt));
+        }
+    }
+
+    private async Task PumpAgentWorkCoreAsync(
+        Guid workId,
+        Guid turnId,
+        int attempt,
+        CancellationTokenSource turnDeadline)
+    {
+        var cancellationToken = turnDeadline.Token;
         long sequence = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
             await using var scope = scopeFactory.CreateAsyncScope();
             var inbox = scope.ServiceProvider.GetRequiredService<AgentWorkInbox>();
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var ownedTurn = await db.ChatTurns.AsNoTracking().SingleAsync(x => x.Id == turnId, cancellationToken);
+            if (ownedTurn.Attempt != attempt || ownedTurn.LeaseOwner != _leaseOwner || ownedTurn.Status == ChatTurnStatus.Cancelled)
+            {
+                await inbox.CancelAsync(workId, "The chat turn was cancelled or its lease was superseded.", cancellationToken);
+                turnDeadline.Cancel();
+                return;
+            }
+            await db.ChatTurns.Where(x => x.Id == turnId && x.Attempt == attempt && x.LeaseOwner == _leaseOwner)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.LeaseUntil, DateTimeOffset.UtcNow.AddMinutes(1)), cancellationToken);
+            var authoritativeDeadline = await db.AgentWorkItems.AsNoTracking().Where(x => x.Id == workId)
+                .Select(x => x.DeadlineAt).SingleAsync(cancellationToken);
+            var remaining = authoritativeDeadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero) { turnDeadline.Cancel(); return; }
+            turnDeadline.CancelAfter(remaining);
             var progress = await inbox.ReadProgressAfterAsync(workId, sequence, cancellationToken);
             foreach (var record in progress)
             {

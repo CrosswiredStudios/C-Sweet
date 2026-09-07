@@ -42,6 +42,14 @@ builder.Services.AddHostedService<PersonalTodoReconciliationWorker>();
 builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService>();
 builder.Services.AddScoped<AgentEmployeeIdentityResolver>();
 builder.Services.AddScoped<PlatformLlmCapabilityHandler>();
+var llmQueue = builder.Configuration.GetSection(PlatformLlmJobOptions.SectionName).Get<PlatformLlmJobOptions>() ?? new();
+if (llmQueue.MaximumConcurrentRequests is < 1 or > 64 || llmQueue.MaximumQueuedRequests is < 1 or > 4096 ||
+    llmQueue.GenerationTimeoutSeconds is < 1 or > 86400)
+    throw new InvalidOperationException("The LLM queue limits are invalid.");
+builder.Services.AddSingleton(llmQueue);
+builder.Services.AddScoped<IPlatformLlmJobExecutor, PlatformLlmJobExecutor>();
+builder.Services.AddSingleton<PlatformLlmJobService>();
+builder.Services.AddHostedService(services => services.GetRequiredService<PlatformLlmJobService>());
 builder.Services.AddScoped<IPlatformCapabilityHandler, PlatformGenAiCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, GenericMediaCapabilityHandler>();
 builder.Services.AddHostedService<CSweet.Infrastructure.GenAi.GenAiJobWorker>();

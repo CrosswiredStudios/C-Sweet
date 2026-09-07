@@ -36,6 +36,7 @@ public static class McpGatewayEndpoints
         IPlatformCapabilityDispatcher dispatcher,
         IAgentRuntimeSignalService runtimeSignals,
         ConnectorReadExecutor connectorReads,
+        PlatformLlmJobService llmJobs,
         IAuditEventWriter audit,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -84,6 +85,32 @@ public static class McpGatewayEndpoints
                     return RpcError(id, -32001, "The MCP session is invalid, expired, or revoked.", StatusCodes.Status401Unauthorized);
 
                 http.Response.Headers["Mcp-Session-Id"] = session.SessionId;
+                if (method is "csweet/llm/start" or "csweet/llm/read" or "csweet/llm/cancel")
+                {
+                    if (!session.Grant.RequestedCapabilities.Contains(CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream))
+                        throw new UnauthorizedAccessException("This installation has no inference grant.");
+                    var p = RequiredParameters(root);
+                    if (method == "csweet/llm/start")
+                    {
+                        var tool = await catalog.FindAsync(p.GetProperty("name").GetString()!, session, db, cancellationToken);
+                        if (tool?.Capability != CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream || tool.ProviderInstallationId.HasValue)
+                            throw new UnauthorizedAccessException("Only platform inference supports queued requests.");
+                        var arguments = p.GetProperty("arguments");
+                        JsonSchemaValidator.Validate(arguments, tool.InputSchema);
+                        var jobId = await llmJobs.StartAsync(session, p.GetProperty("workId").GetGuid(),
+                            p.GetProperty("attempt").GetInt32(), p.GetProperty("leaseToken").GetString()!,
+                            p.GetProperty("key").GetString()!, arguments, cancellationToken);
+                        return Results.Json(Success(id, new { jobId }));
+                    }
+                    var requestedJob = p.GetProperty("jobId").GetGuid();
+                    if (method == "csweet/llm/cancel")
+                    {
+                        llmJobs.Cancel(session, requestedJob);
+                        return Results.Json(Success(id, new { }));
+                    }
+                    return Results.Json(Success(id, await llmJobs.ReadAsync(session, requestedJob,
+                        p.GetProperty("after").GetInt32(), cancellationToken)));
+                }
                 var result = method switch
                 {
                     "ping" => Results.Json(Success(id, new { })),
@@ -182,7 +209,8 @@ public static class McpGatewayEndpoints
                     expiresAt = issue.ExpiresAt,
                     grantRevision = issue.Session.Grant.Revision,
                     identity = issue.Identity,
-                    configuration = issue.Configuration
+                    configuration = issue.Configuration,
+                    llmJobs = true
                 }
             }
         }));

@@ -198,7 +198,9 @@ dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
 dotnet test tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj
 ```
 
-Local builds automatically detect sibling checkouts for the Agent SDK, Memory, WorkManagement Contracts, and Office Contracts. Without those checkouts, builds use the package versions pinned in [`Directory.Packages.props`](Directory.Packages.props). The switches and paths live in [`Directory.Build.props`](Directory.Build.props).
+The solution files include the sibling Agent SDK, Memory, WorkManagement Contracts, and Office Contracts projects under `dependencies`. Keep those checkouts alongside C-Sweet when building the full solution. This lets Visual Studio restore and build the local dependencies instead of reusing stale assemblies. Reload the solution after dependency projects are added.
+
+Individual project builds automatically detect these sibling checkouts. Without them, project builds use the package versions pinned in [`Directory.Packages.props`](Directory.Packages.props). The switches and paths live in [`Directory.Build.props`](Directory.Build.props). When explicitly switching between local and packaged dependencies, restore using the same switches before building.
 
 </details>
 

@@ -17,12 +17,8 @@ public sealed class AgentOnboardingEventDispatcher(
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2), clock);
-        do { await DispatchPendingAsync(stoppingToken); }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
-    }
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        AgentDispatchLoop.RunAsync(DispatchPendingAsync, clock, logger, stoppingToken);
 
     internal async Task DispatchPendingAsync(CancellationToken cancellationToken)
     {

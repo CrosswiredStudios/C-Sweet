@@ -752,13 +752,17 @@ public sealed class AgentRuntimeManager(
                 package.ArtifactFormatVersion,
                 package.ArtifactOperatingSystem,
                 package.ArtifactArchitecture);
+            var hasInference = (JsonSerializer.Deserialize<string[]>(installation.Grant.RequiredCapabilitiesJson) ?? [])
+                .Contains(CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream, StringComparer.Ordinal);
+            var runtimeLifetime = TimeSpan.FromSeconds(installation.Schedule.MaxRuntimeSeconds) +
+                TimeSpan.FromSeconds(hasInference ? Math.Clamp(runtimeOptions.InferenceWaitAllowanceSeconds, 0, 86400) : 0);
             var lease = new BrokerChannelLease(
                 Guid.NewGuid(),
                 "1.0",
                 token,
                 guestDigest,
                 artifactDigest,
-                now.AddSeconds(installation.Schedule.MaxRuntimeSeconds).AddMinutes(5));
+                now.Add(runtimeLifetime).AddMinutes(5));
             var limits = new WorkloadResourceLimits(
                 Math.Max(1, (int)Math.Ceiling(installation.Grant.CpuPercent / 100d)),
                 installation.Grant.CpuPercent,
@@ -766,7 +770,7 @@ public sealed class AgentRuntimeManager(
                 runtimeOptions.RuntimeWritableDiskMb,
                 settings.DefaultWorkloadProcessLimit,
                 checked(settings.DefaultWorkloadLogLimitMb * 1024 * 1024),
-                TimeSpan.FromSeconds(installation.Schedule.MaxRuntimeSeconds));
+                runtimeLifetime);
             var handle = await workloads.CreateAndStartAsync(
                 new RuntimeWorkloadSpecification(
                     instance.Id,
