@@ -10,6 +10,7 @@ using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Communications;
@@ -218,6 +219,7 @@ public sealed class CommunicationHubService(
             : (await hiring.ListApprovalCardsAsync(organizationId, chatId, cancellationToken))
                 .ToDictionary(x => x.Key, x => x.Value);
         var responses = new List<CommunicationHubMessageResponse>(messages.Count);
+        var connectorCards = await new ConnectorApprovalConversationService(db).ReadCardsAsync(organizationId, chatId, actor.Id, messages, cancellationToken);
         for (var index = 0; index < messages.Count; index++)
         {
             var message = messages[index];
@@ -253,6 +255,7 @@ public sealed class CommunicationHubService(
                 hiringCards.TryGetValue(message.CorrelationId, out var hiringWorkflow)
                     ? hiringWorkflow
                     : null);
+            if (connectorCards.TryGetValue(message.Id, out var connectorCard)) response = response with { ConnectorApproval = connectorCard };
             responses.Add(highestSequence == message.Sequence
                 ? response
                 : response with { Sequence = highestSequence });

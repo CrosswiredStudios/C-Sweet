@@ -93,7 +93,8 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
         if (execution.PlanHash != expectedHash || requireExecutable && (execution.ExpiresAt <= DateTimeOffset.UtcNow ||
             execution.Status is not ("Prepared" or "AwaitingApproval" or "Approved" or "Executing")))
             throw new InvalidOperationException("The plan is stale or no longer executable.");
-        var element = JsonDocument.Parse(execution.PlanJson).RootElement;
+        using var document = JsonDocument.Parse(execution.PlanJson);
+        var element = document.RootElement;
         if (ConnectorRequestMaterializer.Hash(element) != expectedHash)
             throw new InvalidOperationException("The stored plan was modified.");
         var frozen = element.Deserialize<FrozenConnectorPlan>(JsonOptions)!;

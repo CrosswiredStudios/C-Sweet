@@ -299,7 +299,7 @@ public sealed class ApprovalDashboardService(
             ordered);
     }
 
-    private static ManagedAgentActionApprovalResponse? ReadManagedAction(ActionProposal proposal)
+    internal static ManagedAgentActionApprovalResponse? ReadManagedAction(ActionProposal proposal)
     {
         try
         {

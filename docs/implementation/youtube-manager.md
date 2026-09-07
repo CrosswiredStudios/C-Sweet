@@ -3,8 +3,9 @@
 Approved design: a fresh `CSweet.Agent.Platform.YouTube` agent, a deterministic
 `CSweet.Plugin.Connector.YouTube` connector, and provider-neutral host enforcement.
 Package identities are `com.csweet.agent.platform.youtube` and
-`com.csweet.connector.youtube`. Both start at 0.1.0. SDK target: 3.31.1, following the
-user's approval to use the current release line in `CSweet.Agent.Sdk`.
+`com.csweet.connector.youtube`. Both start at 0.1.0. SDK target: 3.32.0, an additive
+release on the inspected 3.31.1 baseline, following the user's approval to use the current
+release line in `CSweet.Agent.Sdk`.
 
 ## Acceptance ledger
 
@@ -15,7 +16,8 @@ user's approval to use the current release line in `CSweet.Agent.Sdk`.
 - Frozen request materialization and durable plans, including live authority/media revalidation.
 - Read-only connector execution with authenticated ownership checks, pinned public-address HTTP,
   secret extraction before runtime delivery, durable results and idempotent retries. Mutations
-  and media transfers remain blocked until their approved-action executor is implemented.
+  remain excluded from the read path; approved non-media actions use the separate durable executor.
+  Brokered media transfers remain unfinished.
 - Fixed `conversation.v1` setup assistance: protected-conversation work/tool boundaries,
   text-only LLM requests, native setup actions, durable introductions and one 24-hour reminder.
 - Work-claim revalidation prevents queued ordinary work entering a setup-restricted runtime.
@@ -80,24 +82,35 @@ user's approval to use the current release line in `CSweet.Agent.Sdk`.
   and saves confirmed results before reporting completion. It claims each approved plan once. Failed
   preflights block; uncertain sends, cancellation or malformed responses become Indeterminate and
   cannot automatically resend. Interrupted Executing records also cannot be reclaimed as new actions.
-  This executor is not yet connected to a durable dispatch worker or exposed as an agent request tool.
-  Approval notification obligations are stored, but protected-chat cards and event dispatch remain pending.
+  A scoped durable worker now consumes Approved actions and converts abandoned Executing records
+  to Indeterminate without resending. Failures before dispatch block visibly through action status.
+- SDK 3.32.0 exposes `Platform.Connectors.RequestActionAsync` and `ReadActionAsync` with typed
+  requests and receipts. The hidden host controls enforce their own live grants in addition to
+  the provider operation grant. The caller cannot select credentials, destinations or installations.
+  Terminal result reads revalidate the original package, account and grants before releasing data.
+- Durable action events wake only the exact requesting installation, with both manifest subscription
+  and event grant checked. Agent approvers receive the existing structured approval-request event
+  when subscribed and granted. Stable outbox/inbox correlations recover checkpoint gaps without
+  duplicate work. Human protected-chat cards and conversational YouTube mutation handling remain pending.
 
-Current verification: 118 selected host connector/setup/OAuth/cleanup/approval tests pass, including
-23 exact-plan approval/mutation tests and native-review routing coverage. Legacy OAuth fixtures now
+Current verification: 143 selected host connector/setup/OAuth/cleanup/approval/capability-registry
+tests pass, including exact-plan decisions, typed controls, durable dispatch, event replay,
+result isolation and native-review routing. Legacy OAuth fixtures now
 include the authenticated human required by consent enforcement; no security check was weakened.
-The previous verification also passed 21 conversational-agent tests and 8 connector tests against
-SDK **3.31.1**; those unchanged package suites were not rerun during the host approval work. Host builds use **all external sibling
+SDK **3.32.0** passes 143 SDK tests, 2 sample tests and the temporary standalone-template verification
+(7 generated tests plus self-test). The agent's 21 tests and connector's 8 tests pass with fresh
+package restores; both executable self-tests pass. Host builds use **all external sibling
 project references disabled** and isolated outputs. Five nullable warnings remain in concurrently
-edited `Communications.razor`; the YouTube changes compile. SDK 3.31.1 and connector 0.1.0 have
-been packed locally into the current verification feed. Prior foundation verification covered
+edited `Communications.razor`; the YouTube changes compile. SDK 3.32.0, connector 0.1.0 and agent
+0.1.0 have been packed locally; archive metadata confirms the SDK and connector downstream pins.
+Prior foundation verification covered
 109 selected host tests, the previous SDK/template suite and Memory.Broker 0.1.3; those historical
 counts are not claims that the entire current suite was rerun. Nothing was published, no migration
 was applied, and no Google credentials were used. These are deterministic foundation checks,
 not full browser acceptance or real-provider verification.
 
-Next implementation priorities: expose typed action request/read contracts, wire durable execution
-and protected-conversation approval events/cards, then durable media jobs; bundle installation and CEO-to-human setup handoff; complete channel synchronization
+Next implementation priorities: protected-conversation approval cards and typed YouTube mutation
+workflows using the new action lifecycle, then durable media jobs; bundle installation and CEO-to-human setup handoff; complete channel synchronization
 and review/report cadences; remaining typed YouTube operations; provenance-aware data purge and broader
 recovery/acceptance. Conversational reads currently persist a bounded single response; large pages can
 exceed the platform's 64 KB operating-state payload limit and need sharded evidence/artifact storage.

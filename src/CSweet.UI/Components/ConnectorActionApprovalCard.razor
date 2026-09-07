@@ -1,0 +1,104 @@
+@using CSweet.Contracts.Core
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@inject HttpClient Http
+
+<MudPaper Class="pa-4 my-3" Outlined="true" aria-label="Review proposed account change">
+    <MudText Typo="Typo.h6">Review change to @(Card.Action.AccountName ?? "connected account")</MudText>
+    <MudText Class="my-2">@Card.Summary</MudText>
+    @foreach (var field in Fields())
+    {
+        <div class="my-2"><strong>@field.Key</strong><div style="white-space: pre-wrap; overflow-wrap: anywhere">@field.Value</div></div>
+    }
+    @if (Card.Action.ExpiresAt is { } expiry && Card.Status == "Pending")
+    {
+        <MudText Typo="Typo.caption">Review valid until @expiry.ToLocalTime().ToString("g").</MudText>
+    }
+    <details class="my-2">
+        <summary>Exact request details</summary>
+        <div>Account: @Card.Action.ChannelId</div>
+        <pre style="white-space: pre-wrap; overflow-wrap: anywhere">@Card.Action.ReviewPayloadJson</pre>
+    </details>
+    @if (CanDecide && Card.CanDecide && Card.Status == "Pending")
+    {
+        <MudText Typo="Typo.body2">Approve only if these are the changes you want. Approval is recorded before the change is applied.</MudText>
+        <MudTextField @bind-Value="_feedback" Label="Feedback" HelperText="Required when requesting a revision."
+                      Lines="2" MaxLength="4000" Variant="Variant.Outlined" Class="my-2" />
+        <MudStack Row="true" Spacing="1">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => Decide(ResourceChangeDecisionKinds.Approve))">Approve</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="_busy" OnClick="@(() => Decide(ResourceChangeDecisionKinds.RequestRevision))">Request revision</MudButton>
+            <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => Decide(ResourceChangeDecisionKinds.Reject))">Reject</MudButton>
+        </MudStack>
+    }
+    else
+    {
+        <MudText>@StatusText()</MudText>
+        @if (!string.IsNullOrWhiteSpace(Card.DecisionComment))
+        {
+            <MudText Class="mt-2" Style="white-space: pre-wrap">Feedback: @Card.DecisionComment</MudText>
+        }
+    }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" Class="mt-2">@_error</MudAlert> }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public ConnectorActionApprovalCardResponse Card { get; set; } = default!;
+    [Parameter] public bool CanDecide { get; set; }
+    [Parameter] public EventCallback DecisionCompleted { get; set; }
+    private string? _feedback;
+    private string? _error;
+    private bool _busy;
+
+    private IEnumerable<KeyValuePair<string, string>> Fields()
+    {
+        if (Card.Action.ReviewPayloadJson is null) return [];
+        using var document = JsonDocument.Parse(Card.Action.ReviewPayloadJson);
+        if (!document.RootElement.TryGetProperty("changes", out var changes) || changes.ValueKind != JsonValueKind.Object) return [];
+        var fields = new List<KeyValuePair<string, string>>();
+        Flatten(changes, "", fields, 0);
+        return fields;
+    }
+
+    private static void Flatten(JsonElement value, string prefix, List<KeyValuePair<string, string>> fields, int depth)
+    {
+        foreach (var property in value.EnumerateObject())
+        {
+            var label = prefix + Regex.Replace(property.Name, "([a-z0-9])([A-Z])", "$1 $2");
+            if (property.Value.ValueKind == JsonValueKind.Object && depth < 2) Flatten(property.Value, label + " / ", fields, depth + 1);
+            else fields.Add(new(label, property.Value.ValueKind switch
+            {
+                JsonValueKind.String => property.Value.GetString()!, JsonValueKind.True => "Yes", JsonValueKind.False => "No",
+                JsonValueKind.Null => "Not set", _ => property.Value.GetRawText()
+            }));
+        }
+    }
+
+    private string StatusText() => Card.ExecutionStatus switch
+    {
+        "Completed" => "Change completed.", "Approved" or "Executing" => "Approved. Waiting for a confirmed result.",
+        "RevisionRequested" => "A revision was requested. This version will not be applied.",
+        "Rejected" => "Rejected. No change will be applied.", "Indeterminate" => "The result is uncertain. Review is required before retrying.",
+        "Blocked" => "This action is blocked and needs attention.", "Cancelled" => "This action was cancelled.",
+        _ => Card.Action.ExpiresAt <= DateTimeOffset.UtcNow ? "This review has expired." : "Waiting for the assigned approver."
+    };
+
+    private async Task Decide(string decision)
+    {
+        if (_busy || !CanDecide || !Card.CanDecide) return;
+        if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(_feedback))
+        { _error = "Please explain what should change."; return; }
+        _busy = true; _error = null;
+        try
+        {
+            var action = Card.Action;
+            using var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/approvals/agent-actions/{action.ProposalId:D}/decide",
+                new DecideManagedAgentActionRequest(action.ProposalId, decision, _feedback, action.PayloadHash,
+                    action.ExpectedRevision, action.IdempotencyKey, $"connector-review:{action.ProposalId:N}:{decision}", action.ResourceId));
+            if (!response.IsSuccessStatusCode) _error = "The decision could not be recorded. Refresh the conversation to check the current action and your authority.";
+            await DecisionCompleted.InvokeAsync();
+        }
+        catch (HttpRequestException) { _error = "The result could not be confirmed. Refresh before trying again."; }
+        finally { _busy = false; }
+    }
+}

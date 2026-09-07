@@ -415,6 +415,11 @@
                                                                          CanDecide="@(!_hub.IsReadOnlyPerspective && hiringWorkflow.Status == "Pending")"
                                                                          DecisionCompleted="@(() => LoadMessagesAsync(markRead: false))" />
                                  }
+                                 @if (message.ConnectorApproval is { } connectorApproval)
+                                 {
+                                     <ConnectorActionApprovalCard OrganizationId="OrganizationId" Card="connectorApproval"
+                                         CanDecide="@(!_hub.IsReadOnlyPerspective)" DecisionCompleted="@(() => LoadMessagesAsync(markRead: false))" />
+                                 }
                                  @if (message.Actions is { Count: > 0 })
                                 {
                                     <div class="hub-message-actions" aria-label="Suggested actions">

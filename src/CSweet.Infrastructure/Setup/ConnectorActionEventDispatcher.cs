@@ -32,6 +32,7 @@ public sealed class ConnectorActionEventDispatcher(CSweetDbContext db, AgentWork
                 var status = payload.RootElement.GetProperty("status").GetString()!;
                 if (status == "Requested" && proposal.Status == ProposalStatus.Pending)
                 {
+                    await new ConnectorApprovalConversationService(db).EnsureAsync(proposal, binding, ct);
                     var approver = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
                         x.Id == binding.ApproverOrganizationUserId && x.OrganizationId == item.OrganizationId && x.IsActive, ct);
                     if (approver?.EmployeeType == EmployeeType.Agent && approver.AgentInstallationId is { } target)
@@ -61,7 +62,7 @@ public sealed class ConnectorActionEventDispatcher(CSweetDbContext db, AgentWork
         var manifest = JsonSerializer.Deserialize<PluginManifest>(installation.PackageVersion!.ManifestJson, Json)!;
         if (!manifest.Events.Subscribes.Contains(name, StringComparer.Ordinal) ||
             !(JsonSerializer.Deserialize<string[]>(installation.Grant.EventSubscriptionsJson) ?? []).Contains(name, StringComparer.Ordinal)) return;
-        await inbox.EnqueueAsync(organization, target, AgentWorkKind.Event, name, payload,
+        await inbox.EnqueueAsync(organization, target, CSweet.Domain.Setup.AgentWorkKind.Event, name, payload,
             $"connector-action:{item.Id:N}:{name}", DateTimeOffset.UtcNow.AddDays(7),
             correlationId: (payload.TryGetProperty("actionId", out var action) ? action : payload.GetProperty("proposalId")).GetGuid().ToString("D"),
             sourceType: "connector-action", sourceId: item.Id.ToString("D"), cancellationToken: ct);

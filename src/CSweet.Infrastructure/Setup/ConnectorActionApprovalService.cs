@@ -21,7 +21,7 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
         Guid ApproverOrganizationUserId, string ApprovalMode, string Effect, DateTimeOffset ExpiresAt,
         JsonElement? ReviewPayload, string? AccountName);
     public sealed record DecisionReceipt(Guid ProposalId, Guid ActorId, string DecisionKey, string DecisionHash,
-        string PlanHash, string Status, DateTimeOffset DecidedAt);
+        string PlanHash, string Status, DateTimeOffset DecidedAt, string? Comment = null);
 
     public async Task<ActionProposal> RequestAsync(Guid organizationId, Guid requesterId, Guid planId, string planHash, CancellationToken ct)
     {
@@ -95,7 +95,7 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
         db.PluginOperationalStates.Add(new() { Id = Guid.NewGuid(), OrganizationId = organizationId,
             AgentInstallationId = proposal.AgentInstallationId, Kind = ReceiptKind, ExternalKey = proposal.Id.ToString("N"),
             PayloadJson = JsonSerializer.Serialize(new DecisionReceipt(proposal.Id, actorId, request.DecisionIdempotencyKey,
-                hash, binding.PayloadHash, execution.Status, proposal.DecidedAt.Value), Json),
+                hash, binding.PayloadHash, execution.Status, proposal.DecidedAt.Value, request.Comment), Json),
             Revision = 1, CreatedAt = proposal.DecidedAt.Value, UpdatedAt = proposal.DecidedAt.Value });
         QueueEvent(proposal, binding, execution.Status);
         await db.SaveChangesAsync(ct); // Optimistic plan revision prevents competing decisions across contexts.

@@ -87,6 +87,7 @@ public sealed record CommunicationHubMessageResponse(
     public IReadOnlyList<CommunicationMessageMentionResponse> Mentions { get; init; } = [];
     public IReadOnlyList<CommunicationMessageAttachmentResponse> Attachments { get; init; } = [];
     public IReadOnlyList<CommunicationMessageArtifactResponse> Artifacts { get; init; } = [];
+    public CSweet.Contracts.Core.ConnectorActionApprovalCardResponse? ConnectorApproval { get; init; }
 }
 
 public sealed record CommunicationMessageAttachmentResponse(

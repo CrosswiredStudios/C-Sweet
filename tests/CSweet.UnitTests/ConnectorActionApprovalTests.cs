@@ -3,6 +3,7 @@ using System.Text;
 using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
 using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Communications;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Core;
 using CSweet.Contracts.Plugins;
@@ -107,6 +108,81 @@ public sealed class ConnectorActionApprovalTests
     }
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    [Fact]
+    public async Task HumanReviewUsesOneProtectedConversationAndOneAuthoritativeCard()
+    {
+        await using var f = await Fixture.Create(); var proposal = await f.Request();
+        var service = new ConnectorApprovalConversationService(f.Inner.Db);
+        await service.EnsureAsync(proposal, ConnectorActionApprovalService.Parse(proposal), default);
+        await service.EnsureAsync(proposal, ConnectorActionApprovalService.Parse(proposal), default);
+        var chat = Assert.Single(await f.Inner.Db.CoreConversations.Include(x => x.Participants).ToArrayAsync());
+        Assert.True(chat.IsPrivate); Assert.True(chat.IsDeletionProtected); Assert.Equal(2, chat.Participants.Count);
+        var messages = await f.Inner.Db.CoreConversationMessages.ToArrayAsync(); Assert.Single(messages);
+        Assert.Single(await f.Inner.Db.UserNotifications.ToArrayAsync());
+        var cards = await service.ReadCardsAsync(f.Inner.Organization, chat.Id, f.Manager.Id, messages, default);
+        Assert.True(Assert.Single(cards).Value.CanDecide);
+        var hub = new CommunicationHubService(f.Inner.Db, new Audit(), new ChatTurnService(f.Inner.Db));
+        var visible = await hub.ListMessagesAsync(f.Inner.Organization, chat.Id, f.Manager.Id);
+        Assert.Equal(proposal.Id, Assert.Single(visible!).ConnectorApproval!.Action.ProposalId);
+        await f.Service.DecideAsync(f.Inner.Organization, f.Manager.Id,
+            Decision(proposal) with { Decision = "RequestRevision", Comment = "Please change the title." }, default);
+        cards = await service.ReadCardsAsync(f.Inner.Organization, chat.Id, f.Manager.Id, messages, default);
+        var revised = Assert.Single(cards).Value;
+        Assert.False(revised.CanDecide); Assert.Equal("RevisionRequested", revised.ExecutionStatus);
+        Assert.Equal("Please change the title.", revised.DecisionComment);
+    }
+
+    [Fact]
+    public async Task CopiedCorrelationCannotProjectAnApprovalIntoAnotherMessageOrChat()
+    {
+        await using var f = await Fixture.Create(); var proposal = await f.Request();
+        var service = new ConnectorApprovalConversationService(f.Inner.Db);
+        await service.EnsureAsync(proposal, ConnectorActionApprovalService.Parse(proposal), default);
+        var message = await f.Inner.Db.CoreConversationMessages.SingleAsync();
+        var forged = new ConversationMessage { Id = Guid.NewGuid(), ConversationId = message.ConversationId,
+            CorrelationId = proposal.Id, SourceProvider = ConnectorApprovalConversationService.MessageSource };
+        Assert.Empty(await service.ReadCardsAsync(f.Inner.Organization, message.ConversationId, f.Manager.Id, [forged], default));
+        Assert.Empty(await service.ReadCardsAsync(Guid.NewGuid(), message.ConversationId, f.Manager.Id, [message], default));
+        Assert.Empty(await service.ReadCardsAsync(f.Inner.Organization, Guid.NewGuid(), f.Manager.Id, [message], default));
+        Assert.Empty(await service.ReadCardsAsync(f.Inner.Organization, message.ConversationId, Guid.NewGuid(), [message], default));
+        var requesterView = await service.ReadCardsAsync(f.Inner.Organization, message.ConversationId, f.Employee.Id, [message], default);
+        Assert.False(Assert.Single(requesterView).Value.CanDecide);
+    }
+
+    [Fact]
+    public async Task DeclaringAnEventWithoutItsGrantDoesNotDeliverWork()
+    {
+        await using var f = await Fixture.Create();
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(f.Inner.Requester.PackageVersion!.ManifestJson, Json)!;
+        f.Inner.Requester.PackageVersion.ManifestJson = JsonSerializer.Serialize(manifest with
+            { Events = new() { Subscribes = [ConnectorActionEvents.Changed] } }, Json);
+        await f.Inner.Db.SaveChangesAsync(); _ = await f.Request();
+        var dispatcher = new ConnectorActionEventDispatcher(f.Inner.Db,
+            new AgentWorkInbox(f.Inner.Db, new EphemeralDataProtectionProvider(), TimeProvider.System));
+        await dispatcher.DispatchAsync(default);
+        Assert.Empty(await f.Inner.Db.AgentWorkItems.ToArrayAsync());
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("{\"actionId\":\"00000000-0000-0000-0000-000000000000\",\"installationId\":\"other\"}")]
+    [InlineData("{\"actionId\":\"first\",\"actionId\":\"second\"}")]
+    public async Task ActionControlRejectsMalformedOrCallerSelectedAuthority(string json)
+    {
+        await using var f = await Fixture.Create();
+        var handler = new ConnectorActionCapabilityHandler(new(f.Inner.Db, f.Inner.Service, f.Service));
+        var session = new AgentSession("session", "requester", f.Inner.Requester.Id.ToString("D"),
+            f.Inner.Organization.ToString("D"), Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(),
+                new HashSet<string>([PlatformCapabilities.ConnectorActionRead]), 1));
+        var results = new List<CapabilityResult>();
+        await foreach (var response in handler.HandleAsync(session, new RequestCapability { RequestId = "read",
+            Capability = PlatformCapabilities.ConnectorActionRead, Payload = JsonPayload.FromUtf8(json) }, default)) results.Add(response);
+        Assert.False(Assert.Single(results).Succeeded);
+        Assert.Empty(await f.Inner.Db.ActionProposals.ToArrayAsync());
+    }
+
     [Fact]
     public async Task ActionEventDeliveryTargetsTheExactSubscriberAndSurvivesCheckpointReplay()
     {

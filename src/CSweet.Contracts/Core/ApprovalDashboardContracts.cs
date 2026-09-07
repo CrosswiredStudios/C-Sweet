@@ -59,6 +59,9 @@ public sealed record DecideManagedAgentActionRequest(
     string DecisionIdempotencyKey,
     string? ResourceId = null);
 
+public sealed record ConnectorActionApprovalCardResponse(ManagedAgentActionApprovalResponse Action,
+    string Summary, string Status, string ExecutionStatus, bool CanDecide, string? DecisionComment = null);
+
 public sealed record SourceControlApprovalCardResponse(
     Guid ApprovalId,
     string ApprovalKind,
