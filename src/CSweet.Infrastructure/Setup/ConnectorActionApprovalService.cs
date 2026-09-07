@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Plugins;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -38,12 +39,20 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
         var route = await ResolveApproverAsync(organizationId, requesterId, ct);
         var accountName = await db.PluginConnections.Where(x => x.Id == frozen.ConnectionId)
             .Select(x => x.ExternalAccountName).SingleAsync(ct);
+        var manifestJson = await db.AgentInstallations.AsNoTracking().Where(x => x.Id == frozen.ConnectorInstallationId)
+            .Select(x => x.PackageVersion!.ManifestJson).SingleAsync(ct);
+        var description = JsonSerializer.Deserialize<PluginManifest>(manifestJson, Json)!.Provides
+            .Single(x => x.Name == frozen.Capability).Description;
+        // The reviewed connector supplies the operation's plain-language description. Keep
+        // protocol identifiers in exact details, not the business-facing review heading.
+        var summary = string.IsNullOrWhiteSpace(description) ? "Review the proposed account change." : description.Trim();
+        if (summary.Length > 500) summary = summary[..500] + "…";
         var binding = new Binding(planId, planHash, frozen.ResourceId, ReviewResource(frozen), execution.Revision,
             frozen.IdempotencyKey, frozen.Capability, true, route.Actor.Id, route.Mode, frozen.Request.Effect,
             execution.ExpiresAt, Review(frozen), accountName);
         var proposal = new ActionProposal { Id = Guid.NewGuid(), OrganizationId = organizationId,
             AgentInstallationId = requesterId, ActionType = ActionType,
-            Summary = $"Review {frozen.Capability} for {accountName ?? frozen.ResourceId}.",
+            Summary = summary,
             PayloadJson = JsonSerializer.Serialize(binding, Json),
             RiskClass = frozen.Request.Effect == "write" ? "PublicMutation" : "AlwaysApproval",
             IdempotencyKey = $"connector-plan:{planId:N}", CreatedAt = DateTimeOffset.UtcNow };
