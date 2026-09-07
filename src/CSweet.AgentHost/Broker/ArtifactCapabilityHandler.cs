@@ -434,6 +434,10 @@ public sealed class ArtifactCapabilityHandler(
             request.Members.Select(x => x.Position).Distinct().Count() != request.Members.Count)
             throw new ArgumentException("A package requires up to 100 members with unique positions.");
         foreach (var item in request.Members) await RequireFileGrantAsync(organizationId, item.ArtifactId, actor, ArtifactActions.Read, token);
+        foreach (var item in request.Members.Where(x => x.AcceptedRevisionId.HasValue))
+            if (!await db.ArtifactRevisions.AnyAsync(x => x.OrganizationId == organizationId && x.ArtifactId == item.ArtifactId &&
+                x.Id == item.AcceptedRevisionId && x.Status == ArtifactRevisionStatus.Accepted, token))
+                throw new ArgumentException("A pinned package revision must be an accepted revision of its document.");
         var ids = request.Members.Select(x => x.ArtifactId).Distinct().ToList();
         var artifacts = await db.CoreArtifacts.Where(x => x.OrganizationId == organizationId && ids.Contains(x.Id)).ToListAsync(token);
         if (ids.Count != request.Members.Count || artifacts.Count != ids.Count ||
@@ -449,7 +453,7 @@ public sealed class ArtifactCapabilityHandler(
             WorkstreamId = workstreamIds[0], TeamId = teamIds.SingleOrDefault(),
             CreatedByOrganizationUserId = actor.OrganizationUserId, CreatedAt = now, UpdatedAt = now };
         foreach (var item in request.Members.OrderBy(x => x.Position)) package.Members.Add(new ArtifactPackageMember
-        { Id = Guid.NewGuid(), PackageId = package.Id, ArtifactId = item.ArtifactId, Position = item.Position, RequiredDocumentType = item.RequiredDocumentType });
+        { Id = Guid.NewGuid(), PackageId = package.Id, ArtifactId = item.ArtifactId, Position = item.Position, RequiredDocumentType = item.RequiredDocumentType, AcceptedRevisionId = item.AcceptedRevisionId });
         db.ArtifactPackages.Add(package);
         foreach (var artifact in artifacts)
             artifact.PackageId = package.Id;
@@ -474,11 +478,19 @@ public sealed class ArtifactCapabilityHandler(
         if ((decide ? package.LastDecisionIdempotencyKey : package.LastSubmissionIdempotencyKey) == request.IdempotencyKey)
             return MapPackage(package);
         foreach (var item in package.Members) await RequireFileGrantAsync(organizationId, item.ArtifactId, actor, decide ? ArtifactActions.Decide : ArtifactActions.Submit, token);
-        if (decide && package.Members.Any(x => x.Artifact?.AcceptedRevisionId is null)) throw new InvalidOperationException("Every package document needs an accepted revision.");
+        if (decide)
+            foreach (var item in package.Members)
+            {
+                var revisionId = item.AcceptedRevisionId ?? item.Artifact?.AcceptedRevisionId;
+                if (!await db.ArtifactRevisions.AnyAsync(x => x.OrganizationId == organizationId && x.ArtifactId == item.ArtifactId &&
+                    x.Id == revisionId && x.Status == ArtifactRevisionStatus.Accepted, token))
+                    throw new InvalidOperationException("Every package member must retain an exact accepted revision.");
+                item.AcceptedRevisionId = revisionId;
+            }
         var now = clock.GetUtcNow(); package.Status = decide ? ArtifactDocumentStatus.Approved : ArtifactDocumentStatus.InReview; package.UpdatedAt = now;
         if (decide) package.LastDecisionIdempotencyKey = request.IdempotencyKey;
         else package.LastSubmissionIdempotencyKey = request.IdempotencyKey;
-        if (decide) { package.AcceptedByOrganizationUserId = actor.OrganizationUserId; package.AcceptedAt = now; foreach (var item in package.Members) item.AcceptedRevisionId = item.Artifact!.AcceptedRevisionId; }
+        if (decide) { package.AcceptedByOrganizationUserId = actor.OrganizationUserId; package.AcceptedAt = now; }
         AddPackageEvent(decide ? W.WorkstreamEventNames.ArtifactPackageDecidedV1 : W.WorkstreamEventNames.ArtifactPackageSubmittedV1,
             package, decide ? "decided" : "submitted");
         await db.SaveChangesAsync(token);

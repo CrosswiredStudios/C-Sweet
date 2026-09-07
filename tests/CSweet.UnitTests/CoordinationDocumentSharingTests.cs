@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Domain.Core;
+using CSweet.Contracts.Core;
 using CSweet.Domain.Security;
 using CSweet.Infrastructure.Communications;
 using CSweet.Infrastructure.Persistence;

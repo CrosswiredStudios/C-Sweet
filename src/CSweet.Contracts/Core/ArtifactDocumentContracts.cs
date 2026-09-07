@@ -164,6 +164,6 @@ public sealed record ArtifactPackageResponse(
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? AcceptedAt, DateTimeOffset? ArchivedAt);
 public sealed record CreateArtifactPackageRequest(
     string Name, string PackageType, IReadOnlyList<ArtifactPackageMemberInput> Members, string IdempotencyKey);
-public sealed record ArtifactPackageMemberInput(Guid ArtifactId, int Position, string RequiredDocumentType);
+public sealed record ArtifactPackageMemberInput(Guid ArtifactId, int Position, string RequiredDocumentType, Guid? AcceptedRevisionId = null);
 public sealed record SubmitArtifactPackageRequest(string IdempotencyKey);
 public sealed record DecideArtifactPackageRequest(string Decision, string IdempotencyKey);

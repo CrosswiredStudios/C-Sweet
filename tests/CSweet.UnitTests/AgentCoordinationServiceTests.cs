@@ -5,6 +5,8 @@ using CSweet.Contracts.Communications;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Domain.Security;
+using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Communications;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
@@ -371,6 +373,62 @@ public sealed class AgentCoordinationServiceTests
             fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId, request));
         Assert.False(await fixture.Db.AgentCoordinationTurns.AnyAsync(x => x.SessionId == fixture.SessionId && x.Ordinal == 1));
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypedDocumentSharingAtBoardAndWorkStartsGrantsOnlyRead(bool workSource)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var db = fixture.Db;
+        var boardId = Guid.NewGuid(); var teamId = Guid.NewGuid();
+        var documentId = Guid.NewGuid(); var revisionId = Guid.NewGuid();
+        var itemId = Guid.NewGuid(); var sprintId = Guid.NewGuid(); var stageId = Guid.NewGuid();
+        db.WorkBoards.Add(new() { Id = boardId, OrganizationId = fixture.OrganizationId,
+            TeamId = teamId, ManagerOrganizationUserId = fixture.InitiatorId });
+        foreach (var userId in new[] { fixture.InitiatorId, fixture.TargetId })
+            db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId,
+                TeamId = teamId, OrganizationUserId = userId });
+        db.CoreArtifacts.Add(new() { Id = documentId, OrganizationId = fixture.OrganizationId,
+            CreatedByOrganizationUserId = fixture.InitiatorId });
+        db.ArtifactRevisions.Add(new() { Id = revisionId, ArtifactId = documentId,
+            OrganizationId = fixture.OrganizationId, ContentSha256 = "exact" });
+        db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId,
+            SubjectKind = GrantSubjectKind.AgentInstallation, SubjectId = fixture.InitiatorInstallationId,
+            ScopeKind = GrantScopeKind.Artifact, ScopeId = documentId, Action = CSweet.Contracts.Core.ArtifactActions.Read });
+        if (workSource)
+        {
+            foreach (var installationId in new[] { fixture.InitiatorInstallationId, fixture.TargetInstallationId })
+                db.AgentInstallationGrants.Add(new() { AgentInstallationId = installationId,
+                    RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] {
+                        CommunicationCapabilities.CoordinationRead, CommunicationCapabilities.CoordinationRespond }) });
+            var initiator = await db.CoreOrganizationUsers.SingleAsync(x => x.Id == fixture.InitiatorId);
+            var target = await db.CoreOrganizationUsers.SingleAsync(x => x.Id == fixture.TargetId);
+            initiator.Role = new() { Id = Guid.NewGuid(), Name = "Developer" };
+            target.Role = new() { Id = Guid.NewGuid(), Name = "Architect" };
+            db.CoreRoles.AddRange(initiator.Role, target.Role);
+            var execution = new WorkItemExecution { Id = Guid.NewGuid(), WorkItemId = itemId,
+                SprintExecutionId = sprintId,
+                WorkItem = new() { Id = itemId, OrganizationId = fixture.OrganizationId, AssignmentRevision = 1 },
+                SprintExecution = new() { Id = sprintId, OrganizationId = fixture.OrganizationId, BoardId = boardId } };
+            db.WorkStageExecutions.Add(new() { Id = stageId, ItemExecutionId = execution.Id, ItemExecution = execution,
+                Status = WorkStageExecutionStatus.Running, AgentInstallationId = fixture.InitiatorInstallationId });
+        }
+        await db.SaveChangesAsync();
+        var chat = new CommunicationChatResponse(fixture.SourceConversationId, "Documentation", null,
+            true, true, false, true, DateTimeOffset.UtcNow, [], null, null, 0);
+        var service = new AgentCoordinationService(db, new StubCommunicationHubService(chat), fixture.Inbox);
+        var artifact = CollaborationActions.ShareDocuments("sources", [new(documentId, revisionId, "exact")]);
+        var session = workSource
+            ? await service.StartWorkAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId,
+                new(fixture.TargetId, boardId, itemId, sprintId, stageId, 1, "Documentation", "Review source", ["Source read"], "Read this source", "work-source", artifact))
+            : await service.StartBoardAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId,
+                new(fixture.TargetId, boardId, "Documentation", "Review source", ["Source read"], "Read this source", "board-source", artifact));
+        Assert.Equal(CollaborationActions.DocumentShareType, session.Turns[0].Artifact!.Type);
+        var grant = Assert.Single(await db.ScopedActionGrants.Where(x => x.SubjectId == fixture.TargetInstallationId).ToArrayAsync());
+        Assert.Equal(CSweet.Contracts.Core.ArtifactActions.Read, grant.Action);
+        Assert.Equal(documentId, grant.ScopeId);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public required CSweetDbContext Db { get; init; }

@@ -532,13 +532,17 @@ public sealed class ArtifactDocumentService(
             throw new ArgumentException("Every package member must be a distinct document in this organization.");
         if (request.Members.Any(member => artifacts.Single(x => x.Id == member.ArtifactId).DocumentType != member.RequiredDocumentType))
             throw new ArgumentException("Every package member's declared type must match the document's immutable type.");
+        foreach (var input in request.Members.Where(x => x.AcceptedRevisionId.HasValue))
+            if (!await db.ArtifactRevisions.AnyAsync(x => x.OrganizationId == organizationId && x.ArtifactId == input.ArtifactId &&
+                x.Id == input.AcceptedRevisionId && x.Status == ArtifactRevisionStatus.Accepted, cancellationToken))
+                throw new ArgumentException("A pinned package revision must be an accepted revision of its document.");
         var now = clock.GetUtcNow();
         var package = new ArtifactPackage { Id = Guid.NewGuid(), OrganizationId = organizationId,
             Name = request.Name.Trim(), PackageType = request.PackageType.Trim(), IdempotencyKey = request.IdempotencyKey,
             CreatedByOrganizationUserId = member.Id,
             CreatedAt = now, UpdatedAt = now };
         foreach (var input in request.Members.OrderBy(x => x.Position)) package.Members.Add(new ArtifactPackageMember
-        { Id = Guid.NewGuid(), PackageId = package.Id, ArtifactId = input.ArtifactId, Position = input.Position, RequiredDocumentType = input.RequiredDocumentType });
+        { Id = Guid.NewGuid(), PackageId = package.Id, ArtifactId = input.ArtifactId, Position = input.Position, RequiredDocumentType = input.RequiredDocumentType, AcceptedRevisionId = input.AcceptedRevisionId });
         db.ArtifactPackages.Add(package);
         foreach (var artifact in artifacts)
             artifact.PackageId = package.Id;
@@ -613,13 +617,19 @@ public sealed class ArtifactDocumentService(
         if (!accept && !request.Decision.Equals("reject", StringComparison.OrdinalIgnoreCase) &&
             !request.Decision.Equals("request-revision", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Decision must be accept, reject, or request-revision.");
-        if (accept && package.Members.Any(x => x.Artifact?.AcceptedRevisionId is null))
-            throw new InvalidOperationException("Every package document must have an accepted revision.");
+        if (accept)
+            foreach (var entry in package.Members)
+            {
+                var revisionId = entry.AcceptedRevisionId ?? entry.Artifact?.AcceptedRevisionId;
+                if (!await db.ArtifactRevisions.AnyAsync(x => x.OrganizationId == organizationId && x.ArtifactId == entry.ArtifactId &&
+                    x.Id == revisionId && x.Status == ArtifactRevisionStatus.Accepted, cancellationToken))
+                    throw new InvalidOperationException("Every package member must retain an exact accepted revision.");
+                entry.AcceptedRevisionId = revisionId;
+            }
         var now = clock.GetUtcNow();
         package.Status = accept ? ArtifactDocumentStatus.Approved : ArtifactDocumentStatus.ChangesRequested;
         package.AcceptedByOrganizationUserId = accept ? member.Id : null; package.AcceptedAt = accept ? now : null;
         package.LastDecisionIdempotencyKey = request.IdempotencyKey; package.UpdatedAt = now;
-        foreach (var entry in package.Members) entry.AcceptedRevisionId = accept ? entry.Artifact!.AcceptedRevisionId : null;
         await db.SaveChangesAsync(cancellationToken);
         await AuditAsync(accept ? "artifact.package.accepted" : "artifact.package.changes-requested", "Completed",
             organizationId, package.Id, member, new { package.Version }, cancellationToken);

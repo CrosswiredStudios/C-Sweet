@@ -269,6 +269,8 @@ public sealed class AgentCoordinationService(
         session.Turns.Add(initialTurn);
         db.AgentCoordinationSessions.Add(session);
         AppendWorkComment(session, "ArchitectureSupportRequested", request.InitialMessage.Trim(), initialTurn.ArtifactDigest);
+        await CoordinationDocumentSharing.ShareAsync(db, organizationId, initiatorOrganizationUserId,
+            initiatorInstallationId, targetInstallationId, request.Artifact, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         session.CurrentAgentWorkItemId = await EnqueueTurnAsync(
             session, targetInstallationId, request.TargetOrganizationUserId, cancellationToken);
@@ -363,6 +365,8 @@ public sealed class AgentCoordinationService(
         ApplyArtifact(initialTurn, request.Artifact);
         session.Turns.Add(initialTurn);
         db.AgentCoordinationSessions.Add(session);
+        await CoordinationDocumentSharing.ShareAsync(db, organizationId, initiatorOrganizationUserId,
+            initiatorInstallationId, targetInstallationId, request.Artifact, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         session.CurrentAgentWorkItemId = await EnqueueTurnAsync(
             session, targetInstallationId, request.TargetOrganizationUserId, cancellationToken);

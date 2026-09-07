@@ -1,7 +1,7 @@
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Domain.Security;
-using CSweet.Domain.Core;
+using CSweet.Contracts.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,13 +18,26 @@ public static class CoordinationDocumentSharing
             !submission.Payload.TryGetProperty("documentReferences", out var references)) return;
         if (references.ValueKind != JsonValueKind.Array || references.GetArrayLength() > 8)
             throw new ArgumentException("Coordination document references must contain at most eight exact revisions.");
+        CollaborationDocumentReference[] documents;
+        try
+        {
+            documents = references.Deserialize<CollaborationDocumentReference[]>(new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new ArgumentException("Document references are required.");
+        }
+        catch (JsonException ex)
+        {
+            throw new ArgumentException("Document references must identify exact revisions.", ex);
+        }
+        if (documents.Any(x => x is null || x.DocumentId == Guid.Empty || x.RevisionId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(x.ContentSha256)))
+            throw new ArgumentException("Document references must identify exact revisions.");
         var now = DateTimeOffset.UtcNow;
         var validated = new HashSet<Guid>();
-        foreach (var reference in references.EnumerateArray())
+        foreach (var reference in documents)
         {
-            var documentId = reference.GetProperty("documentId").GetGuid();
-            var revisionId = reference.GetProperty("revisionId").GetGuid();
-            var digest = reference.GetProperty("contentSha256").GetString();
+            var documentId = reference.DocumentId;
+            var revisionId = reference.RevisionId;
+            var digest = reference.ContentSha256;
             var document = await db.CoreArtifacts.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.Id == documentId && x.OrganizationId == organizationId && x.ArchivedAt == null, token);
             if (document is null || (document.CreatedByOrganizationUserId != authorId && document.StewardOrganizationUserId != authorId) ||
