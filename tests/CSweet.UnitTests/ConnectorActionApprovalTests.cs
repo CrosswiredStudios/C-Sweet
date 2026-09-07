@@ -10,6 +10,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace CSweet.UnitTests;
 
@@ -106,6 +107,31 @@ public sealed class ConnectorActionApprovalTests
     }
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    [Fact]
+    public async Task ActionEventDeliveryTargetsTheExactSubscriberAndSurvivesCheckpointReplay()
+    {
+        await using var f = await Fixture.Create();
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(f.Inner.Requester.PackageVersion!.ManifestJson, Json)!;
+        f.Inner.Requester.PackageVersion.ManifestJson = JsonSerializer.Serialize(manifest with
+            { Events = new() { Subscribes = [ConnectorActionEvents.Changed] } }, Json);
+        f.Inner.Requester.Grant!.EventSubscriptionsJson = JsonSerializer.Serialize(new[] { ConnectorActionEvents.Changed });
+        await f.Inner.Db.SaveChangesAsync();
+        var proposal = await f.Request();
+        var dispatcher = new ConnectorActionEventDispatcher(f.Inner.Db,
+            new AgentWorkInbox(f.Inner.Db, new EphemeralDataProtectionProvider(), TimeProvider.System));
+        await dispatcher.DispatchAsync(default);
+        var work = Assert.Single(await f.Inner.Db.AgentWorkItems.ToArrayAsync());
+        Assert.Equal(f.Inner.Requester.Id, work.AgentInstallationId);
+        Assert.Equal(ConnectorActionEvents.Changed, work.Name);
+        Assert.Equal(proposal.Id.ToString("D"), work.CorrelationId);
+        var notification = await f.Inner.Db.PluginOperationalStates.SingleAsync(x => x.Kind == ConnectorActionEventDispatcher.DeliveredKind);
+        Assert.Equal(notification.Id.ToString("D"), work.SourceId);
+        notification.Kind = ConnectorActionApprovalService.EventKind;
+        await f.Inner.Db.SaveChangesAsync(); // Simulate a crash after inbox commit but before outbox checkpoint.
+        await dispatcher.DispatchAsync(default);
+        Assert.Single(await f.Inner.Db.AgentWorkItems.ToArrayAsync());
+    }
+
     [Fact]
     public async Task DurableDispatcherExecutesAnApprovedActionOnlyOnce()
     {
