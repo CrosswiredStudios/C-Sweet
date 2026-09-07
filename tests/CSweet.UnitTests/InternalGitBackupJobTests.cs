@@ -6,6 +6,34 @@ namespace CSweet.UnitTests;
 
 public sealed class InternalGitBackupJobTests : IDisposable
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BusyOrCorruptScheduleDoesNotPreventOtherRepositoriesFromBeingBackedUp(bool busy)
+    {
+        var business = Guid.NewGuid(); var blocked = Guid.NewGuid(); var healthy = Guid.NewGuid();
+        var jobs = new InternalGitBackupJobs(store, options, new Clock());
+        await store.ExecuteAsync(new(business, healthy, "create", "main"));
+        await jobs.SaveScheduleAsync(new(business, blocked, new(true, 1, null, 0)));
+        await jobs.SaveScheduleAsync(new(business, healthy, new(true, 1, null, 0)));
+        var path = Path.Combine(options.Value.RepositoryRoot, "csweet-backup-jobs", business.ToString("N"), blocked.ToString("N") + ".schedule");
+        var original = await File.ReadAllTextAsync(path);
+        using (var lease = busy ? new FileStream(path + ".lock", FileMode.Open, FileAccess.ReadWrite, FileShare.None) : null)
+        {
+            if (!busy) await File.WriteAllTextAsync(path, "invalid-json");
+            await jobs.ScheduleDueAsync(business, default);
+            var job = Assert.Single(await jobs.ListAsync(business));
+            Assert.Equal(healthy, job.RepositoryId);
+            await jobs.ProcessAsync(business, job.Id);
+            Assert.Equal("Completed", Assert.Single(await jobs.ListAsync(business)).Status);
+        }
+        if (!busy) await File.WriteAllTextAsync(path, original);
+        await jobs.ScheduleDueAsync(business, default);
+        var recovered = await jobs.ListAsync(business);
+        Assert.Equal(2, recovered.Count);
+        Assert.Single(recovered, job => job.RepositoryId == blocked && job.Status == "Queued");
+    }
+
     [Fact]
     public async Task ScheduleRequiresRetentionApprovalQueuesOnceAndRetainsReplacementInRepositoryScope()
     {

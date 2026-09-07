@@ -7,6 +7,17 @@ namespace CSweet.UnitTests;
 public sealed class ConnectorRequestMaterializerTests
 {
     [Fact]
+    public void LiteralPrefixIsAppliedToTheHostConfirmedResourceOnly()
+    {
+        var operation = new CSweet.Contracts.Plugins.PluginProviderOperationDeclaration
+        {
+            Effect = "read", Http = new()
+            { Endpoint = "https://api.example.com/reports", Connection = "account", BoundResourceQuery = "ids", BoundResourceQueryPrefix = "account==" }
+        };
+        var prepared = ConnectorRequestMaterializer.Prepare(operation, System.Text.Json.JsonSerializer.SerializeToElement(new { }), "confirmed");
+        Assert.Equal("https://api.example.com/reports?ids=account%3D%3Dconfirmed", prepared.Url);
+    }
+    [Fact]
     public void ConstantsAndBoundAccountCannotBeSubstitutedByInput()
     {
         var operation = Operation(new ConnectorHttpOperation

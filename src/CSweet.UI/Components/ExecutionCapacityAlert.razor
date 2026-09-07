@@ -1,14 +1,23 @@
 @inject ISetupApiClient SetupApi
 @inject NavigationManager Navigation
+@inject ExecutionCapacityAlertState CapacityState
 @implements IAsyncDisposable
 
-@if (_setupComplete && _fleetAvailable == false)
+@if (CapacityState.Status != ExecutionCapacityAlertStatus.Hidden)
 {
-    <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="execution-capacity-alert" aria-live="polite">
+    <MudAlert Severity="@(IsConnecting ? Severity.Info : Severity.Error)" Variant="Variant.Filled" Class="execution-capacity-alert" aria-live="polite">
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="width: 100%; gap: 1rem; flex-wrap: wrap">
             <div>
-                <strong>Agent execution capacity is unavailable.</strong>
-                <div>New builds and agent runs will remain queued or fail closed until an administrator restores a certified Office.</div>
+                @if (IsConnecting)
+                {
+                    <strong>Waiting for Office to become ready.</strong>
+                    <div>Office may still be starting or reconnecting. This status updates automatically when agent execution is ready.</div>
+                }
+                else
+                {
+                    <strong>Agent execution capacity is unavailable.</strong>
+                    <div>Office is not ready to run builds or agents. Open the execution fleet to check its connection and resolve any issues.</div>
+                }
             </div>
             <MudButton Variant="Variant.Filled" Color="Color.Inherit"
                        StartIcon="@Icons.Material.Filled.Dns"
@@ -19,8 +28,7 @@
 
 @code {
     private readonly CancellationTokenSource _lifetime = new();
-    private bool _setupComplete;
-    private bool? _fleetAvailable;
+    private bool IsConnecting => CapacityState.Status == ExecutionCapacityAlertStatus.Connecting;
 
     protected override async Task OnInitializedAsync()
     {
@@ -51,14 +59,20 @@
         try
         {
             var setup = await SetupApi.GetStatusAsync(cancellationToken);
-            _setupComplete = setup.IsFirstRunComplete;
-            _fleetAvailable = !_setupComplete ||
-                (await SetupApi.GetExecutionCapacityStatusAsync(cancellationToken)).IsReady;
+            if (setup.IsFirstRunComplete)
+            {
+                var capacity = await SetupApi.GetExecutionCapacityStatusAsync(cancellationToken);
+                CapacityState.Update(capacity, DateTimeOffset.UtcNow);
+            }
+            else
+            {
+                CapacityState.Hide();
+            }
         }
         catch
         {
             // Connectivity errors are surfaced by individual pages; do not misreport them as fleet loss.
-            _fleetAvailable = null;
+            CapacityState.Hide();
         }
     }
 

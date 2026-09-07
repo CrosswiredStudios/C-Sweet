@@ -32,7 +32,7 @@ public static class PluginSetupEndpoints
             Results.Ok(await setup.GetAsync(organizationId, installationId, cancellationToken)));
 
         group.MapPut("/{installationId:guid}/dependencies/{dependencyId}", async (Guid organizationId,
-            Guid installationId, string dependencyId, BindConnectorRequest request, ConnectorBindingService bindings,
+            Guid installationId, string dependencyId, BindConnectorRequest request, [Microsoft.AspNetCore.Mvc.FromServices] ConnectorBindingService bindings,
             CancellationToken cancellationToken) =>
         {
             await bindings.BindAsync(organizationId, installationId, dependencyId, request.ConnectorInstallationId, cancellationToken);

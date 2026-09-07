@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace CSweet.TrustedServices;
 
-public sealed partial class InternalGitBackupJobs(InternalGitRepositoryStore store, IOptions<InternalGitStorageOptions> options, TimeProvider? timeProvider = null)
+public sealed partial class InternalGitBackupJobs(InternalGitRepositoryStore store, IOptions<InternalGitStorageOptions> options, TimeProvider? timeProvider = null, ILogger<InternalGitBackupJobs>? logger = null)
 {
     private string Root => Path.Combine(options.Value.RepositoryRoot, "csweet-backup-jobs");
 

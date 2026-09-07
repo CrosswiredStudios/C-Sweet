@@ -245,6 +245,24 @@ public sealed class ArtifactCapabilityHandler(
         Guid? reviewerInstallation = reviewerId.HasValue ? await db.CoreOrganizationUsers.Where(x =>
             x.Id == reviewerId && x.OrganizationId == organizationId && x.IsActive)
             .Select(x => x.AgentInstallationId).SingleOrDefaultAsync(token) : null;
+        // The creator's own active manager may review an explicitly assigned document.
+        // Merely naming an arbitrary reviewer never confers decision authority.
+        if (reviewerInstallation.HasValue && artifact.CreatedByOrganizationUserId == actor.OrganizationUserId &&
+            artifact.StewardOrganizationUserId == reviewerId && reviewerId != actor.OrganizationUserId &&
+            await db.CoreOrganizationUsers.AnyAsync(x => x.Id == actor.OrganizationUserId && x.OrganizationId == organizationId &&
+                x.IsActive && x.ReportsToOrganizationUserId == reviewerId, token))
+        {
+            foreach (var action in new[] { ArtifactActions.Read, ArtifactActions.Decide })
+                if (!await db.ScopedActionGrants.AnyAsync(x => x.OrganizationId == organizationId &&
+                    x.SubjectKind == GrantSubjectKind.AgentInstallation && x.SubjectId == reviewerInstallation.Value &&
+                    x.ScopeKind == GrantScopeKind.Artifact && x.ScopeId == artifact.Id && x.Action == action &&
+                    x.RevokedAt == null && (x.ExpiresAt == null || x.ExpiresAt > now), token))
+                {
+                    var grant = NewGrant(organizationId, artifact.Id, reviewerInstallation.Value, action, now);
+                    grant.GrantedBySubjectId = actor.InstallationId;
+                    db.ScopedActionGrants.Add(grant);
+                }
+        }
         if (reviewerInstallation.HasValue && reviewerId != actor.OrganizationUserId)
             db.ArtifactReviewJobs.Add(new ArtifactReviewJob { Id = Guid.NewGuid(), OrganizationId = organizationId,
                 ArtifactId = artifact.Id, RevisionId = revision.Id, ConversationId = request.ConversationId ?? artifact.OriginConversationId,

@@ -86,7 +86,8 @@ public sealed class PluginManifestReader : IPluginManifestReader
     {
         if (manifest.Kind != "connector" && manifest.Dependencies.Count == 0 &&
             !manifest.ProviderOperations.Any(x => x.Http is not null) &&
-            !manifest.Connections.Any(x => x.Provider is not null) && manifest.Setup?.Assistance is null) return;
+            !manifest.Connections.Any(x => x.Provider is not null) && manifest.Setup?.Assistance is null &&
+            manifest.Setup?.Flows.SelectMany(x => x.Steps).Any(x => x.AccountOptions is not null) != true) return;
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var packaging = JsonSerializer.Deserialize<CSweet.Agent.Contracts.Packaging.AgentManifest>(
             JsonSerializer.Serialize(manifest, options), options) ?? throw new JsonException("Invalid manifest.");

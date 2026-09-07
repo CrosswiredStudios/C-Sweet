@@ -1089,13 +1089,25 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .SelectMany(x => x.PackageVersion!.BuildJobs)
             .OrderByDescending(x => x.Attempt)
             .FirstOrDefaultAsync(cancellationToken);
+        // Global definitions have builds before any business installation exists.
+        job ??= await _dbContext.AgentDefinitions.AsNoTracking()
+            .Where(x => x.Id == installationId)
+            .SelectMany(x => x.PackageVersion!.BuildJobs)
+            .OrderByDescending(x => x.Attempt)
+            .FirstOrDefaultAsync(cancellationToken);
         if (job is null) return null;
         if (string.IsNullOrWhiteSpace(job.LogPath) || !File.Exists(job.LogPath))
-            return new AgentBuildLogResponse(
-                job.Id,
-                job.Status.ToString(),
-                FormatPersistedBuildDiagnostics(job),
-                false);
+        {
+            var excerpts = await _dbContext.ExecutionWorkloadAssignments.AsNoTracking()
+                .Where(x => x.AgentBuildJobId == job.Id && x.ResultLogExcerpt != null)
+                .OrderBy(x => x.Attempt)
+                .Select(x => x.ResultLogExcerpt)
+                .ToListAsync(cancellationToken);
+            var diagnostics = FormatPersistedBuildDiagnostics(job);
+            foreach (var excerpt in excerpts.Where(x => !string.IsNullOrWhiteSpace(x)))
+                diagnostics += $"{Environment.NewLine}Isolated builder diagnostics:{Environment.NewLine}{excerpt}{Environment.NewLine}";
+            return new AgentBuildLogResponse(job.Id, job.Status.ToString(), diagnostics, false);
+        }
         var settings = await GetSettingsAsync(cancellationToken);
         var maximumBytes = checked(settings.MaximumBuildLogMb * 1024 * 1024);
         await using var stream = new FileStream(job.LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 81920, true);
@@ -1169,7 +1181,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
 
     private IQueryable<AgentInstallation> InstallationQuery() =>
         _dbContext.AgentInstallations
-            .Include(x => x.PackageVersion)!.ThenInclude(x => x!.BuildJobs)
+            .Include(x => x.PackageVersion)!.ThenInclude(x => x!.BuildJobs).ThenInclude(x => x.ExecutionAssignments)
             .Include(x => x.Grant)
             .Include(x => x.Schedule)
             .Include(x => x.Configuration)
@@ -1749,10 +1761,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 schedule.IsEnabled),
             installation.CreatedAt,
             installation.UpdatedAt,
-            build is null ? null : new AgentBuildSummaryResponse(
-                build.Id, build.Status.ToString(), build.Attempt, build.QueuedAt, build.StartedAt,
-                build.CompletedAt, !string.IsNullOrWhiteSpace(build.LogPath), build.FailureMessage,
-                AgentBuildStepStore.Read(build)),
+            AgentBuildSummaryMapper.Create(build),
             runtime is null ? null : ToRunResponse(runtime))
         {
             PluginKind = package.PluginKind.ToString(),

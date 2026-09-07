@@ -401,7 +401,7 @@ public sealed class AgentDefinitionService(
 
     private IQueryable<AgentDefinition> Query() => db.AgentDefinitions.AsNoTracking()
         .Include(x => x.Configuration)
-        .Include(x => x.PackageVersion).ThenInclude(x => x!.BuildJobs);
+        .Include(x => x.PackageVersion).ThenInclude(x => x!.BuildJobs).ThenInclude(x => x.ExecutionAssignments);
 
     private static AgentDefinitionResponse ToResponse(AgentDefinition definition, AgentPackageVersion package)
     {
@@ -413,9 +413,7 @@ public sealed class AgentDefinitionService(
             definition.DefaultOverlapPolicy.ToString(), definition.DefaultMaxRuntimeSeconds,
             definition.DefaultMemoryMb, definition.DefaultCpuPercent, definition.Configuration?.Revision ?? 0,
             definition.CreatedAt, definition.UpdatedAt,
-            build is null ? null : new AgentBuildSummaryResponse(
-                build.Id, build.Status.ToString(), build.Attempt, build.QueuedAt, build.StartedAt, build.CompletedAt,
-                !string.IsNullOrWhiteSpace(build.LogPath), build.FailureMessage, AgentBuildStepStore.Read(build)));
+            AgentBuildSummaryMapper.Create(build));
     }
 
     private static void ValidateSubset(string name, IEnumerable<string> values, IEnumerable<string> permitted)

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Contracts.SourceControl;
+using Microsoft.Extensions.Logging;
 
 namespace CSweet.TrustedServices;
 
@@ -58,18 +59,27 @@ public sealed partial class InternalGitBackupJobs
         var directory = await DirectoryAsync(business, ct);
         foreach (var path in Directory.EnumerateFiles(directory, "*.schedule"))
         {
-            if (!Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "N", out var repository)) throw new IOException("Backup schedule filename is invalid.");
-            CheckPath(path); CheckPath(path + ".lock");
-            await using var lease = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            var schedule = await ReadScheduleAsync(path, business, repository, ct);
-            if (!schedule.Enabled) continue;
-            var window = (timeProvider ?? TimeProvider.System).GetUtcNow().ToUnixTimeSeconds() / (schedule.IntervalHours * 3600L);
-            if (schedule.LastWindow is { } previousWindow && window <= previousWindow) continue;
-            // A crash between queueing and recording the window reuses this exact job identity.
-            var digest = SHA256.HashData(Encoding.UTF8.GetBytes($"{business:N}:{repository:N}:{schedule.Revision}:{window}"));
-            var id = new Guid(digest.AsSpan(0, 16));
-            await QueueAsync(new(business, repository, id), ct);
-            await WriteScheduleAsync(path, schedule with { LastWindow = window, LastJobId = id }, ct);
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                if (!Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "N", out var repository)) throw new IOException("Backup schedule filename is invalid.");
+                CheckPath(path); CheckPath(path + ".lock");
+                await using var lease = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                var schedule = await ReadScheduleAsync(path, business, repository, ct);
+                if (!schedule.Enabled) continue;
+                var window = (timeProvider ?? TimeProvider.System).GetUtcNow().ToUnixTimeSeconds() / (schedule.IntervalHours * 3600L);
+                if (schedule.LastWindow is { } previousWindow && window <= previousWindow) continue;
+                // A crash between queueing and recording the window reuses this exact job identity.
+                var digest = SHA256.HashData(Encoding.UTF8.GetBytes($"{business:N}:{repository:N}:{schedule.Revision}:{window}"));
+                var id = new Guid(digest.AsSpan(0, 16));
+                await QueueAsync(new(business, repository, id), ct);
+                await WriteScheduleAsync(path, schedule with { LastWindow = window, LastJobId = id }, ct);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or JsonException)
+            {
+                // Retry this schedule next pass; unrelated repositories must still be scheduled.
+                logger?.LogWarning("A backup schedule in business {BusinessId} could not be queued; other schedules will continue.", business);
+            }
         }
     }
 

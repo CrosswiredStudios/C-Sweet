@@ -26,7 +26,7 @@ public sealed class PluginSetupService(
     {
         PropertyNameCaseInsensitive = true
     };
-    private readonly IDataProtector _stateProtector = protection.CreateProtector("CSweet.PluginOAuth.State.v1");
+    private readonly IDataProtector _stateProtector = protection.CreateProtector("CSweet.PluginOAuth.State.v2");
 
     public async Task<PluginSetupResponse> GetAsync(Guid organizationId, Guid installationId,
         CancellationToken cancellationToken = default)
@@ -67,23 +67,20 @@ public sealed class PluginSetupService(
             var accountId = RequiredString(request.Values, "selectedAccountId", 256);
             var options = await bootstrap.InvokeAsync(organizationId, installationId, step.Id,
                 JsonSerializer.SerializeToElement(new { }, JsonOptions), cancellationToken);
-            if (!ContainsAccount(options, accountId))
-                throw new InvalidOperationException("Choose an account returned by the connected provider.");
+            var selected = ConnectorAccountProjection.Read(options, new ConnectorAccountOptions
+            { ItemsPointer = "/accounts", IdPointer = "/id", NamePointer = "/name", HandlePointer = "/handle" })
+                .SingleOrDefault(x => x.Id == accountId)
+                ?? throw new InvalidOperationException("Choose an account returned by the connected provider.");
             var connection = await db.PluginConnections.SingleOrDefaultAsync(x =>
-                x.AgentInstallationId == installation.Id && x.Status == PluginConnectionStatus.Connected,
+                x.AgentInstallationId == installation.Id && x.DeclarationId == step.Connection && x.Status == PluginConnectionStatus.Connected,
                 cancellationToken) ?? throw new InvalidOperationException("Connect the provider before choosing an account.");
             if (connection.BoundResourceId is not null && connection.BoundResourceId != accountId)
                 throw new InvalidOperationException("A connected installation cannot switch accounts without reconnecting.");
             connection.BoundResourceId = accountId;
-            connection.ExternalAccountName = OptionalString(request.Values, "selectedAccountName", 256);
+            connection.ExternalAccountName = selected.Name;
             connection.UpdatedAt = DateTimeOffset.UtcNow;
-            var current = await configurations.GetAsync(installation.Id, cancellationToken);
-            var channelSettings = (current?.Settings ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal))
-                .ToDictionary(x => x.Key, x => x.Value.Clone(), StringComparer.Ordinal);
-            channelSettings["connectedChannelId"] = JsonSerializer.SerializeToElement(accountId, JsonOptions);
-            data.Values["connectedChannelId"] = channelSettings["connectedChannelId"];
-            await configurations.SaveAsync(installation.Id, current?.SchemaVersion ?? "1", channelSettings,
-                cancellationToken);
+            data.Values["selectedAccountId"] = JsonSerializer.SerializeToElement(selected.Id, JsonOptions);
+            data.Values["selectedAccountName"] = JsonSerializer.SerializeToElement(selected.Name, JsonOptions);
         }
         else if (step.Kind == "form")
         {
@@ -115,11 +112,11 @@ public sealed class PluginSetupService(
         else if (step.Kind == "health-check")
         {
             var connection = await db.PluginConnections.AsNoTracking().SingleOrDefaultAsync(x =>
-                x.AgentInstallationId == installation.Id && x.Status == PluginConnectionStatus.Connected,
+                x.AgentInstallationId == installation.Id && x.DeclarationId == step.Connection && x.Status == PluginConnectionStatus.Connected,
                 cancellationToken);
             if (connection?.BoundResourceId is null) throw new InvalidOperationException("Connection validation failed.");
             var validation = await bootstrap.InvokeAsync(organizationId, installationId, step.Id,
-                JsonSerializer.SerializeToElement(new { channelId = connection.BoundResourceId }, JsonOptions),
+                JsonSerializer.SerializeToElement(new { }, JsonOptions),
                 cancellationToken);
             if (!validation.TryGetProperty("healthy", out var healthy) || healthy.ValueKind != JsonValueKind.True)
                 throw new InvalidOperationException(validation.TryGetProperty("message", out var message)
@@ -141,19 +138,12 @@ public sealed class PluginSetupService(
         return await MapAsync(installation, cancellationToken);
     }
 
-    private static bool ContainsAccount(JsonElement result, string accountId)
-    {
-        if (!result.TryGetProperty("channels", out var channels) || channels.ValueKind != JsonValueKind.Array)
-            return false;
-        return channels.EnumerateArray().Any(channel =>
-            channel.TryGetProperty("id", out var id) && string.Equals(id.GetString(), accountId, StringComparison.Ordinal));
-    }
-
     public async Task<BeginPluginAuthorizationResponse> BeginAuthorizationAsync(Guid organizationId,
         Guid applicationUserId, Guid installationId, string connectionId, BeginPluginAuthorizationRequest request,
         string redirectUri, CancellationToken cancellationToken = default)
     {
         var installation = await RequireInstallationAsync(organizationId, installationId, cancellationToken);
+        await RequireConsentOwnerAsync(organizationId, applicationUserId, cancellationToken);
         var declaration = Manifest(installation).Connections.SingleOrDefault(x => x.Id == connectionId)
             ?? throw new ArgumentException("The connection is not declared by this plugin.");
         var scopeSet = declaration.ScopeSets.SingleOrDefault(x => x.Id == request.ScopeSetId)
@@ -161,14 +151,26 @@ public sealed class PluginSetupService(
         var profile = await providerProfiles.ResolveAsync(declaration.ProviderProfile, cancellationToken)
             ?? throw new InvalidOperationException("The administrator has not configured this verified provider profile.");
         await ValidateConnectorProfileAsync(installation, declaration, profile, cancellationToken);
-        if (!Uri.TryCreate(redirectUri, UriKind.Absolute, out var redirect) || redirect.Scheme != Uri.UriSchemeHttps)
+        RequireConsentStep(installation, declaration.Id, scopeSet.Id);
+        if (!Uri.TryCreate(redirectUri, UriKind.Absolute, out var redirect) || redirect.Scheme != Uri.UriSchemeHttps ||
+            !string.IsNullOrEmpty(redirect.UserInfo) || !string.IsNullOrEmpty(redirect.Fragment) ||
+            !string.IsNullOrEmpty(redirect.Query) || redirectUri.Length > 2048)
             throw new InvalidOperationException("OAuth callbacks require the configured HTTPS platform origin.");
 
         var attemptId = Guid.NewGuid();
         var nonce = Random(32);
         var verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
         var expires = DateTimeOffset.UtcNow.AddMinutes(10);
-        var payload = new OAuthState(attemptId, installation.Id, organizationId, applicationUserId, nonce, expires);
+        var currentConnection = await db.PluginConnections.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.AgentInstallationId == installation.Id && x.DeclarationId == declaration.Id, cancellationToken);
+        var declaredScopes = declaration.ScopeSets.SelectMany(x => x.Scopes).ToHashSet(StringComparer.Ordinal);
+        var requestedScopes = scopeSet.Scopes.Concat(declaration.ScopeSets.Where(x => x.Required).SelectMany(x => x.Scopes))
+            .Concat(currentConnection?.Status == PluginConnectionStatus.Connected
+                ? DeserializeList(currentConnection.GrantedScopesJson).Where(declaredScopes.Contains) : [])
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var payload = new OAuthState(attemptId, installation.Id, organizationId, applicationUserId, nonce, expires,
+            declaration.Id, scopeSet.Id, redirectUri, requestedScopes,
+            ConsentFingerprint(installation, profile, currentConnection));
         var state = _stateProtector.Protect(JsonSerializer.Serialize(payload, JsonOptions));
         db.PluginOAuthAttempts.Add(new PluginOAuthAttempt
         {
@@ -185,7 +187,7 @@ public sealed class PluginSetupService(
         foreach (var parameter in new Dictionary<string, string>
         {
             ["client_id"] = profile.ClientId, ["redirect_uri"] = redirectUri, ["response_type"] = "code",
-            ["scope"] = string.Join(' ', scopeSet.Scopes), ["state"] = state,
+            ["scope"] = string.Join(' ', requestedScopes), ["state"] = state,
             ["code_challenge"] = challenge, ["code_challenge_method"] = "S256"
         }) parameters.Add(parameter.Key, parameter.Value);
         var uri = Query(profile.AuthorizationEndpoint, parameters);
@@ -199,26 +201,31 @@ public sealed class PluginSetupService(
         try { payload = JsonSerializer.Deserialize<OAuthState>(_stateProtector.Unprotect(state), JsonOptions)!; }
         catch (Exception exception) when (exception is CryptographicException or JsonException)
         { throw new InvalidOperationException("OAuth state is invalid."); }
-        if (payload.ApplicationUserId != applicationUserId || payload.ExpiresAt <= DateTimeOffset.UtcNow)
+        if (payload is null || payload.ApplicationUserId != applicationUserId || payload.ExpiresAt <= DateTimeOffset.UtcNow ||
+            payload.RequestedScopes is not { Length: > 0 } || string.IsNullOrEmpty(payload.AuthorityHash))
             throw new InvalidOperationException("OAuth state is expired or belongs to another user.");
         var attempt = await db.PluginOAuthAttempts.SingleOrDefaultAsync(x => x.Id == payload.AttemptId, cancellationToken)
             ?? throw new InvalidOperationException("OAuth attempt was not found.");
         if (attempt.AgentInstallationId != payload.InstallationId || attempt.ApplicationUserId != payload.ApplicationUserId ||
-            attempt.ConsumedAt.HasValue || attempt.ExpiresAt <= DateTimeOffset.UtcNow ||
+            attempt.ConnectionDeclarationId != payload.ConnectionId || attempt.ScopeSetId != payload.ScopeSetId ||
+            attempt.RedirectUri != payload.RedirectUri || attempt.ConsumedAt.HasValue || attempt.ExpiresAt <= DateTimeOffset.UtcNow ||
             !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(attempt.StateHash), Convert.FromHexString(Hash(state))))
             throw new InvalidOperationException("OAuth state has expired or was already used.");
         attempt.ConsumedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException) { throw new InvalidOperationException("OAuth state was already used."); }
+        var verifier = await secrets.GetAsync(attempt.AgentInstallationId, VerifierKey(attempt.Id), cancellationToken)
+            ?? throw new InvalidOperationException("The PKCE verifier is unavailable.");
+        // Consume the verifier even when later context validation fails.
+        await secrets.RemoveAsync(attempt.AgentInstallationId, VerifierKey(attempt.Id), cancellationToken);
 
-        var installation = await db.AgentInstallations.Include(x => x.PackageVersion).Include(x => x.Schedule)
-            .SingleAsync(x => x.Id == attempt.AgentInstallationId, cancellationToken);
+        var installation = await RequireInstallationAsync(payload.OrganizationId, payload.InstallationId, cancellationToken);
         var declaration = Manifest(installation).Connections.Single(x => x.Id == attempt.ConnectionDeclarationId);
         var scopeSet = declaration.ScopeSets.Single(x => x.Id == attempt.ScopeSetId);
         var profile = await providerProfiles.ResolveAsync(declaration.ProviderProfile, cancellationToken)
             ?? throw new InvalidOperationException("The administrator has not configured this verified provider profile.");
         await ValidateConnectorProfileAsync(installation, declaration, profile, cancellationToken);
-        var verifier = await secrets.GetAsync(installation.Id, VerifierKey(attempt.Id), cancellationToken)
-            ?? throw new InvalidOperationException("The PKCE verifier is unavailable.");
+        await RevalidateConsentAsync(payload, installation, profile, cancellationToken);
         using var response = await httpClients.CreateClient(nameof(PluginSetupService)).PostAsync(profile.TokenEndpoint,
             new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -227,15 +234,22 @@ public sealed class PluginSetupService(
             }), cancellationToken);
         var tokenJson = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException("The provider rejected authorization.");
-        using var token = JsonDocument.Parse(tokenJson);
+        using var token = JsonDocument.Parse(tokenJson, new JsonDocumentOptions { MaxDepth = 8 });
+        _ = ConnectorRequestMaterializer.Canonical(token.RootElement); // Reject duplicate token/scope fields.
+        if (token.RootElement.TryGetProperty("token_type", out var tokenType) &&
+            (tokenType.ValueKind != JsonValueKind.String || !string.Equals(tokenType.GetString(), "Bearer", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("The provider returned an unsupported token type.");
         var accessToken = token.RootElement.GetProperty("access_token").GetString();
         var refreshToken = token.RootElement.TryGetProperty("refresh_token", out var refresh) ? refresh.GetString() : null;
         if (string.IsNullOrWhiteSpace(accessToken)) throw new InvalidOperationException("The provider did not return an access token.");
         var returnedScopes = token.RootElement.TryGetProperty("scope", out var scopeValue)
             ? (scopeValue.GetString() ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal)
-            : scopeSet.Scopes.ToHashSet(StringComparer.Ordinal);
-        if (scopeSet.Scopes.Except(returnedScopes, StringComparer.Ordinal).Any())
+            : payload.RequestedScopes.ToHashSet(StringComparer.Ordinal);
+        if (payload.RequestedScopes.Except(returnedScopes, StringComparer.Ordinal).Any())
             throw new InvalidOperationException("The provider did not grant every requested permission.");
+        // Providers may include previously consented scopes. That is not new host authority.
+        returnedScopes.IntersectWith(payload.RequestedScopes);
+        await RevalidateConsentAsync(payload, installation, profile, cancellationToken);
 
         var connection = await db.PluginConnections.SingleOrDefaultAsync(x =>
             x.AgentInstallationId == installation.Id && x.DeclarationId == declaration.Id, cancellationToken);
@@ -246,8 +260,7 @@ public sealed class PluginSetupService(
                 DeclarationId = declaration.Id, ProviderProfile = declaration.ProviderProfile, CreatedAt = now };
             db.PluginConnections.Add(connection);
         }
-        var previous = DeserializeList(connection.GrantedScopesJson);
-        connection.GrantedScopesJson = JsonSerializer.Serialize(previous.Union(returnedScopes, StringComparer.Ordinal));
+        connection.GrantedScopesJson = JsonSerializer.Serialize(returnedScopes.Order(StringComparer.Ordinal));
         connection.Status = PluginConnectionStatus.Connected;
         connection.UpdatedAt = now;
         connection.RevokedAt = null;
@@ -271,23 +284,35 @@ public sealed class PluginSetupService(
             installation.IsEnabled = true;
             if (installation.Schedule is not null) installation.Schedule.IsEnabled = true;
         }
-        if (string.IsNullOrWhiteSpace(refreshToken))
+        // A new consent response may represent a different human/provider principal. Never
+        // combine its access token with a refresh token from an earlier authorization.
+        ResetAccountValidation(installation, declaration.Id);
+        if (installation.Grant is not null) installation.Grant.GrantRevision++;
+        var consumers = await db.AgentCapabilityBindings.Where(x => x.ProviderInstallationId == installation.Id &&
+            x.OrganizationId == payload.OrganizationId.ToString("D")).Select(x => x.RequesterInstallationId).Distinct().ToListAsync(cancellationToken);
+        consumers.Add(installation.Id);
+        var policies = await db.PluginStandingPolicies.Where(x => x.OrganizationId == payload.OrganizationId &&
+            consumers.Contains(x.AgentInstallationId) &&
+            x.Status == PluginStandingPolicyStatus.Approved).ToListAsync(cancellationToken);
+        foreach (var policy in policies)
         {
-            var previousTokenJson = await secrets.GetAsync(installation.Id, TokenKey(connection.Id), cancellationToken);
-            if (previousTokenJson is not null)
-            {
-                using var previousToken = JsonDocument.Parse(previousTokenJson);
-                if (previousToken.RootElement.TryGetProperty("refreshToken", out var previousRefresh))
-                    refreshToken = previousRefresh.GetString();
-            }
+            policy.Status = PluginStandingPolicyStatus.Revoked;
+            policy.RevokedAt = now;
         }
+        // Persist the external-work gate before replacing credential material.
+        connection.Status = PluginConnectionStatus.ReauthorizationRequired;
+        await db.SaveChangesAsync(cancellationToken);
         await secrets.SetAsync(installation.Id, TokenKey(connection.Id), JsonSerializer.Serialize(new
         {
             accessToken, refreshToken, tokenType = "Bearer",
             expiresAt = now.AddSeconds(token.RootElement.TryGetProperty("expires_in", out var expiry) ? expiry.GetInt32() : 3600)
         }, JsonOptions), cancellationToken);
-        await secrets.RemoveAsync(installation.Id, VerifierKey(attempt.Id), cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
+        connection.Status = PluginConnectionStatus.Connected;
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new UnauthorizedAccessException("The connection changed while credentials were being stored. Reconnect to recover.");
+        }
         await audit.WriteAsync("plugin-connection.authorized", nameof(PluginConnection), connection.Id,
             $"Authorized provider profile {connection.ProviderProfile} with declared permission set {scopeSet.Id}.", null, cancellationToken);
         return new(payload.OrganizationId, installation.Id);
@@ -298,9 +323,8 @@ public sealed class PluginSetupService(
     {
         var installation = await RequireInstallationAsync(organizationId, installationId, cancellationToken);
         var manifest = Manifest(installation);
-        var settingsFlow = installation.SetupState == PluginSetupState.Ready
-            ? manifest.Ui.FirstOrDefault(x => x.Kind == "personal-settings")?.Flow : null;
-        var flow = Flow(manifest, settingsFlow ?? installation.SetupFlowId);
+        // Activation validates the completed setup record, never the ongoing settings surface.
+        var flow = Flow(manifest, installation.SetupFlowId);
         var data = SetupData.Parse(installation.SetupDataJson);
         var persistedConfiguration = await configurations.GetAsync(installation.Id, cancellationToken);
         foreach (var value in persistedConfiguration?.Settings ?? new Dictionary<string, JsonElement>())
@@ -320,6 +344,8 @@ public sealed class PluginSetupService(
                 throw new InvalidOperationException("Confirm the provider account before activation.");
         }
         await new ConnectorBindingService(db).ValidateRequiredBindingsAsync(installation, cancellationToken);
+        if (installation.SetupState == PluginSetupState.Ready)
+            return new(true, "Setup is already complete.", null);
         installation.SetupState = PluginSetupState.Ready;
         var setupObligation = await db.PluginSetupObligations.SingleOrDefaultAsync(x =>
             x.InstallationId == installation.Id && x.OrganizationId == organizationId, cancellationToken);
@@ -459,7 +485,9 @@ public sealed class PluginSetupService(
     private async Task<PluginSetupResponse> MapAsync(AgentInstallation installation, CancellationToken cancellationToken)
     {
         var manifest = Manifest(installation);
-        var flow = Flow(manifest, installation.SetupFlowId);
+        var settingsFlow = installation.SetupState == PluginSetupState.Ready
+            ? manifest.Ui.FirstOrDefault(x => x.Kind == "personal-settings")?.Flow : null;
+        var flow = Flow(manifest, settingsFlow ?? installation.SetupFlowId);
         var data = SetupData.Parse(installation.SetupDataJson);
         var connections = await db.PluginConnections.AsNoTracking().Where(x => x.AgentInstallationId == installation.Id)
             .ToListAsync(cancellationToken);
@@ -496,7 +524,78 @@ public sealed class PluginSetupService(
             $"{Uri.EscapeDataString(x.Key)}={Uri.EscapeDataString(x.Value)}"));
 
     private sealed record OAuthState(Guid AttemptId, Guid InstallationId, Guid OrganizationId,
-        Guid ApplicationUserId, string Nonce, DateTimeOffset ExpiresAt);
+        Guid ApplicationUserId, string Nonce, DateTimeOffset ExpiresAt, string ConnectionId,
+        string ScopeSetId, string RedirectUri, string[] RequestedScopes, string AuthorityHash);
+
+    private async Task RequireConsentOwnerAsync(Guid organizationId, Guid applicationUserId, CancellationToken ct)
+    {
+        if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId &&
+            x.ApplicationUserId == applicationUserId && x.IsActive && x.EmployeeType == CSweet.Domain.Core.EmployeeType.Human &&
+            x.PermissionLevel >= CSweet.Domain.Core.OrganizationPermissionLevel.Manager, ct))
+            throw new UnauthorizedAccessException("An active authorized human must complete provider consent.");
+    }
+
+    private static void RequireConsentStep(AgentInstallation installation, string connectionId, string scopeSetId)
+    {
+        if (installation.RevisionStatus != PluginRevisionStatus.Active ||
+            (!installation.IsEnabled && installation.SetupState != PluginSetupState.ConnectionRequired))
+            throw new UnauthorizedAccessException("The installation is not available for authorization.");
+        var manifest = Manifest(installation);
+        var settings = installation.SetupState == PluginSetupState.Ready
+            ? manifest.Ui.FirstOrDefault(x => x.Kind == "personal-settings")?.Flow : null;
+        var flow = Flow(manifest, settings ?? installation.SetupFlowId);
+        if (!flow.Steps.Any(x => x.Connection == connectionId && x.ScopeSet == scopeSetId &&
+            (x.Kind is "oauth-connect" or "permission-request") &&
+            (installation.SetupState == PluginSetupState.Ready || x.Id == installation.SetupStepId)))
+            throw new UnauthorizedAccessException("Consent must be initiated from the current declared setup or settings action.");
+    }
+
+    private static string ConsentFingerprint(AgentInstallation installation, PluginOAuthProviderProfile profile,
+        PluginConnection? connection) => Hash(JsonSerializer.Serialize(new
+        {
+            installation.BusinessId, installation.PackageVersionId, installation.PackageVersion!.PackageDigest,
+            manifestHash = Hash(installation.PackageVersion.ManifestJson), installation.RevisionStatus,
+            installation.IsEnabled, installation.SetupState, installation.SetupFlowId, installation.SetupStepId,
+            setupHash = Hash(installation.SetupDataJson), installation.Grant?.GrantRevision,
+            profile.Id, profile.ClientId, profile.AuthorizationEndpoint, profile.TokenEndpoint, profile.RevocationEndpoint,
+            connection = connection is null ? null : new
+            { connection.Id, connection.Status, connection.BoundResourceId, connection.GrantedScopesJson, connection.UpdatedAt }
+        }, JsonOptions));
+
+    private async Task RevalidateConsentAsync(OAuthState payload, AgentInstallation installation,
+        PluginOAuthProviderProfile originalProfile, CancellationToken ct)
+    {
+        await db.Entry(installation).ReloadAsync(ct);
+        await db.Entry(installation.PackageVersion!).ReloadAsync(ct);
+        if (installation.Grant is not null) await db.Entry(installation.Grant).ReloadAsync(ct);
+        await RequireConsentOwnerAsync(payload.OrganizationId, payload.ApplicationUserId, ct);
+        RequireConsentStep(installation, payload.ConnectionId, payload.ScopeSetId);
+        var profile = await providerProfiles.ResolveAsync(originalProfile.Id, ct)
+            ?? throw new UnauthorizedAccessException("The provider profile is no longer available.");
+        await ValidateConnectorProfileAsync(installation,
+            Manifest(installation).Connections.Single(x => x.Id == payload.ConnectionId), profile, ct);
+        var connection = await db.PluginConnections.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.AgentInstallationId == installation.Id && x.DeclarationId == payload.ConnectionId, ct);
+        if (installation.BusinessId != payload.OrganizationId.ToString("D") ||
+            ConsentFingerprint(installation, profile, connection) != payload.AuthorityHash)
+            throw new UnauthorizedAccessException("Authorization context changed. Start a new consent flow.");
+    }
+
+    private static void ResetAccountValidation(AgentInstallation installation, string connectionId)
+    {
+        var manifest = Manifest(installation);
+        var flow = Flow(manifest, manifest.Setup?.EntryFlow);
+        var index = flow.Steps.ToList().FindIndex(x => x.Connection == connectionId && x.Kind == "account-selector");
+        if (index < 0) return;
+        var data = SetupData.Parse(installation.SetupDataJson);
+        var invalidated = flow.Steps.Skip(index).Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+        data.CompletedStepIds.RemoveAll(invalidated.Contains);
+        foreach (var step in flow.Steps.Skip(index)) data.Values.Remove($"health:{step.Id}");
+        installation.SetupState = PluginSetupState.NeedsSetup;
+        installation.SetupFlowId = flow.Id;
+        installation.SetupStepId = flow.Steps[index].Id;
+        installation.SetupDataJson = JsonSerializer.Serialize(data, JsonOptions);
+    }
     private sealed class SetupData
     {
         public List<string> CompletedStepIds { get; set; } = [];

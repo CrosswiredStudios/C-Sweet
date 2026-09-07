@@ -16,6 +16,60 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentInstallationServiceTests
 {
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task BuildLog_ReturnsLatestBuildForDefinitionOrInstallation(bool definition, bool hasLogFile)
+    {
+        await using var db = CreateDbContext();
+        var package = await SeedAsync(db);
+        var ownerId = Guid.NewGuid();
+        if (definition)
+            db.AgentDefinitions.Add(new AgentDefinition
+            {
+                Id = ownerId, PackageVersionId = package.Id, PackageVersion = package,
+                PackageSourceId = package.PackageSourceId, AgentId = package.AgentId
+            });
+        else
+            db.AgentInstallations.Add(new AgentInstallation
+            {
+                Id = ownerId, PackageVersionId = package.Id, PackageVersion = package
+            });
+        var logPath = Path.Combine(Path.GetTempPath(), $"csweet-build-log-{Guid.NewGuid():N}.log");
+        const string diagnostic = "NU1102: Unable to find package CSweet.Agent.SDK with version (>= 3.28.0)";
+        var job = new AgentBuildJob
+        {
+            Id = Guid.NewGuid(), PackageVersionId = package.Id, PackageVersion = package,
+            Attempt = 2, LogPath = logPath, QueuedAt = DateTimeOffset.UtcNow
+        };
+        db.AgentBuildJobs.AddRange(new AgentBuildJob
+        {
+            Id = Guid.NewGuid(), PackageVersionId = package.Id, PackageVersion = package,
+            Attempt = 1, QueuedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        }, job);
+        db.ExecutionWorkloadAssignments.Add(new ExecutionWorkloadAssignment
+        {
+            Id = Guid.NewGuid(), AgentBuildJobId = job.Id, ResultLogExcerpt = diagnostic
+        });
+        await db.SaveChangesAsync();
+        try
+        {
+            if (hasLogFile) await File.WriteAllTextAsync(logPath, diagnostic);
+            var result = await CreateService(db).GetBuildLogAsync(ownerId);
+
+            Assert.NotNull(result);
+            Assert.Equal(job.Id, result.BuildJobId);
+            Assert.Contains(diagnostic, result.Content);
+            if (definition) Assert.Empty(db.AgentInstallations);
+            Assert.Null(await CreateService(db).GetBuildLogAsync(Guid.NewGuid()));
+        }
+        finally
+        {
+            if (File.Exists(logPath)) File.Delete(logPath);
+        }
+    }
     [Fact]
     public async Task InstallAsync_RequiredConfigurationMissing_RejectsBeforeCreatingInstallation()
     {

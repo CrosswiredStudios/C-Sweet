@@ -266,6 +266,13 @@
                                 </div>
                             }
                             <MudStack Row="true" Class="setup-actions">
+                                @if (installation.Build?.Status is "Failed" or "Cancelled")
+                                {
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
+                                               Disabled="@_isManagingInstallation" OnClick="@(() => RetryBuildAsync(installation))">
+                                        Retry build
+                                    </MudButton>
+                                }
                                 @if (availableUpdate is not null)
                                 {
                                     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt"
@@ -1728,16 +1735,21 @@
 
     private async Task RetryBuildAsync(AgentInstallationResponse installation)
     {
+        if (_isManagingInstallation || installation.Build?.Status is not ("Failed" or "Cancelled"))
+        {
+            return;
+        }
+
         _isManagingInstallation = true;
         try
         {
-            var updated = await AgentApi.RetryBuildAsync(installation.Id, _disposeCts.Token);
+            var updated = await AgentApi.RetryDefinitionBuildAsync(installation.Id, _disposeCts.Token);
             ReplaceInstallation(updated);
             SetBuildProgress(
                 InstallationProgressKey(updated),
                 "Build retry queued",
                 "The failed package source will be fetched again.");
-            SetInstallationMessage("Build retry queued and automatic startup suppression cleared.", true);
+            SetInstallationMessage("Build retry queued.", true);
             await InvokeAsync(StateHasChanged);
             _isManagingInstallation = false;
             await TrackAgentBuildAsync(updated, isUpdate: false, cancellationToken: _disposeCts.Token);

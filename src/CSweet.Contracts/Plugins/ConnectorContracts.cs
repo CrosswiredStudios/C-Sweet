@@ -2,6 +2,15 @@ using System.Text.Json;
 
 namespace CSweet.Contracts.Plugins;
 
+public sealed record ConnectorAccountOptions
+{
+    public string ItemsPointer { get; init; } = string.Empty;
+    public string IdPointer { get; init; } = string.Empty;
+    public string NamePointer { get; init; } = string.Empty;
+    public string? HandlePointer { get; init; }
+    public string? NextPageTokenPointer { get; init; }
+}
+
 /// <summary>Requests the host's fixed, protected-conversation-only setup assistance profile.</summary>
 public sealed record PluginSetupAssistance
 {
@@ -44,6 +53,7 @@ public sealed record ConnectorHttpOperation
     public JsonElement? BodyConstants { get; init; }
     /// <summary>Optional query field whose value is supplied exclusively from the confirmed connection.</summary>
     public string? BoundResourceQuery { get; init; }
+    public string BoundResourceQueryPrefix { get; init; } = string.Empty;
     public IReadOnlyList<ConnectorResourceCheck> ResourceChecks { get; init; } = [];
     public string? MediaInput { get; init; }
     public bool Bootstrap { get; init; }

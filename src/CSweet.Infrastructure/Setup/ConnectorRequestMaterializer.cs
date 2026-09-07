@@ -27,7 +27,7 @@ public static class ConnectorRequestMaterializer
             if (value is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) })
                 query.Add(field.Key, Scalar(value.Value));
         }
-        if (http.BoundResourceQuery is not null) query.Add(http.BoundResourceQuery, channelId);
+        if (http.BoundResourceQuery is not null) query.Add(http.BoundResourceQuery, http.BoundResourceQueryPrefix + channelId);
         JsonObject body = http.BodyConstants is { } constants ? JsonNode.Parse(constants.GetRawText()) as JsonObject
             ?? throw new InvalidOperationException("Body constants must be an object.") : new();
         foreach (var field in http.BodyInputs.OrderBy(x => x.Key, StringComparer.Ordinal))

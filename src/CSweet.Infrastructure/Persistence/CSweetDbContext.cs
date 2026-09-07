@@ -1130,6 +1130,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
 
         modelBuilder.Entity<PluginConnection>(entity =>
         {
+            entity.Property(x => x.Status).IsConcurrencyToken();
+            entity.Property(x => x.UpdatedAt).IsConcurrencyToken();
             entity.HasKey(x => x.Id);
             entity.Property(x => x.DeclarationId).HasMaxLength(200).IsRequired();
             entity.Property(x => x.ProviderProfile).HasMaxLength(200).IsRequired();
@@ -1146,6 +1148,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         modelBuilder.Entity<PluginOAuthAttempt>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ConsumedAt).IsConcurrencyToken();
             entity.Property(x => x.ConnectionDeclarationId).HasMaxLength(200).IsRequired();
             entity.Property(x => x.ScopeSetId).HasMaxLength(200).IsRequired();
             entity.Property(x => x.StateHash).HasMaxLength(128).IsRequired();

@@ -261,6 +261,7 @@ public sealed record PluginSetupFlow
 
 public sealed record PluginSetupStep
 {
+    public ConnectorAccountOptions? AccountOptions { get; init; }
     public string Id { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;

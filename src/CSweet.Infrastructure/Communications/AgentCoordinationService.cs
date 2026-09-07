@@ -134,6 +134,8 @@ public sealed class AgentCoordinationService(
         };
         await ValidateProfileArtifactAsync(session, request.Artifact, cancellationToken);
         ApplyArtifact(initialTurn, request.Artifact);
+        await CoordinationDocumentSharing.ShareAsync(db, organizationId, initiatorOrganizationUserId,
+            initiatorInstallationId, targetInstallationId, request.Artifact, cancellationToken);
         session.Turns.Add(initialTurn);
         db.AgentCoordinationSessions.Add(session);
         await db.SaveChangesAsync(cancellationToken);
@@ -421,6 +423,9 @@ public sealed class AgentCoordinationService(
         };
         await ValidateProfileArtifactAsync(session, request.Artifact, cancellationToken);
         ApplyArtifact(responseTurn, request.Artifact);
+        await CoordinationDocumentSharing.ShareAsync(db, organizationId, actorOrganizationUserId,
+            actorInstallationId, InstallationFor(session, OtherParticipant(session, actorOrganizationUserId)),
+            request.Artifact, cancellationToken);
         session.Turns.Add(responseTurn);
         db.AgentCoordinationTurns.Add(responseTurn);
         session.Revision++;

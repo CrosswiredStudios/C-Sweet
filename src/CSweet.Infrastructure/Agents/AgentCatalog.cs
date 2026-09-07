@@ -127,11 +127,11 @@ public sealed class AgentCatalogService(
         agent.Summary.Contains(value, StringComparison.OrdinalIgnoreCase) ||
         agent.Publisher.Contains(value, StringComparison.OrdinalIgnoreCase) ||
         agent.Category.Contains(value, StringComparison.OrdinalIgnoreCase) ||
-        agent.RoleAliases.Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase)) ||
-        agent.Keywords.Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase)) ||
-        agent.Capabilities.Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase)) ||
-        (agent.RoleCategoryKeys ?? []).Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase)) ||
-        (agent.SpecializationKeys ?? []).Any(x => x.Contains(value, StringComparison.OrdinalIgnoreCase));
+        agent.RoleAliases.Any(x => x?.Contains(value, StringComparison.OrdinalIgnoreCase) == true) ||
+        agent.Keywords.Any(x => x?.Contains(value, StringComparison.OrdinalIgnoreCase) == true) ||
+        agent.Capabilities.Any(x => x?.Contains(value, StringComparison.OrdinalIgnoreCase) == true) ||
+        (agent.RoleCategoryKeys ?? []).Any(x => x?.Contains(value, StringComparison.OrdinalIgnoreCase) == true) ||
+        (agent.SpecializationKeys ?? []).Any(x => x?.Contains(value, StringComparison.OrdinalIgnoreCase) == true);
 
     private static decimal Score(AvailableAgent agent, AvailableAgentSearchQuery query)
     {

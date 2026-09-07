@@ -10,7 +10,8 @@ namespace CSweet.Infrastructure.Setup;
 public sealed class PluginBootstrapCapabilityService(
     CSweetDbContext db,
     IAgentInteractiveRuntimeService runtime,
-    AgentWorkInbox inbox) : IPluginBootstrapCapabilityService
+    AgentWorkInbox inbox,
+    ConnectorBootstrapExecutor? connectorBootstrap = null) : IPluginBootstrapCapabilityService
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
@@ -26,7 +27,11 @@ public sealed class PluginBootstrapCapabilityService(
                 timeout.Token) ?? throw new UnauthorizedAccessException("The plugin installation was not found.");
         if (installation.SetupState == PluginSetupState.Ready)
             throw new InvalidOperationException("Bootstrap callbacks are unavailable after activation.");
-        var manifest = JsonSerializer.Deserialize<PluginManifest>(installation.PackageVersion?.ManifestJson ?? "{}")
+        if (installation.PackageVersion?.PluginKind == PluginKind.Connector)
+            return await (connectorBootstrap ?? throw new InvalidOperationException("Connector setup execution is unavailable."))
+                .ExecuteAsync(organizationId, installationId, stepId, arguments, timeout.Token);
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(installation.PackageVersion?.ManifestJson ?? "{}",
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))
             ?? throw new InvalidOperationException("The plugin manifest is unavailable.");
         var step = manifest.Setup?.Flows.SelectMany(x => x.Steps).SingleOrDefault(x => x.Id == stepId)
             ?? throw new InvalidOperationException("The setup step is not declared.");

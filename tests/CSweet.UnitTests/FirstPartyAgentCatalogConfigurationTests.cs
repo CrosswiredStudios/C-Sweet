@@ -4,11 +4,35 @@ using CSweet.Agent.SDK;
 using CSweet.Infrastructure.Agents;
 using CSweet.Infrastructure.Marketplace;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CSweet.UnitTests;
 
 public sealed class FirstPartyAgentCatalogConfigurationTests
 {
+    [Theory]
+    [InlineData("Creative Director", false)]
+    [InlineData("creative-director", false)]
+    [InlineData("Game Director", false)]
+    [InlineData("Creative Director", true)]
+    public async Task ConfiguredCatalog_FindsSuggestedCreativeDirectorRole(string search, bool freeText)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(RepositoryRoot(), "src", "CSweet.Api", "first-party-agents.json"))
+            .Build();
+        var options = configuration.GetSection(MarketplaceOptions.SectionName).Get<MarketplaceOptions>()!;
+        var service = new AgentCatalogService(
+            [new FirstPartyAgentCatalogProvider(Options.Create(options))],
+            NullLogger<AgentCatalogService>.Instance);
+
+        var result = await service.GetAvailableAgentsAsync(
+            Guid.NewGuid(), new(Role: freeText ? null : search, SearchString: freeText ? search : null));
+
+        Assert.Contains(result.Agents, agent => agent.AgentId == "com.csweet.video-game-creative-director");
+        if (!freeText) Assert.Single(result.Agents);
+    }
+
     [Fact]
     public void VideoGameCreativeDirector_IsCanonicalCreativeDirectorWithGameSpecializations()
     {

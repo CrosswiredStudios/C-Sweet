@@ -169,7 +169,9 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginAuthorizationPolicy, PersistedPluginAuthorizationPolicy>();
         builder.Services.AddScoped<IPluginSecretStore, DataProtectionPluginSecretStore>();
         builder.Services.Configure<PluginConnectionOptions>(builder.Configuration.GetSection(PluginConnectionOptions.SectionName));
-        builder.Services.AddHttpClient(nameof(PluginSetupService), client => client.Timeout = TimeSpan.FromSeconds(30));
+        builder.Services.AddHttpClient(nameof(PluginSetupService), client =>
+            { client.Timeout = TimeSpan.FromSeconds(30); client.MaxResponseContentBufferSize = 65536; })
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
         builder.Services.AddHttpClient(nameof(PluginOAuthTokenBroker), client => client.Timeout = TimeSpan.FromSeconds(30));
         builder.Services.AddScoped<IPluginOAuthTokenBroker, PluginOAuthTokenBroker>();
         builder.Services.AddScoped<IPluginProviderProfileRegistry, PluginProviderProfileRegistry>();
@@ -180,6 +182,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ConnectorPlanService>();
         builder.Services.AddScoped<IConnectorHttpTransport, ConnectorHttpTransport>();
         builder.Services.AddScoped<ConnectorReadExecutor>();
+        builder.Services.AddScoped<ConnectorBootstrapExecutor>();
         builder.Services.AddScoped<IPluginBootstrapCapabilityService, PluginBootstrapCapabilityService>();
         builder.Services.AddScoped<AgentInstallationConfigurationService>();
         builder.Services.AddScoped<IAgentInstallationConfigurationService>(sp =>

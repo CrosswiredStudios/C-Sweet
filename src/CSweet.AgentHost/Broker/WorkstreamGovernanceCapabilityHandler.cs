@@ -334,6 +334,16 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             visibleBySupervision = await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
                 x.OrganizationId == businessId && x.TeamId == teamId && x.OrganizationUserId == actorId && x.EndedAt == null, token);
         }
+        if (!visibleBySupervision)
+        {
+            // During bootstrap the approved team exists before its Workstream supervision assignment.
+            // Its active lead's direct manager still needs to inspect staffing and hand off the brief.
+            visibleBySupervision = await (from team in db.OrganizationTeams.AsNoTracking()
+                join lead in db.CoreOrganizationUsers.AsNoTracking() on team.LeadOrganizationUserId equals lead.Id
+                where team.OrganizationId == businessId && team.Id == teamId && team.ArchivedAt == null &&
+                    lead.OrganizationId == businessId && lead.IsActive && lead.ReportsToOrganizationUserId == actorId
+                select team.Id).AnyAsync(token);
+        }
         if (!visibleBySupervision) throw new UnauthorizedAccessException("The requested team is outside this employee's scope.");
         return new TeamRosterV2Response(await BuildTeamContextAsync(businessId, actorId, teamId.Value, request.Page, request.PageSize, token), request.WorkstreamId);
     }
@@ -492,7 +502,8 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             AgentInstallationId = x.OrganizationUser.AgentInstallationId,
             EffectiveCapabilities = x.OrganizationUser.AgentInstallationId is { } capabilityId &&
                                     installations.TryGetValue(capabilityId, out var capabilityInstallation)
-                ? ReadStringArray(capabilityInstallation.Grant?.RequiredCapabilitiesJson) : [],
+                ? ReadStringArray(capabilityInstallation.Grant?.ProvidedCapabilitiesJson, roleKeys: false)
+                    .Concat(ReadStringArray(capabilityInstallation.Grant?.RequiredCapabilitiesJson, roleKeys: false)).Distinct(StringComparer.Ordinal).ToList() : [],
             DeclaredRoleKeys = x.OrganizationUser.AgentInstallationId is { } roleId &&
                                installations.TryGetValue(roleId, out var roleInstallation)
                 ? ReadRolePolicy(roleInstallation.PackageVersion?.ManifestJson).DeclaredRoleKeys : [],
@@ -516,12 +527,12 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             lead.Id.ToString("D"), lead.DisplayName, pageMembers, coverage, members.Count, page * pageSize < members.Count);
     }
 
-    private static IReadOnlyList<string> ReadStringArray(string? json)
+    private static IReadOnlyList<string> ReadStringArray(string? json, bool roleKeys = true)
     {
         try
         {
             return JsonSerializer.Deserialize<string[]>(json ?? "[]")?
-                .Where(RoleTaxonomy.IsCanonicalKey).Distinct(StringComparer.Ordinal)
+                .Where(x => roleKeys ? RoleTaxonomy.IsCanonicalKey(x) : !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.Ordinal)
                 .OrderBy(x => x, StringComparer.Ordinal).ToList() ?? [];
         }
         catch (JsonException) { return []; }
