@@ -12,7 +12,7 @@
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Secure agent setup</MudText>
             <MudText Typo="Typo.h3">@(_setup?.Flow.Title ?? "Connect your account")</MudText>
-            <MudText Color="Color.Secondary">C-Sweet handles credentials and shows only platform-owned controls.</MudText>
+            <MudText Color="Color.Secondary">Connect your account securely. Your agent never receives your password or sign-in credentials.</MudText>
         </div>
         @if (_setup is not null)
         {
@@ -30,6 +30,51 @@
     }
     else if (_setup is not null)
     {
+        @foreach (var cleanup in _setup.Cleanup)
+        {
+            <MudAlert Severity="@(cleanup.RevocationConfirmed ? Severity.Success : Severity.Warning)" Class="mt-3">
+                @(cleanup.Status == "Pending" ? "External access is disabled. Secure disconnection is still finishing; reconnect will be available afterward."
+                    : cleanup.RevocationConfirmed ? "The provider confirmed disconnection and local sign-in credentials were removed."
+                    : "Local sign-in credentials were removed, but provider revocation was not confirmed. Review the application's access in your provider account.")
+            </MudAlert>
+        }
+        @foreach (var dependency in _dependencies)
+        {
+            <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4">
+                <MudText Typo="Typo.h6">Choose the account this agent can use</MudText>
+                <MudText Color="Color.Secondary">Access is granted only to the account you explicitly select. Changing accounts disables existing automatic-action policies.</MudText>
+                @if (dependency.Choices.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Class="mt-3">The required connection has not been installed for this organization. Ask an administrator to add it, then refresh this page.</MudAlert>
+                    <MudText Typo="Typo.caption">Required package: @dependency.PluginId</MudText>
+                }
+                @foreach (var choice in dependency.Choices)
+                {
+                    <MudPaper Outlined="true" Elevation="0" Class="pa-3 mt-3">
+                        <MudText Typo="Typo.subtitle1">@choice.Name</MudText>
+                        @foreach (var account in choice.Accounts)
+                        {
+                            <MudText>@account.Name</MudText>
+                            <MudText Typo="Typo.caption">Account ID: @account.Id</MudText>
+                        }
+                        @if (dependency.SelectedInstallationId == choice.InstallationId)
+                        {
+                            <MudChip T="string" Color="Color.Primary">Selected for this agent</MudChip>
+                        }
+                        @if (choice.UnavailableReason is not null)
+                        {
+                            <MudText Color="Color.Warning">@choice.UnavailableReason</MudText>
+                        }
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !choice.CanSelect)"
+                                   OnClick="@(() => SelectConnectionAsync(dependency, choice))">Use this account</MudButton>
+                        <MudButton Href="@($"/organizations/{OrganizationId:D}/plugin-setup/{choice.InstallationId:D}")" Target="_blank"
+                                   Variant="Variant.Text">@(choice.CanSelect ? "Manage connection" : "Finish account setup")</MudButton>
+                    </MudPaper>
+                }
+                <MudText Typo="Typo.caption" Class="mt-3">Account setup opens separately. Return here when finished and refresh the choices.</MudText>
+                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="LoadAsync">Refresh choices</MudButton>
+            </MudPaper>
+        }
         <MudStepper ActiveIndex="@ActiveIndex" NonLinear="@(_setup.State == "Ready")" Class="mt-4">
             @foreach (var step in _setup.Flow.Steps)
             {
@@ -155,7 +200,19 @@
                         {
                             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">Disconnecting immediately disables external work, revokes authorization, and disables autonomous policies.</MudAlert>
                             <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
-                                       OnClick="@(() => DisconnectAsync(step))">Disconnect @ProviderName(step)</MudButton>
+                                       OnClick="@(() => PreviewDisconnectAsync(step))">Disconnect @ProviderName(step)</MudButton>
+                            @if (_disconnectStepId == step.Id)
+                            {
+                                <MudAlert Severity="Severity.Warning">
+                                    This stops account access for every linked agent and disables their automatic-action policies.
+                                    @foreach (var name in _disconnectImpact?.AffectedAgents ?? [])
+                                    {
+                                        <MudText>@name</MudText>
+                                    }
+                                </MudAlert>
+                                <MudButton Color="Color.Error" Variant="Variant.Filled" Disabled="_busy" OnClick="@(() => DisconnectAsync(step))">Confirm disconnect</MudButton>
+                                <MudButton Disabled="_busy" OnClick="@(() => _disconnectStepId = null)">Keep connected</MudButton>
+                            }
                         }
 
                         @if (step.Kind is not ("oauth-connect" or "permission-request" or "disconnect"))
@@ -173,7 +230,11 @@
             <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4">
                 <MudText Typo="Typo.h6">Ready to activate</MudText>
                 <MudText Color="Color.Secondary">Activation enables the installation only after access and setup validation succeed.</MudText>
-                <MudButton Variant="Variant.Filled" Color="Color.Success" Class="mt-3" Disabled="_busy" OnClick="ActivateAsync">Activate</MudButton>
+                @if (!DependenciesReady)
+                {
+                    <MudText Color="Color.Warning">Select a connected account above before activating.</MudText>
+                }
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Class="mt-3" Disabled="@(_busy || !DependenciesReady)" OnClick="ActivateAsync">Activate</MudButton>
             </MudPaper>
         }
         else if (_setup.State == "Ready")
@@ -188,11 +249,15 @@
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid InstallationId { get; set; }
     private PluginSetupResponse? _setup;
+    private IReadOnlyList<PluginDependencySetupResponse> _dependencies = [];
+    private bool DependenciesReady => _dependencies.All(x => x.Choices.Any(c => c.CanSelect && c.InstallationId == x.SelectedInstallationId));
     private bool _loading = true;
     private bool _busy;
     private string? _error;
     private string? _selectedAccountId;
     private string? _selectedAccountName;
+    private string? _disconnectStepId;
+    private PluginDisconnectImpactResponse? _disconnectImpact;
     private bool _loadingAccounts;
     private readonly List<SetupAccountOption> _accountOptions = [];
     private readonly Dictionary<string, object?> _values = new(StringComparer.Ordinal);
@@ -206,6 +271,8 @@
         try
         {
             _setup = await Http.GetFromJsonAsync<PluginSetupResponse>($"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}");
+            _dependencies = await Http.GetFromJsonAsync<PluginDependencySetupResponse[]>(
+                $"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/dependencies") ?? [];
             foreach (var pair in _setup?.Values ?? new Dictionary<string, JsonElement>())
                 _values[pair.Key] = pair.Value.ValueKind switch
                 {
@@ -317,16 +384,45 @@
         finally { _busy = false; }
     }
 
+    private async Task SelectConnectionAsync(PluginDependencySetupResponse dependency, PluginConnectorChoice choice)
+    {
+        _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.PutAsJsonAsync(
+                $"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/dependencies/{Uri.EscapeDataString(dependency.Id)}",
+                new BindConnectorRequest(choice.InstallationId));
+            await EnsureSuccessAsync(response);
+            await LoadAsync();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
     private async Task DisconnectAsync(PluginSetupStep step)
     {
-        if (string.IsNullOrWhiteSpace(step.Connection)) return;
+        if (string.IsNullOrWhiteSpace(step.Connection) || _disconnectStepId != step.Id) return;
         _busy = true; _error = null;
         try
         {
             var response = await Http.DeleteAsync(
                 $"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/connections/{step.Connection}");
             await EnsureSuccessAsync(response);
+            _disconnectStepId = null;
             await LoadAsync();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task PreviewDisconnectAsync(PluginSetupStep step)
+    {
+        _busy = true; _error = null;
+        try
+        {
+            _disconnectImpact = await Http.GetFromJsonAsync<PluginDisconnectImpactResponse>(
+                $"api/core/organizations/{OrganizationId:D}/plugin-setup/{InstallationId:D}/disconnect-impact");
+            _disconnectStepId = step.Id;
         }
         catch (Exception exception) { _error = exception.Message; }
         finally { _busy = false; }

@@ -34,6 +34,9 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
         Guid? definitionId = null,
         CancellationToken cancellationToken = default)
     {
+        var profileChanges = await AgentWorkstreamProfileActivation.ReconcileAsync(db, cancellationToken);
+        if (profileChanges > 0)
+            await db.SaveChangesAsync(cancellationToken);
         var driftQuery = db.AgentInstallations.AsNoTracking()
             .Where(x => x.AgentDefinition != null &&
                         x.PackageVersionId != x.AgentDefinition.PackageVersionId &&
@@ -56,7 +59,7 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             var artifactGrantChanges = await ReconcileApprovedArtifactCreateGrantsAsync(cancellationToken);
             if (artifactGrantChanges > 0)
                 await db.SaveChangesAsync(cancellationToken);
-            return artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
+            return profileChanges + artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
                 .ReconcileAsync(cancellationToken: cancellationToken);
         }
 
@@ -81,7 +84,7 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             var artifactGrantChanges = await ReconcileApprovedArtifactCreateGrantsAsync(cancellationToken);
             if (artifactGrantChanges > 0)
                 await db.SaveChangesAsync(cancellationToken);
-            return artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
+            return profileChanges + artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
                 .ReconcileAsync(cancellationToken: cancellationToken);
         }
 
@@ -109,7 +112,10 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                 .SingleAsync(cancellationToken);
             var activeRuntime = installation.RuntimeInstances.Any(x => ActiveRuntimeStatuses.Contains(x.Status));
 
+            await AgentWorkstreamProfileActivation.ActivateAsync(db,
+                AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson), cancellationToken);
             installation.PackageVersionId = definition.PackageVersionId;
+            AgentStartupRecovery.ConfigurationChanged(installation);
             installation.RevisionNumber++;
             installation.DesiredConfigurationRevision++;
             installation.ConfigurationSyncStatus = activeRuntime
@@ -252,7 +258,7 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
 
         var repairedBindings = await new AgentCapabilityBindingReconciler(db, auditWriter)
             .ReconcileAsync(cancellationToken: cancellationToken);
-        return deployments.Count + artifactGrantChangesAfterDeployment + repairedBindings;
+        return profileChanges + deployments.Count + artifactGrantChangesAfterDeployment + repairedBindings;
 
         bool ProviderOffers(Guid providerInstallationId, string capability)
         {

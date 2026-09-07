@@ -11,6 +11,16 @@ namespace CSweet.UnitTests;
 public sealed class AgentCommunicationOnboardingTests
 {
     [Fact]
+    public void PendingOnboardingCanBeDeliveredToAnUpdatedPackage()
+    {
+        var eventId = Guid.NewGuid();
+        var packageId = Guid.NewGuid();
+        var key = AgentOnboardingEventDispatcher.CreateDeliveryKey(eventId, packageId);
+        Assert.Equal(key, AgentOnboardingEventDispatcher.CreateDeliveryKey(eventId, packageId));
+        Assert.NotEqual(key, AgentOnboardingEventDispatcher.CreateDeliveryKey(eventId, Guid.NewGuid()));
+        Assert.NotEqual(key, AgentOnboardingEventDispatcher.CreateDeliveryKey(Guid.NewGuid(), packageId));
+    }
+    [Fact]
     public async Task EnsureAsync_CreatesConversationBeforeSetupAndQueuesLifecycleEventWhenReady()
     {
         await using var db = CreateDb();

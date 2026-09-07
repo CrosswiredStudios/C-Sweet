@@ -38,6 +38,18 @@ Packages are under `artifacts/adaptive-packages`. No live installation records a
 by building these packages. A previously suppressed installation must be retried after the
 host is healthy through the existing runtime diagnostics controls.
 
+Startup suppression survives an application restart to prevent repeated failure loops.
+Updating the hired agent's package or changing its effective configuration (including model
+selection) clears its failure counter and makes enabled always-on agents due again. Saving
+unchanged defaults does not reset the counter, and disabled agents stay disabled. These
+configuration updates schedule work; they do not synchronously launch an agent.
+
+For failures already persisted before this fix, use **Retry startup** in the Communications
+unavailable-agent banner, or the existing retry action under **Settings → Agents**. The
+action clears suppression and queues startup; it does not guarantee that the underlying
+failure is resolved. The banner shows request failures and prevents duplicate clicks while
+the request is pending. Normal startup failure limits apply again after a retry.
+
 Regression coverage includes dispatcher recovery, FIFO serialization, acknowledged waiting
 beyond the original work budget, queued cancellation, idempotency and ownership, refusal to
 revive expired work, SDK deadline propagation, and caller cancellation. SDK documentation

@@ -34,6 +34,6 @@
     <Project Path="../CSweet.Memory/src/CSweet.Memory/CSweet.Memory.csproj" />
     <Project Path="../CSweet.Office.Contracts/src/CSweet.Office.Contracts/CSweet.Office.Contracts.csproj" />
     <Project Path="../CSweet.WorkManagement.Contracts/src/CSweet.WorkManagement.Contracts/CSweet.WorkManagement.Contracts.csproj" />
-    <Project Path="../CSweetAgentSdk/src/CSweet.Agent.SDK/CSweet.Agent.SDK.csproj" />
+    <Project Path="../CSweet.Agent.Sdk/src/CSweet.Agent.SDK/CSweet.Agent.SDK.csproj" />
   </Folder>
 </Solution>

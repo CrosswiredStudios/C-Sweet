@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CSweet.Application.Setup;
 using CSweet.Application.Core;
+using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -63,7 +64,7 @@ public sealed class PluginOperationsCapabilityHandler(
                     ? await HandleEngagementAsync(request, organizationId, installationId, cancellationToken)
                     : await HandleStateAsync(request, organizationId, installationId, cancellationToken);
         }
-        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or UnauthorizedAccessException or DbUpdateConcurrencyException)
         {
             result = Failure(request.RequestId, exception.Message);
         }
@@ -263,6 +264,16 @@ public sealed class PluginOperationsCapabilityHandler(
         var proposal = await db.ActionProposals.SingleOrDefaultAsync(x =>
             x.Id == input.ProposalId && x.OrganizationId == organizationId, cancellationToken)
             ?? throw new InvalidOperationException("The managed action proposal was not found.");
+        if (proposal.ActionType == ConnectorActionApprovalService.ActionType)
+        {
+            var service = new ConnectorActionApprovalService(db, new ConnectorPlanService(db), audit);
+            var status = await service.DecideAsync(organizationId, approver.Id,
+                new DecideManagedAgentActionRequest(input.ProposalId,
+                    input.Decision == "Request revision" ? "RequestRevision" : input.Decision,
+                    input.Comment, input.PayloadHash, input.ExpectedRevision, input.ActionIdempotencyKey,
+                    input.DecisionIdempotencyKey, input.ResourceId), cancellationToken);
+            return Success(request.RequestId, new { proposal.Id, status, executionPending = status == "Approved" });
+        }
         var requestingAgent = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == proposal.AgentInstallationId && x.IsActive,
             cancellationToken);

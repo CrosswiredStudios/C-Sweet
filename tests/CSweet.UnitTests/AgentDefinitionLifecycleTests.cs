@@ -247,6 +247,12 @@ public sealed class AgentDefinitionLifecycleTests
         var definition = SeedDefinition(db, newPackage, ActivationMode.AlwaysOn);
         var offlineHire = RuntimeInstallation(oldPackage, Guid.NewGuid().ToString("D"));
         offlineHire.AgentDefinitionId = definition.Id;
+        offlineHire.Schedule!.ActivationMode = ActivationMode.AlwaysOn;
+        offlineHire.Schedule.IsEnabled = true;
+        offlineHire.IsEnabled = true;
+        offlineHire.Schedule.ConsecutiveStartupFailures = 3;
+        offlineHire.Schedule.AutomaticStartSuppressedAt = DateTimeOffset.UtcNow;
+        offlineHire.Schedule.NextTickAt = null;
         definition.Installations.Add(offlineHire);
         db.AddRange(newPackage, offlineHire);
         await db.SaveChangesAsync();
@@ -256,6 +262,9 @@ public sealed class AgentDefinitionLifecycleTests
 
         Assert.Equal(1, changed);
         Assert.Equal(newPackage.Id, (await db.AgentInstallations.SingleAsync()).PackageVersionId);
+        Assert.Equal(0, offlineHire.Schedule.ConsecutiveStartupFailures);
+        Assert.Null(offlineHire.Schedule.AutomaticStartSuppressedAt);
+        Assert.NotNull(offlineHire.Schedule.NextTickAt);
         Assert.Equal(AgentConfigurationSyncStatus.PendingNextStart,
             (await db.AgentInstallations.SingleAsync()).ConfigurationSyncStatus);
         Assert.Equal(0, await new AgentDefinitionInstallationSynchronizer(

@@ -392,6 +392,10 @@ public sealed class CommunicationHubServiceTests
             ConsecutiveStartupFailures = 3,
             AutomaticStartSuppressedAt = DateTimeOffset.UtcNow
         };
+        installation.PackageVersion = new AgentPackageVersion
+        {
+            Id = installation.PackageVersionId, Status = AgentPackageVersionStatus.Built
+        };
         var runtime = new AgentRuntimeInstance
         {
             Id = Guid.NewGuid(),
@@ -425,6 +429,8 @@ public sealed class CommunicationHubServiceTests
         var participant = Assert.Single(refreshedChat.Participants, x => x.OrganizationUserId == agent.Id);
         Assert.Equal(CommunicationPresenceStatuses.Unhealthy, participant.PresenceStatus);
         Assert.Contains("guest broker protocol", participant.PresenceDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(installation.Id, participant.AgentInstallationId);
+        Assert.True(participant.CanRetryStartup);
     }
 
     [Theory]

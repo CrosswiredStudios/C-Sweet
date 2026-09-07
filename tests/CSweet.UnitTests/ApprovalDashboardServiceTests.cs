@@ -3,12 +3,46 @@ using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
 public sealed class ApprovalDashboardServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConnectorReviewDisplaysExactChangesAndOnlyOffersDecisionToBoundApprover(bool assigned)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var organizationId = Guid.NewGuid(); var requester = Guid.NewGuid();
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ApplicationUserId = Guid.NewGuid(), DisplayName = "Owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner };
+        var manager = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ApplicationUserId = Guid.NewGuid(), DisplayName = "Assigned manager", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Manager };
+        var binding = new ConnectorActionApprovalService.Binding(Guid.NewGuid(), new string('a', 64), "channel", "video",
+            1, "action-key", "example.video.update.v1", true, manager.Id, "Manager Approval", "write",
+            DateTimeOffset.UtcNow.AddHours(1), JsonSerializer.SerializeToElement(new { title = "<script>untrusted</script>" }), "Company channel");
+        db.AddRange(owner, manager, new ActionProposal { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentInstallationId = requester, ActionType = ConnectorActionApprovalService.ActionType,
+            PayloadJson = JsonSerializer.Serialize(binding, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            Summary = "Review changes", IdempotencyKey = "proposal", CreatedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        var service = new ApprovalDashboardService(db, new StubResourceChangeService([]), new HiringService(db, null!, null!));
+        var result = await service.GetAsync(organizationId, (assigned ? manager : owner).ApplicationUserId!.Value);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(assigned, item.CanDecide); Assert.Equal(manager.DisplayName, item.AssignedTo);
+        Assert.Equal("Company channel", item.AgentAction!.AccountName);
+        Assert.Equal(binding.ExpiresAt, item.AgentAction.ExpiresAt);
+        Assert.Equal(binding.ReviewPayload!.Value.GetProperty("title").GetString(),
+            JsonDocument.Parse(item.AgentAction.ReviewPayloadJson!).RootElement.GetProperty("title").GetString());
+    }
+
     [Fact]
     public async Task GetAsync_AggregatesPendingApprovalsAndAssignsManagerDecision()
     {

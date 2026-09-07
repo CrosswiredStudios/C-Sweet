@@ -151,6 +151,9 @@ public sealed class PluginOAuthFlowTests
         var organizationId = Guid.NewGuid();
         var installationId = Guid.NewGuid();
         var userId = Guid.NewGuid();
+        db.CoreOrganizationUsers.Add(new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ApplicationUserId = userId, DisplayName = "Channel owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true });
         var package = new AgentPackageVersion
         {
             Id = Guid.NewGuid(), AgentId = "test", AgentName = "Test", Version = "1.0.0",
@@ -198,6 +201,10 @@ public sealed class PluginOAuthFlowTests
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var organizationId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        db.CoreOrganizationUsers.Add(new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ApplicationUserId = userId, DisplayName = "Channel owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true });
         var package = new AgentPackageVersion { Id = Guid.NewGuid(), AgentId = "test", AgentName = "Test",
             Version = "1", ManifestJson = ManifestJson, ManifestDigest = new string('a', 64),
             CapabilityDescriptorsDigest = new string('b', 64), RuntimeType = "dotnet-project" };
@@ -212,7 +219,7 @@ public sealed class PluginOAuthFlowTests
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()), new SuccessfulOnboarding(), new TestAuditEventWriter());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.BeginAuthorizationAsync(organizationId,
-            Guid.NewGuid(), installation.Id, "provider", new BeginPluginAuthorizationRequest("base"),
+            userId, installation.Id, "provider", new BeginPluginAuthorizationRequest("base"),
             "http://app.example.com/callback"));
     }
 

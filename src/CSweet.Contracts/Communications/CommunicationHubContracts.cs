@@ -35,7 +35,11 @@ public sealed record CommunicationParticipantResponse(
     string EmployeeType,
     string Role,
     string PresenceStatus = CommunicationPresenceStatuses.Available,
-    string? PresenceDetail = null);
+    string? PresenceDetail = null)
+{
+    public Guid? AgentInstallationId { get; init; }
+    public bool CanRetryStartup { get; init; }
+}
 
 public sealed record CommunicationPersonResponse(
     Guid Id,

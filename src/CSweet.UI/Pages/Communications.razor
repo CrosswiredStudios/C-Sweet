@@ -12,6 +12,7 @@
 @inject CommunicationUnreadState Unread
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+@inject IAgentApiClient AgentApi
 
 <PageTitle>Communications - C-Sweet</PageTitle>
 
@@ -183,6 +184,13 @@
                             </div>
                             @if (unavailableAgent.PresenceStatus == CommunicationPresenceStatuses.Unhealthy)
                             {
+                                @if (_hub?.IsReadOnlyPerspective == false && unavailableAgent.CanRetryStartup && unavailableAgent.AgentInstallationId is { } installationId)
+                                {
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_retryingStartup"
+                                               OnClick="@(() => RetryAgentStartupAsync(installationId))">
+                                        @(_retryingStartup ? "Queuing retry…" : "Retry startup")
+                                    </MudButton>
+                                }
                                 <a href="/settings/agents">Review diagnostics</a>
                             }
                         </section>
@@ -891,6 +899,25 @@
         }
         catch (JSDisconnectedException) { }
         catch (ObjectDisposedException) { }
+    }
+
+    private bool _retryingStartup;
+
+    private async Task RetryAgentStartupAsync(Guid installationId)
+    {
+        if (_retryingStartup) return;
+        _retryingStartup = true;
+        try
+        {
+            await AgentApi.RetryStartupAsync(installationId, _disposeCts.Token);
+            _notice = "Startup retry queued. The agent will appear available once it connects.";
+            await LoadAsync();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _notice = $"Could not retry startup: {exception.Message}";
+        }
+        finally { _retryingStartup = false; }
     }
 
     private async Task LoadAsync()

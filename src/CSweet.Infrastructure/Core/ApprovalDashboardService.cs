@@ -5,6 +5,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Domain.Security;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Core;
@@ -83,6 +84,8 @@ public sealed class ApprovalDashboardService(
         items.AddRange(agentActions.Select(proposal =>
         {
             var managerId = managersByInstallation.GetValueOrDefault(proposal.AgentInstallationId);
+            var connectorBinding = proposal.ActionType == ConnectorActionApprovalService.ActionType
+                ? ConnectorActionApprovalService.Parse(proposal) : null;
             return new ApprovalDashboardItemResponse(
                 proposal.Id,
                 ApprovalDashboardKinds.AgentAction,
@@ -90,12 +93,15 @@ public sealed class ApprovalDashboardService(
                 proposal.Summary,
                 proposal.Status.ToString(),
                 Name(installationNames, proposal.AgentInstallationId, "Agent employee"),
-                managerId == Guid.Empty ? ownerLabel : Name(names, managerId, ownerLabel),
+                connectorBinding is not null ? Name(names, connectorBinding.ApproverOrganizationUserId, "Assigned approver") :
+                    managerId == Guid.Empty ? ownerLabel : Name(names, managerId, ownerLabel),
                 proposal.CreatedAt,
                 proposal.DecidedAt,
                 $"/organizations/{organizationId:D}/approvals",
                 proposal.Status == ProposalStatus.Pending &&
-                (actor.PermissionLevel == OrganizationPermissionLevel.Owner || actor.Id == managerId))
+                (connectorBinding is not null ? actor.Id == connectorBinding.ApproverOrganizationUserId &&
+                    connectorBinding.ExpiresAt > DateTimeOffset.UtcNow :
+                    actor.PermissionLevel == OrganizationPermissionLevel.Owner || actor.Id == managerId))
             {
                 AgentAction = ReadManagedAction(proposal)
             };
@@ -307,6 +313,9 @@ public sealed class ApprovalDashboardService(
             var expiresAt = root.TryGetProperty("change", out var change) &&
                 change.TryGetProperty("expiresAt", out var expiry) && expiry.TryGetDateTimeOffset(out var parsedExpiry)
                     ? parsedExpiry : (DateTimeOffset?)null;
+            if (proposal.ActionType == ConnectorActionApprovalService.ActionType &&
+                root.TryGetProperty("expiresAt", out var connectorExpiry) && connectorExpiry.TryGetDateTimeOffset(out var planExpiry))
+                expiresAt = planExpiry;
             return new(proposal.Id,
                 root.TryGetProperty("actionType", out var action) ? action.GetString() ?? proposal.ActionType : proposal.ActionType,
                 channel.GetString() ?? string.Empty,
@@ -316,7 +325,10 @@ public sealed class ApprovalDashboardService(
                 root.TryGetProperty("alwaysRequiresApproval", out var always) && always.GetBoolean(),
                 root.TryGetProperty("resourceId", out var resource) && resource.ValueKind == JsonValueKind.String
                     ? resource.GetString() : null,
-                fiscalSummary, approvalRoute, expiresAt);
+                fiscalSummary, approvalRoute, expiresAt,
+                root.TryGetProperty("accountName", out var account) && account.ValueKind == JsonValueKind.String ? account.GetString() : null,
+                root.TryGetProperty("reviewPayload", out var preview) && preview.ValueKind != JsonValueKind.Null
+                    ? JsonSerializer.Serialize(preview, new JsonSerializerOptions { WriteIndented = true }) : null);
         }
         catch (JsonException) { return null; }
     }

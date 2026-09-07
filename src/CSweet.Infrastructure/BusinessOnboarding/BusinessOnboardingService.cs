@@ -631,6 +631,8 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         }
 
         var now = DateTimeOffset.UtcNow;
+        await AgentWorkstreamProfileActivation.ActivateAsync(_dbContext,
+            AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson), cancellationToken);
         var installation = OrganizationUserService.CreateHiredInstallation(definition, organizationId, now);
         _dbContext.AgentInstallations.Add(installation);
         var chiefRole = await _dbContext.CoreRoles.SingleOrDefaultAsync(

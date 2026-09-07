@@ -31,6 +31,10 @@ public static class PluginSetupEndpoints
             IPluginSetupService setup, CancellationToken cancellationToken) =>
             Results.Ok(await setup.GetAsync(organizationId, installationId, cancellationToken)));
 
+        group.MapGet("/{installationId:guid}/dependencies", async (Guid organizationId, Guid installationId,
+            [Microsoft.AspNetCore.Mvc.FromServices] ConnectorBindingService bindings, CancellationToken cancellationToken) =>
+            Results.Ok(await bindings.GetChoicesAsync(organizationId, installationId, cancellationToken)));
+
         group.MapPut("/{installationId:guid}/dependencies/{dependencyId}", async (Guid organizationId,
             Guid installationId, string dependencyId, BindConnectorRequest request, [Microsoft.AspNetCore.Mvc.FromServices] ConnectorBindingService bindings,
             CancellationToken cancellationToken) =>
@@ -96,6 +100,19 @@ public static class PluginSetupEndpoints
             return applicationUserId.HasValue
                 ? Results.Ok(await setup.ActivateAsync(organizationId, applicationUserId.Value, installationId, cancellationToken))
                 : Results.Forbid();
+        });
+
+        group.MapGet("/{installationId:guid}/disconnect-impact", async (Guid organizationId, Guid installationId,
+            CSweetDbContext db, CancellationToken cancellationToken) =>
+        {
+            var organization = organizationId.ToString("D");
+            if (!await db.AgentInstallations.AnyAsync(x => x.Id == installationId && x.BusinessId == organization, cancellationToken))
+                return Results.NotFound();
+            var consumers = await db.AgentCapabilityBindings.AsNoTracking().Where(x => x.OrganizationId == organization &&
+                x.ProviderInstallationId == installationId && x.RevokedAt == null).Select(x => x.RequesterInstallationId).Distinct().ToArrayAsync(cancellationToken);
+            var names = await db.AgentInstallations.AsNoTracking().Where(x => x.BusinessId == organization && consumers.Contains(x.Id) &&
+                x.RevisionStatus == CSweet.Domain.Setup.PluginRevisionStatus.Active).Select(x => x.PackageVersion!.AgentName).ToArrayAsync(cancellationToken);
+            return Results.Ok(new PluginDisconnectImpactResponse(names));
         });
 
         group.MapDelete("/{installationId:guid}/connections/{connectionId}", async (Guid organizationId,

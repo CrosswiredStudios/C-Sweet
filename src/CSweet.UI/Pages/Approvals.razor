@@ -143,13 +143,17 @@
                         else if (item.AgentAction is { } agentAction)
                         {
                             <MudGrid Class="mt-3">
-                                <MudItem xs="12" md="6"><strong>Channel</strong><br />@agentAction.ChannelId</MudItem>
+                                <MudItem xs="12" md="6"><strong>Account</strong><br />@(agentAction.AccountName ?? agentAction.ChannelId)</MudItem>
                                 <MudItem xs="12" md="6"><strong>Action</strong><br />@agentAction.ActionType</MudItem>
                                 @if (!string.IsNullOrWhiteSpace(agentAction.ResourceId))
                                 {
                                     <MudItem xs="12"><strong>Resource</strong><br />@agentAction.ResourceId</MudItem>
                                 }
                                 <MudItem xs="12"><strong>Payload binding</strong><br /><code>@agentAction.PayloadHash</code></MudItem>
+                                @if (!string.IsNullOrWhiteSpace(agentAction.ReviewPayloadJson))
+                                {
+                                    <MudItem xs="12"><strong>Exact proposed changes</strong><pre style="white-space: pre-wrap; overflow-wrap: anywhere">@agentAction.ReviewPayloadJson</pre></MudItem>
+                                }
                                 @if (!string.IsNullOrWhiteSpace(agentAction.FiscalSummary))
                                 {
                                     <MudItem xs="12"><strong>Fiscal commitment</strong><br />@agentAction.FiscalSummary</MudItem>

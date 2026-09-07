@@ -6,6 +6,7 @@ using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using CSweet.Application.Setup;
+using CSweet.Infrastructure.Setup;
 
 namespace CSweet.Api.Core;
 
@@ -69,7 +70,8 @@ public static class ApprovalEndpoints
             "/api/core/organizations/{organizationId:guid}/approvals/agent-actions/{proposalId:guid}/decide",
             async (Guid organizationId, Guid proposalId, DecideManagedAgentActionRequest request,
                 HttpContext http, CSweetDbContext db, IAuditEventWriter audit,
-                IEnumerable<IManagedActionExecutor> executors, CancellationToken cancellationToken) =>
+                IEnumerable<IManagedActionExecutor> executors, ConnectorActionApprovalService connectorApprovals,
+                CancellationToken cancellationToken) =>
             {
                 var applicationUserId = http.User.GetApplicationUserId();
                 if (!applicationUserId.HasValue || request.ProposalId != proposalId) return Results.Forbid();
@@ -79,6 +81,22 @@ public static class ApprovalEndpoints
                 var proposal = await db.ActionProposals.SingleOrDefaultAsync(x =>
                     x.Id == proposalId && x.OrganizationId == organizationId, cancellationToken);
                 if (actor is null || proposal is null) return Results.NotFound();
+                if (proposal.ActionType == ConnectorActionApprovalService.ActionType)
+                {
+                    try
+                    {
+                        var status = await connectorApprovals.DecideAsync(organizationId, actor.Id, request, cancellationToken);
+                        return Results.Ok(new { proposal.Id, status, proposal.DecidedAt, executionPending = status == "Approved" });
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        return Results.Forbid();
+                    }
+                    catch (Exception exception) when (exception is InvalidOperationException or JsonException or DbUpdateConcurrencyException)
+                    {
+                        return Results.Conflict(new { error = "connector_decision_stale", message = "The action or its authority changed. Refresh the review before deciding." });
+                    }
+                }
                 var agent = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
                     x.OrganizationId == organizationId && x.AgentInstallationId == proposal.AgentInstallationId && x.IsActive,
                     cancellationToken);

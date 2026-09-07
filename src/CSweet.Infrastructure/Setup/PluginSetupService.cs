@@ -144,6 +144,9 @@ public sealed class PluginSetupService(
     {
         var installation = await RequireInstallationAsync(organizationId, installationId, cancellationToken);
         await RequireConsentOwnerAsync(organizationId, applicationUserId, cancellationToken);
+        if (await db.PluginOperationalStates.AnyAsync(x => x.OrganizationId == organizationId &&
+            x.AgentInstallationId == installationId && x.Kind == PluginConnectionCleanupService.PendingKind, cancellationToken))
+            throw new InvalidOperationException("The previous connection is still being securely disconnected. Try reconnecting after cleanup completes.");
         var declaration = Manifest(installation).Connections.SingleOrDefault(x => x.Id == connectionId)
             ?? throw new ArgumentException("The connection is not declared by this plugin.");
         var scopeSet = declaration.ScopeSets.SingleOrDefault(x => x.Id == request.ScopeSetId)
@@ -300,19 +303,26 @@ public sealed class PluginSetupService(
             policy.RevokedAt = now;
         }
         // Persist the external-work gate before replacing credential material.
+        var previousKey = await PluginOAuthCredentialKeys.ResolveAsync(db, installation.Id, connection.Id, cancellationToken);
+        var generationKey = PluginOAuthCredentialKeys.Generation(connection.Id, attempt.Id);
+        PluginOAuthCredentialKeys.Register(db, payload.OrganizationId, installation.Id, connection.Id, attempt.Id);
         connection.Status = PluginConnectionStatus.ReauthorizationRequired;
         await db.SaveChangesAsync(cancellationToken);
-        await secrets.SetAsync(installation.Id, TokenKey(connection.Id), JsonSerializer.Serialize(new
+        await secrets.SetAsync(installation.Id, generationKey, JsonSerializer.Serialize(new
         {
             accessToken, refreshToken, tokenType = "Bearer",
             expiresAt = now.AddSeconds(token.RootElement.TryGetProperty("expires_in", out var expiry) ? expiry.GetInt32() : 3600)
         }, JsonOptions), cancellationToken);
+        await PluginOAuthCredentialKeys.SelectAsync(db, payload.OrganizationId, installation.Id, connection.Id, attempt.Id, cancellationToken);
         connection.Status = PluginConnectionStatus.Connected;
         try { await db.SaveChangesAsync(cancellationToken); }
         catch (DbUpdateConcurrencyException)
         {
+            // This attempt owns only its unique generation; it cannot erase a newer consent's token.
+            await secrets.RemoveAsync(installation.Id, generationKey, CancellationToken.None);
             throw new UnauthorizedAccessException("The connection changed while credentials were being stored. Reconnect to recover.");
         }
+        if (previousKey != generationKey) await secrets.RemoveAsync(installation.Id, previousKey, cancellationToken);
         await audit.WriteAsync("plugin-connection.authorized", nameof(PluginConnection), connection.Id,
             $"Authorized provider profile {connection.ProviderProfile} with declared permission set {scopeSet.Id}.", null, cancellationToken);
         return new(payload.OrganizationId, installation.Id);
@@ -396,76 +406,87 @@ public sealed class PluginSetupService(
         var connection = await db.PluginConnections.SingleOrDefaultAsync(x =>
             x.AgentInstallationId == installation.Id && x.DeclarationId == connectionId, cancellationToken);
         if (connection is null) return;
-        // Persist the local deny before waiting on a remote revocation endpoint.
-        connection.Status = PluginConnectionStatus.Revoked;
-        connection.RevokedAt = connection.UpdatedAt = DateTimeOffset.UtcNow;
-        installation.SetupState = PluginSetupState.ConnectionRequired;
-        installation.IsEnabled = false;
-        if (installation.Schedule is not null) installation.Schedule.IsEnabled = false;
-        await db.SaveChangesAsync(cancellationToken);
-        var profile = await providerProfiles.ResolveAsync(connection.ProviderProfile, cancellationToken);
-        var tokenJson = await secrets.GetAsync(installation.Id, TokenKey(connection.Id), cancellationToken);
-        if (profile is not null && !string.IsNullOrWhiteSpace(profile.RevocationEndpoint) && tokenJson is not null)
-        {
-            using var token = JsonDocument.Parse(tokenJson);
-            var value = token.RootElement.TryGetProperty("refreshToken", out var refresh) ? refresh.GetString() :
-                token.RootElement.GetProperty("accessToken").GetString();
-            if (!string.IsNullOrWhiteSpace(value))
-                try { await httpClients.CreateClient(nameof(PluginSetupService)).PostAsync(profile.RevocationEndpoint,
-                    new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = value }), cancellationToken); }
-                catch (HttpRequestException) { /* local disable and purge remain fail-closed */ }
-        }
-        await secrets.RemoveAsync(installation.Id, TokenKey(connection.Id), cancellationToken);
-        foreach (var field in Manifest(installation).Configuration.Where(x =>
-                     x.Secret || x.Type.Equals("secret", StringComparison.OrdinalIgnoreCase)))
-            await secrets.RemoveAsync(installation.Id, ConfigurationSecretKey(field.Key), cancellationToken);
-        connection.Status = PluginConnectionStatus.Revoked;
-        connection.RevokedAt = connection.UpdatedAt = DateTimeOffset.UtcNow;
-        connection.BoundResourceId = null;
+        var existing = await db.PluginOperationalStates.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+            x.AgentInstallationId == installationId && x.Kind == PluginConnectionCleanupService.PendingKind &&
+            x.ExternalKey == connection.Id.ToString("N"), cancellationToken);
+        var cleanup = new PluginConnectionCleanupService(db, secrets, httpClients, providerProfiles, audit);
+        if (existing is not null) { await cleanup.ProcessAsync(existing, cancellationToken); return; }
+        if (connection.Status == PluginConnectionStatus.Revoked) return;
+
+        var now = DateTimeOffset.UtcNow;
         var manifest = Manifest(installation);
+        var declaration = manifest.Connections.Single(x => x.Id == connectionId);
         var flow = Flow(manifest, manifest.Setup?.EntryFlow);
         var connectIndex = flow.Steps.ToList().FindIndex(x => x.Connection == connectionId && x.Kind == "oauth-connect");
-        installation.SetupFlowId = flow.Id;
-        installation.SetupStepId = connectIndex >= 0 ? flow.Steps[connectIndex].Id : flow.Steps.First().Id;
-        var setupData = SetupData.Parse(installation.SetupDataJson);
-        if (connectIndex >= 0)
+        var consumers = await db.AgentCapabilityBindings.Where(x => x.OrganizationId == organizationId.ToString("D") &&
+            x.ProviderInstallationId == installationId && x.RevokedAt == null)
+            .Select(x => x.RequesterInstallationId).Distinct().ToListAsync(cancellationToken);
+        consumers.Add(installationId);
+        var policies = await db.PluginStandingPolicies.Where(x => x.OrganizationId == organizationId &&
+            consumers.Contains(x.AgentInstallationId) && x.Status == PluginStandingPolicyStatus.Approved).ToListAsync(cancellationToken);
+        foreach (var policy in policies) { policy.Status = PluginStandingPolicyStatus.Revoked; policy.RevokedAt = now; }
+        var executions = await db.ConnectorExecutions.Where(x => x.OrganizationId == organizationId &&
+            x.ConnectorInstallationId == installationId && x.ConnectionId == connection.Id).ToListAsync(cancellationToken);
+        var approvalIds = executions.Where(x => x.ApprovalId.HasValue).Select(x => x.ApprovalId!.Value).ToArray();
+        var proposals = await db.ActionProposals.Where(x => (x.AgentInstallationId == installationId || approvalIds.Contains(x.Id)) &&
+            x.Status == CSweet.Domain.Core.ProposalStatus.Pending).ToListAsync(cancellationToken);
+        foreach (var proposal in proposals) { proposal.Status = CSweet.Domain.Core.ProposalStatus.Cancelled; proposal.DecidedAt = now; }
+        foreach (var execution in executions)
         {
-            var invalidated = flow.Steps.Skip(connectIndex).Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
-            setupData.CompletedStepIds.RemoveAll(invalidated.Contains);
+            execution.Status = "Cancelled"; execution.ResultJson = null; execution.PlanJson = "{}";
+            execution.ResourceId = ""; execution.Revision++; execution.UpdatedAt = now;
         }
-        installation.SetupDataJson = JsonSerializer.Serialize(setupData, JsonOptions);
+        var activeCredentialKey = await PluginOAuthCredentialKeys.ResolveAsync(db, installationId, connection.Id, cancellationToken);
+        var states = await db.PluginOperationalStates.Where(x => x.OrganizationId == organizationId &&
+            x.AgentInstallationId == installationId && x.Kind != PluginConnectionCleanupService.CompletedKind &&
+            x.Kind != PluginConnectionCleanupService.PendingKind).ToListAsync(cancellationToken);
+        var keys = manifest.Configuration.Where(x => x.Secret || x.Type.Equals("secret", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ConfigurationSecretKey(x.Key)).ToList();
+        foreach (var state in states.Where(x => x.Kind == "response-secret-reference"))
+        {
+            using var reference = JsonDocument.Parse(state.PayloadJson);
+            if (reference.RootElement.TryGetProperty("key", out var key) && key.ValueKind == JsonValueKind.String &&
+                key.GetString() is { } value && value.StartsWith("response.", StringComparison.Ordinal)) keys.Add(value);
+        }
+        var attempts = await db.PluginOAuthAttempts.Where(x => x.AgentInstallationId == installationId &&
+            x.ConnectionDeclarationId == connectionId).ToListAsync(cancellationToken);
+        foreach (var attempt in attempts)
+        {
+            attempt.ConsumedAt ??= now;
+            keys.Add(VerifierKey(attempt.Id));
+            keys.Add(PluginOAuthCredentialKeys.Generation(connection.Id, attempt.Id));
+        }
+        db.PluginOperationalStates.RemoveRange(states);
+        var job = new PluginOperationalState { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentInstallationId = installationId, Kind = PluginConnectionCleanupService.PendingKind,
+            ExternalKey = connection.Id.ToString("N"), CreatedAt = now };
+        PluginConnectionCleanupService.Save(job, new(connection.Id, declaration.Id, connection.ProviderProfile,
+            declaration.Provider?.AuthorizationEndpoint, declaration.Provider?.TokenEndpoint, declaration.Provider?.RevocationEndpoint,
+            keys.Distinct(StringComparer.Ordinal).ToArray(), now.AddDays(7), now, ActiveCredentialKey: activeCredentialKey));
+        db.PluginOperationalStates.Add(job);
+        connection.Status = PluginConnectionStatus.Revoked;
+        connection.RevokedAt = connection.UpdatedAt = now;
+        connection.ExternalAccountId = connection.ExternalAccountName = connection.BoundResourceId = null;
+        connection.GrantedScopesJson = "[]";
         installation.SetupState = PluginSetupState.ConnectionRequired;
         installation.IsEnabled = false;
+        if (installation.Grant is not null) installation.Grant.GrantRevision++;
         if (installation.Schedule is not null) installation.Schedule.IsEnabled = false;
-        installation.UpdatedAt = DateTimeOffset.UtcNow;
-        var configuration = await configurations.GetAsync(installation.Id, cancellationToken);
-        if (configuration is not null)
+        installation.SetupFlowId = flow.Id;
+        installation.SetupStepId = connectIndex >= 0 ? flow.Steps[connectIndex].Id : flow.Steps.First().Id;
+        installation.SetupDataJson = JsonSerializer.Serialize(new
         {
-            var safeSettings = configuration.Settings.ToDictionary(x => x.Key, x => x.Value.Clone(), StringComparer.Ordinal);
-            safeSettings["approvalMode"] = JsonSerializer.SerializeToElement("Manager Approval", JsonOptions);
-            await configurations.SaveAsync(installation.Id, configuration.SchemaVersion, safeSettings, cancellationToken);
-        }
-        var operationalData = await db.PluginOperationalStates
-            .Where(x => x.AgentInstallationId == installation.Id).ToListAsync(cancellationToken);
-        db.PluginOperationalStates.RemoveRange(operationalData);
-        var pendingActions = await db.ActionProposals.Where(x => x.AgentInstallationId == installation.Id &&
-            x.Status == CSweet.Domain.Core.ProposalStatus.Pending).ToListAsync(cancellationToken);
-        foreach (var proposal in pendingActions)
-        {
-            proposal.Status = CSweet.Domain.Core.ProposalStatus.Cancelled;
-            proposal.DecidedAt = DateTimeOffset.UtcNow;
-        }
-        var standingPolicies = await db.PluginStandingPolicies.Where(x =>
-            x.AgentInstallationId == installation.Id && x.Status == PluginStandingPolicyStatus.Approved)
-            .ToListAsync(cancellationToken);
-        foreach (var policy in standingPolicies)
-        {
-            policy.Status = PluginStandingPolicyStatus.Revoked;
-            policy.RevokedAt = DateTimeOffset.UtcNow;
-        }
+            completedStepIds = connectIndex > 0 ? flow.Steps.Take(connectIndex).Select(x => x.Id).ToArray() : [],
+            values = new Dictionary<string, string>()
+        }, JsonOptions);
+        installation.UpdatedAt = now;
+        // One durable save disables access, revokes dependent autonomy, clears broker copies,
+        // invalidates approvals and records cleanup BEFORE any remote request or vault mutation.
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("plugin-connection.disconnected", nameof(PluginConnection), connection.Id,
-            "Disabled external work, revoked authorization, and purged local token material.", null, cancellationToken);
+            "Disabled external access and dependent autonomous policies; credential revocation and cleanup queued.",
+            cancellationToken: cancellationToken);
+        await cleanup.ProcessAsync(job, cancellationToken);
     }
 
     private async Task<AgentInstallation> RequireInstallationAsync(Guid organizationId, Guid installationId,
@@ -491,12 +512,20 @@ public sealed class PluginSetupService(
         var data = SetupData.Parse(installation.SetupDataJson);
         var connections = await db.PluginConnections.AsNoTracking().Where(x => x.AgentInstallationId == installation.Id)
             .ToListAsync(cancellationToken);
+        var cleanup = await db.PluginOperationalStates.AsNoTracking().Where(x => x.AgentInstallationId == installation.Id &&
+            (x.Kind == PluginConnectionCleanupService.PendingKind || x.Kind == PluginConnectionCleanupService.CompletedKind))
+            .OrderByDescending(x => x.UpdatedAt).Take(25).ToListAsync(cancellationToken);
         return new(installation.Id, installation.SetupState.ToString(), flow.Id, installation.SetupStepId,
             data.CompletedStepIds, flow, connections.Select(x => new PluginConnectionResponse(x.Id, x.DeclarationId,
                 x.ProviderProfile, x.Status.ToString(), DeserializeList(x.GrantedScopesJson), x.ExternalAccountId,
                 x.ExternalAccountName, x.BoundResourceId)).ToArray())
         {
             ConnectionDeclarations = manifest.Connections,
+            Cleanup = cleanup.Select(x => (Record: x, Payload: JsonSerializer.Deserialize<PluginConnectionCleanupService.Cleanup>(x.PayloadJson, JsonOptions)!))
+                .Where(x => connections.Any(c => c.DeclarationId == x.Payload.DeclarationId && c.Status == PluginConnectionStatus.Revoked))
+                .GroupBy(x => x.Payload.DeclarationId).Select(x => x.First()).Select(x => new PluginConnectionCleanupResponse(
+                    x.Payload.DeclarationId, x.Record.Kind == PluginConnectionCleanupService.PendingKind ? "Pending" : x.Payload.Outcome ?? "Completed",
+                    x.Payload.RevocationConfirmed)).ToArray(),
             ConfigurationFields = manifest.Configuration,
             Values = data.Values
         };

@@ -172,16 +172,23 @@ public static class DependencyInjection
         builder.Services.AddHttpClient(nameof(PluginSetupService), client =>
             { client.Timeout = TimeSpan.FromSeconds(30); client.MaxResponseContentBufferSize = 65536; })
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
-        builder.Services.AddHttpClient(nameof(PluginOAuthTokenBroker), client => client.Timeout = TimeSpan.FromSeconds(30));
+        builder.Services.AddHttpClient(nameof(PluginOAuthTokenBroker), client =>
+        { client.Timeout = TimeSpan.FromSeconds(30); client.MaxResponseContentBufferSize = 64 * 1024; })
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
         builder.Services.AddScoped<IPluginOAuthTokenBroker, PluginOAuthTokenBroker>();
         builder.Services.AddScoped<IPluginProviderProfileRegistry, PluginProviderProfileRegistry>();
         builder.Services.AddScoped<IPluginStandingPolicyService, PluginStandingPolicyService>();
         builder.Services.AddScoped<IPluginSetupService, PluginSetupService>();
+        builder.Services.AddScoped<PluginConnectionCleanupService>();
+        builder.Services.AddScoped<ConnectorActionApprovalService>();
         builder.Services.AddScoped<ConnectorBindingService>();
         builder.Services.AddScoped<ConnectorProfileApprovalService>();
         builder.Services.AddScoped<ConnectorPlanService>();
         builder.Services.AddScoped<IConnectorHttpTransport, ConnectorHttpTransport>();
         builder.Services.AddScoped<ConnectorReadExecutor>();
+        builder.Services.AddScoped<ConnectorMutationExecutor>();
+        builder.Services.AddScoped<ConnectorActionService>();
+        builder.Services.AddScoped<ConnectorActionDispatchService>();
         builder.Services.AddScoped<ConnectorBootstrapExecutor>();
         builder.Services.AddScoped<IPluginBootstrapCapabilityService, PluginBootstrapCapabilityService>();
         builder.Services.AddScoped<AgentInstallationConfigurationService>();

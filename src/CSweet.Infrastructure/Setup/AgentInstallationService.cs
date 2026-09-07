@@ -220,7 +220,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 now);
         }
         _dbContext.AgentInstallations.Add(installation);
-        await ActivateWorkstreamProfilesAsync(manifest, packageVersion.Version, cancellationToken);
+        await ActivateWorkstreamProfilesAsync(manifest, cancellationToken);
         _dbContext.AgentCapabilityBindings.AddRange(await CreateCapabilityBindingsAsync(
             installation,
             request.GrantedRequestedCapabilities,
@@ -594,11 +594,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         staged.Schedule.MaxRuntimeSeconds = maxRuntimeSeconds;
         staged.Schedule.OverlapPolicy = overlap;
         staged.Schedule.IsEnabled = true;
+        ResetAutomaticStartupFailures(staged.Schedule);
         staged.Schedule.NextTickAt = ComputeNextTick(activation, request.TickFrequencySeconds, now);
         staged.IsEnabled = true;
         staged.RevisionStatus = PluginRevisionStatus.Active;
         staged.UpdatedAt = now;
-        await ActivateWorkstreamProfilesAsync(manifest, staged.PackageVersion!.Version, cancellationToken);
+        await ActivateWorkstreamProfilesAsync(manifest, cancellationToken);
         if (manifest.Configuration.Any(field => !field.Secret))
         {
             staged.Configuration ??= CreateConfiguration(
@@ -645,17 +646,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     }
 
     private async Task ActivateWorkstreamProfilesAsync(
-        PluginManifest manifest, string packageVersion, CancellationToken cancellationToken)
+        PluginManifest manifest, CancellationToken cancellationToken)
     {
-        foreach (var contribution in manifest.WorkstreamProfiles.Provides)
-        {
-            var definition = await _dbContext.WorkstreamProfileDefinitions.SingleOrDefaultAsync(x =>
-                x.Key == contribution.Key && x.Version == contribution.Version &&
-                x.ProviderPackageId == manifest.Id && x.ProviderPackageVersion == packageVersion,
-                cancellationToken) ?? throw new AgentInstallationException(
-                $"The immutable Workstream profile '{contribution.Key}' v{contribution.Version} was not imported with this package.");
-            definition.Status = CSweet.WorkManagement.Contracts.WorkstreamProfileStatuses.Active;
-        }
+        await AgentWorkstreamProfileActivation.ActivateAsync(_dbContext, manifest, cancellationToken);
     }
 
     private async Task RevokeToolchainEligibilityAsync(

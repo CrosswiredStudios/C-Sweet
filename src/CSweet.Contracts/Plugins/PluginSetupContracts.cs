@@ -14,7 +14,11 @@ public sealed record PluginSetupResponse(
     public IReadOnlyList<PluginConnectionDeclaration> ConnectionDeclarations { get; init; } = [];
     public IReadOnlyList<PluginConfigurationField> ConfigurationFields { get; init; } = [];
     public IReadOnlyDictionary<string, JsonElement> Values { get; init; } = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+    public IReadOnlyList<PluginConnectionCleanupResponse> Cleanup { get; init; } = [];
 }
+
+public sealed record PluginConnectionCleanupResponse(string ConnectionId, string Status, bool RevocationConfirmed);
+public sealed record PluginDisconnectImpactResponse(IReadOnlyList<string> AffectedAgents);
 
 public sealed record PluginConnectionResponse(
     Guid Id,
@@ -32,6 +36,13 @@ public sealed record CompletePluginSetupStepRequest(
 
 public sealed record BeginPluginAuthorizationRequest(string ScopeSetId);
 public sealed record BindConnectorRequest(Guid ConnectorInstallationId);
+public sealed record PluginDependencySetupResponse(
+    string Id, string PluginId, IReadOnlyList<string> Capabilities,
+    Guid? SelectedInstallationId, IReadOnlyList<PluginConnectorChoice> Choices);
+public sealed record PluginConnectorChoice(
+    Guid InstallationId, string Name, string State, bool CanSelect,
+    string? UnavailableReason, IReadOnlyList<PluginConnectedAccount> Accounts);
+public sealed record PluginConnectedAccount(string Id, string Name);
 public sealed record ApproveConnectorProfileRequest(string PackageDigest, string ProfileId);
 public sealed record BeginPluginAuthorizationResponse(string AuthorizationUrl, DateTimeOffset ExpiresAt);
 public sealed record PluginAuthorizationCompletion(Guid OrganizationId, Guid InstallationId);

@@ -3,7 +3,8 @@
 Approved design: a fresh `CSweet.Agent.Platform.YouTube` agent, a deterministic
 `CSweet.Plugin.Connector.YouTube` connector, and provider-neutral host enforcement.
 Package identities are `com.csweet.agent.platform.youtube` and
-`com.csweet.connector.youtube`. Both start at 0.1.0. SDK target: 3.30.0.
+`com.csweet.connector.youtube`. Both start at 0.1.0. SDK target: 3.31.1, following the
+user's approval to use the current release line in `CSweet.Agent.Sdk`.
 
 ## Acceptance ledger
 
@@ -21,8 +22,8 @@ Package identities are `com.csweet.agent.platform.youtube` and
 - Generic provider settings without Google defaults; profiles are filtered to referenced connectors.
 - Database migrations `AddConnectorDependencyPlans` and `AddPluginSetupObligations` generated,
   **not applied** to any database.
-- The new connector now declares ten narrow, typed, brokered read operations: account discovery,
-  channel/video reads, playlists/items, top-level comment threads, caption metadata, live broadcast
+- The new connector now declares eleven narrow, typed, brokered read operations: account discovery,
+  channel/video reads, playlists/items, top-level comment threads and paginated replies, caption metadata, live broadcast
   and stream status, and official aggregate analytics. No mutation capability is advertised.
 - Generic host-only connector bootstrap projects authenticated account choices through bounded
   manifest JSON pointers. It rechecks the current step, tenant, digest approval, scopes and grants
@@ -32,7 +33,17 @@ Package identities are `com.csweet.agent.platform.youtube` and
   validates the original setup record without repeating activation side effects (sequential retry).
 - Setup UI uses provider declarations, not YouTube-specific controls. The old hard-coded YouTube
   policy editor/media panel was removed; a generic declarative approval-policy surface is still pending.
-- The conversational agent repository remains scaffold-only.
+- The agent now uses bounded model-backed conversation with persisted-message verification,
+  state-only manager preferences, native setup guidance, typed reads and durable requested analytics,
+  reply drafts and publication plans. Generated drafts survive delivery failures without regeneration;
+  queue insertion/checkpoint gaps recover against exact source-message and installation ownership.
+  Information and approval wording do not create phantom work or authorize public changes.
+  Manager-authorized pause preserves generated drafts with a durable 15-minute preference check;
+  resume requeues up to 25 matching self-owned requests without adding replacement cards.
+- Native setup lists compatible same-organization connector choices without automatically selecting
+  an account. Explicit selection checks grants, profile/digest approval and confirmed account readiness.
+  Changed bindings revoke autonomous policies. Missing connector installation still requires an
+  administrator; automatic Marketplace dependency bundle installation remains outstanding.
 - OAuth consent now binds protected state to the exact manifest/digest, setup record, grant revision,
   provider client/endpoints, connection state, requested scopes, redirect, tenant and initiating human.
   The callback rechecks membership and context before exchange and before accepting credentials.
@@ -45,28 +56,62 @@ Package identities are `com.csweet.agent.platform.youtube` and
   existing plans through the grant revision, and revokes standing policies for bound consumers.
   Token exchange rejects duplicate JSON fields/unsupported token types, disables HTTP redirects and
   cookies, and caps buffered responses at 64 KB. Consumed PKCE verifiers are removed before exchange.
+- OAuth credential writes use unique authorization-attempt generations with a host-only active
+  reference committed alongside Connected status. A competing disconnect rejects the stale commit
+  and removes only that attempt's generation. The broker checks live status and the active generation
+  before returning or refreshing credentials. Refresh responses reject ambiguous fields/unsupported
+  token types and preserve a provider-rotated refresh token; refresh HTTP disables redirects/cookies.
+- Disconnect atomically disables the connector, revokes bound consumers' autonomous policies,
+  cancels frozen executions/linked approvals, clears account metadata and broker result copies, and
+  records host-only credential cleanup before remote work. A background worker quarantines revocation
+  credentials outside the active broker slot, retries interruption/provider failure, refuses changed
+  provider destinations and removes quarantined material at its seven-day deadline even if remote
+  revocation remains unconfirmed. Reconnect is blocked while cleanup is pending. The UI previews
+  affected agents and distinguishes pending/local cleanup from confirmed provider revocation.
+  This does not yet purge provider-derived copies in consuming-agent drafts, reports and conversations.
+- Frozen connector plans now enter the existing managed-action approval record with exact plan,
+  account, resource, revision and idempotency bindings. The host selects the current assigned manager
+  or accountable CEO; a general owner permission does not override a different assigned approver.
+  Human API decisions and agent decisions use the same service, durable receipt and optimistic plan
+  revision. Native review includes escaped exact request changes, query-only targets and media digest.
+  Approval records do not themselves perform provider HTTP; plain-text conversation remains insufficient.
+- A host-internal non-media mutation executor rechecks approvals and live authority before every
+  ownership read and outbound request, extracts declared response secrets, validates response schemas
+  and saves confirmed results before reporting completion. It claims each approved plan once. Failed
+  preflights block; uncertain sends, cancellation or malformed responses become Indeterminate and
+  cannot automatically resend. Interrupted Executing records also cannot be reclaimed as new actions.
+  This executor is not yet connected to a durable dispatch worker or exposed as an agent request tool.
+  Approval notification obligations are stored, but protected-chat cards and event dispatch remain pending.
 
-The user approved targeting the shared SDK **3.30.0** release. Concurrent Git file-lock
-changes are preserved. Current verification: 129 SDK tests, 2 sample tests, 7 generated-template
-tests and template self-test passed; selected host tests passed 109/109, including 19 new OAuth
-security cases and an isolated SQLite single-use concurrency check. The YouTube connector's
-7 tests and manifest self-test passed against the freshly packed SDK in a separate package cache.
-SDK 3.30.0 and connector 0.1.0 were packed locally; versions and packaged manifest were inspected.
-The API builds with **all external sibling project references disabled**, using the local feed
-(zero warnings/errors). Prior foundation verification also covered 20 memory tests and packed
-Memory.Broker 0.1.3; its corrected SDK pin remains 3.30.0. Nothing was published, no migration was
-applied, and no Google credentials were used. These are deterministic read-slice/foundation checks,
+Current verification: 118 selected host connector/setup/OAuth/cleanup/approval tests pass, including
+23 exact-plan approval/mutation tests and native-review routing coverage. Legacy OAuth fixtures now
+include the authenticated human required by consent enforcement; no security check was weakened.
+The previous verification also passed 21 conversational-agent tests and 8 connector tests against
+SDK **3.31.1**; those unchanged package suites were not rerun during the host approval work. Host builds use **all external sibling
+project references disabled** and isolated outputs. Five nullable warnings remain in concurrently
+edited `Communications.razor`; the YouTube changes compile. SDK 3.31.1 and connector 0.1.0 have
+been packed locally into the current verification feed. Prior foundation verification covered
+109 selected host tests, the previous SDK/template suite and Memory.Broker 0.1.3; those historical
+counts are not claims that the entire current suite was rerun. Nothing was published, no migration
+was applied, and no Google credentials were used. These are deterministic foundation checks,
 not full browser acceptance or real-provider verification.
 
-The complete implementation still requires mutation approvals/execution and media jobs;
-complete setup/CEO handoff and bundle UI; the remaining YouTube operations and conversational
-agent; OAuth/retention/recovery hardening; and full product acceptance. Account discovery currently
+Next implementation priorities: expose typed action request/read contracts, wire durable execution
+and protected-conversation approval events/cards, then durable media jobs; bundle installation and CEO-to-human setup handoff; complete channel synchronization
+and review/report cadences; remaining typed YouTube operations; provenance-aware data purge and broader
+recovery/acceptance. Conversational reads currently persist a bounded single response; large pages can
+exceed the platform's 64 KB operating-state payload limit and need sharded evidence/artifact storage.
+
+The complete implementation still requires end-to-end mutation approval/dispatch/reconciliation and media jobs;
+complete setup/CEO handoff and bundle UI; the remaining YouTube operations and scheduled
+conversational work; OAuth/retention/recovery hardening; and full product acceptance. Account discovery currently
 rejects additional pages instead of offering paginated selection, avatars are not yet displayed,
 and comment-thread reads do not synchronize all replies. Memberships/partner operations are absent.
-Durable refresh/revocation, credential generations with cross-store commit/recovery, consent issuer
-mix-up defenses, and tracked retention/purge still require implementation. A revoked callback cannot
-re-enable the database connection, but vault writes and database state do not yet share a durable
-commit protocol; cleanup/reconciliation of that race remains required. In-flight old-format OAuth
+Distributed refresh serialization, orphan-generation reconciliation after arbitrary vault/database
+failures, consent issuer mix-up defenses, and tracked retention/purge still require implementation.
+Generation references isolate failed writes but are not a general cross-store transaction protocol.
+The new disconnect job provides durable revocation recovery, not complete data-retention compliance.
+In-flight old-format OAuth
 states intentionally fail after this update and require starting consent again. This is not a claim
 of complete RFC 9700 compliance or production-ready OAuth.
 

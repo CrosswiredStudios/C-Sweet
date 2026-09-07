@@ -73,6 +73,10 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Read this installation's revision-controlled operating assessment checkpoint."),
         HiddenWrite(PlatformCapabilities.AgentOperatingStateWrite, "write_agent_operating_state",
             "Write this installation's bounded operating assessment checkpoint with optimistic concurrency."),
+        Approval(PlatformCapabilities.ConnectorActionRequest, "request_connector_action",
+            "Request an exact declared connector action; approval does not mean execution.") with { ModelVisible = false },
+        HiddenRead(PlatformCapabilities.ConnectorActionRead, "read_connector_action",
+            "Read this installation's durable connector action and its sanitized outcome.") with { MaximumOutputBytes = 4 * 1024 * 1024 },
         Read(PlatformCapabilities.BusinessPatternSearch, "search_business_patterns",
             "Find stage-appropriate operating patterns from broker-approved sources."),
         Approval(PlatformCapabilities.WorkstreamPlanPropose, "propose_workstream_plan",
@@ -483,6 +487,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
 
     private static JsonElement OutputFor(string capability) => capability switch
     {
+        PlatformCapabilities.ConnectorActionRequest or PlatformCapabilities.ConnectorActionRead => Schema("""
+            {"type":"object","properties":{"actionId":{"type":"string","format":"uuid"},"capability":{"type":"string"},"status":{"type":"string","enum":["Prepared","AwaitingApproval","Approved","Executing","Completed","Rejected","RevisionRequested","Cancelled","Blocked","Indeterminate","Expired","Unavailable"]},"updatedAt":{"type":"string","format":"date-time"},"result":{"type":["object","array","string","number","boolean","null"]},"conditionCode":{"type":["string","null"]}},"required":["actionId","capability","status","updatedAt","result","conditionCode"],"additionalProperties":false}
+            """),
         WorkBoardActions.Read or
         WorkSprintActions.Read or
         W.WorkstreamCapabilityNames.GateReadV1 or
@@ -677,6 +684,12 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         PlatformCapabilities.TeamRosterRead => Schema("""
             {"type":"object","properties":{"page":{"type":"integer","minimum":1,"maximum":10000},"pageSize":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}
+            """),
+        PlatformCapabilities.ConnectorActionRequest => Schema("""
+            {"type":"object","properties":{"capability":{"type":"string","minLength":1,"maxLength":200},"input":{"type":"object"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"required":["capability","input","idempotencyKey"],"additionalProperties":false}
+            """),
+        PlatformCapabilities.ConnectorActionRead => Schema("""
+            {"type":"object","properties":{"actionId":{"type":"string","format":"uuid"}},"required":["actionId"],"additionalProperties":false}
             """),
         PlatformCapabilities.AgentOperatingStateRead => Schema("""
             {"type":"object","required":["stateKey"],"properties":{"stateKey":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[A-Za-z0-9._/:\\-]+$"}},"additionalProperties":false}

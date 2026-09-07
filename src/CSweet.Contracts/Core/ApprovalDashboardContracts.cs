@@ -45,7 +45,9 @@ public sealed record ManagedAgentActionApprovalResponse(
     string? ResourceId = null,
     string? FiscalSummary = null,
     string? ApprovalRoute = null,
-    DateTimeOffset? ExpiresAt = null);
+    DateTimeOffset? ExpiresAt = null,
+    string? AccountName = null,
+    string? ReviewPayloadJson = null);
 
 public sealed record DecideManagedAgentActionRequest(
     Guid ProposalId,

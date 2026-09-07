@@ -116,6 +116,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
                     "The selected agent definition is not built, signed, configured, and available for hire.");
             }
 
+            await AgentWorkstreamProfileActivation.ActivateAsync(_dbContext,
+                AgentConfigurationRules.DeserializeManifest(definition.PackageVersion.ManifestJson), cancellationToken);
             hiredInstallation = CreateHiredInstallation(definition, organizationId, DateTimeOffset.UtcNow);
             hiredManifestJson = definition.PackageVersion.ManifestJson;
             _dbContext.AgentInstallations.Add(hiredInstallation);

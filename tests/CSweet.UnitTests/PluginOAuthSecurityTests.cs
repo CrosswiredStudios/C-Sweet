@@ -167,6 +167,7 @@ public sealed class PluginOAuthSecurityTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.CompleteAuthorizationAsync(f.UserId, "code", state));
         await using var verify = new CSweetDbContext(options);
         Assert.Equal(PluginConnectionStatus.Revoked, (await verify.PluginConnections.SingleAsync()).Status);
+        Assert.Empty(f.Secrets.Values);
     }
 
     [Fact]

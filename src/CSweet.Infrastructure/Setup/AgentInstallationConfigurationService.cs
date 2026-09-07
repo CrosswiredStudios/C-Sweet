@@ -34,6 +34,7 @@ public sealed class AgentInstallationConfigurationService(
         var definition = await db.AgentDefinitions.Include(x => x.Configuration).Include(x => x.PackageVersion)
             .Include(x => x.Installations).ThenInclude(x => x.Configuration)
             .Include(x => x.Installations).ThenInclude(x => x.RuntimeInstances)
+            .Include(x => x.Installations).ThenInclude(x => x.Schedule)
             .SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken)
             ?? throw new AgentInstallationException("The agent definition was not found.");
         var configuration = definition.Configuration
@@ -275,6 +276,7 @@ public sealed class AgentInstallationConfigurationService(
         return query.Where(x => x.Id == employeeId && x.OrganizationId == organizationId && x.IsActive && x.AgentInstallationId != null)
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Configuration)
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.RuntimeInstances)
+            .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.AgentDefinition)!.ThenInclude(x => x!.Configuration)
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.AgentDefinition)!.ThenInclude(x => x!.PackageVersion);
     }
@@ -305,6 +307,7 @@ public sealed class AgentInstallationConfigurationService(
 
     private static void MarkConfigurationChanged(AgentInstallation installation)
     {
+        AgentStartupRecovery.ConfigurationChanged(installation);
         installation.DesiredConfigurationRevision++;
         var active = installation.RuntimeInstances.Any(x => x.Status is AgentRuntimeStatus.Queued or AgentRuntimeStatus.Starting or
             AgentRuntimeStatus.WaitingForMcpSession or AgentRuntimeStatus.Running or AgentRuntimeStatus.CompletionReported);

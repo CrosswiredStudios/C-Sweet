@@ -11,6 +11,37 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentInstallationConfigurationServiceTests
 {
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task EffectiveConfigurationChange_ResetsSuppression_WithoutEnablingDisabledAgents(bool enabled, bool change)
+    {
+        await using var db = CreateDbContext();
+        var installation = await SeedInstallationAsync(db, "startup-recovery");
+        installation.IsEnabled = enabled;
+        installation.Schedule = new AgentSchedule
+        {
+            Id = Guid.NewGuid(), AgentInstallationId = installation.Id,
+            ActivationMode = ActivationMode.AlwaysOn, IsEnabled = enabled,
+            ConsecutiveStartupFailures = 3, AutomaticStartSuppressedAt = DateTimeOffset.UtcNow
+        };
+        var definition = await db.AgentDefinitions.Include(x => x.Configuration).SingleAsync();
+        db.AgentSchedules.Add(installation.Schedule);
+        definition.Configuration!.SettingsJson = JsonSerializer.Serialize(new { llmProviderId = "provider-a" });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        await new AgentInstallationConfigurationService(db, new TestAuditEventWriter()).SaveDefinitionAsync(
+            definition.Id, new PutAgentDefinitionConfigurationRequest("1.0",
+                Settings(change ? "provider-b" : "provider-a"), ExpectedRevision: 1));
+        var schedule = await db.AgentSchedules.SingleAsync();
+        Assert.Equal(change ? 0 : 3, schedule.ConsecutiveStartupFailures);
+        Assert.Equal(!change, schedule.AutomaticStartSuppressedAt.HasValue);
+        Assert.Equal(change && enabled, schedule.NextTickAt.HasValue);
+        Assert.Equal(enabled, schedule.IsEnabled);
+        Assert.Empty(await db.AgentRuntimeInstances.ToListAsync());
+    }
+
     [Fact]
     public async Task SaveAsync_CreatesThenUpdatesOneConfigurationPerInstallation()
     {

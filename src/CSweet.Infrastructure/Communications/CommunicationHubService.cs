@@ -57,6 +57,8 @@ public sealed class CommunicationHubService(
             .Include(x => x.Role)
             .Include(x => x.AgentInstallation)
                 .ThenInclude(x => x!.Schedule)
+            .Include(x => x.AgentInstallation)
+                .ThenInclude(x => x!.PackageVersion)
             .OrderBy(x => x.DisplayName)
             .ToListAsync(cancellationToken);
         var viewedUser = ResolveViewedUser(actor, people, perspectiveOrganizationUserId);
@@ -883,7 +885,11 @@ public sealed class CommunicationHubService(
                     x.OrganizationUser?.EmployeeType.ToString() ?? "Unknown",
                     x.Role.ToString(),
                     presence.Status,
-                    presence.Detail);
+                    presence.Detail)
+                {
+                    AgentInstallationId = x.OrganizationUser?.AgentInstallationId,
+                    CanRetryStartup = presence.CanRetryStartup
+                };
             }).ToList(),
             last?.Content, last?.CreatedAt, unreadCount)
         {
@@ -923,7 +929,11 @@ public sealed class CommunicationHubService(
             var latestFailure = latestRuntime?.Reason;
             return CommunicationPresence.Unhealthy(
                 $"Automatic startup is suppressed after {schedule.ConsecutiveStartupFailures} consecutive failure(s)." +
-                (string.IsNullOrWhiteSpace(latestFailure) ? string.Empty : $" Last failure: {latestFailure}"));
+                (string.IsNullOrWhiteSpace(latestFailure) ? string.Empty : $" Last failure: {latestFailure}")) with
+            {
+                CanRetryStartup = schedule.IsEnabled && schedule.ActivationMode == ActivationMode.AlwaysOn &&
+                    installation.PackageVersion?.Status == AgentPackageVersionStatus.Built
+            };
         }
 
         // Presence answers whether the agent can communicate now. A running runtime is
@@ -998,6 +1008,7 @@ public sealed class CommunicationHubService(
 
     private sealed record CommunicationPresence(string Status, string? Detail)
     {
+        public bool CanRetryStartup { get; init; }
         public static CommunicationPresence Available { get; } =
             new(CommunicationPresenceStatuses.Available, null);
 

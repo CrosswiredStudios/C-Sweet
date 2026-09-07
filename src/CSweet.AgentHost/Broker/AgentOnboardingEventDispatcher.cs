@@ -38,9 +38,9 @@ public sealed class AgentOnboardingEventDispatcher(
             var agent = await db.CoreOrganizationUsers.AsNoTracking()
                 .Where(x => x.Id == item.AgentOrganizationUserId &&
                             x.OrganizationId == item.OrganizationId)
-                .Select(x => new { x.IsActive, x.AgentInstallationId })
+                .Select(x => new { x.IsActive, x.AgentInstallationId, PackageVersionId = (Guid?)x.AgentInstallation!.PackageVersionId })
                 .SingleOrDefaultAsync(cancellationToken);
-            if (agent is null || !agent.IsActive || !agent.AgentInstallationId.HasValue)
+            if (agent is null || !agent.IsActive || !agent.AgentInstallationId.HasValue || !agent.PackageVersionId.HasValue)
             {
                 item.Status = AgentOnboardingEventOutboxStatus.Cancelled;
                 item.LastError = "The agent employee is no longer active or installed.";
@@ -55,7 +55,7 @@ public sealed class AgentOnboardingEventDispatcher(
                     AgentLifecycleEvents.Onboarded,
                     JsonSerializer.SerializeToElement(payload, JsonOptions),
                     item.Id,
-                    $"onboarding-event:{item.Id:N}",
+                    CreateDeliveryKey(item.Id, agent.PackageVersionId.Value),
                     agent.AgentInstallationId.Value,
                     requireSubscription: false,
                     deadline: now.AddHours(1),
@@ -79,6 +79,11 @@ public sealed class AgentOnboardingEventDispatcher(
         if (pending.Count > 0)
             await db.SaveChangesAsync(cancellationToken);
     }
+
+    // A package that ignored onboarding may have completed its delivery without acknowledging
+    // the lifecycle event. A new package gets one new delivery with the same source event ID.
+    internal static string CreateDeliveryKey(Guid eventId, Guid packageVersionId) =>
+        $"onboarding-event:{eventId:N}:package:{packageVersionId:N}";
 
     internal static AgentOnboardedEvent CreatePayload(AgentOnboardingEventOutboxItem item) =>
         new(

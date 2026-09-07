@@ -57,7 +57,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dependencies", "dependencie
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSweet.Office.Contracts", "..\CSweet.Office.Contracts\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj", "{0B6C63F5-D317-4831-83C6-9FE935FA9FE8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSweet.Agent.SDK", "..\CSweetAgentSdk\src\CSweet.Agent.SDK\CSweet.Agent.SDK.csproj", "{9AB209B1-E52C-42AB-B6F5-F322E37B3937}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSweet.Agent.SDK", "..\CSweet.Agent.Sdk\src\CSweet.Agent.SDK\CSweet.Agent.SDK.csproj", "{9AB209B1-E52C-42AB-B6F5-F322E37B3937}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSweet.WorkManagement.Contracts", "..\CSweet.WorkManagement.Contracts\src\CSweet.WorkManagement.Contracts\CSweet.WorkManagement.Contracts.csproj", "{7725C116-2B3B-436A-BD5A-A61521072336}"
 EndProject

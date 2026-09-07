@@ -77,14 +77,21 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
     }
 
     /// <summary>Must be called immediately before each request/chunk by the credential broker.</summary>
-    public async Task<FrozenConnectorPlan> RevalidateAsync(Guid organizationId, Guid requesterId, Guid planId,
-        string expectedHash, CancellationToken token)
+    public Task<FrozenConnectorPlan> RevalidateAsync(Guid organizationId, Guid requesterId, Guid planId,
+        string expectedHash, CancellationToken token) => ValidateRecordAsync(organizationId, requesterId, planId, expectedHash, true, token);
+
+    /// <summary>Allows reading a terminal result only while its exact package, account and grants remain current.</summary>
+    public Task<FrozenConnectorPlan> ValidateResultAuthorityAsync(Guid organizationId, Guid requesterId, Guid planId,
+        string expectedHash, CancellationToken token) => ValidateRecordAsync(organizationId, requesterId, planId, expectedHash, false, token);
+
+    private async Task<FrozenConnectorPlan> ValidateRecordAsync(Guid organizationId, Guid requesterId, Guid planId,
+        string expectedHash, bool requireExecutable, CancellationToken token)
     {
         var execution = await db.ConnectorExecutions.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Id == planId && x.OrganizationId == organizationId && x.RequesterInstallationId == requesterId, token)
             ?? throw new UnauthorizedAccessException("The plan is not owned by this installation.");
-        if (execution.PlanHash != expectedHash || execution.ExpiresAt <= DateTimeOffset.UtcNow ||
-            execution.Status is "Cancelled" or "Indeterminate" or "Completed" or "Failed")
+        if (execution.PlanHash != expectedHash || requireExecutable && (execution.ExpiresAt <= DateTimeOffset.UtcNow ||
+            execution.Status is not ("Prepared" or "AwaitingApproval" or "Approved" or "Executing")))
             throw new InvalidOperationException("The plan is stale or no longer executable.");
         var element = JsonDocument.Parse(execution.PlanJson).RootElement;
         if (ConnectorRequestMaterializer.Hash(element) != expectedHash)
