@@ -1,0 +1,24 @@
+@if (IsAgent)
+{
+    <img class="person-portrait" src="@ImageUrl" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" @onerror="ImageFailed" />
+}
+else
+{
+    @Initials
+}
+
+@code {
+    [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
+    [Parameter] public Guid? EmployeeId { get; set; }
+    [Parameter] public bool IsAgent { get; set; }
+    [Parameter] public string? Initials { get; set; }
+    private string? _previousUrl;
+    private bool _failed;
+    private string ImageUrl => !_failed && Portraits?.Find(EmployeeId) is { } image ? image : MarketplaceAgentPresentation.DefaultImageUrl;
+    protected override void OnParametersSet()
+    {
+        var url = Portraits?.Find(EmployeeId);
+        if (url != _previousUrl) { _previousUrl = url; _failed = false; }
+    }
+    private void ImageFailed() => _failed = true;
+}

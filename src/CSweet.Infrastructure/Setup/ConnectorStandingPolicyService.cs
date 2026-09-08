@@ -17,32 +17,39 @@ public sealed class ConnectorStandingPolicyService(CSweetDbContext db, Connector
 {
     public const string PolicyKind = "host-connector-standing-policy";
     public const string AuthorizationKind = "host-connector-policy-authorization";
+    public const string ExecutionPermitKind = "host-connector-policy-start";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private DateTimeOffset Now => (clock ?? TimeProvider.System).GetUtcNow();
 
     public sealed record Authorization(Guid PolicyId, long PolicyRevision, string PolicyHash,
         Guid OwnerId, Guid PlanId, string PlanHash, DateTimeOffset AuthorizedAt);
+    public sealed record ExecutionPermit(Authorization Authorization, DateTimeOffset StartedAt);
     public sealed record StoredPolicy(Guid Id, long PolicyRevision, string Status, string PolicyHash,
         string AuthorityHash, string ApprovalRequestHash, Guid OwnerId, DateTimeOffset ApprovedAt, ConnectorStandingPolicyDefinition Definition,
         IReadOnlyList<DateTimeOffset> Reservations);
     private sealed record Authority(FrozenConnectorPlan Plan, PluginProviderOperationDeclaration Operation,
-        string Hash, string Description, string AccountName);
+        string Hash, string Description, string AccountName, string RequesterName);
 
     public async Task<ConnectorStandingPolicyReview> ReviewAsync(Guid organizationId, Guid requesterId,
         Guid applicationUserId, Guid planId, string planHash, CancellationToken ct)
     {
         _ = await Owner(organizationId, applicationUserId, ct);
-        var authority = await Inspect(organizationId, requesterId, planId, planHash, ct);
+        var authority = await Inspect(organizationId, requesterId, planId, planHash, ct, requireExecutable: false);
         return new(planId, planHash, ReviewHash(authority, planId, planHash), authority.Description,
             authority.AccountName, ConnectorStandingPolicyRules.Fields(authority.Operation),
-            ConnectorStandingPolicyRules.CanAuthorize(authority.Operation));
+            ConnectorStandingPolicyRules.CanAuthorize(authority.Operation))
+        {
+            RequesterName = authority.RequesterName,
+            FieldReviews = ConnectorStandingPolicyProjection.Fields(authority.Operation, authority.Plan),
+            Media = authority.Plan.Media is { } media ? new(media.FileName ?? "Attached media", media.SizeBytes, media.ContentType) : null
+        };
     }
 
     public async Task<ConnectorStandingPolicyView> ApproveAsync(Guid organizationId, Guid requesterId,
         Guid applicationUserId, ApproveConnectorStandingPolicyRequest request, CancellationToken ct)
     {
         var owner = await Owner(organizationId, applicationUserId, ct);
-        var authority = await Inspect(organizationId, requesterId, request.TemplatePlanId, request.PlanHash, ct);
+        var authority = await Inspect(organizationId, requesterId, request.TemplatePlanId, request.PlanHash, ct, requireExecutable: false);
         if (request.ReviewHash != ReviewHash(authority, request.TemplatePlanId, request.PlanHash))
             throw new UnauthorizedAccessException("Review the current operation, account and grants before approving a policy.");
         var now = Now;
@@ -148,6 +155,40 @@ public sealed class ConnectorStandingPolicyService(CSweetDbContext db, Connector
             x.ExternalKey == planId.ToString("N"), ct);
         if (receipt is null || JsonSerializer.Deserialize<Authorization>(receipt.PayloadJson, Json) != expected)
             throw new UnauthorizedAccessException("The exact standing-policy authorization is missing or modified.");
+        var execution = await db.ConnectorExecutions.AsNoTracking().SingleAsync(x => x.Id == planId, ct);
+        var permitRecord = await db.PluginOperationalStates.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+            x.AgentInstallationId == requesterId && x.Kind == ExecutionPermitKind && x.ExternalKey == planId.ToString("N"), ct);
+        if (permitRecord is not null)
+        {
+            await db.Entry(permitRecord).ReloadAsync(ct);
+            if (db.Entry(permitRecord).State == EntityState.Detached) permitRecord = null;
+        }
+        var permit = permitRecord is null ? null : JsonSerializer.Deserialize<ExecutionPermit>(permitRecord.PayloadJson, Json);
+        if (permit is not null && permit.Authorization != expected)
+            throw new UnauthorizedAccessException("The execution permit belongs to another policy authorization.");
+        if (execution.Status == "Executing" && permit is null)
+            throw new UnauthorizedAccessException("Policy execution must acquire its rate-limited start permit before claiming work.");
+        if (execution.Status == "Approved")
+        {
+            // Approval can wait in a durable queue. Re-meter at the execution claim, not only
+            // at preparation, so old approvals cannot burst past a current hourly limit.
+            var now = Now;
+            var recent = policy.Reservations.Where(x => x > now.AddHours(-1)).ToList();
+            recent.Remove(permit?.StartedAt ?? expected.AuthorizedAt);
+            if (recent.Count >= policy.Definition.MaximumActionsPerHour)
+                throw new UnauthorizedAccessException("The standing policy's current execution rate limit is reached.");
+            recent.Add(now);
+            Store(record, policy with { Reservations = recent }, now);
+            if (permitRecord is null)
+            {
+                permitRecord = new() { Id = Guid.NewGuid(), OrganizationId = organizationId, AgentInstallationId = requesterId,
+                    Kind = ExecutionPermitKind, ExternalKey = planId.ToString("N"), CreatedAt = now };
+                db.PluginOperationalStates.Add(permitRecord);
+            }
+            permitRecord.PayloadJson = JsonSerializer.Serialize(new ExecutionPermit(expected, now), Json);
+            permitRecord.Revision++; permitRecord.UpdatedAt = now;
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     private async Task<bool> Matches(StoredPolicy policy, Authority authority, Guid organizationId, DateTimeOffset now, CancellationToken ct)
@@ -160,13 +201,16 @@ public sealed class ConnectorStandingPolicyService(CSweetDbContext db, Connector
         return ConnectorStandingPolicyRules.Matches(policy.Definition, authority.Plan, now);
     }
 
-    private async Task<Authority> Inspect(Guid organizationId, Guid requesterId, Guid planId, string planHash, CancellationToken ct)
+    private async Task<Authority> Inspect(Guid organizationId, Guid requesterId, Guid planId, string planHash, CancellationToken ct, bool requireExecutable = true)
     {
-        var plan = await plans.RevalidateAsync(organizationId, requesterId, planId, planHash, ct);
+        var plan = requireExecutable ? await plans.RevalidateAsync(organizationId, requesterId, planId, planHash, ct)
+            : await plans.ValidateResultAuthorityAsync(organizationId, requesterId, planId, planHash, ct);
         var provider = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleAsync(x => x.Id == plan.ConnectorInstallationId, ct);
         var manifest = JsonSerializer.Deserialize<PluginManifest>(provider.PackageVersion!.ManifestJson, Json)!;
         var operation = manifest.ProviderOperations.Single(x => x.Capability == plan.Capability);
         var requester = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleAsync(x => x.Id == requesterId, ct);
+        if (string.IsNullOrWhiteSpace(requester.PackageVersion?.PackageDigest))
+            throw new UnauthorizedAccessException("Standing policies require the consuming agent's immutable package digest.");
         var connection = await db.PluginConnections.AsNoTracking().SingleAsync(x => x.Id == plan.ConnectionId, ct);
         var binding = await db.AgentCapabilityBindings.AsNoTracking().SingleAsync(x => x.RequesterInstallationId == requesterId &&
             x.ProviderInstallationId == provider.Id && x.Capability == plan.Capability && x.RevokedAt == null, ct);
@@ -176,15 +220,20 @@ public sealed class ConnectorStandingPolicyService(CSweetDbContext db, Connector
             plan.ResourceId, plan.GrantRevision, plan.ProviderGrantRevision, plan.PackageDigest, plan.Capability,
             requesterPackage = requester.PackageVersion!.PackageDigest, consumerBinding = binding.ApprovedAt,
             profileApproval = profile.ApprovedAt, connection.UpdatedAt, operation });
+        var requesterName = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+            x.AgentInstallationId == requesterId && x.IsActive).Select(x => x.DisplayName).SingleOrDefaultAsync(ct);
         return new(plan, operation, hash, manifest.Provides.Single(x => x.Name == plan.Capability).Description,
-            connection.ExternalAccountName ?? "Connected account");
+            connection.ExternalAccountName ?? "Connected account", string.IsNullOrWhiteSpace(requesterName) ? "Requesting agent" : requesterName);
     }
 
-    private async Task<OrganizationUser> Owner(Guid organizationId, Guid applicationUserId, CancellationToken ct) =>
-        await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+    private async Task<OrganizationUser> Owner(Guid organizationId, Guid applicationUserId, CancellationToken ct)
+    {
+        if (applicationUserId == Guid.Empty) throw new UnauthorizedAccessException("Authenticated human ownership is required.");
+        return await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
             x.ApplicationUserId == applicationUserId && x.ApplicationUserId != null && x.IsActive &&
             x.EmployeeType == EmployeeType.Human && x.PermissionLevel == OrganizationPermissionLevel.Owner, ct)
         ?? throw new UnauthorizedAccessException("An active human organization owner must review this policy.");
+    }
 
     private async Task<bool> Autonomous(Guid organizationId, Guid requesterId, CancellationToken ct)
     {
@@ -220,10 +269,28 @@ public sealed class ConnectorStandingPolicyService(CSweetDbContext db, Connector
             throw new UnauthorizedAccessException("This plan is bound to a different policy or authority revision.");
     }
     private static string PolicyHash(StoredPolicy p) => Hash(new { p.Id, p.PolicyRevision, p.AuthorityHash, p.ApprovalRequestHash, p.OwnerId, p.ApprovedAt, p.Definition });
-    private static string ReviewHash(Authority authority, Guid planId, string planHash) => Hash(new { planId, planHash, authority.Hash, authority.Description, authority.AccountName });
+    private static string ReviewHash(Authority authority, Guid planId, string planHash) => Hash(new { planId, planHash, authority.Hash, authority.Description, authority.AccountName, authority.RequesterName });
     private static string Hash<T>(T value) => ConnectorRequestMaterializer.Hash(JsonSerializer.SerializeToElement(value, Json));
     private static void Store(PluginOperationalState record, StoredPolicy policy, DateTimeOffset now)
     { record.PayloadJson = JsonSerializer.Serialize(policy, Json); record.Revision++; record.UpdatedAt = now; }
     private static ConnectorStandingPolicyView View(StoredPolicy policy) => new(policy.Id, policy.PolicyRevision,
         policy.Status, policy.PolicyHash, policy.OwnerId, policy.ApprovedAt, policy.Definition);
+
+    /// <summary>Stages revocation in the caller's account/grant transaction; never restores it on reconnect.</summary>
+    public static async Task RevokeForConsumersAsync(CSweetDbContext db, Guid organizationId,
+        IReadOnlyList<Guid> consumerIds, CancellationToken ct)
+    {
+        var records = await db.PluginOperationalStates.Where(x => x.OrganizationId == organizationId &&
+            consumerIds.Contains(x.AgentInstallationId) && x.Kind == PolicyKind).ToArrayAsync(ct);
+        foreach (var record in records)
+        {
+            try
+            {
+                var policy = Parse(record);
+                if (policy.Status == "Approved") Store(record, policy with { Status = "Revoked" }, DateTimeOffset.UtcNow);
+            }
+            catch (Exception error) when (error is JsonException or UnauthorizedAccessException)
+            { /* A malformed/tampered policy already fails closed. It must not obstruct disconnection. */ }
+        }
+    }
 }

@@ -11,7 +11,9 @@ public sealed record ConnectorPreparedRequest(string Method, string Url, string?
     string BoundResourceId, string Effect, IReadOnlyList<PreparedResourceCheck> ResourceChecks,
     string? MediaAssetId, IReadOnlyList<string> SecretResponseFields, string? MediaProtocol = null,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<string>? ResponseResourcePointers = null);
+    IReadOnlyList<string>? ResponseResourcePointers = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? IfMatch = null);
 
 /// <summary>Materializes a closed manifest mapping. No plugin-supplied URLs or executable templates.</summary>
 public static class ConnectorRequestMaterializer
@@ -44,9 +46,17 @@ public static class ConnectorRequestMaterializer
         if (media is not null && !Guid.TryParse(media, out _)) throw new InvalidOperationException("Media must be an organization asset ID.");
         if (media is not null && http.MediaProtocol != ConnectorResumableProtocol.Name || media is null && http.MediaProtocol is not null)
             throw new InvalidOperationException("Media requires an explicitly supported, reviewed transfer protocol.");
+        string? ifMatch = null;
+        if (http.IfMatchInput is { } etagPointer)
+        {
+            if (http.Bootstrap || media is not null || http.Method is not ("PUT" or "PATCH" or "DELETE") || operation.Effect == "read" ||
+                At(input, etagPointer) is not { ValueKind: JsonValueKind.String } tag)
+                throw new InvalidOperationException("The approved operation requires a conditional mutation with an exact version.");
+            ifMatch = CSweet.Agent.SDK.ConnectorEntityTag.RequireStrong(tag.GetString()!);
+        }
         return new(http.Method, Query(http.Endpoint, query), body.Count == 0 ? null : Canonical(JsonSerializer.SerializeToElement(body)),
             http.Connection, channelId, operation.Effect, resources, media, http.SecretResponseFields, http.MediaProtocol,
-            http.ResponseResourcePointers.Count == 0 ? null : http.ResponseResourcePointers.ToArray());
+            http.ResponseResourcePointers.Count == 0 ? null : http.ResponseResourcePointers.ToArray(), ifMatch);
     }
 
     public static string Query(string endpoint, IEnumerable<KeyValuePair<string, string>> query) => endpoint +

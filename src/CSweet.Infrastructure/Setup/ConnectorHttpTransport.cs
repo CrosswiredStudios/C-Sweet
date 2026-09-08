@@ -67,6 +67,7 @@ public sealed class ConnectorHttpTransport(CSweetDbContext db, IPluginOAuthToken
         using var outbound = new HttpRequestMessage(new HttpMethod(request.Method), uri);
         outbound.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         outbound.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        ApplyPrecondition(outbound, request);
         if (request.Body is not null) outbound.Content = new StringContent(request.Body, Encoding.UTF8, "application/json");
         await revalidate(timeout.Token); // Refresh/DNS must not extend revoked authority.
         using var response = await client.SendAsync(outbound, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -88,5 +89,14 @@ public sealed class ConnectorHttpTransport(CSweetDbContext db, IPluginOAuthToken
             output.Write(buffer, 0, count);
         }
         return new((int)response.StatusCode, output.ToArray());
+    }
+
+    internal static void ApplyPrecondition(HttpRequestMessage outbound, ConnectorPreparedRequest request)
+    {
+        if (request.IfMatch is not { } tag) return;
+        if (request.MediaAssetId is not null || request.Method is not ("PUT" or "PATCH" or "DELETE") || request.Effect == "read" ||
+            outbound.Method.Method != request.Method || outbound.RequestUri?.AbsoluteUri != new Uri(request.Url).AbsoluteUri)
+            throw new InvalidOperationException("The conditional request does not match its approved mutation.");
+        outbound.Headers.IfMatch.Add(new EntityTagHeaderValue(CSweet.Agent.SDK.ConnectorEntityTag.RequireStrong(tag)));
     }
 }

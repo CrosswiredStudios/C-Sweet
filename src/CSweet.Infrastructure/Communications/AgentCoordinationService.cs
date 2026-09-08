@@ -22,7 +22,8 @@ namespace CSweet.Infrastructure.Communications;
 public sealed class AgentCoordinationService(
     CSweetDbContext db,
     ICommunicationHubService hub,
-    AgentWorkInbox inbox) : IAgentCoordinationService
+    AgentWorkInbox inbox,
+    CSweet.Application.Setup.IAuditEventWriter? audit = null) : IAgentCoordinationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan TurnDeadline = TimeSpan.FromHours(1);
@@ -625,6 +626,25 @@ public sealed class AgentCoordinationService(
         return await MapAsync(session, cancellationToken);
     }
 
+    public async Task<AgentCoordinationSession> ResumeForManagerAsync(Guid organizationId, Guid actorOrganizationUserId,
+        ResumeAgentCoordinationRequest request, CancellationToken cancellationToken = default)
+    {
+        var authorized = await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId &&
+            x.Id == actorOrganizationUserId && x.IsActive && x.EmployeeType == EmployeeType.Human &&
+            x.PermissionLevel >= OrganizationPermissionLevel.Manager, cancellationToken);
+        if (!authorized) throw new UnauthorizedAccessException("An active human manager must request this retry.");
+        var session = await db.AgentCoordinationSessions.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.Id == request.SessionId, cancellationToken)
+            ?? throw new KeyNotFoundException("The coordination session was not found.");
+        await ResolveParticipantsAsync(organizationId, session.InitiatorOrganizationUserId,
+            session.InitiatorInstallationId, session.TargetOrganizationUserId, cancellationToken);
+        var result = await ResumeAsync(organizationId, session.InitiatorOrganizationUserId,
+            session.InitiatorInstallationId, request, cancellationToken);
+        if (audit is not null)
+            await audit.WriteAsync("communication.coordination.retry.requested", "AgentCoordinationSession", session.Id,
+                $"Human manager {actorOrganizationUserId:D} requested retry: {request.Reason}", cancellationToken: cancellationToken);
+        return result;
+    }
     public async Task<AgentCoordinationSession> CancelAsync(
         Guid organizationId, Guid actorOrganizationUserId, bool actorCanManage,
         CancelAgentCoordinationRequest request,

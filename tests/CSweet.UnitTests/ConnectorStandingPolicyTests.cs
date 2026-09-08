@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace CSweet.UnitTests;
 
-public sealed class ConnectorStandingPolicyTests
+public sealed partial class ConnectorStandingPolicyTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -127,6 +127,39 @@ public sealed class ConnectorStandingPolicyTests
     }
 
     [Fact]
+    public async Task RepeatedAccountSelectionPreservesPolicyButReviewedBuildChangesRevokeIt()
+    {
+        await using var f = await Fixture.Create(); await f.Approve();
+        var binding = await f.Inner.Db.AgentCapabilityBindings.SingleAsync();
+        var approvedAt = binding.ApprovedAt;
+        var selection = new ConnectorBindingService(f.Inner.Db);
+        await selection.BindAsync(f.Org, f.Requester, "account", f.Inner.Connector.Id, default);
+        Assert.Equal(approvedAt, binding.ApprovedAt);
+        Assert.NotNull(await f.Reserve(f.Plan));
+        f.Inner.Connector.PackageVersion!.PackageDigest = new string('b', 64);
+        (await f.Inner.Db.ConnectorProfileApprovals.SingleAsync()).PackageDigest = f.Inner.Connector.PackageVersion.PackageDigest;
+        await f.Inner.Db.SaveChangesAsync();
+        await selection.BindAsync(f.Org, f.Requester, "account", f.Inner.Connector.Id, default);
+        Assert.Equal("Revoked", (await f.Service.GetAsync(f.Org, f.Requester, f.UserId, f.Plan.Capability, default))!.Status);
+    }
+
+    [Fact]
+    public async Task LifecycleRevocationIsTenantScopedAndCannotBeReversedByRepeatingConsent()
+    {
+        await using var f = await Fixture.Create(); await f.Approve();
+        await ConnectorStandingPolicyService.RevokeForConsumersAsync(f.Inner.Db, Guid.NewGuid(), [f.Requester], default);
+        await ConnectorStandingPolicyService.RevokeForConsumersAsync(f.Inner.Db, f.Org, [Guid.NewGuid()], default);
+        await f.Inner.Db.SaveChangesAsync(); Assert.NotNull(await f.Reserve(f.Plan));
+        await ConnectorStandingPolicyService.RevokeForConsumersAsync(f.Inner.Db, f.Org, [f.Requester], default);
+        await f.Inner.Db.SaveChangesAsync(); Assert.Null(await f.Reserve(f.Plan));
+        var record = await f.Inner.Db.PluginOperationalStates.SingleAsync(x => x.Kind == ConnectorStandingPolicyService.PolicyKind);
+        var revision = record.Revision;
+        await ConnectorStandingPolicyService.RevokeForConsumersAsync(f.Inner.Db, f.Org, [f.Requester], default);
+        await f.Inner.Db.SaveChangesAsync(); Assert.Equal(revision, record.Revision);
+        Assert.Equal("Revoked", (await f.Service.GetAsync(f.Org, f.Requester, f.UserId, f.Plan.Capability, default))!.Status);
+    }
+
+    [Fact]
     public async Task ReceiptAndPolicyTamperingFailClosed()
     {
         await using var f = await Fixture.Create(); await f.Approve();
@@ -174,6 +207,26 @@ public sealed class ConnectorStandingPolicyTests
         Assert.False(ConnectorStandingPolicyRules.Matches(rules, media, f.Clock.GetUtcNow()));
         Assert.True(ConnectorStandingPolicyRules.Matches(rules with { MaximumMediaBytes = 100, AllowedMediaTypes = ["video/example"] }, media, f.Clock.GetUtcNow()));
         Assert.False(ConnectorStandingPolicyRules.Matches(rules, plan with { Request = plan.Request with { Method = "DELETE" } }, f.Clock.GetUtcNow()));
+    }
+
+    [Fact]
+    public async Task DelayedApprovalsRecheckExecutionTimeQuotaAndLongTransfersKeepTheirStartPermit()
+    {
+        await using var f = await Fixture.Create();
+        await f.Service.ApproveAsync(f.Org, f.Requester, f.UserId, await f.Request(limit: 1), default);
+        var first = (await f.Reserve(f.Plan))!;
+        f.Clock.Advance(TimeSpan.FromMinutes(61));
+        var secondPlan = await f.Prepare("second", "second content");
+        var second = (await f.Reserve(secondPlan))!;
+        f.Plan.Status = "Approved"; secondPlan.Status = "Approved"; await f.Inner.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.RequireAuthorizationAsync(f.Org, f.Requester,
+            f.Plan.Id, f.Plan.PlanHash, first, default));
+        await f.Service.RequireAuthorizationAsync(f.Org, f.Requester, secondPlan.Id, secondPlan.PlanHash, second, default);
+        secondPlan.Status = "Executing"; await f.Inner.Db.SaveChangesAsync();
+        f.Clock.Advance(TimeSpan.FromMinutes(61));
+        var third = await f.Prepare("third", "third content"); Assert.NotNull(await f.Reserve(third));
+        // Revalidating chunks never charges the action again after its start left the sliding window.
+        await f.Service.RequireAuthorizationAsync(f.Org, f.Requester, secondPlan.Id, secondPlan.PlanHash, second, default);
     }
 
     [Fact]

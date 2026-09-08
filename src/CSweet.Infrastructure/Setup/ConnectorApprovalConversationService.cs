@@ -106,7 +106,11 @@ public sealed class ConnectorApprovalConversationService(CSweetDbContext db)
             var comment = receipt is null ? null : JsonSerializer.Deserialize<ConnectorActionApprovalService.DecisionReceipt>(receipt.PayloadJson, Json)?.Comment;
             result[message.Id] = new(review, proposal.Summary, proposal.Status.ToString(), execution.Status,
                 actorId == link.ApproverId && proposal.Status == ProposalStatus.Pending && execution.Status == "AwaitingApproval" &&
-                binding.ExpiresAt > DateTimeOffset.UtcNow, comment);
+                binding.ExpiresAt > DateTimeOffset.UtcNow, comment)
+            {
+                CanManageStandingPolicy = actor.PermissionLevel == OrganizationPermissionLevel.Owner &&
+                    actor.EmployeeType == EmployeeType.Human && actor.ApplicationUserId is not null && binding.Effect == "write"
+            };
         }
         return result;
     }

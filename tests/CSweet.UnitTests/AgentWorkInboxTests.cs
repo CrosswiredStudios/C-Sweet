@@ -482,6 +482,26 @@ public sealed class AgentWorkInboxTests
             .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options);
 
+    [Theory]
+    [InlineData("agent-failure:v1;code=capability.failed;retryable=false;diagnosticId=test", true)]
+    [InlineData("agent-failure:v1;code=runtime.transport;retryable=true;diagnosticId=test", false)]
+    [InlineData("legacy transport error", false)]
+    public async Task ExplicitPermanentFailureStopsAfterFirstAttempt(string error, bool terminal)
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var installation = Installation(clock.GetUtcNow());
+        var runtime = Runtime(installation, clock.GetUtcNow());
+        db.AddRange(installation, runtime); await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Event,
+            "example.event.v1", Json("{}"), "permanent-failure", clock.GetUtcNow().AddHours(1), sourceId: Guid.NewGuid().ToString("D"));
+        var session = Session(installation, runtime);
+        var claim = (await inbox.ClaimAsync(session, default))!;
+        await inbox.FailAsync(session, claim.WorkId, claim.Attempt, claim.LeaseToken, error, default);
+        Assert.Equal(terminal ? AgentWorkStatus.DeadLetter : AgentWorkStatus.Pending, (await db.AgentWorkItems.SingleAsync()).Status);
+        Assert.Equal(1, (await db.AgentWorkItems.SingleAsync()).AttemptCount);
+    }
     private static JsonElement Json(string value) =>
         JsonDocument.Parse(value).RootElement.Clone();
 

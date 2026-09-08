@@ -39,6 +39,14 @@
         }
     }
     @if (_error is not null) { <MudAlert Severity="Severity.Error" Class="mt-2">@_error</MudAlert> }
+    @if (CanDecide && Card.CanManageStandingPolicy)
+    {
+        <MudButton Variant="Variant.Text" Class="mt-3"
+                   Href="@($"/organizations/{OrganizationId:D}/connector-actions/{Card.Action.ProposalId:D}/standing-policy")">
+            Manage automatic approval rules
+        </MudButton>
+        <MudText Typo="Typo.caption">Owner-only rules for future eligible requests. This does not approve the change above.</MudText>
+    }
 </MudPaper>
 
 @code {

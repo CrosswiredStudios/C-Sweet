@@ -214,3 +214,6 @@
     .hub-composer { padding-inline: 10px; }
     .hub-audience-list, .hub-member-grid { grid-template-columns: 1fr; }
 }
+
+.hub-avatar { overflow: hidden; flex-shrink: 0; }
+.hub-avatar.dm-portrait { width: 28px; height: 28px; font-size: 10px; }

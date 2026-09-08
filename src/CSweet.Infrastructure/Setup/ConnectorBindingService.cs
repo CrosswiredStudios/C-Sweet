@@ -120,6 +120,7 @@ public sealed class ConnectorBindingService(CSweetDbContext db)
             x.ProviderPackageDigest != connector.PackageVersion.PackageDigest || x.GrantRevision != requester.Grant.GrantRevision))
         {
             // Changing accounts or reviewed authority never carries autonomous permission forward.
+            await ConnectorStandingPolicyService.RevokeForConsumersAsync(db, organizationId, [requesterId], token);
             var policies = await db.PluginStandingPolicies.Where(x => x.OrganizationId == organizationId &&
                 x.AgentInstallationId == requesterId && x.Status == PluginStandingPolicyStatus.Approved).ToListAsync(token);
             foreach (var policy in policies)
@@ -138,12 +139,15 @@ public sealed class ConnectorBindingService(CSweetDbContext db)
                     OrganizationId = requester.BusinessId, Capability = requirement.Name };
                 db.AgentCapabilityBindings.Add(binding);
             }
+            var authorityChanged = binding.ProviderInstallationId != connectorId ||
+                binding.ProviderPackageDigest != connector.PackageVersion.PackageDigest ||
+                binding.GrantRevision != requester.Grant.GrantRevision || binding.RevokedAt is not null;
             binding.ProviderInstallationId = connectorId;
             binding.DependencyId = dependencyId;
             binding.ProviderPackageDigest = connector.PackageVersion.PackageDigest;
             binding.GrantRevision = requester.Grant.GrantRevision;
             binding.Origin = AgentCapabilityBindingOrigins.Explicit;
-            binding.ApprovedAt = DateTimeOffset.UtcNow;
+            if (authorityChanged) binding.ApprovedAt = DateTimeOffset.UtcNow;
         }
         foreach (var removed in old.Where(x => !required.Any(r => r.Name == x.Capability))) removed.RevokedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);

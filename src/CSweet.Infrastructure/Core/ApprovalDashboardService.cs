@@ -103,7 +103,9 @@ public sealed class ApprovalDashboardService(
                     connectorBinding.ExpiresAt > DateTimeOffset.UtcNow :
                     actor.PermissionLevel == OrganizationPermissionLevel.Owner || actor.Id == managerId))
             {
-                AgentAction = ReadManagedAction(proposal)
+                AgentAction = ReadManagedAction(proposal),
+                CanManageStandingPolicy = connectorBinding?.Effect == "write" && actor.EmployeeType == EmployeeType.Human &&
+                    actor.ApplicationUserId is not null && actor.PermissionLevel == OrganizationPermissionLevel.Owner
             };
         }));
 

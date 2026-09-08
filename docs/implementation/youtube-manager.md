@@ -3,13 +3,47 @@
 Approved design: a fresh `CSweet.Agent.Platform.YouTube` agent, a deterministic
 `CSweet.Plugins.Platform.YouTube` connector plugin, and provider-neutral host enforcement.
 Package identities are `com.csweet.agent.platform.youtube` and
-`com.csweet.connector.youtube`. Both start at 0.1.0. SDK target: 3.37.0, an additive
-release on the inspected 3.36.0 baseline, following the user's approval to use the current
+`com.csweet.connector.youtube`. Both start at 0.1.0. SDK target: 3.38.0, an additive
+release on the inspected 3.37.0 baseline, following the user's approval to use the current
 release line in `CSweet.Agent.Sdk`.
 
 ## Acceptance ledger
 
 ### Implemented foundation (not a complete product)
+
+- The plugin now declares 18 operations, including `youtube.api.video.metadata.update.v1`.
+  Its complete writable-snippet input preserves untouched metadata from an authenticated snapshot,
+  binds a strong resource ETag to the approved PUT, and excludes privacy/audience/scheduling fields.
+  Video reads include ETag/default language. Host-owned preflight and response ownership checks remain
+  mandatory. The deterministic reconciler distinguishes conflict, confirmed/current, subsequently
+  changed and uncertain outcomes without resending. Plugin protocol minimum is 2.3; SDK remains 3.38.0.
+  All 104 plugin tests and 182 agent tests pass with package-only dependencies. The agent now requests
+  this grant and uses protocol 2.3. Its conversational edit path resolves supplied links or literal
+  titles, clarifies ambiguous listings before creating work, saves an owned snapshot and bounded
+  model draft, resolves named categories for an explicit country, and preserves untouched fields.
+  It freezes the complete request before approval, correlates exact action events to durable work,
+  and reuses request keys after lost checkpoints. Revision feedback obtains a fresh snapshot and
+  new approval; the prior decision is checked again after generation. Paused pending edits can be
+  cancelled, while executing edits are never described as cancelled. Saved results precede delivery;
+  stale no-op snapshots, conflicts, changed results and unknown outcomes never authorize a resend.
+  Clarification follow-ups currently require a new request with the video title/link. Same-obligation
+  conversational follow-ups, richer revision clarification/conflict continuation, large-state
+  sharding, provenance retention and browser/real-provider acceptance remain unfinished.
+
+- SDK 3.38.0 / protocol 2.3 adds provider-neutral conditional mutations through
+  `http.ifMatchInput`. Only a required bounded string for one strong entity tag may be mapped,
+  on non-bootstrap, non-media PUT/PATCH/DELETE operations. The exact version is frozen in the
+  approved request hash. The broker injects it only on the exact mutation, never ownership reads.
+  A received HTTP 412 persists a blocked `resource_changed` receipt; the action cannot replay.
+  Lost responses, cancellation after dispatch and other uncertain failures remain indeterminate.
+  No provider error bodies or credentials are exposed. Both host manifest-loading paths accept
+  minimum 2.3; earlier supported workloads keep their behavior. This is the safety prerequisite
+  used by the plugin's separately declared video-metadata-edit capability.
+- Conditional-boundary verification: SDK 199 tests plus 2 sample tests; generated-agent template
+  7 tests and self-test; 336 selected host connector/setup/OAuth/approval regressions; plugin
+  68 tests and agent 162 tests, both self-tests and local packages. Host API build succeeds with
+  isolated artifacts and sibling project references disabled. Downstream packages use SDK 3.38.0.
+  These checks use deterministic fakes and do not establish browser or real-Google acceptance.
 
 - SDK connector/dependency/public-OAuth/closed-operation contracts and matching JSON schema.
 - Explicit dependency binding, immutable package/profile approvals and native administration endpoints.
@@ -72,7 +106,8 @@ release line in `CSweet.Agent.Sdk`.
   authenticated ownership; ready connections render the declared settings flow. Repeated activation
   validates the original setup record without repeating activation side effects (sequential retry).
 - Setup UI uses provider declarations, not YouTube-specific controls. The old hard-coded YouTube
-  policy editor/media panel was removed; a generic declarative approval-policy surface is still pending.
+  policy editor/media panel was removed. Generic native owner policy controls are implemented below;
+  browser acceptance and the complete conversational governance experience remain pending.
 - The agent now uses bounded model-backed conversation with persisted-message verification,
   state-only manager preferences, native setup guidance, typed reads and durable requested analytics,
   reply drafts and publication plans. Generated drafts survive delivery failures without regeneration;
@@ -191,9 +226,58 @@ release line in `CSweet.Agent.Sdk`.
   notifications even when a requested review also updates the inbox. Daily inbox-change count digests
   use configured local days (UTC default), remain in the onboarding conversation, and suppress unchanged
   days. Saved cycle receipts recover lost delivery/cursor writes and past-due next-check times.
-  This is not automatic semantic drafting, urgent escalation, weekly analytics or dynamic approver
-  routing. Native setup explicitly limits this preview to authorized test channels until data cleanup
+  This monitoring path is not automatic semantic drafting, urgent escalation or dynamic approver
+  routing. Scheduled analytics now use a separate reporting duty described below. Native setup explicitly limits this preview to authorized test channels until data cleanup
   and real-provider acceptance are complete. No production-retention claim is made.
+
+### Scheduled official-metric reporting
+
+The agent now creates an independent reporting duty alongside comment monitoring before acknowledging
+the stable onboarding event. The initial report is due one week after activation. Weekly cycles request
+seven completed Pacific-time days; the existing monthly preference requests the previous Pacific calendar
+month. Each cycle freezes its period before provider reads, preserves that period through quota delays,
+and schedules the next weekly/monthly run after delivery. A long comment scan does not hold the report
+task. Pause preserves both duties without provider/model work. Reports remain in the original protected
+onboarding conversation; dynamic approver routing and custom weekday/time scheduling remain unfinished.
+
+Provider semantics remain in `CSweet.Plugins.Platform.YouTube`: its deterministic analytics projection
+validates exact unique metric columns, at most one complete aggregate row and non-negative numeric values.
+Unexpected/revenue columns, dimensions, duplicate headers, null/malformed rows and fractional integer
+values fail closed. Missing rows remain unavailable rather than becoming zero activity. The agent renders
+the official values and provider units separately from a bounded qualitative interpretation. Subscriber
+gains/losses are not replaced by a derived net metric. Revenue, ratios and replacement metrics are excluded.
+The model receives only normalized metrics, requested dates and authorized objectives/brand guidance,
+not account IDs, credentials, provider-supplied text or tools. This does not prove every possible model
+interpretation is correct; real-model conversation evaluations remain part of acceptance.
+
+Evidence, narrative and delivery receipts are durable before their dependent steps. Channel access is
+checked before reading evidence and again before delivery. Source/employee/conversation mismatches cannot
+run the duty. Saved narrative survives restart without regeneration, and stable message identities recover
+lost delivery/cursor checkpoints without duplicate reports. Quota/availability failures defer one hour;
+lost authorization and missing reasoning configuration issue deduplicated recovery guidance. An uncertain
+delivery is never described as proof that the report was not sent. Empty evidence does not trigger invented
+analysis. Provider-derived report state and conversation copies still require retention/purge integration.
+
+The agent adds standard SDK reasoning configuration (`llmProviderId`, `llmModel`) and exact native describe/
+update contracts. Existing provider-neutral host installation defaults can seed these from the configured
+company reasoning service; ordinary users do not need a new technical wizard. If configuration is absent,
+the saved report waits for administrator recovery. No host source code, SDK package or new provider grant
+was added for this workflow. Both YouTube packages remain unpublished 0.1.0 builds on SDK 3.37.0.
+
+Verification: 162 agent tests and 68 plugin tests pass, including 18 new agent reporting cases and 11
+plugin metric-projection cases. Coverage includes independent scheduled work, onboarding checkpoint loss,
+pause/cancellation, source tampering, quota delay, channel switch/reconnect, missing reasoning settings,
+empty/malformed evidence, Pacific/DST/month boundaries and lost delivery checkpoints. Dependencies are
+verified from locally packed NuGet packages in a fresh cache, not sibling SDK/plugin projects. This is
+deterministic acceptance, not live Google, deployed browser, purge compliance or complete product acceptance.
+Both executable self-tests pass. Both packages were packed locally as 0.1.0; NuGet identities, dependency
+versions, manifests, READMEs and assembly hashes match their verified source/build outputs. The fresh
+agent restore contains the exact plugin assembly just packed. No packages were published.
+
+Reporting availability follows the [query API](https://developers.google.com/youtube/analytics/reference/reports/query):
+an aggregate can end before the requested end date when some requested metrics are not yet available.
+Dates follow [Pacific-time analytics dimensions](https://developers.google.com/youtube/analytics/dimensions).
+Reports show the requested period and retrieval time and explicitly do not claim complete date coverage.
 
 ### Retained media provenance (SDK 3.35.0)
 
@@ -477,11 +561,10 @@ the obsolete route, and connector execution tests prove that a historical approv
 cannot bypass a fresh exact CEO decision. Existing caller-defined action routes remain fail-closed.
 
 This is retirement of an unused authorization model, **not completion of autonomous execution**.
-Declarative human-owner-approved standing policies must still bind the reviewed connector package,
-consumer grants, account, permitted operation/effect and bounded request constraints; their decisions
-must authorize frozen plans and be rechecked at execution. Hard-gated effects still require explicit
-decisions. No application-name switch or arbitrary executable policy expression may be introduced.
-Until that model is implemented, the Fully Autonomous preference falls back to exact CEO approval.
+The generic policy core described below now binds reviewed operations and exact plans. Its native
+human-owner configuration/review experience now has native controls as described below; without a
+separately approved current policy, the Fully Autonomous preference falls back to exact CEO approval. Hard-gated effects still
+require explicit decisions. No application-name switch or executable policy expression is permitted.
 The old first-party catalog entry remains pending replacement readiness. The full provider-neutral
 product acceptance checklist is still open.
 
@@ -490,6 +573,85 @@ setup-endpoint and legacy-boundary tests pass with external sibling project refe
 The new historical-policy regression exercises refusal before a decision and successful deterministic
 execution only after the exact CEO decision. The removed service/interface were tracked source files,
 recoverable from Git; the historical policy database table was not removed or repurposed.
+
+### Generic plan-bound standing-policy core
+
+The host now has generic policy contracts, deterministic field predicates, human-owner governance,
+durable reservations and executor integration. This is not a restored version of the removed
+provider-shaped policy API. No policy capability or owner-approval HTTP endpoint is exposed to agents.
+Native owner controls use the same core; browser and full conversational acceptance remain outstanding.
+
+A policy starts from an exact host-prepared plan. Review binds its operation mappings, provider and
+consumer package digests, grant revisions, selected account, connection revision time and binding/profile
+approval times. A human organization owner must approve it; an agent CEO cannot impersonate that human.
+Every mutable body/query field must be explicitly constrained to bounded typed literals or explicitly
+allowed. Omission is a separate choice. Rules include named-time-zone day/minute windows, lifetime, a rolling-hour
+action limit, plain-text escalation terms, optional provider schedule fields and explicit media size/type
+limits. There are no executable expressions, inferred action categories or application-specific names.
+Only ordinary `write` effects can qualify. Destructive, irreversible, live, security-sensitive and fiscal
+effects, unknown effects and DELETE methods cannot be standing-policy authorized.
+
+Policy state uses a protected host-owned record kind. Approval retries reuse the same request hash;
+revision changes do not clear recent usage or rebind earlier receipts. Authorizations bind policy
+identity/revision/hash, human owner and exact plan/hash. Counters and receipts share an optimistic
+transaction fence. The quota is checked again at execution start, so delayed approvals cannot burst
+past the current allowance. Long transfers retain their separate durable start permit without charging
+each chunk again. Revocation committed from another DbContext is reread, not hidden by tracked state.
+Changing the reviewed connection/binding/package/profile or deactivating the owner invalidates authority.
+Disconnect, new OAuth consent and account/build rebinding explicitly revoke the new policies alongside
+historical records. Repeating an unchanged account selection is idempotent and preserves its approval time.
+
+In-policy actions use the existing frozen-plan executor and carry a distinct standing-policy binding;
+they do not fabricate an individual Approve decision or its feedback record. Out-of-policy requests
+route to the accountable CEO. Provider requests and media chunks still recheck authorization before
+credential injection. Revocation during a resource preflight stops the mutation. Expiry, revocation or
+rate-limit failure after an action is already queued blocks execution visibly; automatic conversion of
+that blocked action into a fresh CEO review is still required. Full governance audit delivery/recovery,
+agent explanations of policy status and browser acceptance
+remain unfinished. The policy core alone is not a claim of production-ready Fully Autonomous mode.
+
+Verification: 290 selected host connector/security/OAuth/cleanup/approval/setup tests pass, including
+28 policy-core cases and three action-execution integration cases. The rate-receipt concurrency test
+uses an isolated SQLite database and proves that a stale counter update rolls back its competing
+receipt. Other policy behavior uses deterministic example-provider fixtures; no Google endpoint or
+credential is involved. No SDK or YouTube package changed in this policy increment. Host tests use
+external sibling references disabled and isolated outputs; no deployment or database migration occurred.
+
+### Native human-owner policy review
+
+Owners can open **Manage automatic approval rules** from a protected account-change card or the
+approvals dashboard, including when the assigned individual approver is an agent. The new page names
+the exact consuming employee and connected account. It starts from a host-frozen action, including
+completed work, but never approves or re-executes that action. Shared-account consumers gain no authority.
+The reviewed employee name participates in the review hash; a changed name requires a fresh review.
+
+The native form projects readable titles, descriptions, enumerated choices and current values from
+the reviewed connector schema. It defaults to keeping exact values. Permitting different values and
+allowing an omitted field are explicit choices. Exact bounded objects/arrays are supported without a
+JSON editor; combined policy definitions are limited to 64 KB. A separate summary and unchecked consent
+control precede submission. Hourly limits, expiry, escalation phrases, scheduled-time field checks and
+media size/type limits remain generic. Daily windows use a named time zone with daylight-saving rules;
+overnight windows belong to their starting day. Ambiguous or missing local expiry times are rejected.
+The interim unpublished UTC-only policy representation is not migrated: changed hashes require fresh
+owner review rather than silently interpreting existing authority differently.
+
+The API accepts only authenticated application-cookie identities belonging to active human organization
+owners, not agent identities, manager status or a supplied owner ID. Duplicate identity/identifier claims
+fail closed. Exact route/action/plan/review and policy revision bindings are rechecked. The existing API
+antiforgery middleware protects both save and revoke. Failed requests return bounded native guidance,
+not provider diagnostics. Lost account authority still permits an owner to read and revoke stored rules.
+Late page responses cannot overwrite another account-change page after navigation.
+
+Verification: 313 selected connector, security, OAuth, cleanup, setup and approval tests pass with
+external sibling project references disabled. This includes 53 policy/dashboard cases: native route
+authorization and metadata, actual antiforgery token generation/validation through the production-mode
+middleware, safe static component rendering, exact retry values/byte limits, owner revocation, changed
+review names, payload limits and time-zone boundaries. Endpoint delegates are exercised directly; this
+does not claim browser interaction, cookie login middleware or complete deployed HTTP acceptance.
+No Google calls, deployment, migration, SDK change or YouTube package change occurred in this increment.
+Governance audit delivery/recovery, automatic CEO re-review after queued policy failure, conversational
+policy status/guidance and browser acceptance are still required. Retention must also cover any
+provider-derived literals copied into policy records; this increment does not establish purge compliance.
 
 Current verification: 332 selected host connector/setup/OAuth/cleanup/approval/capability-registry/chat/provider-administration/onboarding/legacy-boundary/media-source/attachment-access/resumable-upload/media-integrity/GenAI
 tests pass, including exact-plan decisions, typed controls, durable dispatch, event replay,

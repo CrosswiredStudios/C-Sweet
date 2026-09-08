@@ -58,6 +58,7 @@ public sealed record ConnectorHttpOperation
     /// <summary>Protocol 2.2: every selected response value must equal the confirmed connection resource. Array wildcards allow empty collections, never missing paths.</summary>
     public IReadOnlyList<string> ResponseResourcePointers { get; init; } = [];
     public string? MediaInput { get; init; }
+    public string? IfMatchInput { get; init; }
     /// <summary>Reviewed host transfer protocol; never a provider-supplied executable handler.</summary>
     public string? MediaProtocol { get; init; }
     public bool Bootstrap { get; init; }

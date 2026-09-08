@@ -142,6 +142,12 @@
                         }
                         else if (item.AgentAction is { } agentAction)
                         {
+                            @if (item.CanManageStandingPolicy)
+                            {
+                                <MudButton Variant="Variant.Outlined" Class="my-3"
+                                    Href="@($"/organizations/{OrganizationId:D}/connector-actions/{item.Id:D}/standing-policy")">Manage automatic approval rules</MudButton>
+                                <MudText Typo="Typo.caption">Owner-only rules for future requests, separate from this action's decision.</MudText>
+                            }
                             <MudGrid Class="mt-3">
                                 <MudItem xs="12" md="6"><strong>Account</strong><br />@(agentAction.AccountName ?? agentAction.ChannelId)</MudItem>
                                 <MudItem xs="12" md="6"><strong>Action</strong><br />@agentAction.ActionType</MudItem>

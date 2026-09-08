@@ -32,6 +32,7 @@ public sealed record ApprovalDashboardItemResponse(
     public string? RequestingTeam { get; init; }
     public string? ActualDecisionMaker { get; init; }
     public Guid? SourceResourceChangeRequestId { get; init; }
+    public bool CanManageStandingPolicy { get; init; }
 }
 
 public sealed record ManagedAgentActionApprovalResponse(
@@ -60,7 +61,10 @@ public sealed record DecideManagedAgentActionRequest(
     string? ResourceId = null);
 
 public sealed record ConnectorActionApprovalCardResponse(ManagedAgentActionApprovalResponse Action,
-    string Summary, string Status, string ExecutionStatus, bool CanDecide, string? DecisionComment = null);
+    string Summary, string Status, string ExecutionStatus, bool CanDecide, string? DecisionComment = null)
+{
+    public bool CanManageStandingPolicy { get; init; }
+}
 
 public sealed record SourceControlApprovalCardResponse(
     Guid ApprovalId,

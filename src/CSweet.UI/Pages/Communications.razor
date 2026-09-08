@@ -14,6 +14,7 @@
 @inject NavigationManager Navigation
 @inject IAgentApiClient AgentApi
 
+<EmployeePortraitScope OrganizationId="OrganizationId">
 <PageTitle>Communications - C-Sweet</PageTitle>
 
 <div class="communications-document-layout">
@@ -97,7 +98,7 @@
                             @onclick="@(() => OpenDirectEntryAsync(entry))">
                         <span class="presence-dot @PresenceClass(entry.Person.PresenceStatus)"
                               title="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"
-                              aria-label="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"></span><span>@entry.Title</span>
+                              aria-label="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"></span><span class="hub-avatar dm-portrait"><PersonAvatarContent EmployeeId="entry.Person.Id" IsAgent="@(entry.Person.EmployeeType == "Agent")" Initials="@Initials(entry.Person.DisplayName)" /></span><span>@entry.Title</span>
                         @if (entry.Chat is not null && ChatUnread(entry.Chat) > 0) { <span class="hub-unread-dot" aria-label="@($"{ChatUnread(entry.Chat)} unread messages")"></span> }
                         @if (entry.Person.EmployeeType == "Agent") { <span class="agent-mark">AI</span> }
                     </button>
@@ -205,7 +206,7 @@
                                 <strong>@coordination.Subject</strong>
                                 @if (coordination.Status == "Failed")
                                 {
-                                    <p>A delivery error interrupted this collaboration. Automatic retries are limited; if it remains paused, inspect the agent's work history.</p>
+                                    <p>An execution error interrupted this collaboration. Resolve the cause in the agent or provider diagnostics, then retry to continue the same conversation.</p>
                                 }
                                 else if (coordination.Status == "Blocked")
                                 {
@@ -216,6 +217,14 @@
                                     <p>@coordination.Initiator.DisplayName and @coordination.Target.DisplayName are collaborating on this task.</p>
                                 }
                             </div>
+                            @if (coordination.CanRetry)
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                           Disabled="@_stoppingCoordination.Contains(coordination.Id)"
+                                           OnClick="@(() => RetryCoordinationAsync(coordination))">
+                                    Retry collaboration
+                                </MudButton>
+                            }
                             @if (_hub.CanManageChats && coordination.Status is ("Active" or "Summarizing"))
                             {
                                 <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
@@ -319,7 +328,7 @@
                         else
                         {
                             <article class="hub-message @(message.SenderOrganizationUserId == _hub.ViewedOrganizationUserId ? "mine" : null)">
-                            <div class="hub-avatar @AvatarClass(message.SenderEmployeeType)">@Initials(message.SenderDisplayName)</div>
+                            <div class="hub-avatar @AvatarClass(message.SenderEmployeeType)"><PersonAvatarContent EmployeeId="message.SenderOrganizationUserId" IsAgent="@(message.SenderEmployeeType == "Agent")" Initials="@Initials(message.SenderDisplayName)" /></div>
                             <div class="hub-message-body">
                                 <div class="hub-message-meta">
                                     <strong>@message.SenderDisplayName</strong>
@@ -537,7 +546,7 @@
                     @foreach (var pending in ActiveTurns)
                     {
                         <article class="hub-message hub-message-pending">
-                            <div class="hub-avatar agent">AI</div>
+                            <div class="hub-avatar agent"><PersonAvatarContent EmployeeId="pending.Turn.TargetAgentOrganizationUserId" IsAgent="true" /></div>
                             <div class="hub-message-body">
                                 <div class="hub-message-meta">
                                     <strong>@_selected.Title</strong><span>AGENT</span>
@@ -606,7 +615,7 @@
                                                 role="option" aria-selected="@(match.index == _mentionSelection)"
                                                 @onmousedown:preventDefault="true"
                                                 @onclick="@(() => CommitMentionAsync(match.person))">
-                                            <span class="hub-avatar @AvatarClass(match.person.EmployeeType)">@Initials(match.person.DisplayName)</span>
+                                            <span class="hub-avatar @AvatarClass(match.person.EmployeeType)"><PersonAvatarContent EmployeeId="match.person.Id" IsAgent="@(match.person.EmployeeType == "Agent")" Initials="@Initials(match.person.DisplayName)" /></span>
                                             <span><strong>@match.person.DisplayName</strong><small>@match.person.RoleName · @match.person.EmployeeType</small></span>
                                         </button>
                                     }
@@ -674,7 +683,7 @@
                         <div class="hub-member-grid">
                             @foreach (var person in _hub.People)
                             {
-                                <label><input type="checkbox" checked="@_selectedMembers.Contains(person.Id)" @onchange="@(() => ToggleMember(person.Id))" /><span class="hub-avatar @AvatarClass(person.EmployeeType)">@Initials(person.DisplayName)</span><span>@person.DisplayName<small>@(person.RoleName ?? person.EmployeeType)</small></span></label>
+                                <label><input type="checkbox" checked="@_selectedMembers.Contains(person.Id)" @onchange="@(() => ToggleMember(person.Id))" /><span class="hub-avatar @AvatarClass(person.EmployeeType)"><PersonAvatarContent EmployeeId="person.Id" IsAgent="@(person.EmployeeType == "Agent")" Initials="@Initials(person.DisplayName)" /></span><span>@person.DisplayName<small>@(person.RoleName ?? person.EmployeeType)</small></span></label>
                             }
                         </div>
                     </div>
@@ -761,6 +770,8 @@
         <MudButton Variant="Variant.Text" OnClick="CloseThinkingDialog">Close</MudButton>
     </DialogActions>
 </MudDialog>
+
+</EmployeePortraitScope>
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
@@ -1159,6 +1170,28 @@
         }
     }
 
+    private async Task RetryCoordinationAsync(AgentCoordinationSessionResponse session)
+    {
+        if (_selected is null || !session.CanRetry || !_stoppingCoordination.Add(session.Id)) return;
+        _notice = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                $"{BasePath}/chats/{_selected.Id}/coordination-sessions/{session.Id}/retry",
+                new RetryAgentCoordinationRequest(session.Revision,
+                    "Retry requested by a manager from the communications workspace.",
+                    $"ui-retry:{session.Id:N}:{session.Revision}"), _disposeCts.Token);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(await response.Content.ReadAsStringAsync(_disposeCts.Token));
+            _notice = "The collaboration was queued to continue. Its existing transcript is preserved.";
+            await LoadMessagesAsync(markRead: false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            _notice = $"Collaboration could not be retried: {error.Message}";
+        }
+        finally { _stoppingCoordination.Remove(session.Id); }
+    }
     private async Task StopCoordinationAsync(AgentCoordinationSessionResponse session)
     {
         if (_selected is null || !_stoppingCoordination.Add(session.Id)) return;

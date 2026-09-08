@@ -7,6 +7,7 @@
 @using Wire = CSweet.WorkManagement.Contracts
 @inject HttpClient Http
 
+<EmployeePortraitScope OrganizationId="OrganizationId">
 <PageTitle>@(_details?.Employee.DisplayName ?? "Employee") - C-Sweet</PageTitle>
 
 <div class="command-center-shell employee-details-page">
@@ -23,6 +24,7 @@
     {
         <MudPaper Elevation="0" Class="page-header">
             <div>
+                <span class="employee-profile-portrait" aria-hidden="true"><PersonAvatarContent EmployeeId="_details.Employee.Id" IsAgent="@(_details.Employee.EmployeeType == 1)" Initials="@string.Concat(_details.Employee.DisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0]))" /></span>
                 <MudText Typo="Typo.overline">@EmployeeTypeLabel</MudText>
                 <MudText Typo="Typo.h3">@_details.Employee.DisplayName</MudText>
                 <MudText Color="Color.Secondary">@(_details.Role?.Name ?? "No organization role")</MudText>
@@ -155,6 +157,8 @@
         </MudTabs>
     }
 </div>
+
+</EmployeePortraitScope>
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }

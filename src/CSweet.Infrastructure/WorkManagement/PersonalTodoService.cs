@@ -1,3 +1,4 @@
+using CSweet.Infrastructure.Setup;
 using System.Text.Json;
 using System.Diagnostics.Metrics;
 using CSweet.Application.WorkManagement;
@@ -157,6 +158,26 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
                 x.Status == AgentPlatformEventOutboxStatus.Pending &&
                 x.IdempotencyKey.StartsWith(prefix), cancellationToken);
             if (hasPendingWake) continue;
+            // SDK failures release a claim before reporting the failed delivery. Do not turn a
+            // permanent failure back into a fresh availability event every reconciliation pass.
+            var lastDelivery = await db.AgentWorkItems.AsNoTracking().Where(x =>
+                    x.AgentInstallationId == owner.AgentInstallationId && x.IdempotencyKey.StartsWith(prefix))
+                .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken);
+            if (lastDelivery?.Status == AgentWorkStatus.DeadLetter && AgentWorkFailure.IsNonRetryable(lastDelivery.LastError))
+            {
+                var task = await db.CoreWorkTasks.SingleAsync(x => x.Id == ready.Id, cancellationToken);
+                if (task.Status == WorkTaskStatus.Ready && task.ClaimEventId == null)
+                {
+                    var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == ready.BoardId, cancellationToken);
+                    task.Status = WorkTaskStatus.Blocked;
+                    task.BoardColumnId = ColumnForStatus(board, WorkTaskStatus.Blocked).Id;
+                    task.BlockReason = AgentWorkFailure.DescribeBlocker(lastDelivery.LastError);
+                    await AddBlockedNotificationsAsync(task, board, task.BlockReason, now, cancellationToken);
+                    task.Revision++;
+                    task.UpdatedAt = now;
+                }
+                continue;
+            }
             var lastWake = await db.AgentPlatformEventOutbox.AsNoTracking()
                 .Where(x => x.OrganizationId == ready.OrganizationId &&
                     x.EventType == Wire.PersonalTodoEvents.Available &&

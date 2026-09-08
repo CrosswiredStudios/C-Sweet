@@ -52,6 +52,10 @@ public interface IAgentCoordinationService
         ResumeAgentCoordinationRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<AgentCoordinationSession> ResumeForManagerAsync(
+        Guid organizationId, Guid actorOrganizationUserId, ResumeAgentCoordinationRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<AgentCoordinationSession> CancelAsync(
         Guid organizationId,
         Guid actorOrganizationUserId,

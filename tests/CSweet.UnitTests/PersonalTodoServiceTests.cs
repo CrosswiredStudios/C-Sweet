@@ -420,6 +420,29 @@ public sealed class PersonalTodoServiceTests
         Assert.NotNull((await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id)).ArchivedAt);
     }
 
+    [Fact]
+    public async Task PermanentDeliveryFailureBecomesVisibleBlockerInsteadOfNewWakeLoop()
+    {
+        await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var added = await service.AddAsync(setup.Organization.Id, new PersonalTodoActor(setup.FirstManager.Id, null),
+            Add("Prepare production brief", "permanent", setup.Agent.Id));
+        var wake = await db.AgentPlatformEventOutbox.SingleAsync();
+        wake.Status = AgentPlatformEventOutboxStatus.Published; wake.OccurredAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        db.AgentWorkItems.Add(new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = setup.Organization.Id.ToString(),
+            AgentInstallationId = setup.Agent.AgentInstallationId!.Value, Name = Wire.PersonalTodoEvents.Available,
+            IdempotencyKey = wake.IdempotencyKey + ":" + setup.Agent.AgentInstallationId,
+            Status = AgentWorkStatus.DeadLetter, CreatedAt = DateTimeOffset.UtcNow,
+            LastError = "agent-failure:v1;code=capability.failed;retryable=false;capability=platform.decision.decide.v1;diagnosticId=test" });
+        await db.SaveChangesAsync();
+        await service.ReconcileAsync(); await service.ReconcileAsync();
+        var task = await db.CoreWorkTasks.SingleAsync(x => x.Id == added.Id);
+        Assert.Equal(WorkTaskStatus.Blocked, task.Status);
+        Assert.Contains("authority", task.BlockReason);
+        Assert.Equal(WorkBoardColumnCategory.Blocked, (await db.WorkBoardColumns.SingleAsync(x => x.Id == task.BoardColumnId)).Category);
+        Assert.Single(await db.AgentPlatformEventOutbox.ToListAsync());
+        Assert.Single(await db.UserNotifications.Where(x => x.Category == "PersonalTodoBlocked").ToListAsync());
+    }
     private static Wire.AddPersonalTodoItemRequest Add(string title, string key, Guid? target) =>
         new(title, null, Wire.WorkPriorities.Medium, null, key, target);
 

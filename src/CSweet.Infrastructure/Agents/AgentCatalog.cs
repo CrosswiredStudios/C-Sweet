@@ -62,10 +62,10 @@ public sealed class AgentCatalogService(
         }
 
         var filtered = agents
-            .Where(agent => Matches(agent, normalized))
-            .Select(agent => agent with { Score = Score(agent, normalized) })
             .GroupBy(DeduplicationKey, StringComparer.OrdinalIgnoreCase)
             .Select(Consolidate)
+            .Where(agent => Matches(agent, normalized))
+            .Select(agent => agent with { Score = Score(agent, normalized) })
             .ToList();
 
         filtered = (normalized.Sort?.Trim().ToLowerInvariant()) switch
@@ -180,6 +180,10 @@ public sealed class AgentCatalogService(
         var primary = ordered[0];
         return primary with
         {
+            // Installation state and references belong to the installed copy; the
+            // listing name belongs to catalog configuration, not an individual hire.
+            Name = ordered.Where(x => x.Source != AgentCatalogSource.Installed)
+                .Select(x => x.Name).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? primary.Name,
             AlternateSources = ordered.Skip(1).Select(x => x.Source).Distinct().ToArray(),
             Capabilities = ordered.SelectMany(x => x.Capabilities).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             RoleKey = ordered.Select(x => x.RoleKey).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
@@ -275,7 +279,7 @@ public sealed class InstalledAgentCatalogProvider(CSweetDbContext db) : IAgentCa
             [],
             installation.IsEnabled ? AgentAvailabilityState.InstalledEnabled : AgentAvailabilityState.InstalledDisabled,
             installation.Id,
-            package.AgentName,
+            string.IsNullOrWhiteSpace(manifest.Name) ? package.AgentName : manifest.Name,
             manifest.Catalog.Summary ?? $"Installed {package.AgentName} agent.",
             package.PublisherName,
             manifest.Catalog.Category ?? "Installed",

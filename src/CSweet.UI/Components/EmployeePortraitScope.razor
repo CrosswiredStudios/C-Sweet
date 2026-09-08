@@ -1,0 +1,67 @@
+@using System.Net.Http.Json
+@using Microsoft.Extensions.Logging
+@using CSweet.Agent.SDK
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.Realtime
+@implements IDisposable
+@inject HttpClient Http
+@inject IAgentApiClient AgentApi
+@inject AppRealtimeState Realtime
+@inject Microsoft.Extensions.Logging.ILogger<EmployeePortraitScope> Logger
+
+<CascadingValue Value="_portraits">@ChildContent</CascadingValue>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    private EmployeePortraits _portraits = new();
+    private Guid? _loadedOrganization;
+    private CancellationTokenSource? _load;
+    private bool _disposed;
+
+    protected override void OnInitialized() => Realtime.EventReceived += OnDirectoryChanged;
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedOrganization == OrganizationId) return;
+        _loadedOrganization = OrganizationId;
+        _portraits = new();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _load?.Cancel();
+        _load?.Dispose();
+        var request = _load = new CancellationTokenSource();
+        var organization = OrganizationId;
+        try
+        {
+            var people = Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
+                $"api/core/organizations/{organization:D}/users", request.Token);
+            var installations = AgentApi.ListInstallationsAsync(request.Token);
+            var catalog = Http.GetFromJsonAsync<AvailableAgentSearchResult>(
+                $"api/core/organizations/{organization:D}/agents/available?limit=100", request.Token);
+            await Task.WhenAll(people, installations, catalog);
+            if (_disposed || request.IsCancellationRequested || organization != OrganizationId) return;
+            _portraits = EmployeePortraits.Build(await people ?? [], await installations, (await catalog)?.Agents ?? []);
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            Logger.LogDebug(error, "Employee portraits are unavailable for {OrganizationId}.", organization);
+        }
+    }
+
+    private void OnDirectoryChanged(AppRealtimeEventEnvelope envelope)
+    {
+        if (_disposed || envelope.OrganizationId != OrganizationId || envelope.EventType != AppRealtimeEvents.EmployeeDirectoryChanged) return;
+        _ = InvokeAsync(async () => { if (_disposed) return; await LoadAsync(); if (!_disposed) StateHasChanged(); });
+    }
+    public void Dispose()
+    {
+        _disposed = true;
+        Realtime.EventReceived -= OnDirectoryChanged;
+        _load?.Cancel();
+        _load?.Dispose();
+    }
+}

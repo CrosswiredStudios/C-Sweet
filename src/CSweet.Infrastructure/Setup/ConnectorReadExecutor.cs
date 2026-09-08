@@ -36,7 +36,7 @@ public sealed class ConnectorReadExecutor(CSweetDbContext db, ConnectorPlanServi
             var ownershipRequest = frozen.Request with
             {
                 Method = "GET", Url = ConnectorRequestMaterializer.Query(check.Endpoint, query), Body = null,
-                ResourceChecks = [], SecretResponseFields = []
+                ResourceChecks = [], SecretResponseFields = [], IfMatch = null
             };
             var ownership = await transport.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId,
                 ownershipRequest, Revalidate, token);

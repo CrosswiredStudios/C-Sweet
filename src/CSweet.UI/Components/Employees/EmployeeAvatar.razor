@@ -1,1 +1,2 @@
-<span class="employee-avatar @(Employee.IsAgent ? "agent" : "human")" aria-hidden="true">@Employee.Initials</span>
+<span class="employee-avatar @(Employee.IsAgent ? "agent" : "human")" aria-hidden="true"><PersonAvatarContent EmployeeId="Employee.Id" IsAgent="Employee.IsAgent" Initials="@Employee.Initials" /></span>
+

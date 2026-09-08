@@ -37,6 +37,7 @@ public sealed class ApprovalDashboardServiceTests
         var result = await service.GetAsync(organizationId, (assigned ? manager : owner).ApplicationUserId!.Value);
         var item = Assert.Single(result.Items);
         Assert.Equal(assigned, item.CanDecide); Assert.Equal(manager.DisplayName, item.AssignedTo);
+        Assert.Equal(!assigned, item.CanManageStandingPolicy);
         Assert.Equal("Company channel", item.AgentAction!.AccountName);
         Assert.Equal(binding.ExpiresAt, item.AgentAction.ExpiresAt);
         Assert.Equal(binding.ReviewPayload!.Value.GetProperty("title").GetString(),

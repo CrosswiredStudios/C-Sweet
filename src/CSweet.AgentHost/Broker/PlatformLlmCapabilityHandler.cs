@@ -284,7 +284,7 @@ public sealed class PlatformLlmCapabilityHandler
                 session.InstallationId,
                 input.ProviderProfileId,
                 selectedModel);
-            providerError = "The platform LLM provider could not complete the request.";
+            providerError = LlmProviderFailureMessage.From(exception);
         }
 
         if (providerError is not null || updates is null)
@@ -343,7 +343,7 @@ public sealed class PlatformLlmCapabilityHandler
                         session.InstallationId,
                         input.ProviderProfileId,
                         selectedModel);
-                    providerError = "The platform LLM provider could not complete the request.";
+                    providerError = LlmProviderFailureMessage.From(exception);
                 }
 
                 if (providerError is not null)

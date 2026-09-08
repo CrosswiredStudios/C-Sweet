@@ -127,6 +127,16 @@ public sealed class MarketplaceAgentBrandingTests
         Assert.DoesNotContain(MarketplaceAgentPresentation.DefaultImageUrl, html);
     }
 
+    [Fact]
+    public async Task CardUsesBundledCompanyLogoAndRejectsOtherLocalPaths()
+    {
+        var html = await Render(Agent() with { CompanyLogoUrl = MarketplaceAgentPresentation.CSweetCompanyLogoUrl });
+        Assert.Contains("src=\"" + MarketplaceAgentPresentation.CSweetCompanyLogoUrl + "\"", html);
+        Assert.False(MarketplaceAgentPresentation.IsCompanyLogoUrl("_content/CSweet.UI/images/other.svg"));
+        Assert.False(MarketplaceAgentPresentation.IsCompanyLogoUrl("//example.com/logo.svg"));
+        Assert.False(MarketplaceAgentPresentation.IsCompanyLogoUrl(MarketplaceAgentPresentation.CSweetCompanyLogoUrl + "?x=1"));
+    }
+
     private static JsonObject Catalog() => new()
     {
         ["summary"] = "Short summary",

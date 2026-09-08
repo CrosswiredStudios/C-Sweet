@@ -1,0 +1,97 @@
+@page "/organizations/{OrganizationId:guid}/connector-actions/{ActionId:guid}/standing-policy"
+@using CSweet.Contracts.Plugins
+@inject HttpClient Http
+
+<PageTitle>Automatic approval rules - C-Sweet</PageTitle>
+<MudContainer MaxWidth="MaxWidth.Medium" Class="my-4">
+    <MudText Typo="Typo.h4">Automatic approval rules</MudText>
+    <MudText Class="my-2">Only a signed-in human organization owner can approve or revoke these rules. Connecting an account or choosing an approval preference does not grant standing authority.</MudText>
+    @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" Class="my-3">@_error</MudAlert> }
+    @if (_notice is not null) { <MudAlert Severity="Severity.Info" Class="my-3">@_notice</MudAlert> }
+    @if (_setup is not null)
+    {
+        @if (_setup.Policy is { } policy)
+        {
+            <MudPaper Outlined="true" Class="pa-3 my-3">
+                <MudText>Stored policy: @policy.Status</MudText>
+                <MudText Typo="Typo.caption">Execution still requires current account access, agent grants and matching rules. A stored approval alone does not prove current eligibility.</MudText>
+                @if (policy.Status == "Approved")
+                { <MudButton Color="Color.Error" Variant="Variant.Outlined" OnClick="Revoke" Disabled="_busy" Class="mt-2">Revoke this policy</MudButton> }
+            </MudPaper>
+        }
+        @if (_setup.UnavailableReason is { } unavailable) { <MudAlert Severity="Severity.Warning">@unavailable</MudAlert> }
+        @if (_setup.Review is { CanUseStandingPolicy: false })
+        { <MudAlert Severity="Severity.Info">This operation always requires an explicit decision. It cannot be enabled for automatic approval.</MudAlert> }
+        <ConnectorStandingPolicyForm Setup="_setup" Busy="_busy" Approved="Approve" />
+    }
+    <MudButton Variant="Variant.Text" Disabled="@(_loading || _busy)" OnClick="Load" Class="mt-3">Reload current review</MudButton>
+    <MudButton Href="@($"/organizations/{OrganizationId:D}/communications")" Class="mt-3">Return to conversations</MudButton>
+</MudContainer>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid ActionId { get; set; }
+    private ConnectorStandingPolicySetup? _setup;
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _notice;
+    private int _generation;
+    private string Endpoint => $"api/core/organizations/{OrganizationId:D}/connector-actions/{ActionId:D}/standing-policy";
+    protected override Task OnParametersSetAsync() { _generation++; _notice = null; _busy = false; return Load(); }
+    private async Task Load()
+    {
+        var generation = _generation;
+        _loading = true; _error = null; _setup = null;
+        try
+        {
+            using var response = await Http.GetAsync(Endpoint);
+            if (generation != _generation) return;
+            if (!response.IsSuccessStatusCode) { _setup = null; _error = Failure(response); return; }
+            var setup = await response.Content.ReadFromJsonAsync<ConnectorStandingPolicySetup>();
+            if (generation == _generation) _setup = setup;
+        }
+        catch (Exception error) when (error is HttpRequestException or System.Text.Json.JsonException)
+        { if (generation == _generation) _error = "The review could not be loaded. Try again when the connection is available."; }
+        finally { if (generation == _generation) _loading = false; }
+    }
+    private async Task Approve(ApproveConnectorStandingPolicyRequest request)
+    {
+        var generation = _generation;
+        _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.PutAsJsonAsync(Endpoint, request);
+            if (generation != _generation) return;
+            if (!response.IsSuccessStatusCode) { _error = Failure(response); return; }
+            _notice = "The policy was saved for eligible future requests in Fully Autonomous mode. The existing action still follows its own decision record.";
+            await Load();
+        }
+        catch (HttpRequestException) { if (generation == _generation) _error = "The result could not be confirmed. Retry this same approval or reload its status; no broader permission will be inferred."; }
+        finally { if (generation == _generation) _busy = false; }
+    }
+    private async Task Revoke()
+    {
+        if (_setup?.Policy is not { } policy) return;
+        var generation = _generation;
+        _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(Endpoint + "/revoke", new RevokeConnectorStandingPolicyRequest(policy.Id, policy.Revision));
+            if (generation != _generation) return;
+            if (!response.IsSuccessStatusCode) { _error = Failure(response); return; }
+            _notice = "The policy was revoked. Future work requires current authorization; this cannot undo requests already sent.";
+            await Load();
+        }
+        catch (HttpRequestException) { if (generation == _generation) _error = "Revocation could not be confirmed. Reload or retry; do not assume that access is disabled until confirmed."; }
+        finally { if (generation == _generation) _busy = false; }
+    }
+    private static string Failure(HttpResponseMessage response) => response.StatusCode switch
+    {
+        System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden => "Sign in as a human organization owner to manage these rules.",
+        System.Net.HttpStatusCode.NotFound => "This account-change review is no longer available.",
+        System.Net.HttpStatusCode.BadRequest => "Check the field choices, schedule, expiry and limits before approving.",
+        _ => "The account or policy may have changed. Reload and review its current state before trying again."
+    };
+}

@@ -9,6 +9,7 @@
 @inject IAgentApiClient AgentApi
 @inject ILlmProviderApiClient LlmProviderApi
 
+<EmployeePortraitScope OrganizationId="OrganizationId">
 <PageTitle>Employees - C-Sweet</PageTitle>
 
 <div class="command-center-shell employees-page">
@@ -586,3 +587,5 @@
         <MudButton OnClick="FireAsync" Variant="Variant.Filled" Color="Color.Error" Disabled="@_saving">@(_saving ? "Firing..." : "Fire")</MudButton>
     </DialogActions>
 </MudDialog>
+
+</EmployeePortraitScope>

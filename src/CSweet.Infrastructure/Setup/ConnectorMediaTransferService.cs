@@ -106,7 +106,7 @@ public sealed class ConnectorMediaTransferService(CSweetDbContext db, ConnectorA
             {
                 var check = resource.Declaration;
                 var request = frozen.Request with { Method = "GET", Body = null, MediaAssetId = null, MediaProtocol = null,
-                    ResourceChecks = [], SecretResponseFields = [], Url = ConnectorRequestMaterializer.Query(check.Endpoint,
+                    ResourceChecks = [], SecretResponseFields = [], IfMatch = null, Url = ConnectorRequestMaterializer.Query(check.Endpoint,
                         check.QueryConstants.Append(new KeyValuePair<string, string>(check.ResourceQuery, resource.ResourceId))) };
                 var ownership = await reads.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId, request, Revalidate, ct);
                 if (ownership.StatusCode != 200) throw new UnauthorizedAccessException("Media resource ownership cannot be verified.");

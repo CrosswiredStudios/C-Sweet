@@ -131,10 +131,13 @@ public static class CommunicationEndpoints
         group.MapGet("/hub/chats/{chatId:guid}/coordination-sessions", async (
             Guid organizationId, Guid chatId, bool? activeOnly, Guid? perspectiveOrganizationUserId, HttpContext http,
             ICommunicationHubService hub, IAgentCoordinationService coordination,
-            CancellationToken cancellationToken) =>
+            CSweetDbContext db, CancellationToken cancellationToken) =>
         {
             var actorId = await ResolveActorAsync(organizationId, http, hub, cancellationToken);
             if (actorId is null) return Results.Forbid();
+            var canRetry = await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.Id == actorId.Value &&
+                x.OrganizationId == organizationId && x.IsActive && x.EmployeeType == EmployeeType.Human &&
+                x.PermissionLevel >= OrganizationPermissionLevel.Manager, cancellationToken);
             if (perspectiveOrganizationUserId.HasValue && perspectiveOrganizationUserId != actorId)
             {
                 var view = await hub.GetAsync(organizationId, actorId.Value, perspectiveOrganizationUserId, cancellationToken);
@@ -144,9 +147,30 @@ public static class CommunicationEndpoints
             }
             var sessions = await coordination.ListAsync(
                 organizationId, actorId.Value, chatId, activeOnly ?? false, cancellationToken);
-            return Results.Ok(sessions.Select(MapCoordination).ToList());
+            return Results.Ok(sessions.Select(x => MapCoordination(x) with { CanRetry = canRetry && x.Status is ("Failed" or "Blocked") }).ToList());
         });
 
+        group.MapPost("/hub/chats/{chatId:guid}/coordination-sessions/{sessionId:guid}/retry", async (
+            Guid organizationId, Guid chatId, Guid sessionId, RetryAgentCoordinationRequest request,
+            HttpContext http, ICommunicationHubService hub, IAgentCoordinationService coordination,
+            CSweetDbContext db, CancellationToken cancellationToken) =>
+        {
+            var actorId = await ResolveActorAsync(organizationId, http, hub, cancellationToken);
+            if (actorId is null) return Results.Forbid();
+            var belongs = await db.AgentCoordinationSessions.AsNoTracking().AnyAsync(x => x.Id == sessionId &&
+                x.OrganizationId == organizationId && (x.ConversationId == chatId || x.SourceConversationId == chatId), cancellationToken);
+            if (!belongs) return Results.NotFound();
+            try
+            {
+                return Results.Ok(MapCoordination(await coordination.ResumeForManagerAsync(organizationId, actorId.Value,
+                    new CSweet.Agent.SDK.ResumeAgentCoordinationRequest(sessionId, request.ExpectedRevision,
+                        request.Reason, request.IdempotencyKey), cancellationToken)));
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
+            catch (InvalidOperationException error) { return Results.Conflict(new { message = error.Message }); }
+        });
         group.MapPost("/hub/chats/{chatId:guid}/coordination-sessions/{sessionId:guid}/stop", async (
             Guid organizationId, Guid chatId, Guid sessionId, StopAgentCoordinationRequest request,
             HttpContext http, ICommunicationHubService hub, IAgentCoordinationService coordination,

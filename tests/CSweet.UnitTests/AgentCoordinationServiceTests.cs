@@ -605,6 +605,47 @@ public sealed class AgentCoordinationServiceTests
         }
         else Assert.Empty(pending);
     }
+    [Fact]
+    public async Task HumanManagerRetryPreservesSessionAndRetriesFailedSpeakerIdempotently()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        foreach (var installation in new[] { fixture.InitiatorInstallationId, fixture.TargetInstallationId })
+            fixture.Db.AgentInstallationGrants.Add(new AgentInstallationGrant { Id = Guid.NewGuid(), AgentInstallationId = installation,
+                RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { CommunicationCapabilities.CoordinationRead, CommunicationCapabilities.CoordinationRespond }),
+                ProvidedCapabilitiesJson = "[]", EventSubscriptionsJson = "[]", NetworkAccessJson = "[]", ResourceLimitsJson = "{}", ApprovedAt = DateTimeOffset.UtcNow });
+        var work = await fixture.Inbox.EnqueueAsync(fixture.OrganizationId.ToString("D"), fixture.TargetInstallationId,
+            CSweet.Domain.Setup.AgentWorkKind.Event, AgentCoordinationEvents.TurnRequested, JsonSerializer.SerializeToElement(new { }),
+            "failed-model", DateTimeOffset.UtcNow.AddHours(1), correlationId: fixture.SessionId.ToString("D"),
+            sourceType: "agent-coordination", sourceId: Guid.NewGuid().ToString("D"));
+        work.Status = AgentWorkStatus.DeadLetter;
+        var session = await fixture.Db.AgentCoordinationSessions.SingleAsync();
+        session.Status = AgentCoordinationStatus.Failed; session.Revision = 2;
+        session.CurrentOrganizationUserId = null; session.CurrentAgentWorkItemId = null;
+        await fixture.Db.SaveChangesAsync();
+        var retry = new ResumeAgentCoordinationRequest(session.Id, 2, "Configured model is available again.", "manager-retry");
+        var first = await fixture.Service.ResumeForManagerAsync(fixture.OrganizationId, fixture.ManagerId, retry);
+        var replay = await fixture.Service.ResumeForManagerAsync(fixture.OrganizationId, fixture.ManagerId, retry);
+        Assert.Equal(first.Revision, replay.Revision);
+        Assert.Equal(fixture.SessionId, first.Id);
+        Assert.Equal(fixture.TargetId, first.CurrentOrganizationUserId);
+        Assert.Single(first.Turns);
+        Assert.Single(await fixture.Db.AgentWorkItems.Where(x => x.Status == AgentWorkStatus.Pending).ToListAsync());
+        Assert.Equal(AgentWorkStatus.DeadLetter, work.Status);
+    }
+
+    [Fact]
+    public async Task HumanRetryRejectsAgentAndUnprivilegedUserIdentities()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var request = new ResumeAgentCoordinationRequest(fixture.SessionId, 1, "Retry", "unauthorized-retry");
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.ResumeForManagerAsync(
+            fixture.OrganizationId, fixture.TargetId, request));
+        var manager = await fixture.Db.CoreOrganizationUsers.SingleAsync(x => x.Id == fixture.ManagerId);
+        manager.PermissionLevel = OrganizationPermissionLevel.Contributor; await fixture.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.ResumeForManagerAsync(
+            fixture.OrganizationId, fixture.ManagerId, request));
+        Assert.Empty(await fixture.Db.AgentWorkItems.ToListAsync());
+    }
     private sealed class StubCommunicationHubService(CommunicationChatResponse chat)
         : ICommunicationHubService
     {

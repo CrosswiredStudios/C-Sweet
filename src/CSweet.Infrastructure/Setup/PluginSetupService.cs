@@ -294,6 +294,7 @@ public sealed class PluginSetupService(
         var consumers = await db.AgentCapabilityBindings.Where(x => x.ProviderInstallationId == installation.Id &&
             x.OrganizationId == payload.OrganizationId.ToString("D")).Select(x => x.RequesterInstallationId).Distinct().ToListAsync(cancellationToken);
         consumers.Add(installation.Id);
+        await ConnectorStandingPolicyService.RevokeForConsumersAsync(db, payload.OrganizationId, consumers, cancellationToken);
         var policies = await db.PluginStandingPolicies.Where(x => x.OrganizationId == payload.OrganizationId &&
             consumers.Contains(x.AgentInstallationId) &&
             x.Status == PluginStandingPolicyStatus.Approved).ToListAsync(cancellationToken);
@@ -422,6 +423,7 @@ public sealed class PluginSetupService(
             x.ProviderInstallationId == installationId && x.RevokedAt == null)
             .Select(x => x.RequesterInstallationId).Distinct().ToListAsync(cancellationToken);
         consumers.Add(installationId);
+        await ConnectorStandingPolicyService.RevokeForConsumersAsync(db, organizationId, consumers, cancellationToken);
         var policies = await db.PluginStandingPolicies.Where(x => x.OrganizationId == organizationId &&
             consumers.Contains(x.AgentInstallationId) && x.Status == PluginStandingPolicyStatus.Approved).ToListAsync(cancellationToken);
         foreach (var policy in policies) { policy.Status = PluginStandingPolicyStatus.Revoked; policy.RevokedAt = now; }

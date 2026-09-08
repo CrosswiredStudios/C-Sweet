@@ -425,7 +425,7 @@ public sealed class AgentWorkInbox(
         attempt.FinishedAt = now;
         attempt.Error = Truncate(error, 2048);
         item.LastError = attempt.Error;
-        item.Status = item.AttemptCount >= item.MaximumAttempts || item.DeadlineAt <= now
+        item.Status = AgentWorkFailure.IsNonRetryable(error) || item.AttemptCount >= item.MaximumAttempts || item.DeadlineAt <= now
             ? AgentWorkStatus.DeadLetter
             : AgentWorkStatus.Pending;
         item.AvailableAt = now.AddSeconds(Math.Min(60, Math.Pow(2, attemptNumber)));

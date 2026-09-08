@@ -168,7 +168,15 @@ public sealed record AgentCoordinationSessionResponse(
     string? FinalSummary,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<AgentCoordinationTurnResponse> Turns);
+    IReadOnlyList<AgentCoordinationTurnResponse> Turns)
+{
+    public bool CanRetry { get; init; }
+}
+
+public sealed record RetryAgentCoordinationRequest(
+    long ExpectedRevision,
+    [property: Required, MaxLength(1000)] string Reason,
+    [property: Required, MaxLength(160)] string IdempotencyKey);
 
 public sealed record StopAgentCoordinationRequest(
     long ExpectedRevision,

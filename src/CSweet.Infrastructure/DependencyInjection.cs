@@ -183,6 +183,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ConnectorBindingService>();
         builder.Services.AddScoped<ConnectorProfileApprovalService>();
         builder.Services.AddScoped<ConnectorPlanService>();
+        builder.Services.AddScoped<ConnectorStandingPolicyService>();
         builder.Services.AddScoped<IConnectorHttpTransport, ConnectorHttpTransport>();
         builder.Services.AddScoped<IConnectorMediaTransport, ConnectorMediaTransport>();
         builder.Services.AddScoped<ConnectorMediaTransferService>();

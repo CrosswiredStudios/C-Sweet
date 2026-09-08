@@ -11,6 +11,7 @@ namespace CSweet.Infrastructure.Setup;
 public sealed class ConnectorMutationExecutor(CSweetDbContext db, ConnectorActionApprovalService approvals,
     IConnectorHttpTransport transport, IPluginSecretStore secrets, IAuditEventWriter audit)
 {
+    internal const string PreconditionFailureKind = "host-connector-precondition-failure";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public async Task ExecuteAsync(Guid organizationId, Guid requesterId, Guid planId, string planHash, CancellationToken ct)
@@ -25,6 +26,7 @@ public sealed class ConnectorMutationExecutor(CSweetDbContext db, ConnectorActio
         execution.Status = "Executing"; execution.Revision++; execution.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         var mayHaveReachedProvider = false;
+        var preconditionFailed = false;
         async Task Revalidate(CancellationToken token) =>
             _ = await approvals.RequireApprovedAsync(organizationId, requesterId, planId, planHash, token);
         try
@@ -32,7 +34,7 @@ public sealed class ConnectorMutationExecutor(CSweetDbContext db, ConnectorActio
             foreach (var resource in frozen.Request.ResourceChecks)
             {
                 var check = resource.Declaration;
-                var request = frozen.Request with { Method = "GET", Body = null, ResourceChecks = [], SecretResponseFields = [],
+                var request = frozen.Request with { Method = "GET", Body = null, ResourceChecks = [], SecretResponseFields = [], IfMatch = null,
                     Url = ConnectorRequestMaterializer.Query(check.Endpoint,
                         check.QueryConstants.Append(new KeyValuePair<string, string>(check.ResourceQuery, resource.ResourceId))) };
                 var ownership = await transport.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId, request, Revalidate, ct);
@@ -45,6 +47,13 @@ public sealed class ConnectorMutationExecutor(CSweetDbContext db, ConnectorActio
             await Revalidate(ct);
             mayHaveReachedProvider = true; // Persisted Executing is the crash-recovery fence before dispatch.
             var response = await transport.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId, frozen.Request, Revalidate, ct);
+            if (response.StatusCode == 412 && frozen.Request.IfMatch is not null)
+            {
+                // A received failed conditional request is not an ambiguous lost response.
+                preconditionFailed = true;
+                mayHaveReachedProvider = false;
+                throw new InvalidOperationException("The resource changed. Obtain fresh evidence and approval before another change.");
+            }
             if (response.StatusCode is < 200 or >= 300)
                 throw new InvalidOperationException("The provider did not confirm completion; reconcile before retrying.");
             ConnectorResponseResourceValidator.Validate(response.Body, frozen.Request);
@@ -89,6 +98,11 @@ public sealed class ConnectorMutationExecutor(CSweetDbContext db, ConnectorActio
             {
                 execution.ResultJson = null;
                 execution.Status = mayHaveReachedProvider ? "Indeterminate" : "Blocked";
+                if (preconditionFailed)
+                    db.PluginOperationalStates.Add(new() { Id = Guid.NewGuid(), OrganizationId = organizationId,
+                        AgentInstallationId = requesterId, Kind = PreconditionFailureKind, ExternalKey = planId.ToString("N"),
+                        PayloadJson = JsonSerializer.Serialize(new { planHash }), CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow, Revision = 1 });
                 execution.Revision++; execution.UpdatedAt = DateTimeOffset.UtcNow;
                 await approvals.QueueExecutionEventAsync(execution, CancellationToken.None);
                 await db.SaveChangesAsync(CancellationToken.None);

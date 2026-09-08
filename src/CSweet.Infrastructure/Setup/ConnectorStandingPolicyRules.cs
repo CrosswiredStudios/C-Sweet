@@ -22,6 +22,7 @@ public static class ConnectorStandingPolicyRules
     public static void Validate(ConnectorStandingPolicyDefinition definition, PluginProviderOperationDeclaration operation,
         DateTimeOffset now)
     {
+        ArgumentNullException.ThrowIfNull(definition);
         if (!CanAuthorize(operation)) throw new ArgumentException("This effect always requires an explicit decision.");
         var expected = Fields(operation);
         if (definition.Fields is null || definition.Fields.Count > 64 || definition.Fields.Count != expected.Count ||
@@ -31,17 +32,19 @@ public static class ConnectorStandingPolicyRules
             throw new ArgumentException("Explicitly constrain or allow every reviewed mutable request field.");
         foreach (var rule in definition.Fields)
         {
-            if (rule.AllowedValues is null || (rule.AllowAny ? rule.AllowedValues.Count != 0 : rule.AllowedValues.Count is < 1 or > 32) ||
-                rule.AllowedValues.Any(value => value.ValueKind is not (JsonValueKind.String or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) ||
+            if (rule.AllowedValues is null || (rule.AllowAny ? rule.AllowedValues.Count != 0 : rule.AllowedValues.Count > 32 || rule.AllowedValues.Count == 0 && !rule.AllowOmission) ||
+                rule.AllowedValues.Any(value => value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ||
                     Encoding.UTF8.GetByteCount(value.GetRawText()) > 2048 || rule.Field.Source == "query" && value.ValueKind != JsonValueKind.String))
                 throw new ArgumentException("Field rules require bounded literal values or an explicit allow-any choice.");
+            foreach (var value in rule.AllowedValues) _ = ConnectorRequestMaterializer.Hash(value);
         }
-        if (definition.AllowedUtcDays is null || definition.AllowedUtcDays.Count is < 1 or > 7 ||
-            definition.AllowedUtcDays.Distinct().Count() != definition.AllowedUtcDays.Count || definition.AllowedUtcDays.Any(x => x is < 0 or > 6) ||
-            definition.StartUtcMinute is < 0 or >= 1440 || definition.EndUtcMinute is < 1 or > 1440 || definition.StartUtcMinute >= definition.EndUtcMinute ||
+        if (definition.DaysOfWeek is null || definition.DaysOfWeek.Count is < 1 or > 7 ||
+            definition.DaysOfWeek.Distinct().Count() != definition.DaysOfWeek.Count || definition.DaysOfWeek.Any(x => x is < 0 or > 6) ||
+            definition.StartMinute is < 0 or >= 1440 || definition.EndMinute is < 0 or > 1440 || definition.StartMinute == definition.EndMinute ||
             definition.MaximumActionsPerHour is < 1 or > 1000 || definition.NotBefore == default ||
             definition.ExpiresAt <= now || definition.ExpiresAt <= definition.NotBefore || definition.ExpiresAt > now.AddDays(366))
             throw new ArgumentException("Choose a bounded policy lifetime, daily schedule and hourly action limit.");
+        _ = Zone(definition.TimeZoneId);
         if (definition.EscalationTerms is null || definition.EscalationTerms.Count > 50 ||
             definition.EscalationTerms.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 80 || x.Any(char.IsControl)))
             throw new ArgumentException("Escalation terms must be bounded plain text.");
@@ -56,6 +59,8 @@ public static class ConnectorStandingPolicyRules
         }
         else if (definition.MaximumMediaBytes is not null || definition.AllowedMediaTypes is not null)
             throw new ArgumentException("Only media operations may declare media limits.");
+        if (JsonSerializer.SerializeToUtf8Bytes(definition).Length > 65536)
+            throw new ArgumentException("The combined policy must fit within 64 KB. Reduce the permitted values.");
     }
 
     public static bool Matches(ConnectorStandingPolicyDefinition definition, FrozenConnectorPlan plan, DateTimeOffset now)
@@ -92,9 +97,23 @@ public static class ConnectorStandingPolicyRules
             .Any(text => definition.EscalationTerms.Any(term => text.Contains(term, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private static bool InSchedule(ConnectorStandingPolicyDefinition definition, DateTimeOffset time) =>
-        definition.AllowedUtcDays.Contains((int)time.UtcDateTime.DayOfWeek) &&
-        time.UtcDateTime.TimeOfDay.TotalMinutes >= definition.StartUtcMinute && time.UtcDateTime.TimeOfDay.TotalMinutes < definition.EndUtcMinute;
+    private static bool InSchedule(ConnectorStandingPolicyDefinition definition, DateTimeOffset time)
+    {
+        var local = TimeZoneInfo.ConvertTime(time, Zone(definition.TimeZoneId));
+        if (definition.EndMinute < definition.StartMinute)
+            return local.TimeOfDay.TotalMinutes >= definition.StartMinute && definition.DaysOfWeek.Contains((int)local.DayOfWeek) ||
+                local.TimeOfDay.TotalMinutes < definition.EndMinute && definition.DaysOfWeek.Contains((int)local.AddDays(-1).DayOfWeek);
+        return definition.DaysOfWeek.Contains((int)local.DayOfWeek) &&
+            local.TimeOfDay.TotalMinutes >= definition.StartMinute && local.TimeOfDay.TotalMinutes < definition.EndMinute;
+    }
+
+    private static TimeZoneInfo Zone(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id) || id.Length > 200 || id.Any(char.IsControl)) throw new ArgumentException("Choose a recognized time zone.");
+        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
+        catch (Exception error) when (error is TimeZoneNotFoundException or InvalidTimeZoneException)
+        { throw new ArgumentException("Choose a recognized time zone."); }
+    }
 
     private static IEnumerable<string> Strings(JsonElement value) => value.ValueKind switch
     {

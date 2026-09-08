@@ -76,3 +76,44 @@ The collection was generated with the built-in image generation tool. Reproducib
 art direction, individual prompts, roles, and accent colors are recorded in
 [the portrait prompt set](../design/agent-portrait-prompts.json). Missing or failed
 portraits still use the default avatar; missing logos still show the company name.
+
+## Agent names and portable branding
+
+The 22 first-party entries now use realistic fictional names; `RoleName`, role keys,
+agent IDs, and listing slugs retain their existing meaning. The corresponding root
+agent manifests use the same names, and agents with a compiled default display name
+have that default synchronized. Existing installed metadata is refreshed through
+the normal import/update flow.
+
+Every catalog agent repository includes `assets/branding/portrait-v1.jpg`,
+`assets/branding/csweet-icon.svg`, and an asset README. Manifest `catalog.imageUrl`
+and `catalog.companyLogoUrl` point to those files on the repository's `main` branch,
+with the matching `catalog.accentColor`. These links become available after pushing
+the changes; this update does not publish them. The embedded catalog continues to
+use bundled assets, including the shared `_content/CSweet.UI/images/csweet-icon.svg`.
+The logo is byte-for-byte identical to the app's `/images/icon.svg`.
+
+| Agent | Role |
+| --- | --- |
+| Arjun Mehta | Infrastructure Engineer |
+| Evelyn Brooks | Chief of Staff |
+| Maya Patel | Product Manager |
+| Naomi Chen | Creative Director |
+| Gabriel Reyes | Video Game Producer |
+| Daniel Kim | Software Developer |
+| Claire Morgan | Software Architect |
+| Priya Shah | Software QA |
+| Marcus Bennett | Video Game Art Director |
+| Clara Hayes | Video Game Artist |
+| Samir Haddad | Video Game Audio Designer |
+| Avery Coleman | Video Game Build Release Engineer |
+| Adrian Silva | Video Game Engineer |
+| Hana Mori | Video Game Designer |
+| Owen Reed | Video Game Level Designer |
+| Nadia Ellis | Video Game Narrative Designer |
+| Elena Torres | Video Game Playtest Researcher |
+| Rohan Desai | Video Game QA |
+| Leila Morgan | Video Game Technical Artist |
+| Victor Lin | Video Game Technical Director |
+| Julia Bennett | Video Game UI UX Accessibility Designer |
+| Jordan Mitchell | YouTube Account Manager |

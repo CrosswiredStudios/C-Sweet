@@ -252,6 +252,8 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
         {
             var expected = $"_content/CSweet.UI/images/agents/{entry.ListingSlug}-v1.jpg";
             Assert.Equal(expected, entry.ImageUrl);
+            Assert.Equal(CSweet.UI.Services.MarketplaceAgentPresentation.CSweetCompanyLogoUrl, entry.CompanyLogoUrl);
+            Assert.NotEqual(entry.RoleName, entry.Name);
             Assert.True(CSweet.UI.Services.MarketplaceAgentPresentation.IsAgentImageUrl(entry.ImageUrl));
             Assert.True(AgentCatalogBranding.IsAccentColor(entry.AccentColor));
             var path = Path.Combine(root, "src", "CSweet.UI", "wwwroot", "images", "agents", $"{entry.ListingSlug}-v1.jpg");
@@ -263,6 +265,8 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
             var mapped = Assert.Single(result.Agents, x => x.AgentId == entry.AgentId);
             Assert.Equal(entry.ImageUrl, mapped.ImageUrl);
             Assert.Equal(entry.AccentColor, mapped.AccentColor);
+            Assert.Equal(entry.CompanyLogoUrl, mapped.CompanyLogoUrl);
+            Assert.Equal(entry.Name, mapped.Name);
         }
     }
 

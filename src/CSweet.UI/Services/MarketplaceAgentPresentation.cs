@@ -7,6 +7,10 @@ namespace CSweet.UI.Services;
 public static partial class MarketplaceAgentPresentation
 {
     public const string DefaultImageUrl = "_content/CSweet.UI/images/agent-default.svg";
+    public const string CSweetCompanyLogoUrl = "_content/CSweet.UI/images/csweet-icon.svg";
+    public static bool IsCompanyLogoUrl(string? value) =>
+        AgentCatalogBranding.IsImageUrl(value) || value == CSweetCompanyLogoUrl;
+
     public const string DefaultAccentColor = "#1C6252";
 
     // Only this bundled artwork directory is accepted as a local image source.

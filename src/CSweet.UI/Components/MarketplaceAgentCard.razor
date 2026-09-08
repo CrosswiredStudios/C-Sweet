@@ -118,7 +118,7 @@
 
     private string ImageUrl => !_imageFailed && MarketplaceAgentPresentation.IsAgentImageUrl(Agent.ImageUrl)
         ? Agent.ImageUrl! : MarketplaceAgentPresentation.DefaultImageUrl;
-    private string? CompanyLogoUrl => !_logoFailed && AgentCatalogBranding.IsImageUrl(Agent.CompanyLogoUrl)
+    private string? CompanyLogoUrl => !_logoFailed && MarketplaceAgentPresentation.IsCompanyLogoUrl(Agent.CompanyLogoUrl)
         ? Agent.CompanyLogoUrl : null;
     private string AccentStyle => MarketplaceAgentPresentation.AccentStyle(Agent.AccentColor);
     private string LongDescription => string.IsNullOrWhiteSpace(Agent.LongDescription) ? Agent.Summary : Agent.LongDescription;

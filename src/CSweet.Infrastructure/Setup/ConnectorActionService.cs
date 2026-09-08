@@ -54,6 +54,19 @@ public sealed class ConnectorActionService(CSweetDbContext db, ConnectorPlanServ
             result = JsonSerializer.Deserialize<JsonElement>(storedResult);
         if (status == "Indeterminate") condition = "reconciliation_required";
         if (status == "Blocked") condition = "intervention_required";
+        if (status == "Blocked")
+        {
+            var planKey = plan.Id.ToString("N");
+            var failure = await db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+                x.AgentInstallationId == requesterId && x.Kind == ConnectorMutationExecutor.PreconditionFailureKind && x.ExternalKey == planKey, ct);
+            if (failure is not null)
+            {
+                using var receipt = JsonDocument.Parse(failure.PayloadJson);
+                if (receipt.RootElement.GetProperty("planHash").GetString() != plan.PlanHash)
+                    throw new InvalidOperationException("The resource-change receipt does not match this action.");
+                condition = "resource_changed";
+            }
+        }
         ConnectorActionDecision? feedback = null;
         if (status != "Cancelled")
         {

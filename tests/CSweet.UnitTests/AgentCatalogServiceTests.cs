@@ -53,6 +53,38 @@ public sealed class AgentCatalogServiceTests
         Assert.Equal("Product Manager", agent.RoleName);
     }
 
+    [Theory]
+    [InlineData(AgentCatalogSource.FirstPartyCatalog)]
+    [InlineData(AgentCatalogSource.Marketplace)]
+    [InlineData(AgentCatalogSource.LocalDirectory)]
+    public async Task InstalledListing_UsesCatalogNameAndKeepsInstalledStateWhenSearching(AgentCatalogSource source)
+    {
+        var installationId = Guid.NewGuid();
+        var installed = Agent("installed:1", AgentCatalogSource.Installed) with
+        {
+            Name = "My custom assistant",
+            InstallationId = installationId,
+            Availability = AgentAvailabilityState.InstalledEnabled
+        };
+        var catalog = Agent("catalog:1", source) with { Name = "Evelyn Brooks" };
+        var service = new AgentCatalogService(
+            [new StubProvider(AgentCatalogSource.Installed, installed), new StubProvider(source, catalog)],
+            NullLogger<AgentCatalogService>.Instance);
+
+        foreach (var search in new string?[] { null, "Evelyn Brooks" })
+        {
+            var result = await service.GetAvailableAgentsAsync(null, new(SearchString: search));
+            var agent = Assert.Single(result.Agents);
+            Assert.Equal("Evelyn Brooks", agent.Name);
+            Assert.Equal(AgentCatalogSource.Installed, agent.Source);
+            Assert.Equal(AgentAvailabilityState.InstalledEnabled, agent.Availability);
+            Assert.Equal(installationId, agent.InstallationId);
+            Assert.Equal(installed.AgentReference, agent.AgentReference);
+        }
+        Assert.Empty((await service.GetAvailableAgentsAsync(null, new(SearchString: "My custom assistant"))).Agents);
+        Assert.Equal("My custom assistant", installed.Name);
+    }
+
     [Fact]
     public async Task CanonicalRole_MatchesAgentWithSpecificDisplayName()
     {
@@ -176,8 +208,10 @@ public sealed class AgentCatalogServiceTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var organizationId = Guid.NewGuid();
         var otherOrganizationId = Guid.NewGuid();
+        var visible = Installation(organizationId, "Visible Agent");
+        visible.PackageVersion!.AgentName = "Custom installed name";
         db.AgentInstallations.AddRange(
-            Installation(organizationId, "Visible Agent"),
+            visible,
             Installation(otherOrganizationId, "Hidden Agent"));
         await db.SaveChangesAsync();
         var provider = new InstalledAgentCatalogProvider(db);
@@ -186,6 +220,7 @@ public sealed class AgentCatalogServiceTests
 
         var agent = Assert.Single(result.Agents);
         Assert.Equal("Visible Agent", agent.Name);
+        Assert.Equal("Custom installed name", visible.PackageVersion.AgentName);
         Assert.Equal("https://example.com/portrait.webp", agent.ImageUrl);
         Assert.Equal("https://example.com/logo.svg", agent.CompanyLogoUrl);
         Assert.Equal("#224466", agent.AccentColor);

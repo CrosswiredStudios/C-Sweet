@@ -1,0 +1,136 @@
+@using CSweet.Contracts.Plugins
+@using CSweet.Contracts.GenAi
+
+@if (Setup.Review is { CanUseStandingPolicy: true } review && _editor is not null)
+{
+    <MudPaper Outlined="true" Class="pa-4 my-3">
+        <MudText Typo="Typo.h6">@review.OperationDescription</MudText>
+        <MudText>Account: @review.AccountName</MudText>
+        <MudText>Agent: @review.RequesterName</MudText>
+        <MudAlert Severity="Severity.Warning" Class="my-3">
+            Matching future requests may change this account without an individual approval. These rules apply only
+            to this agent in Fully Autonomous mode, not to other agents sharing the account. Other approval modes keep individual review.
+            This does not approve the change already awaiting review.
+        </MudAlert>
+        @if (_pending is null)
+        {
+            @foreach (var field in _editor.Fields)
+            {
+                <MudPaper Outlined="true" Class="pa-3 my-3">
+                    <MudText Typo="Typo.subtitle1">@field.Review.Label</MudText>
+                    @if (field.Review.Description is { } description) { <MudText Typo="Typo.body2">@description</MudText> }
+                    <MudText Style="white-space: pre-wrap; overflow-wrap: anywhere">Reviewed value: @ConnectorStandingPolicyEditor.Label(field.Review.CurrentValue)</MudText>
+                    <MudSelect T="string" Label="Rule" @bind-Value="field.Mode" Disabled="Busy" Class="mt-2">
+                        @if (field.HasExisting) { <MudSelectItem T="string" Value="@("Saved")">Keep the existing permitted values</MudSelectItem> }
+                        <MudSelectItem T="string" Value="@("Reviewed")">Keep exactly the reviewed value</MudSelectItem>
+                        @if (field.Review.SuggestedValues.Count > 0) { <MudSelectItem T="string" Value="@("Choices")">Choose permitted values</MudSelectItem> }
+                        <MudSelectItem T="string" Value="@("Any")">Allow other values within the operation's limits</MudSelectItem>
+                    </MudSelect>
+                    @if (field.Mode == "Saved") { <MudText Style="white-space: pre-wrap">Permitted: @(field.ExistingDescription.Length == 0 ? "Not set" : field.ExistingDescription)</MudText> }
+                    @if (field.Mode == "Choices")
+                    {
+                        <MudSelect T="string" Label="Permitted values" MultiSelection="true" @bind-SelectedValues="field.SelectedValues" Disabled="Busy">
+                            @foreach (var choice in field.Review.SuggestedValues)
+                            { <MudSelectItem T="string" Value="@choice.GetRawText()">@ConnectorStandingPolicyEditor.Label(choice)</MudSelectItem> }
+                        </MudSelect>
+                    }
+                    @if (field.Review.CanOmit || field.AllowOmission)
+                    { <MudCheckBox T="bool" @bind-Value="field.AllowOmission" Disabled="Busy" Label="May be left unset (the provider may apply defaults)" /> }
+                </MudPaper>
+            }
+            <MudSelect T="string" Label="Time zone" @bind-Value="_editor.TimeZoneId" Disabled="Busy" Class="my-3">
+                @foreach (var zone in TimeZoneInfo.GetSystemTimeZones())
+                { <MudSelectItem T="string" Value="@zone.Id">@zone.DisplayName</MudSelectItem> }
+            </MudSelect>
+            <MudSelect T="int" Label="Allowed days" MultiSelection="true" @bind-SelectedValues="_editor.Days" Disabled="Busy">
+                @foreach (var day in Enumerable.Range(0, 7))
+                { <MudSelectItem T="int" Value="day">@((DayOfWeek)day)</MudSelectItem> }
+            </MudSelect>
+            <MudCheckBox T="bool" @bind-Value="_editor.AllDay" Disabled="Busy" Label="Allow the whole day" />
+            @if (!_editor.AllDay)
+            {
+                <MudTimePicker Label="From" @bind-Time="_editor.StartTime" Disabled="Busy" />
+                <MudCheckBox T="bool" @bind-Value="_editor.EndAtMidnight" Disabled="Busy" Label="End at midnight" />
+                @if (!_editor.EndAtMidnight) { <MudTimePicker Label="Until" @bind-Time="_editor.EndTime" Disabled="Busy" /> }
+                <MudText Typo="Typo.caption">If the end time is earlier, the window continues into the next day. Selected days are the days the window starts.</MudText>
+            }
+            <MudDatePicker Label="Policy expires on" @bind-Date="_editor.ExpiryDate" Disabled="Busy" Class="mt-3" />
+            <MudTimePicker Label="Expiry time in the selected time zone" @bind-Time="_editor.ExpiryTime" Disabled="Busy" />
+            <MudNumericField T="int" Label="Maximum automatically authorized actions per hour" @bind-Value="_editor.MaximumActionsPerHour"
+                             Min="1" Max="1000" Disabled="Busy" Class="mt-3" />
+            <MudTextField T="string" Label="Require individual review when a request contains these words or phrases"
+                          @bind-Value="_editor.EscalationTerms" Lines="3" Disabled="Busy" Class="mt-3"
+                          HelperText="One per line, up to 50. Matching ignores letter case; it does not understand meaning or replace human judgment." />
+            <MudSelect T="string" Label="Scheduled publication or action time field (if this operation has one)"
+                       @bind-Value="_editor.ScheduledFieldKey" Disabled="Busy" Class="mt-3">
+                <MudSelectItem T="string" Value="@string.Empty">No scheduled-time field</MudSelectItem>
+                @foreach (var field in _editor.Fields.Where(x => x.Review.CurrentValue?.ValueKind == System.Text.Json.JsonValueKind.String))
+                { <MudSelectItem T="string" Value="@ConnectorStandingPolicyEditor.Key(field.Review.Field)">@field.Review.Label</MudSelectItem> }
+            </MudSelect>
+            <MudText Typo="Typo.caption">If selected, that time must also fit this policy's days, hours and lifetime. Account changes outside these limits require individual review.</MudText>
+            @if (review.Media is { } media)
+            {
+                <MudText Typo="Typo.subtitle1" Class="mt-3">Media limits</MudText>
+                <MudText>Reviewed file: @media.FileName</MudText>
+                <MudNumericField T="decimal" Label="Maximum file size (MB)" @bind-Value="_editor.MaximumMediaMegabytes" Min="0.00000095367431640625m" Max="262144m" Disabled="Busy" />
+                <MudSelect T="string" Label="Permitted file types" MultiSelection="true" @bind-SelectedValues="_editor.AllowedMediaTypes" Disabled="Busy">
+                    @foreach (var type in MediaAttachmentPolicy.Accept.Split(',').Where(x => !x.StartsWith('.')).Append(media.ContentType).Distinct())
+                    { <MudSelectItem T="string" Value="@type">@type</MudSelectItem> }
+                </MudSelect>
+                <MudText Typo="Typo.caption">1 MB = 1,048,576 bytes. The deployment's file limit and the operation's supported formats still apply.</MudText>
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Preview" Disabled="Busy" Class="mt-4">Review these rules</MudButton>
+        }
+        else
+        {
+            <MudText Typo="Typo.h6">Review automatic approval rules</MudText>
+            @foreach (var rule in _pending.Definition.Fields)
+            {
+                <MudText Class="my-2" Style="white-space: pre-wrap; overflow-wrap: anywhere">
+                    <strong>@review.FieldReviews.Single(x => x.Field == rule.Field).Label:</strong>
+                    @(rule.AllowAny ? "Other values are allowed within the operation's limits." : rule.AllowedValues.Count == 0 ? "Must be unset." : string.Join("; ", rule.AllowedValues.Select(x => ConnectorStandingPolicyEditor.Label(x))))
+                    @(rule.AllowOmission ? " May be left unset." : " Must be supplied.")
+                </MudText>
+            }
+            <MudText>Days: @string.Join(", ", _pending.Definition.DaysOfWeek.Select(x => ((DayOfWeek)x).ToString()))</MudText>
+            <MudText>Hours: @ClockLabel(_pending.Definition.StartMinute)–@ClockLabel(_pending.Definition.EndMinute) in @TimeZoneInfo.FindSystemTimeZoneById(_pending.Definition.TimeZoneId).DisplayName</MudText>
+            <MudText>Maximum: @_pending.Definition.MaximumActionsPerHour actions in any hour. Rate limits also apply when queued work starts.</MudText>
+            <MudText>Expires: @TimeZoneInfo.ConvertTime(_pending.Definition.ExpiresAt, TimeZoneInfo.FindSystemTimeZoneById(_pending.Definition.TimeZoneId)).ToString("f")</MudText>
+            <MudText>Escalation terms: @(_pending.Definition.EscalationTerms.Count == 0 ? "None selected" : string.Join("; ", _pending.Definition.EscalationTerms))</MudText>
+            @if (_pending.Definition.ScheduledAt is { } scheduled)
+            { <MudText>Scheduled times in @review.FieldReviews.Single(x => x.Field == scheduled).Label must also fit these limits.</MudText> }
+            @if (_pending.Definition.MaximumMediaBytes is { } bytes)
+            { <MudText>Media limit: @(bytes / 1048576m) MB. Permitted types: @string.Join(", ", _pending.Definition.AllowedMediaTypes!)</MudText> }
+            <MudAlert Severity="Severity.Warning" Class="my-3">Permanent deletion and operations classified as sensitive, security-related or financial still need explicit decisions. Revoking these rules stops further authorization but cannot undo changes already sent.</MudAlert>
+            <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="Busy" Label="I authorize matching future requests to change this account without individual approval." />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Busy || !_confirmed)" OnClick="Submit">Approve this policy</MudButton>
+            <MudButton Disabled="Busy" OnClick="Edit">Back to editing</MudButton>
+        }
+        @if (_error is not null) { <MudAlert Severity="Severity.Error" Class="mt-3">@_error</MudAlert> }
+    </MudPaper>
+}
+
+@code {
+    [Parameter, EditorRequired] public ConnectorStandingPolicySetup Setup { get; set; } = default!;
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<ApproveConnectorStandingPolicyRequest> Approved { get; set; }
+    private ConnectorStandingPolicySetup? _last;
+    private ConnectorStandingPolicyEditor? _editor;
+    private ApproveConnectorStandingPolicyRequest? _pending;
+    private bool _confirmed;
+    private string? _error;
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_last, Setup))
+        { _last = Setup; _editor = Setup.Review is null ? null : new(Setup); _pending = null; _confirmed = false; _error = null; }
+    }
+    private void Preview()
+    {
+        try { _pending = _editor!.Build(); _confirmed = false; _error = null; }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or TimeZoneNotFoundException or InvalidTimeZoneException)
+        { _error = error.Message; }
+    }
+    private void Edit() { _pending = null; _confirmed = false; }
+    private Task Submit() => _confirmed && _pending is not null ? Approved.InvokeAsync(_pending) : Task.CompletedTask;
+    private static string ClockLabel(int minute) => minute == 1440 ? "midnight" : TimeSpan.FromMinutes(minute).ToString(@"hh\:mm");
+}

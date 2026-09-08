@@ -204,6 +204,7 @@ app.MapCommunicationEndpoints();
 app.MapAgentManagementEndpoints();
 app.MapPluginManagementEndpoints();
 app.MapPluginSetupEndpoints();
+app.MapConnectorStandingPolicyEndpoints();
 app.MapSecurityAuditEndpoints();
 app.MapMarketplaceDiscoveryEndpoints();
 app.MapAgentCatalogEndpoints();

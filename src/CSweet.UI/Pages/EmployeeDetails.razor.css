@@ -1,1 +1,3 @@
 .employee-details-page .mud-tabs-panels { padding-top: .5rem; }
+
+.employee-profile-portrait { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; overflow: hidden; background: var(--mud-palette-primary); color: white; margin-bottom: 12px; }

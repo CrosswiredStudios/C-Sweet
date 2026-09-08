@@ -20,6 +20,81 @@ namespace CSweet.UnitTests;
 public sealed class ConnectorActionApprovalTests
 {
     [Fact]
+    public async Task ReviewedOwnerPolicyAuthorizesExactExecutionWithoutInventingAnIndividualDecision()
+    {
+        await using var f = await Fixture.Create();
+        _ = await ApprovePolicy(f);
+        var proposal = await f.Request();
+        Assert.Equal(ProposalStatus.Approved, proposal.Status);
+        var binding = ConnectorActionApprovalService.Parse(proposal);
+        Assert.False(binding.AlwaysRequiresApproval); Assert.NotNull(binding.StandingPolicy);
+        Assert.Contains("owner-approved standing policy", proposal.Summary);
+        Assert.Empty(await f.Inner.Db.PluginOperationalStates.Where(x => x.Kind == ConnectorActionApprovalService.ReceiptKind).ToArrayAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.DecideAsync(f.Inner.Organization, f.Manager.Id, Decision(proposal), default));
+        f.Inner.Requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] {
+            ConnectorPlanServiceTests.Fixture.Capability, PlatformCapabilities.ConnectorActionRead });
+        await f.Inner.Db.SaveChangesAsync();
+        var action = await new ConnectorActionService(f.Inner.Db, f.Inner.Service, f.Service)
+            .ReadAsync(f.Inner.Organization, f.Inner.Requester.Id, new(proposal.Id), default);
+        Assert.Equal("Approved", action.Status); Assert.Null(action.Decision);
+        var transport = new MutationTransport();
+        await f.Execute(f.Executor(transport));
+        Assert.Equal("Completed", f.Plan.Status); Assert.Single(transport.Requests);
+        Assert.Single(await f.Inner.Db.PluginOperationalStates.Where(x => x.Kind == ConnectorStandingPolicyService.ExecutionPermitKind).ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task StandingPolicyRevokedDuringOwnershipReadStopsBeforeTheMutation()
+    {
+        await using var f = await Fixture.Create(ownership: true);
+        var (service, policy, userId) = await ApprovePolicy(f);
+        _ = await f.Request();
+        var transport = new MutationTransport { AfterOwnershipRead = () => service.RevokeAsync(f.Inner.Organization,
+            f.Inner.Requester.Id, userId, f.Plan.Capability, policy.Id, policy.Revision, default) };
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Execute(f.Executor(transport)));
+        Assert.Equal("GET", Assert.Single(transport.Requests));
+        Assert.Equal("Blocked", f.Plan.Status); Assert.Null(f.Plan.ResultJson);
+    }
+
+    [Fact]
+    public async Task PlanOutsideOwnerConstraintsStillRequiresTheAccountableCeo()
+    {
+        await using var f = await Fixture.Create();
+        _ = await ApprovePolicy(f, permittedTitle: "A different permitted title");
+        var proposal = await f.Request();
+        var binding = ConnectorActionApprovalService.Parse(proposal);
+        Assert.Null(binding.StandingPolicy); Assert.True(binding.AlwaysRequiresApproval);
+        Assert.Equal(f.Manager.Id, binding.ApproverOrganizationUserId);
+        Assert.Equal("AwaitingApproval", f.Plan.Status);
+        var transport = new MutationTransport();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Execute(f.Executor(transport)));
+        Assert.Empty(transport.Requests);
+    }
+
+    private static async Task<(ConnectorStandingPolicyService Service, ConnectorStandingPolicyView Policy, Guid UserId)> ApprovePolicy(
+        Fixture f, string? permittedTitle = null)
+    {
+        var userId = Guid.NewGuid();
+        f.Manager.ApplicationUserId = userId; f.Manager.PermissionLevel = OrganizationPermissionLevel.Owner;
+        f.Manager.Role = new() { Id = Guid.NewGuid(), OrganizationId = f.Inner.Organization, Name = "CEO" };
+        f.Inner.Db.Add(f.Manager.Role);
+        f.Inner.Db.AgentInstallationConfigurations.Add(new() { Id = Guid.NewGuid(), AgentInstallationId = f.Inner.Requester.Id,
+            SchemaVersion = "1", SettingsJson = "{\"approvalMode\":\"Fully Autonomous\"}" });
+        await f.Inner.Db.SaveChangesAsync();
+        var service = new ConnectorStandingPolicyService(f.Inner.Db, f.Inner.Service, new Audit());
+        var review = await service.ReviewAsync(f.Inner.Organization, f.Inner.Requester.Id, userId, f.Plan.Id, f.Plan.PlanHash, default);
+        var fields = review.MutableFields.Select(field => field.Source == "body" && permittedTitle is not null
+            ? new ConnectorPolicyFieldRule(field, false, [JsonSerializer.SerializeToElement(permittedTitle)])
+            : new ConnectorPolicyFieldRule(field, true, [])).ToArray();
+        var now = DateTimeOffset.UtcNow;
+        var definition = new ConnectorStandingPolicyDefinition(fields, [0, 1, 2, 3, 4, 5, 6], 0, 1440, 5,
+            now.AddMinutes(-1), now.AddHours(2), []);
+        var policy = await service.ApproveAsync(f.Inner.Organization, f.Inner.Requester.Id, userId,
+            new(f.Plan.Id, f.Plan.PlanHash, review.ReviewHash, definition, null), default);
+        return (service, policy, userId);
+    }
+
+    [Fact]
     public async Task HistoricalStandingPolicyCannotAuthorizeANewConnectorPlan()
     {
         await using var f = await Fixture.Create();
@@ -494,19 +569,79 @@ public sealed class ConnectorActionApprovalTests
         Assert.Empty(transport.Requests);
     }
 
+    [Theory]
+    [InlineData(true, "Blocked", "resource_changed")]
+    [InlineData(false, "Indeterminate", "reconciliation_required")]
+    public async Task OnlyConfirmedConditionalFailureIsReportedAsResourceChanged(bool conditional, string status, string condition)
+    {
+        await using var f = await Fixture.Create(ownership: true, conditional: conditional);
+        f.Inner.Requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] {
+            ConnectorPlanServiceTests.Fixture.Capability, PlatformCapabilities.ConnectorActionRead });
+        await f.Inner.Db.SaveChangesAsync();
+        var proposal = await f.Request();
+        await f.Service.DecideAsync(f.Inner.Organization, f.Manager.Id, Decision(proposal), default);
+        var transport = new MutationTransport { Failure = "precondition" };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Execute(f.Executor(transport)));
+        Assert.Equal(status, f.Plan.Status); Assert.Null(f.Plan.ResultJson);
+        Assert.Null(transport.Prepared[0].IfMatch); // Ownership reads must never inherit the mutation header.
+        Assert.Equal(conditional ? "\"version-1\"" : null, transport.Prepared[1].IfMatch);
+        var receipt = await new ConnectorActionService(f.Inner.Db, f.Inner.Service, f.Service)
+            .ReadAsync(f.Inner.Organization, f.Inner.Requester.Id, new(proposal.Id), default);
+        Assert.Equal(condition, receipt.ConditionCode);
+        Assert.Equal(conditional ? 1 : 0, await f.Inner.Db.PluginOperationalStates.CountAsync(x => x.Kind == ConnectorMutationExecutor.PreconditionFailureKind));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Execute(f.Executor(transport)));
+        Assert.Equal(2, transport.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData("timeout")]
+    [InlineData("cancel")]
+    [InlineData("error")]
+    public async Task ConditionalRequestDoesNotMakeUncertainOutcomesSafeToRetry(string failure)
+    {
+        await using var f = await Fixture.Create(conditional: true);
+        var proposal = await f.Request();
+        await f.Service.DecideAsync(f.Inner.Organization, f.Manager.Id, Decision(proposal), default);
+        var transport = new MutationTransport { Failure = failure };
+        await Assert.ThrowsAnyAsync<Exception>(() => f.Execute(f.Executor(transport)));
+        Assert.Equal("Indeterminate", f.Plan.Status);
+        Assert.Empty(await f.Inner.Db.PluginOperationalStates.Where(x => x.Kind == ConnectorMutationExecutor.PreconditionFailureKind).ToArrayAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Execute(f.Executor(transport)));
+        Assert.Single(transport.Requests);
+    }
+
+    [Fact]
+    public async Task ApprovedConditionalPlanCannotReplaceItsVersion()
+    {
+        await using var f = await Fixture.Create(conditional: true);
+        var proposal = await f.Request();
+        await f.Service.DecideAsync(f.Inner.Organization, f.Manager.Id, Decision(proposal), default);
+        f.Plan.PlanJson = f.Plan.PlanJson.Replace("version-1", "version-2", StringComparison.Ordinal);
+        await f.Inner.Db.SaveChangesAsync();
+        var transport = new MutationTransport();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Execute(f.Executor(transport)));
+        Assert.Empty(transport.Requests);
+    }
+
     private sealed class MutationTransport : IConnectorHttpTransport
     {
+        public Func<Task>? AfterOwnershipRead { get; init; }
         public string Owner { get; init; } = "confirmed";
         public string? Failure { get; init; }
         public List<string> Requests { get; } = [];
+        public List<ConnectorPreparedRequest> Prepared { get; } = [];
         public async Task<ConnectorProviderResponse> SendAsync(Guid connectorId, Guid connectionId, ConnectorPreparedRequest request,
             Func<CancellationToken, Task> revalidate, CancellationToken ct)
         {
-            await revalidate(ct); Requests.Add(request.Method);
-            if (request.Method == "GET") return new(200, JsonSerializer.SerializeToUtf8Bytes(new { owner = Owner }));
+            await revalidate(ct); Requests.Add(request.Method); Prepared.Add(request);
+            if (request.Method == "GET")
+            {
+                if (AfterOwnershipRead is not null) await AfterOwnershipRead();
+                return new(200, JsonSerializer.SerializeToUtf8Bytes(new { owner = Owner }));
+            }
             if (Failure == "timeout") throw new HttpRequestException("Unknown outcome");
             if (Failure == "cancel") throw new OperationCanceledException();
-            return new(Failure == "error" ? 503 : 200,
+            return new(Failure == "precondition" ? 412 : Failure == "error" ? 503 : 200,
                 Encoding.UTF8.GetBytes(Failure == "malformed" ? "{bad-json" : "{\"data\":\"value\"}"));
         }
     }
@@ -534,19 +669,21 @@ public sealed class ConnectorActionApprovalTests
         public ValueTask DisposeAsync() => Inner.DisposeAsync();
         public ConnectorMutationExecutor Executor(IConnectorHttpTransport transport) => new(Inner.Db, Service, transport, new NoSecrets(), new Audit());
         public Task Execute(ConnectorMutationExecutor executor) => executor.ExecuteAsync(Inner.Organization, Inner.Requester.Id, Plan.Id, Plan.PlanHash, default);
-        public static async Task<Fixture> Create(bool ownership = false, bool responseBinding = false)
+        public static async Task<Fixture> Create(bool ownership = false, bool responseBinding = false, bool conditional = false)
         {
             var f = new Fixture { Inner = await ConnectorPlanServiceTests.Fixture.Create(ownershipCheck: ownership, responseBinding: responseBinding) };
             var manifest = JsonSerializer.Deserialize<PluginManifest>(f.Inner.Connector.PackageVersion!.ManifestJson, Json)!;
-            manifest = manifest with { Provides = [manifest.Provides[0] with { Idempotency = "caller-key", Description = "Change the video title." }],
+            manifest = manifest with { Protocol = manifest.Protocol with { MinimumVersion = conditional ? "2.3" : manifest.Protocol.MinimumVersion },
+                Provides = [manifest.Provides[0] with { Idempotency = "caller-key", Description = "Change the video title." }],
                 ProviderOperations = [manifest.ProviderOperations[0] with { Effect = "write", Idempotency = "caller-key",
-                    Http = manifest.ProviderOperations[0].Http! with { Method = "POST", BodyInputs = new Dictionary<string, string> { ["/title"] = "/search" } } }] };
+                    Http = manifest.ProviderOperations[0].Http! with { Method = conditional ? "PUT" : "POST", IfMatchInput = conditional ? "/search" : null,
+                        BodyInputs = new Dictionary<string, string> { ["/title"] = "/search" } } }] };
             f.Inner.Connector.PackageVersion.ManifestJson = JsonSerializer.Serialize(manifest, Json);
             f.Manager = new() { Id = Guid.NewGuid(), OrganizationId = f.Inner.Organization, DisplayName = "Assigned manager", EmployeeType = EmployeeType.Human };
             f.Employee = new() { Id = Guid.NewGuid(), OrganizationId = f.Inner.Organization, DisplayName = "Specialist",
                 EmployeeType = EmployeeType.Agent, AgentInstallationId = f.Inner.Requester.Id, ReportsToOrganizationUserId = f.Manager.Id };
             f.Inner.Db.CoreOrganizationUsers.AddRange(f.Manager, f.Employee);
-            await f.Inner.Db.SaveChangesAsync(); f.Plan = await f.Inner.Prepare("Approved exact title"); return f;
+            await f.Inner.Db.SaveChangesAsync(); f.Plan = await f.Inner.Prepare(conditional ? "\"version-1\"" : "Approved exact title"); return f;
         }
     }
     private sealed class Audit : IAuditEventWriter

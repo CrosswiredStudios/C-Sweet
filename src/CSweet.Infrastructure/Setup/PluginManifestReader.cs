@@ -37,9 +37,9 @@ public sealed class PluginManifestReader : IPluginManifestReader
             manifest.Catalog.ImageUrl, manifest.Catalog.CompanyLogoUrl,
             manifest.Catalog.AccentColor, manifest.Catalog.LongDescription);
         if (brandingErrors.Count > 0) throw new JsonException(string.Join(" ", brandingErrors));
-        if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2") ||
+        if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2" or "2.3") ||
             !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
-            throw new JsonException("Executable plugins must require a supported C-Sweet runtime protocol (2.0, 2.1 or 2.2).");
+            throw new JsonException("Executable plugins must require a supported C-Sweet runtime protocol (2.0, 2.1, 2.2 or 2.3).");
         if (kind == "agent")
         {
             if (manifest.Catalog.Role is not { } role ||

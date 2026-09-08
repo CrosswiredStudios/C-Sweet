@@ -20,7 +20,9 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
     public sealed record Binding(Guid PlanId, string PayloadHash, string ChannelId, string ResourceId,
         long ExpectedRevision, string IdempotencyKey, string ActionType, bool AlwaysRequiresApproval,
         Guid ApproverOrganizationUserId, string ApprovalMode, string Effect, DateTimeOffset ExpiresAt,
-        JsonElement? ReviewPayload, string? AccountName);
+        JsonElement? ReviewPayload, string? AccountName,
+        [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        ConnectorStandingPolicyService.Authorization? StandingPolicy = null);
     public sealed record DecisionReceipt(Guid ProposalId, Guid ActorId, string DecisionKey, string DecisionHash,
         string PlanHash, string Status, DateTimeOffset DecidedAt, string? Comment = null);
 
@@ -36,7 +38,16 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
             return existing;
         }
         if (execution.Status != "Prepared") throw new InvalidOperationException("This plan cannot start another approval.");
-        var route = await ResolveApproverAsync(organizationId, requesterId, ct);
+        var automatic = await new ConnectorStandingPolicyService(db, plans, audit)
+            .TryReserveAsync(organizationId, requesterId, planId, planHash, ct);
+        Guid approverId;
+        string approvalMode;
+        if (automatic is not null) { approverId = automatic.OwnerId; approvalMode = "Fully Autonomous"; }
+        else
+        {
+            var route = await ResolveApproverAsync(organizationId, requesterId, ct);
+            approverId = route.Actor.Id; approvalMode = route.Mode;
+        }
         var accountName = await db.PluginConnections.Where(x => x.Id == frozen.ConnectionId)
             .Select(x => x.ExternalAccountName).SingleAsync(ct);
         var manifestJson = await db.AgentInstallations.AsNoTracking().Where(x => x.Id == frozen.ConnectorInstallationId)
@@ -47,22 +58,26 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
         // protocol identifiers in exact details, not the business-facing review heading.
         var summary = string.IsNullOrWhiteSpace(description) ? "Review the proposed account change." : description.Trim();
         if (summary.Length > 500) summary = summary[..500] + "…";
+        if (automatic is not null) summary += " Authorized under an owner-approved standing policy.";
         var binding = new Binding(planId, planHash, frozen.ResourceId, ReviewResource(frozen), execution.Revision,
-            frozen.IdempotencyKey, frozen.Capability, true, route.Actor.Id, route.Mode, frozen.Request.Effect,
-            execution.ExpiresAt, Review(frozen), accountName);
+            frozen.IdempotencyKey, frozen.Capability, automatic is null, approverId, approvalMode, frozen.Request.Effect,
+            execution.ExpiresAt, Review(frozen), accountName, automatic);
         var proposal = new ActionProposal { Id = Guid.NewGuid(), OrganizationId = organizationId,
             AgentInstallationId = requesterId, ActionType = ActionType,
             Summary = summary,
             PayloadJson = JsonSerializer.Serialize(binding, Json),
             RiskClass = frozen.Request.Effect == "write" ? "PublicMutation" : "AlwaysApproval",
-            IdempotencyKey = $"connector-plan:{planId:N}", CreatedAt = DateTimeOffset.UtcNow };
+            IdempotencyKey = $"connector-plan:{planId:N}", CreatedAt = DateTimeOffset.UtcNow,
+            Status = automatic is null ? ProposalStatus.Pending : ProposalStatus.Approved,
+            DecidedAt = automatic?.AuthorizedAt };
         db.ActionProposals.Add(proposal);
-        execution.ApprovalId = proposal.Id; execution.Status = "AwaitingApproval"; execution.Revision++;
+        execution.ApprovalId = proposal.Id; execution.Status = automatic is null ? "AwaitingApproval" : "Approved"; execution.Revision++;
         execution.UpdatedAt = DateTimeOffset.UtcNow;
-        QueueEvent(proposal, binding, "Requested");
+        QueueEvent(proposal, binding, automatic is null ? "Requested" : "Approved");
         await db.SaveChangesAsync(ct); // Proposal, plan correlation and notification obligation commit together.
         await audit.WriteAsync("connector.action.proposed", nameof(ActionProposal), proposal.Id,
-            "Prepared an exact connector plan for its assigned approver.", cancellationToken: ct);
+            automatic is null ? "Prepared an exact connector plan for its assigned approver."
+                : "Authorized an exact connector plan under a separately recorded human-owner standing policy.", cancellationToken: ct);
         return proposal;
     }
 
@@ -76,6 +91,8 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
             x.OrganizationId == organizationId && x.ActionType == ActionType, ct)
             ?? throw new UnauthorizedAccessException("This connector action is not available in this organization.");
         var binding = Parse(proposal);
+        if (binding.StandingPolicy is not null)
+            throw new InvalidOperationException("This action is already bound to its standing-policy authorization, not an individual decision request.");
         var execution = await db.ConnectorExecutions.SingleAsync(x => x.Id == binding.PlanId && x.OrganizationId == organizationId, ct);
         _ = RequireBinding(proposal, execution);
         var route = await ResolveApproverAsync(organizationId, proposal.AgentInstallationId, ct);
@@ -121,6 +138,14 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
             throw new UnauthorizedAccessException("This plan does not have an executable decision.");
         var proposal = await db.ActionProposals.AsNoTracking().SingleAsync(x => x.Id == proposalId, ct);
         var binding = RequireBinding(proposal, execution);
+        if (binding.StandingPolicy is { } automatic)
+        {
+            if (proposal.Status != ProposalStatus.Approved)
+                throw new UnauthorizedAccessException("The policy-authorized action is no longer approved.");
+            await new ConnectorStandingPolicyService(db, plans, audit).RequireAuthorizationAsync(
+                organizationId, requesterId, planId, planHash, automatic, ct);
+            return frozen;
+        }
         var route = await ResolveApproverAsync(organizationId, requesterId, ct);
         if (proposal.Status != ProposalStatus.Approved || route.Actor.Id != binding.ApproverOrganizationUserId || route.Mode != binding.ApprovalMode)
             throw new UnauthorizedAccessException("The action's approval authority has changed.");
@@ -147,7 +172,10 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
             proposal.AgentInstallationId != execution.RequesterInstallationId || execution.ApprovalId != proposal.Id ||
             binding.PlanId != execution.Id || binding.PayloadHash != execution.PlanHash || binding.ChannelId != execution.ResourceId ||
             binding.ResourceId != ReviewResource(frozen) || binding.IdempotencyKey != execution.IdempotencyKey || binding.ActionType != execution.Capability ||
-            binding.ExpiresAt != execution.ExpiresAt || binding.Effect != frozen.Request.Effect || !binding.AlwaysRequiresApproval ||
+            binding.ExpiresAt != execution.ExpiresAt || binding.Effect != frozen.Request.Effect ||
+            binding.AlwaysRequiresApproval != (binding.StandingPolicy is null) ||
+            binding.StandingPolicy is { } policy && (binding.ApprovalMode != "Fully Autonomous" || binding.Effect != "write" ||
+                policy.PlanId != execution.Id || policy.PlanHash != execution.PlanHash || policy.OwnerId != binding.ApproverOrganizationUserId) ||
             binding.ReviewPayload.HasValue != preview.HasValue ||
             preview.HasValue && !JsonElement.DeepEquals(preview.Value, binding.ReviewPayload!.Value))
             throw new UnauthorizedAccessException("The approval and execution records do not describe the same plan.");
@@ -188,8 +216,8 @@ public sealed class ConnectorActionApprovalService(CSweetDbContext db, Connector
         var ceos = await db.CoreOrganizationUsers.AsNoTracking().Include(x => x.Role).Where(x => x.OrganizationId == organizationId &&
             x.IsActive && x.Role!.Name == "CEO" && x.Id != requester.Id).ToArrayAsync(ct);
         if (ceos.Length != 1) throw new UnauthorizedAccessException("One active accountable CEO is required to approve this action.");
-        // Autonomous execution is deliberately not inferred from a preference. Until a validated
-        // owner-approved standing policy authorizes this exact plan, it routes to the CEO.
+        // A preference is not authority. Plans without an exact current standing-policy
+        // authorization, including hard-gated effects, route to the accountable CEO.
         return (ceos[0], mode!);
     }
 
