@@ -323,16 +323,15 @@ public sealed class WorkOrchestrationService(
             throw new InvalidOperationException("The stage attempt budget is exhausted.");
         if (board.TeamId is { } teamId)
         {
-            var viableRoles = await db.TeamMemberships.AsNoTracking().Where(x =>
-                    x.TeamId == teamId && x.OrganizationId == organizationId && x.EndedAt == null &&
-                    x.OrganizationUser!.IsActive)
-                .Select(x => x.OrganizationUser!.Role!.Name).ToListAsync(cancellationToken);
-            if (!viableRoles.Any(x => x.Contains("Architect", StringComparison.OrdinalIgnoreCase)) ||
-                !viableRoles.Any(x => x.Contains("Developer", StringComparison.OrdinalIgnoreCase)) ||
-                !viableRoles.Any(x => x.Contains("Quality", StringComparison.OrdinalIgnoreCase) ||
-                                      x.Contains("QA", StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException(
-                    "The current software team is not viable for a governed stage retry.");
+            // Retry authority follows the actual board/stage assignment, not display role names.
+            // Package roles such as Technical Director and Engineer are equally valid owners.
+            if (!await db.OrganizationTeams.AsNoTracking().AnyAsync(x =>
+                    x.Id == teamId && x.OrganizationId == organizationId && x.ArchivedAt == null, cancellationToken))
+                throw new InvalidOperationException("An archived or missing team cannot retry work.");
+            if (!isManager && !await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+                    x.TeamId == teamId && x.OrganizationId == organizationId &&
+                    x.OrganizationUserId == member.Id && x.EndedAt == null, cancellationToken))
+                throw new UnauthorizedAccessException("The stage assignee is no longer an active member of the board team.");
         }
         var now = timeProvider.GetUtcNow();
         stage.Status = WorkStageExecutionStatus.Pending; stage.LastError = null; stage.RetryAt = now; stage.UpdatedAt = now;
@@ -370,8 +369,34 @@ public sealed class WorkOrchestrationService(
         ValidateIdempotencyKey(request.IdempotencyKey);
         var member = await RequireManagerAsync(organizationId, boardId, applicationUserId, cancellationToken);
         var stage = await LoadStageAsync(organizationId, boardId, stageExecutionId, cancellationToken);
+        if (request.BoardId != boardId || request.StageExecutionId != stageExecutionId ||
+            request.SprintExecutionId != stage.ItemExecution!.SprintExecutionId)
+            throw new InvalidOperationException("The decision does not reference the requested board, sprint execution and stage.");
         if (stage.StageType != WorkOrchestrationStageType.ManagerApproval)
             throw new InvalidOperationException("This is not an approval stage.");
+        if (stage.OrganizationUserId != member.Id)
+            throw new UnauthorizedAccessException("Only the current manager assigned to this approval stage may decide it.");
+        if (string.IsNullOrWhiteSpace(request.Summary))
+            throw new ArgumentException("An approval decision requires a review summary.");
+        var outcome = request.Approved ? "approved" : "rejected";
+        var prior = await db.WorkOrchestrationEvents.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.EventType == "stage.completed" &&
+            x.IdempotencyKey == request.IdempotencyKey, cancellationToken);
+        if (prior is not null)
+        {
+            using var evidence = JsonDocument.Parse(prior.DataJson);
+            if (prior.StageExecutionId != stageExecutionId ||
+                evidence.RootElement.GetProperty("actorId").GetGuid() != member.Id ||
+                evidence.RootElement.GetProperty("outcomeCode").GetString() != outcome ||
+                evidence.RootElement.GetProperty("summary").GetString() != request.Summary)
+                throw new InvalidOperationException("The approval idempotency key is already bound to a different decision.");
+            return ToResponse(stage);
+        }
+        if (stage.Status != WorkStageExecutionStatus.WaitingForApproval ||
+            stage.ItemExecution.Status != WorkItemExecutionStatus.WaitingForApproval ||
+            stage.ItemExecution.CurrentStageKey != stage.StageKey || stage.ItemExecution.Traversal != stage.Traversal ||
+            stage.ItemExecution.SprintExecution!.Status != WorkSprintExecutionStatus.Active)
+            throw new InvalidOperationException("Only the current waiting approval in an active sprint may be decided.");
         await CompleteStageAsync(stage, "Completed", request.Approved ? "approved" : "rejected",
             request.Summary, "{}", member.Id, request.IdempotencyKey, cancellationToken);
         return ToResponse(stage);
@@ -541,16 +566,17 @@ public sealed class WorkOrchestrationService(
                     RequirementsJson = x.RequirementsJson,
                     SelectionEvidenceJson = x.SelectionEvidenceJson
                 }).ToList();
-            CreateStageExecution(stage.ItemExecution, next, assignments,
+            var nextExecution = CreateStageExecution(stage.ItemExecution, next, assignments,
                 (await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == execution.BoardId, cancellationToken)).ManagerOrganizationUserId!.Value, now);
+            db.WorkStageExecutions.Add(nextExecution);
         }
         stage.ItemExecution.UpdatedAt = now; execution.UpdatedAt = now; execution.Revision++;
         AddEvent(execution.OrganizationId, execution.BoardId, execution.Id, stage.ItemExecutionId, stage.Id, null,
-            "stage.completed", new { disposition, outcomeCode, summary, outputJson, actorId, idempotencyKey });
+            "stage.completed", new { disposition, outcomeCode, summary, outputJson, actorId, idempotencyKey }, idempotencyKey);
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    internal static void CreateStageExecution(
+    internal static WorkStageExecution CreateStageExecution(
         WorkItemExecution item, WorkOrchestrationStage stage,
         IEnumerable<WorkItemStageAssignment> assignments, Guid managerId, DateTimeOffset now)
     {
@@ -600,6 +626,7 @@ public sealed class WorkOrchestrationService(
         item.BlockedReason = isMissingStaffAssignment ? "staffing.assignment_missing" : null;
         if (isMissingStaffAssignment && item.WorkItem is not null)
             item.WorkItem.Status = WorkTaskStatus.Blocked;
+        return execution;
     }
 
     private static bool IsStaffable(WorkOrchestrationStageType type) =>

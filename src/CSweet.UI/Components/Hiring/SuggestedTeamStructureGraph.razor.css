@@ -110,3 +110,9 @@
         padding: .8rem;
     }
 }
+
+.suggested-team-retained {
+    margin: 0;
+    padding: 1rem;
+    color: var(--mud-palette-text-secondary);
+}

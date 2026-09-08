@@ -1,0 +1,69 @@
+.personal-board-card {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+    width: 100%;
+    height: 100%;
+    padding: 18px;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 14px;
+    color: var(--mud-palette-text-primary);
+    background: var(--mud-palette-surface);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.personal-board-card:hover {
+    border-color: var(--mud-palette-primary);
+    box-shadow: 0 4px 16px rgba(20, 35, 50, .08);
+}
+
+.personal-board-card:focus-visible {
+    outline: 3px solid var(--mud-palette-primary);
+    outline-offset: 3px;
+}
+
+.personal-board-portrait {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 76px;
+    overflow: hidden;
+    border-radius: 9px;
+    color: var(--mud-palette-text-secondary);
+    background: var(--mud-palette-background);
+}
+
+.personal-board-portrait img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 24%;
+}
+
+.personal-board-initials { font-size: 1.5rem; }
+.personal-board-content { display: flex; flex-direction: column; min-width: 0; }
+.personal-board-name { font-size: 1.0625rem; font-weight: 600; overflow-wrap: anywhere; }
+.personal-board-role { margin-top: 3px; font-size: .8125rem; color: var(--mud-palette-text-secondary); overflow-wrap: anywhere; }
+
+.personal-board-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    margin-top: 12px;
+}
+
+.personal-board-active { font-size: .8125rem; color: var(--mud-palette-text-secondary); white-space: nowrap; }
+.personal-board-active strong { margin-right: 4px; font-size: 1.5rem; font-weight: 500; color: var(--mud-palette-text-primary); font-variant-numeric: tabular-nums; }
+.personal-board-status { display: inline-flex; align-items: center; gap: 4px; color: var(--mud-palette-text-secondary); font-size: .75rem; white-space: nowrap; }
+.personal-board-status ::deep .mud-icon-root { font-size: 1rem; }
+.personal-board-status.is-blocked { padding: 5px 7px; border-radius: 6px; color: var(--mud-palette-warning-darken); background: color-mix(in srgb, var(--mud-palette-warning) 12%, var(--mud-palette-surface)); }
+
+@media (prefers-reduced-motion: reduce) {
+    .personal-board-card { transition: none; }
+}

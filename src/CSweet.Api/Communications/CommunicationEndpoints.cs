@@ -348,5 +348,10 @@ public static class CommunicationEndpoints
             x.Artifact is null ? null : new AgentCoordinationArtifactResponse(
                 x.Artifact.Type, x.Artifact.SchemaVersion, x.Artifact.Key,
                 x.Artifact.PageOrdinal, x.Artifact.IsFinalPage,
-                x.Artifact.Payload, x.Artifact.Digest))).ToList());
+                x.Artifact.Payload, x.Artifact.Digest))).ToList())
+        {
+            FailureExplanation = session.Status == "Failed"
+                ? CSweet.Infrastructure.Setup.AgentWorkFailure.DescribeCollaborationFailure(session.FinalSummary)
+                : null
+        };
 }

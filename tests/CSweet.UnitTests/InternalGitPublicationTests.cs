@@ -114,6 +114,27 @@ public sealed class InternalGitPublicationTests : IDisposable
     }
 
     [Fact]
+    public async Task ReviewPatchIncludesEarlierWorkBranchCommitsAndExactCandidateContent()
+    {
+        var initial = await InitializeAsync();
+        var first = await _store.ApplySnapshotAsync(await RequestAsync(initial, "publish", "work/one", "first-review",
+            ("first.txt", "first implementation")), _artifacts);
+        var request = await RequestAsync(first.CommitSha!, "publish", "work/one", "second-review",
+            ("first.txt", "first implementation"), ("second.txt", "second implementation"));
+        var second = await _store.ApplySnapshotAsync(request, _artifacts);
+        Assert.Contains($"Review base: {initial}\n", second.DiffSummary);
+        Assert.Contains("+first implementation", second.DiffSummary);
+        Assert.Contains("+second implementation", second.DiffSummary);
+        Assert.Contains("first.txt", second.ChangedFiles);
+        Assert.Contains("second.txt", second.ChangedFiles);
+        var comparison = await _store.ExecuteAsync(new(_business, _repository, "compare", Name: "main", ExpectedSha: second.CommitSha));
+        Assert.Equal($"Review base: {initial}\n" + comparison.Content, second.DiffSummary);
+        var replay = await _store.ApplySnapshotAsync(request, _artifacts);
+        Assert.Equal(second.CommitSha, replay.CommitSha);
+        Assert.Equal(second.DiffSummary, replay.DiffSummary);
+    }
+
+    [Fact]
     public async Task RejectsDirectMainWritesAndStaleWorkBranchUpdates()
     {
         var initial = await InitializeAsync();

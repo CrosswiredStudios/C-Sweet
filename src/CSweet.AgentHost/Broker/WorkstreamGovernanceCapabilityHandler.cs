@@ -189,6 +189,7 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         if (request.Changes.ValueKind != JsonValueKind.Object)
             throw new ArgumentException("Changes must be a JSON object.");
 
+        _ = await CSweet.Infrastructure.WorkManagement.WorkstreamProfileUpgrade.ResolveAsync(db, workstream, request.Changes, token);
         var existing = await db.ActionProposals.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey, token);
         if (existing is not null)
@@ -288,8 +289,17 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         var supervisedIds = await db.WorkstreamSupervisionAssignments.AsNoTracking().Where(x =>
             x.OrganizationId == organizationId && x.SupervisorOrganizationUserId == actorId && x.EndsAt == null)
             .Select(x => x.WorkstreamId).ToListAsync(token);
+        var now = clock.GetUtcNow();
+        var assignedIds = await (from assignment in db.WorkstreamTeamAssignments.AsNoTracking()
+            join team in db.OrganizationTeams.AsNoTracking() on assignment.TeamId equals team.Id
+            join member in db.TeamMemberships.AsNoTracking() on team.Id equals member.TeamId
+            where assignment.OrganizationId == organizationId && team.OrganizationId == organizationId &&
+                  member.OrganizationId == organizationId && member.OrganizationUserId == actorId &&
+                  member.EndedAt == null && team.ArchivedAt == null &&
+                  assignment.StartsAt <= now && assignment.EndsAt == null
+            select assignment.WorkstreamId).Distinct().ToListAsync(token);
         var query = db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
-            (x.AccountableManagerOrganizationUserId == actorId || supervisedIds.Contains(x.Id)));
+            (x.AccountableManagerOrganizationUserId == actorId || supervisedIds.Contains(x.Id) || assignedIds.Contains(x.Id)));
         if (request.WorkstreamIds is { Count: > 0 }) query = query.Where(x => request.WorkstreamIds.Contains(x.Id));
         if (!request.IncludeClosed) query = query.Where(x => x.Status != WorkstreamStatus.Completed && x.Status != WorkstreamStatus.Cancelled);
         var workstreams = await query.OrderBy(x => x.Name).ToListAsync(token);

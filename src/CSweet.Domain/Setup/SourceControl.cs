@@ -450,6 +450,7 @@ public sealed class SourceControlPublication
     public string? PullRequestUrl { get; set; }
     public SourceControlPublicationStatus Status { get; set; }
         = SourceControlPublicationStatus.Published;
+    public string? ReviewPatch { get; set; }
     public string ChangedFilesJson { get; set; } = "[]";
     public string ValidationResultsJson { get; set; } = "[]";
     public long Revision { get; set; } = 1;

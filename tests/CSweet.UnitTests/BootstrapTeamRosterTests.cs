@@ -12,6 +12,46 @@ namespace CSweet.UnitTests;
 public sealed class BootstrapTeamRosterTests
 {
     [Theory]
+    [InlineData("active", 1)]
+    [InlineData("ended", 0)]
+    [InlineData("future", 0)]
+    [InlineData("archived", 0)]
+    [InlineData("nonmember", 0)]
+    [InlineData("foreign", 0)]
+    public async Task PortfolioIncludesOnlyCurrentlyAssignedTeamWorkstreams(string scenario, int expected)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var organization = Guid.NewGuid(); var installation = Guid.NewGuid(); var actor = Guid.NewGuid();
+        var team = Guid.NewGuid(); var stream = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
+        db.CoreOrganizationUsers.Add(new() { Id = actor, OrganizationId = organization, AgentInstallationId = installation,
+            EmployeeType = EmployeeType.Agent, DisplayName = "Producer", IsActive = true });
+        db.OrganizationTeams.Add(new() { Id = team, OrganizationId = organization, Name = "Game",
+            ArchivedAt = scenario == "archived" ? now : null });
+        db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = organization, TeamId = team,
+            OrganizationUserId = actor, EndedAt = scenario == "nonmember" ? now : null });
+        db.Workstreams.Add(new() { Id = stream, OrganizationId = scenario == "foreign" ? Guid.NewGuid() : organization,
+            Name = "Assigned game" });
+        db.Workstreams.Add(new() { Id = Guid.NewGuid(), OrganizationId = organization, Name = "Unrelated game" });
+        db.WorkstreamTeamAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = organization, TeamId = team,
+            WorkstreamId = stream, StartsAt = now.AddDays(scenario == "future" ? 1 : -1),
+            EndsAt = scenario == "ended" ? now : null });
+        await db.SaveChangesAsync();
+        var handler = new WorkstreamGovernanceCapabilityHandler(db, new TestAuditEventWriter(), new AgentEmployeeIdentityResolver(db), TimeProvider.System);
+        var session = new AgentSession("session", "producer", installation.ToString(), organization.ToString(), "runtime", "tick",
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { W.WorkstreamCapabilityNames.PortfolioReadV1 }, 1));
+        var request = new RequestCapability { RequestId = "portfolio", Capability = W.WorkstreamCapabilityNames.PortfolioReadV1,
+            Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new W.ReadPortfolioRequest(), new JsonSerializerOptions(JsonSerializerDefaults.Web))) };
+        var results = new List<CapabilityResult>();
+        await foreach (var result in handler.HandleAsync(session, request, default)) results.Add(result);
+        var response = Assert.Single(results);
+        Assert.True(response.Succeeded, response.Error);
+        using var json = JsonDocument.Parse(response.Payload.ToByteArray());
+        Assert.Equal(expected, json.RootElement.GetProperty("workstreams").GetArrayLength());
+        Assert.Empty(db.WorkstreamSupervisionAssignments);
+    }
+
+    [Theory]
     [InlineData(true, true)]
     [InlineData(false, true)]
     [InlineData(true, false)]

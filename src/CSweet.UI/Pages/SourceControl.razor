@@ -6,50 +6,96 @@
 
 <PageTitle>Source Control</PageTitle>
 
-<MudContainer @key="OrganizationId" MaxWidth="MaxWidth.Large" Class="py-6">
-    <MudStack Spacing="3">
+<MudContainer @key="OrganizationId" MaxWidth="MaxWidth.Large" Class="source-workspace py-6">
+    <div class="source-surface">
+    <div class="source-header">
         <div>
             <MudText Typo="Typo.h4">Source control</MudText>
-            <MudText Typo="Typo.body1" Color="Color.Secondary">
-                Manage private repositories in C-Sweet or connect GitHub. Inspect project history and control
-                repository access without giving agents provider credentials.
-            </MudText>
+            <MudText Class="source-description">Your repositories, access, and code history.</MudText>
         </div>
-
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            C-Sweet keeps Git credentials and the <code>.git</code> directory outside agent
-            workspaces. Repository access is resolved by trusted platform services using the business
-            and assignment permissions.
-        </MudAlert>
-
-        @if (!string.IsNullOrWhiteSpace(_error))
+        @if (_dashboard is { CanManageSourceControl: true })
         {
-            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" CloseIconClicked="@(() => _error = null)">
-                @_error
-            </MudAlert>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
+                       Disabled="_loading" OnClick="BeginCreate">New repository</MudButton>
         }
-
-        @if (_loading)
-        {
-            <MudProgressLinear Indeterminate="true" aria-label="Loading source-control configuration" />
-        }
-        else if (_dashboard is null)
-        {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">
-                Try again
-            </MudButton>
-        }
-        else
-        {
-            @if (_dashboard.CanManageSourceControl) { <BusinessSourceControlDefaultsEditor OrganizationId="OrganizationId" /><InternalProvisioningSettings OrganizationId="OrganizationId" /><InternalGitBackups OrganizationId="OrganizationId" /> }
-            @if (_dashboard.CanManageSourceControl) { <SourceControlActivity @key="OrganizationId" OrganizationId="OrganizationId" Repositories="_dashboard.Repositories" /> }
-            <InternalRepositoryManager OrganizationId="OrganizationId" CanManage="_dashboard.CanManageSourceControl" SelectedRepository="SelectedRepository" SelectedReference="SelectedReference" />
-            @if (!_dashboard.PlatformReadiness.ExistingGitHubAvailable)
-            {
-                <MudAlert Severity="Severity.Info">Internal repositories do not require GitHub. To optionally connect GitHub, an administrator can configure it in <MudLink Href="/settings/source-control">source-control settings</MudLink>.</MudAlert>
-            }
+    </div>
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+    }
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" aria-label="Loading source control" />
+    }
+    else if (_dashboard is null)
+    {
+        <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Try again</MudButton>
+    }
+    else
+    {
+        <nav class="source-tabs" aria-label="Source control sections">
+            <button type="button" class="@TabClass(WorkspaceSection.Repositories)" aria-current="@CurrentTab(WorkspaceSection.Repositories)" @onclick="() => SelectSection(WorkspaceSection.Repositories)">Repositories</button>
+            <button type="button" class="@TabClass(WorkspaceSection.Connections)" aria-current="@CurrentTab(WorkspaceSection.Connections)" @onclick="() => SelectSection(WorkspaceSection.Connections)">Connections</button>
             @if (_dashboard.CanManageSourceControl)
             {
+                <button type="button" class="@TabClass(WorkspaceSection.Activity)" aria-current="@CurrentTab(WorkspaceSection.Activity)" @onclick="() => SelectSection(WorkspaceSection.Activity)">Activity</button>
+                <button type="button" class="@TabClass(WorkspaceSection.Settings)" aria-current="@CurrentTab(WorkspaceSection.Settings)" @onclick="() => SelectSection(WorkspaceSection.Settings)">Settings</button>
+            }
+        </nav>
+        @if (_section == WorkspaceSection.Repositories && (_dashboard.ActiveOnboarding is not null || _dashboard.Connections.Any(c => c.Status is "AttentionRequired" or "Disconnected")))
+        {
+            <div class="source-attention">
+                <MudIcon Icon="@Icons.Material.Outlined.Info" Color="Color.Warning" />
+                <span>@(_dashboard.ActiveOnboarding is not null ? "GitHub setup is not finished." : "A repository connection needs attention.")</span>
+                <MudButton OnClick="() => SelectSection(WorkspaceSection.Connections)">View connections</MudButton>
+            </div>
+        }
+        <div hidden="@(_section != WorkspaceSection.Repositories)">
+            <InternalRepositoryManager OrganizationId="OrganizationId" CanManage="_dashboard.CanManageSourceControl"
+                                       SelectedRepository="SelectedRepository" SelectedReference="SelectedReference"
+                                       Repositories="_dashboard.Repositories" Connections="_dashboard.Connections"
+                                       @bind-Creating="_creating" OnChanged="LoadAsync" />
+        </div>
+        @if (_section == WorkspaceSection.Connections)
+        {
+            <section class="source-section" aria-label="Repository providers">
+                <h2>Repository providers</h2>
+                <div class="source-provider-list">
+                    @foreach (var connection in _dashboard.Connections)
+                    {
+                        <div class="source-provider">
+                            <div class="source-provider-row">
+                                <div class="source-row-copy">
+                                    <h3>@(connection.Provider == "InternalGit" ? "C-Sweet storage" : connection.Name)</h3>
+                                    <p>@(connection.Provider == "InternalGit" ? "Built-in private repositories" : $"{connection.AccountLogin} · {ModeLabel(connection.Mode)}") · @connection.RepositoryCount @(connection.RepositoryCount == 1 ? "repository" : "repositories")</p>
+                                </div>
+                                <span class="source-status @ConnectionStatusClass(connection.Status)">@StatusLabel(connection.Status)</span>
+                                @if (_dashboard.CanManageSourceControl)
+                                {
+                                    <SourceControlConnectionEditor @key="connection.Id" OrganizationId="OrganizationId" ConnectionId="connection.Id" OnChanged="LoadAsync" />
+                                }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(connection.HealthMessage))
+                            {
+                                <p class="source-health">@connection.HealthMessage</p>
+                            }
+                        </div>
+                    }
+                    <div class="source-provider-row">
+                        <div class="source-row-copy">
+                            <h3>@(_dashboard.Connections.Any(c => c.Provider == "GitHub") ? "Another GitHub account" : "GitHub")</h3>
+                            <p>@(_dashboard.PlatformReadiness.ExistingGitHubAvailable ? "Connect existing repositories or use approved templates" : "Not configured · Administrator setup required")</p>
+                        </div>
+                        @if (_dashboard.CanManageSourceControl)
+                        {
+                            <MudButton Variant="Variant.Outlined" OnClick="() => _showGitHubSetup = !_showGitHubSetup">@(_showGitHubSetup ? "Close setup" : "View setup")</MudButton>
+                        }
+                    </div>
+                </div>
+                @if (_dashboard.CanManageSourceControl && (_showGitHubSetup || _dashboard.ActiveOnboarding is not null))
+                {
+                    <div class="source-editor">
+                        <h2>GitHub setup</h2>
                 @if (_dashboard.ActiveOnboarding is { } onboarding)
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Filled">
@@ -73,13 +119,13 @@
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
                         @(setup.CurrentStep == "choose-projects"
-                            ? "GitHub did not return any available code projects. Check which projects the Source Access App can use."
+                            ? "GitHub did not return any available repositories. Check which projects the Source Access App can use."
                             : "No template projects are available. Mark an account project as a template and grant the Provisioner App access to it.")
                     </MudAlert>
                 }
                 else
                 {
-                    <MudSelect T="string" Label="@(setup.CurrentStep == "choose-projects" ? "Code projects" : "Starter projects")"
+                    <MudSelect T="string" Label="@(setup.CurrentStep == "choose-projects" ? "Repositories" : "Starter projects")"
                                MultiSelection="true" @bind-SelectedValues="_selectedProjectIds" Class="mt-3"
                                HelperText="Only projects verified through this exact GitHub App installation are shown.">
                         @foreach (var project in _availableProjects)
@@ -95,7 +141,7 @@
                         <MudGrid Class="mt-2">
                             <MudItem xs="12" md="6">
                                 <MudTextField @bind-Value="_namePrefix" Label="Project name prefix"
-                                              HelperText="C-Sweet uses this automatically when naming private code projects." />
+                                              HelperText="C-Sweet uses this automatically when naming private repositories." />
                             </MudItem>
                             <MudItem xs="12" md="6">
                                 <MudNumericField T="int" @bind-Value="_maximumProjects" Label="Maximum managed projects"
@@ -119,205 +165,78 @@
 
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3"
                                Disabled="_savingSetup" OnClick="@(() => SaveProjectSetupAsync(setupConnectionId, setup.CurrentStep))">
-                        @(setup.CurrentStep == "choose-projects" ? "Save code projects" : "Finish full-access setup")
+                        @(setup.CurrentStep == "choose-projects" ? "Save repositories" : "Finish full-access setup")
                     </MudButton>
                 }
                     </MudPaper>
                 }
 
-                @if (_dashboard.PlatformReadiness.ExistingGitHubAvailable && !_dashboard.PlatformReadiness.ManagedGitHubAvailable)
-                {
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        Existing GitHub projects can be connected. Full access remains unavailable until
-                        a system administrator configures the enterprise Repository Provisioner App.
-                        <MudLink Href="/settings/source-control" Class="ml-1">Open enterprise settings</MudLink>
-                    </MudAlert>
+
+                        @if (!_dashboard.PlatformReadiness.ExistingGitHubAvailable)
+                        {
+                            <p class="source-help">An administrator needs to configure GitHub before accounts can be connected. C-Sweet storage is already available.</p>
+                            <MudButton Variant="Variant.Outlined" Href="/settings/source-control">Open platform settings</MudButton>
+                        }
+                        else
+                        {
+                            <div class="source-setting-row">
+                                <div class="source-row-copy"><h3>Connect existing repositories</h3><p>Choose which private repositories C-Sweet can access.</p></div>
+                                <MudButton Variant="Variant.Outlined" Disabled="_starting" OnClick="@(() => StartAsync("ExistingGitHub"))">Connect GitHub</MudButton>
+                            </div>
+                            @if (_dashboard.PlatformReadiness.ManagedGitHubAvailable)
+                            {
+                                <div class="source-setting-row">
+                                    <div class="source-row-copy"><h3>Create repositories from templates</h3><p>Allow code access and repository creation within your approved rules.</p></div>
+                                    <MudButton Variant="Variant.Outlined" Disabled="_starting" OnClick="@(() => StartAsync("ManagedGitHub"))">Set up creation</MudButton>
+                                </div>
+                            }
+                        }
+                    </div>
                 }
-
-                <MudText Typo="Typo.h5">Connect GitHub</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Sign in with the GitHub account you already use. GitHub will let you choose exactly
-                    which projects C-Sweet can access; you never need to create or paste a token.
-                </MudText>
-                <MudGrid>
-            @if (_dashboard.PlatformReadiness.ManagedGitHubAvailable)
-            {
-                <MudItem xs="12" md="4" Style="order: 2">
-                <MudCard Outlined="true" Class="h-100">
-                    <MudCardContent>
-                        <MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Color="Color.Primary" />
-                        <MudText Typo="Typo.h6" Class="mt-2">Full access</MudText>
-                        <MudText Typo="Typo.body2">
-                            Best for non-technical teams. Connect a GitHub account and let
-                            C-Sweet create private code projects within your approved rules.
-                        </MudText>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-2">
-                            Two separate GitHub permissions are requested: one for code changes and
-                            one only for creating private projects.
-                        </MudText>
-                    </MudCardContent>
-                    <MudCardActions>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                   Disabled="@(_starting || !(_dashboard?.PlatformReadiness.ManagedGitHubAvailable ?? false))"
-                                   OnClick="@(() => StartAsync("ManagedGitHub"))">
-                            Connect GitHub account
-                        </MudButton>
-                    </MudCardActions>
-                </MudCard>
-                </MudItem>
-            }
-            <MudItem xs="12" md="4" Style="order: 1">
-                <MudCard Outlined="true" Class="h-100">
-                    <MudCardContent>
-                        <MudIcon Icon="@Icons.Custom.Brands.GitHub" Color="Color.Primary" />
-                        <MudText Typo="Typo.h6" Class="mt-2">Use my GitHub account</MudText>
-                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Class="my-2">
-                            Optional
-                        </MudChip>
-                        <MudText Typo="Typo.body2" Class="mt-2">
-                            Works with a personal account or an organization. Sign in at GitHub and
-                            choose the existing private projects C-Sweet may use.
-                        </MudText>
-                    </MudCardContent>
-                    <MudCardActions>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                   Disabled="@(_starting || !(_dashboard?.PlatformReadiness.ExistingGitHubAvailable ?? false))"
-                                   OnClick="@(() => StartAsync("ExistingGitHub"))">
-                            Use My GitHub Account
-                        </MudButton>
-                    </MudCardActions>
-                </MudCard>
-            </MudItem>
-            <MudItem xs="12" md="4" Style="order: 3">
-                <MudCard Outlined="true" Class="h-100">
-                    <MudCardContent>
-                        <MudIcon Icon="@Icons.Material.Outlined.Terminal" Color="Color.Primary" />
-                        <MudText Typo="Typo.h6" Class="mt-2">Other Git host</MudText>
-                        <MudText Typo="Typo.body2" Class="mt-2">
-                            Advanced setup for one exact HTTPS or SSH host. C-Sweet publishes a
-                            branch for review; merging stays outside C-Sweet.
-                        </MudText>
-                    </MudCardContent>
-                    <MudCardActions>
-                        <MudButton Variant="Variant.Text" Disabled="true">Coming next</MudButton>
-                    </MudCardActions>
-                </MudCard>
-            </MudItem>
-                </MudGrid>
-            }
-
-        <MudPaper Outlined="true" Class="pa-4">
-            <MudStack Row="true" AlignItems="AlignItems.Center">
-                <div>
-                    <MudText Typo="Typo.h6">Connected accounts</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        You can reuse a GitHub account across businesses. Each code project belongs to
-                        only one C-Sweet business.
-                    </MudText>
-                </div>
-                <MudSpacer />
-                <MudIconButton Icon="@Icons.Material.Outlined.Refresh" OnClick="LoadAsync"
-                               Disabled="_loading" aria-label="Refresh source-control status" />
-            </MudStack>
-            @if (_loading)
-            {
-                <MudProgressLinear Indeterminate="true" Class="mt-3" />
-            }
-            else if (_dashboard.Connections.Count == 0)
-            {
-                <MudAlert Severity="Severity.Normal" Variant="Variant.Outlined" Class="mt-3">
-                    @(_dashboard.CanManageSourceControl
-                        ? "No account is connected. Choose a setup option above when your software team first needs a code project."
-                        : "No account is connected yet. A business owner or manager can connect one when the team needs a code project.")
-                </MudAlert>
-            }
-            else
-            {
-                <MudGrid Class="mt-2">
-                    @foreach (var connection in _dashboard.Connections)
-                    {
-                        <MudItem xs="12" md="6">
-                            <MudCard Outlined="true">
-                                <MudCardContent>
-                                    <MudStack Row="true" AlignItems="AlignItems.Center">
-                                        <div>
-                                            <MudText Typo="Typo.subtitle1">@connection.Name</MudText>
-                                            <MudText Typo="Typo.body2">@connection.AccountLogin</MudText>
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                                @ModeLabel(connection.Mode) · @connection.AccountType
-                                            </MudText>
-                                        </div>
-                                        <MudSpacer />
-                                        <MudChip T="string" Size="Size.Small" Color="@StatusColor(connection.Status)">
-                                            @StatusLabel(connection.Status)
-                                        </MudChip>
-                                    </MudStack>
-                                    <MudDivider Class="my-3" />
-                                    <MudText Typo="Typo.body2">
-                                        Code access: @(connection.Provider == "InternalGit" ? "Built in" : connection.SourceAccessConnected ? "Configured" : "Needs setup")
-                                    </MudText>
-                                    @if (connection.Mode == "ManagedGitHub")
-                                    {
-                                        <MudText Typo="Typo.body2">
-                                            Private-project creation: @(connection.ProvisionerConnected ? "Configured" : "Needs setup")
-                                        </MudText>
-                                    }
-                                    <MudText Typo="Typo.body2">Code projects: @connection.RepositoryCount</MudText>
-                                    @if (!string.IsNullOrWhiteSpace(connection.HealthMessage))
-                                    {
-                                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
-                                            @connection.HealthMessage
-                                        </MudAlert>
-                                    }
-                                </MudCardContent>
-                                @if (_dashboard.CanManageSourceControl)
-                                {
-                                    <SourceControlConnectionEditor @key="connection.Id" OrganizationId="OrganizationId" ConnectionId="connection.Id" OnChanged="LoadAsync" />
-                                }
-                            </MudCard>
-                        </MudItem>
-                    }
-                </MudGrid>
-            }
-        </MudPaper>
-
-        <MudPaper Outlined="true" Class="pa-4">
-            <MudText Typo="Typo.h6">Code projects available to teams</MudText>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">
-                A project appears here after its account and delivery safeguards are ready.
-            </MudText>
-            @if (!_loading && _dashboard.Repositories.Count == 0)
-            {
-                <MudAlert Severity="@(_dashboard.CanManageSourceControl ? Severity.Warning : Severity.Normal)"
-                          Variant="Variant.Outlined" Class="mt-3">
-                    @(_dashboard.CanManageSourceControl
-                        ? "Create an internal repository above or connect a GitHub project when needed."
-                        : "No code project is available yet. A business owner or manager can complete source-control setup.")
-                </MudAlert>
-            }
-            else
-            {
-                <MudTable Items="_dashboard.Repositories" Dense="true" Hover="true" Class="mt-3">
-                    <HeaderContent>
-                        <MudTh>Project</MudTh>
-                        <MudTh>Main version</MudTh>
-                        <MudTh>Status</MudTh>
-                        <MudTh>Management</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Project">
-                            <MudText Typo="Typo.body2">@context.Name</MudText>
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">@context.CanonicalPath</MudText>
-                        </MudTd>
-                        <MudTd DataLabel="Main version">@context.DefaultBranch</MudTd>
-                        <MudTd DataLabel="Status">@StatusLabel(context.Status)</MudTd>
-                        <MudTd DataLabel="Management">@(context.IsManaged ? "Managed by C-Sweet" : "Connected")</MudTd>
-                    </RowTemplate>
-                </MudTable>
-            }
-        </MudPaper>
+            </section>
         }
-    </MudStack>
+        @if (_section == WorkspaceSection.Activity && _dashboard.CanManageSourceControl)
+        {
+            <div class="source-section source-activity">
+                <SourceControlActivity @key="OrganizationId" OrganizationId="OrganizationId" Repositories="_dashboard.Repositories" />
+            </div>
+        }
+        @if (_section == WorkspaceSection.Settings && _dashboard.CanManageSourceControl)
+        {
+            <section class="source-section source-settings" aria-label="Repository settings">
+                <h2>Repository defaults</h2>
+                <div class="source-setting-row">
+                    <div class="source-row-copy"><h3>New repository defaults</h3><p>Provider and template for new repositories</p></div>
+                    <MudButton Variant="Variant.Outlined" OnClick="() => ToggleSetting(RepositorySetting.Defaults)">@(_setting == RepositorySetting.Defaults ? "Close" : "Edit")</MudButton>
+                </div>
+                @if (_setting == RepositorySetting.Defaults)
+                {
+                    <div class="source-settings-editor"><BusinessSourceControlDefaultsEditor OrganizationId="OrganizationId" /></div>
+                }
+                <div class="source-setting-row">
+                    <div class="source-row-copy"><h3>Creation policy</h3><p>Approvals, naming, team defaults, and limits</p></div>
+                    <MudButton Variant="Variant.Outlined" OnClick="() => ToggleSetting(RepositorySetting.Creation)">@(_setting == RepositorySetting.Creation ? "Close" : "View")</MudButton>
+                </div>
+                @if (_setting == RepositorySetting.Creation)
+                {
+                    <div class="source-settings-editor"><InternalProvisioningSettings OrganizationId="OrganizationId" Expanded="true" /></div>
+                }
+                <div class="source-setting-row">
+                    <div class="source-row-copy"><h3>Backups</h3><p>Schedules, retained copies, and restore</p></div>
+                    <MudButton Variant="Variant.Outlined" OnClick="() => ToggleSetting(RepositorySetting.Backups)">@(_setting == RepositorySetting.Backups ? "Close" : "View")</MudButton>
+                </div>
+                @if (_setting == RepositorySetting.Backups)
+                {
+                    <div class="source-settings-editor"><InternalGitBackups OrganizationId="OrganizationId" Expanded="true" /></div>
+                }
+            </section>
+        }
+        <footer class="source-footer">
+            <span>Private repositories for this business</span>
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="LoadAsync">Refresh</MudButton>
+        </footer>
+    }
+    </div>
 </MudContainer>
 
 @code {
@@ -325,6 +244,23 @@
     [SupplyParameterFromQuery(Name = "repository")] public Guid? SelectedRepository { get; set; }
     [SupplyParameterFromQuery(Name = "reference")] public string? SelectedReference { get; set; }
 
+    private enum WorkspaceSection { Repositories, Connections, Activity, Settings }
+    private WorkspaceSection _section;
+    private bool _creating, _showGitHubSetup;
+    private enum RepositorySetting { None, Defaults, Creation, Backups }
+    private RepositorySetting _setting;
+    private void ToggleSetting(RepositorySetting setting) => _setting = _setting == setting ? RepositorySetting.None : setting;
+    private static string ConnectionStatusClass(string status) => status switch
+    {
+        "Ready" or "Connected" => "ready",
+        "AttentionRequired" => "attention",
+        "Disconnected" => "disconnected",
+        _ => ""
+    };
+    private string TabClass(WorkspaceSection section) => _section == section ? "source-tab active" : "source-tab";
+    private string? CurrentTab(WorkspaceSection section) => _section == section ? "page" : null;
+    private void SelectSection(WorkspaceSection section) => _section = section;
+    private void BeginCreate() { _section = WorkspaceSection.Repositories; _creating = true; }
     private SourceControlDashboardResponse? _dashboard;
     private bool _loading;
     private bool _starting;
@@ -349,6 +285,7 @@
         var version = ++_loadVersion;
         if (_loadedBusiness != business)
         {
+            _section = WorkspaceSection.Repositories; _creating = false; _showGitHubSetup = false; _setting = RepositorySetting.None;
             _loadedBusiness = business; _dashboard = null; _availableProjects = []; _teams = [];
             _selectedProjectIds = []; _defaultTeamId = Guid.Empty; _namePrefix = "csweet";
             _maximumProjects = 20; _managerApprovalRequired = true;
@@ -360,7 +297,10 @@
             var dashboard = await Http.GetFromJsonAsync<SourceControlDashboardResponse>(
                 $"api/organizations/{business:D}/source-control/dashboard");
             if (version != _loadVersion || business != OrganizationId) return;
+            var firstLoad = _dashboard is null;
             _dashboard = dashboard;
+            if (firstLoad && SelectedRepository is null && _dashboard?.ActiveOnboarding is not null)
+                _section = WorkspaceSection.Connections;
             if (_dashboard is { CanManageSourceControl: true,
                                 ActiveOnboarding: { ConnectionId: { } connectionId } active } &&
                 active.CurrentStep is "choose-projects" or "configure-managed-projects")

@@ -76,8 +76,12 @@ public sealed class ResourceChangeService(
             scopedTeam = await db.OrganizationTeams.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.Id == request.TeamId && x.OrganizationId == organizationId && x.ArchivedAt == null,
                 cancellationToken) ?? throw new ArgumentException("The selected team is not active in this organization.");
-            if (scopedTeam.LeadOrganizationUserId != requester.Id)
-                throw new UnauthorizedAccessException("Only the current team lead may propose a team-scoped capacity change.");
+            var reportsToLead = manager.Id == scopedTeam.LeadOrganizationUserId &&
+                await db.TeamMemberships.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId &&
+                    x.TeamId == scopedTeam.Id && x.OrganizationUserId == requester.Id && x.EndedAt == null,
+                    cancellationToken);
+            if (scopedTeam.LeadOrganizationUserId != requester.Id && !reportsToLead)
+                throw new UnauthorizedAccessException("A team-scoped proposal requires the current lead or an active team member reporting to that lead for approval.");
             if (!request.ExpectedTeamRevision.HasValue || scopedTeam.Revision != request.ExpectedTeamRevision)
                 throw new DbUpdateConcurrencyException("The team changed since the capacity proposal was prepared.");
         }
@@ -91,11 +95,14 @@ public sealed class ResourceChangeService(
         var evidence = ValidateEvidence(request.Evidence);
         if (request.TeamId.HasValue && (evidence.Count == 0 || string.IsNullOrWhiteSpace(request.ExpectedEffect)))
             throw new ArgumentException("Team-scoped capacity changes require trusted evidence and an expected effect.");
-        var desired = ValidateRoles(request.Roles, requester.Id)
-            .Select(role => request.TeamId.HasValue ? role with { TeamId = request.TeamId } : role)
-            .ToList();
         var previous = await ResolvePreviousAsync(
             organizationId, requester.Id, request.TeamId, request.SupersedesRequestId, cancellationToken);
+        var inheritedReporting = previous?.Roles.Where(x => x.IsDesired && x.ReportsToOrganizationUserId.HasValue)
+            .ToDictionary(x => x.RoleKey, x => x.ReportsToOrganizationUserId!.Value)
+            ?? new Dictionary<string, Guid>();
+        var desired = ValidateRoles(request.Roles, requester.Id, inheritedReporting)
+            .Select(role => request.TeamId.HasValue ? role with { TeamId = request.TeamId } : role)
+            .ToList();
         var deltas = ComputeDeltas(desired, previous?.Roles.Where(x => x.IsDesired).Select(ToRole).ToList() ?? []);
         if (deltas.Count == 0)
             throw new InvalidOperationException("The proposed team matches the currently approved team.");
@@ -496,7 +503,7 @@ public sealed class ResourceChangeService(
             .OrderByDescending(x => x.DecidedAt).FirstOrDefaultAsync(token);
     }
 
-    private static List<ResourceChangeRole> ValidateRoles(IReadOnlyList<ResourceChangeRole> roles, Guid requesterId)
+    private static List<ResourceChangeRole> ValidateRoles(IReadOnlyList<ResourceChangeRole> roles, Guid requesterId, IReadOnlyDictionary<string, Guid> inheritedReporting)
     {
         if (roles.Count is < 1 or > 20) throw new ArgumentException("A resource-change request requires between 1 and 20 roles.");
         var normalized = roles.Select(role =>
@@ -530,7 +537,8 @@ public sealed class ResourceChangeService(
             if (role.Priority is < 1 or > 100) throw new ArgumentException("Role priority must be between 1 and 100.");
             if (role.ReportsToOrganizationUserId.HasValue == (role.ReportsToRoleKey is not null))
                 throw new ArgumentException($"Role '{role.Title}' must have exactly one reporting target.");
-            if (role.ReportsToOrganizationUserId.HasValue && role.ReportsToOrganizationUserId != requesterId)
+            if (role.ReportsToOrganizationUserId.HasValue && role.ReportsToOrganizationUserId != requesterId &&
+                (!inheritedReporting.TryGetValue(role.RoleKey, out var inheritedManager) || inheritedManager != role.ReportsToOrganizationUserId))
                 throw new ArgumentException("Product-team roles may report only to the requester or another proposed role.");
             if (role.ReportsToRoleKey is not null && !normalized.Any(x => x.RoleKey == role.ReportsToRoleKey))
                 throw new ArgumentException($"Role '{role.Title}' reports to an unknown role.");

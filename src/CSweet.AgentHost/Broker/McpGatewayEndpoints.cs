@@ -410,9 +410,8 @@ public static class McpGatewayEndpoints
         {
             structured = JsonNode.Parse(terminal.Payload.Span);
             if (tool.OutputSchema is { } outputSchema && structured is not null)
-                JsonSchemaValidator.Validate(
-                    JsonSerializer.SerializeToElement(structured, JsonOptions),
-                    outputSchema);
+                ValidateSuccessfulToolOutput(terminal.Succeeded,
+                    JsonSerializer.SerializeToElement(structured, JsonOptions), outputSchema);
         }
         await WriteCapabilityAuditAsync(
             audit, session, tool, request, terminal, cancellationToken);
@@ -517,6 +516,11 @@ public static class McpGatewayEndpoints
         await http.Response.Body.FlushAsync(cancellationToken);
     }
 
+    internal static void ValidateSuccessfulToolOutput(bool succeeded, JsonElement payload, JsonElement schema)
+    {
+        // Error envelopes have their own shape; validating them as success hides the real denial.
+        if (succeeded) JsonSchemaValidator.Validate(payload, schema);
+    }
     internal static string GetToolResponseText(CapabilityResult result)
     {
         if (!result.Payload.IsEmpty)

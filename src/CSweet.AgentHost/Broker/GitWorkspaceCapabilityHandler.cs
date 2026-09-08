@@ -127,6 +127,36 @@ public sealed class GitWorkspaceCapabilityHandler(
         yield return response;
     }
 
+    internal static IReadOnlyList<GitValidationResult> ReadPassingQualityEvidence(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var envelope = root.ValueKind == JsonValueKind.Object ? root.Deserialize<QualityEvidenceEnvelope>(JsonOptions) : null;
+        if (envelope?.Passed == false || envelope?.Verdict is { } verdict && !string.Equals(verdict, "Passed", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The stored QA verdict does not report a passing result.");
+        var values = root.ValueKind == JsonValueKind.Array
+            ? root.Deserialize<List<GitValidationResult>>(JsonOptions)
+            : envelope?.Validations;
+        if (values is not { Count: > 0 } || values.Any(x => x is null ||
+                string.IsNullOrWhiteSpace(x.Command) || !x.Succeeded || x.ExitCode != 0))
+            throw new InvalidOperationException("Passing QA evidence must include successful executed validation commands.");
+        return values;
+    }
+
+    private sealed record QualityEvidenceEnvelope(IReadOnlyList<GitValidationResult>? Validations, bool? Passed, string? Verdict);
+
+    internal static Guid ResolveDeliveryRepository(string? developmentJson, string? deliveryJson)
+    {
+        var development = JsonSerializer.Deserialize<SoftwareDevelopmentBrief>(developmentJson ?? "null", JsonOptions);
+        var delivery = JsonSerializer.Deserialize<WorkItemDeliverySpecification>(deliveryJson ?? "null", JsonOptions);
+        if (development is not null && delivery is not null && development.RepositoryId != delivery.RepositoryId)
+            throw new InvalidOperationException("The legacy and finalized repository assignments conflict; reconcile the ticket before execution.");
+        var repositoryId = delivery?.RepositoryId ?? development?.RepositoryId;
+        if (repositoryId is null || repositoryId == Guid.Empty)
+            throw new InvalidOperationException("The work item has no finalized repository assignment.");
+        return repositoryId.Value;
+    }
+
     private async Task<IReadOnlyList<TeamRepositoryOption>> ListTeamRepositoryOptionsAsync(
         Guid organizationId,
         Guid installationId,
@@ -554,6 +584,7 @@ public sealed class GitWorkspaceCapabilityHandler(
             Status = result.DeliveryKind == GitDeliveryKinds.BranchOnly
                 ? SourceControlPublicationStatus.BranchPublishedExternalMerge
                 : SourceControlPublicationStatus.AwaitingValidation,
+            ReviewPatch = result.DiffSummary,
             ChangedFilesJson = JsonSerializer.Serialize(result.ChangedFiles ?? [], JsonOptions),
             ValidationResultsJson = JsonSerializer.Serialize(validations, JsonOptions),
             CreatedAt = now,
@@ -602,6 +633,14 @@ public sealed class GitWorkspaceCapabilityHandler(
         return result;
     }
 
+    internal static string RequireReviewPatch(string? patch)
+    {
+        if (string.IsNullOrWhiteSpace(patch) || !patch.StartsWith("Review base: ", StringComparison.Ordinal) ||
+            !patch.Contains("\ndiff --git ", StringComparison.Ordinal))
+            throw new InvalidOperationException("This publication has no complete code review patch. Publish a new candidate before requesting review.");
+        return patch;
+    }
+
     private async Task<GitMergeReview> ReviewMergeAsync(
         Guid organizationId,
         Guid installationId,
@@ -609,7 +648,7 @@ public sealed class GitWorkspaceCapabilityHandler(
         CancellationToken cancellationToken)
     {
         ValidateAssignmentRequest(input.WorkItemId, input.AssignmentRevision, input.IdempotencyKey);
-        var lead = await RequireTeamLeadAsync(
+        var lead = await RequireMergeReviewerAsync(
             organizationId, installationId, input.WorkItemId,
             input.AssignmentRevision, GitMergeCapabilities.Review, cancellationToken);
         var publication = await LatestPublicationAsync(
@@ -623,12 +662,9 @@ public sealed class GitWorkspaceCapabilityHandler(
             .Select(x => x.ResultsJson)
             .ToListAsync(cancellationToken);
         var evidence = evidenceJson
-            .SelectMany(x => JsonSerializer.Deserialize<List<GitValidationResult>>(
-                x, JsonOptions) ?? [])
+            .SelectMany(ReadPassingQualityEvidence)
             .Take(100)
             .ToList();
-        if (evidence.Count == 0)
-            throw new InvalidOperationException("The exact candidate SHA does not have passing QA evidence.");
         var repositoryName = await db.SourceControlRepositories.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.Id == publication.RepositoryId)
             .Select(x => x.Name)
@@ -637,8 +673,8 @@ public sealed class GitWorkspaceCapabilityHandler(
             publication.Id, publication.RepositoryId, input.WorkItemId,
             repositoryName, publication.CommitSha,
             Uri.TryCreate(publication.PullRequestUrl, UriKind.Absolute, out var pr) ? pr : null,
-            $"Candidate {publication.CommitSha[..Math.Min(12, publication.CommitSha.Length)]} for team {lead.TeamId:D}.",
-            evidence, JsonSerializer.Deserialize<List<string>>(publication.ChangedFilesJson, JsonOptions) ?? [], publication.Status.ToString());
+            RequireReviewPatch(publication.ReviewPatch),
+            evidence, ["Passing QA for the exact candidate SHA"], publication.Status.ToString());
     }
 
     private async Task<GitMergeAuthorizationResult> AuthorizeMergeAsync(
@@ -652,7 +688,7 @@ public sealed class GitWorkspaceCapabilityHandler(
             throw new ArgumentException("The merge decision must be Approve or Reject.");
         if (input.Decision == GitMergeDecisions.Reject && string.IsNullOrWhiteSpace(input.Feedback))
             throw new ArgumentException("A rejected merge requires feedback.");
-        var lead = await RequireTeamLeadAsync(
+        var lead = await RequireMergeReviewerAsync(
             organizationId, installationId, input.WorkItemId,
             input.AssignmentRevision, GitMergeCapabilities.Authorize, cancellationToken);
         var publication = await LatestPublicationAsync(
@@ -683,6 +719,24 @@ public sealed class GitWorkspaceCapabilityHandler(
             cancellationToken);
         if (!hasPassingQa)
             throw new InvalidOperationException("The exact candidate SHA does not have passing QA evidence.");
+        var priorAuthorization = await db.SourceControlMergeAuthorizations.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.PublicationId == publication.Id &&
+            x.AuthorizedByOrganizationUserId == lead.OrganizationUserId && x.CommitSha == publication.CommitSha,
+            cancellationToken);
+        if (priorAuthorization is not null)
+        {
+            if (priorAuthorization.RevokedAt is not null || priorAuthorization.ExpiresAt <= now ||
+                priorAuthorization.TeamPolicyRevision != policy.Revision ||
+                !decisionSigner.Verify(new SourceControlMergeDecision(organizationId, publication.Id, publication.CommitSha,
+                    lead.OrganizationUserId, priorAuthorization.TeamPolicyRevision, priorAuthorization.AuthorizedAt,
+                    priorAuthorization.ExpiresAt), priorAuthorization.DecisionSignature))
+                throw new InvalidOperationException("The prior merge authorization is no longer valid; publish and review a new candidate.");
+            if (publication.Status is not (SourceControlPublicationStatus.ReadyToMerge or
+                SourceControlPublicationStatus.AwaitingAdministratorApproval or SourceControlPublicationStatus.Merged))
+                throw new InvalidOperationException("The authorized publication requires reconciliation before retrying its decision.");
+            return new GitMergeAuthorizationResult(publication.Id, publication.CommitSha, input.Decision,
+                publication.Status.ToString(), priorAuthorization.AuthorizedAt, null);
+        }
         var expiresAt = now.AddHours(24);
         var authorizationRecord = new SourceControlMergeAuthorization
         {
@@ -738,13 +792,11 @@ public sealed class GitWorkspaceCapabilityHandler(
         if (item.AssignedAgentInstallationId != installationId && activeStageKey is null)
             throw new UnauthorizedAccessException(
                 "The source-control assignment belongs to another installation.");
-        var development = JsonSerializer.Deserialize<SoftwareDevelopmentBrief>(
-            item.DevelopmentBriefJson ?? "null", JsonOptions)
-            ?? throw new InvalidOperationException("The work item has no software delivery assignment.");
+        var repositoryId = ResolveDeliveryRepository(item.DevelopmentBriefJson, item.DeliverySpecificationJson);
         var repository = await db.SourceControlRepositories.AsNoTracking()
             .Include(x => x.Connection)
             .SingleOrDefaultAsync(x =>
-            x.OrganizationId == organizationId && x.Id == development.RepositoryId &&
+            x.OrganizationId == organizationId && x.Id == repositoryId &&
             x.Status == SourceControlRepositoryStatus.Ready && x.ArchivedAt == null,
             cancellationToken) ?? throw new InvalidOperationException("The assigned repository is not ready.");
         var teamId = await db.WorkBoards.AsNoTracking()
@@ -806,7 +858,7 @@ public sealed class GitWorkspaceCapabilityHandler(
         return new WorkspaceContext(workspace, assignment.Repository);
     }
 
-    private async Task<TeamLeadContext> RequireTeamLeadAsync(
+    internal async Task<TeamLeadContext> RequireMergeReviewerAsync(
         Guid organizationId,
         Guid installationId,
         Guid workItemId,
@@ -831,8 +883,29 @@ public sealed class GitWorkspaceCapabilityHandler(
             .Where(x => x.OrganizationId == organizationId && x.Id == teamId && x.ArchivedAt == null)
             .Select(x => x.LeadOrganizationUserId)
             .SingleOrDefaultAsync(cancellationToken);
-        if (leadId == Guid.Empty || leadId != caller.Id)
-            throw new UnauthorizedAccessException("Only the current canonical team lead may decide this merge.");
+        if (leadId == Guid.Empty)
+            throw new UnauthorizedAccessException("The repository team is unavailable.");
+        if (leadId != caller.Id)
+        {
+            await RequireActiveTeamMemberAsync(organizationId, installationId, teamId, cancellationToken);
+            // The dispatched stage is the resolved assignment snapshot. A planned future
+            // assignment or an old completed review does not confer current authority.
+            var assignedReview = await (
+                from stage in db.WorkStageExecutions.AsNoTracking()
+                join execution in db.WorkItemExecutions.AsNoTracking() on stage.ItemExecutionId equals execution.Id
+                join sprint in db.WorkSprintExecutions.AsNoTracking() on execution.SprintExecutionId equals sprint.Id
+                where sprint.OrganizationId == organizationId && sprint.BoardId == item.BoardId &&
+                      sprint.Status == WorkSprintExecutionStatus.Active && execution.WorkItemId == workItemId &&
+                      execution.Status == WorkItemExecutionStatus.Running &&
+                      (execution.CurrentStageKey == "merge-decision" ||
+                       (action == GitMergeCapabilities.Review && execution.CurrentStageKey == "technical-review")) &&
+                      stage.StageKey == execution.CurrentStageKey && stage.Traversal == execution.Traversal &&
+                      stage.AgentInstallationId == installationId && stage.OrganizationUserId == caller.Id &&
+                      (stage.Status == WorkStageExecutionStatus.Dispatching || stage.Status == WorkStageExecutionStatus.Running)
+                select stage.Id).AnyAsync(cancellationToken);
+            if (!assignedReview)
+                throw new UnauthorizedAccessException("Only the team lead or the currently assigned merge reviewer may decide this merge.");
+        }
         await RequireAuthorizationAsync(
             organizationId, installationId, action,
             GrantScopeKind.WorkItem, workItemId, cancellationToken);
@@ -855,6 +928,7 @@ public sealed class GitWorkspaceCapabilityHandler(
                   publication.Status != SourceControlPublicationStatus.Superseded
             orderby publication.CreatedAt descending
             select publication)
+            .AsTracking()
             .FirstOrDefaultAsync(cancellationToken)
         ?? throw new KeyNotFoundException("No current publication exists for this assignment.");
 
@@ -1042,5 +1116,5 @@ public sealed class GitWorkspaceCapabilityHandler(
         SourceControlWorkspace Workspace,
         SourceControlRepository Repository);
 
-    private sealed record TeamLeadContext(Guid TeamId, Guid OrganizationUserId);
+    internal sealed record TeamLeadContext(Guid TeamId, Guid OrganizationUserId);
 }

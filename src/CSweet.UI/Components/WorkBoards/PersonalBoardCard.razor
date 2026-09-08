@@ -1,0 +1,65 @@
+@using CSweet.WorkManagement.Contracts
+
+<button type="button" class="personal-board-card" @onclick="OpenRequested"
+        aria-label="@($"Open {Board.OwnerDisplayName}'s Kanban board, {_activeCount} active tickets, {_blockedCount} blocked")">
+    <span class="personal-board-portrait" aria-hidden="true">
+        @if (!_imageFailed && _imageUrl is not null)
+        {
+            <img src="@_imageUrl" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"
+                 @onerror="ImageFailed" />
+        }
+        else
+        {
+            <span class="personal-board-initials">@Initials</span>
+        }
+    </span>
+    <span class="personal-board-content">
+        <span class="personal-board-name">@Board.OwnerDisplayName</span>
+        <span class="personal-board-role">@(Portraits?.FindRole(Board.OwnerOrganizationUserId) ?? "Personal board")</span>
+        <span class="personal-board-stats">
+            <span class="personal-board-active"><strong>@_activeCount</strong> active</span>
+            @if (_blockedCount > 0)
+            {
+                <span class="personal-board-status is-blocked">
+                    <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />
+                    @_blockedCount blocked
+                </span>
+            }
+            else
+            {
+                <span class="personal-board-status">
+                    <MudIcon Icon="@Icons.Material.Outlined.Check" Size="Size.Small" />
+                    No blockers
+                </span>
+            }
+        </span>
+    </span>
+</button>
+
+@code {
+    [Parameter, EditorRequired] public PersonalTodoBoard Board { get; set; } = default!;
+    [Parameter] public EventCallback OpenRequested { get; set; }
+    [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
+
+    private string? _imageUrl;
+    private bool _imageFailed;
+    private int _activeCount;
+    private int _blockedCount;
+    private string Initials => string.Concat(Board.OwnerDisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        .Take(2).Select(part => part[..1].ToUpperInvariant()));
+
+    protected override void OnParametersSet()
+    {
+        var image = Portraits?.Find(Board.OwnerOrganizationUserId);
+        if (image != _imageUrl)
+        {
+            _imageUrl = image;
+            _imageFailed = false;
+        }
+
+        _activeCount = Board.Items.Count(item => item.ArchivedAt is null && item.Status != PersonalTodoStatuses.Completed);
+        _blockedCount = Board.Items.Count(item => item.ArchivedAt is null && item.Status == PersonalTodoStatuses.Blocked);
+    }
+
+    private void ImageFailed() => _imageFailed = true;
+}

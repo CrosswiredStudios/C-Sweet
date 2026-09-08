@@ -31,6 +31,7 @@
 
 @if (!BoardId.HasValue)
 {
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
 <MudPaper Elevation="1" Class="surface-panel">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
         <div>
@@ -170,38 +171,23 @@
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
             <div>
                 <MudText Typo="Typo.overline" Color="Color.Primary">Protected work</MudText>
-                <MudText Typo="Typo.h5">Direct reports' personal to-do boards</MudText>
+                <MudText Typo="Typo.h5">Personal boards</MudText>
                 <MudText Color="Color.Secondary">
-                    Inspect priorities, add work, reorder ready items, and requeue blocked work.
+                    Your direct reports' priorities, progress, and blocked work.
                 </MudText>
             </div>
             <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Color="Color.Primary"
                            OnClick="LoadPersonalTodosAsync" aria-label="Refresh personal boards" />
         </MudStack>
-        <MudStack Class="mt-4" Spacing="2">
-            @foreach (var board in _personalTodos.Boards)
-            {
-                <MudPaper Outlined="true" Elevation="0" Class="pa-3">
-                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-                        <div>
-                            <MudText Typo="Typo.h6">@board.OwnerDisplayName</MudText>
-                            <MudText Typo="Typo.body2" Color="Color.Secondary">Personal operational work queue</MudText>
-                        </div>
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                     Color="@(ActivePersonalTodoCount(board) > 0 ? Color.Primary : Color.Default)">
-                                @ActivePersonalTodoCount(board) active
-                            </MudChip>
-                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Outlined.OpenInFull"
-                                       OnClick="@(() => OpenPersonalBoard(board))">
-                                View board
-                            </MudButton>
-                        </MudStack>
-                    </MudStack>
-                </MudPaper>
-            }
-        </MudStack>
+        <EmployeePortraitScope OrganizationId="OrganizationId">
+            <div class="personal-board-grid">
+                @foreach (var board in _personalTodos.Boards)
+                {
+                    <PersonalBoardCard @key="board.OwnerOrganizationUserId" Board="board"
+                                       OpenRequested="@(() => OpenPersonalBoard(board))" />
+                }
+            </div>
+        </EmployeePortraitScope>
         @if (!string.IsNullOrWhiteSpace(_personalTodoError))
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
@@ -210,6 +196,7 @@
         }
     </MudPaper>
 }
+</MudContainer>
 }
 
 <MudDialog @bind-Visible="_personalBoardOpen"
@@ -1731,9 +1718,6 @@
             _personalTodoError = exception.Message;
         }
     }
-
-    private static int ActivePersonalTodoCount(PersonalTodoBoard board) => board.Items.Count(x =>
-        x.ArchivedAt is null && x.Status != CSweet.WorkManagement.Contracts.PersonalTodoStatuses.Completed);
 
     private void OpenPersonalBoard(PersonalTodoBoard board)
     {

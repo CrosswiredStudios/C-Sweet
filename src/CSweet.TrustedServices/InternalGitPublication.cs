@@ -46,6 +46,16 @@ public sealed partial class InternalGitRepositoryStore
             if (request.Operation != "publish")
                 return new(changed.Length == 0 ? "Clean" : "Modified", request.BaseSha, null, changed, summary, source ?? target);
 
+            // Review the complete proposal, including earlier commits on this work branch.
+            // RunAsync rejects oversized output rather than returning a silently truncated patch.
+            var reviewBase = target is null ? request.BaseSha
+                : (await RunAsync(repository, ["merge-base", target, request.BaseSha], ct)).Trim();
+            ValidateSha(reviewBase);
+            changed = (await RunAsync(repository, ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", reviewBase, tree, "--"], ct))
+                .Split('\0', StringSplitOptions.RemoveEmptyEntries);
+            summary = $"Review base: {reviewBase}\n" + await RunAsync(repository,
+                ["diff", "--no-ext-diff", "--no-textconv", "--no-color", reviewBase, tree, "--"], ct);
+
             // Ref transactions persist the receipt and publication together, surviving a lost HTTP response.
             var receipt = (await RunAsync(repository, ["for-each-ref", "--format=%(objectname)", receiptRef], ct)).Trim();
             if (receipt.Length > 0)

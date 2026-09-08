@@ -37,6 +37,10 @@ public sealed class CommunicationsLayoutTests
     [Fact]
     public void CommunicationsRouteChangesKeepTheWorkspaceMounted()
     {
+        var routes = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "src", "CSweet.UI", "Routes.razor"));
+        Assert.DoesNotContain("<Navigating>", routes, StringComparison.Ordinal);
+        Assert.Contains("OnNavigateAsync=\"GuardNavigationAsync\"", routes, StringComparison.Ordinal);
         var razor = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(), "src", "CSweet.UI", "Pages", "Communications.razor"));
 

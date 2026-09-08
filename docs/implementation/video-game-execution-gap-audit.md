@@ -1,0 +1,205 @@
+# Video game execution gap audit
+
+Evidence inspected 2026-09-08. This is an implementation gap audit, not a completion claim.
+
+## Required end state and current evidence
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| Director and Producer agree on high-level scope | Existing accepted brief collaboration and durable handoff records, recorded in creative-producer-goal-audit.md | Observed for current business; full document inventory and recall still need runtime audit |
+| Technical Director participates after hiring | Victor Lin exists; Producer creates a technical planning coordination session after roster discovery | Hire observed; planning session and resulting backlog not yet verified |
+| Team board and phased planning | Producer EnsureProductionBoardAsync, ReconcilePlanningAsync, draft sprint and backlog publication | Local permission/discovery fixes tested; live activation pending |
+| Further hiring tied to real tickets | ReconcilePlanningAsync passes unassigned delegation recommendations to ProposeCoverageAsync | Source path exists; actual second staffing cycle unverified |
+| Assign newly hired workers to existing tickets | BindAvailableWorkAsync revises assignments using exact role, skill, capability and roster evidence | Source path exists; live behavior unverified |
+| Developers implement code on branches and open PRs | Video Game Engineer inherits VideoGameSpecialistAgentBase, which generates Markdown, submits an artifact and returns Completed | Contradicted: this is document delivery, not code execution |
+| Technical Director creates repository | RepositoryOwnership.cs uses brokered ProvisionRepositoryAsync and persists status | Source path exists; actual provisioning and approved team access unverified |
+| Leads review PRs and independent QA tests results | Current game specialist completion evidence is an ArtifactRevision | Required code-review/testing handoff is not demonstrated |
+| Continuous delivery beyond first phase | Producer scheduled reviews manage sprint readiness and estimates | Partial source evidence only; repeated production phases and evolving backlog unverified |
+| CEO can review a running local web game | No verified game build, preview process, URL or lifecycle evidence | Missing |
+
+## Exact execution mismatch
+
+`CSweet.Agent.Engineer.VideoGame/src/CSweet.Agent.Engineer.VideoGame/SpecialistAgent.cs` inherits `VideoGameSpecialistAgentBase` without overriding work execution. Its role prompt asks for implementation, tests and source revision, but `extensions/video-game/VideoGameAgentKit.cs` executes one model request for Markdown, checks required sections, creates/submits an artifact and returns a Completed stage outcome. It does not prepare a Git workspace, edit files, run builds/tests or publish a PR. The Engineer manifest describes tested code delivery while requesting a 30-second execution timeout. Neither prose nor an artifact submission proves the code exists or works.
+
+Producer `PublishCanonicalBacklogAsync` creates planning specifications, artifact provenance, dependencies and specialist-execution assignments. No call to `FinalizeItemDeliveryAsync` exists in Producer or Technical Director source inspected. Repository creation alone therefore does not demonstrate a ticket-to-code delivery binding.
+
+## Existing platform path to reuse
+
+`CSweet.Agent.SoftwareDeveloper/src/CSweet.Agents.SoftwareDeveloper/SoftwareDeveloperAgent.cs` already uses typed Git Prepare/Inspect/Publish/Cleanup callbacks and a coding harness in the assignment workspace. It validates a structured outcome file and publication results. `CSweet.Agent.SoftwareArchitect` uses `FinalizeItemDeliveryAsync` to attach delivery configuration to planning tickets. These are concrete starting points; do not replace game role taxonomy with generic roles just to route around missing implementation.
+
+The next implementation must connect game planning tickets to repository/base revision and an actual execution policy, adapt the brokered coding workspace path for game-engineer accountability, preserve exact assignment revision and idempotency, publish a branch/PR with real test evidence, and hand that revision to authorized lead review and independent QA. Manifest permissions, timeout and package versions must match the implemented path. Follow repository-specific contributor instructions before edits. The user's publishing/restart boundary remains in force.
+
+After code integration, verify a real bounded first-phase ticket through repository creation, branch edits, tests, PR review, merge/rejection and QA. Then verify a platform-managed local web preview with a reachable URL and lifecycle cleanup. A mocked harness test or green package self-test cannot close these runtime gates.
+
+## Local Engineer implementation follow-up
+
+Engineer 2.2.0 now overrides the Markdown-only path for game-engineer work. It validates the standard assignment, reads its development brief, prepares a brokered workspace, runs the existing coding-harness pattern, requires successful reported command validation and actual changed files outside .csweet reports, and publishes through typed Git callbacks. Changed-file evidence comes from platform inspection. Publication receipts persist per stage/attempt/assignment revision. Missing development configuration or failures produce Blocked outcomes. Manifest workspace access, environment, Git callbacks and one-hour execution budget are synchronized.
+
+Validation: six tests passed, including manifest authority declarations, failed validation rejection, empty/report-only change rejection and workspace boundary checks. Self-test passed, packed nuspec 2.2.0 verified, built against published SDK 3.31.1 with sibling SDK references disabled. The harness/shell dependencies match the existing generic developer; the shell dependency is prerelease and NuGet emits NU5104. These tests do not run a real coding model, repository publication or lead/QA review. No package was published or installed. The planner-to-development-brief/repository handoff and downstream review/testing/preview still require implementation and live verification.
+
+## Local ticket/repository handoff follow-up
+
+Technical Director 2.4.0 now discovers boards belonging to its ready repository's team/workstream during attention review. It finalizes staffed, provenance-bound game-engineer tickets in place, preserving planning requirements, acceptance criteria, constraints, dependencies, accountability and stage assignments. Ready-repository reviews continue after provisioning completes so later tickets can be finalized; unready and already-finalized tickets are skipped. This adds board-read and work.item.delivery.finalize manifest requirements. Eight agent tests and self-test pass; packed 2.4.0 verified against published SDK references.
+
+The Git broker previously read only DevelopmentBriefJson, while FinalizeItemDelivery writes DeliverySpecificationJson. It now resolves either format and rejects conflicting repository IDs. Assignment revision, active-stage ownership, team membership, ready repository, team repository policy and scoped-action checks remain unchanged. Seventeen relevant host tests pass. Engineer 2.2.1 accepts either ticket format; six tests and self-test pass, packed version verified. Packages remain local and uninstalled. A complete live path, exact lead review and independent QA policy, and running preview are still unproven. The current game execution policy still requires audit before claiming end-to-end code delivery.
+
+## Wire-format reproduction and review-policy audit
+
+Engineer assignment regression reproduced a deterministic failure: equivalent Pascal-case canonical input passes, host camel-case input fails in SpecialistAssignmentValidator. Engineer 2.2.2 now uses Web JSON options for nested WorkExecutionInputV1. Both casing cases and wrong-role rejection pass; eight tests and self-test pass; nuspec 2.2.2 verified. Other vendored game-specialist validators still need the same host-wire audit before their execution can be claimed functional.
+
+Creative Director profiles/video-game-production.v2.4.json currently routes specialist-execution -> producer-review (ManagerApproval) -> done, with rejection returning to specialist-execution. It has no technical PR review, governed merge, or independent QA stage. WorkOrchestrator.EnsureAttemptGrants issues Git workspace grants only for stage key development, QA workspace grants only for quality, and merge privileges only for merge-decision. The game specialist-execution key therefore cannot yet use the Engineer's newly declared Git operations. The next implementation must connect explicit approved execution capabilities to the game code stage and add an exact-source lead review/merge/QA route while preserving document-only delivery for non-code roles. Do not assume an agent manifest declaration alone grants ticket-scoped Git permission. These are remaining implementation gaps, not user approval blockers.
+
+## Finalized custom-stage workspace grants
+
+WorkOrchestrator dispatch now reads the executing installation's approved RequiredCapabilitiesJson when a ticket has a finalized DeliverySpecification. A nonempty repository ID and base branch are required. It intersects the approved set with prepare/refresh/inspect/publish/cleanup and adds those actions to existing attempt grants, supporting profile-defined stage names such as specialist-execution without introducing role-name-specific authority. No Git merge action is added through this path. Existing assignment ownership, repository readiness, team policy and runtime checks remain enforced by the Git broker.
+
+The grants use the existing WorkItem scope, nondelegable flag, execution attribution and expiry. Source inspection confirms RevokeAttemptGrantsAsync selects all matching execution/item/installation grants, so the added actions participate in that existing revocation path. Twenty-three focused grant-selection, Git broker and execution-workload tests pass. Selection tests prove approved publish is included, read-only approved sets stay read-only, unrelated/merge capabilities are excluded, and absent/invalid finalization adds no workspace grants. This is not a live dispatch/revocation integration proof. The updated host is local; review/merge/QA policy and actual game execution remain open requirements.
+
+## Local independent QA executor
+
+Game QA 2.2.0 now overrides the quality stage with a workspace test harness. The host's quality-stage workspace path pins the current source publication. QA requires a valid source SHA, exact matching verdict SHA, nonempty executed-command results, and no tracked-source edits. Passing verdicts contradicting failed commands or unresolved findings are rejected. It returns passed/failed with commit evidence for the orchestrator's source-validation recorder, and persists results per stage/attempt/assignment revision. Other QA planning stages retain artifact delivery. No publish/merge capability is requested; workspace prepare/inspect/cleanup, polyglot environment and one-hour budget are declared.
+
+Four tests pass (manifest permission exclusions, verdict consistency, and camel/Pascal-case canonical input plus wrong-role rejection), self-test passes and nuspec 2.2.0 is verified against published SDK 3.31.1. The shell dependency has the same NU5104 prerelease warning as Engineer. No real model, Git workspace or game tests ran in this validation; no package was published or installed. The game profile still lacks routing/assignment of the quality stage, exact-source technical lead authorization and governed merge. Those integrations and a real passing/rejected delivery cycle remain required before the goal can be completed.
+
+## Merge review QA evidence format
+
+ReviewMergeAsync deserialized each SourceControlValidation.ResultsJson as List<GitValidationResult>, but WorkOrchestrator records the full QA outcome Output object. The local reader now accepts legacy arrays and outcome objects with case-insensitive Validations, rejects absent/failed command evidence and contradictory Passed=false/Verdict!=Passed, and preserves the existing exact-publication/SHA and passed-record filtering. Twenty-six focused Git broker/provisioning tests pass, including nine evidence-shape cases. This does not add or relax merge authorization.
+
+Further concrete review blockers: RequireTeamLeadAsync only permits the canonical OrganizationTeam lead (Naomi in the live business), not a specifically assigned Technical Director review stage. GitMergeReview.DiffSummary currently contains only a candidate/team sentence, and RequiredChecks is populated from ChangedFilesJson. Thus it is insufficient input for substantive technical code review. TrustedWorkspacePublication already exposes optional DiffSummary, but SourceControlPublication does not persist it. Exact candidate diff retrieval/persistence and properly assigned technical-review authority remain necessary before implementing an autonomous approval decision. Do not have the Technical Director approve from a summary sentence and passing tests alone.
+
+
+## Persisted candidate review patch
+
+Trusted publication now returns a Git patch against the merge base of the target and workspace base, including earlier work-branch commits. Inspect/refresh retain compact statistics. Both InternalGit and the GitHub snapshot path use this implementation. Git output limits fail the operation before publication rather than silently truncating evidence. SourceControlPublication persists ReviewPatch through migration 20260908210000; ReviewMergeAsync returns that patch instead of a candidate/team placeholder. Historical publications without patch evidence require a new candidate publication before agent review. Binary changes retain Git binary markers; this is not a claim that binary assets have received visual review.
+
+Forty focused publication, governed-merge and broker tests pass, including an actual two-commit Git comparison and idempotent replay. The EF pending-model-change test passes. Migration has not been applied to the running business and no server restart or publication was performed. Technical reviewer authority, RequiredChecks semantics, game profile QA/merge routing, live execution and CEO preview remain unresolved; the full goal remains active.
+
+
+## Assigned technical merge reviewer authority
+
+Git review and authorization now share RequireMergeReviewerAsync. The existing canonical lead path remains; another employee must be an active team member and the resolved employee/installation on a currently dispatching or running merge-decision stage. The item must be running on that stage and traversal in an active sprint for the same organization and board. Both paths still require the exact current assignment revision and the requested WorkItem-scoped grant. Signed decisions continue recording the actual authorizing employee and exact candidate SHA. No role-name-based permission was added.
+
+Thirty-four focused broker/authorization tests pass. Fifteen database-backed authorization cases exercise both review and authorize actions: active and dispatching assigned reviewer, canonical lead, revoked membership, inactive employee, archived team, completed stage/item, wrong stage/installation/traversal/organization, paused sprint, stale revision and denied scoped grant. These test the shared authorization boundary with EF InMemory, not real agent dispatch. Profile routing, Technical Director review execution, actual hiring/board continuation and end-to-end delivery remain unverified and incomplete.
+
+
+## Initial technical review before QA; game profile revision 5
+
+Director 1.7.0 adds immutable profile video-game-production.v2 revision 5 (v2.5 resource), preserving the revision 4 source file. New code-published outcomes route specialist-execution -> technical-review -> quality -> merge-decision -> governed-merge -> producer-review -> done. Technical and final review rejection and failed QA return to implementation with bounded traversals. Document completed outcomes retain Producer review. The profile defines the trusted stage but its platform-action assignment must still be supplied by ticket finalization.
+
+Host technical-review dispatch grants only Git review; the assigned-reviewer boundary accepts that stage for Review but not Authorize. Reading a candidate patch no longer requires QA to have run; final merge authorization retains its exact-SHA passed-QA gate. This separates initial technical approval from permission to merge. Thirty-six host tests pass, including technical-review read allowed/authorize denied. Eighty-four Director tests, self-test and package verification pass (nuspec 1.7.0; v2.5 definition included). No publishing, installed-profile upgrade, restart or runtime activation occurred.
+
+Remaining connected implementation: Engineer must select code-published only for the compatible profile; Technical Director needs actual review decision execution and finalization of the review/QA/platform assignments; Producer must preserve those assignments through staffing and readiness and ensure QA staffing; planning delegation must cover these stages for the canonical input validator. Existing workstreams/boards need supported profile migration, not a silent database rewrite. The full autonomous game and CEO preview remain unproven.
+
+
+## Policy-aware Engineer routing and persisted QA progression
+
+Contracts 3.17.0 adds AllowedOutcomeCodes to WorkExecutionInputV1 with an empty backwards-compatible default. Host dispatch supplies the current stage transitions from the immutable execution policy. Engineer 2.3.0 reads those codes before preparing a workspace, prefers code-published when supported, uses completed only for an explicitly supported legacy route, and blocks missing/unsupported metadata. This connects publication to profile 5 without inferring support from mutable board names. C-Sweet and Engineer package pins are updated; SDK source was not changed.
+
+QA failed is now accepted alongside legacy changes_requested. A new database-backed verdict test reproduced loss of the passing-publication status transition caused by an AsNoTracking join propagating to the entity being mutated. The quality recorder now explicitly tracks the current publication and stale validation rows. Tests clear tracking and reread saved records to verify passed moves to AwaitingLeadAuthorization and failures remain AwaitingValidation; wrong candidate SHA writes no validation.
+
+Validation: 27 Contracts tests, 11 Engineer tests and self-test pass. Packages verified as Contracts 3.17.0 and Engineer 2.3.0, with the latter depending on Contracts 3.17.0. Thirty-nine focused host tests pass with local contract project references disabled and the packed contract loaded from the local feed. No package was published, installed or server restarted. Director/Producer/Technical Director assignment integration and live execution remain incomplete. Follow-up audit: other source-publication mutation queries joined to AsNoTracking workspaces (including Git broker LatestPublicationAsync) may have the same tracking propagation issue and need persisted-state tests.
+
+
+## Merge broker persisted decisions and review response
+
+Public broker regression tests reproduced three successful responses with lost publication mutations: automatic approval, administrator-required approval and rejection all left AwaitingValidation in storage. LatestPublicationAsync now explicitly tracks its selected publication despite the AsNoTracking workspace join. The existing supersession query and governed merge executor already explicitly track their mutation targets. Tests clear tracking before rereading saved status/revision and exact signed authorization, and preserve the no-QA approval denial.
+
+ReviewMergeAsync RequiredChecks now names the actual exact-candidate QA gate instead of listing changed file paths. The public capability tests also verify patch delivery before QA, passing evidence after QA, and that filenames are not presented as required checks. Forty-two focused merge broker, reviewer authorization and QA persistence tests pass against packed Contracts 3.17.0 with local contract references disabled. These are EF InMemory/broker boundary tests, not runtime agent or provider integration. Technical Director decision execution and full ticket-stage assignment integration remain the next delivery requirements; no server restart or package publication occurred.
+
+
+## Technical Director review execution and authorization replay
+
+Technical Director 2.5.0 handles technical-review and merge-decision through typed SDK callbacks. Initial review validates canonical role/planning input, reads the exact candidate patch, asks the configured model for a structured code decision, and rejects mismatched SHA or inconsistent findings. Its own durable candidate decision is keyed by item, assignment revision and publication; final authorization reads that record rather than trusting another worker's output to claim technical approval. Matching prior approval and nonempty passing broker QA are required before AuthorizeMergeAsync. Stage outcomes are approved/rejected with commit evidence and attempt receipts; no direct source changes or merge execution. Its vendored canonical-input deserializer now accepts host camel-case JSON. Manifest adds only work-item review/authorize capabilities, and code/manifest/README/package versions match 2.5.0.
+
+Host authorization now reuses a valid existing exact-publication/employee/SHA signature instead of inserting a duplicate after a lost response. It rechecks current assignment/grant, QA, expiry, revocation, policy revision, signature and publication status. Tests verify one persisted authorization and unchanged revision/time after retry, and deny replay after revocation.
+
+Validation: 11 Technical Director tests, self-test and nuspec 2.5.0 verification pass; 39 focused host tests pass. Agent tests cover decision consistency, exact publication/SHA durable-record matching and scoped manifest authority, but do not simulate a real model/broker callback or prove runtime execution. No publishing, installing or restart occurred. Remaining integration includes technical/QA/platform stage assignments and canonical delegation planning, Producer preservation/staffing for those assignments, supported upgrades of existing boards, and live delivery/CEO preview verification.
+
+
+## Producer preserves and staffs multi-stage tickets
+
+Producer 2.4.0 removes the single-assignment/index-zero assumptions from staffing, estimate grouping, sprint candidate projection and capacity selection. It locates specialist-execution explicitly, rejects duplicate or missing implementation assignments, and excludes candidates with unstaffed canonical delegation recommendations. Binding now considers each missing recommendation, preserves other stage assignments, uses stage-specific selection fingerprints, and changes the accountable owner only when binding implementation. Missing delegation roles feed the existing resource-change proposal path, including review/QA coverage when technical planning declares those stages.
+
+Twenty-two Producer tests pass, including multi-stage order independence, missing QA excluded then staffed, and review-only/duplicate implementation rejection. Self-test and nuspec 2.4.0 verification pass against published SDK 3.31.1. These tests do not exercise real broker planning replacement or actual hiring. Technical Director still must declare review/QA delegation recommendations and platform stage assignment during engineering finalization. Existing board profile upgrade and live runtime remain unverified. No package publication, installation or restart occurred.
+
+
+## Engineering ticket review-stage declaration and finalization
+
+Technical Director 2.6.0 reads the pinned workstream profile before using the reviewed code flow (video-game-production.v2 revision 5+). For eligible unfinalized engineering tickets, it adds technical-review, quality and merge-decision canonical delegations, preserving accepted requirements, criteria, constraints, dependencies, proposal provenance and existing stage owners. The Producer's multi-stage binder can then select the required Technical Director and QA installations. Engineering finalization waits for the declared review stages to have matching roles, installations and selection evidence, then preserves those assignments and adds source-control.merge.execute.v2 as a PlatformAction plus producer-review as BoardManager. The existing legacy profile path remains unchanged.
+
+Manifest adds exact platform.workstream.read.v1/workstream and work.item.planning.revise.v1/board capabilities. Contract pin is 3.17.0. Twelve tests, self-test and nuspec 2.6.0 verification pass. New tests cover planning preservation, missing-review staffing preventing finalization, repeat planning being a no-op, and six-stage finalization retaining existing owners. No real planning callback, roster selection, sprint execution or installed-board upgrade was run; runtime authorization for the new capabilities still requires installation grants. No publishing, installing or restart occurred. Next evidence must exercise this combined Producer/Technical Director path against host planning validation and the existing business, including profile migration and stage readiness.
+
+
+## Packaged game profile passes host validation
+
+A host regression using the actual new profile reproduced rejection because governed-merge had no PlatformAction. The graph also contained an unreachable cancelled terminal. Director 1.7.1 corrects the unpublished revision 5 resource: source-control.merge.execute.v2 is declared on the stage and the unused cancellation node is omitted. Published revision 4 remains untouched. Host tests deserialize the profile, run the complete definition validator, map its columns/stages the same way as ConfigureProfileOrchestrationAsync, and run the execution-policy validator. The exact packaged v2.5 bytes match the checked-in host fixture.
+
+Thirteen focused host profile/policy tests, 84 Director tests, self-test and nuspec 1.7.1 verification pass. This proves local host validation compatibility, not persisted policy publication or runtime execution. No publishing, installation, board mutation or restart occurred. Combined host ticket validation, profile upgrade behavior, staffing/sprint progression, live source delivery and CEO preview remain to verify.
+
+
+## Live revalidation and pinned-profile upgrade gap
+
+Read-only inspection of running postgres-xdkczhnp (up 32 minutes at inspection) confirms organization a948db9b-a2e4-4ce8-bb56-6a51be966958 still has Director 1.6.7, Producer 2.3.5, Technical Director 2.3.2 and Chief 2.4.1 installed. Workstream 1cf21658-b304-4f7b-be56-a26cc0b19edb remains profile video-game-production.v2 revision 4 / workstream revision 1. Its five boards are all personal To Do boards; no team board exists. Therefore recent local delivery changes have not been exercised in this business.
+
+Source inspection identifies a separate activation gap: WorkstreamManagedActionExecutor.ApplyChanges permits profileData but no profile key/version transition. Updating the installed Director cannot update the existing workstream's pinned version through the current managed change path. The next host work must provide an explicitly bound profile-upgrade operation, validating the target active definition and digest, existing metadata/lifecycle/gates, and board execution compatibility. It must use existing proposal approval and optimistic concurrency rather than direct database updates, preserve accepted artifacts and authority, and account for existing board policies. This is independent implementation work, so the goal is not blocked solely on user publication. No database writes or runtime restarts were performed.
+
+
+## Approval-bound profile upgrade before board creation
+
+The existing workstream.change.v1 proposal payload now accepts a standalone profileUpgrade object containing key, version and definitionDigest. WorkstreamProfileUpgrade resolves and validates the target during proposal creation and again during managed execution. It requires a newer active revision of the same profile, exact target digest, compatible existing metadata, and unchanged definition fields except version, boardWorkflow and orchestration. Existing lifecycle/authority/staffing/artifact definitions and accepted project records are preserved. The prior workstream revision and source digest remain bound by the existing approval execution checks.
+
+This first migration path explicitly rejects workstreams with nonarchived boards; coordinated board-policy/assignment migration remains unfinished for that case. The current inspected business has no team board, so it satisfies this structural prerequisite. Actual Director revision 4 versus local revision 5 differs only in the three permitted root fields. No live upgrade proposal or mutation occurred.
+
+Thirteen focused profile tests pass, including six managed-executor persistence cases; the six upgrade cases were rerun with precise exception assertions and pass. Tests cover successful persisted pin change and preserved fields, wrong target digest, inactive target, authority change, existing-board guard, and stale workstream revision. Next integration is having the updated Director propose the concrete target via this path and verify the approval and subsequent team-board bootstrap, plus implement existing-board migration where needed.
+
+
+## Director automatically proposes the pre-board profile upgrade
+
+Director 1.8.0 checks its known workstreams before normal portfolio reconciliation. An older video-game-production.v2 pin without a nonarchived board produces a managed workstream.change.v1 request for the packaged revision 5, using the same canonical SHA-256 definition digest algorithm as the host. The proposal binds the current workstream revision. A stable operating-state key caches the returned approval result; subsequent reviews do not recreate the request, and a lost response before caching reuses the host idempotency key. The Director does not approve the request. Already-current profiles and existing boards are skipped. No new capabilities were added.
+
+Eighty-seven Director tests, self-test and nuspec 1.8.0 verification pass. New typed test-runtime cases exercise actual read/list/propose/state-write/state-read callbacks across repeated calls, with one proposal for an older empty project and none for current or already-boarded projects. Packaged profile bytes still match the host-tested fixture. No live proposal was submitted, no package was published/installed, and no host was restarted. Activation ordering still needs care: upgrade the existing workstream before Producer creates its first team board; an intervening board correctly causes managed upgrade validation to reject. General existing-board migration and live autonomous delivery remain incomplete.
+
+
+## Sprint branching and game-team recovery audit
+
+PreflightCoreAsync validates supplied assignments and requires the initial staffable stage only; it does not require owners for every alternative branch. ManagerApproval stages implicitly use the board manager, so a missing explicit producer-review assignment does not itself block stage creation. However, producer-review currently enters WaitingForApproval. The decision method is exposed by the user-facing orchestration endpoint, not the agent WorkManagement broker, and the Producer implementation has no matching decision loop. Autonomous Producer acceptance remains an implementation gap, not a verified gate.
+
+A separate recovery regression was reproduced: RetryAsync rejected Video Game Engineer / Video Game Technical Director / Video Game Quality Assurance because it searched display role names for Developer and Architect. Retry now follows exact stage-assignee or board-manager authority, requires a nonarchived board team, and requires a non-manager assignee to retain active team membership. Existing assignment revision, blocked/failed state, attempt budget and idempotency checks remain. No role-name workaround or package-role rename was introduced.
+
+Thirteen focused host tests pass (retry, profile validation and policy validation). The new game-team case failed before the fix and now verifies persisted Pending state. Denial cases verify no state/event mutation after membership removal, team archival or assignment replacement. No package publication, installation or server restart occurred. Producer acceptance, live phased delivery and CEO preview remain incomplete.
+
+
+## Broker foundation for autonomous delivery acceptance
+
+The WorkManagement broker now routes the existing work.orchestration.approval.decide action and existing DecideWorkApprovalStageRequest contract to the orchestration service after package capability and scoped board authorization. The service requires matching board/sprint-execution/stage identities, the current board manager also assigned to the approval, a nonempty review summary, and the current waiting stage/traversal of an active sprint. Completion events now persist the idempotency key; identical actor/decision/summary replays return without advancing again, and conflicting reuse is rejected. This is only the host foundation: SDK capability/client discovery and the Producer's evidence-based review loop still need implementation and package versioning. No autonomous Producer review is claimed.
+
+The broker routing set also omitted WorkItemActions.FinalizeDelivery despite having its switch implementation. It now advertises that action, allowing normal broker selection to reach delivery finalization.
+
+Actual broker approval tests exposed an existing EF transition defect: a newly created stage with an assigned GUID, added only through an already tracked navigation, was treated as an update to a nonexistent row. CreateStageExecution now returns the new entity and both manual/approval completion and worker advancement explicitly add it to WorkStageExecutions. The approval/rejection tests verify new persisted stages and replay across cleared tracking state. Nine new broker cases cover approve, reject, exact replay, changed-decision replay, missing scoped/package grants, wrong current manager/assignee, mismatched sprint, paused sprint and historical traversal. Eighteen focused approval/retry/QA tests pass. No server restart, publishing or live approval occurred.
+
+
+## Typed SDK approval submission
+
+WorkManagement.Contracts 3.18.0 adds OrchestrationDecideApproval to the canonical capability set. SDK 3.39.0 adds WorkOrchestrationCapabilities.DecideApproval, catalog registration, and Platform.Work.DecideApprovalStageAsync using the existing exact board/sprint/stage decision contract. Current SDK source was 3.38.0 on inspection; unrelated concurrent SDK changes were retained. Version references, the hidden template default, capability/grant documentation and security/runtime notes are synchronized. C-Sweet pins SDK 3.39.0 and contracts 3.18.0 and uses the canonical approval constant. The Producer package is not updated yet.
+
+Verification: 27 contracts tests, 201 SDK tests, two sample tests, seven generated-template tests and generated-agent self-test pass. Contracts and SDK Release packages were created in artifacts/local-packages; nuspec versions and the SDK's contracts 3.18.0 dependency were inspected. Thirty focused host tests pass with three existing skips against package references (both sibling overrides disabled). Host build reports existing Communications nullable warnings.
+
+Remaining acceptance gap: WorkStageExecutionResponse exposes stage status and summaries but no complete worker result/evidence. The Producer needs authoritative completion evidence before making a delivery acceptance decision. Add that scoped read surface and an evidence-based, durable Producer review loop; do not infer acceptance merely from stage status. No package was published/installed, no live approval was sent, and no server was restarted.
+
+
+## Completed-stage evidence for Producer review
+
+Contracts 3.19.0 adds optional LatestOutcome to WorkStageExecutionResponse. The broker's orchestration read now requires scoped board read authority and includes only the latest attempt of each completed stage when that attempt is completed, valid JSON, and its embedded stage ID, attempt ID, disposition and outcome code match the persisted stage. It never falls back to an older success after a newer failed attempt. Missing or invalid evidence stays null. Trusted platform stages still expose their authoritative status/summary; their non-agent result is not represented as an agent attempt.
+
+Six new actual broker tests cover full output/evidence round-trip, failed latest attempt, wrong attempt ID, wrong stage ID, malformed JSON and a running stage. Every case additionally checks denial after scoped read authority is revoked. All fifteen evidence/approval tests pass. Contracts tests pass (27), Release package 3.19.0 nuspec was verified, and the host pin uses the packed dependency with sibling references disabled. SDK 3.39.0 can deserialize this additive contract through the host's newer dependency; its source is unchanged this turn.
+
+Producer integration remains next: poll owned active-sprint producer-review stages, read exact accepted item planning and these completed outcomes, read document revision content where worker output references it, require same-candidate technical/QA/merge evidence for code, and persist an evidence-bound review decision before typed submission. Generic specialist document outputs include ArtifactId, RevisionId and Sha256 (Pascal-case serialization); code outputs include CommitSha, while QA uses SourceCommitSha. Do not approve from summaries alone. No live state or installed package was changed.
+
+
+## Producer 2.5.0 delivery acceptance
+
+Producer attention review now inspects owned active-sprint producer-review gates before profile/metrics reconciliation. It loads ticket planning and the current traversal's completed specialist result. For document delivery it reads the exact ArtifactId/RevisionId and verifies the reported digest before giving actual revision content to the model. For code delivery it requires matching commit evidence from technical approval, independent QA and merge authorization, plus a completed governed-merge stage. Missing evidence leaves the gate pending with a stable diagnostic comment.
+
+The model must address each acceptance criterion exactly once with evidence. Approval requires every criterion satisfied and no findings; rejection requires actionable findings. The decision is saved under a key containing the stage identity and a digest of the item/evidence before typed approval submission, including conflict winner recovery. Replays reuse the saved decision and host idempotency key. This accepts delivery; it does not decide hiring, spending or repository merge authorization.
+
+Version 2.5.0 is synchronized across code/manifest/project/README. The manifest requests work.orchestration.approval.decide at team scope. SDK 3.39.0 and a direct contracts 3.19.0 package reference are pinned. Thirty-two tests, self-test, diff whitespace and local nupkg version/dependency inspection pass. Typed-runtime tests exercise item/document/state reads, decision writes and approval submissions with lost-response replay for approve/reject and document/code cases; criteria and code-evidence rejection cases pass. The LLM response is supplied by a test delegate, so actual model behavior and live attention scheduling are not yet verified. No package was published/installed and no host was restarted.

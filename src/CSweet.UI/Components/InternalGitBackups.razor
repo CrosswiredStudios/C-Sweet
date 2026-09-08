@@ -1,7 +1,7 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
 
-<MudExpansionPanels><MudExpansionPanel Text="Repository backups">
+<MudExpansionPanels><MudExpansionPanel Expanded="Expanded" Text="Repository backups">
     <MudStack Spacing="2">
         <MudText>Back up Git history and all referenced LFS files to the configured backup storage. Restore creates a separate private repository; assign its team access after inspection.</MudText>
         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
@@ -82,6 +82,7 @@
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public bool Expanded { get; set; }
     private List<SourceControlRepositorySummary> _repositories = [];
     private List<InternalGitBackupSummary> _backups = [];
     private List<InternalGitBackupJob> _jobs = [];

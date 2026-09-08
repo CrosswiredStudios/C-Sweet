@@ -23,7 +23,6 @@
             {
                 <MudButton OnClick="OpenHireDialog" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd">Hire employee</MudButton>
             }
-            <MudButton Href="@($"/organizations/{OrganizationId}/command-center")" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Dashboard">Command Center</MudButton>
         </MudStack>
     </MudPaper>
 
@@ -66,7 +65,7 @@
                                 @foreach (var delta in request.Deltas)
                                 {
                                     <MudPaper Class="pa-3" Elevation="0" Outlined="true">
-                                        <MudText><strong>@delta.ChangeKind:</strong> @delta.Role.Title (@delta.Role.Team) · @delta.Role.Headcount headcount · priority @delta.Role.Priority</MudText>
+                                        <MudText><strong>@delta.ChangeKind:</strong> <ResourceRoleTitle Role="delta.Role" /> (@delta.Role.Team) · @delta.Role.Headcount headcount · priority @delta.Role.Priority</MudText>
                                         <MudText Typo="Typo.caption" Color="Color.Secondary">@delta.Role.Purpose</MudText>
                                     </MudPaper>
                                 }

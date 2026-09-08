@@ -28,6 +28,9 @@ using CSweet.TrustedServices;
 using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
+if (builder.Environment.IsDevelopment())
+    builder.Services.AddHostedService<LocalWebPreviewWorker>();
+
 
 builder.Configuration.AddJsonFile(
     "first-party-agents.json",

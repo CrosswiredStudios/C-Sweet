@@ -5,6 +5,7 @@
 
 <PageTitle>Approvals - C-Sweet</PageTitle>
 
+<EmployeePortraitScope OrganizationId="OrganizationId">
 <div class="approvals-page">
     <MudPaper Elevation="0" Class="page-header approvals-header">
         <div>
@@ -90,8 +91,8 @@
                         @if (item.ResourceChange is { } request)
                         {
                             <SuggestedTeamStructureGraph Request="request"
-                                                         ProductManagerDisplayName="item.RequestedBy"
-                                                         ManagerDisplayName="item.AssignedTo" />
+                                                         ProductManagerDisplayName="@item.RequestedBy"
+                                                         ManagerDisplayName="@item.AssignedTo" />
                             <MudText Typo="Typo.caption" Color="Color.Secondary">
                                 Source request @request.Id · workstream @(request.WorkstreamId?.ToString("D") ?? "not scoped")
                             </MudText>
@@ -99,7 +100,7 @@
                                 @foreach (var delta in request.Deltas)
                                 {
                                     <div>
-                                        <strong>@delta.ChangeKind · @delta.Role.Title</strong>
+                                        <strong>@delta.ChangeKind · <ResourceRoleTitle Role="delta.Role" /></strong>
                                         <span>@delta.Role.Team · @delta.Role.Headcount headcount · priority @delta.Role.Priority</span>
                                         <small>@delta.Role.Purpose</small>
                                     </div>
@@ -272,6 +273,8 @@
         }
     }
 </div>
+
+</EmployeePortraitScope>
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }

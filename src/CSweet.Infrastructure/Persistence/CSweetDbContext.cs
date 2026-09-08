@@ -1382,8 +1382,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.ArtifactPayloadJson);
             entity.Property(x => x.ArtifactDigest).HasMaxLength(64);
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
-            entity.HasIndex(x => new { x.SessionId, x.ArtifactType, x.ArtifactKey, x.ArtifactPageOrdinal })
-                .IsUnique();
+            // A later turn may revise the same artifact page. Turn ordinal and idempotency remain unique.
+            entity.HasIndex(x => new { x.SessionId, x.ArtifactType, x.ArtifactKey, x.ArtifactPageOrdinal });
             entity.HasIndex(x => new { x.SessionId, x.Ordinal }).IsUnique();
             entity.HasIndex(x => new { x.SessionId, x.IdempotencyKey }).IsUnique();
             entity.HasIndex(x => x.EventId).IsUnique();

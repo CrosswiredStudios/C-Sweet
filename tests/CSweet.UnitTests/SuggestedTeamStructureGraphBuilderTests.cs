@@ -67,7 +67,7 @@ public sealed class SuggestedTeamStructureGraphBuilderTests
     }
 
     [Fact]
-    public void Build_UsesFullDesiredRolesRatherThanChangeDeltas()
+    public void Build_SeparatesRetainedPositionsFromHiringChanges()
     {
         var retained = Role("retained", "Retained Role", 1, 3);
         var added = Role("added", "Added Role", 1, 3);
@@ -83,8 +83,23 @@ public sealed class SuggestedTeamStructureGraphBuilderTests
 
         var graph = SuggestedTeamStructureGraphBuilder.Build(request, "PM", "Manager");
 
-        Assert.Equal(["added", "retained"], graph.RoleCohorts.Select(role => role.RoleKey));
+        Assert.Equal(["added"], graph.RoleCohorts.Select(role => role.RoleKey));
+        Assert.Equal(["Retained Role (1 existing)"], graph.RetainedRoles);
         Assert.DoesNotContain(graph.RoleCohorts, role => role.RoleKey == "removed");
+    }
+
+    [Fact]
+    public void Build_RetainsExistingAncestorOfNewRoleAndResolvesCatalogTitle()
+    {
+        var lead = Role("lead", "Existing Lead", 1, 1);
+        var added = Role("technical", "technical", 1, 2, "lead");
+        var request = Request(lead, added) with { Deltas = [new ResourceChangeRoleDelta("Add", added, null)] };
+        var graph = SuggestedTeamStructureGraphBuilder.Build(request, "Producer", "Director",
+            (key, title) => key == "technical" ? "Technical Director" : title);
+        var parent = Assert.Single(graph.RoleCohorts);
+        Assert.Equal("lead", parent.RoleKey);
+        Assert.Equal("Technical Director", Assert.Single(parent.Children).Title);
+        Assert.Equal(["Existing Lead (1 existing)"], graph.RetainedRoles);
     }
 
     private static ResourceChangeRole Role(

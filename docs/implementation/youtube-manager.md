@@ -11,13 +11,24 @@ release line in `CSweet.Agent.Sdk`.
 
 ### Implemented foundation (not a complete product)
 
-- The plugin now declares 18 operations, including `youtube.api.video.metadata.update.v1`.
+- The plugin now declares 20 operations. The newest are `youtube.api.playlist.read.v1` and
+  `youtube.api.playlist.metadata.update.v1`: an independently owned single-playlist snapshot and an
+  exact conditional snippet edit. Partial edits preserve title, description and default language;
+  privacy, podcast status, localizations and contents are excluded. Reconciliation uses durable
+  receipts and owned reads, never matching text as proof of an uncertain mutation or permission to
+  resend. All 136 plugin tests and the 20-operation self-test pass. All 195 agent tests and its
+  self-test pass against the newly packed plugin in a fresh package-only dependency cache.
+  Both local 0.1.0 preview packages are packed. No host or SDK code changes were
+  needed. The agent's conversational playlist edits, playlist creation/deletion/privacy and item
+  mutations remain unfinished; new plugin declarations do not grant consumer authority.
+
+- The earlier video edit increment added `youtube.api.video.metadata.update.v1`.
   Its complete writable-snippet input preserves untouched metadata from an authenticated snapshot,
   binds a strong resource ETag to the approved PUT, and excludes privacy/audience/scheduling fields.
   Video reads include ETag/default language. Host-owned preflight and response ownership checks remain
   mandatory. The deterministic reconciler distinguishes conflict, confirmed/current, subsequently
   changed and uncertain outcomes without resending. Plugin protocol minimum is 2.3; SDK remains 3.38.0.
-  All 104 plugin tests and 182 agent tests pass with package-only dependencies. The agent now requests
+  That increment passed 104 plugin tests and 195 agent tests with package-only dependencies. The agent now requests
   this grant and uses protocol 2.3. Its conversational edit path resolves supplied links or literal
   titles, clarifies ambiguous listings before creating work, saves an owned snapshot and bounded
   model draft, resolves named categories for an explicit country, and preserves untouched fields.
@@ -26,9 +37,15 @@ release line in `CSweet.Agent.Sdk`.
   new approval; the prior decision is checked again after generation. Paused pending edits can be
   cancelled, while executing edits are never described as cancelled. Saved results precede delivery;
   stale no-op snapshots, conflicts, changed results and unknown outcomes never authorize a resend.
-  Clarification follow-ups currently require a new request with the video title/link. Same-obligation
-  conversational follow-ups, richer revision clarification/conflict continuation, large-state
-  sharding, provenance retention and browser/real-provider acceptance remain unfinished.
+  Requester-scoped conversation pointers now resume clarification and confirmed-conflict reviews
+  without repeating the video reference or creating another task. Each routed reply freezes the
+  source obligation revision; retained source hashes prevent changed-message substitution. Fresh
+  snapshots and clarification references precede requeue. Replays skip already-applied replies and
+  already-ready work; stale replies cannot replace newer drafts. Conflicts remain blocked for the
+  host's supported requeue lifecycle. Revision and conflict receipts are rechecked before submission;
+  an uncertain outcome cannot become a confirmed conflict through chat. Ambiguous-title selection
+  follow-ups, requester handoff, large-state sharding, provenance retention and browser/real-provider
+  acceptance remain unfinished. This adds no provider-specific host code or new agent grant.
 
 - SDK 3.38.0 / protocol 2.3 adds provider-neutral conditional mutations through
   `http.ifMatchInput`. Only a required bounded string for one strong entity tag may be mapped,

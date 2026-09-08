@@ -119,12 +119,15 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         var job = Owned(session, id);
         if (after < 0) throw new ArgumentException("Invalid inference cursor.");
         lock (job.Sync) job.LastPoll = clock.GetUtcNow();
+        // Buffered transports can drain tiny token pages faster than the session request
+        // budget permits. Coalesce output for one second, leaving room for lease/control calls.
+        await Task.Delay(TimeSpan.FromSeconds(1), token);
         var deadline = await AccountWaitAsync(job, token);
         lock (job.Sync)
         {
             if (after > job.Results.Count) throw new ArgumentException("Invalid inference cursor.");
             // Bound each response well below the Office broker's frame limit.
-            var page = job.Results.Skip(after).Take(16).ToArray();
+            var page = SelectResultPage(job.Results, after);
             return new { jobId = id, state = job.State, workId = job.WorkId, workDeadline = deadline,
                 next = after + page.Length, completed = job.FinishedAt.HasValue && after + page.Length == job.Results.Count,
                 error = job.Error, chunks = page.Select(x => new { x.Succeeded, x.HasMore, x.Sequence, x.Error,
@@ -132,6 +135,21 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         }
     }
 
+    internal static CapabilityResult[] SelectResultPage(IReadOnlyList<CapabilityResult> results, int after)
+    {
+        var page = new List<CapabilityResult>();
+        var payloadBytes = 0;
+        for (var i = after; i < results.Count && page.Count < 256; i++)
+        {
+            var result = results[i];
+            // Preserve progress for a single large chunk; the existing transport frame limit
+            // still applies. Ordinary pages leave ample room for JSON and response metadata.
+            if (page.Count > 0 && payloadBytes + result.Payload.Length > 64 * 1024) break;
+            page.Add(result);
+            payloadBytes += result.Payload.Length;
+        }
+        return page.ToArray();
+    }
     public void Cancel(AgentSession session, Guid id) => Owned(session, id).Cancellation.Cancel();
 
     private Job Owned(AgentSession session, Guid id)

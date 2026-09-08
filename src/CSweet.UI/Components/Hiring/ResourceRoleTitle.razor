@@ -1,0 +1,6 @@
+@(Portraits?.RoleTitle(Role.RoleKey, Role.Title) ?? Role.Title)
+
+@code {
+    [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
+    [Parameter, EditorRequired] public CSweet.Contracts.Core.ResourceChangeRole Role { get; set; } = default!;
+}

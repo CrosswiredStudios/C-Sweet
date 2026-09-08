@@ -18,7 +18,7 @@ public static class WorkOrchestrationActions
         WorkManagementCapabilityNames.OrchestrationConfigureSoftwareTemplate;
     public const string ConfigureProfile = WorkManagementCapabilityNames.OrchestrationConfigureProfileV1;
     public const string CompleteManual = "work.orchestration.manual.complete";
-    public const string DecideApproval = "work.orchestration.approval.decide";
+    public const string DecideApproval = WorkManagementCapabilityNames.OrchestrationDecideApproval;
 
     public static IReadOnlyList<string> All { get; } =
         [Read, Configure, Publish, ConfigureSoftwareTemplate, ConfigureProfile, Preflight, Start, Pause, Resume, Cancel, Retry, CompleteManual, DecideApproval];

@@ -36,6 +36,7 @@ public sealed class WorkManagementCapabilityHandler(
         WorkItemActions.ReadTypes,
         WorkItemActions.RevisePlanning,
         WorkItemActions.DecideApproval,
+        WorkItemActions.FinalizeDelivery,
         WorkItemActions.Comment,
         WorkItemActions.ReadComments,
         WorkItemActions.Estimate,
@@ -54,6 +55,7 @@ public sealed class WorkManagementCapabilityHandler(
         WorkOrchestrationActions.Resume,
         WorkOrchestrationActions.Cancel,
         WorkOrchestrationActions.Retry,
+        WorkOrchestrationActions.DecideApproval,
         WorkOrchestrationActions.ConfigureSoftwareTemplate,
         WorkOrchestrationActions.ConfigureProfile,
         WorkFlowMetricActions.Read,
@@ -233,6 +235,10 @@ public sealed class WorkManagementCapabilityHandler(
                     await RetryOrchestrationAsync(
                         organizationId, installation.Id,
                         Read<Wire.RetryWorkStageExecutionRequest>(request), cancellationToken)),
+                WorkOrchestrationActions.DecideApproval => Success(
+                    request.RequestId,
+                    await DecideOrchestrationApprovalAsync(organizationId, installation.Id,
+                        Read<Wire.DecideWorkApprovalStageRequest>(request), cancellationToken)),
                 WorkOrchestrationActions.ConfigureSoftwareTemplate => Success(
                     request.RequestId,
                     await ConfigureSoftwareTemplateAsync(
@@ -274,6 +280,16 @@ public sealed class WorkManagementCapabilityHandler(
         }
     }
 
+    private async Task<Wire.WorkStageExecutionResponse> DecideOrchestrationApprovalAsync(
+        Guid organizationId, Guid installationId, Wire.DecideWorkApprovalStageRequest input,
+        CancellationToken cancellationToken)
+    {
+        await RequireAsync(organizationId, installationId, WorkOrchestrationActions.DecideApproval,
+            input.BoardId, cancellationToken);
+        return await orchestration.DecideApprovalAsync(organizationId, input.BoardId,
+            input.StageExecutionId, installationId, input, cancellationToken);
+    }
+
     private Task<Wire.WorkSprintPreflightResult> PreflightOrchestrationAsync(
         Guid organizationId, Guid installationId, Wire.StartWorkSprintExecutionRequest input,
         CancellationToken cancellationToken) =>
@@ -284,6 +300,8 @@ public sealed class WorkManagementCapabilityHandler(
         Guid organizationId, Guid installationId, Wire.ReadWorkOrchestrationRequest input,
         CancellationToken cancellationToken)
     {
+        await RequireAsync(organizationId, installationId, WorkOrchestrationActions.Read,
+            input.BoardId, cancellationToken);
         if (input.BoardId == Guid.Empty || (!input.SprintId.HasValue && !input.SprintExecutionId.HasValue))
             throw new ArgumentException("Board and sprint or sprint-execution identity are required.");
         if (input.SprintId.HasValue && input.SprintExecutionId.HasValue &&
@@ -350,6 +368,11 @@ public sealed class WorkManagementCapabilityHandler(
             .Where(x => x.PolicyRevisionId == execution.PolicyRevisionId)
             .ToDictionaryAsync(x => x.Key, x => x.MaximumAttempts, StringComparer.Ordinal,
                 cancellationToken);
+        var stageIds = execution.Items.SelectMany(x => x.Stages).Select(x => x.Id).ToArray();
+        var attempts = await db.WorkExecutionAttempts.AsNoTracking()
+            .Where(x => stageIds.Contains(x.StageExecutionId)).ToListAsync(cancellationToken);
+        var latest = attempts.GroupBy(x => x.StageExecutionId)
+            .ToDictionary(x => x.Key, x => x.OrderByDescending(a => a.Attempt).First());
         return new Wire.WorkSprintExecutionResponse(
             execution.Id, execution.BoardId, execution.SprintId, execution.PolicyRevisionId,
             execution.StartedByOrganizationUserId, execution.Status, execution.Revision,
@@ -364,9 +387,25 @@ public sealed class WorkManagementCapabilityHandler(
                     stage.LastError, stage.RetryAt, stage.UpdatedAt)
                 {
                     AssignmentRevision = revisions.GetValueOrDefault(item.WorkItemId),
-                    MaximumAttempts = maximumAttempts.GetValueOrDefault(stage.StageKey)
+                    MaximumAttempts = maximumAttempts.GetValueOrDefault(stage.StageKey),
+                    LatestOutcome = ReadCompletedOutcome(stage, latest.GetValueOrDefault(stage.Id))
                 }).ToList(),
                 item.UpdatedAt)).ToList());
+    }
+
+    private static Wire.WorkExecutionOutcomeV1? ReadCompletedOutcome(
+        Wire.WorkStageExecutionResponse stage, WorkExecutionAttempt? attempt)
+    {
+        if (stage.Status != "Completed" || attempt?.Status != WorkExecutionAttemptStatus.Completed ||
+            string.IsNullOrWhiteSpace(attempt.ResultJson)) return null;
+        try
+        {
+            var outcome = JsonSerializer.Deserialize<Wire.WorkExecutionOutcomeV1>(attempt.ResultJson, JsonOptions);
+            return outcome?.StageExecutionId == stage.Id && outcome.AttemptId == attempt.Id &&
+                outcome.Disposition == Wire.WorkExecutionDispositions.Completed &&
+                outcome.OutcomeCode == stage.LastOutcomeCode ? outcome : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     private Task<Wire.WorkSprintExecutionResponse> StartOrchestrationAsync(
@@ -620,8 +659,7 @@ public sealed class WorkManagementCapabilityHandler(
                 x.ScopeId.HasValue)
             .Select(x => x.ScopeId!.Value)
             .ToHashSet();
-        if (!organizationRead && boardIds.Count == 0 && teamIds.Count == 0)
-            throw new UnauthorizedAccessException("The installation has no board read grant.");
+        // Discovery returns only authorized boards, including an empty list before any scope is granted.
 
         var query = db.WorkBoards.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard)
@@ -1392,6 +1430,22 @@ public sealed class WorkManagementCapabilityHandler(
             workstreamId ?? teamId,
             cancellationToken);
         if (decision.Allowed) return decision;
+        // A team-scoped create grant covers its currently assigned workstream, not arbitrary workstreams.
+        var now = DateTimeOffset.UtcNow;
+        if (workstreamId.HasValue && teamId.HasValue &&
+            await db.WorkstreamTeamAssignments.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.WorkstreamId == workstreamId && x.TeamId == teamId &&
+                x.StartsAt <= now && x.EndsAt == null, cancellationToken) &&
+            await (from member in db.TeamMemberships.AsNoTracking()
+                   join employee in db.CoreOrganizationUsers.AsNoTracking() on member.OrganizationUserId equals employee.Id
+                   where member.OrganizationId == organizationId && member.TeamId == teamId && member.EndedAt == null &&
+                         employee.OrganizationId == organizationId && employee.AgentInstallationId == installationId && employee.IsActive
+                   select member.Id).AnyAsync(cancellationToken))
+        {
+            decision = await authorization.AuthorizeAsync(organizationId, GrantSubjectKind.AgentInstallation,
+                installationId, WorkBoardActions.Create, GrantScopeKind.Team, teamId, cancellationToken);
+            if (decision.Allowed) return decision;
+        }
         await WriteAuditAsync(
             organizationId,
             installationId,

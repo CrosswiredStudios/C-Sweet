@@ -53,6 +53,59 @@ public sealed class WorkOrchestrationRetryTests
                 seeded.AssignmentRevision - 1, "stale-retry", "Stale guidance.")));
     }
 
+    [Fact]
+    public async Task GameTeamRetry_UsesAssignmentAuthorityInsteadOfSoftwareRoleNames()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
+        var seeded = await SeedAsync(db);
+        foreach (var role in await db.CoreRoles.ToListAsync())
+            role.Name = role.Name switch
+            {
+                "Software Developer" => "Video Game Engineer",
+                "Software Architect" => "Video Game Technical Director",
+                _ => "Video Game Quality Assurance"
+            };
+        await db.SaveChangesAsync();
+        var service = new WorkOrchestrationService(db, TimeProvider.System);
+
+        var result = await service.RetryAsync(seeded.OrganizationId, seeded.BoardId,
+            seeded.StageId, seeded.DeveloperInstallationId,
+            new WorkOrchestrationControlRequest(seeded.AssignmentRevision, "game-retry", "Technical guidance applied."));
+
+        Assert.Equal("Pending", result.Status);
+        db.ChangeTracker.Clear();
+        Assert.Equal(WorkStageExecutionStatus.Pending, (await db.WorkStageExecutions.SingleAsync()).Status);
+    }
+
+    [Theory]
+    [InlineData("membership")]
+    [InlineData("archived")]
+    [InlineData("unassigned")]
+    public async Task Retry_RejectsLostTeamOrAssignmentAuthority(string condition)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
+        var seeded = await SeedAsync(db);
+        var caller = await db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == seeded.DeveloperInstallationId);
+        if (condition == "membership")
+            (await db.TeamMemberships.SingleAsync(x => x.OrganizationUserId == caller.Id)).EndedAt = DateTimeOffset.UtcNow;
+        else if (condition == "archived")
+            (await db.OrganizationTeams.SingleAsync()).ArchivedAt = DateTimeOffset.UtcNow;
+        else
+            (await db.WorkStageExecutions.SingleAsync()).AgentInstallationId = Guid.NewGuid();
+        await db.SaveChangesAsync();
+        var service = new WorkOrchestrationService(db, TimeProvider.System);
+        var error = await Record.ExceptionAsync(() => service.RetryAsync(seeded.OrganizationId,
+            seeded.BoardId, seeded.StageId, seeded.DeveloperInstallationId,
+            new WorkOrchestrationControlRequest(seeded.AssignmentRevision, "denied-retry", "Retry requested.")));
+        if (condition == "archived") Assert.IsType<InvalidOperationException>(error);
+        else Assert.IsType<UnauthorizedAccessException>(error);
+        db.ChangeTracker.Clear();
+        Assert.Equal(WorkStageExecutionStatus.Blocked, (await db.WorkStageExecutions.SingleAsync()).Status);
+        Assert.Empty(await db.WorkOrchestrationEvents.ToListAsync());
+    }
+
     private static async Task<Seeded> SeedAsync(CSweetDbContext db)
     {
         var now = DateTimeOffset.UtcNow;

@@ -2,32 +2,76 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
 
-<MudPaper Outlined="true" Class="pa-4">
+<section class="repository-workspace" aria-label="Repositories">
     <MudStack Spacing="3">
-        <MudText Typo="Typo.h5">Internal repositories</MudText>
-        <MudText Color="Color.Secondary">Private Git storage in C-Sweet. Create repositories when your projects need them; no GitHub account is required.</MudText>
         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
-        @if (CanManage)
+        @if (CanManage && Creating)
         {
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
-                <MudTextField @bind-Value="_name" Label="Repository name" Disabled="_busy" />
-                <MudTextField @bind-Value="_branch" Label="Initial branch" Disabled="_busy" />
-                <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name))" Variant="Variant.Filled" Color="Color.Primary">Create repository</MudButton>
-            </MudStack>
+            <div class="repository-create">
+                <div class="repository-create-heading">
+                    <div><MudText Typo="Typo.h6">New private repository</MudText><MudText Typo="Typo.body2" Class="repository-muted">C-Sweet storage · No account setup required</MudText></div>
+                    <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="CloseCreateAsync" Disabled="_busy" aria-label="Close new repository form" />
+                </div>
+                <div class="repository-create-fields">
+                    <MudTextField @bind-Value="_name" Label="Repository name" Placeholder="e.g. orbit-game" Variant="Variant.Outlined" Immediate="true" Disabled="_busy" />
+                    <MudTextField @bind-Value="_branch" Label="Initial branch" Variant="Variant.Outlined" Disabled="_busy" />
+                </div>
+                <div class="repository-create-actions">
+                    <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_branch))" Variant="Variant.Filled" Color="Color.Primary">Create repository</MudButton>
+                    <MudButton OnClick="CloseCreateAsync" Disabled="_busy">Cancel</MudButton>
+                </div>
+            </div>
         }
-        @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
-        <MudTable Items="_repositories" Dense="true" Hover="true">
-            <HeaderContent><MudTh>Name</MudTh><MudTh>Default branch</MudTh><MudTh>Status</MudTh><MudTh>Inspect</MudTh></HeaderContent>
-            <RowTemplate>
-                <MudTd>@context.Name</MudTd><MudTd>@context.DefaultBranch</MudTd><MudTd>@context.Status</MudTd>
-                <MudTd><MudButton Disabled="_busy" OnClick="@(() => InspectAsync(context.Id))">Open</MudButton></MudTd>
-            </RowTemplate>
-            <NoRecordsContent><MudText>No repositories yet. Create one when a project needs source control.</MudText></NoRecordsContent>
-        </MudTable>
+        @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="Loading repositories" /> }
+        @if (!_busy && _error is null && AllRepositories.Count == 0)
+        {
+            @if (!Creating || !CanManage)
+            {
+                <div class="repository-empty">
+                    <MudIcon Icon="@Icons.Material.Outlined.AccountTree" Size="Size.Large" />
+                    <MudText Typo="Typo.h5">A home for your team’s code</MudText>
+                    <MudText Class="repository-muted">@(CanManage ? "Create a private repository in C-Sweet. GitHub is optional and can be connected later." : "No repositories yet. A business owner or manager can create one for your team.")</MudText>
+                    @if (CanManage)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => CreatingChanged.InvokeAsync(true)">Create your first repository</MudButton>
+                    }
+                    <MudText Typo="Typo.caption" Class="repository-muted">Private · Built-in storage</MudText>
+                </div>
+            }
+        }
+        else if (AllRepositories.Count > 0)
+        {
+            <div class="repository-list-heading"><span>@AllRepositories.Count @(AllRepositories.Count == 1 ? "repository" : "repositories")</span><span>All providers</span></div>
+            <MudTable Items="AllRepositories" Hover="true" Elevation="0" Class="repository-list">
+                <HeaderContent><MudTh>Repository</MudTh><MudTh>Default branch</MudTh><MudTh>Status</MudTh><MudTh><span class="sr-only">Open repository</span></MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Repository">
+                        <MudButton Class="repository-name" OnClick="() => OpenRepositoryAsync(context)" Disabled="_busy">@context.Name</MudButton>
+                        <MudText Typo="Typo.caption" Class="repository-muted">@ProviderLabel(context) · @(context.IsPrivate ? "Private" : "Public")</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Default branch"><span class="repository-branch">@context.DefaultBranch</span></MudTd>
+                    <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@RepositoryStatusColor(context.Status)">@RepositoryStatusLabel(context.Status)</MudChip></MudTd>
+                    <MudTd><MudButton OnClick="() => OpenRepositoryAsync(context)" Disabled="_busy" aria-label="@($"Open {context.Name}")">Open</MudButton></MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+        @if (_externalRepository is { } external)
+        {
+            <MudPaper Outlined="true" Class="pa-4">
+                <div class="repository-create-heading"><MudText Typo="Typo.h6">@external.Name</MudText><MudButton OnClick="() => _externalRepository = null">Close</MudButton></div>
+                <MudText>@external.CanonicalPath</MudText>
+                <MudText Typo="Typo.body2">@ProviderLabel(external) · @external.DefaultBranch · @RepositoryStatusLabel(external.Status)</MudText>
+                @if (!string.IsNullOrWhiteSpace(external.HealthMessage)) { <MudAlert Severity="Severity.Warning" Class="mt-3">@external.HealthMessage</MudAlert> }
+                @if (Connections.Any(c => c.Id == external.ConnectionId && c.Provider == "GitHub"))
+                {
+                    <MudButton Href="@GitHubUrl(external)" Target="_blank" Rel="noopener noreferrer" EndIcon="@Icons.Material.Outlined.OpenInNew" Class="mt-3">Open in GitHub</MudButton>
+                }
+            </MudPaper>
+        }
         @if (_details is not null)
         {
             <MudDivider />
-            <MudText Typo="Typo.h6">@_details.Repository.Name</MudText>
+            <div class="repository-create-heading"><MudText Typo="Typo.h6">@_details.Repository.Name</MudText><MudButton OnClick="() => _details = null" Disabled="_busy">Close repository</MudButton></div>
             @if (CanManage)
             {
                 <MudTextField @bind-Value="_editName" Label="Name" Disabled="_busy" />
@@ -105,11 +149,48 @@
             @if (_details.Inspection.Refs.Count == 0) { <MudText Color="Color.Secondary">This repository has no commits yet.</MudText> }
         }
     </MudStack>
-</MudPaper>
+</section>
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public bool CanManage { get; set; }
+    [Parameter] public bool Creating { get; set; }
+    [Parameter] public EventCallback<bool> CreatingChanged { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public IReadOnlyList<SourceControlRepositorySummary> Repositories { get; set; } = [];
+    [Parameter] public IReadOnlyList<SourceControlConnectionSummary> Connections { get; set; } = [];
+    private SourceControlRepositorySummary? _externalRepository;
+    private Guid _loadedOrganization;
+    private Guid? _loadedSelection;
+    private string? _loadedReference;
+    private IReadOnlyList<SourceControlRepositorySummary> AllRepositories => _repositories
+        .Concat(Repositories.Where(r => !Connections.Any(c => c.Id == r.ConnectionId && c.Provider == "InternalGit")))
+        .DistinctBy(r => r.Id).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    private bool IsInternal(SourceControlRepositorySummary repository) => _repositories.Any(r => r.Id == repository.Id);
+    private string ProviderLabel(SourceControlRepositorySummary repository) => IsInternal(repository) ? "C-Sweet storage"
+        : Connections.FirstOrDefault(c => c.Id == repository.ConnectionId)?.Provider ?? "Connected Git";
+    private static string GitHubUrl(SourceControlRepositorySummary repository) => "https://github.com/" + string.Join("/", repository.CanonicalPath.Split('/').Select(Uri.EscapeDataString));
+    private static string RepositoryStatusLabel(string status) => status switch
+    {
+        "AttentionRequired" => "Needs attention",
+        "Pending" or "Provisioning" => "Setup in progress",
+        "Connected" => "Ready",
+        _ => status
+    };
+    private static Color RepositoryStatusColor(string status) => status switch
+    {
+        "Ready" or "Connected" => Color.Success,
+        "AttentionRequired" => Color.Warning,
+        "Disconnected" => Color.Error,
+        _ => Color.Default
+    };
+    private Task CloseCreateAsync() => CreatingChanged.InvokeAsync(false);
+    private async Task OpenRepositoryAsync(SourceControlRepositorySummary repository)
+    {
+        _details = null; _externalRepository = null;
+        if (IsInternal(repository)) await InspectAsync(repository.Id);
+        else _externalRepository = repository;
+    }
     [Parameter] public Guid? SelectedRepository { get; set; }
     [Parameter] public string? SelectedReference { get; set; }
     private IReadOnlyList<SourceControlRepositorySummary> _repositories = [];
@@ -127,22 +208,33 @@
     private string Endpoint => $"api/organizations/{OrganizationId:D}/source-control/internal/repositories";
     protected override async Task OnParametersSetAsync()
     {
-        await RunAsync(async () =>
+        if (_loadedOrganization != OrganizationId)
         {
-            await LoadAsync();
-            if (CanManage)
+            _loadedOrganization = OrganizationId;
+            _repositories = []; _teams = []; _details = null; _externalRepository = null;
+            _loadedSelection = null; _loadedReference = null;
+            await RunAsync(async () =>
             {
-                var teams = await Http.GetFromJsonAsync<TeamDirectoryResponse>($"api/core/organizations/{OrganizationId:D}/teams?includeArchived=false");
-                _teams = teams?.Teams.Where(t => !t.IsArchived).ToList() ?? [];
-            }
-        });
-        if (SelectedRepository is { } id && _repositories.Any(r => r.Id == id)) await InspectAsync(id, SelectedReference);
+                await LoadAsync();
+                if (CanManage)
+                {
+                    var teams = await Http.GetFromJsonAsync<TeamDirectoryResponse>($"api/core/organizations/{OrganizationId:D}/teams?includeArchived=false");
+                    _teams = teams?.Teams.Where(t => !t.IsArchived).ToList() ?? [];
+                }
+            });
+        }
+        if (SelectedRepository is { } id && (_loadedSelection != id || _loadedReference != SelectedReference) && _repositories.Any(r => r.Id == id))
+        {
+            _loadedSelection = id; _loadedReference = SelectedReference;
+            await InspectAsync(id, SelectedReference);
+        }
     }
     private async Task LoadAsync() => _repositories = await Http.GetFromJsonAsync<List<SourceControlRepositorySummary>>(Endpoint) ?? [];
     private async Task CreateAsync() => await RunAsync(async () =>
     {
         using var response = await Http.PostAsJsonAsync(Endpoint, new CreateInternalRepositoryRequest(_name, _branch));
         await CheckAsync(response); _name = ""; await LoadAsync();
+        await CreatingChanged.InvokeAsync(false); await OnChanged.InvokeAsync();
     });
     private async Task InspectAsync(Guid id, string? reference = null, string? file = null) => await RunAsync(async () =>
     {

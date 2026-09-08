@@ -1,6 +1,10 @@
 @using CSweet.Contracts.Core
 
-<section class="suggested-team-structure" aria-label="Suggested team reporting structure">
+<section class="suggested-team-structure" aria-label="Proposed team changes">
+    @if (Model.RetainedRoles.Count > 0)
+    {
+        <p class="suggested-team-retained">Retained positions — no new hire: @string.Join(", ", Model.RetainedRoles)</p>
+    }
     <div class="suggested-team-structure-scroll">
         <ol class="suggested-team-tree">
             <li>
@@ -37,6 +41,7 @@
 </section>
 
 @code {
+    [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
     [Parameter, EditorRequired] public ResourceChangeRequestResponse Request { get; set; } = default!;
     [Parameter] public string? ProductManagerDisplayName { get; set; }
     [Parameter] public string? ManagerDisplayName { get; set; }
@@ -49,7 +54,8 @@
         Model = SuggestedTeamStructureGraphBuilder.Build(
             Request,
             ProductManagerDisplayName,
-            ManagerDisplayName);
+            ManagerDisplayName,
+            (key, title) => Portraits?.RoleTitle(key, title) ?? title);
     }
 
     private static string Initials(string name)

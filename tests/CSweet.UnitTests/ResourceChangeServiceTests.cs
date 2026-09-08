@@ -11,6 +11,51 @@ namespace CSweet.UnitTests;
 
 public sealed class ResourceChangeServiceTests
 {
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task TeamMemberMayProposeToLeadAndPreserveApprovedReportingOnly(bool activeMember, bool managerIsLead)
+    {
+        await using var db = CreateDb();
+        var setup = SeedManagerConversation(db);
+        await db.SaveChangesAsync();
+        var manager = await db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == setup.ManagerInstallationId);
+        var service = new ResourceChangeService(db, new TestAuditEventWriter());
+        var initial = await service.ProposeAsync(setup.OrganizationId, setup.RequesterInstallationId, Proposal(setup, "baseline"));
+        var team = new OrganizationTeam { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            LeadOrganizationUserId = managerIsLead ? manager.Id : Guid.NewGuid(), Revision = 1 };
+        db.OrganizationTeams.Add(team);
+        db.TeamMemberships.Add(new TeamMembership { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            TeamId = team.Id, OrganizationUserId = setup.RequesterId,
+            EndedAt = activeMember ? null : DateTimeOffset.UtcNow });
+        var baseline = await db.ResourceChangeRequests.Include(x => x.Roles).SingleAsync(x => x.Id == initial.Id);
+        baseline.Status = ResourceChangeRequestStatus.Approved;
+        baseline.TeamId = team.Id;
+        baseline.DecidedAt = DateTimeOffset.UtcNow;
+        foreach (var role in baseline.Roles.Where(x => x.IsDesired)) { role.ReportsToOrganizationUserId = manager.Id; role.TeamId = team.Id; }
+        await db.SaveChangesAsync();
+        var roles = initial.Roles.Select(x => x with { ReportsToOrganizationUserId = manager.Id }).ToList();
+        roles.Add(initial.Roles[0] with { RoleKey = "technical-lead", ReportsToOrganizationUserId = setup.RequesterId });
+        var proposal = Proposal(setup, "member-capacity") with { ChatTurnId = Guid.Empty, TeamId = team.Id,
+            ExpectedTeamRevision = 1, Roles = roles, SupersedesRequestId = initial.Id,
+            Evidence = [new ResourceChangeEvidence("accepted-scope", "revision-1", "Technical planning gap")],
+            ExpectedEffect = "Fill the technical planning gap" };
+        if (!activeMember || !managerIsLead)
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ProposeAsync(setup.OrganizationId, setup.RequesterInstallationId, proposal));
+            return;
+        }
+        var result = await service.ProposeAsync(setup.OrganizationId, setup.RequesterInstallationId, proposal);
+        Assert.Equal("Pending", result.Status);
+        Assert.Equal("technical-lead", Assert.Single(result.Deltas).Role.RoleKey);
+        Assert.Equal(manager.Id, team.LeadOrganizationUserId);
+        Assert.Contains(await db.AgentPlatformEventOutbox.ToListAsync(), x =>
+            x.TargetInstallationId == setup.ManagerInstallationId && x.DataJson.Contains(result.Id.ToString("D")));
+        var invalidRoles = roles.Select(x => x.RoleKey == "technical-lead" ? x with { ReportsToOrganizationUserId = manager.Id } : x).ToList();
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ProposeAsync(setup.OrganizationId, setup.RequesterInstallationId,
+            proposal with { IdempotencyKey = "invalid-new-reporting", Roles = invalidRoles }));
+    }
     [Fact]
     public async Task InitialProposal_IsAtomicIdempotentAndTargetsCurrentManagerInstallation()
     {

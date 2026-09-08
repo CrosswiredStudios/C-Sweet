@@ -1,0 +1,2022 @@
+{
+  "key": "video-game-production.v2",
+  "version": 5,
+  "displayName": "Video Game Production",
+  "lifecyclePolicyKey": "video-game.lifecycle.v2",
+  "defaultBoardProfileKey": "video-game-production-board.v2",
+  "authorityPolicyKey": "video-game.authority.v1",
+  "metadataSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "workingTitle",
+      "genre",
+      "targetPlatforms",
+      "playerAudience",
+      "enginePreference",
+      "contentRatingTarget",
+      "creativePillars",
+      "businessModel",
+      "liveOperationsExpected",
+      "onlineMultiplayerExpected",
+      "accessibilityTargets",
+      "localizationTargets"
+    ],
+    "properties": {
+      "workingTitle": {
+        "type": "string"
+      },
+      "genre": {
+        "type": "string"
+      },
+      "targetPlatforms": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "playerAudience": {
+        "type": "string"
+      },
+      "enginePreference": {
+        "type": "string"
+      },
+      "contentRatingTarget": {
+        "type": "string"
+      },
+      "creativePillars": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "businessModel": {
+        "type": "string"
+      },
+      "liveOperationsExpected": {
+        "type": "boolean"
+      },
+      "onlineMultiplayerExpected": {
+        "type": "boolean"
+      },
+      "accessibilityTargets": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "localizationTargets": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "boardWorkflow": {
+    "columns": [
+      {
+        "key": "backlog",
+        "name": "Backlog",
+        "category": "ToDo",
+        "wipPolicy": "Disabled"
+      },
+      {
+        "key": "ready",
+        "name": "Ready",
+        "category": "ToDo",
+        "wipPolicy": "Disabled"
+      },
+      {
+        "key": "in-progress",
+        "name": "In Progress",
+        "category": "InProgress",
+        "wipPolicy": "HardLimit",
+        "wipLimit": 12
+      },
+      {
+        "key": "technical-review",
+        "name": "Technical Review",
+        "category": "InProgress",
+        "wipPolicy": "HardLimit",
+        "wipLimit": 8
+      },
+      {
+        "key": "quality",
+        "name": "QA",
+        "category": "InProgress",
+        "wipPolicy": "HardLimit",
+        "wipLimit": 8
+      },
+      {
+        "key": "merge",
+        "name": "Merge",
+        "category": "InProgress",
+        "wipPolicy": "HardLimit",
+        "wipLimit": 8
+      },
+      {
+        "key": "producer-review",
+        "name": "Producer Review",
+        "category": "InProgress",
+        "wipPolicy": "HardLimit",
+        "wipLimit": 8
+      },
+      {
+        "key": "done",
+        "name": "Done",
+        "category": "Done",
+        "wipPolicy": "Disabled"
+      }
+    ]
+  },
+  "orchestration": {
+    "name": "Video Game Sprint Delivery",
+    "initialStageKey": "ready",
+    "mergeMode": "ManagerApproval",
+    "concurrency": {
+      "global": 128,
+      "organization": 48,
+      "board": 16,
+      "defaultStage": 12,
+      "defaultAssignee": 2
+    },
+    "stages": [
+      {
+        "key": "ready",
+        "name": "Ready",
+        "stageType": "Queue",
+        "columnKey": "ready",
+        "instructions": "Wait for the Producer to bind an exact specialist installation and approved planning package.",
+        "inputSchemaJson": "{\"type\":\"object\"}",
+        "outputSchemaJson": "{\"type\":\"object\"}",
+        "timeoutSeconds": 300,
+        "retryPolicy": {
+          "maximumAttempts": 1,
+          "initialDelaySeconds": 10,
+          "maximumDelaySeconds": 10
+        }
+      },
+      {
+        "key": "specialist-execution",
+        "name": "Specialist Execution",
+        "stageType": "AgentExecution",
+        "columnKey": "in-progress",
+        "instructions": "Execute the canonical role-owned ticket. Code delivery returns code-published with its exact publication SHA; document delivery returns completed. Never report source publication as merged delivery.",
+        "inputSchemaJson": "{\"type\":\"object\"}",
+        "outputSchemaJson": "{\"type\":\"object\"}",
+        "timeoutSeconds": 3600,
+        "concurrencyLimit": 12,
+        "retryPolicy": {
+          "maximumAttempts": 3,
+          "initialDelaySeconds": 30,
+          "maximumDelaySeconds": 300
+        }
+      },
+      {
+        "key": "technical-review",
+        "name": "Technical Review",
+        "stageType": "AgentExecution",
+        "columnKey": "technical-review",
+        "instructions": "Review the exact candidate patch against the accepted requirements. Return approved with the reviewed commit SHA, or rejected with actionable findings. This is a code review decision, not permission to merge.",
+        "inputSchemaJson": "{\"type\":\"object\"}",
+        "outputSchemaJson": "{\"type\":\"object\"}",
+        "timeoutSeconds": 3600,
+        "concurrencyLimit": 12,
+        "retryPolicy": {
+          "maximumAttempts": 3,
+          "initialDelaySeconds": 30,
+          "maximumDelaySeconds": 300
+        }
+      },
+      {
+        "key": "quality",
+        "name": "Independent QA",
+        "stageType": "AgentExecution",
+        "columnKey": "quality",
+        "instructions": "Test the exact published and technically reviewed candidate SHA. Return passed or failed with source commit evidence, executed validations and findings. Do not change tracked source.",
+        "inputSchemaJson": "{\"type\":\"object\"}",
+        "outputSchemaJson": "{\"type\":\"object\"}",
+        "timeoutSeconds": 3600,
+        "concurrencyLimit": 12,
+        "retryPolicy": {
+          "maximumAttempts": 3,
+          "initialDelaySeconds": 30,
+          "maximumDelaySeconds": 300
+        }
+      },
+      {
+        "key": "merge-decision",
+        "name": "Final Merge Authorization",
+        "stageType": "AgentExecution",
+        "columnKey": "merge",
+        "instructions": "Verify that the candidate SHA is unchanged from technical review and has passing independent QA. Authorize that exact SHA through the Git broker and return approved; reject changed or unacceptable candidates with feedback.",
+        "inputSchemaJson": "{\"type\":\"object\"}",
+        "outputSchemaJson": "{\"type\":\"object\"}",
+        "timeoutSeconds": 3600,
+        "concurrencyLimit": 12,
+        "retryPolicy": {
+          "maximumAttempts": 3,
+          "initialDelaySeconds": 30,
+          "maximumDelaySeconds": 300
+        }
+      },
+      {
+        "key": "governed-merge",
+        "name": "Governed Merge",
+        "stageType": "TrustedPlatformAction",
+        "columnKey": "merge",
+        "instructions": "Merge only the exact QA-passed and lead-authorized source publication through the trusted platform action.",
+        "inputSchemaJson": "{\"type\":\"object\"}",
+        "outputSchemaJson": "{\"type\":\"object\"}",
+        "timeoutSeconds": 3600,
+        "concurrencyLimit": 12,
+        "retryPolicy": {
+          "maximumAttempts": 3,
+          "initialDelaySeconds": 30,
+          "maximumDelaySeconds": 300
+        },
+        "platformAction": "source-control.merge.execute.v2"
+      },
+      {
+        "key": "producer-review",
+        "name": "Producer Review",
+        "stageType": "ManagerApproval",
+        "columnKey": "producer-review",
+        "instructions": "Verify the exact output evidence and acceptance criteria without overriding creative or QA authority.",
+        "inputSchemaJson": "{\"type\":\"object\"}",
+        "outputSchemaJson": "{\"type\":\"object\"}",
+        "timeoutSeconds": 86400,
+        "retryPolicy": {
+          "maximumAttempts": 1,
+          "initialDelaySeconds": 60,
+          "maximumDelaySeconds": 60
+        }
+      },
+      {
+        "key": "done",
+        "name": "Done",
+        "stageType": "Terminal",
+        "columnKey": "done",
+        "instructions": "Delivery evidence accepted.",
+        "inputSchemaJson": "{\"type\":\"object\"}",
+        "outputSchemaJson": "{\"type\":\"object\"}",
+        "timeoutSeconds": 60,
+        "retryPolicy": {
+          "maximumAttempts": 1,
+          "initialDelaySeconds": 10,
+          "maximumDelaySeconds": 10
+        },
+        "isSuccessfulTerminal": true
+      }
+    ],
+    "transitions": [
+      {
+        "fromStageKey": "ready",
+        "outcomeCode": "ready",
+        "toStageKey": "specialist-execution"
+      },
+      {
+        "fromStageKey": "specialist-execution",
+        "outcomeCode": "completed",
+        "toStageKey": "producer-review"
+      },
+      {
+        "fromStageKey": "producer-review",
+        "outcomeCode": "approved",
+        "toStageKey": "done"
+      },
+      {
+        "fromStageKey": "producer-review",
+        "outcomeCode": "rejected",
+        "toStageKey": "specialist-execution",
+        "maximumTraversals": 3
+      },
+      {
+        "fromStageKey": "specialist-execution",
+        "outcomeCode": "code-published",
+        "toStageKey": "technical-review"
+      },
+      {
+        "fromStageKey": "technical-review",
+        "outcomeCode": "approved",
+        "toStageKey": "quality"
+      },
+      {
+        "fromStageKey": "technical-review",
+        "outcomeCode": "rejected",
+        "toStageKey": "specialist-execution",
+        "maximumTraversals": 3
+      },
+      {
+        "fromStageKey": "quality",
+        "outcomeCode": "passed",
+        "toStageKey": "merge-decision"
+      },
+      {
+        "fromStageKey": "quality",
+        "outcomeCode": "failed",
+        "toStageKey": "specialist-execution",
+        "maximumTraversals": 3
+      },
+      {
+        "fromStageKey": "merge-decision",
+        "outcomeCode": "approved",
+        "toStageKey": "governed-merge"
+      },
+      {
+        "fromStageKey": "merge-decision",
+        "outcomeCode": "rejected",
+        "toStageKey": "specialist-execution",
+        "maximumTraversals": 3
+      },
+      {
+        "fromStageKey": "governed-merge",
+        "outcomeCode": "merged",
+        "toStageKey": "producer-review"
+      }
+    ]
+  },
+  "assignmentPolicy": {
+    "exactRoleRequired": true,
+    "skillMatchMode": "RequiredThenPreferred",
+    "roles": [
+      {
+        "roleKey": "game-producer",
+        "eligibleWorkItemTypeKeys": [],
+        "defaultRelevantSpecializationKeys": [
+          "game-production",
+          "sprint-planning",
+          "delivery-forecasting",
+          "dependency-risk-capacity-management",
+          "management-reporting"
+        ],
+        "requiredCapabilityKeys": []
+      },
+      {
+        "roleKey": "game-designer",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.research-spike.v1",
+          "video-game.creative-review.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "game-design",
+          "gameplay-systems",
+          "progression-balance",
+          "game-content",
+          "prototype-design"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-technical-director",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.research-spike.v1",
+          "video-game.creative-review.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "technical-feasibility",
+          "runtime-architecture",
+          "engine-integration",
+          "performance-budgets",
+          "technical-decomposition"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-engineer",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.bug.v1",
+          "video-game.research-spike.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "gameplay-programming",
+          "gameplay-systems",
+          "engine-integration",
+          "automated-testing",
+          "build-diagnostics"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-quality-assurance",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.bug.v1",
+          "video-game.research-spike.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "test-planning",
+          "build-validation",
+          "defect-reproduction",
+          "regression-testing",
+          "compatibility-testing",
+          "accessibility-testing"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "playtest-researcher",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.research-spike.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "playtest-planning",
+          "research-design",
+          "consent-governance",
+          "research-analysis"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-art-director",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.creative-review.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "art-direction"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-artist",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "asset-production"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "technical-artist",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.bug.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "asset-pipelines",
+          "engine-integration",
+          "visual-performance"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "narrative-designer",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.creative-review.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "narrative-design"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "audio-designer",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.creative-review.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "audio-design"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "level-designer",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.creative-review.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "level-design"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-ui-ux-accessibility-designer",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.creative-review.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "ui-ux-accessibility-design"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-build-release-engineer",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.bug.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "build-release-engineering"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-networking-engineer",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.bug.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "game-networking",
+          "game-security-privacy"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-economy-designer",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.research-spike.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "game-economy",
+          "progression-balance"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-localization-specialist",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "game-localization"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-security-privacy",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.bug.v1",
+          "video-game.research-spike.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "game-security-privacy"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-marketing-community",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "game-marketing-community"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-platform-certification",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.bug.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "platform-certification"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      },
+      {
+        "roleKey": "game-live-operations",
+        "eligibleWorkItemTypeKeys": [
+          "video-game.task.v1",
+          "video-game.bug.v1"
+        ],
+        "defaultRelevantSpecializationKeys": [
+          "live-operations"
+        ],
+        "requiredCapabilityKeys": [
+          "work.execution.run.v1"
+        ]
+      }
+    ],
+    "planningQuorums": [
+      {
+        "key": "detailed-backlog",
+        "lifecycleStageKeys": [
+          "concept",
+          "pre-production",
+          "prototype",
+          "vertical-slice",
+          "production",
+          "alpha",
+          "beta",
+          "release-candidate",
+          "launch",
+          "post-launch-stabilization",
+          "live-operations"
+        ],
+        "requiredRoleKeys": [
+          "game-technical-director"
+        ]
+      },
+      {
+        "key": "sprint-readiness",
+        "lifecycleStageKeys": [
+          "prototype",
+          "vertical-slice",
+          "production",
+          "alpha",
+          "beta",
+          "release-candidate",
+          "launch",
+          "post-launch-stabilization",
+          "live-operations"
+        ],
+        "requiredRoleKeys": [
+          "game-quality-assurance"
+        ],
+        "includeAssignedRoles": true
+      }
+    ]
+  },
+  "lifecycle": {
+    "stages": [
+      {
+        "key": "intake",
+        "label": "Intake"
+      },
+      {
+        "key": "concept",
+        "label": "Concept"
+      },
+      {
+        "key": "pre-production",
+        "label": "Pre-production"
+      },
+      {
+        "key": "prototype",
+        "label": "Prototype"
+      },
+      {
+        "key": "vertical-slice",
+        "label": "Vertical Slice"
+      },
+      {
+        "key": "production",
+        "label": "Production"
+      },
+      {
+        "key": "alpha",
+        "label": "Alpha"
+      },
+      {
+        "key": "beta",
+        "label": "Beta"
+      },
+      {
+        "key": "release-candidate",
+        "label": "Release Candidate"
+      },
+      {
+        "key": "launch",
+        "label": "Launch"
+      },
+      {
+        "key": "post-launch-stabilization",
+        "label": "Post-launch Stabilization"
+      },
+      {
+        "key": "live-operations",
+        "label": "Live Operations"
+      },
+      {
+        "key": "closure",
+        "label": "Closure / Sunset"
+      }
+    ],
+    "transitions": [
+      {
+        "from": "intake",
+        "to": "concept"
+      },
+      {
+        "from": "concept",
+        "to": "pre-production"
+      },
+      {
+        "from": "pre-production",
+        "to": "prototype"
+      },
+      {
+        "from": "prototype",
+        "to": "vertical-slice"
+      },
+      {
+        "from": "vertical-slice",
+        "to": "production"
+      },
+      {
+        "from": "production",
+        "to": "alpha"
+      },
+      {
+        "from": "alpha",
+        "to": "beta"
+      },
+      {
+        "from": "beta",
+        "to": "release-candidate"
+      },
+      {
+        "from": "release-candidate",
+        "to": "launch"
+      },
+      {
+        "from": "launch",
+        "to": "post-launch-stabilization"
+      },
+      {
+        "from": "post-launch-stabilization",
+        "to": "live-operations"
+      },
+      {
+        "from": "post-launch-stabilization",
+        "to": "closure"
+      },
+      {
+        "from": "live-operations",
+        "to": "closure"
+      }
+    ]
+  },
+  "milestones": [
+    {
+      "key": "vision-approved",
+      "stage": "concept",
+      "requiredEvidenceTypeKeys": [
+        "video-game.vision.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "creative-director",
+        "game-producer"
+      ]
+    },
+    {
+      "key": "pre-production-ready",
+      "stage": "pre-production",
+      "requiredEvidenceTypeKeys": [
+        "video-game.gdd.v1",
+        "video-game.technical-design.v1",
+        "video-game.production-plan.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "game-producer",
+        "game-technical-director",
+        "creative-director"
+      ]
+    },
+    {
+      "key": "prototype-validated",
+      "stage": "prototype",
+      "requiredEvidenceTypeKeys": [
+        "video-game.runnable-build.v1",
+        "video-game.playtest.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "game-technical-director",
+        "game-quality-assurance",
+        "creative-director"
+      ]
+    },
+    {
+      "key": "vertical-slice-approved",
+      "stage": "vertical-slice",
+      "requiredEvidenceTypeKeys": [
+        "video-game.runnable-build.v1",
+        "video-game.playtest.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "creative-director",
+        "game-producer",
+        "game-technical-director",
+        "game-quality-assurance"
+      ]
+    },
+    {
+      "key": "production-ready",
+      "stage": "production",
+      "requiredEvidenceTypeKeys": [
+        "video-game.runnable-build.v1",
+        "video-game.production-plan.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "game-producer",
+        "game-technical-director",
+        "game-quality-assurance"
+      ]
+    },
+    {
+      "key": "alpha-exit",
+      "stage": "alpha",
+      "requiredEvidenceTypeKeys": [
+        "video-game.runnable-build.v1",
+        "video-game.qa-evaluation-plan.v1",
+        "video-game.performance-evaluation.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "game-quality-assurance",
+        "game-technical-director",
+        "game-producer"
+      ]
+    },
+    {
+      "key": "beta-exit",
+      "stage": "beta",
+      "requiredEvidenceTypeKeys": [
+        "video-game.runnable-build.v1",
+        "video-game.playtest.v1",
+        "video-game.accessibility-evaluation.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "game-quality-assurance",
+        "game-technical-director",
+        "creative-director"
+      ]
+    },
+    {
+      "key": "release-candidate-approved",
+      "stage": "release-candidate",
+      "requiredEvidenceTypeKeys": [
+        "video-game.runnable-build.v1",
+        "video-game.platform-certification.v1",
+        "video-game.release-plan.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "game-technical-director",
+        "game-quality-assurance",
+        "creative-director",
+        "game-producer"
+      ]
+    },
+    {
+      "key": "launch-approved",
+      "stage": "launch",
+      "requiredEvidenceTypeKeys": [
+        "video-game.release-readiness.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "human-owner"
+      ]
+    },
+    {
+      "key": "stabilization-exit",
+      "stage": "post-launch-stabilization",
+      "requiredEvidenceTypeKeys": [
+        "video-game.runnable-build.v1",
+        "video-game.qa-evaluation-plan.v1"
+      ],
+      "requiredReviewerRoleKeys": [
+        "game-producer",
+        "game-quality-assurance",
+        "game-technical-director"
+      ]
+    }
+  ],
+  "workItemTypes": [
+    {
+      "key": "video-game.milestone.v1",
+      "displayName": "Game milestone",
+      "kind": "Epic",
+      "executionMode": "Container",
+      "permittedParentTypeKeys": [],
+      "requiredApprovalPolicyKeys": []
+    },
+    {
+      "key": "video-game.feature.v1",
+      "displayName": "Game feature",
+      "kind": "Story",
+      "executionMode": "Container",
+      "permittedParentTypeKeys": [
+        "video-game.milestone.v1"
+      ],
+      "requiredApprovalPolicyKeys": []
+    },
+    {
+      "key": "video-game.content.v1",
+      "displayName": "Game content",
+      "kind": "Story",
+      "executionMode": "Container",
+      "permittedParentTypeKeys": [
+        "video-game.milestone.v1"
+      ],
+      "requiredApprovalPolicyKeys": []
+    },
+    {
+      "key": "video-game.task.v1",
+      "displayName": "Game task",
+      "kind": "Task",
+      "executionMode": "Executable",
+      "permittedParentTypeKeys": [
+        "video-game.milestone.v1",
+        "video-game.feature.v1",
+        "video-game.content.v1",
+        "video-game.task.v1"
+      ],
+      "requiredApprovalPolicyKeys": []
+    },
+    {
+      "key": "video-game.bug.v1",
+      "displayName": "Game bug",
+      "kind": "Bug",
+      "executionMode": "Executable",
+      "permittedParentTypeKeys": [
+        "video-game.milestone.v1",
+        "video-game.feature.v1",
+        "video-game.content.v1",
+        "video-game.task.v1"
+      ],
+      "requiredApprovalPolicyKeys": []
+    },
+    {
+      "key": "video-game.research-spike.v1",
+      "displayName": "Game research / spike",
+      "kind": "Task",
+      "executionMode": "Executable",
+      "permittedParentTypeKeys": [
+        "video-game.milestone.v1",
+        "video-game.feature.v1",
+        "video-game.content.v1"
+      ],
+      "requiredApprovalPolicyKeys": []
+    },
+    {
+      "key": "video-game.creative-review.v1",
+      "displayName": "Game creative review",
+      "kind": "Task",
+      "executionMode": "Executable",
+      "permittedParentTypeKeys": [
+        "video-game.milestone.v1",
+        "video-game.feature.v1",
+        "video-game.content.v1"
+      ],
+      "requiredApprovalPolicyKeys": []
+    }
+  ],
+  "workflow": {
+    "states": [
+      "ready",
+      "in-progress",
+      "discipline-review",
+      "integrated-build",
+      "qa-evaluation",
+      "creative-review",
+      "done"
+    ]
+  },
+  "staffing": {
+    "requiredRoleKeys": [
+      "game-producer"
+    ],
+    "conditionalRoleKeys": [
+      "game-networking-engineer",
+      "game-economy-designer",
+      "game-localization-specialist",
+      "game-security-privacy",
+      "game-marketing-community",
+      "game-platform-certification",
+      "game-live-operations"
+    ],
+    "conditionalRoles": [
+      {
+        "roleKey": "game-networking-engineer",
+        "predicate": {
+          "jsonPath": "$.onlineMultiplayerExpected",
+          "operator": "equals",
+          "value": true
+        },
+        "blockingDecisionTypeKey": "video-game.missing-conditional-specialist.v1"
+      },
+      {
+        "roleKey": "game-economy-designer",
+        "predicate": {
+          "jsonPath": "$.businessModel",
+          "operator": "equals",
+          "value": "free-to-play"
+        },
+        "blockingDecisionTypeKey": "video-game.missing-conditional-specialist.v1"
+      },
+      {
+        "roleKey": "game-localization-specialist",
+        "predicate": {
+          "jsonPath": "$.localizationTargets",
+          "operator": "array-not-empty",
+          "value": true
+        },
+        "blockingDecisionTypeKey": "video-game.missing-conditional-specialist.v1"
+      },
+      {
+        "roleKey": "game-security-privacy",
+        "predicate": {
+          "jsonPath": "$.onlineMultiplayerExpected",
+          "operator": "equals",
+          "value": true
+        },
+        "blockingDecisionTypeKey": "video-game.missing-conditional-specialist.v1"
+      },
+      {
+        "roleKey": "game-marketing-community",
+        "predicate": {
+          "jsonPath": "$.liveOperationsExpected",
+          "operator": "equals",
+          "value": true
+        },
+        "blockingDecisionTypeKey": "video-game.missing-conditional-specialist.v1"
+      },
+      {
+        "roleKey": "game-live-operations",
+        "predicate": {
+          "jsonPath": "$.liveOperationsExpected",
+          "operator": "equals",
+          "value": true
+        },
+        "blockingDecisionTypeKey": "video-game.missing-conditional-specialist.v1"
+      },
+      {
+        "roleKey": "game-platform-certification",
+        "predicate": {
+          "jsonPath": "$.targetPlatforms",
+          "operator": "contains-any",
+          "value": [
+            "console",
+            "mobile"
+          ]
+        },
+        "blockingDecisionTypeKey": "video-game.missing-conditional-specialist.v1"
+      }
+    ]
+  },
+  "artifactTypes": [
+    {
+      "key": "creative-direction.game-vision-brief.v1",
+      "displayName": "Game Vision Brief",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "AcceptedPitchDigest": {
+            "type": "string"
+          },
+          "PlayerAndProductOutcome": {
+            "type": "string"
+          },
+          "GameplayLoopAndCreativePillars": {
+            "type": "string"
+          },
+          "PlatformAndStackConstraints": {
+            "type": "string"
+          },
+          "ArtNarrativeAudioAndToneDirection": {
+            "type": "string"
+          },
+          "MvpScopeAndNonGoals": {
+            "type": "string"
+          },
+          "ReferenceSummaries": {
+            "items": {
+              "type": "object",
+              "properties": {
+                "AttachmentId": {
+                  "type": "string"
+                },
+                "ConversationId": {
+                  "type": "string"
+                },
+                "MessageId": {
+                  "type": "string"
+                },
+                "FileName": {
+                  "type": "string"
+                },
+                "ContentType": {
+                  "type": "string"
+                },
+                "SizeBytes": {
+                  "type": "integer"
+                },
+                "Sha256": {
+                  "type": "string"
+                },
+                "Observation": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true,
+              "required": [
+                "AttachmentId",
+                "ConversationId",
+                "MessageId",
+                "FileName",
+                "ContentType",
+                "SizeBytes",
+                "Sha256",
+                "Observation"
+              ]
+            },
+            "type": "array"
+          },
+          "SuccessCriteriaRisksAndAssumptions": {
+            "type": "string"
+          },
+          "OpenDecisions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "AcceptedPitchDigest",
+          "PlayerAndProductOutcome",
+          "GameplayLoopAndCreativePillars",
+          "PlatformAndStackConstraints",
+          "ArtNarrativeAudioAndToneDirection",
+          "MvpScopeAndNonGoals",
+          "ReferenceSummaries",
+          "SuccessCriteriaRisksAndAssumptions",
+          "OpenDecisions"
+        ]
+      }
+    },
+    {
+      "key": "video-game.production.game-vision-acknowledgement.v1",
+      "displayName": "Game Vision Acknowledgement",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "AcceptedPitchDigest": {
+            "type": "string"
+          },
+          "Acknowledged": {
+            "type": "boolean"
+          },
+          "Blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "AcknowledgedAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "AcceptedPitchDigest",
+          "Acknowledged",
+          "Blockers",
+          "AcknowledgedAt"
+        ]
+      }
+    },
+    {
+      "key": "video-game.production.planning-cycle.v1",
+      "displayName": "Game Production Planning Cycle",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "WorkstreamId": {
+            "type": "string"
+          },
+          "TeamId": {
+            "type": "string"
+          },
+          "TeamRevision": {
+            "type": "integer"
+          },
+          "BoardId": {
+            "type": "string"
+          },
+          "ProfileDigest": {
+            "type": "string"
+          },
+          "ApprovedPackageId": {
+            "type": "string"
+          },
+          "ApprovedPackageVersion": {
+            "type": "integer"
+          },
+          "ApprovedPackageDigest": {
+            "type": "string"
+          },
+          "LifecyclePhase": {
+            "type": "string"
+          },
+          "TargetMilestoneKey": {
+            "type": "string"
+          },
+          "PlanningFingerprint": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "WorkstreamId",
+          "TeamId",
+          "TeamRevision",
+          "BoardId",
+          "ProfileDigest",
+          "ApprovedPackageId",
+          "ApprovedPackageVersion",
+          "ApprovedPackageDigest",
+          "LifecyclePhase",
+          "TargetMilestoneKey",
+          "PlanningFingerprint"
+        ]
+      }
+    },
+    {
+      "key": "video-game.production.designer-backlog-proposal.v1",
+      "displayName": "Game Designer Backlog Proposal",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "Cycle": {
+            "type": "object",
+            "properties": {
+              "WorkstreamId": {
+                "type": "string"
+              },
+              "TeamId": {
+                "type": "string"
+              },
+              "TeamRevision": {
+                "type": "integer"
+              },
+              "BoardId": {
+                "type": "string"
+              },
+              "ProfileDigest": {
+                "type": "string"
+              },
+              "ApprovedPackageId": {
+                "type": "string"
+              },
+              "ApprovedPackageVersion": {
+                "type": "integer"
+              },
+              "ApprovedPackageDigest": {
+                "type": "string"
+              },
+              "LifecyclePhase": {
+                "type": "string"
+              },
+              "TargetMilestoneKey": {
+                "type": "string"
+              },
+              "PlanningFingerprint": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true,
+            "required": [
+              "WorkstreamId",
+              "TeamId",
+              "TeamRevision",
+              "BoardId",
+              "ProfileDigest",
+              "ApprovedPackageId",
+              "ApprovedPackageVersion",
+              "ApprovedPackageDigest",
+              "LifecyclePhase",
+              "TargetMilestoneKey",
+              "PlanningFingerprint"
+            ]
+          },
+          "PlayerOutcomes": {
+            "items": {
+              "type": "object",
+              "properties": {
+                "ProposalKey": {
+                  "type": "string"
+                },
+                "WorkItemTypeKey": {
+                  "type": "string"
+                },
+                "Title": {
+                  "type": "string"
+                },
+                "Description": {
+                  "type": "string"
+                },
+                "AcceptanceCriteria": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "AccountableRoleKey": {
+                  "type": "string"
+                },
+                "RequiredSpecializationKeys": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "PreferredSpecializationKeys": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "RequiredCapabilityKeys": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "DependencyProposalKeys": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "additionalProperties": true,
+              "required": [
+                "ProposalKey",
+                "WorkItemTypeKey",
+                "Title",
+                "Description",
+                "AcceptanceCriteria",
+                "AccountableRoleKey",
+                "RequiredSpecializationKeys",
+                "PreferredSpecializationKeys",
+                "RequiredCapabilityKeys",
+                "DependencyProposalKeys"
+              ]
+            },
+            "type": "array"
+          },
+          "DesignConstraints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "OpenCreativeDecisions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ProposalDigest": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "Cycle",
+          "PlayerOutcomes",
+          "DesignConstraints",
+          "OpenCreativeDecisions",
+          "ProposalDigest"
+        ]
+      }
+    },
+    {
+      "key": "video-game.production.technical-delivery-proposal.v1",
+      "displayName": "Game Technical Delivery Proposal",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "Cycle": {
+            "type": "object",
+            "properties": {
+              "WorkstreamId": {
+                "type": "string"
+              },
+              "TeamId": {
+                "type": "string"
+              },
+              "TeamRevision": {
+                "type": "integer"
+              },
+              "BoardId": {
+                "type": "string"
+              },
+              "ProfileDigest": {
+                "type": "string"
+              },
+              "ApprovedPackageId": {
+                "type": "string"
+              },
+              "ApprovedPackageVersion": {
+                "type": "integer"
+              },
+              "ApprovedPackageDigest": {
+                "type": "string"
+              },
+              "LifecyclePhase": {
+                "type": "string"
+              },
+              "TargetMilestoneKey": {
+                "type": "string"
+              },
+              "PlanningFingerprint": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true,
+            "required": [
+              "WorkstreamId",
+              "TeamId",
+              "TeamRevision",
+              "BoardId",
+              "ProfileDigest",
+              "ApprovedPackageId",
+              "ApprovedPackageVersion",
+              "ApprovedPackageDigest",
+              "LifecyclePhase",
+              "TargetMilestoneKey",
+              "PlanningFingerprint"
+            ]
+          },
+          "DeliveryItems": {
+            "items": {
+              "type": "object",
+              "properties": {
+                "ProposalKey": {
+                  "type": "string"
+                },
+                "WorkItemTypeKey": {
+                  "type": "string"
+                },
+                "Title": {
+                  "type": "string"
+                },
+                "Description": {
+                  "type": "string"
+                },
+                "AcceptanceCriteria": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "AccountableRoleKey": {
+                  "type": "string"
+                },
+                "RequiredSpecializationKeys": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "PreferredSpecializationKeys": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "RequiredCapabilityKeys": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "DependencyProposalKeys": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "additionalProperties": true,
+              "required": [
+                "ProposalKey",
+                "WorkItemTypeKey",
+                "Title",
+                "Description",
+                "AcceptanceCriteria",
+                "AccountableRoleKey",
+                "RequiredSpecializationKeys",
+                "PreferredSpecializationKeys",
+                "RequiredCapabilityKeys",
+                "DependencyProposalKeys"
+              ]
+            },
+            "type": "array"
+          },
+          "FeasibilityFindings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "TechnicalConstraints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "OpenFeasibilityDecisions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ProposalDigest": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "Cycle",
+          "DeliveryItems",
+          "FeasibilityFindings",
+          "TechnicalConstraints",
+          "OpenFeasibilityDecisions",
+          "ProposalDigest"
+        ]
+      }
+    },
+    {
+      "key": "video-game.production.role-estimate-request.v1",
+      "displayName": "Game Role Estimate Capacity Request",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "BoardId": {
+            "type": "string"
+          },
+          "RoleKey": {
+            "type": "string"
+          },
+          "PlanningRevision": {
+            "type": "integer"
+          },
+          "PlanningDigest": {
+            "type": "string"
+          },
+          "WorkItems": {
+            "items": {
+              "type": "object",
+              "properties": {
+                "WorkItemId": {
+                  "type": "string"
+                },
+                "Title": {
+                  "type": "string"
+                },
+                "AccountableRoleKey": {
+                  "type": "string"
+                },
+                "Requirements": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "AcceptanceCriteria": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "Constraints": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "DependencyWorkItemIds": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ArtifactPackageDigest": {
+                  "type": "string"
+                },
+                "AssignmentDecisionFingerprint": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true,
+              "required": [
+                "WorkItemId",
+                "Title",
+                "AccountableRoleKey",
+                "Requirements",
+                "AcceptanceCriteria",
+                "Constraints",
+                "DependencyWorkItemIds",
+                "ArtifactPackageDigest",
+                "AssignmentDecisionFingerprint"
+              ]
+            },
+            "type": "array"
+          },
+          "RequestFingerprint": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "BoardId",
+          "RoleKey",
+          "PlanningRevision",
+          "PlanningDigest",
+          "WorkItems",
+          "RequestFingerprint"
+        ]
+      }
+    },
+    {
+      "key": "video-game.production.role-estimate-capacity-proposal.v1",
+      "displayName": "Game Role Estimate Capacity Proposal",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "BoardId": {
+            "type": "string"
+          },
+          "RoleKey": {
+            "type": "string"
+          },
+          "PlanningRevision": {
+            "type": "integer"
+          },
+          "PlanningDigest": {
+            "type": "string"
+          },
+          "Estimates": {
+            "items": {
+              "type": "object",
+              "properties": {
+                "WorkItemId": {
+                  "type": "string"
+                },
+                "EstimatePoints": {
+                  "type": "number"
+                },
+                "Confidence": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true,
+              "required": [
+                "WorkItemId",
+                "EstimatePoints",
+                "Confidence"
+              ]
+            },
+            "type": "array"
+          },
+          "AvailableSprintCapacity": {
+            "type": "number"
+          },
+          "Assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "Blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ProposalDigest": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "BoardId",
+          "RoleKey",
+          "PlanningRevision",
+          "PlanningDigest",
+          "Estimates",
+          "AvailableSprintCapacity",
+          "Assumptions",
+          "Blockers",
+          "ProposalDigest"
+        ]
+      }
+    },
+    {
+      "key": "video-game.production.qa-readiness-request.v1",
+      "displayName": "Game Qa Sprint Readiness Request",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "BoardId": {
+            "type": "string"
+          },
+          "PlanningRevision": {
+            "type": "integer"
+          },
+          "PlanningDigest": {
+            "type": "string"
+          },
+          "Candidates": {
+            "items": {
+              "type": "object",
+              "properties": {
+                "WorkItemId": {
+                  "type": "string"
+                },
+                "Title": {
+                  "type": "string"
+                },
+                "AccountableRoleKey": {
+                  "type": "string"
+                },
+                "Requirements": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "AcceptanceCriteria": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "Constraints": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "DependencyWorkItemIds": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ArtifactPackageDigest": {
+                  "type": "string"
+                },
+                "AssignmentDecisionFingerprint": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true,
+              "required": [
+                "WorkItemId",
+                "Title",
+                "AccountableRoleKey",
+                "Requirements",
+                "AcceptanceCriteria",
+                "Constraints",
+                "DependencyWorkItemIds",
+                "ArtifactPackageDigest",
+                "AssignmentDecisionFingerprint"
+              ]
+            },
+            "type": "array"
+          },
+          "RequestFingerprint": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "BoardId",
+          "PlanningRevision",
+          "PlanningDigest",
+          "Candidates",
+          "RequestFingerprint"
+        ]
+      }
+    },
+    {
+      "key": "video-game.production.qa-sprint-readiness-assessment.v1",
+      "displayName": "Game Qa Sprint Readiness Assessment",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "SprintId": {
+            "type": "string"
+          },
+          "PlanningRevision": {
+            "type": "integer"
+          },
+          "PlanningDigest": {
+            "type": "string"
+          },
+          "Ready": {
+            "type": "boolean"
+          },
+          "ReadyWorkItemIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "Findings": {
+            "items": {
+              "type": "object",
+              "properties": {
+                "Code": {
+                  "type": "string"
+                },
+                "Blocking": {
+                  "type": "boolean"
+                },
+                "Finding": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true,
+              "required": [
+                "Code",
+                "Blocking",
+                "Finding"
+              ]
+            },
+            "type": "array"
+          },
+          "AssessmentDigest": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "SprintId",
+          "PlanningRevision",
+          "PlanningDigest",
+          "Ready",
+          "ReadyWorkItemIds",
+          "Findings",
+          "AssessmentDigest"
+        ]
+      }
+    },
+    {
+      "key": "video-game.toolchain-feasibility.v1",
+      "displayName": "Toolchain Feasibility Evidence",
+      "schemaVersion": "1.0",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "AcceptedVisionDigest": {
+            "type": "string"
+          },
+          "RecipeKey": {
+            "type": "string"
+          },
+          "TargetKeys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "Feasible": {
+            "type": "boolean"
+          },
+          "Findings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "EvidenceResourceIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "AssessedAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "AcceptedVisionDigest",
+          "RecipeKey",
+          "TargetKeys",
+          "Feasible",
+          "Findings",
+          "EvidenceResourceIds",
+          "AssessedAt"
+        ]
+      }
+    },
+    {
+      "key": "video-game.vision.v1",
+      "displayName": "Vision",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.gdd.v1",
+      "displayName": "Game Design Document",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.technical-design.v1",
+      "displayName": "Technical Design",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.production-plan.v1",
+      "displayName": "Production Plan",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.narrative-bible.v1",
+      "displayName": "Narrative Bible",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.art-bible.v1",
+      "displayName": "Art Bible",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.audio-bible.v1",
+      "displayName": "Audio Bible",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.level-content-plan.v1",
+      "displayName": "Level Content Plan",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.ux-accessibility.v1",
+      "displayName": "User Experience Accessibility",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.qa-evaluation-plan.v1",
+      "displayName": "Quality Evaluation Plan",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.release-plan.v1",
+      "displayName": "Release Plan",
+      "schemaVersion": "1.0"
+    },
+    {
+      "key": "video-game.runnable-build.v1",
+      "displayName": "Runnable Build",
+      "schemaVersion": "1.0"
+    }
+  ]
+}

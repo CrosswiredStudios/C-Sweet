@@ -45,4 +45,5 @@
     <ProjectReference Include="..\..\src\CSweet.ExecutionGateway\CSweet.ExecutionGateway.csproj" />
   </ItemGroup>
 
+  <ItemGroup><EmbeddedResource Include="Fixtures/video-game-production.v2.5.json" /></ItemGroup>
 </Project>

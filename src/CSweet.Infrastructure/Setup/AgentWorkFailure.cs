@@ -7,6 +7,16 @@ public static class AgentWorkFailure
         error?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) == true &&
         error.Split(';').Contains("retryable=false", StringComparer.Ordinal);
 
+    public static string DescribeCollaborationFailure(string? summary)
+    {
+        const string prefix = "Collaboration failed because an agent turn could not continue: ";
+        var error = summary?.StartsWith(prefix, StringComparison.Ordinal) == true
+            ? summary[prefix.Length..] : null;
+        // Older sessions contain the same durable envelope. Do not display raw exception text.
+        return error?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) == true
+            ? DescribeBlocker(error)
+            : "This collaboration stopped after an execution failure. Review the agent's diagnostics and resolve the cause before retrying.";
+    }
     public static string DescribeBlocker(string? error)
     {
         var capability = error?.Split(';').FirstOrDefault(x => x.StartsWith("capability=", StringComparison.Ordinal))?[11..];

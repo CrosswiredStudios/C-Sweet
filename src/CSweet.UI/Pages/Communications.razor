@@ -206,7 +206,7 @@
                                 <strong>@coordination.Subject</strong>
                                 @if (coordination.Status == "Failed")
                                 {
-                                    <p>An execution error interrupted this collaboration. Resolve the cause in the agent or provider diagnostics, then retry to continue the same conversation.</p>
+                                    <p>@(coordination.FailureExplanation ?? "An execution error interrupted this collaboration. Review the agent diagnostics before retrying.")</p>
                                 }
                                 else if (coordination.Status == "Blocked")
                                 {
@@ -389,7 +389,7 @@
                                              {
                                                   <div class="hub-resource-change-role">
                                                       <div>
-                                                          <strong>@delta.Role.Title</strong>
+                                                          <strong><ResourceRoleTitle Role="delta.Role" /></strong>
                                                           <span>@delta.ChangeKind · @delta.Role.Headcount position@(delta.Role.Headcount == 1 ? null : "s") · Priority @delta.Role.Priority</span>
                                                       </div>
                                                       <p>@delta.Role.Purpose</p>

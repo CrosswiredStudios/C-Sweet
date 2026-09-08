@@ -171,6 +171,7 @@ public sealed record AgentCoordinationSessionResponse(
     IReadOnlyList<AgentCoordinationTurnResponse> Turns)
 {
     public bool CanRetry { get; init; }
+    public string? FailureExplanation { get; init; }
 }
 
 public sealed record RetryAgentCoordinationRequest(

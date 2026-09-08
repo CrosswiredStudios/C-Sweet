@@ -20,6 +20,21 @@ public sealed partial class WorkManagementCapabilityHandlerTests
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [Fact]
+    public async Task BoardDiscoveryWithoutScopeReturnsEmptyWithoutExposingExistingBoards()
+    {
+        await using var db = CreateDb();
+        var setup = SeedInstallation(db);
+        db.WorkBoards.Add(new WorkBoard { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            Name = "Restricted board", Description = "Private", Kind = WorkBoardKind.Standard });
+        await db.SaveChangesAsync();
+        var result = await InvokeAsync(CreateHandler(db, new TestAuditEventWriter()),
+            Session(setup, WorkBoardActions.Read), WorkBoardActions.Read, new { includeArchived = false });
+        Assert.True(result.Succeeded, result.Error);
+        using var json = JsonDocument.Parse(result.Payload.ToByteArray());
+        Assert.Equal(0, json.RootElement.GetArrayLength());
+        Assert.Empty(await db.ScopedActionGrants.ToListAsync());
+    }
+    [Fact]
     public async Task DirectSoftwareStoryCreation_ProducesOnePendingExactRevisionApproval()
     {
         await using var db = CreateDb();
@@ -127,6 +142,49 @@ public sealed partial class WorkManagementCapabilityHandlerTests
         Assert.False(result.Succeeded);
         Assert.Contains("does not have", result.Error, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(db.WorkBoards);
+    }
+
+    [Theory]
+    [InlineData("active", true)]
+    [InlineData("unrelated", false)]
+    [InlineData("ended", false)]
+    [InlineData("future", false)]
+    [InlineData("nonmember", false)]
+    [InlineData("ungranted", false)]
+    public async Task TeamCreateGrantRequiresCurrentWorkstreamAssignmentAndMembership(string scenario, bool allowed)
+    {
+        await using var db = CreateDb();
+        var setup = SeedInstallation(db);
+        var employee = db.CoreOrganizationUsers.Local.Single();
+        var teamId = Guid.NewGuid();
+        var workstreamId = Guid.NewGuid();
+        db.OrganizationTeams.Add(new OrganizationTeam { Id = teamId, OrganizationId = setup.OrganizationId,
+            Name = "Game team", LeadOrganizationUserId = employee.Id });
+        db.TeamMemberships.Add(new TeamMembership { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            TeamId = teamId, OrganizationUserId = employee.Id,
+            EndedAt = scenario == "nonmember" ? DateTimeOffset.UtcNow.AddDays(-1) : null });
+        db.Workstreams.Add(new Workstream { Id = workstreamId, OrganizationId = setup.OrganizationId,
+            Name = "Game", ProfileKey = "test", ProfileVersion = 1, ProfileDefinitionDigest = "test-digest" });
+        db.WorkstreamProfileDefinitions.Add(new WorkstreamProfileDefinitionRecord { Id = Guid.NewGuid(),
+            Key = "test", Version = 1, DefinitionDigest = "test-digest", DefaultBoardProfileKey = "general" });
+        db.WorkstreamTeamAssignments.Add(new WorkstreamTeamAssignmentRecord { Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId, TeamId = teamId,
+            WorkstreamId = scenario == "unrelated" ? Guid.NewGuid() : workstreamId,
+            StartsAt = DateTimeOffset.UtcNow.AddDays(scenario == "future" ? 1 : -1),
+            EndsAt = scenario == "ended" ? DateTimeOffset.UtcNow.AddHours(-1) : null });
+        if (scenario != "ungranted") Grant(db, setup, WorkBoardActions.Create, GrantScopeKind.Team, teamId);
+        await db.SaveChangesAsync();
+        var handler = CreateHandler(db, new TestAuditEventWriter());
+        var result = await InvokeAsync(handler, Session(setup, WorkBoardActions.Create), WorkBoardActions.Create,
+            new { name = "Production", teamId, workstreamId, profileKey = "general", idempotencyKey = "team-production" });
+        Assert.Equal(allowed, result.Succeeded);
+        if (allowed)
+        {
+            var board = Assert.Single(db.WorkBoards);
+            Assert.Equal(teamId, board.TeamId);
+            Assert.Equal(workstreamId, board.WorkstreamId);
+        }
+        else Assert.Empty(db.WorkBoards);
     }
 
     [Fact]

@@ -9,11 +9,25 @@ public static class SuggestedTeamStructureGraphBuilder
     public static SuggestedTeamStructureGraphModel Build(
         ResourceChangeRequestResponse request,
         string? productManagerDisplayName,
-        string? managerDisplayName)
+        string? managerDisplayName,
+        Func<string, string, string>? roleTitle = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var roles = request.Roles
+        var changedKeys = request.Deltas.Where(x => x.ChangeKind is not "Unchanged" and not "Remove")
+            .Select(x => x.Role.RoleKey).ToHashSet(StringComparer.Ordinal);
+        // Preserve existing ancestors needed to explain a changed role's reporting path.
+        var displayedKeys = new HashSet<string>(changedKeys, StringComparer.Ordinal);
+        var byKey = request.Roles.ToDictionary(x => x.RoleKey, StringComparer.Ordinal);
+        foreach (var key in changedKeys)
+        {
+            var current = byKey.GetValueOrDefault(key);
+            while (current?.ReportsToRoleKey is { } parent && byKey.TryGetValue(parent, out current) && displayedKeys.Add(parent)) { }
+        }
+        var retained = request.Roles.Where(x => !changedKeys.Contains(x.RoleKey))
+            .Select(x => $"{roleTitle?.Invoke(x.RoleKey, x.Title) ?? x.Title} ({x.Headcount} existing)").ToArray();
+        var roles = request.Roles.Where(x => displayedKeys.Contains(x.RoleKey))
+            .Select(x => x with { Title = roleTitle?.Invoke(x.RoleKey, x.Title) ?? x.Title })
             .OrderBy(role => role.Priority)
             .ThenBy(role => role.Title, StringComparer.OrdinalIgnoreCase)
             .ThenBy(role => role.RoleKey, StringComparer.Ordinal)
@@ -34,7 +48,7 @@ public static class SuggestedTeamStructureGraphBuilder
         return new SuggestedTeamStructureGraphModel(
             CleanName(managerDisplayName, "Manager"),
             CleanName(productManagerDisplayName, "Product manager"),
-            rootRoles);
+            rootRoles) { RetainedRoles = retained };
     }
 
     private static SuggestedTeamRoleCohort BuildCohort(
@@ -96,7 +110,10 @@ public static class SuggestedTeamStructureGraphBuilder
 public sealed record SuggestedTeamStructureGraphModel(
     string ManagerDisplayName,
     string ProductManagerDisplayName,
-    IReadOnlyList<SuggestedTeamRoleCohort> RoleCohorts);
+    IReadOnlyList<SuggestedTeamRoleCohort> RoleCohorts)
+{
+    public IReadOnlyList<string> RetainedRoles { get; init; } = [];
+}
 
 public sealed record SuggestedTeamRoleCohort(
     string RoleKey,

@@ -9,12 +9,7 @@
         <RouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
-    <Navigating>
-        <div class="d-flex flex-column align-center justify-center" style="min-height: 100vh">
-            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-            <MudText Typo="Typo.body1" Class="mt-4">Connecting to C-Sweet…</MudText>
-        </div>
-    </Navigating>
+    @* Keep the current route mounted while the navigation guard runs. A Navigating fragment disposes the layout and conversation state. *@
 </Router>
 
 @code {

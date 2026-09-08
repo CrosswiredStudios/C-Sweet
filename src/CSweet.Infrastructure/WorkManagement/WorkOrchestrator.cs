@@ -230,7 +230,7 @@ public sealed partial class WorkOrchestrator(
             "attempt.result.accepted", new { outcome.Disposition, outcome.OutcomeCode, outcome.Summary });
     }
 
-    private async Task<string?> RecordQualityValidationAsync(
+    internal async Task<string?> RecordQualityValidationAsync(
         WorkSprintExecution execution,
         WorkStageExecution stage,
         Shared.WorkExecutionOutcomeV1 outcome,
@@ -240,7 +240,7 @@ public sealed partial class WorkOrchestrator(
         if (!string.Equals(stage.StageKey, "quality", StringComparison.Ordinal) ||
             outcome.Disposition != Shared.WorkExecutionDispositions.Completed)
             return null;
-        if (outcome.OutcomeCode is not ("passed" or "changes_requested"))
+        if (outcome.OutcomeCode is not ("passed" or "changes_requested" or "failed"))
             return "The quality stage returned an unsupported source-control outcome.";
         if (!stage.AgentInstallationId.HasValue)
             return "The quality stage has no validator installation.";
@@ -268,6 +268,7 @@ public sealed partial class WorkOrchestrator(
                   candidate.Status != SourceControlPublicationStatus.Superseded
             orderby candidate.CreatedAt descending
             select candidate)
+            .AsTracking()
             .FirstOrDefaultAsync(cancellationToken);
         if (publication is null)
             return "QA evidence has no current source publication for this assignment revision.";
@@ -288,6 +289,7 @@ public sealed partial class WorkOrchestrator(
                   validation.PublicationId != publication.Id &&
                   validation.Status != SourceControlValidationStatus.Superseded
             select validation)
+            .AsTracking()
             .ToListAsync(cancellationToken);
         foreach (var validation in stale)
         {
@@ -391,6 +393,8 @@ public sealed partial class WorkOrchestrator(
             JsonSerializer.SerializeToElement(new Shared.WorkExecutionInputV1(
                 board.WorkstreamId, board.TeamId, item.PlanningRevision, planning)
             {
+                AllowedOutcomeCodes = policy.Transitions.Where(x => x.FromStageKey == stage.StageKey)
+                    .Select(x => x.OutcomeCode).Distinct(StringComparer.Ordinal).ToArray(),
                 AssignmentRequirements = assignmentRequirements,
                 AssignmentSelection = assignmentSelection
             }, JsonOptions),
@@ -409,8 +413,18 @@ public sealed partial class WorkOrchestrator(
         stage.Attempts.Add(attempt); stage.Status = WorkStageExecutionStatus.Running;
         stage.UpdatedAt = now; stage.ItemExecution.Status = WorkItemExecutionStatus.Running;
         stage.ItemExecution.UpdatedAt = now; item.Status = WorkTaskStatus.Running; item.UpdatedAt = now; item.Revision++;
+        var workspaceActions = Array.Empty<string>();
+        if (!string.IsNullOrWhiteSpace(item.DeliverySpecificationJson))
+        {
+            var approvedJson = await db.AgentInstallationGrants.AsNoTracking()
+                .Where(x => x.AgentInstallationId == installationId)
+                .Select(x => x.RequiredCapabilitiesJson).SingleOrDefaultAsync(cancellationToken);
+            var delivery = JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(item.DeliverySpecificationJson, JsonOptions);
+            workspaceActions = FinalizedWorkspaceActions(delivery,
+                JsonSerializer.Deserialize<string[]>(approvedJson ?? "[]", JsonOptions) ?? []);
+        }
         EnsureAttemptGrants(
-            execution, item.Id, installationId, attempt.Id, stage.StageKey, now);
+            execution, item.Id, installationId, attempt.Id, stage.StageKey, now, workspaceActions);
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.dispatched", new { workId = work.Id, installationId, attempt = attemptNumber });
         await db.SaveChangesAsync(cancellationToken);
@@ -502,7 +516,7 @@ public sealed partial class WorkOrchestrator(
         execution.UpdatedAt = now; execution.Revision++;
     }
 
-    private static void Advance(
+    private void Advance(
         WorkSprintExecution execution, WorkOrchestrationPolicyRevision policy,
         WorkStageExecution stage, string outcomeCode, string summary, string outputJson, DateTimeOffset now)
     {
@@ -526,8 +540,9 @@ public sealed partial class WorkOrchestrator(
             PlatformAction = x.PlatformAction
         }).ToList();
         var next = policy.Stages.Single(x => x.Key == transition.ToStageKey);
-        WorkOrchestrationService.CreateStageExecution(
+        var nextExecution = WorkOrchestrationService.CreateStageExecution(
             item, next, assignments, execution.StartedByOrganizationUserId, now);
+        db.WorkStageExecutions.Add(nextExecution);
         if (next.ColumnId.HasValue) item.WorkItem!.BoardColumnId = next.ColumnId;
         item.WorkItem!.Status = item.Status == WorkItemExecutionStatus.Blocked
             ? WorkTaskStatus.Blocked
@@ -711,13 +726,31 @@ public sealed partial class WorkOrchestrator(
                 : true);
     }
 
+    internal static string[] FinalizedWorkspaceActions(
+        Shared.WorkItemDeliverySpecification? delivery, IReadOnlyList<string> approvedCapabilities)
+    {
+        if (delivery is null || delivery.RepositoryId == Guid.Empty || string.IsNullOrWhiteSpace(delivery.BaseBranch)) return [];
+        // Finalized custom-profile tickets use the same assignment-scoped Git path as software tickets.
+        // Never infer publish or merge authority from a role name or a manifest declaration alone.
+        var workspaceActions = new[]
+        {
+            CSweet.Agent.SDK.GitWorkspaceCapabilities.Prepare,
+            CSweet.Agent.SDK.GitWorkspaceCapabilities.Refresh,
+            CSweet.Agent.SDK.GitWorkspaceCapabilities.Inspect,
+            CSweet.Agent.SDK.GitWorkspaceCapabilities.Publish,
+            CSweet.Agent.SDK.GitWorkspaceCapabilities.Cleanup
+        };
+        return workspaceActions.Where(x => approvedCapabilities.Contains(x, StringComparer.Ordinal)).ToArray();
+    }
+
     private void EnsureAttemptGrants(
         WorkSprintExecution execution,
         Guid workItemId,
         Guid installationId,
         Guid attemptId,
         string stageKey,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        IReadOnlyList<string> finalizedWorkspaceActions)
     {
         var actions = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -742,6 +775,10 @@ public sealed partial class WorkOrchestrator(
                 CSweet.Agent.SDK.GitWorkspaceCapabilities.Cleanup
             ]);
         }
+        else if (string.Equals(stageKey, "technical-review", StringComparison.Ordinal))
+        {
+            actions.Add(CSweet.Agent.SDK.GitMergeCapabilities.Review);
+        }
         else if (string.Equals(stageKey, "merge-decision", StringComparison.Ordinal))
         {
             actions.UnionWith([
@@ -750,6 +787,7 @@ public sealed partial class WorkOrchestrator(
             ]);
         }
 
+        actions.UnionWith(finalizedWorkspaceActions);
         foreach (var action in actions)
             db.ScopedActionGrants.Add(new ScopedActionGrant
             {

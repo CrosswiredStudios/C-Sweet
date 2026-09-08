@@ -259,8 +259,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasIndex("SessionId", "Ordinal")
                         .IsUnique();
 
-                    b.HasIndex("SessionId", "ArtifactType", "ArtifactKey", "ArtifactPageOrdinal")
-                        .IsUnique();
+                    b.HasIndex("SessionId", "ArtifactType", "ArtifactKey", "ArtifactPageOrdinal");
 
                     b.ToTable("AgentCoordinationTurns");
                 });
@@ -9992,6 +9991,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ReviewPatch")
+                        .HasColumnType("text");
 
                     b.Property<string>("ChangedFilesJson")
                         .IsRequired()

@@ -1,3 +1,9 @@
+.personal-board-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+    gap: 16px;
+    margin-top: 20px;
+}
 .kanban-workspace {
     display: flex;
     flex-direction: column;
