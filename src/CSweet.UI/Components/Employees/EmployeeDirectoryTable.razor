@@ -8,10 +8,7 @@
             {
                 <tr class="@(employee.Id == SelectedId ? "selected" : null)">
                     <td>
-                        <button type="button" class="employee-table-identity" @onclick="@(() => SelectAsync(employee.Id))">
-                            <EmployeeAvatar Employee="employee" />
-                            <span><strong>@employee.Name</strong><small>@employee.RoleLabel</small></span>
-                        </button>
+                        <EmployeeIdentityButton Employee="employee" EmployeeSelected="EmployeeSelected" />
                     </td>
                     <td><EmployeeTeamChips Teams="employee.Teams" /></td>
                     <td><EmployeeTypeBadge IsAgent="employee.IsAgent" /></td>

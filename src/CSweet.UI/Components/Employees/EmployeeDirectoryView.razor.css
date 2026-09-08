@@ -1,9 +1,9 @@
 .employee-directory-view { display: grid; gap: 1rem; }
 .employee-directory-search { width: 100%; }
-.employee-directory-filters { display: grid; grid-template-columns: repeat(3,minmax(9rem,12rem)) 1fr; gap: 1rem; align-items: center; }
+.employee-directory-filters { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)) auto; gap: 1rem; align-items: center; }
 .employee-directory-filters ::deep .mud-button-root { justify-self: end; }
 .employee-directory-count { color: var(--cs-muted); font-weight: 650; }
 .employee-directory-mobile { display: none; gap: .75rem; }
 ::deep .employee-directory-no-results { display: grid; min-height: 14rem; place-items: center; align-content: center; gap: .4rem; padding: 2rem; border: 1px dashed var(--cs-border); border-radius: var(--cs-radius); text-align: center; }
-@media (max-width: 900px) { .employee-directory-filters { grid-template-columns: repeat(3,1fr); } .employee-directory-filters ::deep .mud-button-root { grid-column: 1 / -1; justify-self: stretch; } }
+@media (max-width: 900px) { .employee-directory-filters { grid-template-columns: repeat(2,minmax(0,1fr)); } .employee-directory-filters ::deep .mud-button-root { grid-column: 1 / -1; justify-self: stretch; } }
 @media (max-width: 760px) { .employee-directory-filters { grid-template-columns: 1fr; } .employee-directory-filters ::deep .mud-button-root { grid-column: auto; } .employee-directory-desktop { display: none; } .employee-directory-mobile { display: grid; } }

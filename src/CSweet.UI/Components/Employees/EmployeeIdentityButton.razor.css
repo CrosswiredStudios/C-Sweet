@@ -1,0 +1,4 @@
+.employee-identity-button { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); width: 100%; min-width: 0; align-items: center; justify-content: start; gap: .7rem; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.employee-identity-text { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.employee-identity-text small { color: var(--cs-muted); }
+.employee-identity-button:focus-visible { outline: 3px solid rgba(35,132,92,.4); outline-offset: 3px; }

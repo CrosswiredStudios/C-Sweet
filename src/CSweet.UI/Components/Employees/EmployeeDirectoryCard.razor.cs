@@ -17,5 +17,4 @@ public partial class EmployeeDirectoryCard
     [Parameter]
     public EventCallback<EmployeeActionRequest> ActionRequested { get; set; }
 
-    protected Task SelectAsync() => EmployeeSelected.InvokeAsync(Employee.Id);
 }

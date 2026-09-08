@@ -1,9 +1,5 @@
 .employee-directory-card { display: grid; grid-template-columns: 1fr auto; gap: .8rem; padding: 1rem; border: 1px solid var(--cs-border); border-radius: var(--cs-radius); background: #fff; box-shadow: var(--cs-shadow); }
 .employee-directory-card.selected { border-color: var(--cs-mint-strong); box-shadow: 0 0 0 2px rgba(35,132,92,.12); }
-.employee-card-main { display: flex; min-width: 0; align-items: center; gap: .7rem; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.employee-card-main:focus-visible { outline: 3px solid rgba(35,132,92,.4); outline-offset: 3px; }
-.employee-card-identity { display: grid; min-width: 0; }
-.employee-card-identity small { color: var(--cs-muted); }
 .employee-card-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .4rem; }
 dl { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2,1fr); gap: .75rem; margin: 0; padding-top: .75rem; border-top: 1px solid var(--cs-border); }
 dt { color: var(--cs-muted); font-size: .72rem; font-weight: 700; text-transform: uppercase; }

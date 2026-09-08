@@ -1,0 +1,11 @@
+<button type="button" class="employee-identity-button" @onclick="SelectAsync">
+    <EmployeeAvatar Employee="Employee" />
+    <span class="employee-identity-text"><strong>@Employee.Name</strong><small>@Employee.RoleLabel</small></span>
+</button>
+
+@code {
+    [Parameter, EditorRequired] public EmployeeViewModel Employee { get; set; } = default!;
+    [Parameter] public EventCallback<Guid> EmployeeSelected { get; set; }
+
+    private Task SelectAsync() => EmployeeSelected.InvokeAsync(Employee.Id);
+}
