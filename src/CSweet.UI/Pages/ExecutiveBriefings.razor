@@ -1,0 +1,168 @@
+@page "/organizations/{OrganizationId:guid}/executive-briefings"
+@using CSweet.Contracts.Core
+@inject HttpClient Http
+<PageTitle>Executive briefings - C-Sweet</PageTitle>
+<MudPaper Elevation="0" Class="page-header">
+    <div><MudText Typo="Typo.h3">Executive briefings</MudText><MudText Color="Color.Secondary">Configure your Chief of Staff's briefing schedule and review delivery history.</MudText></div>
+    <MudButton Href="@($"/organizations/{OrganizationId}/command-center")">Back to overview</MudButton>
+</MudPaper>
+@if (_loading) { <MudProgressLinear Indeterminate="true" /> }
+else if (_errorMessage is not null) { <MudAlert Severity="Severity.Error">@_errorMessage</MudAlert> }
+else
+{
+            <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+                <MudText Typo="Typo.h6">Executive briefings</MudText>
+                @if (_briefingSettings is null)
+                {
+                    <MudText Color="Color.Secondary">Assign a Chief of Staff to configure proactive executive briefings.</MudText>
+                }
+                else
+                {
+                    <MudGrid Spacing="2" Class="mt-2">
+                        <MudItem xs="12" md="4">
+                            <MudSelect T="Guid" Label="Managing entity" @bind-Value="_briefingManagerId" Variant="Variant.Outlined">
+                                @foreach (var employee in _employees.Where(x => x.Id != _briefingSettings.ChiefOrganizationUserId))
+                                {
+                                    <MudSelectItem T="Guid" Value="@employee.Id">@employee.DisplayName</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" md="2"><MudSelect T="string" Label="Cadence" @bind-Value="_briefingCadence" Variant="Variant.Outlined"><MudSelectItem Value="@("Daily")">Daily</MudSelectItem><MudSelectItem Value="@("Weekdays")">Weekdays</MudSelectItem><MudSelectItem Value="@("Weekly")">Weekly</MudSelectItem></MudSelect></MudItem>
+                        @if (_briefingCadence == "Weekly")
+                        {
+                            <MudItem xs="12" md="2"><MudSelect T="string" Label="Day" @bind-Value="_briefingWeeklyDay" Variant="Variant.Outlined">@foreach (var day in Enum.GetNames<DayOfWeek>()) { <MudSelectItem Value="@day">@day</MudSelectItem> }</MudSelect></MudItem>
+                        }
+                        <MudItem xs="12" md="2"><MudTextField Label="Local time" @bind-Value="_briefingLocalTime" Placeholder="09:00" Variant="Variant.Outlined" /></MudItem>
+                        <MudItem xs="12" md="2"><MudTextField Label="Time zone" @bind-Value="_briefingTimeZone" Variant="Variant.Outlined" /></MudItem>
+                        <MudItem xs="12" md="4"><MudCheckBox T="bool" Label="Scheduled briefings enabled" @bind-Value="_briefingEnabled" /></MudItem>
+                        <MudItem xs="12" md="4"><MudCheckBox T="bool" Label="Brief after activation and runtime startup" @bind-Value="_briefingStartupEnabled" /></MudItem>
+                    </MudGrid>
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveBriefingSettingsAsync" Disabled="_briefingBusy">Save briefing settings</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="RunTestBriefingAsync" Disabled="_briefingBusy">Send test briefing now</MudButton>
+                        <MudText Color="Color.Secondary" Class="align-self-center">Next: @(_briefingSettings.NextBriefingAt?.ToLocalTime().ToString("g") ?? "not scheduled")</MudText>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_briefingMessage))
+                    {
+                        <MudAlert Severity="@_briefingMessageSeverity" Variant="Variant.Outlined" Class="mt-3">@_briefingMessage</MudAlert>
+                    }
+                    @if (_briefingHistory.Count > 0)
+                    {
+                        <MudTable T="ExecutiveBriefingHistoryItem" Items="_briefingHistory.Take(5)" Dense="true" Hover="true" Class="mt-3">
+                            <HeaderContent><MudTh>Trigger</MudTh><MudTh>Status</MudTh><MudTh>Created</MudTh><MudTh>Delivery</MudTh><MudTh></MudTh></HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Trigger">@context.TriggerType</MudTd>
+                                <MudTd DataLabel="Status">@context.Status</MudTd>
+                                <MudTd DataLabel="Created">@context.CreatedAt.ToLocalTime().ToString("g")</MudTd>
+                                <MudTd DataLabel="Delivery">@(context.DeliveryStatus ?? context.FailureMessage ?? "Waiting")</MudTd>
+                                <MudTd>@if (context.ConversationId.HasValue) { <MudButton Size="Size.Small" Href="@($"/organizations/{OrganizationId}/communications/{context.ConversationId}")">Open</MudButton> }</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                }
+            </MudPaper>
+
+
+}
+@code {
+    [Parameter]
+    public Guid OrganizationId { get; set; }
+
+    private IReadOnlyList<OrganizationUserResponse> _employees = [];
+    private ExecutiveBriefingSettingsResponse? _briefingSettings;
+    private IReadOnlyList<ExecutiveBriefingHistoryItem> _briefingHistory = [];
+    private Guid _briefingManagerId;
+    private bool _briefingEnabled = true;
+    private bool _briefingStartupEnabled = true;
+    private string _briefingCadence = "Weekdays";
+    private string _briefingWeeklyDay = "Friday";
+    private string _briefingLocalTime = "09:00";
+    private string _briefingTimeZone = "UTC";
+    private bool _briefingBusy;
+    private string? _briefingMessage;
+    private Severity _briefingMessageSeverity = Severity.Info;
+    private bool _loading = true;
+    private string? _errorMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _errorMessage = null;
+
+        try
+        {
+            _employees = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>($"api/core/organizations/{OrganizationId}/users") ?? [];
+            _briefingSettings = await LoadBriefingSettingsAsync();
+            _briefingHistory = await Http.GetFromJsonAsync<IReadOnlyList<ExecutiveBriefingHistoryItem>>($"api/core/organizations/{OrganizationId}/executive-briefings/history?take=10") ?? [];
+            if (_briefingSettings is not null)
+            {
+                _briefingManagerId = _briefingSettings.ManagingOrganizationUserId ?? Guid.Empty;
+                _briefingEnabled = _briefingSettings.IsEnabled;
+                _briefingStartupEnabled = _briefingSettings.StartupEnabled;
+                _briefingCadence = _briefingSettings.Cadence;
+                _briefingWeeklyDay = _briefingSettings.WeeklyDay;
+                _briefingLocalTime = _briefingSettings.LocalTime;
+                _briefingTimeZone = _briefingSettings.TimeZone;
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+
+    private async Task SaveBriefingSettingsAsync()
+    {
+        _briefingBusy = true; _briefingMessage = null;
+        try
+        {
+            var response = await Http.PutAsJsonAsync($"api/core/organizations/{OrganizationId}/executive-briefings/settings",
+                new UpdateExecutiveBriefingSettingsRequest(_briefingManagerId, _briefingEnabled, _briefingStartupEnabled,
+                    _briefingCadence, _briefingWeeklyDay, _briefingLocalTime, _briefingTimeZone));
+            var result = await response.Content.ReadFromJsonAsync<ExecutiveBriefingActionResponse>();
+            _briefingMessage = result?.Message ?? response.ReasonPhrase;
+            _briefingMessageSeverity = response.IsSuccessStatusCode ? Severity.Success : Severity.Error;
+            if (response.IsSuccessStatusCode) await ReloadBriefingsAsync();
+        }
+        finally { _briefingBusy = false; }
+    }
+
+    private async Task RunTestBriefingAsync()
+    {
+        _briefingBusy = true; _briefingMessage = null;
+        try
+        {
+            var response = await Http.PostAsync($"api/core/organizations/{OrganizationId}/executive-briefings/run", null);
+            var result = await response.Content.ReadFromJsonAsync<ExecutiveBriefingActionResponse>();
+            _briefingMessage = result?.Message ?? response.ReasonPhrase;
+            _briefingMessageSeverity = response.IsSuccessStatusCode ? Severity.Success : Severity.Error;
+            await ReloadBriefingsAsync();
+        }
+        finally { _briefingBusy = false; }
+    }
+
+    private async Task ReloadBriefingsAsync()
+    {
+        _briefingSettings = await LoadBriefingSettingsAsync();
+        _briefingHistory = await Http.GetFromJsonAsync<IReadOnlyList<ExecutiveBriefingHistoryItem>>($"api/core/organizations/{OrganizationId}/executive-briefings/history?take=10") ?? [];
+    }
+
+    private async Task<ExecutiveBriefingSettingsResponse?> LoadBriefingSettingsAsync()
+    {
+        var response = await Http.GetAsync($"api/core/organizations/{OrganizationId}/executive-briefings/settings");
+        if (!response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NoContent)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<ExecutiveBriefingSettingsResponse>();
+    }
+
+
+}
+

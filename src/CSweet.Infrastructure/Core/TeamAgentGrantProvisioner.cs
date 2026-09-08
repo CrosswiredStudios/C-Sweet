@@ -24,7 +24,8 @@ internal static class TeamAgentGrantProvisioner
         Guid teamId,
         Guid grantedByOrganizationUserId,
         DateTimeOffset grantedAt,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool preserveRevocations = false)
     {
         var metadata = await (
             from installation in db.AgentInstallations.AsNoTracking()
@@ -58,8 +59,8 @@ internal static class TeamAgentGrantProvisioner
                 x.SubjectId == installationId &&
                 x.ScopeKind == GrantScopeKind.Team &&
                 x.ScopeId == teamId &&
-                x.RevokedAt == null &&
-                (!x.ExpiresAt.HasValue || x.ExpiresAt > now))
+                (preserveRevocations || x.RevokedAt == null &&
+                (!x.ExpiresAt.HasValue || x.ExpiresAt > now)))
             .Select(x => x.Action)
             .ToListAsync(cancellationToken);
         var created = declared.Except(existing, StringComparer.Ordinal)

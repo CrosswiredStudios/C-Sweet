@@ -2102,3 +2102,40 @@ body { color: var(--cs-navy); }
 @media (max-width: 1100px) { .artifact-decision-controls { align-items: stretch; flex-direction: column; } .artifact-decision-buttons { justify-content: flex-end; } }
 @media (max-width: 900px) { .documents-content { grid-template-columns: 1fr; } .documents-folders { border-right: 0; display: flex; overflow-x: auto; } .artifact-workspace { position: fixed; inset: 0; width: 100vw !important; max-width: none; min-width: 0; height: 100vh; resize: none; border-radius: 0; } }
 @media (max-width: 600px) { .artifact-workspace-header { padding: .9rem 1rem; } .artifact-workspace-meta { padding: .7rem 1rem; } .artifact-meta-owner { width: 100%; margin-left: 0; } .artifact-workspace .mud-tabs { padding-inline: 1rem; } .artifact-markdown-preview { padding: 1rem; } .artifact-preview-caption { flex-direction: column; gap: .2rem; } .artifact-decision-bar { padding-inline: 1rem; } .artifact-decision-copy { align-items: flex-start; flex-direction: column; gap: .2rem; } .artifact-decision-buttons { display: grid; grid-template-columns: 1fr 1fr; } }
+
+/* Installed definitions share the compact portrait layout used by personal work boards. */
+.installed-agent-card { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; padding: 1rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 14px; background: var(--mud-palette-surface); min-width: 0; }
+.installed-agent-version { grid-area: 1 / 2; align-self: start; display: flex; align-items: center; justify-content: flex-end; gap: .35rem; min-height: 1.75rem; color: var(--mud-palette-text-secondary); font-size: .8rem; }
+.installed-agent-identity { grid-area: 1 / 1; display: flex; align-items: center; gap: 1rem; min-width: 0; }
+.installed-agent-portrait { width: 64px; height: 80px; flex: 0 0 64px; object-fit: cover; object-position: center 20%; border-radius: 9px; }
+.installed-agent-name { min-width: 0; overflow-wrap: anywhere; }
+.installed-agent-actions { grid-column: 1 / -1; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .65rem; margin-top: auto; }
+.agent-installations-grid { align-items: start; }
+.agent-card-popover-host { position: relative; display: inline-flex; border-radius: 6px; }
+.agent-card-popover-host:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
+.agent-card-popover-host .building-button { pointer-events: none; }
+.agent-card-popover { display: none; position: absolute; z-index: 20; top: 100%; right: 0; width: min(26rem, calc(100vw - 4rem)); max-height: 26rem; overflow: auto; padding: 1rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 10px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); box-shadow: var(--mud-elevation-8); text-align: left; font-weight: 400; }
+.agent-card-popover-host.is-open > .agent-card-popover { display: block; }
+.agent-release-notes { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .875rem; margin-top: .5rem; }
+.installed-agent-build-steps { list-style: none; padding: 0; margin: 1rem 0 0; }
+.installed-agent-build-steps li { margin-bottom: 1rem; overflow-wrap: anywhere; }
+.agent-step-status, .agent-detail-version { color: var(--mud-palette-text-secondary); font-size: .8rem; margin-left: .5rem; }
+.agent-access-details dd { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .agent-card-popover { width: min(20rem, calc(100vw - 4rem)); } }
+/* Anchor narrow-screen build popups to the card so the Details button cannot push them offscreen. */
+@media (max-width: 600px) {
+    .installed-agent-actions .agent-card-popover-host { position: static; }
+    .installed-agent-actions .agent-card-popover { right: 0; width: min(26rem, 100%); }
+}
+
+.agent-build-progress-content .agent-build-progress-title { font-weight: 700; }
+.agent-build-progress-content > .agent-build-progress-title { margin-bottom: .35rem; }
+.agent-build-progress-step { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); gap: .65rem; }
+.agent-build-progress-marker { display: flex; justify-content: center; padding-top: .2rem; }
+.agent-build-progress-marker .mud-progress-circular { width: 20px !important; height: 20px !important; }
+.agent-build-progress-step-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem .65rem; margin-bottom: .2rem; }
+.agent-build-progress-step-heading .agent-step-status { margin: 0; font-size: .75rem; font-weight: 600; }
+.agent-step-status-succeeded { color: var(--mud-palette-success-darken); }
+.agent-step-status-inprogress { color: var(--mud-palette-primary); }
+.agent-step-status-failed { color: var(--mud-palette-error); }
+.agent-step-status-cancelled { color: var(--mud-palette-warning-darken); }

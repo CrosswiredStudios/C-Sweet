@@ -91,6 +91,42 @@
             }
         </MudPaper>
     }
+    @if (_usageSummary is not null && _usageSummary.RecentChatTurns.Count > 0)
+    {
+        <MudPaper Elevation="1" Class="surface-panel mt-4">
+            <MudText Typo="Typo.h6">Recent chat-turn inference</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                Each row groups every billable model call caused by one user message, including tool follow-ups and memory enrichment.
+            </MudText>
+            <MudTable T="LlmChatTurnUsageResponse" Items="@_usageSummary.RecentChatTurns.Take(10)" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
+                <HeaderContent>
+                    <MudTh>Started</MudTh>
+                    <MudTh>Model calls</MudTh>
+                    <MudTh>Purposes</MudTh>
+                    <MudTh>Input</MudTh>
+                    <MudTh>Output</MudTh>
+                    <MudTh>Prompt characters processed</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Started">@context.StartedAt.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Model calls">@context.ModelCallCount (@context.UsageReportedCallCount with usage)</MudTd>
+                    <MudTd DataLabel="Purposes">@FormatPurposes(context.CallsByPurpose)</MudTd>
+                    <MudTd DataLabel="Input">
+                        @FormatTokens(context.InputTokens)
+                        @if (context.CachedInputTokens > 0)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@FormatTokens(context.CachedInputTokens) cached</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Output">@FormatTokens(context.OutputTokens)</MudTd>
+                    <MudTd DataLabel="Prompt characters processed">
+                        Messages @FormatCharacters(context.MessageCharacters) · instructions @FormatCharacters(context.InstructionCharacters) · tools @FormatCharacters(context.ToolCharacters) · memory @FormatCharacters(context.MemoryCharacters)
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    }
+
 </div>
 
 <MudDialog @bind-Visible="_dialogOpen" Options="_dialogOptions">
@@ -748,6 +784,11 @@
         usage is null
             ? "In 0 / Out 0 / 30d"
             : $"In {FormatTokens(usage.InputTokens)} / Out {FormatTokens(usage.OutputTokens)} / 30d";
+    private static string FormatCharacters(long characters) => FormatTokens(characters);
+    private static string FormatPurposes(IReadOnlyDictionary<string, int> purposes) =>
+        string.Join(", ", purposes.OrderBy(item => item.Key, StringComparer.Ordinal)
+            .Select(item => $"{item.Key} �{item.Value}"));
+
     private static string FormatTokens(long tokens) => tokens >= 1_000_000
         ? $"{tokens / 1_000_000d:0.##}M"
         : tokens >= 1_000

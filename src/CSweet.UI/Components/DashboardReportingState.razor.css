@@ -1,0 +1,3 @@
+.reporting-state { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.reporting-state:empty { display: none; }
+.reporting-copy { flex: 1 1 350px; max-width: 850px; }

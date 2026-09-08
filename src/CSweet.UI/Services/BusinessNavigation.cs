@@ -39,6 +39,12 @@ public static class BusinessNavigation
         if (segments.Length >= 3 &&
             string.Equals(segments[0], "organizations", StringComparison.OrdinalIgnoreCase))
         {
+            if (string.Equals(segments[2], "calendar", StringComparison.OrdinalIgnoreCase))
+            {
+                var query = (currentPath ?? "").Split('?', 2);
+                var view = query.Length > 1 ? query[1].Split('&').FirstOrDefault(x => x is "view=Month" or "view=Week" or "view=Agenda") : null;
+                return $"/organizations/{businessId}/calendar" + (view is null ? "" : "?" + view);
+            }
             if (string.Equals(segments[2], "employees", StringComparison.OrdinalIgnoreCase))
             {
                 return $"/organizations/{businessId}/employees";

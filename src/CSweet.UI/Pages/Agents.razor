@@ -7,6 +7,7 @@
 @using CSweet.Contracts.Llm
 @using CSweet.Contracts.Plugins
 @using CSweet.Contracts.Setup
+@inject ISnackbar Snackbar
 @inject IAgentApiClient AgentApi
 @inject ILlmProviderApiClient LlmProviderApi
 @inject IAgentRuntimeSettingsApiClient AgentRuntimeSettingsApi
@@ -20,8 +21,8 @@
     <MudPaper Elevation="0" Class="page-header">
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Agent management</MudText>
-            <MudText Typo="Typo.h3">Agents</MudText>
-            <MudText Color="Color.Secondary">Manage imported agent plugins that businesses can use to create agent employees.</MudText>
+            <MudText Typo="Typo.h3">Installed agents</MudText>
+            <MudText Color="Color.Secondary">Agent definitions and the defaults inherited by every new hire.</MudText>
         </div>
         <MudStack Row="true" Spacing="2">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isBusy" OnClick="OpenImportDialog" StartIcon="@Icons.Material.Filled.Add">
@@ -32,50 +33,6 @@
             </MudTooltip>
         </MudStack>
     </MudPaper>
-
-    @if (_usageSummary is not null)
-    {
-        <section class="usage-summary-grid" aria-label="Agent token usage">
-            @UsageCard("Last 24 Hours", _usageSummary.Last24Hours)
-            @UsageCard("Last 7 Days", _usageSummary.Last7Days)
-            @UsageCard("Last 30 Days", _usageSummary.Last30Days)
-        </section>
-        @if (_usageSummary.RecentChatTurns.Count > 0)
-        {
-            <MudPaper Elevation="1" Class="surface-panel mt-4">
-                <MudText Typo="Typo.h6">Recent chat-turn inference</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
-                    Each row groups every billable model call caused by one user message, including tool follow-ups and memory enrichment.
-                </MudText>
-                <MudTable T="LlmChatTurnUsageResponse" Items="@_usageSummary.RecentChatTurns.Take(10)" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
-                    <HeaderContent>
-                        <MudTh>Started</MudTh>
-                        <MudTh>Model calls</MudTh>
-                        <MudTh>Purposes</MudTh>
-                        <MudTh>Input</MudTh>
-                        <MudTh>Output</MudTh>
-                        <MudTh>Prompt characters processed</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Started">@context.StartedAt.ToLocalTime().ToString("g")</MudTd>
-                        <MudTd DataLabel="Model calls">@context.ModelCallCount (@context.UsageReportedCallCount with usage)</MudTd>
-                        <MudTd DataLabel="Purposes">@FormatPurposes(context.CallsByPurpose)</MudTd>
-                        <MudTd DataLabel="Input">
-                            @FormatTokens(context.InputTokens)
-                            @if (context.CachedInputTokens > 0)
-                            {
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">@FormatTokens(context.CachedInputTokens) cached</MudText>
-                            }
-                        </MudTd>
-                        <MudTd DataLabel="Output">@FormatTokens(context.OutputTokens)</MudTd>
-                        <MudTd DataLabel="Prompt characters processed">
-                            Messages @FormatCharacters(context.MessageCharacters) · instructions @FormatCharacters(context.InstructionCharacters) · tools @FormatCharacters(context.ToolCharacters) · memory @FormatCharacters(context.MemoryCharacters)
-                        </MudTd>
-                    </RowTemplate>
-                </MudTable>
-            </MudPaper>
-        }
-    }
 
     @if (_isLoading)
     {
@@ -96,14 +53,6 @@
     else
     {
         <section class="agent-installations-section" aria-label="Installed agent plugins">
-            <div class="configuration-section-header">
-                <div>
-                    <MudText Typo="Typo.h6">Installed Agent Definitions</MudText>
-                    <MudText Color="Color.Secondary">Globally installed agent families and the defaults inherited by every new hire.</MudText>
-                </div>
-                <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@_installations.Count</MudChip>
-            </div>
-
             @if (!string.IsNullOrWhiteSpace(_installationActionMessage))
             {
                 <MudAlert Severity="@(_installationActionSucceeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">
@@ -140,155 +89,15 @@
                     {
                         var availableUpdate = UpdateFor(installation.Id);
                         var buildProgress = BuildProgressFor(installation);
-                        <MudPaper Elevation="1" Class="agent-installation-card">
-                            <div class="configuration-section-header">
-                                <div>
-                                    <MudText Typo="Typo.subtitle1">@installation.AgentName</MudText>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@installation.AgentId · global definition</MudText>
-                                </div>
-                                <MudStack Row="true" Spacing="1" Class="agent-status-chips">
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Installed</MudChip>
-                                    @if (availableUpdate is not null)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">Update @availableUpdate.AvailableVersion</MudChip>
-                                    }
-                                    @if (installation.Build is not null)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="@BuildStatusColor(installation.Build.Status)" Variant="Variant.Filled">@BuildStatusLabel(installation.Build.Status)</MudChip>
-                                    }
-                                    @if (IsBuildSuccessful(installation.Build?.Status))
-                                    {
-                                        @if (installation.Schedule.AutomaticStartSuppressedAt is not null)
-                                        {
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">Startup failed</MudChip>
-                                        }
-                                        else if (IsRuntimeActive(installation.LatestRuntime?.Status))
-                                        {
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">Running</MudChip>
-                                        }
-                                        else if (installation.IsEnabled && installation.Schedule.IsEnabled)
-                                        {
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">Scheduled</MudChip>
-                                        }
-                                        else
-                                        {
-                                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Filled">Disabled</MudChip>
-                                        }
-                                    }
-                                </MudStack>
-                            </div>
-                            <dl class="configuration-details agents-details">
-                                <div><dt>Activation</dt><dd>@installation.Schedule.ActivationMode</dd></div>
-                                <div><dt>Frequency</dt><dd>@FormatFrequency(installation.Schedule.TickFrequencySeconds)</dd></div>
-                                <div><dt>Next tick</dt><dd>@FormatNextTick(installation.Schedule.NextTickAt)</dd></div>
-                                <div><dt>Last run</dt><dd>@FormatLastRun(installation.LatestRuntime)</dd></div>
-                                <div><dt>Runtime limit</dt><dd>@installation.Schedule.MaxRuntimeSeconds s</dd></div>
-                                <div><dt>Memory</dt><dd>@installation.MemoryMb MB</dd></div>
-                                <div><dt>CPU</dt><dd>@installation.CpuPercent%</dd></div>
-                            </dl>
-                            @if (installation.Schedule.AutomaticStartSuppressedAt is not null)
-                            {
-                                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">
-                                    <MudText Typo="Typo.subtitle2">Automatic startup stopped after 3 failed attempts.</MudText>
-                                    <MudText Typo="Typo.body2">
-                                        @(installation.LatestRuntime?.Reason ?? "The agent did not register successfully with the runtime broker.")
-                                    </MudText>
-                                     @if (!string.IsNullOrWhiteSpace(installation.LatestRuntime?.LogExcerpt))
-                                     {
-                                        <details class="mt-2">
-                                            <summary>Startup log details</summary>
-                                             <pre class="agent-build-log">@installation.LatestRuntime.LogExcerpt</pre>
-                                         </details>
-                                     }
-                                     <MudButton Variant="Variant.Filled"
-                                                Color="Color.Warning"
-                                                StartIcon="@Icons.Material.Filled.Refresh"
-                                                Class="mt-3"
-                                                Disabled="@_isManagingInstallation"
-                                                OnClick="@(() => RetryStartupAsync(installation))">
-                                         Try startup again
-                                     </MudButton>
-                                 </MudAlert>
-                             }
-                            @if (buildProgress is not null)
-                            {
-                                <MudAlert Severity="@buildProgress.Severity" Variant="Variant.Outlined" Class="mb-3">
-                                    <MudStack Spacing="1">
-                                        <MudText Typo="Typo.subtitle2">@buildProgress.Title</MudText>
-                                        <MudText Typo="Typo.body2">@buildProgress.Detail</MudText>
-                                        @if (!buildProgress.IsTerminal)
-                                        {
-                                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                                        }
-                                    </MudStack>
-                                </MudAlert>
-                            }
-                            @if (ShouldShowBuildSteps(installation, buildProgress) &&
-                                 installation.Build?.Steps is { Count: > 0 } buildSteps)
-                            {
-                                <div class="agent-build-steps" aria-label="Build progress">
-                                    @foreach (var step in buildSteps)
-                                    {
-                                        <div class="agent-build-step agent-build-step-@step.Status.ToLowerInvariant()">
-                                            <div class="agent-build-step-indicator">
-                                                @if (step.Status == "InProgress")
-                                                {
-                                                    <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
-                                                }
-                                                else
-                                                {
-                                                    <MudIcon Icon="@BuildStepIcon(step.Status)" Color="@BuildStepColor(step.Status)" Size="Size.Small" />
-                                                }
-                                            </div>
-                                            <div class="agent-build-step-content">
-                                                <MudText Typo="Typo.subtitle2">@step.Label</MudText>
-                                                @if (!string.IsNullOrWhiteSpace(step.Detail))
-                                                {
-                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@step.Detail</MudText>
-                                                }
-                                                @if (!string.IsNullOrWhiteSpace(step.Error))
-                                                {
-                                                    <pre class="agent-build-step-error">@step.Error</pre>
-                                                    @if (installation.Build.HasLog)
-                                                    {
-                                                        <MudButton Variant="Variant.Text"
-                                                                   Color="Color.Error"
-                                                                   Size="Size.Small"
-                                                                   StartIcon="@Icons.Material.Filled.Description"
-                                                                   OnClick="@(() => OpenBuildLogDialogAsync(installation))">
-                                                            View full build log
-                                                        </MudButton>
-                                                    }
-                                                }
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
-                            }
-                            <MudStack Row="true" Class="setup-actions">
-                                @if (installation.Build?.Status is "Failed" or "Cancelled")
-                                {
-                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
-                                               Disabled="@_isManagingInstallation" OnClick="@(() => RetryBuildAsync(installation))">
-                                        Retry build
-                                    </MudButton>
-                                }
-                                @if (availableUpdate is not null)
-                                {
-                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt"
-                                               Disabled="@_isManagingInstallation" OnClick="@(() => OpenUpdateDialog(installation, availableUpdate))">
-                                        Update
-                                    </MudButton>
-                                }
-                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Settings" Disabled="@_isBusy" OnClick="@(() => SelectAgentAsync(installation))">
-                                    Configure global defaults
-                                </MudButton>
-                                <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteForever"
-                                           Disabled="@_isManagingInstallation" OnClick="@(() => OpenRemoveDialog(installation))">
-                                    Remove
-                                </MudButton>
-                            </MudStack>
-                        </MudPaper>
+                        <InstalledAgentCard @key="installation.Id" Installation="installation" Update="availableUpdate"
+                                            Busy="@(_isBusy || _isManagingInstallation)"
+                                            BuildPending="@_pendingBuildRequests.Contains(installation.Id)"
+                                            ProgressTitle="@buildProgress?.Title" ProgressDetail="@buildProgress?.Detail"
+                                            OnUpdate="@(() => UpdateInstallationAsync(installation, availableUpdate!))"
+                                            OnBuild="@(() => RetryBuildAsync(installation))"
+                                            OnConfigure="@(() => SelectAgentAsync(installation))"
+                                            OnRemove="@(() => OpenRemoveDialog(installation))"
+                                            OnBuildLog="@(() => OpenBuildLogDialogAsync(installation))" />
                     }
                 </div>
             }
@@ -883,41 +692,7 @@
     </DialogActions>
 </MudDialog>
 
-<MudDialog @bind-Visible="_updateDialogOpen" Options="_updateDialogOptions">
-    <TitleContent>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-            <MudIcon Icon="@Icons.Material.Filled.SystemUpdateAlt" Color="Color.Primary" />
-            <MudText Typo="Typo.h6">Update agent definition?</MudText>
-        </MudStack>
-    </TitleContent>
-    <DialogContent>
-        <MudStack Spacing="2">
-            <MudText>
-                Update the global <strong>@_updateInstallation?.AgentName</strong> definition from
-                <strong>@_selectedUpdate?.CurrentVersion</strong> to
-                <strong>@_selectedUpdate?.AvailableVersion</strong>?
-            </MudText>
-            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                The new GitHub commit will be verified and built for future hires. Compatible global defaults are preserved, removed grants are revoked, and newly requested access remains denied. Existing employees stay pinned to their approved package revision.
-            </MudAlert>
-            @if (_isManagingInstallation)
-            {
-                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                <MudText Typo="Typo.body2" Color="Color.Secondary">Queuing the new definition package...</MudText>
-            }
-            @if (!string.IsNullOrWhiteSpace(_updateError))
-            {
-                <MudAlert Severity="Severity.Error">@_updateError</MudAlert>
-            }
-        </MudStack>
-    </DialogContent>
-    <DialogActions>
-        <MudButton Variant="Variant.Text" Disabled="@_isManagingInstallation" OnClick="CloseUpdateDialog">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt" Disabled="@_isManagingInstallation" OnClick="UpdateInstallationAsync">
-            @(_isManagingInstallation ? "Updating..." : "Confirm update")
-        </MudButton>
-    </DialogActions>
-</MudDialog>
+
 
 @code {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
@@ -1017,11 +792,7 @@
     private bool _removeDialogOpen;
     private AgentInstallationResponse? _removeInstallation;
     private string? _removeError;
-    private readonly DialogOptions _updateDialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = false };
-    private bool _updateDialogOpen;
-    private AgentInstallationResponse? _updateInstallation;
-    private AgentDefinitionUpdateAvailabilityResponse? _selectedUpdate;
-    private string? _updateError;
+    private readonly HashSet<Guid> _pendingBuildRequests = [];
     private readonly CancellationTokenSource _disposeCts = new();
     private Task? _updateCheckTask;
     private CancellationTokenSource? _configurationCts;
@@ -1487,60 +1258,35 @@
     private AgentDefinitionUpdateAvailabilityResponse? UpdateFor(Guid definitionId) =>
         _updates.FirstOrDefault(update => update.DefinitionId == definitionId && update.UpdateAvailable);
 
-    private void OpenUpdateDialog(
-        AgentInstallationResponse installation,
-        AgentDefinitionUpdateAvailabilityResponse update)
+    private async Task UpdateInstallationAsync(
+        AgentInstallationResponse installation, AgentDefinitionUpdateAvailabilityResponse update)
     {
-        _updateInstallation = installation;
-        _selectedUpdate = update;
-        _updateError = null;
-        _updateDialogOpen = true;
-    }
-
-    private void CloseUpdateDialog()
-    {
-        if (_isManagingInstallation) return;
-        _updateDialogOpen = false;
-        _updateInstallation = null;
-        _selectedUpdate = null;
-        _updateError = null;
-    }
-
-    private async Task UpdateInstallationAsync()
-    {
-        if (_updateInstallation is null || _selectedUpdate?.AvailablePackageVersionId is not Guid packageVersionId)
-        {
+        if (_isManagingInstallation || InstalledAgentPresentation.IsBuilding(installation, _pendingBuildRequests.Contains(installation.Id)) ||
+            update.AvailablePackageVersionId is not Guid packageVersionId)
             return;
-        }
 
-        var installationId = _updateInstallation.Id;
-        var progressKey = InstallationProgressKey(_updateInstallation);
         _isManagingInstallation = true;
-        _updateError = null;
+        _pendingBuildRequests.Add(installation.Id);
+        var progressKey = InstallationProgressKey(installation);
         SetBuildProgress(progressKey, "Preparing update", "Queuing the new definition package.");
         try
         {
             var updated = await AgentApi.UpdateDefinitionAsync(
-                installationId,
-                new UpdateAgentDefinitionRequest(packageVersionId),
-                _disposeCts.Token);
+                installation.Id, new UpdateAgentDefinitionRequest(packageVersionId), _disposeCts.Token);
             ReplaceInstallation(updated);
-            _updates = _updates.Where(update => update.DefinitionId != installationId).ToList();
-            _updateDialogOpen = false;
-            _updateInstallation = null;
-            _selectedUpdate = null;
-            _isManagingInstallation = false;
-            await InvokeAsync(StateHasChanged);
-            await TrackAgentBuildAsync(updated, isUpdate: true, cancellationToken: _disposeCts.Token);
+            _updates = _updates.Where(item => item.DefinitionId != installation.Id).ToList();
+            SetInstallationMessage($"Update to {updated.AgentVersion} queued.", true);
+            StartBuildTracking(updated);
         }
         catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested) { }
         catch (Exception exception)
         {
-            _updateError = exception.Message;
             SetBuildProgress(progressKey, "Update failed", exception.Message, true, Severity.Error);
+            SetInstallationMessage(exception.Message, false);
         }
         finally
         {
+            _pendingBuildRequests.Remove(installation.Id);
             _isManagingInstallation = false;
         }
     }
@@ -1655,6 +1401,8 @@
         finally
         {
             _trackedDefinitionBuilds.Remove(progressKey);
+            if (!cancellationToken.IsCancellationRequested)
+                await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -1735,42 +1483,38 @@
 
     private async Task RetryBuildAsync(AgentInstallationResponse installation)
     {
-        if (_isManagingInstallation || installation.Build?.Status is not ("Failed" or "Cancelled"))
-        {
+        if (_isManagingInstallation || InstalledAgentPresentation.IsBuilding(installation, _pendingBuildRequests.Contains(installation.Id)) ||
+            installation.Build?.Status is not ("Failed" or "Cancelled"))
             return;
-        }
 
         _isManagingInstallation = true;
+        _pendingBuildRequests.Add(installation.Id);
+        SetBuildProgress(InstallationProgressKey(installation), "Queuing build", "Requesting another build of this agent package.");
         try
         {
             var updated = await AgentApi.RetryDefinitionBuildAsync(installation.Id, _disposeCts.Token);
             ReplaceInstallation(updated);
-            SetBuildProgress(
-                InstallationProgressKey(updated),
-                "Build retry queued",
-                "The failed package source will be fetched again.");
             SetInstallationMessage("Build retry queued.", true);
-            await InvokeAsync(StateHasChanged);
-            _isManagingInstallation = false;
-            await TrackAgentBuildAsync(updated, isUpdate: false, cancellationToken: _disposeCts.Token);
+            StartBuildTracking(updated);
         }
-        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
-        {
-        }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested) { }
         catch (Exception exception)
         {
-            SetBuildProgress(
-                InstallationProgressKey(installation),
-                "Build retry failed",
-                exception.Message,
-                true,
-                Severity.Error);
+            SetBuildProgress(InstallationProgressKey(installation), "Build retry failed", exception.Message, true, Severity.Error);
             SetInstallationMessage(exception.Message, false);
         }
         finally
         {
+            _pendingBuildRequests.Remove(installation.Id);
             _isManagingInstallation = false;
         }
+    }
+
+    private void StartBuildTracking(AgentInstallationResponse installation)
+    {
+        var key = InstallationProgressKey(installation);
+        if (_trackedDefinitionBuilds.Add(key))
+            _ = TrackLoadedDefinitionBuildAsync(installation, key, _disposeCts.Token);
     }
 
     private async Task RetryStartupAsync(AgentInstallationResponse installation)
@@ -1898,8 +1642,16 @@
 
     private void SetInstallationMessage(string message, bool succeeded)
     {
-        _installationActionMessage = message;
         _installationActionSucceeded = succeeded;
+        _installationActionMessage = succeeded ? null : message;
+        if (succeeded)
+        {
+            Snackbar.Add(message, Severity.Success, options =>
+            {
+                options.VisibleStateDuration = 4000;
+                options.RequireInteraction = false;
+            });
+        }
     }
 
     private async Task LoadConfigurationAsync(AgentInstallationResponse agent)

@@ -1,3 +1,4 @@
+using System.Text;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
 using CSweet.Domain.Setup;
@@ -12,15 +13,18 @@ public sealed class AgentUpdateService : IAgentUpdateService
     private readonly CSweetDbContext _dbContext;
     private readonly IAgentImportPreviewService _previewService;
     private readonly ILogger<AgentUpdateService> _logger;
+    private readonly IGitHubAgentRepositoryClient? _repositoryClient;
 
     public AgentUpdateService(
         CSweetDbContext dbContext,
         IAgentImportPreviewService previewService,
-        ILogger<AgentUpdateService> logger)
+        ILogger<AgentUpdateService> logger,
+        IGitHubAgentRepositoryClient? repositoryClient = null)
     {
         _dbContext = dbContext;
         _previewService = previewService;
         _logger = logger;
+        _repositoryClient = repositoryClient;
     }
 
     public async Task<IReadOnlyList<AgentUpdateAvailabilityResponse>> CheckAsync(
@@ -99,7 +103,7 @@ public sealed class AgentUpdateService : IAgentUpdateService
         }
 
         var checkedAt = DateTimeOffset.UtcNow;
-        return definitions.Select(definition =>
+        var results = definitions.Select(definition =>
         {
             var current = definition.PackageVersion!;
             var sourceId = current.PackageSourceId;
@@ -112,6 +116,34 @@ public sealed class AgentUpdateService : IAgentUpdateService
                 SemanticVersionComparer.Compare(preview.AgentVersion, current.Version) > 0;
             return ToDefinitionResponse(definition, checkedAt, updateAvailable ? preview : null, null);
         }).ToList();
+        var notesByPackage = new Dictionary<Guid, (string? Text, string? Error)>();
+        for (var index = 0; index < results.Count; index++)
+        {
+            var result = results[index];
+            if (!result.UpdateAvailable || result.AvailablePackageVersionId is not Guid packageId)
+                continue;
+
+            var path = $"releases/{result.AvailableVersion}.md";
+            if (!notesByPackage.TryGetValue(packageId, out var notes))
+            {
+                var source = definitions[index].PackageVersion!.PackageSource!;
+                try
+                {
+                    var bytes = _repositoryClient is null ? null : await _repositoryClient.GetRepositoryFileAsync(
+                        source.RepositoryOwner, source.RepositoryName, result.AvailableCommitSha!, path,
+                        64 * 1024, cancellationToken);
+                    notes = (bytes is null ? null : new UTF8Encoding(false, true).GetString(bytes), null);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    _logger.LogWarning(exception, "Could not read release notes for {AgentId} {Version}.", result.AgentId, result.AvailableVersion);
+                    notes = (null, "Release notes could not be loaded. You can still update this agent.");
+                }
+                notesByPackage[packageId] = notes;
+            }
+            results[index] = result with { ReleaseNotes = notes.Text, ReleaseNotesPath = path, ReleaseNotesError = notes.Error };
+        }
+        return results;
     }
 
     private static AgentUpdateAvailabilityResponse ToResponse(

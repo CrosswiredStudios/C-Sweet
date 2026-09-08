@@ -63,8 +63,12 @@ public sealed class AgentUpdateServiceTests
         Assert.Equal(expected ? preview.ImportId : null, result.AvailablePackageVersionId);
     }
 
-    [Fact]
-    public async Task CheckDefinitionsAsync_ReportsUpdatesForGlobalDefinitions()
+    [Theory]
+    [InlineData("present")]
+    [InlineData("missing")]
+    [InlineData("error")]
+    [InlineData("invalid-utf8")]
+    public async Task CheckDefinitionsAsync_ReportsUpdatesWithCommitPinnedReleaseNotes(string notesMode)
     {
         await using var dbContext = CreateDbContext();
         var source = new AgentPackageSource
@@ -88,14 +92,22 @@ public sealed class AgentUpdateServiceTests
         dbContext.AddRange(source, package, definition);
         await dbContext.SaveChangesAsync();
         var preview = CreatePreview("1.3.0");
+        var repository = new NotesRepository(notesMode);
         var service = new AgentUpdateService(
-            dbContext, new StubPreviewService(preview), NullLogger<AgentUpdateService>.Instance);
+            dbContext, new StubPreviewService(preview), NullLogger<AgentUpdateService>.Instance, repository);
 
         var result = Assert.Single(await service.CheckDefinitionsAsync());
 
         Assert.Equal(definition.Id, result.DefinitionId);
         Assert.True(result.UpdateAvailable);
         Assert.Equal(preview.ImportId, result.AvailablePackageVersionId);
+        Assert.Equal(preview.CommitSha, repository.Commit);
+        Assert.Equal("releases/1.3.0.md", repository.Path);
+        Assert.Equal(64 * 1024, repository.MaximumBytes);
+        Assert.Equal("releases/1.3.0.md", result.ReleaseNotesPath);
+        Assert.Equal(notesMode == "present" ? "# 1.3.0\n- Improved scheduling." : null, result.ReleaseNotes);
+        Assert.Equal(notesMode is "error" or "invalid-utf8", result.ReleaseNotesError is not null);
+        Assert.Null(result.Error);
     }
 
     private static AgentImportPreviewResponse CreatePreview(string version) => new(
@@ -121,6 +133,29 @@ public sealed class AgentUpdateServiceTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
         return new CSweetDbContext(options);
+    }
+
+    private sealed class NotesRepository(string mode) : IGitHubAgentRepositoryClient
+    {
+        public string? Commit { get; private set; }
+        public string? Path { get; private set; }
+        public int MaximumBytes { get; private set; }
+        public Task<string> GetDefaultBranchAsync(string owner, string repository, CancellationToken token) => throw new NotSupportedException();
+        public Task<string> ResolveCommitShaAsync(string owner, string repository, string reference, CancellationToken token) => throw new NotSupportedException();
+        public Task<byte[]> GetRootManifestAsync(string owner, string repository, string commit, CancellationToken token) => throw new NotSupportedException();
+        public Task<byte[]?> GetRepositoryFileAsync(string owner, string repository, string commit, string path, int maximumBytes, CancellationToken token)
+        {
+            Commit = commit;
+            Path = path;
+            MaximumBytes = maximumBytes;
+            if (mode == "error") throw new HttpRequestException("Unavailable");
+            return Task.FromResult<byte[]?>(mode switch
+            {
+                "present" => System.Text.Encoding.UTF8.GetBytes("# 1.3.0\n- Improved scheduling."),
+                "invalid-utf8" => [0xff, 0xfe],
+                _ => null
+            });
+        }
     }
 
     private sealed class StubPreviewService(AgentImportPreviewResponse response) : IAgentImportPreviewService

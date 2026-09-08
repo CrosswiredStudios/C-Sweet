@@ -1,0 +1,154 @@
+@using CSweet.Contracts.Agents
+
+<article class="installed-agent-card" aria-label="@Installation.AgentName">
+    <div class="installed-agent-version">
+        <span>@($"v{Installation.AgentVersion}")</span>
+        @if (Update is not null)
+        {
+            <div class="agent-card-popover-host update-preview @(_updatePreviewOpen ? "is-open" : "")" tabindex="0" aria-label="Update to version @Update.AvailableVersion"
+                 @onmouseenter="@(() => _updatePreviewOpen = true)" @onmouseleave="@(() => _updatePreviewOpen = false)"
+                 @onfocusin="@(() => _updatePreviewOpen = true)" @onfocusout="@(() => _updatePreviewOpen = false)" @onkeydown="ClosePopupOnEscape">
+                <MudIconButton Icon="@Icons.Material.Filled.SystemUpdateAlt" Color="Color.Primary" Size="Size.Small"
+                               aria-label="@($"Update {Installation.AgentName} to {Update.AvailableVersion}")"
+                               Disabled="@(Busy || Building)" OnClick="OnUpdate" />
+                <div class="agent-card-popover" role="tooltip">
+                    <MudText Typo="Typo.subtitle2">@($"Update to v{Update.AvailableVersion}")</MudText>
+                    <div class="agent-release-notes">@(string.IsNullOrWhiteSpace(Update.ReleaseNotes) ? Update.ReleaseNotesError ?? "No release notes were published for this version." : Update.ReleaseNotes)</div>
+                </div>
+            </div>
+        }
+    </div>
+    <div class="installed-agent-identity">
+        <img src="@PortraitUrl" alt="" class="installed-agent-portrait" loading="lazy" decoding="async" referrerpolicy="no-referrer" @onerror="UseFallbackPortrait" />
+        <div class="installed-agent-name">
+            <MudText Typo="Typo.subtitle1">@Installation.AgentName</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@(Installation.RoleName ?? "Agent definition")</MudText>
+            <MudText Typo="Typo.caption" Color="@StatusColor">@StatusLabel</MudText>
+        </div>
+    </div>
+    <div class="installed-agent-actions">
+        @if (Building)
+        {
+            <div class="agent-card-popover-host @(_progressOpen ? "is-open" : "")" tabindex="0" role="button"
+                 aria-label="Show build progress for @Installation.AgentName" aria-expanded="@_progressOpen"
+                 @onclick="ToggleProgress" @onkeydown="HandleProgressKey"
+                 @onmouseenter="@(() => _progressOpen = true)" @onmouseleave="CloseUnpinnedProgress"
+                 @onfocusin="@(() => _progressOpen = true)" @onfocusout="CloseUnpinnedProgress">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="true" Class="building-button">
+                    <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="mr-2" /> Building
+                </MudButton>
+                <div class="agent-card-popover" @onclick:stopPropagation="true">
+                    <AgentBuildProgressContent Build="Installation.Build" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
+                    <MudButton Size="Size.Small" OnClick="OpenDetails">All details</MudButton>
+                </div>
+            </div>
+        }
+        else if (Installation.Build?.Status is "Failed" or "Cancelled")
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@Busy" OnClick="OnBuild">Rebuild</MudButton>
+        }
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Info" OnClick="OpenDetails">Details</MudButton>
+    </div>
+
+</article>
+
+<MudDialog @bind-Visible="_detailsOpen" Options="DetailsOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Installation.AgentName <span class="agent-detail-version">@($"v{Installation.AgentVersion}")</span></MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Color="Color.Secondary" Class="mb-3">@Installation.Summary</MudText>
+        <MudText Typo="Typo.overline">Definition</MudText>
+        <dl class="configuration-details agents-details">
+            <div><dt>Agent ID</dt><dd>@Installation.AgentId</dd></div>
+            <div><dt>Role</dt><dd>@(Installation.RoleName ?? "Not specified")</dd></div>
+            <div><dt>Publisher</dt><dd>@Installation.PublisherName</dd></div>
+            <div><dt>Status</dt><dd>@StatusLabel</dd></div>
+            <div><dt>Installed</dt><dd>@Installation.CreatedAt.ToLocalTime().ToString("g")</dd></div>
+            <div><dt>Updated</dt><dd>@Installation.UpdatedAt.ToLocalTime().ToString("g")</dd></div>
+            <div><dt>Source commit</dt><dd class="agent-import-hash">@Installation.CommitSha</dd></div>
+        </dl>
+        <MudDivider Class="my-4" />
+        <MudText Typo="Typo.overline">Defaults for new hires</MudText>
+        <dl class="configuration-details agents-details">
+            <div><dt>Activation</dt><dd>@Installation.Schedule.ActivationMode</dd></div>
+            <div><dt>Frequency</dt><dd>@TimeSpan.FromSeconds(Installation.Schedule.TickFrequencySeconds)</dd></div>
+            <div><dt>Overlap policy</dt><dd>@Installation.Schedule.OverlapPolicy</dd></div>
+            <div><dt>Runtime limit</dt><dd>@Installation.Schedule.MaxRuntimeSeconds s</dd></div>
+            <div><dt>Memory</dt><dd>@Installation.MemoryMb MB</dd></div>
+            <div><dt>CPU</dt><dd>@Installation.CpuPercent%</dd></div>
+        </dl>
+        <MudDivider Class="my-4" />
+        <MudText Typo="Typo.overline">Default access</MudText>
+        <dl class="configuration-details agents-details agent-access-details">
+            <div><dt>Provided capabilities</dt><dd>@List(Installation.GrantedCapabilities)</dd></div>
+            <div><dt>Required capabilities</dt><dd>@List(Installation.RequiredCapabilities)</dd></div>
+            <div><dt>Event subscriptions</dt><dd>@List(Installation.GrantedSubscriptions)</dd></div>
+            <div><dt>Network access</dt><dd>@List(Installation.GrantedNetworkAccess)</dd></div>
+        </dl>
+        <MudDivider Class="my-4" />
+        <AgentBuildProgressContent Build="Installation.Build" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
+        @if (Installation.Build?.HasLog == true)
+        {
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description" OnClick="OnBuildLog">View full build log</MudButton>
+        }
+        @if (Update is not null)
+        {
+            <MudDivider Class="my-4" />
+            <MudText Typo="Typo.overline">Available update · @($"v{Update.AvailableVersion}")</MudText>
+            <div class="agent-release-notes">@(string.IsNullOrWhiteSpace(Update.ReleaseNotes) ? Update.ReleaseNotesError ?? "No release notes were published for this version." : Update.ReleaseNotes)</div>
+            <MudButton Color="Color.Primary" Disabled="@(Busy || Building)" OnClick="OnUpdate">@($"Update to v{Update.AvailableVersion}")</MudButton>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Error" Disabled="@(Busy || Building)" OnClick="RemoveAsync">Remove</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Outlined" Disabled="@Busy" OnClick="ConfigureAsync">Configure global defaults</MudButton>
+        <MudButton Color="Color.Primary" OnClick="@(() => _detailsOpen = false)">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter, EditorRequired] public AgentInstallationResponse Installation { get; set; } = default!;
+    [Parameter] public AgentDefinitionUpdateAvailabilityResponse? Update { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool BuildPending { get; set; }
+    [Parameter] public string? ProgressTitle { get; set; }
+    [Parameter] public string? ProgressDetail { get; set; }
+    [Parameter] public EventCallback OnUpdate { get; set; }
+    [Parameter] public EventCallback OnBuild { get; set; }
+    [Parameter] public EventCallback OnConfigure { get; set; }
+    [Parameter] public EventCallback OnRemove { get; set; }
+    [Parameter] public EventCallback OnBuildLog { get; set; }
+    private static readonly DialogOptions DetailsOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+    private bool _detailsOpen;
+    private bool _progressPinned;
+    private bool _progressOpen;
+    private bool _updatePreviewOpen;
+    private bool _portraitFailed;
+    private bool Building => InstalledAgentPresentation.IsBuilding(Installation, BuildPending);
+    private string StatusLabel => Building ? "Build in progress" : Installation.Build?.Status switch
+    {
+        "Failed" => "Build failed",
+        "Cancelled" => "Build cancelled",
+        _ => Installation.SetupState switch { "Available" => "Available for hire", "NeedsConfiguration" => "Needs configuration", "Disabled" => "Disabled", _ => "Installed" }
+    };
+    private Color StatusColor => Installation.Build?.Status is "Failed" or "Cancelled" && !Building ? Color.Error : Color.Secondary;
+    private string PortraitUrl => !_portraitFailed && MarketplaceAgentPresentation.IsAgentImageUrl(Installation.ImageUrl)
+        ? Installation.ImageUrl! : MarketplaceAgentPresentation.DefaultImageUrl;
+    private void UseFallbackPortrait() => _portraitFailed = true;
+    private void OpenDetails() { _progressPinned = false; _progressOpen = false; _detailsOpen = true; }
+    private void ToggleProgress() { _progressPinned = !_progressPinned; _progressOpen = _progressPinned; }
+    private void CloseUnpinnedProgress() { if (!_progressPinned) _progressOpen = false; }
+    private void HandleProgressKey(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or " ") ToggleProgress();
+        ClosePopupOnEscape(e);
+    }
+    private void ClosePopupOnEscape(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") { _progressPinned = false; _progressOpen = false; _updatePreviewOpen = false; }
+    }
+    private async Task ConfigureAsync() { _detailsOpen = false; await OnConfigure.InvokeAsync(); }
+    private async Task RemoveAsync() { _detailsOpen = false; await OnRemove.InvokeAsync(); }
+    private static string List(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);
+}

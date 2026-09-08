@@ -1,0 +1,38 @@
+@using CSweet.Contracts.Core
+<div class="reporting-state">
+    @if (!HasReport)
+    {
+        <div class="reporting-copy">
+            <MudText Typo="Typo.subtitle1">@(Reporters.Count == 0 ? $"Start {Area.ToLowerInvariant()} reporting" : "Awaiting first update")</MudText>
+            <MudText Color="Color.Secondary">@(Reporters.Count == 0
+                ? $"Hire a {RoleName} or a compatible third-party agent to {Purpose}. No information has been reported yet."
+                : $"{string.Join(", ", Reporters.Select(x => x.Name))} can {Purpose}. Their first published report will appear here.")</MudText>
+        </div>
+    }
+    else if (Reporters.Count == 0)
+    {
+        <MudText Color="Color.Warning">No reporting agent is currently available. This is the last published information.</MudText>
+    }
+    @if (!HasReport || Reporters.Count == 0)
+    {
+        @if (Reporters.Count == 0)
+        {
+            <MudButton Href="@($"/organizations/{OrganizationId}/marketplace")" Variant="Variant.Outlined" Color="Color.Primary">Hire a @Area.ToLowerInvariant() agent</MudButton>
+        }
+        else
+        {
+            @foreach (var reporter in Reporters)
+            {
+                <MudButton Href="@($"/organizations/{OrganizationId}/employees/{reporter.Id}")" Variant="Variant.Outlined">Contact @reporter.Name</MudButton>
+            }
+        }
+    }
+</div>
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public string Area { get; set; } = "";
+    [Parameter] public string RoleName { get; set; } = "";
+    [Parameter] public string Purpose { get; set; } = "";
+    [Parameter] public bool HasReport { get; set; }
+    [Parameter] public IReadOnlyList<DashboardReporter> Reporters { get; set; } = [];
+}

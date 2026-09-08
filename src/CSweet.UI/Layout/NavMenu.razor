@@ -4,6 +4,7 @@
 @inject AuthSessionStore AuthSession
 @inject NavigationManager Navigation
 @inject CommunicationUnreadState CommunicationUnread
+@inject ApprovalState Approvals
 
 <div class="nav-shell">
     <a class="nav-brand" href="/" aria-label="C-Sweet Enterprise home">
@@ -35,8 +36,15 @@
                         Source Control
                     </MudNavLink>
                     <MudNavLink Href="@ApprovalsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Approval" Class="business-nav-link">
-                        Approvals
+                        <span class="communications-nav-content">
+                            <span class="communications-nav-label">Approvals</span>
+                            @if (Approvals.PendingCount > 0)
+                            {
+                                <span class="communications-nav-badge" aria-label="@($"{Approvals.PendingCount} pending approvals")">@Approvals.PendingCount</span>
+                            }
+                        </span>
                     </MudNavLink>
+                    <MudNavLink Href="@CalendarHref" Icon="@Icons.Material.Outlined.CalendarMonth" Class="business-nav-link">Calendar</MudNavLink>
                     <MudNavLink Href="@DocumentsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Description" Class="business-nav-link">
                         Documents
                     </MudNavLink>
@@ -101,6 +109,7 @@
 </div>
 
 @code {
+    private string? CalendarHref => BusinessContext.SelectedBusiness is { } b ? $"/organizations/{b.Id}/calendar" : null;
     private string? OverviewHref => BusinessContext.SelectedBusiness is { } business
         ? $"/organizations/{business.Id}/command-center"
         : null;
@@ -165,6 +174,8 @@
         BusinessContext.Changed += OnContextChanged;
         Navigation.LocationChanged += OnLocationChanged;
         CommunicationUnread.Changed += OnUnreadChanged;
+        Approvals.Changed += OnUnreadChanged;
+        _ = Approvals.InitializeAsync();
         _ = CommunicationUnread.InitializeAsync();
     }
 
@@ -184,5 +195,6 @@
         BusinessContext.Changed -= OnContextChanged;
         Navigation.LocationChanged -= OnLocationChanged;
         CommunicationUnread.Changed -= OnUnreadChanged;
+        Approvals.Changed -= OnUnreadChanged;
     }
 }

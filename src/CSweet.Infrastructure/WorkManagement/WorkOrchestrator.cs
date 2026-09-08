@@ -479,7 +479,7 @@ public sealed partial class WorkOrchestrator(
             }, JsonOptions), "application/json")).ToList();
     }
 
-    private async Task ExecuteTrustedActionAsync(
+    internal async Task ExecuteTrustedActionAsync(
         WorkSprintExecution execution, WorkOrchestrationPolicyRevision policy,
         WorkStageExecution stage, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -493,6 +493,16 @@ public sealed partial class WorkOrchestrator(
             execution.OrganizationId, execution.BoardId, execution.Id, stage.ItemExecutionId,
             stage.Id, stage.ItemExecution.WorkItemId, stage.ItemExecution.ItemIdentifier,
             stage.PlatformAction!, JsonSerializer.SerializeToElement(new { }, JsonOptions)), cancellationToken);
+        var attempt = new WorkExecutionAttempt
+        {
+            Id = Guid.NewGuid(), StageExecutionId = stage.Id, Attempt = stage.Attempts.Count + 1,
+            IdempotencyKey = $"trusted-action:{stage.Id:N}:{stage.Attempts.Count + 1}",
+            Status = WorkExecutionAttemptStatus.Completed, CreatedAt = now, CompletedAt = timeProvider.GetUtcNow()
+        };
+        attempt.ResultJson = JsonSerializer.Serialize(new Shared.WorkExecutionOutcomeV1(stage.Id, attempt.Id,
+            result.Disposition, result.OutcomeCode, result.Summary, result.Output, [], result.Diagnostics), JsonOptions);
+        db.WorkExecutionAttempts.Add(attempt);
+        stage.LastOutcomeCode = result.OutcomeCode; stage.LastSummary = result.Summary;
         if (result.Disposition == Shared.WorkExecutionDispositions.Blocked)
             Block(stage, result.Summary, now);
         else if (result.Disposition == Shared.WorkExecutionDispositions.Failed)

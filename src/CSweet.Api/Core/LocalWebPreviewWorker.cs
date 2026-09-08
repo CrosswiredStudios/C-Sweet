@@ -53,7 +53,16 @@ internal sealed class LocalWebPreviewWorker(IServiceScopeFactory scopes, TimePro
                 record.Status = "Expired"; record.AccessReference = null;
                 continue;
             }
-            if (running.ContainsKey(record.Id)) continue;
+            if (running.TryGetValue(record.Id, out var existing))
+            {
+                if (existing.Expires == record.ExpiresAt)
+                {
+                    record.Status = "Ready"; record.AccessReference = existing.Server.AccessReference;
+                    continue;
+                }
+                await existing.Server.DisposeAsync();
+                running.Remove(record.Id);
+            }
             if (running.Count >= 3)
             {
                 // A restart invalidates old process URLs until a slot can be restored.

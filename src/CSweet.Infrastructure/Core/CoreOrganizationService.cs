@@ -78,6 +78,7 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         };
 
         _dbContext.CoreOrganizations.Add(org);
+        _dbContext.Set<BusinessCalendar>().Add(new BusinessCalendar { OrganizationId = org.Id });
         await _dbContext.SaveChangesAsync(cancellationToken);
         await CSweet.Infrastructure.SourceControl.InternalGitProvisioningDefaults.EnsureAsync(_dbContext, org.Id, cancellationToken);
 

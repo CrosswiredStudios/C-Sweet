@@ -1,0 +1,79 @@
+@using CSweet.Contracts.Agents
+
+<section class="agent-build-progress-content" aria-label="Build progress" aria-live="polite">
+    <MudText Typo="Typo.subtitle2" Class="agent-build-progress-title">@(ProgressTitle ?? BuildTitle)</MudText>
+    @if (!string.IsNullOrWhiteSpace(ProgressDetail))
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary">@ProgressDetail</MudText>
+    }
+    @if (Build is null)
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Build steps will appear when a build is queued.</MudText>
+    }
+    else
+    {
+        <MudText Typo="Typo.caption" Color="Color.Secondary">Attempt @Build.Attempt · queued @Build.QueuedAt.ToLocalTime().ToString("g")</MudText>
+        @if (Build.Steps is { Count: > 0 })
+        {
+            <ol class="installed-agent-build-steps">
+                @foreach (var step in Build.Steps)
+                {
+                    <li class="agent-build-progress-step">
+                        <div class="agent-build-progress-marker" aria-hidden="true">
+                            @if (step.Status == "InProgress")
+                            {
+                                <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
+                            }
+                            else
+                            {
+                                <MudIcon Icon="@StepIcon(step.Status)" Color="@StepColor(step.Status)" Size="Size.Small" />
+                            }
+                        </div>
+                        <div class="agent-build-progress-step-content">
+                            <div class="agent-build-progress-step-heading">
+                                <MudText Typo="Typo.subtitle2" Class="agent-build-progress-title">@step.Label</MudText>
+                                <span class="agent-step-status agent-step-status-@step.Status.ToLowerInvariant()">@StepStatus(step.Status)</span>
+                            </div>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@step.Detail</MudText>
+                            @if (!string.IsNullOrWhiteSpace(step.Error))
+                            {
+                                <pre class="agent-build-step-error">@step.Error</pre>
+                            }
+                        </div>
+                    </li>
+                }
+            </ol>
+        }
+        @if (!string.IsNullOrWhiteSpace(Build.FailureMessage))
+        {
+            <MudText Typo="Typo.body2" Color="Color.Error">@Build.FailureMessage</MudText>
+        }
+    }
+</section>
+
+@code {
+    private string BuildTitle => Build?.Status switch
+    {
+        "Queued" => "Build queued", "Cloning" => "Fetching source", "Building" => "Building package",
+        "Succeeded" => "Build complete", "Failed" => "Build failed", "Cancelled" => "Build cancelled",
+        _ => "Build information"
+    };
+    private static string StepStatus(string status) => status switch
+    {
+        "InProgress" => "In progress", "Succeeded" => "Complete", _ => status
+    };
+    private static string StepIcon(string status) => status switch
+    {
+        "Succeeded" => Icons.Material.Filled.CheckCircle,
+        "Failed" => Icons.Material.Filled.Error,
+        "Cancelled" => Icons.Material.Filled.Cancel,
+        _ => Icons.Material.Outlined.RadioButtonUnchecked
+    };
+    private static Color StepColor(string status) => status switch
+    {
+        "Succeeded" => Color.Success, "Failed" => Color.Error, "Cancelled" => Color.Warning, _ => Color.Default
+    };
+    [Parameter] public AgentBuildSummaryResponse? Build { get; set; }
+    [Parameter] public string? ProgressTitle { get; set; }
+    [Parameter] public string? ProgressDetail { get; set; }
+}

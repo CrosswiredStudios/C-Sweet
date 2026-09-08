@@ -43,7 +43,11 @@ else if (WorkstreamId.HasValue && _project is not null)
         <MudTabPanel Text="Documents and reviews">@ResourcePanel(_project.Documents)</MudTabPanel>
         <MudTabPanel Text="Communications">@ResourcePanel(_project.Communications)</MudTabPanel>
         <MudTabPanel Text="Decisions, milestones, gates, and authority">@ResourcePanel(_project.Governance)</MudTabPanel>
-        <MudTabPanel Text="Builds, previews, media, evaluations, and release">@ResourcePanel(_project.Evidence)</MudTabPanel>
+        <MudTabPanel Text="Builds, previews, media, evaluations, and release">
+            <MudButton OnClick="RefreshAsync" Variant="Variant.Outlined" Class="mb-3">Refresh delivery status</MudButton>
+            <ProjectPreviewLinks Resources="_project.Evidence" />
+            @ResourcePanel(_project.Evidence)
+        </MudTabPanel>
         <MudTabPanel Text="Audit timeline">
             <MudGrid Class="mb-3">
                 <MudItem xs="12" md="3"><MudTextField @bind-Value="_auditActor" Label="Actor" Immediate="true" /></MudItem>

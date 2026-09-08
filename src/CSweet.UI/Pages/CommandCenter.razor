@@ -1,322 +1,259 @@
 @page "/organizations/{OrganizationId:guid}/command-center"
 @using CSweet.Contracts.Core
+@using CSweet.Contracts.Realtime
 @inject HttpClient Http
+@inject AppRealtimeState Realtime
+@implements IDisposable
 
-<PageTitle>Command Center - C-Sweet</PageTitle>
-
-<div class="command-center-shell command-center">
+<PageTitle>Company overview - C-Sweet</PageTitle>
+<div class="company-overview">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Command center</MudText>
-            <MudText Typo="Typo.h3">@(_organization?.Name ?? "Organization")</MudText>
-            <MudText Color="Color.Secondary">@(_organization?.PrimaryGoal ?? "Your initial operating workspace is ready.")</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Company overview</MudText>
+            <MudText Typo="Typo.h3">@(_organization?.Name ?? "Your company")</MudText>
+            <MudText Color="Color.Secondary">Decisions, company health, and the latest from your project leads.</MudText>
+        </div>
+        <div class="overview-actions">
+            <MudButton Href="@($"/organizations/{OrganizationId}/executive-briefings")" Variant="Variant.Text">Briefing settings</MudButton>
+            <MudButton OnClick="RefreshAsync" Disabled="_loading" StartIcon="@Icons.Material.Outlined.Refresh">Refresh</MudButton>
         </div>
     </MudPaper>
-
+    <div class="overview-toolbar">
+        <span>Drag a row by its handle, or use the arrows to reorder.</span>
+        <MudButton OnClick="ResetOrderAsync" Disabled="@(_saving || !_layoutLoaded)" Size="Size.Small">Reset order</MudButton>
+    </div>
+    <div role="status" aria-live="polite" class="layout-status">@_layoutMessage</div>
     @if (_loading)
     {
-        <MudPaper Elevation="1" Class="surface-panel">
-            <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-            <MudText Color="Color.Secondary">Loading command center...</MudText>
-        </MudPaper>
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-3" />
     }
-    else if (!string.IsNullOrWhiteSpace(_errorMessage))
+    @foreach (var widget in _order)
     {
-        <MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_errorMessage</MudAlert>
-    }
-    else
-    {
-        <section class="command-grid">
-            <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-                <MudText Typo="Typo.h6">Company summary</MudText>
-                <dl class="command-summary">
-                    <div>
-                        <dt>Industry</dt>
-                        <dd>@Display(_organization?.Industry)</dd>
-                    </div>
-                    <div>
-                        <dt>Stage</dt>
-                        <dd>@Display(_organization?.Stage)</dd>
-                    </div>
-                    <div>
-                        <dt>Primary goal</dt>
-                        <dd>@Display(_organization?.PrimaryGoal)</dd>
-                    </div>
-                </dl>
-            </MudPaper>
-
-            <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-                <MudText Typo="Typo.h6">Executive briefings</MudText>
-                @if (_briefingSettings is null)
+        var index = _order.IndexOf(widget);
+        <section @key="widget" class="overview-widget @(_dragging == widget ? "is-dragging" : "")"
+                 aria-label="@Title(widget)" @ondragover:preventDefault @ondrop="() => DropAsync(widget)">
+            <header class="widget-header">
+                <div class="widget-heading">
+                    <span class="drag-handle" draggable="@(_layoutLoaded && !_saving ? "true" : "false")" @ondragstart="() => _dragging = widget" @ondragend="() => _dragging = null" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.DragIndicator" /></span>
+                    <MudText Typo="Typo.h6">@Title(widget)</MudText>
+                    @if (widget == "approvals" && _approvals is not null)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="@(PendingApprovals.Any() ? Color.Warning : Color.Default)">@PendingApprovals.Count() pending</MudChip>
+                    }
+                </div>
+                <div class="widget-controls">
+                    <MudIconButton Icon="@Icons.Material.Outlined.ArrowUpward" Size="Size.Small" aria-label="@($"Move {Title(widget)} up")" Disabled="@(index == 0 || _saving || !_layoutLoaded)" OnClick="() => MoveAsync(widget, index - 1)" />
+                    <MudIconButton Icon="@Icons.Material.Outlined.ArrowDownward" Size="Size.Small" aria-label="@($"Move {Title(widget)} down")" Disabled="@(index == _order.Count - 1 || _saving || !_layoutLoaded)" OnClick="() => MoveAsync(widget, index + 1)" />
+                </div>
+            </header>
+            <div class="widget-content">
+                @if (ErrorFor(widget) is { } error)
                 {
-                    <MudText Color="Color.Secondary">Assign a Chief of Staff to configure proactive executive briefings.</MudText>
+                    <MudAlert Severity="Severity.Warning">@error Use Refresh to try again.</MudAlert>
                 }
-                else
+                else if (widget == "approvals" && _approvals is not null)
                 {
-                    <MudGrid Spacing="2" Class="mt-2">
-                        <MudItem xs="12" md="4">
-                            <MudSelect T="Guid" Label="Managing entity" @bind-Value="_briefingManagerId" Variant="Variant.Outlined">
-                                @foreach (var employee in _employees.Where(x => x.Id != _briefingSettings.ChiefOrganizationUserId))
+                    @if (!PendingApprovals.Any())
+                    {
+                        <div class="empty-inline"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><MudText>No approvals need your action.</MudText></div>
+                    }
+                    @foreach (var approval in PendingApprovals.Take(5))
+                    {
+                        <div class="approval-row">
+                            <div><MudText Typo="Typo.subtitle1">@approval.Title</MudText><MudText Color="Color.Secondary">@approval.Summary</MudText><MudText Typo="Typo.caption">@approval.RequestedBy · Requested @approval.CreatedAt.ToLocalTime().ToString("g")</MudText></div>
+                            <MudButton Href="@ApprovalsHref" Variant="Variant.Outlined" Color="Color.Primary">Review</MudButton>
+                        </div>
+                    }
+                    <MudButton Href="@ApprovalsHref" Size="Size.Small" Class="mt-2">View all approvals</MudButton>
+                }
+                else if (widget == "finance" && _dashboard is not null)
+                {
+                    var finance = _dashboard.Finance;
+                    <DashboardReportingState OrganizationId="OrganizationId" Area="Finance" RoleName="CFO" Purpose="publish your monthly financial metrics" HasReport="@(finance.Report is not null)" Reporters="finance.Reporters" />
+                    @if (finance.Report is { } report)
+                    {
+                        <div class="report-period"><MudText Typo="Typo.subtitle2">@report.Data.AsOf.ToString("MMMM yyyy") · Through @report.Data.AsOf.ToString("MMM d") · @report.Data.Currency</MudText></div>
+                        @if (report.Data.AsOf.Year != DateTime.UtcNow.Year || report.Data.AsOf.Month != DateTime.UtcNow.Month)
+                        {
+                            <MudText Color="Color.Warning">No report for this month yet. Showing the last published period.</MudText>
+                        }
+                        <dl class="finance-metrics">
+                            <div><dt>Revenue</dt><dd>@Money(report.Data.Revenue)</dd></div>
+                            <div><dt>Expenses</dt><dd>@Money(report.Data.Expenses)</dd></div>
+                            <div><dt>Net profit</dt><dd>@Money(report.Data.Revenue - report.Data.Expenses)</dd></div>
+                            <div><dt>Cash balance</dt><dd>@Money(report.Data.CashBalance)</dd></div>
+                            <div><dt>Monthly budget</dt><dd>@Money(report.Data.MonthlyBudget)</dd></div>
+                        </dl>
+                        <footer class="report-footer">Published by @report.ReporterName · @report.PublishedAt.ToLocalTime().ToString("g")</footer>
+                    }
+                }
+                else if (widget == "legal" && _dashboard is not null)
+                {
+                    var legal = _dashboard.Legal;
+                    <DashboardReportingState OrganizationId="OrganizationId" Area="Legal" RoleName="CLO" Purpose="maintain your business entity, legal status, and important dates" HasReport="@(legal.Report is not null)" Reporters="legal.Reporters" />
+                    @if (legal.Report is { } report)
+                    {
+                        <div class="legal-content">
+                            <div><MudText Typo="Typo.h6">@report.Data.EntityName</MudText><MudText Color="Color.Secondary">@report.Data.EntityType</MudText><MudChip T="string" Variant="Variant.Outlined">@report.Data.Status</MudChip><MudText Typo="Typo.caption">Verified @report.Data.VerifiedOn.ToString("d")</MudText></div>
+                            <div class="legal-dates">
+                                <MudText Typo="Typo.subtitle2">Important dates</MudText>
+                                @if (report.Data.Obligations.Count == 0) { <MudText Color="Color.Secondary">No upcoming obligations reported.</MudText> }
+                                @foreach (var obligation in report.Data.Obligations.OrderBy(x => x.DueDate))
                                 {
-                                    <MudSelectItem T="Guid" Value="@employee.Id">@employee.DisplayName</MudSelectItem>
+                                    <div class="legal-date"><span>@obligation.Title</span><span class="@(obligation.DueDate <= DateOnly.FromDateTime(DateTime.Today).AddDays(30) ? "date-attention" : "")">@obligation.DueDate.ToString("MMM d, yyyy") · @DueLabel(obligation.DueDate)</span></div>
                                 }
-                            </MudSelect>
-                        </MudItem>
-                        <MudItem xs="12" md="2"><MudSelect T="string" Label="Cadence" @bind-Value="_briefingCadence" Variant="Variant.Outlined"><MudSelectItem Value="@("Daily")">Daily</MudSelectItem><MudSelectItem Value="@("Weekdays")">Weekdays</MudSelectItem><MudSelectItem Value="@("Weekly")">Weekly</MudSelectItem></MudSelect></MudItem>
-                        @if (_briefingCadence == "Weekly")
-                        {
-                            <MudItem xs="12" md="2"><MudSelect T="string" Label="Day" @bind-Value="_briefingWeeklyDay" Variant="Variant.Outlined">@foreach (var day in Enum.GetNames<DayOfWeek>()) { <MudSelectItem Value="@day">@day</MudSelectItem> }</MudSelect></MudItem>
-                        }
-                        <MudItem xs="12" md="2"><MudTextField Label="Local time" @bind-Value="_briefingLocalTime" Placeholder="09:00" Variant="Variant.Outlined" /></MudItem>
-                        <MudItem xs="12" md="2"><MudTextField Label="Time zone" @bind-Value="_briefingTimeZone" Variant="Variant.Outlined" /></MudItem>
-                        <MudItem xs="12" md="4"><MudCheckBox T="bool" Label="Scheduled briefings enabled" @bind-Value="_briefingEnabled" /></MudItem>
-                        <MudItem xs="12" md="4"><MudCheckBox T="bool" Label="Brief after activation and runtime startup" @bind-Value="_briefingStartupEnabled" /></MudItem>
-                    </MudGrid>
-                    <div class="d-flex flex-wrap gap-2 mt-3">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveBriefingSettingsAsync" Disabled="_briefingBusy">Save briefing settings</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="RunTestBriefingAsync" Disabled="_briefingBusy">Send test briefing now</MudButton>
-                        <MudText Color="Color.Secondary" Class="align-self-center">Next: @(_briefingSettings.NextBriefingAt?.ToLocalTime().ToString("g") ?? "not scheduled")</MudText>
-                    </div>
-                    @if (!string.IsNullOrWhiteSpace(_briefingMessage))
-                    {
-                        <MudAlert Severity="@_briefingMessageSeverity" Variant="Variant.Outlined" Class="mt-3">@_briefingMessage</MudAlert>
-                    }
-                    @if (_briefingHistory.Count > 0)
-                    {
-                        <MudTable T="ExecutiveBriefingHistoryItem" Items="_briefingHistory.Take(5)" Dense="true" Hover="true" Class="mt-3">
-                            <HeaderContent><MudTh>Trigger</MudTh><MudTh>Status</MudTh><MudTh>Created</MudTh><MudTh>Delivery</MudTh><MudTh></MudTh></HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Trigger">@context.TriggerType</MudTd>
-                                <MudTd DataLabel="Status">@context.Status</MudTd>
-                                <MudTd DataLabel="Created">@context.CreatedAt.ToLocalTime().ToString("g")</MudTd>
-                                <MudTd DataLabel="Delivery">@(context.DeliveryStatus ?? context.FailureMessage ?? "Waiting")</MudTd>
-                                <MudTd>@if (context.ConversationId.HasValue) { <MudButton Size="Size.Small" Href="@($"/organizations/{OrganizationId}/communications/{context.ConversationId}")">Open</MudButton> }</MudTd>
-                            </RowTemplate>
-                        </MudTable>
+                            </div>
+                        </div>
+                        <footer class="report-footer">Published by @report.ReporterName · @report.PublishedAt.ToLocalTime().ToString("g")</footer>
                     }
                 }
-            </MudPaper>
-
-            <MudPaper Elevation="1" Class="surface-panel">
-                <MudText Typo="Typo.h6">Roles</MudText>
-                <ul class="command-list">
-                    @foreach (var role in _roles)
-                    {
-                        <li>
-                            <strong>@role.Name</strong>
-                            <span>@role.Description</span>
-                        </li>
-                    }
-                </ul>
-            </MudPaper>
-
-            <MudPaper Elevation="1" Class="surface-panel">
-                <MudText Typo="Typo.h6">Primary goal</MudText>
-                <ul class="command-list">
-                    @foreach (var objective in _objectives)
-                    {
-                        <li>
-                            <strong>@objective.Title</strong>
-                            <span>@objective.Description</span>
-                        </li>
-                    }
-                </ul>
-            </MudPaper>
-
-            <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-                <MudText Typo="Typo.h6">Open tasks</MudText>
-                <ul class="command-list command-task-list">
-                    @foreach (var task in _tasks)
-                    {
-                        <li>
-                            <strong>@task.Title</strong>
-                            <span>@task.Description</span>
-                            @if (task.AssignedWorkerId is not null)
-                            {
-                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Agent ready</MudChip>
-                            }
-                        </li>
-                    }
-                </ul>
-            </MudPaper>
-
-            <MudPaper Elevation="1" Class="surface-panel">
-                <MudText Typo="Typo.h6">Workers</MudText>
-                <ul class="command-list">
-                    @foreach (var worker in _workers)
-                    {
-                        <li>
-                            <strong>@worker.Name</strong>
-                            <span>@(worker.RequiresHumanApproval ? "Human approval required" : "Approval not required")</span>
-                        </li>
-                    }
-                </ul>
-            </MudPaper>
-
-            <MudPaper Elevation="1" Class="surface-panel">
-                <MudText Typo="Typo.h6">Employees</MudText>
-                <MudText Color="Color.Secondary">View human staff, agent teammates, and reporting lines.</MudText>
-                <MudButton Href="@($"/organizations/{OrganizationId}/employees")" Variant="Variant.Outlined" Color="Color.Primary" Class="mt-4" StartIcon="@Icons.Material.Filled.AccountTree">
-                    Open graph
-                </MudButton>
-            </MudPaper>
-
-            <MudPaper Elevation="1" Class="surface-panel">
-                <MudText Typo="Typo.h6">Recent artifacts</MudText>
-                @if (_artifacts.Count == 0)
+                else if (widget == "projects" && _portfolio is not null)
                 {
-                    <MudText Color="Color.Secondary">No artifacts yet.</MudText>
+                    @if (_portfolio.Projects.Count == 0) { <MudText Color="Color.Secondary">No projects yet. Your projects and their leads' updates will appear here.</MudText> }
+                    <div class="project-cards">
+                        @foreach (var project in _portfolio.Projects)
+                        {
+                            <article class="project-card">
+                                <div class="project-title"><MudLink Href="@($"/organizations/{OrganizationId}/projects/{project.Id}")">@project.Name</MudLink><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@project.Status</MudChip></div>
+                                @if (project.LatestLeadUpdate is { } update)
+                                {
+                                    <p class="project-update">@update.Data.Summary</p>
+                                    <div class="report-footer">@update.ReporterName · @update.PublishedAt.ToLocalTime().ToString("g")</div>
+                                }
+                                else
+                                {
+                                    <p class="project-update no-update">No lead update yet.</p>
+                                    <MudText Typo="Typo.caption">@(project.AccountableManagerOrganizationUserId.HasValue ? "The project lead's first recorded update will appear here." : "Assign a project lead to start receiving updates.")</MudText>
+                                }
+                            </article>
+                        }
+                    </div>
+                    <MudButton Href="@($"/organizations/{OrganizationId}/projects")" Size="Size.Small" Class="mt-2">View projects</MudButton>
                 }
                 else
                 {
-                    <ul class="command-list">
-                        @foreach (var artifact in _artifacts.Take(3))
-                        {
-                            <li>
-                                <strong>@artifact.Title</strong>
-                                <span>Version @artifact.Version</span>
-                            </li>
-                        }
-                    </ul>
+                    <MudText Color="Color.Secondary">Loading @Title(widget).ToLowerInvariant()…</MudText>
                 }
-            </MudPaper>
-
-            <MudPaper Elevation="1" Class="surface-panel">
-                <MudText Typo="Typo.h6">Pending approvals</MudText>
-                <MudText Typo="Typo.h3" Color="Color.Primary">@(_approvals?.PendingCount ?? 0)</MudText>
-                <MudButton Href="@($"/organizations/{OrganizationId:D}/approvals")"
-                           Variant="Variant.Text" Color="Color.Primary" Class="mt-2">
-                    Open approvals
-                </MudButton>
-            </MudPaper>
-
-            <MudPaper Elevation="1" Class="surface-panel">
-                <MudText Typo="Typo.h6">Recommended next action</MudText>
-                <MudText>@(_tasks.FirstOrDefault(x => x.AssignedWorkerId is not null)?.Title ?? "Review the initial backlog.")</MudText>
-            </MudPaper>
+            </div>
         </section>
     }
 </div>
 
 @code {
-    [Parameter]
-    public Guid OrganizationId { get; set; }
-
+    [Parameter] public Guid OrganizationId { get; set; }
     private OrganizationResponse? _organization;
-    private IReadOnlyList<RoleResponse> _roles = [];
-    private IReadOnlyList<StrategicObjectiveResponse> _objectives = [];
-    private IReadOnlyList<WorkTaskResponse> _tasks = [];
-    private IReadOnlyList<WorkerResponse> _workers = [];
-    private IReadOnlyList<ArtifactResponse> _artifacts = [];
     private ApprovalDashboardResponse? _approvals;
-    private IReadOnlyList<OrganizationUserResponse> _employees = [];
-    private ExecutiveBriefingSettingsResponse? _briefingSettings;
-    private IReadOnlyList<ExecutiveBriefingHistoryItem> _briefingHistory = [];
-    private Guid _briefingManagerId;
-    private bool _briefingEnabled = true;
-    private bool _briefingStartupEnabled = true;
-    private string _briefingCadence = "Weekdays";
-    private string _briefingWeeklyDay = "Friday";
-    private string _briefingLocalTime = "09:00";
-    private string _briefingTimeZone = "UTC";
-    private bool _briefingBusy;
-    private string? _briefingMessage;
-    private Severity _briefingMessageSeverity = Severity.Info;
-    private bool _loading = true;
-    private string? _errorMessage;
+    private CompanyDashboardResponse? _dashboard;
+    private ProjectPortfolioResponse? _portfolio;
+    private List<string> _order = DashboardWidgets.DefaultOrder.ToList();
+    private readonly Dictionary<string, string> _errors = [];
+    private bool _loading, _saving, _layoutLoaded, _disposed;
+    private string? _dragging, _layoutMessage;
+    private CancellationTokenSource? _loadCancellation;
+    private Guid _loadedOrganization;
+    private string ApprovalsHref => $"/organizations/{OrganizationId}/approvals";
+    private IEnumerable<ApprovalDashboardItemResponse> PendingApprovals => (_approvals?.Items ?? [])
+        .Where(x => x.CanDecide && string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+        .OrderBy(x => x.CreatedAt);
 
+    protected override void OnInitialized() => Realtime.EventReceived += OnRealtimeEvent;
     protected override async Task OnParametersSetAsync()
     {
-        _loading = true;
-        _errorMessage = null;
-
-        try
-        {
-            _organization = await Http.GetFromJsonAsync<OrganizationResponse>($"api/organizations/{OrganizationId}");
-            _roles = await Http.GetFromJsonAsync<IReadOnlyList<RoleResponse>>($"api/organizations/{OrganizationId}/roles") ?? [];
-            _objectives = await Http.GetFromJsonAsync<IReadOnlyList<StrategicObjectiveResponse>>($"api/core/objectives/organization/{OrganizationId}") ?? [];
-            _tasks = await Http.GetFromJsonAsync<IReadOnlyList<WorkTaskResponse>>($"api/organizations/{OrganizationId}/tasks") ?? [];
-            _workers = await Http.GetFromJsonAsync<IReadOnlyList<WorkerResponse>>($"api/organizations/{OrganizationId}/workers") ?? [];
-            _artifacts = await Http.GetFromJsonAsync<IReadOnlyList<ArtifactResponse>>($"api/core/artifacts/organization/{OrganizationId}") ?? [];
-            _approvals = await LoadApprovalsAsync();
-            _employees = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>($"api/core/organizations/{OrganizationId}/users") ?? [];
-            _briefingSettings = await LoadBriefingSettingsAsync();
-            _briefingHistory = await Http.GetFromJsonAsync<IReadOnlyList<ExecutiveBriefingHistoryItem>>($"api/core/organizations/{OrganizationId}/executive-briefings/history?take=10") ?? [];
-            if (_briefingSettings is not null)
+        if (_loadedOrganization == OrganizationId) return;
+        _loadedOrganization = OrganizationId;
+        _organization = null; _approvals = null; _dashboard = null; _portfolio = null;
+        _order = DashboardWidgets.DefaultOrder.ToList(); _layoutLoaded = false; _layoutMessage = null;
+        await RefreshAsync();
+    }
+    private async Task RefreshAsync()
+    {
+        _loadCancellation?.Cancel();
+        _loadCancellation?.Dispose();
+        var cancellation = _loadCancellation = new();
+        var token = cancellation.Token;
+        var organizationId = OrganizationId;
+        _loading = true; _errors.Clear();
+        var prefix = $"api/core/organizations/{organizationId}";
+        await Task.WhenAll(
+            LoadAsync<OrganizationResponse>($"api/organizations/{organizationId}", "organization", x => _organization = x, token),
+            LoadAsync<ApprovalDashboardResponse>($"{prefix}/approvals", "approvals", x => _approvals = x, token),
+            LoadAsync<CompanyDashboardResponse>($"{prefix}/dashboard", "reports", x => _dashboard = x, token),
+            LoadAsync<ProjectPortfolioResponse>($"{prefix}/workstreams/inspection", "projects", x => _portfolio = x, token),
+            _layoutLoaded ? Task.CompletedTask : LoadAsync<DashboardLayoutRequest>($"{prefix}/dashboard/layout", "layout", x =>
             {
-                _briefingManagerId = _briefingSettings.ManagingOrganizationUserId ?? Guid.Empty;
-                _briefingEnabled = _briefingSettings.IsEnabled;
-                _briefingStartupEnabled = _briefingSettings.StartupEnabled;
-                _briefingCadence = _briefingSettings.Cadence;
-                _briefingWeeklyDay = _briefingSettings.WeeklyDay;
-                _briefingLocalTime = _briefingSettings.LocalTime;
-                _briefingTimeZone = _briefingSettings.TimeZone;
-            }
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = ex.Message;
-        }
-        finally
-        {
-            _loading = false;
-        }
+                _order = DashboardWidgets.IsValid(x.Order) ? x.Order.ToList() : DashboardWidgets.DefaultOrder.ToList();
+                _layoutLoaded = true; _layoutMessage = null;
+            }, token));
+        if (token.IsCancellationRequested) return;
+        if (_errors.ContainsKey("layout")) _layoutMessage = "Could not load your saved layout. Refresh to enable reordering.";
+        _loading = false;
     }
-
-    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not set" : value;
-
-    private async Task SaveBriefingSettingsAsync()
+    private async Task LoadAsync<T>(string uri, string key, Action<T> apply, CancellationToken token)
     {
-        _briefingBusy = true; _briefingMessage = null;
         try
         {
-            var response = await Http.PutAsJsonAsync($"api/core/organizations/{OrganizationId}/executive-briefings/settings",
-                new UpdateExecutiveBriefingSettingsRequest(_briefingManagerId, _briefingEnabled, _briefingStartupEnabled,
-                    _briefingCadence, _briefingWeeklyDay, _briefingLocalTime, _briefingTimeZone));
-            var result = await response.Content.ReadFromJsonAsync<ExecutiveBriefingActionResponse>();
-            _briefingMessage = result?.Message ?? response.ReasonPhrase;
-            _briefingMessageSeverity = response.IsSuccessStatusCode ? Severity.Success : Severity.Error;
-            if (response.IsSuccessStatusCode) await ReloadBriefingsAsync();
+            var result = await Http.GetFromJsonAsync<T>(uri, token);
+            if (token.IsCancellationRequested) return;
+            if (result is null) throw new HttpRequestException("Empty response.");
+            apply(result);
         }
-        finally { _briefingBusy = false; }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        {
+            if (!token.IsCancellationRequested)
+                _errors[key] = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden }
+                    ? "You do not have access to this information." : "This information could not be loaded.";
+        }
     }
-
-    private async Task RunTestBriefingAsync()
+    private string? ErrorFor(string widget) => _errors.GetValueOrDefault(widget is "finance" or "legal" ? "reports" : widget);
+    private async Task MoveAsync(string widget, int target)
     {
-        _briefingBusy = true; _briefingMessage = null;
+        if (_saving || !_layoutLoaded || target < 0 || target >= _order.Count) return;
+        var next = _order.ToList();
+        next.Remove(widget); next.Insert(target, widget);
+        await SaveOrderAsync(next);
+    }
+    private async Task DropAsync(string target)
+    {
+        var dragged = _dragging; _dragging = null;
+        if (dragged is not null && dragged != target) await MoveAsync(dragged, _order.IndexOf(target));
+    }
+    private Task ResetOrderAsync() => SaveOrderAsync(DashboardWidgets.DefaultOrder.ToList());
+    private async Task SaveOrderAsync(List<string> next)
+    {
+        if (_saving || !_layoutLoaded) return;
+        var organizationId = OrganizationId;
+        var previous = _order.ToList();
+        _order = next; _saving = true; _layoutMessage = "Saving order…";
         try
         {
-            var response = await Http.PostAsync($"api/core/organizations/{OrganizationId}/executive-briefings/run", null);
-            var result = await response.Content.ReadFromJsonAsync<ExecutiveBriefingActionResponse>();
-            _briefingMessage = result?.Message ?? response.ReasonPhrase;
-            _briefingMessageSeverity = response.IsSuccessStatusCode ? Severity.Success : Severity.Error;
-            await ReloadBriefingsAsync();
+            using var response = await Http.PutAsJsonAsync($"api/core/organizations/{organizationId}/dashboard/layout", new DashboardLayoutRequest(next));
+            response.EnsureSuccessStatusCode();
+            if (OrganizationId == organizationId) _layoutMessage = "Widget order saved.";
         }
-        finally { _briefingBusy = false; }
-    }
-
-    private async Task ReloadBriefingsAsync()
-    {
-        _briefingSettings = await LoadBriefingSettingsAsync();
-        _briefingHistory = await Http.GetFromJsonAsync<IReadOnlyList<ExecutiveBriefingHistoryItem>>($"api/core/organizations/{OrganizationId}/executive-briefings/history?take=10") ?? [];
-    }
-
-    private async Task<ExecutiveBriefingSettingsResponse?> LoadBriefingSettingsAsync()
-    {
-        var response = await Http.GetAsync($"api/core/organizations/{OrganizationId}/executive-briefings/settings");
-        if (!response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NoContent)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         {
-            return null;
+            if (OrganizationId == organizationId) { _order = previous; _layoutMessage = "Could not save the order. Your previous layout has been restored."; }
         }
-
-        return await response.Content.ReadFromJsonAsync<ExecutiveBriefingSettingsResponse>();
+        finally { _saving = false; }
     }
-
-    private async Task<ApprovalDashboardResponse?> LoadApprovalsAsync()
+    private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
-        var response = await Http.GetAsync($"api/core/organizations/{OrganizationId}/approvals");
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<ApprovalDashboardResponse>()
-            : null;
+        if (_disposed || envelope.OrganizationId != OrganizationId || _loading) return;
+        if (envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
+            _ = InvokeAsync(async () => { if (!_disposed) { await RefreshAsync(); StateHasChanged(); } });
+    }
+    private static string Title(string key) => key switch { "approvals" => "CEO approvals", "finance" => "Finances", "legal" => "Legal", _ => "Projects & products" };
+    private static string Money(decimal? value) => value?.ToString("N2") ?? "Not reported";
+    private static string DueLabel(DateOnly date)
+    {
+        var days = date.DayNumber - DateOnly.FromDateTime(DateTime.Today).DayNumber;
+        return days switch { < 0 => $"{Math.Abs(days)} days overdue", 0 => "Due today", 1 => "Tomorrow", _ => $"In {days} days" };
+    }
+    public void Dispose()
+    {
+        _disposed = true;
+        Realtime.EventReceived -= OnRealtimeEvent;
+        _loadCancellation?.Cancel(); _loadCancellation?.Dispose();
     }
 }

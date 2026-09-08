@@ -12,7 +12,7 @@ public sealed class AgentSettingsPageTests
 
         Assert.Contains("StartUpdateCheck();", source, StringComparison.Ordinal);
         Assert.Contains("AgentApi.CheckDefinitionUpdatesAsync", source, StringComparison.Ordinal);
-        Assert.Contains("OpenUpdateDialog(installation, availableUpdate)", source, StringComparison.Ordinal);
+        Assert.Contains("UpdateInstallationAsync(installation, availableUpdate!)", source, StringComparison.Ordinal);
         Assert.Contains("OpenRemoveDialog(installation)", source, StringComparison.Ordinal);
         Assert.Contains("AgentApi.UpdateDefinitionAsync", source, StringComparison.Ordinal);
         Assert.Contains("AgentApi.RemoveDefinitionAsync", source, StringComparison.Ordinal);

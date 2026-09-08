@@ -11,6 +11,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IGenAiProviderApiClient, GenAiProviderApiClient>();
         services.AddScoped<IAgentRuntimeSettingsApiClient, AgentRuntimeSettingsApiClient>();
         services.AddScoped<IOrganizationApiClient, OrganizationApiClient>();
+        services.AddScoped<CalendarApiClient>();
         services.AddScoped<IBusinessContext, BusinessContext>();
         services.AddScoped<IBusinessOnboardingApiClient, BusinessOnboardingApiClient>();
         services.AddScoped<IPlanningApiClient, PlanningApiClient>();
@@ -22,6 +23,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<ExecutionCapacityAlertState>();
         services.AddScoped<CommunicationUnreadState>();
+        services.AddScoped<ApprovalState>();
         services.AddScoped<AgentHireOperationState>();
         services.AddScoped<BusinessOnboardingOperationState>();
 

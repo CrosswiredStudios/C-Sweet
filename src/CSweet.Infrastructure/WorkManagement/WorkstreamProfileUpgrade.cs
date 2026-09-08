@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
-/// <summary>Validates an approval-bound execution-profile upgrade before the first team board exists.</summary>
+/// <summary>Validates an approval-bound execution-profile upgrade before executable board state exists.</summary>
 public static class WorkstreamProfileUpgrade
 {
     public static async Task<WorkstreamProfileDefinitionRecord?> ResolveAsync(CSweetDbContext db, Workstream workstream,
@@ -36,9 +36,16 @@ public static class WorkstreamProfileUpgrade
         using var schema = JsonDocument.Parse(target.MetadataSchemaJson);
         using var data = JsonDocument.Parse(workstream.ProfileDataJson ?? "{}");
         WorkstreamProfileDefinitionValidator.ValidateProfileData(schema.RootElement, data.RootElement);
-        if (await db.WorkBoards.AsNoTracking().AnyAsync(x => x.OrganizationId == workstream.OrganizationId &&
-            x.WorkstreamId == workstream.Id && x.ArchivedAt == null, token))
-            throw new InvalidOperationException("This workstream already has boards; their policy and assignment migration must be coordinated before upgrading the profile.");
+        var boards = await db.WorkBoards.AsNoTracking().Where(x => x.OrganizationId == workstream.OrganizationId &&
+            x.WorkstreamId == workstream.Id && x.ArchivedAt == null).Select(x => x.Id).ToListAsync(token);
+        // Board bootstrap can race the approved upgrade. An empty, unconfigured board
+        // has no policy snapshots or assignments to migrate; its manager configures it
+        // from the new workstream pin on the next reconciliation.
+        if (await db.CoreWorkTasks.AsNoTracking().AnyAsync(x => x.BoardId.HasValue && boards.Contains(x.BoardId.Value), token) ||
+            await db.WorkSprints.AsNoTracking().AnyAsync(x => boards.Contains(x.BoardId), token) ||
+            await db.WorkOrchestrationPolicies.AsNoTracking().AnyAsync(x => boards.Contains(x.BoardId), token) ||
+            await db.WorkSprintExecutions.AsNoTracking().AnyAsync(x => boards.Contains(x.BoardId), token))
+            throw new InvalidOperationException("This workstream has planned or configured board state; its policy and assignment migration must be coordinated before upgrading the profile.");
         return target;
     }
 }

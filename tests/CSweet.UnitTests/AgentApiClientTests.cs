@@ -30,7 +30,12 @@ public sealed class AgentApiClientTests
     {
         var definitionId = Guid.NewGuid();
         HttpRequestMessage? captured = null;
-        var response = DefinitionResponse(definitionId, "1.1.0");
+        var response = DefinitionResponse(definitionId, "1.1.0") with
+        {
+            ImageUrl = "https://example.com/portrait.jpg", RoleName = "Researcher", Summary = "Researches topics.",
+            DefaultProvidedCapabilities = ["research.v1"], DefaultRequiredCapabilities = ["search.v1"],
+            DefaultEventSubscriptions = ["work.ready"], DefaultNetworkAccess = ["https://example.com"]
+        };
         var handler = new StubHandler(request =>
         {
             captured = request;
@@ -45,6 +50,13 @@ public sealed class AgentApiClientTests
         Assert.Equal($"/api/agents/definitions/{definitionId}/update", captured?.RequestUri?.AbsolutePath);
         Assert.Equal("1.1.0", result.AgentVersion);
         Assert.Equal("Global", result.InstallationScope);
+        Assert.Equal(response.ImageUrl, result.ImageUrl);
+        Assert.Equal(response.RoleName, result.RoleName);
+        Assert.Equal(response.Summary, result.Summary);
+        Assert.Equal(response.DefaultProvidedCapabilities, result.GrantedCapabilities);
+        Assert.Equal(response.DefaultRequiredCapabilities, result.RequiredCapabilities);
+        Assert.Equal(response.DefaultEventSubscriptions, result.GrantedSubscriptions);
+        Assert.Equal(response.DefaultNetworkAccess, result.GrantedNetworkAccess);
     }
 
     [Fact]

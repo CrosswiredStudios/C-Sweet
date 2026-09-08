@@ -16,3 +16,9 @@
   and major for breaking public APIs, unless the user requests a specific version.
 - Keep downstream package pins and each package repository's documented/template/test versions in
   sync. Before handoff, build/test and pack every changed package and verify the `.nupkg` version.
+
+## Agent release notes
+
+- When changing an agent repository, bump and synchronize its version BEFORE writing release notes.
+- Then read the final version from that repository's `csweet-plugin.json` and write `releases/<version>.md` with the same version in its heading. Never put new changes under the previous version.
+- If the version changes again, retarget unpublished notes and re-check the final manifest, implementation/package version, filename, and heading before handoff. Preserve published historical notes.

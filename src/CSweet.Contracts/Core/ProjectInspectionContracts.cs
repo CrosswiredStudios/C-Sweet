@@ -27,7 +27,10 @@ public sealed record ProjectPortfolioItem(
     int OpenItems,
     int PendingGates,
     int OpenDecisions,
-    string? LatestBuildStatus);
+    string? LatestBuildStatus)
+{
+    public DashboardReport<ProjectLeadUpdate>? LatestLeadUpdate { get; init; }
+}
 
 public sealed record ProjectHealthSummary(
     int OpenItems,

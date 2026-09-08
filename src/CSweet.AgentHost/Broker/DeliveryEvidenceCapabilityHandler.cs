@@ -151,7 +151,7 @@ public sealed class DeliveryEvidenceCapabilityHandler : IPlatformCapabilityHandl
         return results.Where(x => x.Eligibility.CompatibleCapacityOnline).ToList();
     }
 
-    private async Task<W.DeliveryBuildV2> RequestBuildAsync(Guid organizationId, Guid installationId, Guid actorId,
+    internal async Task<W.DeliveryBuildV2> RequestBuildAsync(Guid organizationId, Guid installationId, Guid actorId,
         W.RequestBuildV2Request request, CancellationToken token)
     {
         var workstream = await RequireWorkstreamAsync(organizationId, actorId, request.WorkstreamId, token);
@@ -166,18 +166,36 @@ public sealed class DeliveryEvidenceCapabilityHandler : IPlatformCapabilityHandl
             throw new ArgumentException("The build team is not assigned to this Workstream.");
         var existing = await db.DeliveryBuilds.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.RequestedByInstallationId == installationId && x.IdempotencyKey == request.IdempotencyKey, token);
-        if (existing is not null) return MapBuild(existing);
+        if (existing is not null)
+        {
+            if (existing.WorkstreamId != request.WorkstreamId || existing.TeamId != request.TeamId ||
+                existing.ToolchainDefinitionId != request.ToolchainDefinitionId || existing.ProviderInstallationId != request.ProviderInstallationId ||
+                existing.RepositoryId != request.RepositoryId || existing.SourceRevision != request.SourceRevision ||
+                existing.RecipeKey != request.RecipeKey || existing.TargetKey != request.TargetKey ||
+                existing.MaximumAttempts != request.MaximumAttempts || existing.RequestedByOrganizationUserId != actorId ||
+                !JsonElement.DeepEquals(JsonSerializer.Deserialize<JsonElement>(existing.ConfigurationJson), request.Configuration))
+                throw new InvalidOperationException("The build idempotency key is already bound to a different request.");
+            // A saved build without an assignment means initial submission did not finish. Resume
+            // that exact build; terminal and already-submitted builds belong to the execution plane.
+            if (existing.Status != W.DeliveryBuildStatuses.Queued || await db.ExecutionWorkloadAssignments.AsNoTracking()
+                .AnyAsync(x => x.DeliveryBuildId == existing.Id && x.WorkloadKind == ExecutionWorkloadKind.ToolchainBuild, token))
+                return MapBuild(existing);
+        }
         var now = clock.GetUtcNow();
         var eligible = await db.ToolchainInstallationEligibilities.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.ToolchainDefinitionId == request.ToolchainDefinitionId &&
             x.ProviderInstallationId == request.ProviderInstallationId && x.RevokedAt == null && x.ExpiresAt > now, token)
             ?? throw new ArgumentException("The exact adapter definition and provider installation are not certified or eligible.");
         var definition = await db.ToolchainAdapterDefinitions.AsNoTracking().SingleAsync(x => x.Id == request.ToolchainDefinitionId, token);
+        if (existing is not null && existing.DefinitionDigest != definition.DefinitionDigest)
+            throw new InvalidOperationException("The toolchain definition changed before build submission could resume.");
         var contract = MapToolchain(definition);
         var recipe = contract.Recipes.SingleOrDefault(x => x.Key == request.RecipeKey)
             ?? throw new ArgumentException("The adapter does not declare the requested recipe.");
         if (!recipe.Operations.Contains("build", StringComparer.Ordinal) || !recipe.TargetKeys.Contains(request.TargetKey, StringComparer.Ordinal))
             throw new ArgumentException("The recipe does not support the requested build target.");
+        JsonSchemaValidator.ValidateSchema(recipe.ConfigurationSchema);
+        JsonSchemaValidator.Validate(request.Configuration, recipe.ConfigurationSchema);
         var repository = await db.SourceControlRepositories.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Id == request.RepositoryId && x.OrganizationId == organizationId &&
             x.Status == SourceControlRepositoryStatus.Ready && x.ArchivedAt == null &&
@@ -196,7 +214,7 @@ public sealed class DeliveryEvidenceCapabilityHandler : IPlatformCapabilityHandl
             string.IsNullOrWhiteSpace(package.ProjectPath))
             throw new InvalidOperationException("The selected provider does not have the exact certified, signed package artifact.");
 
-        var build = new DeliveryBuildRecord
+        var build = existing ?? new DeliveryBuildRecord
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, WorkstreamId = request.WorkstreamId,
             TeamId = request.TeamId, ToolchainDefinitionId = definition.Id, ProviderInstallationId = eligible.ProviderInstallationId,
@@ -206,11 +224,14 @@ public sealed class DeliveryEvidenceCapabilityHandler : IPlatformCapabilityHandl
             IdempotencyKey = request.IdempotencyKey, RequestedByOrganizationUserId = actorId,
             RequestedByInstallationId = installationId, CreatedAt = now, UpdatedAt = now
         };
-        db.DeliveryBuilds.Add(build);
-        AddEvent(W.WorkstreamEventNames.BuildRequestedV1, workstream, build.Id, build.Revision,
-            request.RecipeKey, "queued", new { build.Id, providerInstallationId = eligible.ProviderInstallationId,
-                definition.DefinitionDigest, request.RecipeKey, request.TargetKey, request.SourceRevision }, eligible.ProviderInstallationId);
-        await db.SaveChangesAsync(token);
+        if (existing is null)
+        {
+            db.DeliveryBuilds.Add(build);
+            AddEvent(W.WorkstreamEventNames.BuildRequestedV1, workstream, build.Id, build.Revision,
+                request.RecipeKey, "queued", new { build.Id, providerInstallationId = eligible.ProviderInstallationId,
+                    definition.DefinitionDigest, request.RecipeKey, request.TargetKey, request.SourceRevision }, eligible.ProviderInstallationId);
+            await db.SaveChangesAsync(token);
+        }
         await QueueToolchainWorkloadAsync(
             organizationId, build, eligible, definition, provider, package, repository, contract, token);
         return MapBuild(build);
@@ -529,12 +550,22 @@ public sealed class DeliveryEvidenceCapabilityHandler : IPlatformCapabilityHandl
         return rows.Select(MapValidation).ToList();
     }
 
-    private async Task<W.DeliveryPreviewV2> CreatePreviewAsync(Guid organizationId, Guid actorId, W.CreatePreviewV2Request request, CancellationToken token)
+    internal async Task<W.DeliveryPreviewV2> CreatePreviewAsync(Guid organizationId, Guid actorId, W.CreatePreviewV2Request request, CancellationToken token)
     {
         await RequireWorkstreamAsync(organizationId, actorId, request.WorkstreamId, token); Text(request.IdempotencyKey, 1, 200, "Idempotency key");
         if (request.Lifetime < TimeSpan.FromMinutes(5) || request.Lifetime > TimeSpan.FromDays(7)) throw new ArgumentException("Preview lifetime must be between five minutes and seven days.");
+        Text(request.Mode, 1, 100, "Preview mode");
+        foreach (var type in request.EvidenceTypeKeys) Text(type, 1, 200, "Preview evidence type");
         var existing = await db.PreviewSessions.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey, token);
-        if (existing is not null) return MapPreview(existing);
+        if (existing is not null)
+        {
+            if (existing.WorkstreamId != request.WorkstreamId || existing.BuildId != request.BuildId ||
+                existing.CreatedByOrganizationUserId != actorId || existing.Mode != request.Mode ||
+                existing.ExpiresAt - existing.CreatedAt != request.Lifetime ||
+                !List<string>(existing.EvidenceJson).SequenceEqual(request.EvidenceTypeKeys, StringComparer.Ordinal))
+                throw new InvalidOperationException("The preview idempotency key is already bound to a different request.");
+            return MapPreview(existing);
+        }
         var build = await db.DeliveryBuilds.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.WorkstreamId == request.WorkstreamId && x.Id == request.BuildId, token)
             ?? throw new ArgumentException("The build was not found in this Workstream.");
         Text(request.Mode, 1, 100, "Preview mode");

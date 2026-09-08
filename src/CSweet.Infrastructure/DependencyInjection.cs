@@ -98,6 +98,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 
         builder.Services.AddScoped<ISetupService, SetupService>();
+        builder.Services.AddScoped<CSweet.Application.WorkManagement.IBusinessCalendarService, CSweet.Infrastructure.WorkManagement.BusinessCalendarService>();
         builder.Services.AddScoped<IExecutionFleetService, ExecutionFleetService>();
         builder.Services.AddScoped<IExecutionPoolAdministrationService, ExecutionPoolAdministrationService>();
         builder.Services.AddOptions<ExecutionFleetOptions>()
@@ -423,6 +424,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IOrganizationUserService, OrganizationUserService>();
         builder.Services.AddScoped<ITeamService, TeamService>();
         builder.Services.AddScoped<IExecutiveBriefingService, ExecutiveBriefingService>();
+        builder.Services.AddScoped<CompanyDashboardService>();
         builder.Services.AddScoped<IConversationService, ConversationService>();
         builder.Services.AddScoped<IChatTurnService, ChatTurnService>();
         builder.Services.AddScoped<HiringService>();

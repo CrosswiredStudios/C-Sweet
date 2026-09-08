@@ -369,7 +369,7 @@ public sealed class AgentApiClient : IAgentApiClient
         definition.PublisherName,
         definition.CommitSha,
         definition.IsAvailableForHire,
-        [], [], [], [], [],
+        definition.DefaultProvidedCapabilities, definition.DefaultEventSubscriptions, [], [], definition.DefaultNetworkAccess,
         definition.DefaultMemoryMb,
         definition.DefaultCpuPercent,
         new AgentScheduleResponse(
@@ -381,6 +381,10 @@ public sealed class AgentApiClient : IAgentApiClient
         definition.Build)
     {
         InstallationScope = "Global",
+        ImageUrl = definition.ImageUrl,
+        RoleName = definition.RoleName,
+        Summary = definition.Summary,
+        RequiredCapabilities = definition.DefaultRequiredCapabilities,
         SetupState = definition.Status
     };
 }

@@ -5,6 +5,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Core;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Setup;
@@ -56,10 +57,11 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             .ToArrayAsync(cancellationToken);
         if (driftDefinitionIds.Length == 0)
         {
+            var teamGrantChanges = await ReconcileApprovedTeamGrantsAsync(cancellationToken);
             var artifactGrantChanges = await ReconcileApprovedArtifactCreateGrantsAsync(cancellationToken);
             if (artifactGrantChanges > 0)
                 await db.SaveChangesAsync(cancellationToken);
-            return profileChanges + artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
+            return profileChanges + teamGrantChanges + artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
                 .ReconcileAsync(cancellationToken: cancellationToken);
         }
 
@@ -81,10 +83,11 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             .ToList();
         if (deployments.Count == 0)
         {
+            var teamGrantChanges = await ReconcileApprovedTeamGrantsAsync(cancellationToken);
             var artifactGrantChanges = await ReconcileApprovedArtifactCreateGrantsAsync(cancellationToken);
             if (artifactGrantChanges > 0)
                 await db.SaveChangesAsync(cancellationToken);
-            return profileChanges + artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
+            return profileChanges + teamGrantChanges + artifactGrantChanges + await new AgentCapabilityBindingReconciler(db, auditWriter)
                 .ReconcileAsync(cancellationToken: cancellationToken);
         }
 
@@ -246,6 +249,7 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
         var artifactGrantChangesAfterDeployment =
             await ReconcileApprovedArtifactCreateGrantsAsync(cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        var teamGrantChangesAfterDeployment = await ReconcileApprovedTeamGrantsAsync(cancellationToken);
         foreach (var entry in auditEntries)
         {
             await auditWriter.WriteAsync(
@@ -258,7 +262,7 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
 
         var repairedBindings = await new AgentCapabilityBindingReconciler(db, auditWriter)
             .ReconcileAsync(cancellationToken: cancellationToken);
-        return profileChanges + deployments.Count + artifactGrantChangesAfterDeployment + repairedBindings;
+        return profileChanges + deployments.Count + artifactGrantChangesAfterDeployment + teamGrantChangesAfterDeployment + repairedBindings;
 
         bool ProviderOffers(Guid providerInstallationId, string capability)
         {
@@ -272,6 +276,24 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                 .DeserializeManifest(manifestJson)
                 .Provides.Any(x => string.Equals(x.Name, capability, StringComparison.Ordinal));
         }
+    }
+
+    internal async Task<int> ReconcileApprovedTeamGrantsAsync(CancellationToken token)
+    {
+        var members = await (from member in db.TeamMemberships.AsNoTracking()
+            join employee in db.CoreOrganizationUsers.AsNoTracking() on member.OrganizationUserId equals employee.Id
+            join team in db.OrganizationTeams.AsNoTracking() on member.TeamId equals team.Id
+            where member.EndedAt == null && employee.IsActive && employee.ArchivedAt == null &&
+                employee.AgentInstallationId != null && team.ArchivedAt == null &&
+                member.OrganizationId == team.OrganizationId && employee.OrganizationId == team.OrganizationId
+            select new { team.OrganizationId, TeamId = team.Id, InstallationId = employee.AgentInstallationId!.Value,
+                team.LeadOrganizationUserId }).Distinct().ToListAsync(token);
+        var changes = 0;
+        foreach (var member in members)
+            changes += (await TeamAgentGrantProvisioner.EnsureAsync(db, member.OrganizationId, member.InstallationId,
+                member.TeamId, member.LeadOrganizationUserId, DateTimeOffset.UtcNow, token, preserveRevocations: true)).Count;
+        if (changes > 0) await db.SaveChangesAsync(token);
+        return changes;
     }
 
     private async Task<int> ReconcileApprovedArtifactCreateGrantsAsync(

@@ -406,6 +406,7 @@ public sealed class AgentDefinitionService(
     private static AgentDefinitionResponse ToResponse(AgentDefinition definition, AgentPackageVersion package)
     {
         var build = package.BuildJobs.OrderByDescending(x => x.Attempt).FirstOrDefault();
+        var catalog = AgentConfigurationRules.DeserializeManifest(package.ManifestJson).Catalog;
         return new AgentDefinitionResponse(
             definition.Id, package.Id, package.AgentId, package.AgentName, package.Version, package.PublisherName,
             package.CommitSha, definition.Status.ToString(), definition.IsAvailableForHire,
@@ -413,7 +414,16 @@ public sealed class AgentDefinitionService(
             definition.DefaultOverlapPolicy.ToString(), definition.DefaultMaxRuntimeSeconds,
             definition.DefaultMemoryMb, definition.DefaultCpuPercent, definition.Configuration?.Revision ?? 0,
             definition.CreatedAt, definition.UpdatedAt,
-            AgentBuildSummaryMapper.Create(build));
+            AgentBuildSummaryMapper.Create(build))
+        {
+            ImageUrl = catalog.ImageUrl,
+            RoleName = catalog.Role?.Name,
+            Summary = catalog.Summary,
+            DefaultProvidedCapabilities = JsonSerializer.Deserialize<string[]>(definition.DefaultProvidedCapabilitiesJson, JsonOptions) ?? [],
+            DefaultRequiredCapabilities = JsonSerializer.Deserialize<string[]>(definition.DefaultRequiredCapabilitiesJson, JsonOptions) ?? [],
+            DefaultEventSubscriptions = JsonSerializer.Deserialize<string[]>(definition.DefaultEventSubscriptionsJson, JsonOptions) ?? [],
+            DefaultNetworkAccess = JsonSerializer.Deserialize<string[]>(definition.DefaultNetworkAccessJson, JsonOptions) ?? []
+        };
     }
 
     private static void ValidateSubset(string name, IEnumerable<string> values, IEnumerable<string> permitted)

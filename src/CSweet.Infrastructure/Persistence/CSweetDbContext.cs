@@ -225,6 +225,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
         CaptureArtifactEvents();
+        CaptureApprovalEvents();
         CaptureProjectResourceEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
@@ -238,6 +239,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
         CaptureArtifactEvents();
+        CaptureApprovalEvents();
         CaptureProjectResourceEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
@@ -420,6 +422,34 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             QueueApplicationRealtimeEvent(item.OrganizationId, item.RecipientOrganizationUserId, null, eventType,
                 $"organizations/{item.OrganizationId:D}/notifications/{item.Id:D}",
                 JsonSerializer.Serialize(data, EventJsonOptions), DateTimeOffset.UtcNow);
+        }
+    }
+
+    private void CaptureApprovalEvents()
+    {
+        ChangeTracker.DetectChanges();
+        var organizations = ChangeTracker.Entries()
+            .Where(x => x.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .Select(x => x.Entity switch
+            {
+                ResourceChangeRequestRecord request => (Guid?)request.OrganizationId,
+                ActionProposal proposal => proposal.OrganizationId,
+                StaffingActionProposal proposal => proposal.OrganizationId,
+                SourceControlApproval approval => approval.OrganizationId,
+                RepositoryProvisioningRequest request => request.OrganizationId,
+                SourceControlMergeJob job => job.OrganizationId,
+                Artifact artifact => artifact.OrganizationId,
+                ArtifactAccessRequest request => request.OrganizationId,
+                OrganizationUser user => user.OrganizationId,
+                _ => null
+            })
+            .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+        foreach (var organizationId in organizations)
+        {
+            QueueApplicationRealtimeEvent(organizationId, null, null, AppRealtimeEvents.ApprovalChanged,
+                $"organizations/{organizationId:D}/approvals",
+                JsonSerializer.Serialize(new { organizationId }, EventJsonOptions),
+                DateTimeOffset.UtcNow, ResolveActiveOrganizationRecipients(organizationId));
         }
     }
 
@@ -611,6 +641,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        BusinessCalendarConfiguration.Apply(modelBuilder);
         modelBuilder.ApplyConfiguration(new ConnectorExecutionConfiguration());
         modelBuilder.ApplyConfiguration(new ConnectorProfileApprovalConfiguration());
         modelBuilder.Entity<PluginSetupObligation>().HasIndex(x => x.InstallationId).IsUnique();
@@ -658,6 +689,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         
         // Apply core business domain entity configurations
         CoreConfigurations.Apply(modelBuilder);
+        CompanyDashboardConfigurations.Apply(modelBuilder);
         WorkManagementConfigurations.Apply(modelBuilder);
         modelBuilder.Entity<SystemConfiguration>(entity =>
         {

@@ -59,6 +59,17 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
 
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
     [
+        Write(CompanyReportingCapabilities.Finance, "publish_company_finances",
+            "Publish authoritative month-to-date financial metrics in one currency, with an as-of date. Omit unknown metrics; never invent amounts."),
+        Write(CompanyReportingCapabilities.Legal, "publish_company_legal_status",
+            "Publish the verified business legal entity, status, and outstanding dated obligations. Dates must come from business records."),
+        Write(CompanyReportingCapabilities.Project, "publish_project_lead_update",
+            "Record a short project update for the company dashboard. Only this project's accountable lead may publish."),
+        Read(W.CalendarCapabilities.Read, "read_business_calendar", "Read the shared business calendar for a bounded time range."),
+        Write(W.CalendarCapabilities.Create, "create_calendar_event", "Create an owned event using local wall-clock dates, a time zone and a stable idempotency key."),
+        Write(W.CalendarCapabilities.Update, "update_calendar_event", "Edit an owned event or one recurring occurrence using its current revision. Managers may edit others."),
+        Write(W.CalendarCapabilities.Cancel, "cancel_calendar_event", "Cancel an owned event or occurrence using its current revision. Already-created work remains."),
+        Write(W.CalendarCapabilities.Schedule, "schedule_calendar_work", "Create an event that schedules instructions or activates a backlog personal work item for yourself or permitted reports."),
         Read(PlatformCapabilities.BusinessProfileRead, "read_business_profile",
             "Read the authoritative business profile for this organization."),
         Write(PlatformCapabilities.BusinessProfileUpdateExplicit, "update_explicit_business_profile",
@@ -515,6 +526,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
 
     private static JsonElement InputFor(string capability)
     {
+        if (W.CalendarCapabilities.All.Contains(capability)) return CalendarToolSchemas.Input(capability);
+        if (capability is CompanyReportingCapabilities.Finance or CompanyReportingCapabilities.Legal or CompanyReportingCapabilities.Project)
+            return CompanyReportingSchemas.Input(capability);
         if (capability == ResourceChangeCapabilities.Propose)
             return Schema("""
                 {"type":"object","required":["conversationId","chatTurnId","productGoal","rationale","contextRevision","roles","assumptions","constraints","idempotencyKey"],"properties":{"conversationId":{"type":"string","format":"uuid"},"chatTurnId":{"type":"string","format":"uuid"},"productGoal":{"type":"string","minLength":1,"maxLength":2048},"rationale":{"type":"string","minLength":1,"maxLength":4096},"contextRevision":{"type":"integer"},"teamKey":{"type":["string","null"],"maxLength":200},"teamName":{"type":["string","null"],"maxLength":160},"teamDescription":{"type":["string","null"],"maxLength":2048},"teamId":{"type":["string","null"],"format":"uuid"},"workstreamId":{"type":["string","null"],"format":"uuid"},"expectedTeamRevision":{"type":["integer","null"],"minimum":0},"roles":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object"}},"evidence":{"type":"array","maxItems":50,"items":{"type":"object"}},"alternativesConsidered":{"type":"array","maxItems":20,"items":{"type":"string","maxLength":2048}},"expectedEffect":{"type":["string","null"],"maxLength":2048},"assumptions":{"type":"array","maxItems":20,"items":{"type":"string"}},"constraints":{"type":"array","maxItems":20,"items":{"type":"string"}},"supersedesRequestId":{"type":["string","null"],"format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

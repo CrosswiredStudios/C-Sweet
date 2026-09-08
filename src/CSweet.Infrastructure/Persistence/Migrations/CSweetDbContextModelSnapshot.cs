@@ -1830,6 +1830,218 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("BudgetReservations");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendar", b =>
+                {
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TimeZoneId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("OrganizationId");
+
+                    b.ToTable("BusinessCalendars", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarChange", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("EventRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "Id");
+
+                    b.ToTable("BusinessCalendarChanges", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarDispatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("DueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("OccurrenceLocal")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("RecipientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("WorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "DueAt");
+
+                    b.HasIndex("EventId", "OccurrenceLocal", "Kind", "RecipientId")
+                        .IsUnique();
+
+                    b.ToTable("BusinessCalendarDispatches", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Cancelled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreationKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OwnerOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("SchedulingInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SchedulingOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "CreationKey")
+                        .IsUnique();
+
+                    b.ToTable("BusinessCalendarEvents", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarException", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("OccurrenceLocal")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("Cancelled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("PayloadJson")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("SchedulingInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SchedulingOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("EventId", "OccurrenceLocal");
+
+                    b.ToTable("BusinessCalendarExceptions", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarReminder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Read")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("RecipientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Start")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventId");
+
+                    b.HasIndex("OrganizationId", "RecipientId", "Read");
+
+                    b.ToTable("BusinessCalendarReminders", (string)null);
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.BusinessDiscoveryAssessment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2252,6 +2464,65 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("ChatTurnTraceEvents");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.CompanyDashboardLayout", b =>
+                {
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OrderJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("OrganizationId", "OrganizationUserId");
+
+                    b.HasIndex("OrganizationUserId");
+
+                    b.ToTable("CompanyDashboardLayouts", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.CompanyDashboardReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReporterName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid>("ReporterOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("WorkstreamId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "Kind", "WorkstreamId", "PublishedAt")
+                        .HasDatabaseName("IX_CompanyDashboardReports_Latest");
+
+                    b.ToTable("CompanyDashboardReports", (string)null);
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.Conversation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2271,6 +2542,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
+                    b.Property<string>("DirectParticipantKey")
+                        .HasMaxLength(65)
+                        .HasColumnType("character varying(65)");
+
                     b.Property<Guid>("InitiatedByOrganizationUserId")
                         .HasColumnType("uuid");
 
@@ -2284,6 +2559,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("MergedIntoConversationId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid");
@@ -2301,16 +2579,17 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("WorkstreamId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("DirectParticipantKey").HasMaxLength(65).HasColumnType("character varying(65)");
-                    b.Property<Guid?>("MergedIntoConversationId").HasColumnType("uuid");
-                    b.HasIndex("MergedIntoConversationId");
-                    b.HasIndex("OrganizationId", "DirectParticipantKey").IsUnique()
-                        .HasFilter("\"ArchivedAt\" IS NULL AND \"DirectParticipantKey\" IS NOT NULL");
                     b.HasKey("Id");
 
                     b.HasIndex("AgentOrganizationUserId");
 
+                    b.HasIndex("MergedIntoConversationId");
+
                     b.HasIndex("OrganizationId", "AgentOrganizationUserId");
+
+                    b.HasIndex("OrganizationId", "DirectParticipantKey")
+                        .IsUnique()
+                        .HasFilter("\"ArchivedAt\" IS NULL AND \"DirectParticipantKey\" IS NOT NULL");
 
                     b.HasIndex("OrganizationId", "ArchivedAt", "UpdatedAt");
 
@@ -9992,9 +10271,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ReviewPatch")
-                        .HasColumnType("text");
-
                     b.Property<string>("ChangedFilesJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -10020,6 +10296,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("RepositoryId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ReviewPatch")
+                        .HasColumnType("text");
 
                     b.Property<long>("Revision")
                         .IsConcurrencyToken()
@@ -12320,6 +12599,60 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendar", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarChange", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarDispatch", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.BusinessCalendarEvent", null)
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarEvent", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarException", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.BusinessCalendarEvent", null)
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessCalendarReminder", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.BusinessCalendarEvent", null)
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.BusinessOnboardingOperation", b =>
                 {
                     b.HasOne("CSweet.Domain.Setup.AgentDefinition", null)
@@ -12381,13 +12714,41 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("ChatTurn");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.CompanyDashboardLayout", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.OrganizationUser", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_CompanyDashboardLayouts_User");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.CompanyDashboardReport", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.Conversation", b =>
                 {
-                    b.HasOne("CSweet.Domain.Core.Conversation", null)
-                        .WithMany().HasForeignKey("MergedIntoConversationId").OnDelete(DeleteBehavior.Restrict);
                     b.HasOne("CSweet.Domain.Core.OrganizationUser", "AgentOrganizationUser")
                         .WithMany()
                         .HasForeignKey("AgentOrganizationUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSweet.Domain.Core.Conversation", null)
+                        .WithMany()
+                        .HasForeignKey("MergedIntoConversationId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("CSweet.Domain.Core.Organization", "Organization")

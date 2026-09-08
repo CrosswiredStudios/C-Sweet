@@ -135,14 +135,14 @@ public sealed class ApplicationRealtimeEventTests
         await db.SaveChangesAsync();
         publisher = new RecordingPublisher();
         await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
-        Assert.Equal("Updated", Assert.Single(publisher.Publications)
+        Assert.Equal("Updated", Assert.Single(publisher.Publications, x => x.Envelope.EventType == AppRealtimeEvents.EmployeeDirectoryChanged)
             .Envelope.Data.Deserialize<EmployeeDirectoryChangedEvent>(JsonOptions)!.ChangeKind);
 
         hire.IsActive = false;
         await db.SaveChangesAsync();
         publisher = new RecordingPublisher();
         await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
-        var deactivated = Assert.Single(publisher.Publications);
+        var deactivated = Assert.Single(publisher.Publications, x => x.Envelope.EventType == AppRealtimeEvents.EmployeeDirectoryChanged);
         Assert.Equal("Deactivated", deactivated.Envelope.Data.Deserialize<EmployeeDirectoryChangedEvent>(JsonOptions)!.ChangeKind);
         Assert.Contains(member.Id, deactivated.RecipientOrganizationUserIds);
         Assert.DoesNotContain(hire.Id, deactivated.RecipientOrganizationUserIds);
@@ -151,7 +151,7 @@ public sealed class ApplicationRealtimeEventTests
         await db.SaveChangesAsync();
         publisher = new RecordingPublisher();
         await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
-        var activated = Assert.Single(publisher.Publications);
+        var activated = Assert.Single(publisher.Publications, x => x.Envelope.EventType == AppRealtimeEvents.EmployeeDirectoryChanged);
         Assert.Equal("Activated", activated.Envelope.Data.Deserialize<EmployeeDirectoryChangedEvent>(JsonOptions)!.ChangeKind);
         Assert.Contains(hire.Id, activated.RecipientOrganizationUserIds);
     }
@@ -245,6 +245,40 @@ public sealed class ApplicationRealtimeEventTests
         IsActive = true, CreatedAt = DateTimeOffset.UtcNow
     };
 
+    [Fact]
+    public async Task ApprovalChanges_AreDurableTenantScopedAndIncludeDecisionsAndDeletion()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var member = User(organizationId, "Manager", OrganizationPermissionLevel.Manager);
+        var outsider = User(Guid.NewGuid(), "Other tenant");
+        db.AddRange(member, outsider);
+        await db.SaveChangesAsync();
+        await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(new RecordingPublisher());
+        var request = new ResourceChangeRequestRecord
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ManagerOrganizationUserId = member.Id, Status = ResourceChangeRequestStatus.Pending
+        };
+        db.Add(request);
+        await CheckEventAsync();
+        request.Status = ResourceChangeRequestStatus.Approved;
+        await CheckEventAsync();
+        db.Remove(request);
+        await CheckEventAsync();
+
+        async Task CheckEventAsync()
+        {
+            await db.SaveChangesAsync();
+            var publisher = new RecordingPublisher();
+            await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
+            var publication = Assert.Single(publisher.Publications,
+                x => x.Envelope.EventType == AppRealtimeEvents.ApprovalChanged);
+            Assert.Equal(organizationId, publication.Envelope.OrganizationId);
+            Assert.Contains(member.Id, publication.RecipientOrganizationUserIds);
+            Assert.DoesNotContain(outsider.Id, publication.RecipientOrganizationUserIds);
+        }
+    }
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 

@@ -1,0 +1,41 @@
+@using System.Text.Json
+@using CSweet.Contracts.Core
+
+@foreach (var preview in Resources.Where(x => x.ResourceType == "Preview"))
+{
+    <section class="pa-4 mb-3 mud-paper mud-paper-outlined" aria-label="Game preview">
+        <h3>Playable preview</h3>
+        <p>@preview.Title · @preview.Status</p>
+        <p>Build: @Text(preview.Metadata, "BuildId")</p>
+        @if (Expiry(preview.Metadata) is { } expiry)
+        {
+            <p>Expires: @expiry.LocalDateTime</p>
+        }
+        @if (ReadyLink(preview) is { } link)
+        {
+            <a href="@link" target="_blank" rel="noopener noreferrer">Open playable preview</a>
+        }
+        else
+        {
+            <p>@(Expiry(preview.Metadata) <= DateTimeOffset.UtcNow ? "This preview has expired." : "No playable link is available. Refresh delivery status to check again.")</p>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<ProjectInspectionResource> Resources { get; set; } = [];
+
+    private static JsonElement Property(JsonElement metadata, string name) =>
+        metadata.ValueKind == JsonValueKind.Object &&
+        (metadata.TryGetProperty(name, out var value) || metadata.TryGetProperty(char.ToLowerInvariant(name[0]) + name[1..], out value))
+            ? value : default;
+    private static string? Text(JsonElement metadata, string name) =>
+        Property(metadata, name) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
+    private static DateTimeOffset? Expiry(JsonElement metadata) =>
+        DateTimeOffset.TryParse(Text(metadata, "ExpiresAt"), out var expiry) ? expiry : null;
+    private static string? ReadyLink(ProjectInspectionResource preview) =>
+        preview.Status == "Ready" && Expiry(preview.Metadata) > DateTimeOffset.UtcNow &&
+        Uri.TryCreate(Text(preview.Metadata, "AccessReference"), UriKind.Absolute, out var url) &&
+        url.Scheme is "http" or "https" && string.IsNullOrEmpty(url.UserInfo)
+            ? url.AbsoluteUri : null;
+}

@@ -63,6 +63,18 @@ public static class WorkstreamInspectionEndpoints
                 LatestBuildStatus = db.DeliveryBuilds.Where(build => build.WorkstreamId == x.Id)
                     .OrderByDescending(build => build.CreatedAt).Select(build => build.Status).FirstOrDefault()
             }).ToListAsync(token);
+        var projectIds = projects.Select(x => x.Id).ToArray();
+        var latestReports = await db.Set<CompanyDashboardReport>().AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.Kind == "project" && x.WorkstreamId.HasValue && projectIds.Contains(x.WorkstreamId.Value))
+            .Where(x => !db.Set<CompanyDashboardReport>().Any(newer => newer.OrganizationId == organizationId &&
+                newer.Kind == "project" && newer.WorkstreamId == x.WorkstreamId && newer.PublishedAt > x.PublishedAt))
+            .ToListAsync(token);
+        var updates = latestReports.GroupBy(x => x.WorkstreamId!.Value).ToDictionary(g => g.Key, g =>
+        {
+            var r = g.OrderByDescending(x => x.Id).First();
+            return new DashboardReport<ProjectLeadUpdate>(JsonSerializer.Deserialize<ProjectLeadUpdate>(r.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!,
+                r.ReporterOrganizationUserId, r.ReporterName, r.PublishedAt);
+        });
         return Results.Ok(new ProjectPortfolioResponse(
             DateTimeOffset.UtcNow,
             projects.Count,
@@ -71,7 +83,7 @@ public static class WorkstreamInspectionEndpoints
                 x.Id, x.Name, x.Outcome, x.Status, x.LifecycleStage, x.ProfileKey, x.ProfileVersion,
                 x.AccountableManagerOrganizationUserId, x.TargetDate, x.BudgetAmount, x.BudgetCurrency,
                 x.Revision, x.UpdatedAt, x.ActiveTeams, x.Boards, x.OpenItems, x.PendingGates,
-                x.OpenDecisions, x.LatestBuildStatus)).ToList()));
+                x.OpenDecisions, x.LatestBuildStatus) { LatestLeadUpdate = updates.GetValueOrDefault(x.Id) }).ToList()));
     }
 
     private static async Task<IResult> DecideGateAsync(

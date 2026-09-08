@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CSweet.Application.Core;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +19,8 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
     public async Task<ManagedActionExecutionResult> ExecuteAsync(
         ActionProposal proposal, OrganizationUser approvingActor, CancellationToken cancellationToken = default)
     {
+        if (approvingActor.OrganizationId != proposal.OrganizationId || !approvingActor.IsActive || approvingActor.ArchivedAt.HasValue)
+            throw new UnauthorizedAccessException("The approver must be an active member of the proposal organization.");
         if (!CanExecute(proposal.ActionType)) throw new InvalidOperationException("The managed action type is not supported by this executor.");
         using var binding = JsonDocument.Parse(proposal.PayloadJson);
         var root = binding.RootElement;
@@ -185,9 +188,10 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
         }
         if (workstream.Revision != request.ExpectedRevision)
             throw new DbUpdateConcurrencyException("The Workstream revision no longer matches the approval binding.");
-        if (workstream.AccountableManagerOrganizationUserId != actor.Id && !await db.WorkstreamSupervisionAssignments.AsNoTracking().AnyAsync(x =>
+        var isHumanOwner = actor.EmployeeType == EmployeeType.Human && actor.PermissionLevel == OrganizationPermissionLevel.Owner;
+        if (!isHumanOwner && workstream.AccountableManagerOrganizationUserId != actor.Id && !await db.WorkstreamSupervisionAssignments.AsNoTracking().AnyAsync(x =>
                 x.WorkstreamId == workstream.Id && x.SupervisorOrganizationUserId == actor.Id && x.EndsAt == null, token))
-            throw new UnauthorizedAccessException("Only an accountable manager or active supervisor may approve this change.");
+            throw new UnauthorizedAccessException("Only the human organization owner, accountable manager or active supervisor may approve this change.");
         var boundDigest = binding.TryGetProperty("profileDefinitionDigest", out var digest) ? digest.GetString() : null;
         if (!string.Equals(workstream.ProfileDefinitionDigest, boundDigest, StringComparison.Ordinal))
             throw new InvalidOperationException("The Workstream profile digest changed after the proposal was reviewed.");
@@ -201,6 +205,21 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
         }
         else ApplyChanges(workstream, profile, request.Changes);
         workstream.Revision++; workstream.UpdatedAt = clock.GetUtcNow();
+        var now = clock.GetUtcNow();
+        var context = new W.AgentWorkContext(proposal.OrganizationId, workstream.Id, null, null, null, null, null,
+            proposal.Id, null, workstream.ProfileKey);
+        var changed = new W.GenericResourceEvent(Guid.NewGuid(), now, context, "Workstream", workstream.Id,
+            workstream.Revision, workstream.ProfileKey ?? "workstream", "changed",
+            JsonSerializer.SerializeToElement(new { proposalId = proposal.Id, approverId = actor.Id,
+                workstream.ProfileVersion, workstream.ProfileDefinitionDigest, request.Changes }, JsonOptions));
+        // Save with the approved state change so delivery cannot resume against an uncommitted pin.
+        db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = proposal.OrganizationId, EventType = W.WorkstreamEventNames.ChangedV2,
+            DataJson = JsonSerializer.Serialize(changed, JsonOptions),
+            IdempotencyKey = $"{W.WorkstreamEventNames.ChangedV2}:{workstream.Id:N}:{workstream.Revision}",
+            Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
+        });
         return new(workstream.Id, workstream.Revision, $"Updated Workstream '{workstream.Name}'.");
     }
 

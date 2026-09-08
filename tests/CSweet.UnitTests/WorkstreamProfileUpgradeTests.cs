@@ -12,10 +12,18 @@ public sealed class WorkstreamProfileUpgradeTests
 {
     [Theory]
     [InlineData("valid")]
+    [InlineData("human-owner")]
+    [InlineData("unrelated-manager")]
+    [InlineData("agent-owner")]
+    [InlineData("inactive-owner")]
+    [InlineData("foreign-owner")]
     [InlineData("wrong-digest")]
     [InlineData("retired")]
     [InlineData("authority-change")]
-    [InlineData("existing-board")]
+    [InlineData("empty-board")]
+    [InlineData("configured-board")]
+    [InlineData("board-with-item")]
+    [InlineData("board-with-sprint")]
     [InlineData("stale-workstream")]
     public async Task ApprovedUpgradeRevalidatesTargetAndPreservesProject(string scenario)
     {
@@ -29,10 +37,27 @@ public sealed class WorkstreamProfileUpgradeTests
         var stream = new Workstream { Id = Guid.NewGuid(), OrganizationId = org, Name = "Game", Outcome = "Build accepted game",
             AccountableManagerOrganizationUserId = actor.Id, ProfileKey = "game", ProfileVersion = 4, ProfileDefinitionDigest = "old",
             ProfileDataJson = "{}", LifecycleStage = "Planning", BudgetAmount = 100, Revision = scenario == "stale-workstream" ? 3 : 2 };
+        if (scenario is "human-owner" or "unrelated-manager" or "agent-owner" or "inactive-owner" or "foreign-owner")
+        {
+            stream.AccountableManagerOrganizationUserId = Guid.NewGuid();
+            actor.PermissionLevel = scenario == "unrelated-manager" ? OrganizationPermissionLevel.Manager : OrganizationPermissionLevel.Owner;
+            actor.EmployeeType = scenario == "agent-owner" ? EmployeeType.Agent : EmployeeType.Human;
+            if (scenario == "inactive-owner") actor.IsActive = false;
+            if (scenario == "foreign-owner") actor.OrganizationId = Guid.NewGuid();
+        }
+        var expectedManager = stream.AccountableManagerOrganizationUserId;
         if (scenario == "retired") target.Status = "Retired";
         if (scenario == "authority-change") target.DefinitionJson = target.DefinitionJson.Replace("same", "different");
         db.AddRange(source, target, stream, actor);
-        if (scenario == "existing-board") db.WorkBoards.Add(new WorkBoard { Id = Guid.NewGuid(), OrganizationId = org, WorkstreamId = stream.Id, Name = "Team" });
+        var boardId = Guid.NewGuid();
+        if (scenario is "empty-board" or "configured-board" or "board-with-item" or "board-with-sprint")
+            db.WorkBoards.Add(new WorkBoard { Id = boardId, OrganizationId = org, WorkstreamId = stream.Id, Name = "Team" });
+        if (scenario == "configured-board")
+            db.WorkOrchestrationPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = org, BoardId = boardId, Name = "Existing policy" });
+        if (scenario == "board-with-item")
+            db.CoreWorkTasks.Add(new() { Id = Guid.NewGuid(), OrganizationId = org, BoardId = boardId, Title = "Preserve planning" });
+        if (scenario == "board-with-sprint")
+            db.WorkSprints.Add(new() { Id = Guid.NewGuid(), OrganizationId = org, BoardId = boardId, Name = "Phase one" });
         await db.SaveChangesAsync();
         var request = new W.WorkstreamChangeProposalRequest(stream.Id, 2, "Upgrade execution workflow",
             JsonSerializer.SerializeToElement(new { profileUpgrade = new { key = "game", version = 5, definitionDigest = scenario == "wrong-digest" ? "other" : "new" } }),
@@ -40,22 +65,31 @@ public sealed class WorkstreamProfileUpgradeTests
         var proposal = new ActionProposal { Id = Guid.NewGuid(), OrganizationId = org, ActionType = "workstream.change.v1", Status = ProposalStatus.Approved,
             PayloadJson = JsonSerializer.Serialize(new { profileDefinitionDigest = "old", payload = request }, new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
         var executor = new WorkstreamManagedActionExecutor(db, TimeProvider.System);
-        if (scenario == "valid")
+        if (scenario is "valid" or "empty-board" or "human-owner")
         {
             await executor.ExecuteAsync(proposal, actor);
             await db.SaveChangesAsync(); db.ChangeTracker.Clear();
             var saved = await db.Workstreams.SingleAsync();
             Assert.Equal(5, saved.ProfileVersion); Assert.Equal("new", saved.ProfileDefinitionDigest); Assert.Equal(3, saved.Revision);
             Assert.Equal("Build accepted game", saved.Outcome); Assert.Equal("Planning", saved.LifecycleStage);
-            Assert.Equal(100, saved.BudgetAmount); Assert.Equal(actor.Id, saved.AccountableManagerOrganizationUserId);
+            Assert.Equal(100, saved.BudgetAmount); Assert.Equal(expectedManager, saved.AccountableManagerOrganizationUserId);
+            var wake = Assert.Single(await db.AgentPlatformEventOutbox.ToListAsync());
+            Assert.Equal(W.WorkstreamEventNames.ChangedV2, wake.EventType);
+            var message = JsonSerializer.Deserialize<W.GenericResourceEvent>(wake.DataJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            Assert.Equal(saved.Id, message.Context.WorkstreamId);
+            Assert.Contains("\"profileVersion\":5", wake.DataJson);
+            Assert.Contains("\"profileDefinitionDigest\":\"new\"", wake.DataJson);
         }
         else
         {
-            if (scenario == "stale-workstream")
+            if (scenario is "unrelated-manager" or "agent-owner" or "inactive-owner" or "foreign-owner")
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(() => executor.ExecuteAsync(proposal, actor));
+            else if (scenario == "stale-workstream")
                 await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => executor.ExecuteAsync(proposal, actor));
             else await Assert.ThrowsAsync<InvalidOperationException>(() => executor.ExecuteAsync(proposal, actor));
             db.ChangeTracker.Clear();
             Assert.Equal(4, (await db.Workstreams.SingleAsync()).ProfileVersion);
+            Assert.Empty(await db.AgentPlatformEventOutbox.ToListAsync());
         }
     }
 }

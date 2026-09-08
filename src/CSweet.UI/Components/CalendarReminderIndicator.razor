@@ -1,0 +1,47 @@
+@inject IBusinessContext BusinessContext
+@inject CalendarApiClient CalendarApi
+@implements IAsyncDisposable
+
+@if (_count > 0)
+{
+    <span class="communications-nav-badge" aria-label="@($"{_count} unread calendar reminders")">@_count</span>
+}
+
+@code {
+    private int _count;
+    private readonly CancellationTokenSource _stop = new();
+    private Task? _poll;
+    protected override void OnInitialized()
+    {
+        BusinessContext.Changed += Changed;
+        _poll = Poll();
+    }
+    private void Changed() => _ = InvokeAsync(Refresh);
+    private async Task Refresh()
+    {
+        var org = BusinessContext.SelectedBusiness?.Id;
+        if (org is null) { _count = 0; return; }
+        try
+        {
+            var reminders = await CalendarApi.RemindersAsync(org.Value);
+            if (!_stop.IsCancellationRequested && BusinessContext.SelectedBusiness?.Id == org) _count = reminders.Count;
+        }
+        catch (Exception) { _count = 0; }
+        if (!_stop.IsCancellationRequested) StateHasChanged();
+    }
+    private async Task Poll()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        try
+        {
+            do { await InvokeAsync(Refresh); } while (await timer.WaitForNextTickAsync(_stop.Token));
+        }
+        catch (OperationCanceledException) { }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        BusinessContext.Changed -= Changed; _stop.Cancel();
+        if (_poll is not null) await _poll;
+        _stop.Dispose();
+    }
+}

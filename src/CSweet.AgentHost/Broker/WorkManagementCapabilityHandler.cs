@@ -725,34 +725,15 @@ public sealed class WorkManagementCapabilityHandler(
             .Where(x => x.BoardId == board.Id && x.BoardColumnId != null)
             .OrderBy(x => x.BoardColumnId)
             .ThenBy(x => x.BoardRank)
-            .Select(x => new
-            {
-                x.Id,
-                x.BoardColumnId,
-                x.ParentWorkTaskId,
-                x.SprintId,
-                x.Kind,
-                x.Title,
-                x.Description,
-                x.Status,
-                x.Priority,
-                x.EstimatePoints,
-                x.BoardRank,
-                x.Revision,
-                x.DueDate,
-                x.StructuredMentionsJson
-            })
             .ToListAsync(cancellationToken);
-        var items = itemRows
-            .Select(x => new Wire.WorkItem(
-                x.Id, x.BoardColumnId!.Value, x.ParentWorkTaskId, x.SprintId,
-                x.Kind.ToString(), x.Title, x.Description, x.Status.ToString(),
-                x.Priority.ToString(), x.EstimatePoints, x.BoardRank, x.Revision,
-                x.DueDate)
-            {
-                Mentions = WorkItemMentionCodec.Deserialize(x.StructuredMentionsJson)
-            })
-            .ToList();
+        var employeeIds = itemRows.Where(x => x.AssignedEmployeeId.HasValue).Select(x => x.AssignedEmployeeId!.Value).Distinct().ToArray();
+        var employeeNames = await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
+                x.OrganizationId == organizationId && employeeIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.DisplayName, cancellationToken);
+        var items = itemRows.Select(item => ToAgentItem(item) with
+        {
+            AssignedDisplayName = item.AssignedEmployeeId.HasValue ? employeeNames.GetValueOrDefault(item.AssignedEmployeeId.Value) : null
+        }).ToList();
         await WriteAuditAsync(
             organizationId, installationId, board.Id, WorkItemActions.Read, itemGrant,
             new { board.Id, itemCount = items.Count, boardGrantId = boardGrant.GrantId },
@@ -764,7 +745,10 @@ public sealed class WorkManagementCapabilityHandler(
                 [WorkBoardActions.Read, WorkItemActions.Read])
             {
                 TeamId = board.TeamId,
-                WorkstreamId = board.WorkstreamId
+                WorkstreamId = board.WorkstreamId,
+                ManagerOrganizationUserId = board.ManagerOrganizationUserId,
+                Key = board.Key,
+                ProfileKey = board.ProfileKey
             },
             board.Columns.Select(x => new Wire.WorkBoardColumn(
                 x.Id, x.Name, x.Category.ToString(), x.Position,

@@ -1,0 +1,173 @@
+@page "/organizations/{OrganizationId:guid}/calendar"
+@using CSweet.WorkManagement.Contracts
+@using System.Globalization
+@inject CalendarApiClient Api
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<PageTitle>Business calendar</PageTitle>
+<div class="calendar-page">
+    <header class="calendar-header"><div><h1>Calendar</h1><p>Plan the business. Keep work moving.</p></div>
+        @if (_calendar?.CanCreate == true) { <button class="primary" @onclick="NewEvent">New event</button> }
+    </header>
+    @if (_error is not null) { <div role="alert" class="calendar-error">@_error <button @onclick="Load">Refresh calendar</button></div> }
+    <div class="calendar-toolbar">
+        <button aria-label="Previous period" @onclick="() => Move(-1)">←</button><button @onclick="Today">Today</button>
+        <button aria-label="Next period" @onclick="() => Move(1)">→</button><strong>@_date.ToString("MMMM yyyy")</strong>
+        <label>View <select value="@View" @onchange="ChangeView"><option>Month</option><option>Week</option><option>Agenda</option></select></label>
+        <span>@(_calendar?.TimeZoneId ?? "UTC")</span>
+    </div>
+    @if (_calendar is null) { <p role="status">Loading calendar…</p> }
+    else
+    {
+        @if (_reminders.Count > 0)
+        {
+            <aside class="calendar-reminders" aria-label="Calendar reminders"><h2>Reminders</h2>
+                @foreach (var reminder in _reminders) { <div><span>@reminder.Title · @Display(reminder.Start).ToString("g")</span><button @onclick="() => Dismiss(reminder.Id)">Dismiss</button></div> }
+            </aside>
+        }
+        @if (View == "Agenda")
+        {
+            <div class="calendar-agenda">
+                @foreach (var occurrence in _calendar.Occurrences)
+                { <button class="calendar-event" @onclick="() => Open(occurrence)"><strong>@occurrence.Event.Title</strong><span>@Display(occurrence.Start).ToString("f") · @occurrence.WorkStatus</span></button> }
+                @if (_calendar.Occurrences.Count == 0) { <p>No events in this period.</p> }
+            </div>
+        }
+        else
+        {
+            <div class="calendar-grid" role="region" aria-label="@($"{View} calendar")">
+                @foreach (var day in Days())
+                {
+                    <section class="calendar-day @(day.Date == DateTime.Today ? "today" : "")">
+                        <h2>@day.ToString("ddd d")</h2>
+                        @foreach (var occurrence in _calendar.Occurrences.Where(x => Display(x.Start).Date <= day && Display(x.End).Date >= day && Display(x.End) > day))
+                        { <button class="calendar-event" @onclick="() => Open(occurrence)"><strong>@occurrence.Event.Title</strong><span>@(occurrence.Event.AllDay ? "All day" : Display(occurrence.Start).ToString("t")) @occurrence.WorkStatus</span></button> }
+                    </section>
+                }
+            </div>
+        }
+        @if (_calendar.CanConfigure)
+        {
+            <details class="calendar-settings"><summary>Calendar settings</summary><label>Business time zone <input @bind="_settingsZone" /></label>
+                <button @onclick="SaveSettings">Save time zone</button><p>New events use this time zone. Existing events retain their own zone.</p></details>
+        }
+    }
+    @if (_editing)
+    {
+        <div class="calendar-overlay"><section role="dialog" aria-modal="true" aria-labelledby="event-heading" class="calendar-editor">
+            <header><h2 id="event-heading">@(_selected is null ? "New event" : "Event details")</h2><button aria-label="Close event" @onclick="() => _editing = false">×</button></header>
+            @if (_selected?.WorkError is not null) { <p role="alert">@_selected.WorkError</p> }
+            @if (_selected?.WorkItemId is { } workId) { <p>Created assignment: @workId</p> }
+            <fieldset disabled="@(!Editable || _saving)">
+                @if (_selected?.Series.Event.Recurrence is not null)
+                { <label>Edit <select @bind="_editScope" @bind:after="ResetScope"><option value="Occurrence">This occurrence</option><option value="Series">Entire series (clears occurrence overrides)</option></select></label> }
+                <label>Title <input @bind="_title" maxlength="300" /></label>
+                <label>Description <textarea @bind="_description" rows="3"></textarea></label>
+                <div class="calendar-fields"><label>Start <input type="datetime-local" @bind="_start" /></label><label>End (exclusive) <input type="datetime-local" @bind="_end" /></label></div>
+                <label><input type="checkbox" @bind="_allDay" /> All day (midnight to midnight)</label>
+                <label>Time zone <input @bind="_zone" list="calendar-zones" /></label>
+                <datalist id="calendar-zones">@foreach (var zone in TimeZoneInfo.GetSystemTimeZones()) { <option value="@zone.Id">@zone.DisplayName</option> }</datalist>
+                <label>Location <input @bind="_location" /></label>
+                <label>Owner <select @bind="_owner" disabled="@(_selected is not null && _editScope == "Occurrence")">@foreach (var member in _calendar!.Members) { <option value="@member.Id">@member.Name</option> }</select></label>
+                <details><summary>Attendees (@_attendees.Count)</summary>@foreach (var member in _calendar!.Members) { <label><input type="checkbox" checked="@_attendees.Contains(member.Id)" @onchange="e => ToggleAttendee(member.Id, e)" /> @member.Name</label> }</details>
+                <label>Reminder minutes before start (comma separated) <input @bind="_reminderText" placeholder="15, 60" /></label>
+                @if (_selected is null || _editScope == "Series")
+                {
+                    <label>Repeat <select @bind="_frequency"><option value="">Never</option><option>Daily</option><option>Weekly</option><option>Monthly</option><option>Yearly</option></select></label>
+                    @if (_frequency != "") { <div class="calendar-fields"><label>Every <input type="number" min="1" @bind="_interval" /></label><label>Count (optional) <input type="number" min="1" @bind="_count" /></label><label>Until (optional) <input type="date" @bind="_until" /></label></div> }
+                }
+                <label>Scheduled work <select @bind="_workKind"><option value="">None</option><option value="Instructions">New assignment</option><option value="ExistingItem">Activate existing personal work</option></select></label>
+                @if (_workKind != "")
+                {
+                    <label>Responsible worker <select @bind="_target">@foreach (var member in _calendar!.Members) { <option value="@member.Id">@member.Name</option> }</select></label>
+                    @if (_workKind == "Instructions") { <label>Assignment instructions <textarea @bind="_instructions" rows="4"></textarea></label> }
+                    else { <label>Backlog personal work item ID <input @bind="_itemId" /></label> }
+                    <p>Work starts at the event start time, subject to current permissions and work approvals.</p>
+                }
+            </fieldset>
+            @if (_editorError is not null) { <p class="calendar-error" role="alert">@_editorError</p> }
+            <footer>@if (Editable) { <button class="primary" disabled="@_saving" @onclick="Save">Save event</button>
+                @if (_selected is not null) { <button disabled="@_saving" @onclick="Cancel">Cancel @(_editScope == "Series" ? "series" : "event")</button> } }
+                <button @onclick="() => _editing = false">Close</button></footer>
+        </section></div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [SupplyParameterFromQuery(Name = "view")] public string? QueryView { get; set; }
+    private string View => QueryView is "Week" or "Agenda" ? QueryView : "Month";
+    private BusinessCalendarView? _calendar;
+    private IReadOnlyList<CalendarReminder> _reminders = [];
+    private DateTime _date = DateTime.Today;
+    private string? _error, _editorError;
+    private bool _editing, _saving;
+    private CalendarOccurrence? _selected;
+    private string _title = "", _description = "", _location = "", _zone = "UTC", _settingsZone = "UTC", _frequency = "", _workKind = "", _instructions = "", _itemId = "", _reminderText = "15", _editScope = "Series";
+    private DateTime _start, _end;
+    private DateTime? _until;
+    private bool _allDay;
+    private int _interval = 1;
+    private int? _count;
+    private Guid _owner, _target;
+    private HashSet<Guid> _attendees = [];
+    private string _creationKey = Guid.NewGuid().ToString();
+    private bool Editable => _selected?.Series.CanEdit ?? _calendar?.CanCreate == true;
+    private readonly CancellationTokenSource _stop = new();
+    private Task? _poll;
+    private Guid _loadedOrg;
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedOrg != OrganizationId) { _calendar = null; _editing = false; _loadedOrg = OrganizationId; }
+        await Load(); _poll ??= Poll();
+    }
+    private async Task Poll()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        try { while (await timer.WaitForNextTickAsync(_stop.Token)) await InvokeAsync(async () => { if (!_editing) await Load(); StateHasChanged(); }); }
+        catch (OperationCanceledException) { }
+    }
+    private DateTime PeriodStart => View == "Month" ? new DateTime(_date.Year, _date.Month, 1).AddDays(-(int)new DateTime(_date.Year, _date.Month, 1).DayOfWeek) : View == "Week" ? _date.Date.AddDays(-(int)_date.DayOfWeek) : _date.Date;
+    private IEnumerable<DateTime> Days() => Enumerable.Range(0, View == "Month" ? 42 : 7).Select(x => PeriodStart.AddDays(x));
+    private DateTime Display(DateTimeOffset instant) => TimeZoneInfo.ConvertTime(instant, TimeZoneInfo.FindSystemTimeZoneById(_calendar?.TimeZoneId ?? "UTC")).DateTime;
+    private async Task Load()
+    {
+        var org = OrganizationId;
+        try {
+            var start = new DateTimeOffset(DateTime.SpecifyKind(PeriodStart.AddDays(-1), DateTimeKind.Utc));
+            var calendar = await Api.ReadAsync(org, start, start.AddDays(View == "Month" ? 44 : View == "Week" ? 9 : 33));
+            var reminders = await Api.RemindersAsync(org);
+            if (org != OrganizationId) return;
+            _calendar = calendar; _reminders = reminders; _settingsZone = calendar.TimeZoneId; _error = null;
+        } catch (Exception ex) { _error = ex.Message; }
+    }
+    private async Task Move(int direction) { _date = View == "Month" ? _date.AddMonths(direction) : _date.AddDays(direction * (View == "Week" ? 7 : 30)); await Load(); }
+    private async Task Today() { _date = DateTime.Today; await Load(); }
+    private void ChangeView(ChangeEventArgs e) => Navigation.NavigateTo($"/organizations/{OrganizationId}/calendar?view={e.Value}");
+    private async Task Dismiss(Guid id) { try { await Api.MarkReadAsync(OrganizationId, id); await Load(); } catch (Exception ex) { _error = ex.Message; } }
+    private async Task SaveSettings() { try { await Api.SettingsAsync(OrganizationId, new(_settingsZone, _calendar!.Revision)); await Load(); } catch (Exception ex) { _error = ex.Message; } }
+    private void NewEvent() { _selected = null; _editScope = "Series"; Fill(new("", DateTime.SpecifyKind(_date.Date.AddHours(9), DateTimeKind.Unspecified), DateTime.SpecifyKind(_date.Date.AddHours(10), DateTimeKind.Unspecified), _calendar!.TimeZoneId, OwnerOrganizationUserId: _calendar.ActorId)); _creationKey = Guid.NewGuid().ToString(); _editing = true; }
+    private void Open(CalendarOccurrence item) { _selected = item; _editScope = item.Series.Event.Recurrence is null ? "Series" : "Occurrence"; Fill(item.Event); _editing = true; }
+    private void ResetScope() { if (_selected != null) Fill(_editScope == "Series" ? _selected.Series.Event : _selected.Event); }
+    private void Fill(CalendarEventInput input) {
+        _title = input.Title; _description = input.Description ?? ""; _location = input.Location ?? ""; _start = input.StartLocal; _end = input.EndLocal; _zone = input.TimeZoneId; _allDay = input.AllDay;
+        _owner = input.OwnerOrganizationUserId ?? _calendar!.ActorId; _attendees = (input.AttendeeIds ?? []).ToHashSet(); _reminderText = string.Join(", ", input.ReminderMinutes ?? []);
+        _frequency = input.Recurrence?.Frequency ?? ""; _interval = input.Recurrence?.Interval ?? 1; _count = input.Recurrence?.Count; _until = input.Recurrence?.Until?.ToDateTime(TimeOnly.MinValue);
+        _workKind = input.Work?.Kind ?? ""; _target = input.Work?.TargetOrganizationUserId ?? _calendar!.ActorId; _instructions = input.Work?.Instructions ?? ""; _itemId = input.Work?.ItemId?.ToString() ?? ""; _editorError = null;
+    }
+    private void ToggleAttendee(Guid id, ChangeEventArgs e) { if (e.Value is true) _attendees.Add(id); else _attendees.Remove(id); }
+    private async Task Save() {
+        _saving = true;
+        try {
+            var recurrence = _frequency == "" || (_selected != null && _editScope == "Occurrence") ? null : new CalendarRecurrence(_frequency, _interval, _count, _until is null ? null : DateOnly.FromDateTime(_until.Value));
+            var assignment = _workKind == "" ? null : new CalendarWork(_workKind, _target, _workKind == "Instructions" ? _instructions : null, _workKind == "ExistingItem" ? Guid.Parse(_itemId) : null);
+            var input = new CalendarEventInput(_title, DateTime.SpecifyKind(_start, DateTimeKind.Unspecified), DateTime.SpecifyKind(_end, DateTimeKind.Unspecified), _zone, _allDay, _description, _location, _owner, _attendees.ToArray(), _reminderText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(int.Parse).ToArray(), recurrence, assignment);
+            if (_selected is null) await Api.CreateAsync(OrganizationId, new(input, _creationKey));
+            else await Api.UpdateAsync(OrganizationId, new(_selected.EventId, _selected.Series.Revision, input, _editScope == "Occurrence" ? _selected.OccurrenceLocal : null));
+            _editing = false; await Load();
+        } catch (Exception ex) { _editorError = ex.Message; } finally { _saving = false; }
+    }
+    private async Task Cancel() { _saving = true; try { await Api.CancelAsync(OrganizationId, new(_selected!.EventId, _selected.Series.Revision, _editScope == "Occurrence" ? _selected.OccurrenceLocal : null)); _editing = false; await Load(); } catch (Exception ex) { _editorError = ex.Message; } finally { _saving = false; } }
+    public async ValueTask DisposeAsync() { _stop.Cancel(); if (_poll != null) await _poll; _stop.Dispose(); }
+}

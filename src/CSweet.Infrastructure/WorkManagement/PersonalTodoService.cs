@@ -747,8 +747,17 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
 
         var organizationUsers = await db.CoreOrganizationUsers.AsNoTracking()
             .Where(x => x.OrganizationId == board.OrganizationId && x.IsActive)
-            .Select(x => new { x.Id, x.ReportsToOrganizationUserId, x.AgentInstallationId })
+            .Select(x => new { x.Id, x.ReportsToOrganizationUserId, x.AgentInstallationId, x.PermissionLevel })
             .ToListAsync(token);
+        foreach (var ceo in organizationUsers.Where(x => x.PermissionLevel == OrganizationPermissionLevel.Owner))
+        {
+            foreach (var action in ManagerActions)
+            {
+                desired.Add((GrantSubjectKind.OrganizationUser, ceo.Id, action));
+                if (ceo.AgentInstallationId.HasValue)
+                    desired.Add((GrantSubjectKind.AgentInstallation, ceo.AgentInstallationId.Value, action));
+            }
+        }
         var byId = organizationUsers.ToDictionary(x => x.Id);
         var managerId = owner.ReportsToOrganizationUserId;
         var visited = new HashSet<Guid> { owner.Id };
@@ -815,6 +824,9 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             .ToListAsync(token);
         if (!employees.Any(x => x.Id == actorId))
             throw new UnauthorizedAccessException("The employee is not active in this organization.");
+        if (await db.CoreOrganizationUsers.AnyAsync(x => x.Id == actorId && x.OrganizationId == organizationId &&
+            x.IsActive && x.PermissionLevel == OrganizationPermissionLevel.Owner, token))
+            return employees.Select(x => x.Id).ToHashSet();
         var children = employees.Where(x => x.ReportsToOrganizationUserId.HasValue)
             .GroupBy(x => x.ReportsToOrganizationUserId!.Value)
             .ToDictionary(x => x.Key, x => x.Select(y => y.Id).ToArray());

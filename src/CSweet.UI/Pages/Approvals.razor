@@ -2,6 +2,8 @@
 @using CSweet.Contracts.Core
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
+@inject ApprovalState ApprovalNotifications
+@implements IDisposable
 
 <PageTitle>Approvals - C-Sweet</PageTitle>
 
@@ -292,6 +294,21 @@
         .Where(x => _showHistory || x.Status == "Pending")
         .ToList();
 
+    protected override void OnInitialized()
+    {
+        ApprovalNotifications.Changed += OnApprovalsChanged;
+        _ = ApprovalNotifications.InitializeAsync();
+    }
+
+    private void OnApprovalsChanged() => _ = InvokeAsync(() =>
+    {
+        if (ApprovalNotifications.OrganizationId != OrganizationId) return;
+        _dashboard = ApprovalNotifications.Dashboard;
+        StateHasChanged();
+    });
+
+    public void Dispose() => ApprovalNotifications.Changed -= OnApprovalsChanged;
+
     protected override Task OnParametersSetAsync() => LoadAsync();
 
     private async Task LoadAsync()
@@ -300,8 +317,9 @@
         _error = null;
         try
         {
-            _dashboard = await Http.GetFromJsonAsync<ApprovalDashboardResponse>(
-                $"api/core/organizations/{OrganizationId:D}/approvals");
+            var organizationId = OrganizationId;
+            var dashboard = await ApprovalNotifications.LoadAsync(organizationId);
+            if (organizationId == OrganizationId) _dashboard = dashboard;
         }
         catch (Exception exception)
         {

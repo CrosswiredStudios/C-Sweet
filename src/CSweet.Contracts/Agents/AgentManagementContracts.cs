@@ -28,7 +28,16 @@ public sealed record AgentDefinitionResponse(
     long ConfigurationRevision,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    AgentBuildSummaryResponse? Build = null);
+    AgentBuildSummaryResponse? Build = null)
+{
+    public string? ImageUrl { get; init; }
+    public string? RoleName { get; init; }
+    public string? Summary { get; init; }
+    public IReadOnlyList<string> DefaultProvidedCapabilities { get; init; } = [];
+    public IReadOnlyList<string> DefaultRequiredCapabilities { get; init; } = [];
+    public IReadOnlyList<string> DefaultEventSubscriptions { get; init; } = [];
+    public IReadOnlyList<string> DefaultNetworkAccess { get; init; } = [];
+}
 
 public sealed record AgentDefinitionUpdateAvailabilityResponse(
     Guid DefinitionId,
@@ -41,7 +50,12 @@ public sealed record AgentDefinitionUpdateAvailabilityResponse(
     string? AvailableVersion,
     string? AvailableCommitSha,
     DateTimeOffset CheckedAt,
-    string? Error = null);
+    string? Error = null)
+{
+    public string? ReleaseNotes { get; init; }
+    public string? ReleaseNotesPath { get; init; }
+    public string? ReleaseNotesError { get; init; }
+}
 
 public sealed record UpdateAgentDefinitionRequest(Guid PackageVersionId);
 
