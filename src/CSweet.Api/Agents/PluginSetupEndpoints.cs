@@ -122,46 +122,6 @@ public static class PluginSetupEndpoints
             return Results.NoContent();
         });
 
-        group.MapGet("/{installationId:guid}/standing-policy", async (Guid organizationId,
-            Guid installationId, IPluginStandingPolicyService policies, CancellationToken cancellationToken) =>
-        {
-            var policy = await policies.GetAsync(organizationId, installationId, cancellationToken);
-            return policy is null ? Results.NotFound() : Results.Ok(policy);
-        });
-
-        group.MapPut("/{installationId:guid}/standing-policy", async (Guid organizationId,
-            Guid installationId, ApprovePluginStandingPolicyRequest request, HttpContext http,
-            IPluginStandingPolicyService policies, CancellationToken cancellationToken) =>
-        {
-            var applicationUserId = http.User.GetApplicationUserId();
-            if (!applicationUserId.HasValue) return Results.Forbid();
-            try
-            {
-                return Results.Ok(await policies.ApproveAsync(organizationId, applicationUserId.Value,
-                    installationId, request, cancellationToken));
-            }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
-            catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
-            {
-                return Results.BadRequest(new { error = "standing_policy_invalid", message = exception.Message });
-            }
-        });
-
-        group.MapDelete("/{installationId:guid}/standing-policy", async (Guid organizationId,
-            Guid installationId, HttpContext http, IPluginStandingPolicyService policies,
-            CancellationToken cancellationToken) =>
-        {
-            var applicationUserId = http.User.GetApplicationUserId();
-            if (!applicationUserId.HasValue) return Results.Forbid();
-            try
-            {
-                await policies.RevokeAsync(organizationId, applicationUserId.Value, installationId,
-                    cancellationToken);
-                return Results.NoContent();
-            }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
-        });
-
         group.MapGet("/{installationId:guid}/secrets/{reference}", async (Guid organizationId,
             Guid installationId, string reference, HttpContext http, CSweetDbContext db,
             IPluginSecretStore secrets, IAuditEventWriter audit, CancellationToken cancellationToken) =>

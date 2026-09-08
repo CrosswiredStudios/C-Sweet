@@ -136,8 +136,11 @@ public sealed class ChatTurnServiceTests
         Assert.Equal(revisionId, link.RevisionId);
     }
 
-    [Fact]
-    public async Task AttachmentOnlyTurn_PersistsSanitizedDescriptorAndRetryPreservesReference()
+    [Theory]
+    [InlineData("concept.webp", "image/webp", 1024L)]
+    [InlineData("video.mp4", "video/mp4", 100L * 1024 * 1024)]
+    [InlineData("captions.srt", "application/x-subrip", 1024L)]
+    public async Task AttachmentOnlyTurn_PersistsSanitizedDescriptorAndRetryPreservesReference(string name, string type, long size)
     {
         await using var db = CreateDb();
         var organizationId = Guid.NewGuid();
@@ -148,7 +151,7 @@ public sealed class ChatTurnServiceTests
             AgentOrganizationUserId = agentId, InitiatedByOrganizationUserId = Guid.NewGuid(),
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
         };
-        var asset = CreateAsset(organizationId, "concept.webp", "image/webp", 1024);
+        var asset = CreateAsset(organizationId, name, type, size);
         db.AddRange(CreateAgent(organizationId, agentId), conversation, asset);
         await db.SaveChangesAsync();
         var service = new ChatTurnService(db);
@@ -158,7 +161,7 @@ public sealed class ChatTurnServiceTests
             attachmentMediaAssetIds: [asset.Id]);
 
         Assert.NotNull(original);
-        Assert.Equal("concept.webp", conversation.Title);
+        Assert.Equal(name, conversation.Title);
         var persisted = await db.CoreConversationMessages.Include(x => x.Attachments)
             .SingleAsync(x => x.Id == original!.UserMessage.Id);
         var attachment = Assert.Single(persisted.Attachments);

@@ -615,7 +615,7 @@ public sealed class AgentWorkInbox(
             x.Id == sessionId &&
             (x.Status == AgentCoordinationStatus.Active ||
              x.Status == AgentCoordinationStatus.Summarizing), cancellationToken);
-        if (session is null) return;
+        if (session is null || session.CurrentAgentWorkItemId.HasValue && session.CurrentAgentWorkItemId != item.Id) return;
 
         var detail = string.IsNullOrWhiteSpace(error)
             ? "The assigned agent work could not be completed."
@@ -628,8 +628,8 @@ public sealed class AgentWorkInbox(
         session.FinalSummary = $"Collaboration failed because an agent turn could not continue: {detail}";
         // Operational failures belong to durable work/session state. Rendering them as an
         // initiator-authored chat message makes infrastructure look like coworker speech and can
-        // provoke semantic follow-ups for a transport problem. Attention-driven owners inspect
-        // the failed session and resume it without adding conversation noise.
+        // provoke semantic follow-ups for a transport problem. Bounded platform recovery retries transient delivery failures; owners inspect
+        // persistent failures without adding conversation noise.
     }
 
     private async Task<AgentWorkAttempt> GetActiveAttemptAsync(

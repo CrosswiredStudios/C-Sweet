@@ -380,7 +380,20 @@ public sealed class MediaAssetService(
         var normalizedType = NormalizeContentType(contentType);
         await ValidateSignatureAsync(content, normalizedType, cancellationToken);
         if (content.CanSeek) content.Position = 0;
-        var saved = await store.SaveAsync(safeName, content, cancellationToken);
+        using var verified = new MediaIntegrityReadStream(content);
+        var saved = await store.SaveAsync(safeName, verified, cancellationToken);
+        (long Size, string Sha256, IReadOnlyList<MediaAssetChunk> Chunks) proof;
+        try { proof = verified.Complete(); }
+        catch
+        {
+            await store.DeleteAsync(saved.StorageKey, CancellationToken.None);
+            throw;
+        }
+        if (saved.SizeBytes != proof.Size || saved.Sha256 != proof.Sha256)
+        {
+            await store.DeleteAsync(saved.StorageKey, CancellationToken.None);
+            throw new InvalidOperationException("Stored media did not match the ingested bytes.");
+        }
         if (saved.SizeBytes > _organizationQuota - storedBytes)
         {
             await store.DeleteAsync(saved.StorageKey, cancellationToken);
@@ -392,6 +405,11 @@ public sealed class MediaAssetService(
             SizeBytes = saved.SizeBytes, Sha256 = saved.Sha256, StorageKey = saved.StorageKey, CreatedAt = DateTimeOffset.UtcNow
         };
         db.MediaAssets.Add(entity);
+        foreach (var chunk in proof.Chunks)
+        {
+            chunk.MediaAssetId = entity.Id; chunk.AssetSha256 = proof.Sha256;
+            db.MediaAssetChunks.Add(chunk);
+        }
         await db.SaveChangesAsync(cancellationToken);
         return ToResponse(entity);
     }

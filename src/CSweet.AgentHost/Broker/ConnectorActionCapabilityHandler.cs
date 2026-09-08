@@ -9,7 +9,7 @@ namespace CSweet.AgentHost.Broker;
 public sealed class ConnectorActionCapabilityHandler(ConnectorActionService actions) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
-    public bool CanHandle(string capability) => capability is PlatformCapabilities.ConnectorActionRequest or PlatformCapabilities.ConnectorActionRead;
+    public bool CanHandle(string capability) => capability is PlatformCapabilities.ConnectorActionRequest or PlatformCapabilities.ConnectorActionRead or PlatformCapabilities.ConnectorActionCancel;
 
     public async IAsyncEnumerable<CapabilityResult> HandleAsync(AgentSession session, RequestCapability request,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
@@ -23,9 +23,12 @@ public sealed class ConnectorActionCapabilityHandler(ConnectorActionService acti
             using var payload = JsonDocument.Parse(request.Payload.ToByteArray(), new JsonDocumentOptions { MaxDepth = 32 });
             if (payload.RootElement.ValueKind != JsonValueKind.Object) throw new JsonException();
             _ = ConnectorRequestMaterializer.Hash(payload.RootElement); // Reject ambiguous duplicate properties.
-            var action = request.Capability == PlatformCapabilities.ConnectorActionRequest
-                ? await actions.RequestAsync(organizationId, requesterId, payload.RootElement.Deserialize<RequestConnectorAction>(Json)!, ct)
-                : await actions.ReadAsync(organizationId, requesterId, payload.RootElement.Deserialize<ReadConnectorAction>(Json)!, ct);
+            var action = request.Capability switch
+            {
+                PlatformCapabilities.ConnectorActionRequest => await actions.RequestAsync(organizationId, requesterId, payload.RootElement.Deserialize<RequestConnectorAction>(Json)!, ct),
+                PlatformCapabilities.ConnectorActionRead => await actions.ReadAsync(organizationId, requesterId, payload.RootElement.Deserialize<ReadConnectorAction>(Json)!, ct),
+                _ => await actions.CancelAsync(organizationId, requesterId, payload.RootElement.Deserialize<CancelConnectorAction>(Json)!, ct)
+            };
             response = new() { RequestId = request.RequestId, Succeeded = true,
                 Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(action, Json)) };
         }

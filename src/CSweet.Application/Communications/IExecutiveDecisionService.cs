@@ -13,7 +13,13 @@ public sealed record CreateExecutiveDecisionCommand(
     string Prompt,
     IReadOnlyList<CreateExecutiveDecisionOption> Options,
     string RecommendedOptionId,
-    string IdempotencyKey);
+    string IdempotencyKey)
+{
+    public AgentConfigurationChoice? ConfigurationChange { get; init; }
+}
+
+/// <summary>A user-confirmed change to a preset field on the requesting employee.</summary>
+public sealed record AgentConfigurationChoice(string Key, string CurrentValue, string ProposedValue);
 
 public interface IExecutiveDecisionService
 {

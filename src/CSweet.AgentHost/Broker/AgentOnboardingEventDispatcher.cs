@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Domain.Communications;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
@@ -27,7 +28,7 @@ public sealed class AgentOnboardingEventDispatcher(
         var router = scope.ServiceProvider.GetRequiredService<AgentWorkRouter>();
         var now = clock.GetUtcNow();
         var pending = await db.AgentOnboardingEventOutbox
-            .Where(x => x.Status == AgentOnboardingEventOutboxStatus.Pending &&
+            .Where(x => (x.Status == AgentOnboardingEventOutboxStatus.Pending || x.Status == AgentOnboardingEventOutboxStatus.Failed) &&
                         x.NextAttemptAt <= now)
             .OrderBy(x => x.OccurredAt)
             .Take(50)
@@ -49,18 +50,34 @@ public sealed class AgentOnboardingEventDispatcher(
 
             try
             {
+                var deliveryKey = CreateDeliveryKey(item.Id, agent.PackageVersionId.Value);
+                var installationKey = $"{deliveryKey}:{agent.AgentInstallationId.Value:D}";
+                var delivery = await db.AgentWorkItems.SingleOrDefaultAsync(x =>
+                    x.AgentInstallationId == agent.AgentInstallationId.Value && x.IdempotencyKey == installationKey,
+                    cancellationToken);
+                if (delivery is not null)
+                {
+                    // A lifecycle acknowledgement is saved before its delivery completes.
+                    // Refresh the outbox snapshot so a late poll cannot undo that acknowledgement.
+                    await db.Entry(item).ReloadAsync(cancellationToken);
+                    if (item.Status is AgentOnboardingEventOutboxStatus.Delivered or AgentOnboardingEventOutboxStatus.Cancelled)
+                        continue;
+                    ReconcileDelivery(item, delivery, now, options.Value.MaximumAttempts);
+                    continue;
+                }
                 var payload = CreatePayload(item);
                 await router.EnqueueEventAsync(
                     item.OrganizationId.ToString("D"),
                     AgentLifecycleEvents.Onboarded,
                     JsonSerializer.SerializeToElement(payload, JsonOptions),
                     item.Id,
-                    CreateDeliveryKey(item.Id, agent.PackageVersionId.Value),
+                    deliveryKey,
                     agent.AgentInstallationId.Value,
                     requireSubscription: false,
                     deadline: now.AddHours(1),
                     cancellationToken);
                 item.Attempts++;
+                item.Status = AgentOnboardingEventOutboxStatus.Pending;
                 item.NextAttemptAt = now.AddSeconds(30);
                 item.LastError = "Durable onboarding work is awaiting agent acknowledgement.";
             }
@@ -80,6 +97,39 @@ public sealed class AgentOnboardingEventDispatcher(
             await db.SaveChangesAsync(cancellationToken);
     }
 
+    internal static void ReconcileDelivery(AgentOnboardingEventOutboxItem item,
+        AgentWorkItem delivery, DateTimeOffset now, int maximumAttempts)
+    {
+        var transientFailure = delivery.LastError?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) == true &&
+            delivery.LastError.Split(';').Contains("retryable=true", StringComparer.Ordinal);
+        if (delivery.Status == AgentWorkStatus.DeadLetter && transientFailure &&
+            delivery.AttemptCount < maximumAttempts)
+        {
+            // Continue the same work and source event; preserve attempt history and mutation keys.
+            delivery.MaximumAttempts = maximumAttempts;
+            delivery.Status = AgentWorkStatus.Pending;
+            delivery.AvailableAt = now.AddSeconds(30);
+            delivery.DeadlineAt = now.AddHours(1);
+            item.Status = AgentOnboardingEventOutboxStatus.Pending;
+            item.NextAttemptAt = delivery.AvailableAt;
+            item.LastError = $"Retrying onboarding after a transient delivery failure: {delivery.LastError}";
+            return;
+        }
+        if (delivery.Status is AgentWorkStatus.DeadLetter or
+            AgentWorkStatus.Cancelled or AgentWorkStatus.Completed)
+        {
+            item.Status = AgentOnboardingEventOutboxStatus.Failed;
+            item.LastError = delivery.Status == AgentWorkStatus.Completed
+                ? "The agent completed its onboarding delivery without acknowledging the lifecycle event."
+                : $"Onboarding delivery {delivery.Status} after {delivery.AttemptCount} attempts: {delivery.LastError}";
+            // Retain the failure, but allow a later package version to receive a fresh delivery.
+            item.NextAttemptAt = now.AddMinutes(5);
+            return;
+        }
+        item.Status = AgentOnboardingEventOutboxStatus.Pending;
+        item.NextAttemptAt = now.AddSeconds(30);
+        item.LastError = "Durable onboarding work is awaiting agent acknowledgement.";
+    }
     // A package that ignored onboarding may have completed its delivery without acknowledging
     // the lifecycle event. A new package gets one new delivery with the same source event ID.
     internal static string CreateDeliveryKey(Guid eventId, Guid packageVersionId) =>

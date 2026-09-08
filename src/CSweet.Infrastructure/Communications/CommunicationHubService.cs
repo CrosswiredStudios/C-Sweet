@@ -6,6 +6,9 @@ using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Communications;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.GenAi;
+using CSweet.Infrastructure.GenAi;
+using Microsoft.Extensions.Options;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -23,13 +26,13 @@ public sealed class CommunicationHubService(
     IResourceChangeService? resourceChanges = null,
     IHiringService? hiring = null,
     IAgentCommunicationOnboardingService? onboarding = null,
-    IArtifactDocumentService? artifactDocuments = null) : ICommunicationHubService
+    IArtifactDocumentService? artifactDocuments = null,
+    IOptions<MediaAssetStorageOptions>? mediaOptions = null) : ICommunicationHubService
 {
-    private const long MaximumAttachmentBytes = 25L * 1024 * 1024;
-    private const long MaximumTotalAttachmentBytes = 50L * 1024 * 1024;
-    private static readonly HashSet<string> AllowedAttachmentTypes = new(StringComparer.OrdinalIgnoreCase)
-    { "image/png", "image/jpeg", "image/webp", "application/pdf", "text/plain", "text/markdown" };
 
+    private async Task<Guid> ResolveMergedChatAsync(Guid organizationId, Guid chatId, CancellationToken token) =>
+        await db.CoreConversations.Where(x => x.OrganizationId == organizationId && x.Id == chatId)
+            .Select(x => x.MergedIntoConversationId).SingleOrDefaultAsync(token) ?? chatId;
     public async Task<Guid?> ResolveOrganizationUserIdAsync(
         Guid organizationId,
         Guid applicationUserId,
@@ -156,24 +159,28 @@ public sealed class CommunicationHubService(
                     .Where(x => x != Guid.Empty).Distinct().ToList())))
             .ToList();
 
+        var aliases = await db.CoreConversations.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.MergedIntoConversationId != null)
+            .Select(x => new { x.Id, CanonicalId = x.MergedIntoConversationId!.Value }).ToListAsync(cancellationToken);
         return new CommunicationHubResponse(
             actor.Id,
             viewedUser.Id,
             isReadOnlyPerspective,
             !isReadOnlyPerspective && actor.PermissionLevel >= OrganizationPermissionLevel.Manager,
-            chats.Select(x => MapChat(x, viewedUser, presences, !isReadOnlyPerspective)).ToList(),
+            chats.Select(x => MapChat(x, viewedUser, presences, !isReadOnlyPerspective) with
+            { MergedConversationIds = aliases.Where(a => a.CanonicalId == x.Id).Select(a => a.Id).ToArray() }).ToList(),
             people.Select(x => new CommunicationPersonResponse(
                 x.Id, x.DisplayName, x.EmployeeType.ToString(), x.RoleId, x.Role?.Name,
                 presences[x.Id].Status, presences[x.Id].Detail)).ToList(),
             audiences);
     }
 
-    public Task<bool> CanAccessChatAsync(
+    public async Task<bool> CanAccessChatAsync(
         Guid organizationId,
         Guid chatId,
         Guid actorOrganizationUserId,
         CancellationToken cancellationToken = default) =>
-        IsActiveMemberAsync(organizationId, chatId, actorOrganizationUserId, cancellationToken);
+        await IsActiveMemberAsync(organizationId, await ResolveMergedChatAsync(organizationId, chatId, cancellationToken), actorOrganizationUserId, cancellationToken);
 
     public async Task<IReadOnlyList<CommunicationHubMessageResponse>?> ListMessagesAsync(
         Guid organizationId,
@@ -182,6 +189,8 @@ public sealed class CommunicationHubService(
         Guid? perspectiveOrganizationUserId = null,
         CancellationToken cancellationToken = default)
     {
+
+        chatId = await ResolveMergedChatAsync(organizationId, chatId, cancellationToken);
         var actor = await ActiveUserAsync(organizationId, actorOrganizationUserId, cancellationToken);
         if (actor is null) return null;
         var viewedUser = await ResolveViewedUserAsync(
@@ -314,6 +323,8 @@ public sealed class CommunicationHubService(
         long throughMessageSequence,
         CancellationToken cancellationToken = default)
     {
+
+        chatId = await ResolveMergedChatAsync(organizationId, chatId, cancellationToken);
         var participant = await db.ConversationParticipants
             .Include(x => x.Conversation)
             .SingleOrDefaultAsync(x => x.ConversationId == chatId && x.OrganizationUserId == actorOrganizationUserId &&
@@ -337,6 +348,19 @@ public sealed class CommunicationHubService(
         CreateCommunicationChatRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (!request.IsDirect)
+            return await CreateCoreAsync(organizationId, actorOrganizationUserId, request, cancellationToken);
+        var participants = request.ParticipantOrganizationUserIds.Append(actorOrganizationUserId).Distinct().Order().ToArray();
+        await using var gate = await DirectConversationCreationLock.AcquireAsync(db, organizationId, participants, cancellationToken);
+        var result = await CreateCoreAsync(organizationId, actorOrganizationUserId, request, cancellationToken);
+        await gate.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    private async Task<CommunicationHubActionResponse> CreateCoreAsync(
+        Guid organizationId, Guid actorOrganizationUserId, CreateCommunicationChatRequest request,
+        CancellationToken cancellationToken)
+    {
         var actor = await ActiveUserAsync(organizationId, actorOrganizationUserId, cancellationToken);
         if (actor is null) return Failure("actor_not_found", "The chat creator is not an active member of this organization.");
         if (!request.IsDirect && actor.PermissionLevel < OrganizationPermissionLevel.Manager && actor.EmployeeType != EmployeeType.Agent)
@@ -349,7 +373,7 @@ public sealed class CommunicationHubService(
             return Failure("team_not_found", "The selected team is not active in this organization.");
 
         var memberIds = await ExpandMembersAsync(organizationId, actor.Id, request.ParticipantOrganizationUserIds,
-            request.AudienceRoleIds, request.AudienceWorkstreamIds, cancellationToken);
+            request.IsDirect ? null : request.AudienceRoleIds, request.IsDirect ? null : request.AudienceWorkstreamIds, cancellationToken);
         var validation = await ValidateMembersAsync(organizationId, memberIds, request.IsDirect, cancellationToken);
         if (validation is not null) return validation;
 
@@ -358,7 +382,6 @@ public sealed class CommunicationHubService(
             var candidates = await db.CoreConversations
                 .Where(x => x.OrganizationId == organizationId && x.ArchivedAt == null &&
                     x.Kind == ConversationKind.DirectHumanAgent && x.Participants.Count(p => p.LeftAt == null) == 2 &&
-                    x.WorkstreamId == request.WorkstreamId && x.TeamId == request.TeamId &&
                     x.Participants.Any(p => p.OrganizationUserId == actor.Id && p.LeftAt == null))
                 .Include(x => x.Participants).ThenInclude(x => x.OrganizationUser)
                 .Include(x => x.Messages).ThenInclude(x => x.Attachments)
@@ -376,8 +399,8 @@ public sealed class CommunicationHubService(
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, InitiatedByOrganizationUserId = actor.Id,
             AgentOrganizationUserId = otherAgent?.Id,
-            WorkstreamId = request.WorkstreamId,
-            TeamId = request.TeamId,
+            WorkstreamId = request.IsDirect ? null : request.WorkstreamId,
+            TeamId = request.IsDirect ? null : request.TeamId,
             Kind = request.IsDirect ? ConversationKind.DirectHumanAgent : ConversationKind.Team,
             Title = request.IsDirect ? null : request.Title?.Trim(),
             Description = Clean(request.Description), IsPrivate = request.IsDirect || request.IsPrivate,
@@ -488,6 +511,8 @@ public sealed class CommunicationHubService(
         SendCommunicationMessageRequest request,
         CancellationToken cancellationToken = default)
     {
+
+        chatId = await ResolveMergedChatAsync(organizationId, chatId, cancellationToken);
         var actor = await ActiveUserAsync(organizationId, actorOrganizationUserId, cancellationToken);
         var chat = await db.CoreConversations
             .Include(x => x.Participants)
@@ -498,6 +523,7 @@ public sealed class CommunicationHubService(
         if (string.IsNullOrWhiteSpace(request.Content) && attachmentAssetIds.Count == 0) return null;
         var attachmentAssets = await LoadAttachmentAssetsAsync(
             organizationId, attachmentAssetIds, cancellationToken);
+        await new AgentAttachmentAccessService(db).RequireAsync(actor, attachmentAssets, cancellationToken);
         var content = request.Content?.TrimEnd() ?? string.Empty;
         var mentions = await ValidateMentionsAsync(
             organizationId, chat, actor.Id, content, request.Mentions, cancellationToken);
@@ -1047,7 +1073,8 @@ public sealed class CommunicationHubService(
         {
             CoordinationSessionId = message.CoordinationSessionId,
             Attachments = message.Attachments.Select(x => new CommunicationMessageAttachmentResponse(
-                x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList(),
+                x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)
+                { MediaAssetId = x.MediaAssetId }).ToList(),
             Artifacts = message.Artifacts.Select(x => new CommunicationMessageArtifactResponse(
                 x.Id, x.MessageId, x.ArtifactId, x.RevisionId)
             {
@@ -1086,12 +1113,8 @@ public sealed class CommunicationHubService(
             .ToListAsync(cancellationToken);
         if (assets.Count != assetIds.Count)
             throw new InvalidOperationException("One or more attachments are unavailable to this organization.");
-        if (assets.Any(x => x.SizeBytes > MaximumAttachmentBytes))
-            throw new InvalidOperationException("Each attachment must be 25 MB or smaller.");
-        if (assets.Sum(x => x.SizeBytes) > MaximumTotalAttachmentBytes)
-            throw new InvalidOperationException("Message attachments must total 50 MB or less.");
-        if (assets.Any(x => !AllowedAttachmentTypes.Contains(x.ContentType)))
-            throw new InvalidOperationException("Attachments must be PNG, JPEG, WebP, PDF, UTF-8 text, or Markdown.");
+        MediaAttachmentPolicy.Validate(assets.Select(x => (x.ContentType, x.SizeBytes)),
+            mediaOptions?.Value.MaximumFileSizeBytes ?? new MediaAssetStorageOptions().MaximumFileSizeBytes);
         return assetIds.Select(id => assets.Single(x => x.Id == id)).ToList();
     }
 
@@ -1112,7 +1135,7 @@ public sealed class CommunicationHubService(
         IEnumerable<ConversationMessageAttachment> attachments) => attachments.Select(attachment =>
             new CommunicationMessageAttachmentResponse(
                 attachment.Id, attachment.MessageId, attachment.FileName, attachment.ContentType,
-                attachment.SizeBytes, attachment.Sha256))
+                attachment.SizeBytes, attachment.Sha256) { MediaAssetId = attachment.MediaAssetId })
             .ToList();
 
     private static bool TryGetDecision(

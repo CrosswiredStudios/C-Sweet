@@ -72,6 +72,7 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, WorkforcePlatformCapabili
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkstreamGovernanceCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, DeliveryEvidenceCapabilityHandler>();
 builder.Services.AddHostedService<ToolchainCertificationWorker>();
+builder.Services.AddHostedService<AgentCoordinationRecoveryDispatcher>();
 builder.Services.AddScoped<CSweet.Agent.SDK.IWorkforceCatalogProvider>(services =>
     services.GetRequiredService<CSweet.Infrastructure.Marketplace.MarketplaceDiscoveryClient>());
 if (builder.Environment.IsDevelopment() &&

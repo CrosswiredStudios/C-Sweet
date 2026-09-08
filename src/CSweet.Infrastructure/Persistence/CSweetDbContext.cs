@@ -36,6 +36,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public DbSet<GenAiOperationDefault> GenAiOperationDefaults => Set<GenAiOperationDefault>();
     public DbSet<GenAiJob> GenAiJobs => Set<GenAiJob>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<MediaAssetChunk> MediaAssetChunks => Set<MediaAssetChunk>();
     public DbSet<MediaUploadSession> MediaUploadSessions => Set<MediaUploadSession>();
     public DbSet<OnboardingStep> OnboardingSteps => Set<OnboardingStep>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
@@ -218,6 +219,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         EnforceAppendOnlyAuditLedger();
+        AssignDirectParticipantKeys();
         AssignInMemoryMessageSequences();
         CaptureCommunicationEvents();
         CaptureEmployeeDirectoryEvents();
@@ -230,6 +232,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         EnforceAppendOnlyAuditLedger();
+        AssignDirectParticipantKeys();
         AssignInMemoryMessageSequences();
         CaptureCommunicationEvents();
         CaptureEmployeeDirectoryEvents();
@@ -239,6 +242,17 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
+    private void AssignDirectParticipantKeys()
+    {
+        foreach (var entry in ChangeTracker.Entries<Conversation>().Where(x =>
+                     x.State == EntityState.Added && x.Entity.Kind == ConversationKind.DirectHumanAgent))
+        {
+            var members = entry.Entity.Participants.Where(x => x.LeftAt == null)
+                .Select(x => x.OrganizationUserId).Distinct().Order().ToArray();
+            if (members.Length == 2)
+                entry.Entity.DirectParticipantKey = Conversation.ParticipantKey(members[0], members[1]);
+        }
+    }
     private void EnforceAppendOnlyAuditLedger()
     {
         ChangeTracker.DetectChanges();
@@ -303,6 +317,21 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 QueueCommunicationEvent(organizationId.Value, participant.ConversationId, eventType,
                     new CommunicationParticipantEvent(participant.Id, participant.ConversationId,
                         participant.OrganizationUserId, participant.Role.ToString(), participant.JoinedAt, participant.LeftAt));
+        }
+
+        // Decisions are saved after their parent message, often after the UI has already
+        // rendered it. They need their own durable refresh event, including cancellation
+        // and supersession, without editing or resending the original message.
+        foreach (var entry in ChangeTracker.Entries<ExecutiveDecision>().Where(x =>
+                     x.State is EntityState.Added or EntityState.Deleted ||
+                     (x.State == EntityState.Modified &&
+                      (x.Property(y => y.Status).IsModified || x.Property(y => y.OptionsJson).IsModified ||
+                       x.Property(y => y.SelectedOptionId).IsModified || x.Property(y => y.FreeTextAnswer).IsModified))).ToList())
+        {
+            var decision = entry.Entity;
+            QueueCommunicationEvent(decision.OrganizationId, decision.ConversationId, CommunicationEvents.DecisionUpdated,
+                new CommunicationDecisionEvent(decision.Id, decision.ConversationId, decision.ConversationMessageId,
+                    decision.ChatTurnId, entry.State == EntityState.Deleted ? "Deleted" : decision.Status.ToString()));
         }
 
         foreach (var entry in messages)
@@ -726,6 +755,15 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.HasIndex(x => new { x.OrganizationId, x.WorkstreamId, x.CreatedAt });
             entity.HasOne(x => x.GenAiJob).WithMany().HasForeignKey(x => x.GenAiJobId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<MediaAssetChunk>(entity =>
+        {
+            entity.HasKey(x => new { x.MediaAssetId, x.Offset });
+            entity.Property(x => x.Sha256).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.AssetSha256).HasMaxLength(64).IsRequired();
+            entity.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.MediaAssetId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<MediaUploadSession>(entity =>
@@ -1189,6 +1227,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.HasIndex(x => new { x.AgentInstallationId, x.Kind, x.ExternalKey }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Kind, x.UpdatedAt });
+            entity.HasIndex(x => new { x.Kind, x.AvailableAt });
         });
 
             modelBuilder.Entity<AgentInstallationConfiguration>(entity =>

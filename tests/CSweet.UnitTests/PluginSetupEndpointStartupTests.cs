@@ -16,7 +16,6 @@ public sealed class PluginSetupEndpointStartupTests
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddScoped<IPluginSetupService>(_ => throw new NotSupportedException());
         builder.Services.AddScoped<IPluginBootstrapCapabilityService>(_ => throw new NotSupportedException());
-        builder.Services.AddScoped<IPluginStandingPolicyService>(_ => throw new NotSupportedException());
         builder.Services.AddScoped<IPluginSecretStore>(_ => throw new NotSupportedException());
         builder.Services.AddScoped<IAuditEventWriter>(_ => throw new NotSupportedException());
         builder.Services.AddScoped<CSweetDbContext>(_ => throw new NotSupportedException());
@@ -26,5 +25,6 @@ public sealed class PluginSetupEndpointStartupTests
         app.MapPluginSetupEndpoints();
         var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints).OfType<RouteEndpoint>().ToArray();
         Assert.Contains(endpoints, endpoint => endpoint.RoutePattern.RawText!.EndsWith("/dependencies/{dependencyId}", StringComparison.Ordinal));
+        Assert.DoesNotContain(endpoints, endpoint => endpoint.RoutePattern.RawText!.Contains("standing-policy", StringComparison.Ordinal));
     }
 }

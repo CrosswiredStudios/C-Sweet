@@ -385,6 +385,14 @@ public class AgentImportPreviewServiceTests
     }
 
     [Fact]
+    public void ValidateManifest_AcceptsProtocol22WithoutChangingExistingWorkloadGrants()
+    {
+        var manifest = System.Text.Json.JsonSerializer.Deserialize<PluginManifest>(ValidManifest(),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        AgentImportPreviewService.ValidateManifest(manifest with { Protocol = manifest.Protocol with { MinimumVersion = "2.2" } });
+    }
+
+    [Fact]
     public void ValidateManifest_RejectsBroadFileTransferRoot()
     {
         var json = ConnectedManifest("permission-summary")

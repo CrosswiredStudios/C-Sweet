@@ -38,13 +38,16 @@ public sealed class AgentCommunicationOnboardingService : IAgentCommunicationOnb
         if (hiringUser is null)
             return Failure("hiring_user_not_found", "An active human owner or hiring user is required to start the agent conversation.");
 
+        var directKey = Conversation.ParticipantKey(hiringUser.Id, agent.Id);
         var existing = _db.CoreConversations.Local.FirstOrDefault(x =>
-            x.OrganizationId == organizationId && x.InitiatedByOrganizationUserId == hiringUser.Id &&
-            x.AgentOrganizationUserId == agent.Id && x.Kind == ConversationKind.DirectHumanAgent)
+            x.OrganizationId == organizationId && x.MergedIntoConversationId == null &&
+            (x.DirectParticipantKey == directKey || x.InitiatedByOrganizationUserId == hiringUser.Id && x.AgentOrganizationUserId == agent.Id) &&
+            x.Kind == ConversationKind.DirectHumanAgent)
             ?? await _db.CoreConversations
                 .Include(x => x.Participants)
                 .Where(x => x.OrganizationId == organizationId &&
-                    x.InitiatedByOrganizationUserId == hiringUser.Id && x.AgentOrganizationUserId == agent.Id &&
+                    x.MergedIntoConversationId == null &&
+                    (x.DirectParticipantKey == directKey || x.InitiatedByOrganizationUserId == hiringUser.Id && x.AgentOrganizationUserId == agent.Id) &&
                     x.Kind == ConversationKind.DirectHumanAgent)
                 .OrderByDescending(x => x.IsDeletionProtected)
                 .ThenBy(x => x.CreatedAt)

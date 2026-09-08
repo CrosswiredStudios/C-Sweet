@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="600" viewBox="0 0 720 600" role="img" aria-labelledby="title">
+  <title id="title">Default agent avatar</title>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1"><stop stop-color="#dce9e1"/><stop offset="1" stop-color="#afc8bd"/></linearGradient>
+    <linearGradient id="figure" x2="0" y2="1"><stop stop-color="#f7faf6"/><stop offset="1" stop-color="#e2ede5"/></linearGradient>
+  </defs>
+  <path fill="url(#background)" d="M0 0h720v600H0z"/>
+  <circle cx="360" cy="295" r="219" fill="none" stroke="#f2f7f0" stroke-opacity=".45"/>
+  <circle cx="360" cy="295" r="174" fill="none" stroke="#f2f7f0" stroke-opacity=".35"/>
+  <ellipse cx="360" cy="569" rx="189" ry="22" fill="#5c8673" opacity=".15"/>
+  <path fill="url(#figure)" d="M193 555v-51c0-92 72-154 167-154s167 62 167 154v51z"/>
+  <circle cx="360" cy="239" r="85" fill="url(#figure)"/>
+  <path d="M334 238h52" stroke="#65937d" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="360" cy="438" r="18" fill="#95b8a6"/>
+</svg>

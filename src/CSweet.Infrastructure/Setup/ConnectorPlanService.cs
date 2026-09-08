@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CSweet.Agent.SDK;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -6,7 +7,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Setup;
 
-public sealed record ConnectorMediaBinding(Guid AssetId, string Sha256, long SizeBytes, string ContentType);
+public sealed record ConnectorMediaBinding(Guid AssetId, string Sha256, long SizeBytes, string ContentType,
+    ConversationAttachmentReference? Source = null, string? FileName = null);
 public sealed record FrozenConnectorPlan(Guid OrganizationId, Guid RequesterInstallationId, Guid ConnectorInstallationId,
     Guid ConnectionId, long GrantRevision, long ProviderGrantRevision, string PackageDigest, string Capability,
     string ResourceId, string IdempotencyKey, string InputHash, ConnectorPreparedRequest Request,
@@ -25,7 +27,7 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
     }
 
     public async Task<ConnectorExecution> PrepareAsync(Guid organizationId, Guid requesterId, string capability,
-        JsonElement input, string idempotencyKey, CancellationToken token)
+        JsonElement input, string idempotencyKey, CancellationToken token, ConversationAttachmentReference? mediaSource = null)
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 160 || idempotencyKey.Any(char.IsControl))
             throw new ArgumentException("A bounded, stable idempotency key is required.");
@@ -37,13 +39,11 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
         ConnectorMediaBinding? media = null;
         if (request.MediaAssetId is { } asset)
         {
-            var mediaAsset = await db.MediaAssets.AsNoTracking().SingleOrDefaultAsync(x =>
-                x.Id == Guid.Parse(asset) && x.OrganizationId == organizationId, token)
-                ?? throw new UnauthorizedAccessException("The media asset is not in this organization.");
-            if (mediaAsset.Sha256.Length != 64 || mediaAsset.SizeBytes <= 0)
-                throw new InvalidOperationException("Media requires a completed, checksummed upload.");
-            media = new(mediaAsset.Id, mediaAsset.Sha256, mediaAsset.SizeBytes, mediaAsset.ContentType);
+            media = await new ConnectorMediaSourceService(db).ResolveAsync(organizationId, requesterId,
+                Guid.Parse(asset), mediaSource, token);
         }
+        else if (mediaSource is not null)
+            throw new ArgumentException("Only a media operation can bind an attachment source.");
         var frozen = new FrozenConnectorPlan(organizationId, requesterId, authority.Connector.Id,
             authority.Connection.Id, authority.Requester.Grant!.GrantRevision, authority.Connector.Grant!.GrantRevision,
             authority.Connector.PackageVersion!.PackageDigest!, capability, authority.Connection.BoundResourceId!,
@@ -107,10 +107,13 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
             frozen.ResourceId != authority.Connection.BoundResourceId || frozen.Capability != execution.Capability ||
             frozen.IdempotencyKey != execution.IdempotencyKey || frozen.InputHash != execution.InputHash)
             throw new UnauthorizedAccessException("Plan authority has changed; prepare and approve a new plan.");
-        if (frozen.Media is { } media && !await db.MediaAssets.AsNoTracking().AnyAsync(x => x.Id == media.AssetId &&
-            x.OrganizationId == organizationId && x.Sha256 == media.Sha256 && x.SizeBytes == media.SizeBytes &&
-            x.ContentType == media.ContentType, token))
-            throw new UnauthorizedAccessException("The approved media asset has changed or was removed.");
+        if (frozen.Media is { } media)
+        {
+            var current = await new ConnectorMediaSourceService(db).ResolveAsync(organizationId, requesterId,
+                media.AssetId, media.Source, token);
+            if (current != media)
+                throw new UnauthorizedAccessException("The approved media or its attachment source has changed.");
+        }
         return frozen;
     }
 

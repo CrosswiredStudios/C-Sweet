@@ -12,16 +12,38 @@ namespace CSweet.UnitTests;
 public sealed class McpCapabilityRegistryTests
 {
     [Fact]
+    public void MediaSourceSchemaAcceptsTypedProvenanceAndRejectsArbitrarySourceFields()
+    {
+        var tool = Assert.Single(new McpToolCatalog([]).List(new HashSet<string> { PlatformCapabilities.ConnectorActionRequest }));
+        var request = new RequestConnectorAction("example.asset.publish.v1", JsonSerializer.SerializeToElement(new { }), "key")
+        {
+            MediaSource = new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid())
+        };
+        JsonSchemaValidator.Validate(JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)), tool.InputSchema);
+        var source = tool.InputSchema.GetProperty("properties").GetProperty("mediaSource");
+        Assert.False(source.GetProperty("additionalProperties").GetBoolean());
+        Assert.Equal(3, source.GetProperty("required").GetArrayLength());
+        Assert.ThrowsAny<Exception>(() => JsonSchemaValidator.Validate(JsonSerializer.SerializeToElement(new
+        {
+            capability = request.Capability, input = request.Input, idempotencyKey = request.IdempotencyKey,
+            mediaSource = new { conversationId = Guid.NewGuid(), messageId = Guid.NewGuid(), attachmentId = Guid.NewGuid(), storagePath = "forged" }
+        }), tool.InputSchema));
+    }
+
+    [Fact]
     public void ConnectorActionControlsAreHiddenAndHaveExactOuterSchemas()
     {
         var registry = new McpToolCatalog([]);
-        var controls = registry.List(new HashSet<string> { PlatformCapabilities.ConnectorActionRequest, PlatformCapabilities.ConnectorActionRead });
-        Assert.Equal(2, controls.Count);
+        var controls = registry.List(new HashSet<string> { PlatformCapabilities.ConnectorActionRequest, PlatformCapabilities.ConnectorActionRead, PlatformCapabilities.ConnectorActionCancel });
+        Assert.Equal(3, controls.Count);
         foreach (var control in controls)
         {
             Assert.False(control.ModelVisible);
             Assert.False(control.InputSchema.GetProperty("additionalProperties").GetBoolean());
             Assert.False(control.OutputSchema!.Value.GetProperty("additionalProperties").GetBoolean());
+            var decision = control.OutputSchema.Value.GetProperty("properties").GetProperty("decision");
+            Assert.False(decision.GetProperty("additionalProperties").GetBoolean());
+            Assert.Equal(4000, decision.GetProperty("properties").GetProperty("comment").GetProperty("maxLength").GetInt32());
         }
         Assert.Equal(McpToolExecutionPolicy.ApprovalCreating, controls.Single(x => x.Capability == PlatformCapabilities.ConnectorActionRequest).ExecutionPolicy);
     }

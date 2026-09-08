@@ -433,7 +433,16 @@ public sealed class PluginSetupService(
         foreach (var proposal in proposals) { proposal.Status = CSweet.Domain.Core.ProposalStatus.Cancelled; proposal.DecidedAt = now; }
         foreach (var execution in executions)
         {
-            execution.Status = "Cancelled"; execution.ResultJson = null; execution.PlanJson = "{}";
+            // Revoking credentials cannot undo an in-flight or completed provider effect.
+            // Retain content-free outcome evidence even though the plan and result are purged.
+            execution.Status = execution.Status switch
+            {
+                "Prepared" or "AwaitingApproval" or "Approved" or "Blocked" or
+                    "Rejected" or "RevisionRequested" or "Expired" or "Cancelled" => "Cancelled",
+                "Completed" => "Completed",
+                _ => "Indeterminate"
+            };
+            execution.ResultJson = null; execution.PlanJson = "{}";
             execution.ResourceId = ""; execution.Revision++; execution.UpdatedAt = now;
         }
         var activeCredentialKey = await PluginOAuthCredentialKeys.ResolveAsync(db, installationId, connection.Id, cancellationToken);

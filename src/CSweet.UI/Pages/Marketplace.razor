@@ -101,7 +101,7 @@
                 @foreach (var agent in _result.Agents)
                 {
                     <MudItem xs="12" md="6" lg="4">
-                        <MarketplaceAgentCard Agent="agent" ReviewHireRequested="ReviewHireAsync" />
+                        <MarketplaceAgentCard @key="agent.AgentReference" Agent="agent" ReviewHireRequested="ReviewHireAsync" />
                     </MudItem>
                 }
             </MudGrid>

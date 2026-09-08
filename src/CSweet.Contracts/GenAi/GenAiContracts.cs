@@ -155,7 +155,8 @@ public sealed record CreateMediaUploadSessionRequest(
     string FileName,
     string ContentType,
     long TotalBytes,
-    string? Sha256 = null);
+    string? Sha256 = null,
+    string? IdempotencyKey = null);
 
 public sealed record MediaUploadSessionResponse(
     Guid Id,

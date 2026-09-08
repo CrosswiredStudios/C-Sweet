@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public sealed class ExecutiveDecisionServiceTests
+public sealed partial class ExecutiveDecisionServiceTests
 {
     [Fact]
     public async Task NewDecision_SupersedesPendingDecisionInSameAgentConversation()
@@ -83,6 +83,40 @@ public sealed class ExecutiveDecisionServiceTests
         Assert.True(answered.Succeeded);
         var nextTurn = await db.ChatTurns.SingleAsync(x => x.Id == answered.Turn!.Id);
         Assert.Contains("Answer: Legal", (await db.CoreConversationMessages.SingleAsync(x => x.Id == nextTurn.UserMessageId)).Content);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DecisionChanges_NotifyOpenConversationWithoutAnotherMessage(bool messageAttached)
+    {
+        await using var db = CreateDb();
+        var setup = await SeedAsync(db);
+        var service = new ExecutiveDecisionService(db, new ChatTurnService(db));
+        var command = new CreateExecutiveDecisionCommand(setup.OrganizationId, setup.ConversationId,
+            messageAttached ? null : setup.TurnId, messageAttached ? setup.AssistantMessageId : null,
+            setup.InstallationId, "Choose the next step", [new("a", "Proceed", null), new("b", "Wait", null)], "a", "live-choice");
+        var messageCount = await db.CoreConversationMessages.CountAsync();
+        var first = await service.CreateAsync(command);
+        var createdEvent = Assert.Single(await db.ApplicationRealtimeOutbox
+            .Where(x => x.EventType == CommunicationEvents.DecisionUpdated).ToListAsync());
+        var data = System.Text.Json.JsonSerializer.Deserialize<CommunicationDecisionEvent>(createdEvent.DataJson,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        Assert.Equal(first.Id, data.DecisionId);
+        Assert.Equal(setup.ConversationId, data.ChatId);
+        Assert.Equal(command.ConversationMessageId, data.ConversationMessageId);
+        Assert.Equal(command.ChatTurnId, data.ChatTurnId);
+        Assert.Equal("Pending", data.Status);
+        Assert.Contains(setup.OwnerId.ToString(), createdEvent.RecipientOrganizationUserIdsJson);
+        Assert.Equal(messageCount, await db.CoreConversationMessages.CountAsync());
+        await service.CreateAsync(command);
+        Assert.Single(await db.ApplicationRealtimeOutbox.Where(x => x.EventType == CommunicationEvents.DecisionUpdated).ToListAsync());
+
+        await service.CreateAsync(command with { IdempotencyKey = "next-choice" });
+        Assert.Equal(3, await db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == CommunicationEvents.DecisionUpdated));
+        Assert.Equal(3, await db.CommunicationEventOutbox.CountAsync(x => x.EventType == CommunicationEvents.DecisionUpdated));
+        Assert.Contains(await db.ApplicationRealtimeOutbox.Where(x => x.EventType == CommunicationEvents.DecisionUpdated).ToListAsync(),
+            x => x.DataJson.Contains("Superseded"));
     }
 
     private static async Task<Setup> SeedAsync(CSweetDbContext db)

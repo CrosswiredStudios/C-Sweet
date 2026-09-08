@@ -11,4 +11,6 @@ public sealed class PluginOperationalState
     public long Revision { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    /// <summary>Optional host-owned queue eligibility time; never supplied by an agent state write.</summary>
+    public DateTimeOffset? AvailableAt { get; set; }
 }

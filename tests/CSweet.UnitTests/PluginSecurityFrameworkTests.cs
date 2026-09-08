@@ -21,85 +21,6 @@ using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
-public sealed class PluginStandingPolicyServiceTests
-{
-    [Fact]
-    public async Task OwnerPolicy_AuthorizesOnlyBoundNonHardGatedActions_AndBindsIdempotency()
-    {
-        await using var db = CreateDb();
-        var organizationId = Guid.NewGuid();
-        var applicationUserId = Guid.NewGuid();
-        var installationId = Guid.NewGuid();
-        db.CoreOrganizationUsers.Add(new OrganizationUser
-        {
-            Id = Guid.NewGuid(), OrganizationId = organizationId, ApplicationUserId = applicationUserId,
-            DisplayName = "Owner", EmployeeType = EmployeeType.Human,
-            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true
-        });
-        db.AgentInstallations.Add(new AgentInstallation
-        {
-            Id = installationId, InstallationKey = Guid.NewGuid(), BusinessId = organizationId.ToString("D"),
-            PackageVersionId = Guid.NewGuid(), SetupState = PluginSetupState.Ready
-        });
-        db.PluginConnections.Add(new PluginConnection
-        {
-            Id = Guid.NewGuid(), AgentInstallationId = installationId, DeclarationId = "youtube",
-            ProviderProfile = "google", Status = PluginConnectionStatus.Connected, BoundResourceId = "channel-1"
-        });
-        db.AgentInstallationConfigurations.Add(new AgentInstallationConfiguration
-        {
-            Id = Guid.NewGuid(), AgentInstallationId = installationId, SchemaVersion = "1",
-            SettingsJson = "{\"approvalMode\":\"Fully Autonomous\"}"
-        });
-        await db.SaveChangesAsync();
-        var service = new PluginStandingPolicyService(db, new TestAuditEventWriter());
-        var approved = await service.ApproveAsync(organizationId, applicationUserId, installationId,
-            new ApprovePluginStandingPolicyRequest("channel-1", new PluginStandingPolicyDefinition(
-                ["CommentReplies", "Publishing"], ["private", "unlisted"], [0, 1, 2, 3, 4, 5, 6],
-                0, 24, 10, true, false, ["legal"]), null));
-        var payload = JsonSerializer.SerializeToElement(new { text = "Thanks for watching" });
-        var hash = Hash(payload.GetRawText());
-
-        var decision = await service.EvaluateAsync(new ManagedActionPolicyInput(organizationId, installationId,
-            "channel-1", "reply", payload, hash, "reply-1"));
-
-        Assert.True(decision.Authorized);
-        Assert.Equal(approved.Id, decision.PolicyId);
-        var hardGate = await service.EvaluateAsync(new ManagedActionPolicyInput(organizationId, installationId,
-            "channel-1", "delete-permanently", payload, hash, "delete-1"));
-        Assert.False(hardGate.Authorized);
-        var changedPayload = JsonSerializer.SerializeToElement(new { text = "Different" });
-        var replay = await service.EvaluateAsync(new ManagedActionPolicyInput(organizationId, installationId,
-            "channel-1", "reply", changedPayload, Hash(changedPayload.GetRawText()), "reply-1"));
-        Assert.False(replay.Authorized);
-        Assert.Contains("different content", replay.Reason, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task NonOwner_CannotApproveStandingPolicy()
-    {
-        await using var db = CreateDb();
-        var organizationId = Guid.NewGuid();
-        var applicationUserId = Guid.NewGuid();
-        db.CoreOrganizationUsers.Add(new OrganizationUser
-        {
-            Id = Guid.NewGuid(), OrganizationId = organizationId, ApplicationUserId = applicationUserId,
-            DisplayName = "Manager", EmployeeType = EmployeeType.Human,
-            PermissionLevel = OrganizationPermissionLevel.Manager, IsActive = true
-        });
-        await db.SaveChangesAsync();
-        var service = new PluginStandingPolicyService(db, new TestAuditEventWriter());
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ApproveAsync(
-            organizationId, applicationUserId, Guid.NewGuid(), new ApprovePluginStandingPolicyRequest(
-                "channel", new PluginStandingPolicyDefinition(["Publishing"], ["private"], [1],
-                    0, 24, 1, false, false, []), null)));
-    }
-
-    private static string Hash(string value) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
-    private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
-        .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
-}
 
 public sealed class PluginProviderProfileRegistryTests
 {
@@ -281,8 +202,10 @@ public sealed class PluginOAuthFlowTests
 
 public sealed class PluginEngagementNotificationTests
 {
-    [Fact]
-    public async Task Engagement_DeduplicatesUrgentAlertsAndDailyDigestInProtectedConversation()
+    [Theory]
+    [InlineData("youtube", "google")]
+    [InlineData("helpdesk", "example-support")]
+    public async Task Engagement_PersistsWithoutImplicitMessagesOrDigestWork(string provider, string profile)
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
@@ -296,7 +219,7 @@ public sealed class PluginEngagementNotificationTests
             Status = OrganizationStatus.Active, CreatedAt = now, UpdatedAt = now });
         db.CoreOrganizationUsers.AddRange(
             new OrganizationUser { Id = agentUserId, OrganizationId = organizationId,
-                AgentInstallationId = installationId, DisplayName = "YouTube manager",
+                AgentInstallationId = installationId, DisplayName = "Platform specialist",
                 EmployeeType = EmployeeType.Agent, PermissionLevel = OrganizationPermissionLevel.Contributor,
                 IsActive = true, CreatedAt = now },
             new OrganizationUser { Id = humanUserId, OrganizationId = organizationId,
@@ -310,18 +233,17 @@ public sealed class PluginEngagementNotificationTests
             HiringOrganizationUserId = humanUserId, ConversationId = conversationId,
             Status = AgentOnboardingEventOutboxStatus.Delivered, OccurredAt = now, NextAttemptAt = now });
         db.PluginConnections.Add(new PluginConnection { Id = Guid.NewGuid(), AgentInstallationId = installationId,
-            DeclarationId = "youtube", ProviderProfile = "google", Status = PluginConnectionStatus.Connected,
+            DeclarationId = provider, ProviderProfile = profile, Status = PluginConnectionStatus.Connected,
             BoundResourceId = "channel-1", CreatedAt = now, UpdatedAt = now });
         await db.SaveChangesAsync();
-        var handler = new PluginOperationsCapabilityHandler(db, new TestAuditEventWriter(),
-            new PluginStandingPolicyService(db, new TestAuditEventWriter()), new ConversationService(db));
-        var session = new AgentSession("session", "youtube", installationId.ToString("D"),
+        var handler = new PluginOperationsCapabilityHandler(db, new TestAuditEventWriter());
+        var session = new AgentSession("session", provider, installationId.ToString("D"),
             organizationId.ToString("D"), Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
             new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(),
                 new HashSet<string>([PluginOperationsCapabilityHandler.EngagementInbox]), 1));
         var payload = new
         {
-            channelId = "channel-1", source = "youtube",
+            channelId = "channel-1", source = provider,
             items = new[] { new { externalId = "comment-1", urgent = true,
                 excerpt = "A legal escalation was mentioned.", payload = new { text = "details" } } },
             digest = new { total = 1, urgent = 1 }
@@ -330,10 +252,15 @@ public sealed class PluginEngagementNotificationTests
         await InvokeAsync(handler, session, payload);
         await InvokeAsync(handler, session, payload);
 
-        var messages = await db.CoreConversationMessages.OrderBy(x => x.CreatedAt).ToListAsync();
-        Assert.Equal(2, messages.Count);
-        Assert.Single(messages, x => x.Content.Contains("Potentially urgent", StringComparison.Ordinal));
-        Assert.Single(messages, x => x.Content.Contains("daily engagement digest", StringComparison.Ordinal));
+        Assert.Empty(await db.CoreConversationMessages.ToListAsync());
+        var stored = Assert.Single(await db.PluginOperationalStates.ToListAsync());
+        Assert.Equal("engagement", stored.Kind);
+        Assert.Equal("channel-1:comment-1", stored.ExternalKey);
+        Assert.Equal(organizationId, stored.OrganizationId);
+        Assert.Equal(installationId, stored.AgentInstallationId);
+        using var storedBody = JsonDocument.Parse(stored.PayloadJson);
+        Assert.True(storedBody.RootElement.GetProperty("urgent").GetBoolean());
+        Assert.Empty(await db.AgentWorkItems.ToListAsync());
     }
 
     private static async Task InvokeAsync(PluginOperationsCapabilityHandler handler, AgentSession session,
@@ -379,8 +306,7 @@ public sealed class PluginAgentApproverTests
             Status = ProposalStatus.Pending, CreatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();
-        var handler = new PluginOperationsCapabilityHandler(db, new TestAuditEventWriter(),
-            new PluginStandingPolicyService(db, new TestAuditEventWriter()), new ConversationService(db));
+        var handler = new PluginOperationsCapabilityHandler(db, new TestAuditEventWriter());
         var session = new AgentSession("session", "manager", approverInstallationId.ToString("D"),
             organizationId.ToString("D"), Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
             new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(),
@@ -414,6 +340,44 @@ public sealed class PluginAgentApproverTests
 
 public sealed class ResumableMediaUploadServiceTests
 {
+    [Fact]
+    public async Task CreateRetry_ReturnsExistingProgressWithoutReservingAnotherUpload()
+    {
+        await using var db = CreateDb();
+        var organization = await AddOrganizationAsync(db);
+        var temporary = new MemoryUploadStore();
+        var service = CreateService(db, temporary);
+        var input = new CreateMediaUploadSessionRequest("video.mp4", "video/mp4", 100, new string('a', 64), "stable-key");
+        var session = await service.CreateAsync(organization, input);
+        await service.AppendAsync(organization, session.Id, 0, 10, new MemoryStream(new byte[10]));
+        var retry = await service.CreateAsync(organization, input);
+        Assert.Equal(session.Id, retry.Id);
+        Assert.Equal(10, retry.ReceivedBytes);
+        Assert.Equal(1, await db.MediaUploadSessions.CountAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(organization,
+            input with { Sha256 = new string('b', 64) }));
+    }
+
+    [Fact]
+    public async Task RetryKey_IsOrganizationScoped_AndCancelledSessionIsNotRecreated()
+    {
+        await using var db = CreateDb();
+        var first = await AddOrganizationAsync(db);
+        var second = await AddOrganizationAsync(db);
+        var temporary = new MemoryUploadStore();
+        var service = CreateService(db, temporary);
+        var input = new CreateMediaUploadSessionRequest("video.mp4", "video/mp4", 100, null, "same-key");
+        var a = await service.CreateAsync(first, input);
+        var b = await service.CreateAsync(second, input);
+        Assert.NotEqual(a.Id, b.Id);
+        await service.CancelAsync(first, a.Id);
+        var retry = await service.CreateAsync(first, input);
+        Assert.Equal("Cancelled", retry.Status);
+        Assert.False(temporary.Exists(a.Id));
+        Assert.True(temporary.Exists(b.Id));
+        Assert.Equal(2, await db.MediaUploadSessions.CountAsync());
+    }
+
     [Fact]
     public async Task MediaAssets_ValidateDeclaredSignatureAndUtf8Text()
     {

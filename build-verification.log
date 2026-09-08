@@ -1,0 +1,53 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CSweet.Memory.Abstractions -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.Abstractions\bin\Debug\net8.0\CSweet.Memory.Abstractions.dll
+  CSweet.WorkManagement.Contracts -> C:\Users\PC\Documents\GitHub\CSweet.WorkManagement.Contracts\src\CSweet.WorkManagement.Contracts\bin\Debug\net8.0\CSweet.WorkManagement.Contracts.dll
+  CSweet.ServiceDefaults -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.ServiceDefaults\bin\Debug\net10.0\CSweet.ServiceDefaults.dll
+  CSweet.Domain -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Domain\bin\Debug\net10.0\CSweet.Domain.dll
+  CSweet.Office.Contracts -> C:\Users\PC\Documents\GitHub\CSweet.Office.Contracts\src\CSweet.Office.Contracts\bin\Debug\net8.0\CSweet.Office.Contracts.dll
+  CSweet.Agent.SDK -> C:\Users\PC\Documents\GitHub\CSweet.Agent.Sdk\src\CSweet.Agent.SDK\bin\Debug\net10.0\CSweet.Agent.SDK.dll
+  CSweet.Contracts -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Contracts\bin\Debug\net10.0\CSweet.Contracts.dll
+  CSweet.AgentBroker -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AgentBroker\bin\Debug\net10.0\CSweet.AgentBroker.dll
+  CSweet.Memory -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory\bin\Debug\net8.0\CSweet.Memory.dll
+  CSweet.Communications.Abstractions -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Communications.Abstractions\bin\Debug\net10.0\CSweet.Communications.Abstractions.dll
+  CSweet.TrustedServices -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.TrustedServices\bin\Debug\net10.0\CSweet.TrustedServices.dll
+  CSweet.Memory.PostgreSql -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.PostgreSql\bin\Debug\net8.0\CSweet.Memory.PostgreSql.dll
+  CSweet.Memory.Sqlite -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.Sqlite\bin\Debug\net8.0\CSweet.Memory.Sqlite.dll
+  CSweet.Memory.Broker -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.Broker\bin\Debug\net10.0\CSweet.Memory.Broker.dll
+  CSweet.Plugin.SDK -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Plugin.SDK\bin\Debug\net10.0\CSweet.Plugin.SDK.dll
+  CSweet.UI -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\bin\Debug\net10.0\CSweet.UI.dll
+  CSweet.GitHost -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.GitHost\bin\Debug\net10.0\CSweet.GitHost.dll
+  CSweet.SourceControlProvisionerHost -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.SourceControlProvisionerHost\bin\Debug\net10.0\CSweet.SourceControlProvisionerHost.dll
+  XAML source generation is enabled (MauiXamlInflator=SourceGen). This generates C# code from XAML at compile time for better performance. To disable, remove the MauiXamlInflator line from your .csproj file (reverts to configuration-based defaults: Runtime in Debug, XamlC in Release).
+  CSweet.Application -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Application\bin\Debug\net10.0\CSweet.Application.dll
+  XAML source generation is enabled (MauiXamlInflator=SourceGen). This generates C# code from XAML at compile time for better performance. To disable, remove the MauiXamlInflator line from your .csproj file (reverts to configuration-based defaults: Runtime in Debug, XamlC in Release).
+  XAML source generation is enabled (MauiXamlInflator=SourceGen). This generates C# code from XAML at compile time for better performance. To disable, remove the MauiXamlInflator line from your .csproj file (reverts to configuration-based defaults: Runtime in Debug, XamlC in Release).
+  CSweet.Maui -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Maui\bin\Debug\net10.0-maccatalyst\maccatalyst-x64\CSweet.Maui.dll
+  CSweet.Maui -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Maui\bin\Debug\net10.0-ios\iossimulator-x64\CSweet.Maui.dll
+  XAML source generation is enabled (MauiXamlInflator=SourceGen). This generates C# code from XAML at compile time for better performance. To disable, remove the MauiXamlInflator line from your .csproj file (reverts to configuration-based defaults: Runtime in Debug, XamlC in Release).
+  CSweet.Maui -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Maui\bin\Debug\net10.0-android\CSweet.Maui.dll
+  CSweet.ExecutionArtifacts -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.ExecutionArtifacts\bin\Debug\net10.0\CSweet.ExecutionArtifacts.dll
+  CSweet.AI -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AI\bin\Debug\net10.0\CSweet.AI.dll
+  CSweet.Domain -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Domain\bin\Debug\net10.0\CSweet.Domain.dll
+  CSweet.WorkManagement.Contracts -> C:\Users\PC\Documents\GitHub\CSweet.WorkManagement.Contracts\src\CSweet.WorkManagement.Contracts\bin\Debug\net8.0\CSweet.WorkManagement.Contracts.dll
+  CSweet.Contracts -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Contracts\bin\Debug\net10.0\CSweet.Contracts.dll
+  CSweet.Agent.SDK -> C:\Users\PC\Documents\GitHub\CSweet.Agent.Sdk\src\CSweet.Agent.SDK\bin\Debug\net10.0\CSweet.Agent.SDK.dll
+  CSweet.Maui -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Maui\bin\Debug\net10.0-windows10.0.19041.0\win-x64\CSweet.Maui.dll
+  CSweet.App -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.App\bin\Debug\net10.0\CSweet.App.dll
+  CSweet.App (Blazor output) -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.App\bin\Debug\net10.0\wwwroot
+  CSweet.UI -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\bin\Debug\net10.0\CSweet.UI.dll
+  CSweet.Infrastructure -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\bin\Debug\net10.0\CSweet.Infrastructure.dll
+  CSweet.Migrator -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Migrator\bin\Debug\net10.0\CSweet.Migrator.dll
+  CSweet.WorkerHost -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.WorkerHost\bin\Debug\net10.0\CSweet.WorkerHost.dll
+  CSweet.ExecutionGateway -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.ExecutionGateway\bin\Debug\net10.0\CSweet.ExecutionGateway.dll
+  CSweet.AgentHost -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AgentHost\bin\Debug\net10.0\CSweet.AgentHost.dll
+  CSweet.Api -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Api\bin\Debug\net10.0\CSweet.Api.dll
+  CSweet.IntegrationTests -> C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.IntegrationTests\bin\Debug\net10.0\CSweet.IntegrationTests.dll
+  CSweet.AppHost -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AppHost\bin\Debug\net10.0\CSweet.AppHost.dll
+  CSweet.UnitTests -> C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\bin\Debug\net10.0\CSweet.UnitTests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:12.06

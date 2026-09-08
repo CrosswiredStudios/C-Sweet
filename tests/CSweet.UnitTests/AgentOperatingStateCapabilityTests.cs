@@ -17,8 +17,7 @@ public sealed class AgentOperatingStateCapabilityTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
         var organizationId = Guid.NewGuid();
         var installationId = Guid.NewGuid();
-        var handler = new PluginOperationsCapabilityHandler(db, new TestAuditEventWriter(),
-            new PluginStandingPolicyService(db, new TestAuditEventWriter()), new ConversationService(db));
+        var handler = new PluginOperationsCapabilityHandler(db, new TestAuditEventWriter());
         var session = Session(organizationId, installationId);
         var reviewId = Guid.NewGuid();
         var write = new AgentOperatingStateWriteRequest(

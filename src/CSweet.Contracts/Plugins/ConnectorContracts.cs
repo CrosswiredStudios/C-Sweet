@@ -55,7 +55,11 @@ public sealed record ConnectorHttpOperation
     public string? BoundResourceQuery { get; init; }
     public string BoundResourceQueryPrefix { get; init; } = string.Empty;
     public IReadOnlyList<ConnectorResourceCheck> ResourceChecks { get; init; } = [];
+    /// <summary>Protocol 2.2: every selected response value must equal the confirmed connection resource. Array wildcards allow empty collections, never missing paths.</summary>
+    public IReadOnlyList<string> ResponseResourcePointers { get; init; } = [];
     public string? MediaInput { get; init; }
+    /// <summary>Reviewed host transfer protocol; never a provider-supplied executable handler.</summary>
+    public string? MediaProtocol { get; init; }
     public bool Bootstrap { get; init; }
     public IReadOnlyList<string> SecretResponseFields { get; init; } = [];
 }

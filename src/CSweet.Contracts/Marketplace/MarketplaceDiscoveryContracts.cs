@@ -26,7 +26,13 @@ public sealed record MarketplaceAgentResponse(
     IReadOnlyList<string>? Keywords = null,
     string? LicenseSpdxId = null,
     string? LicenseUrl = null,
-    IReadOnlyList<string>? IconUrls = null);
+    IReadOnlyList<string>? IconUrls = null)
+{
+    public string? LongDescription { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? CompanyLogoUrl { get; init; }
+    public string? AccentColor { get; init; }
+}
 
 public sealed record MarketplaceDiscoveryResponse(
     IReadOnlyList<MarketplaceAgentResponse> Items,

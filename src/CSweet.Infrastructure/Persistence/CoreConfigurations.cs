@@ -981,6 +981,11 @@ internal static class CoreConfigurations
 
     static void ConfigureConversation(EntityTypeBuilder<Conversation> entity)
     {
+        entity.Property(x => x.DirectParticipantKey).HasMaxLength(65);
+        entity.HasIndex(x => new { x.OrganizationId, x.DirectParticipantKey }).IsUnique()
+            .HasFilter("\"ArchivedAt\" IS NULL AND \"DirectParticipantKey\" IS NOT NULL");
+        entity.HasOne<Conversation>().WithMany().HasForeignKey(x => x.MergedIntoConversationId)
+            .OnDelete(DeleteBehavior.Restrict);
         entity.HasKey(x => x.Id);
         entity.Property(x => x.Title).HasMaxLength(256);
         entity.Property(x => x.Description).HasMaxLength(2048);

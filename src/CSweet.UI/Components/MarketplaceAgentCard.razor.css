@@ -1,0 +1,44 @@
+.agent-brand-card {
+    position: relative;
+    display: grid;
+    height: 36rem;
+    min-width: 0;
+    overflow: hidden;
+    isolation: isolate;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 18px;
+    color: var(--mud-palette-text-primary);
+    background: var(--mud-palette-surface);
+    box-shadow: 0 3px 14px rgba(15, 38, 51, .05);
+}
+.agent-brand-card button { font: inherit; cursor: pointer; }
+.agent-brand-card button:focus-visible { outline: 3px solid var(--mud-palette-primary); outline-offset: -4px; }
+.agent-brand-front { display: flex; flex-direction: column; width: 100%; min-width: 0; height: 100%; padding: 0; border: 0; color: inherit; background: var(--mud-palette-surface); text-align: left; }
+.agent-brand-art { position: relative; display: block; width: 100%; height: 17rem; flex-shrink: 0; overflow: hidden; background: color-mix(in srgb, var(--agent-accent) 15%, var(--mud-palette-surface)); }
+.agent-brand-art > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center top; transition: transform 340ms ease; }
+.agent-brand-company { position: absolute; top: 14px; left: 14px; max-width: calc(100% - 28px); display: flex; align-items: center; min-height: 34px; padding: 7px 11px; border-radius: 9px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); font-size: .75rem; font-weight: 600; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.agent-brand-company img { width: auto; max-width: 140px; height: 28px; object-fit: contain; }
+.agent-brand-state { position: absolute; bottom: 12px; left: 14px; padding: 4px 8px; background: var(--mud-palette-surface); color: var(--mud-palette-text-secondary); border-radius: 5px; font-size: .6875rem; }
+.agent-brand-copy { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 21px; gap: 7px; }
+.agent-brand-name { font-size: 1.375rem; font-weight: 650; letter-spacing: -.035em; line-height: 1.2; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.agent-brand-role { color: var(--mud-palette-text-secondary); font-size: .8125rem; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+.agent-brand-summary { color: var(--mud-palette-text-secondary); font-size: .875rem; line-height: 1.55; margin-top: 5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.agent-brand-explore { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 13px; border-top: 1px solid var(--mud-palette-lines-default); font-size: .8125rem; font-weight: 600; }
+.agent-brand-details { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; min-height: 0; padding: 20px; border-top: 4px solid var(--agent-accent); background: var(--mud-palette-surface); transform: translateY(101%); visibility: hidden; pointer-events: none; transition: transform 340ms cubic-bezier(.2,.8,.2,1), visibility 0s 340ms; }
+.agent-brand-card[data-open="true"] .agent-brand-details { transform: translateY(0); visibility: visible; pointer-events: auto; transition: transform 340ms cubic-bezier(.2,.8,.2,1), visibility 0s; }
+.agent-brand-card[data-open="true"] .agent-brand-art > img { transform: scale(1.04); }
+.agent-brand-details-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
+.agent-brand-publisher { font-size: .75rem; font-weight: 600; overflow-wrap: anywhere; }
+.agent-brand-close { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; padding: 0; border: 1px solid var(--mud-palette-lines-default); border-radius: 50%; color: var(--mud-palette-text-secondary); background: var(--mud-palette-surface); }
+.agent-brand-details-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-right: 4px; }
+.agent-brand-details-body h3 { font-size: 1.375rem; font-weight: 650; letter-spacing: -.035em; line-height: 1.25; margin: 0 0 6px; overflow-wrap: anywhere; }
+.agent-brand-description { white-space: pre-line; overflow-wrap: anywhere; font-size: .875rem; line-height: 1.65; margin: 18px 0; }
+.agent-brand-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+.agent-brand-tags span { border-radius: 5px; padding: 5px 8px; background: color-mix(in srgb, var(--agent-accent) 12%, var(--mud-palette-surface)); color: var(--mud-palette-text-primary); font-size: .6875rem; overflow-wrap: anywhere; }
+.agent-brand-trust { color: var(--mud-palette-text-secondary); font-size: .75rem; overflow-wrap: anywhere; }
+.agent-brand-details-footer { margin-top: auto; padding-top: 18px; flex-shrink: 0; }
+.agent-brand-price { display: block; font-size: .75rem; margin-bottom: 10px; }
+.agent-brand-meet { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 12px 14px; border-radius: 9px; border: 0; background: var(--agent-accent); color: var(--agent-accent-foreground); font-size: .875rem; font-weight: 600; }
+.agent-brand-details-footer small { display: block; text-align: center; color: var(--mud-palette-text-secondary); font-size: .6875rem; margin-top: 10px; }
+@media (pointer: coarse) { .agent-brand-close { width: 44px; height: 44px; } .agent-brand-meet { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .agent-brand-details, .agent-brand-card[data-open="true"] .agent-brand-details, .agent-brand-art > img { transition: none; } }

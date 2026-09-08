@@ -563,6 +563,48 @@ public sealed class AgentCoordinationServiceTests
         };
     }
 
+    [Theory]
+    [InlineData("runtime.rate_limited", true, 3, 120, true)]
+    [InlineData("runtime.transport", true, 3, 120, true)]
+    [InlineData("runtime.transport", false, 3, 120, false)]
+    [InlineData("runtime.transport", true, 12, 120, false)]
+    [InlineData("runtime.transport", true, 3, 10, false)]
+    [InlineData("capability.denied", true, 3, 120, false)]
+    public async Task TransientRecovery_RetriesThePendingProducerWithCooldownAndBoundedAttempts(
+        string code, bool retryable, int attempts, int ageSeconds, bool recover)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var stored = await fixture.Db.AgentCoordinationSessions.Include(x => x.Turns).SingleAsync();
+        var now = DateTimeOffset.UtcNow;
+        var error = $"agent-failure:v1;code={code};retryable={retryable.ToString().ToLowerInvariant()};diagnosticId=test";
+        var work = await fixture.Inbox.EnqueueAsync(fixture.OrganizationId.ToString("D"), fixture.TargetInstallationId,
+            CSweet.Domain.Setup.AgentWorkKind.Event, AgentCoordinationEvents.TurnRequested,
+            JsonSerializer.SerializeToElement(new { sessionId = fixture.SessionId }), "failed-producer",
+            now.AddHours(1), correlationId: fixture.SessionId.ToString("D"),
+            causationId: stored.Turns.Single().Id.ToString("D"), sourceType: "agent-coordination", sourceId: Guid.NewGuid().ToString("D"));
+        work.Status = AgentWorkStatus.DeadLetter;
+        work.AttemptCount = attempts;
+        work.LastError = error;
+        stored.Status = AgentCoordinationStatus.Failed;
+        stored.CurrentOrganizationUserId = null;
+        stored.CurrentAgentWorkItemId = null;
+        stored.Revision = 2;
+        stored.FinalSummary = error;
+        stored.UpdatedAt = now.AddSeconds(-ageSeconds);
+        await fixture.Db.SaveChangesAsync();
+        Assert.Equal(recover ? 1 : 0, await fixture.Service.RecoverTransientFailuresAsync(now));
+        Assert.Equal(0, await fixture.Service.RecoverTransientFailuresAsync(now));
+        Assert.Single(stored.Turns);
+        var pending = await fixture.Db.AgentWorkItems.Where(x => x.Status == AgentWorkStatus.Pending).ToListAsync();
+        if (recover)
+        {
+            Assert.Equal(fixture.TargetId, stored.CurrentOrganizationUserId);
+            Assert.Equal(fixture.TargetInstallationId, Assert.Single(pending).AgentInstallationId);
+            Assert.Equal(3, stored.Revision);
+            Assert.Equal(AgentWorkStatus.DeadLetter, work.Status);
+        }
+        else Assert.Empty(pending);
+    }
     private sealed class StubCommunicationHubService(CommunicationChatResponse chat)
         : ICommunicationHubService
     {

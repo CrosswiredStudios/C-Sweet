@@ -28,9 +28,11 @@ The normative plugin contract, grant lifecycle, proxy policy, administrator runb
 
 - [Docker deployment](deployment/docker.md)
 - [Marketplace integration](MARKETPLACE_INTEGRATION.md)
+- [Agent marketplace card branding](implementation/agent-marketplace-branding.md)
 - [Plugin platform](plugin-platform/README.md)
 - [Implementation plans](implementation/README.md)
 - [Legacy and dead-code audit](analysis/legacy-and-dead-code-audit.md)
+- [RoboCo comparison and prioritized improvements](analysis/roboco-comparative-analysis.md)
 
 ## Agent runtime, security, and operations
 

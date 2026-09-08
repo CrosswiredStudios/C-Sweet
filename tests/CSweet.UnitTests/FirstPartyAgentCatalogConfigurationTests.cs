@@ -236,6 +236,36 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
         Assert.Equal(repositoryUrl, resolved.RepositoryUrl);
         Assert.Equal(AgentCatalogSource.FirstPartyCatalog, resolved.Source);
     }
+    [Fact]
+    public async Task ConfiguredPortraits_AreUniqueBundledAssetsAndSurviveCatalogMapping()
+    {
+        var root = RepositoryRoot();
+        using var document = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(root, "src", "CSweet.Api", "first-party-agents.json")));
+        var options = document.RootElement.GetProperty("CSweet").GetProperty("Marketplace")
+            .Deserialize<MarketplaceOptions>()!;
+        var provider = new FirstPartyAgentCatalogProvider(Options.Create(options));
+        var result = await provider.SearchAsync(null, new AvailableAgentSearchQuery());
+        var hashes = new HashSet<string>();
+        Assert.NotEmpty(options.FirstPartyAgents);
+        foreach (var entry in options.FirstPartyAgents)
+        {
+            var expected = $"_content/CSweet.UI/images/agents/{entry.ListingSlug}-v1.jpg";
+            Assert.Equal(expected, entry.ImageUrl);
+            Assert.True(CSweet.UI.Services.MarketplaceAgentPresentation.IsAgentImageUrl(entry.ImageUrl));
+            Assert.True(AgentCatalogBranding.IsAccentColor(entry.AccentColor));
+            var path = Path.Combine(root, "src", "CSweet.UI", "wwwroot", "images", "agents", $"{entry.ListingSlug}-v1.jpg");
+            Assert.True(File.Exists(path), $"Missing portrait: {path}");
+            var bytes = File.ReadAllBytes(path);
+            Assert.True(bytes.Length > 1000);
+            Assert.True(hashes.Add(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))),
+                $"Duplicate portrait: {entry.ListingSlug}");
+            var mapped = Assert.Single(result.Agents, x => x.AgentId == entry.AgentId);
+            Assert.Equal(entry.ImageUrl, mapped.ImageUrl);
+            Assert.Equal(entry.AccentColor, mapped.AccentColor);
+        }
+    }
+
     private static string RepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

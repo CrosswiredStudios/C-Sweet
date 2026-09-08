@@ -69,31 +69,3 @@ public sealed record UpsertPluginProviderProfileRequest(
     string ClientId,
     string? ClientSecret,
     bool IsEnabled = true);
-
-public sealed record PluginStandingPolicyDefinition(
-    IReadOnlyList<string> AllowedActionCategories,
-    IReadOnlyList<string> AllowedPrivacyValues,
-    IReadOnlyList<int> AllowedUtcDays,
-    int AllowedUtcStartHour,
-    int AllowedUtcEndHour,
-    int MaximumActionsPerHour,
-    bool AllowReplies,
-    bool AllowModeration,
-    IReadOnlyList<string> EscalationKeywords);
-
-public sealed record ApprovePluginStandingPolicyRequest(
-    string ChannelId,
-    PluginStandingPolicyDefinition Policy,
-    int? ExpectedRevision);
-
-public sealed record PluginStandingPolicyResponse(
-    Guid Id,
-    Guid InstallationId,
-    string ChannelId,
-    PluginStandingPolicyDefinition Policy,
-    string PayloadHash,
-    int Revision,
-    string Status,
-    Guid ApprovedByOrganizationUserId,
-    DateTimeOffset ApprovedAt,
-    DateTimeOffset? RevokedAt);

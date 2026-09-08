@@ -47,6 +47,7 @@ public sealed class ConnectorMutationExecutor(CSweetDbContext db, ConnectorActio
             var response = await transport.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId, frozen.Request, Revalidate, ct);
             if (response.StatusCode is < 200 or >= 300)
                 throw new InvalidOperationException("The provider did not confirm completion; reconcile before retrying.");
+            ConnectorResponseResourceValidator.Validate(response.Body, frozen.Request);
             var sanitized = await SecretResponseSanitizer.SanitizeAsync(
                 response.StatusCode == 204 && response.Body.Length == 0 ? "{}"u8.ToArray() : response.Body,
                 frozen.Request.SecretResponseFields, async (pointer, value, token) =>

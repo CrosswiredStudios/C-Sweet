@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text;
 using CSweet.Application.GenAi;
 using CSweet.Application.Setup;
 using CSweet.Contracts.GenAi;
@@ -105,6 +106,20 @@ public sealed class ResumableMediaUploadService(
             throw new InvalidOperationException($"The upload must be between 1 and {_maximumFileSize} bytes.");
         var expectedHash = NormalizeHash(request.Sha256);
         var contentType = MediaAssetService.NormalizeContentType(request.ContentType);
+        if (request.IdempotencyKey is { } suppliedKey && (string.IsNullOrWhiteSpace(suppliedKey) ||
+            suppliedKey.Length > 160 || suppliedKey.Any(char.IsControl)))
+            throw new InvalidOperationException("A bounded upload retry key is required.");
+        var sessionId = request.IdempotencyKey is null ? Guid.NewGuid() :
+            new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"media-upload:{organizationId:D}:{request.IdempotencyKey}"))[..16]);
+        var prior = await db.MediaUploadSessions.AsNoTracking().Include(x => x.MediaAsset)
+            .SingleOrDefaultAsync(x => x.Id == sessionId, cancellationToken);
+        if (prior is not null)
+        {
+            if (prior.OrganizationId != organizationId || prior.FileName != fileName || prior.ContentType != contentType ||
+                prior.TotalBytes != request.TotalBytes || prior.ExpectedSha256 != expectedHash)
+                throw new InvalidOperationException("The upload retry key belongs to a different file.");
+            return Map(prior);
+        }
         var storedBytes = await db.MediaAssets.AsNoTracking().Where(x => x.OrganizationId == organizationId)
             .SumAsync(x => (long?)x.SizeBytes, cancellationToken) ?? 0;
         var reservedBytes = await db.MediaUploadSessions.AsNoTracking().Where(x =>
@@ -116,7 +131,7 @@ public sealed class ResumableMediaUploadService(
         var now = DateTimeOffset.UtcNow;
         var session = new MediaUploadSession
         {
-            Id = Guid.NewGuid(), OrganizationId = organizationId, FileName = fileName, ContentType = contentType,
+            Id = sessionId, OrganizationId = organizationId, FileName = fileName, ContentType = contentType,
             TotalBytes = request.TotalBytes, ChunkSizeBytes = _chunkSize, ExpectedSha256 = expectedHash,
             Status = MediaUploadSessionStatus.Active, CreatedAt = now, UpdatedAt = now, ExpiresAt = now.Add(_lifetime)
         };

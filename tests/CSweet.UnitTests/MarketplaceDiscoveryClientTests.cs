@@ -25,6 +25,10 @@ public sealed class MarketplaceDiscoveryClientTests
                     publisherName = "Trusted Studio",
                     summary = "Produces sourced market research.",
                     category = "Research",
+                    imageUrl = "https://example.com/research.webp",
+                    companyLogoUrl = "https://example.com/logo.svg",
+                    accentColor = "#225544",
+                    longDescription = "A detailed research agent description.",
                     capabilities = new[] { "research.market", "artifact.report" },
                     pricingModel = "MonthlyPerInstance",
                     priceInCents = 2500,
@@ -48,6 +52,10 @@ public sealed class MarketplaceDiscoveryClientTests
             new MarketplaceDiscoveryQuery(Capability: "research.market"));
         var listing = Assert.Single(browse.Items);
         Assert.True(browse.IsOnline);
+        Assert.Equal("https://example.com/research.webp", listing.ImageUrl);
+        Assert.Equal("https://example.com/logo.svg", listing.CompanyLogoUrl);
+        Assert.Equal("#225544", listing.AccentColor);
+        Assert.Equal("A detailed research agent description.", listing.LongDescription);
         Assert.Equal("https://marketplace.test/marketplace/trusted-studio/research-agent",
             listing.ListingUrl);
 
@@ -88,6 +96,10 @@ public sealed class MarketplaceDiscoveryClientTests
             Name = "Chief of Staff",
             Summary = "Coordinates executive priorities.",
             Category = "Leadership",
+            ImageUrl = "https://example.com/chief.webp",
+            CompanyLogoUrl = "https://example.com/csweet.svg",
+            AccentColor = "#334455",
+            LongDescription = "Coordinates priorities, staffing, and delivery.",
             Capabilities = ["executive.operations", "workforce.plan"],
             IsFeatured = true,
             RepositoryUrl = "https://github.com/CrosswiredStudios/CSweet.Agent.ChiefOfStaff"
@@ -107,6 +119,10 @@ public sealed class MarketplaceDiscoveryClientTests
         Assert.False(browse.IsOnline);
         var agent = Assert.Single(browse.Items);
         Assert.True(agent.IsFirstParty);
+        Assert.Equal(firstParty.ImageUrl, agent.ImageUrl);
+        Assert.Equal(firstParty.CompanyLogoUrl, agent.CompanyLogoUrl);
+        Assert.Equal(firstParty.AccentColor, agent.AccentColor);
+        Assert.Equal(firstParty.LongDescription, agent.LongDescription);
         Assert.True(agent.IsFeatured);
         Assert.Equal("C-Sweet", agent.PublisherName);
         Assert.Equal(agent, Assert.Single(browse.FirstPartyItems!));

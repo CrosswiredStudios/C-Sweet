@@ -1,0 +1,356 @@
+{
+  "analysisDate": "2026-09-07",
+  "method": "Static source review; tests read, not executed; no runtime benchmark or penetration test.",
+  "localVersionNote": "Local working trees include pre-existing modifications. Hashes identify the principal cited files at completion of the review; Git HEAD alone does not reproduce them.",
+  "files": [
+    {
+      "repository": "C-Sweet workspace",
+      "path": "docs/implementation/features/game-production-reliability/README.md",
+      "version": "working-tree",
+      "sha256": "c869f52b1acfccf28a5752effbffe4c3776970afa9c034e87d4257dd40792226"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "tests/CSweet.UnitTests/WorkOrchestrationRetryTests.cs",
+      "version": "working-tree",
+      "sha256": "ef4276e9ecbffe041032023a870abed5d3436d3088822d4492b13c789e64dc1a"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.Infrastructure/WorkManagement/GovernedMergeWorkActionExecutor.cs",
+      "version": "working-tree",
+      "sha256": "93c8687d0fbf8bd37ca369e7ae623f44d8bf090306b84b090e61009fcd7f2676"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.Infrastructure/WorkManagement/SoftwareDevelopmentWorkService.cs",
+      "version": "working-tree",
+      "sha256": "e2b75bede180e5897fe57f77cb87afde7f949556e300ea73f212803c273c9658"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.Infrastructure/Setup/AgentWorkInbox.cs",
+      "version": "working-tree",
+      "sha256": "e717468fb38ded2e88fc5fc1038bf61688953744200d639f8e29dbd1391220f3"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "tests/CSweet.UnitTests/AgentWorkInboxTests.cs",
+      "version": "working-tree",
+      "sha256": "26316f501da2cdd70f0627c3bb1ea409e1a5673766417163674f1e28a86d4995"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.Agent.Sdk/docs/agent-operating-contract.md",
+      "version": "working-tree",
+      "sha256": "52bcaa63ac42b9ff4e6e8cf02cb6d8b71826a8602e8cf21b6e8688af753de41b"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.Agent.Sdk/src/CSweet.Agent.SDK/PlatformCapabilityClient.cs",
+      "version": "working-tree",
+      "sha256": "0b116c9eda6ff817ac92fac5bfc5945fb3abaa46c6953b6662a077188d0cdb23"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.Agent.Sdk/src/CSweet.Agent.SDK/AgentTestRuntime.cs",
+      "version": "working-tree",
+      "sha256": "a97e7b58a600dea4fe51444a72165d665bab9abe59849da47ceccc2129857196"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.Agent.Sdk/AGENTS.md",
+      "version": "working-tree",
+      "sha256": "b728f95a86b472087a00f97f4aaabd4b927da7d99bf58b12063de89850a82e79"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.Agent.SoftwareQA/src/CSweet.Agents.SoftwareQA/SoftwareQaAgent.cs",
+      "version": "working-tree",
+      "sha256": "fba3ac2b932468dbf155086c91ee9eb25d1f50f6db0f81c0c5b383dd747558fb"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.WorkManagement.Contracts/src/CSweet.WorkManagement.Contracts/WorkManagementContracts.cs",
+      "version": "working-tree",
+      "sha256": "8e119ad50beaa14412e65c0d9b8c88217c9534048eaf44dfa16d29fe18dc9e25"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.WorkManagement.Contracts/src/CSweet.WorkManagement.Contracts/WorkstreamProfileContracts.cs",
+      "version": "working-tree",
+      "sha256": "14516045ab99857d0f7a878ca9e77ae2a1d420f46e41c46d34b77744a5adf539"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.Domain/Core/DeliveryEvidence.cs",
+      "version": "working-tree",
+      "sha256": "ee7bbaa00b0c8e2ff2bd891bd2c037d513d91d292ad32caf353c3ae58fd1a1b4"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.AgentHost/Broker/PlatformLlmJobService.cs",
+      "version": "working-tree",
+      "sha256": "8074853705a091bb6a695975c5ae407ff17c341a005bf76f70be8a0cd3682850"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.AgentHost/Broker/PlatformLlmCapabilityHandler.cs",
+      "version": "working-tree",
+      "sha256": "714dbcb09710abea70f0314b19d7edd1a564293dde5a97e6504cf0bb141e6a55"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.Infrastructure/Llm/LlmTokenUsageService.cs",
+      "version": "working-tree",
+      "sha256": "ce4d2c41569e499e8d83c23ea82dd3d82edcbfd7d823480c6c5e1c39f0fc7c6e"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.AgentHost/Broker/WorkforcePlatformCapabilityHandler.cs",
+      "version": "working-tree",
+      "sha256": "fbd38ba676272ec14f3c48e1bb47295922c6d80d4170b87d08bf9d1a981d9581"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "docs/implementation/llm-queue-and-startup-recovery.md",
+      "version": "working-tree",
+      "sha256": "95ebca040c0494867d180997ddaaeda191f3346fd0c21568104f1721f28df548"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.Infrastructure/Core/AgentMemoryService.cs",
+      "version": "working-tree",
+      "sha256": "61d96658ab3d04a05224413e9ff8789bc0ac057d8ae13d369f20ad7d5f354780"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "tests/CSweet.UnitTests/AgentMemoryServiceTests.cs",
+      "version": "working-tree",
+      "sha256": "4bfa8a35f0e0a8e16d8d083a56bca8dc1a8eae968ecb82697e36802316a50f67"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.Office/src/CSweet.Office.Runtime.LocalRpc/RuntimeHostAuthorizationGate.cs",
+      "version": "working-tree",
+      "sha256": "c9ecbbe30814973e67637b586d631556b20758bc4efdb402bc76d581fa4b3eb7"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.Office/src/CSweet.Office.Runtime.Core/FailClosedIsolationProviderSelector.cs",
+      "version": "working-tree",
+      "sha256": "c29761ec669f872357bbf74257f201b29db2031a92921f9d09b9835bf5224dba"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.Office/src/CSweet.Office.Runtime.HyperV.Helper/PowerShellHyperV.cs",
+      "version": "working-tree",
+      "sha256": "70679b96edeb4ee988659c3fdb0fa88b371a1d839b60723b6423464912254146"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "Documentation/Security/AGENT_RUNTIME_THREAT_MODEL.md",
+      "version": "working-tree",
+      "sha256": "2a630c068211a49307abbab329c3a5af6d895d091d3788420179eac34447e150"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.Infrastructure/Setup/OutboundNetworkPolicy.cs",
+      "version": "working-tree",
+      "sha256": "d2ac1e03910c25346bf47068dd67c46c4780ece849a1f9c279790ce79268df1a"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "../CSweet.WorkManagement.Contracts/src/CSweet.WorkManagement.Contracts/WorkOrchestrationContracts.cs",
+      "version": "working-tree",
+      "sha256": "94a2bd4912f75eaa42bb279d8a2694dde324b279e1ca5462aa110b03a0c9fccf"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.AgentHost/Broker/McpToolCatalog.cs",
+      "version": "working-tree",
+      "sha256": "e2c3e6ed11accb94a5302244c1f9342c31352c1fa5044b52ee20331c4970a27d"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.Infrastructure/WorkManagement/WorkOrchestrationPolicyValidator.cs",
+      "version": "working-tree",
+      "sha256": "97f6b114af372c3f5c5c503e2c350714871cb767ed21b0145d536c85cf78ac20"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/gateway/choreographer/pr_gate.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "eec79f513c549226f2bada84a3b363bc9ae3541b32584ea3c8c837be74535e3e"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "docs/implementation/features/game-production-reliability/07-junior-developer-checklist.md",
+      "version": "working-tree",
+      "sha256": "de7cbb825c0a22ee152210a3e9cb1aa787b7b392ed21d3ebcb1a1258b8eb95ed"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "LICENSE",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "e0eedba615d5cd1b986afb6c5b3a4b1ae33713e7e9dc74d19daec5e3221f9d2e"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "README.md",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "d89492d56a109cb519bcbfd24e8cabcd4b66b88d3d35458c7a236461849615f2"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/eval/runner.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "c9b1dd113f7b1a7176c8d58ad7c5f89e4635fa84d103df5f84728d6b7bd22aa0"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/eval/fixtures.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "34198fd99c0c7c9ac1cfc925597b2038ba4832c773715e26d84edc530d865842"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "tests/e2e_smoke/test_eval_bench.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "6be1a6222a034d42ddad200ec63b0801e2b1c113d8d069e9e3fca47a5be31903"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/gateway/choreographer/qa.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "2abbaff6e1a207aa793bb1100f4fe7c66120c890683e7004cb1f6a72eadd03eb"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/gateway/choreographer/_impl.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "cfcd7476c30047d1f4e1c8d6c4ce5999d0a4475e65533084642192fa11b8c60f"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "tests/unit/gateway/test_delegate_ac_coverage_gate.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "6dda6db17119baec383cd476f10a1cc68c1dc7020cf0d1c1dc8107578faa7ee9"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/repositories/review_findings.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "0bc1e12a9053f28fde6056c236a4b1951cda2a2e5b696530a37766f051379e74"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/gateway/choreographer/findings.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "85655dcb7f630568840ab848397261ee805603149f8dfa045e3d0cca5d0dd953"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/foundation/policy/lifecycle.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "4fa3e7f0d64aad73833892a9a8a117cbc1670fb91a347207b1fbdf92a7d25651"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/gateway/role_config.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "13accb38e8ff7b387c8276b0f1bcea01d2fec2e2163d7bc11b362132780bf370"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/foundation/_generators.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "6f48d47a8bba558120e0da3e778cc44ed8c0667e0ce4351ee2fef81e80dd8315"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/gateway/envelope.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "7bd61c4510c75cf09435a5c94ed25847e18dff41617f4015de4c0a185a1550fe"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/gateway/claim_guards.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "3aacafab92a9baad54b028e1fc83cb71c6e2ae288beb81695a99adce85fb91d1"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/runtime/orchestrator.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "7e96810cda290867d4fdf807ca63ab40c19a26a2071b9298fe85ef96aa63218f"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/gateway/choreographer/_verb_runner.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "00080a4c2908caeb339eb2bf0beb4dfd3bfe7a9ea337ac485b7cd49fa50f86ae"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "scripts/bootstrap.sh",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "4a195677694195aa2c3ddfec59cdd3ea1dc8a9b53e5470ef599a7cb43c2216db"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/playbook.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "e3579f348ac744af0fa53fbadaf9f5319434ab151a1927d75eee9be72e462d37"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/services/memory_distiller.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "b51d8b7a98d79cdfe887b742e1f799498002ca2741f4cee30d232f1d33202cb2"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/foundation/policy/board_programs.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "1ee462bd5036b360a1d5bdf2d2e75845d76abdd0a1f0e862bbd800c2562313b4"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "docker-compose.yml",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "a7ab2160d8afeace2c1e72ac7716b53a616d2754a640161543c5dc31b4ab97cd"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/api/deps.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "073ede18e83915236e80de8a425f607c77c2139a0854a1aabebc4990e17e1763"
+    },
+    {
+      "repository": "rennf93/roboco",
+      "path": "roboco/foundation/policy/injection_guard.py",
+      "commit": "fc01630ef36413d79c4296ed8243e7940e19e676",
+      "sha256": "040fa8e8ec99b21bb9f9657ecc02207ee239840874ca6d44c97102ea28613b30"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "src/CSweet.Infrastructure/WorkManagement/WorkOrchestrationService.cs",
+      "version": "working-tree",
+      "sha256": "8499391850c83949270947017cb1ea1b762b0afa95e77898db6278d921e54f70"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "tests/CSweet.UnitTests/DeliveryEvidenceSafetyTests.cs",
+      "version": "working-tree",
+      "sha256": "11f42a79c3e432732eb1b8f3d380a7064d98c3a3e0f9fa40f21c1a3ac285c2ac"
+    },
+    {
+      "repository": "C-Sweet workspace",
+      "path": "docs/implementation/domain-neutral-extensions.md",
+      "version": "working-tree",
+      "sha256": "c98d71d19c5a0ca77b7f88cb927ab815bb34d1e77de471fcbab2ae36c0ed0386"
+    }
+  ],
+  "revisionNote": "Follow-up owner constraint: core additions require broad applicability to the majority of businesses; domain behavior defaults to optional extensions. Added domain-neutral-extensions.md as supporting architectural context; previous evidence hashes preserved."
+}

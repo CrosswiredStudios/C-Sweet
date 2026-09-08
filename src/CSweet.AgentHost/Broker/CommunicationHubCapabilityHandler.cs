@@ -160,7 +160,10 @@ public sealed class CommunicationHubCapabilityHandler(
             var decision = await (decisions ?? throw new InvalidOperationException("The executive decision service is unavailable.")).CreateAsync(new CreateExecutiveDecisionCommand(
                 organizationId, input.ConversationId, input.ChatTurnId, input.ConversationMessageId, installationId, input.Prompt,
                 input.Options.Select(x => new CSweet.Application.Communications.CreateExecutiveDecisionOption(x.Id, x.Label, x.Description)).ToList(),
-                input.RecommendedOptionId, input.IdempotencyKey), token);
+                input.RecommendedOptionId, input.IdempotencyKey)
+            {
+                ConfigurationChange = input.ConfigurationChange
+            }, token);
             return Success(request.RequestId, decision);
         }
         catch (ArgumentException exception)
@@ -213,6 +216,7 @@ public sealed class CommunicationHubCapabilityHandler(
         string Prompt,
         IReadOnlyList<CreateDecisionOptionCapabilityRequest> Options,
         string RecommendedOptionId,
-        string IdempotencyKey);
+        string IdempotencyKey,
+        AgentConfigurationChoice? ConfigurationChange = null);
     private sealed record CreateDecisionOptionCapabilityRequest(string Id, string Label, string? Description = null);
 }

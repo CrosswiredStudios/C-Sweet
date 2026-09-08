@@ -2,6 +2,8 @@ using System.Security.Claims;
 using CSweet.Application.GenAi;
 using CSweet.Contracts.GenAi;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.GenAi;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Api.GenAi;
@@ -76,6 +78,13 @@ public static class GenAiEndpoints
         });
 
         var media = endpoints.MapGroup("/api/media-assets");
+        media.MapGet("/uploads/policy/organization/{organizationId:guid}", async (Guid organizationId,
+            ClaimsPrincipal user, CSweetDbContext db, IOptions<MediaAssetStorageOptions> options, CancellationToken token) =>
+        {
+            if (!await CanAccessAsync(user, organizationId, db, token)) return Results.Forbid();
+            return Results.Ok(new MediaUploadPolicyResponse(Math.Clamp(options.Value.MaximumFileSizeBytes, 1,
+                MediaAssetStorageOptions.AbsoluteMaximumFileSizeBytes)));
+        });
         media.MapPost("/uploads/organization/{organizationId:guid}", async (Guid organizationId,
             CreateMediaUploadSessionRequest request, ClaimsPrincipal user, CSweetDbContext db,
             IResumableMediaUploadService uploads, CancellationToken token) =>

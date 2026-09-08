@@ -101,8 +101,11 @@ public sealed class CommunicationHubServiceTests
         Assert.DoesNotContain("Design review is ready.", messageAudit.MetadataJson);
     }
 
-    [Fact]
-    public async Task AttachmentOnlyMessage_IsIdempotentAndRecoversSanitizedDescriptorFromChatRead()
+    [Theory]
+    [InlineData("storyboard.pdf", "application/pdf", 4096L)]
+    [InlineData("video.webm", "video/webm", 100L * 1024 * 1024)]
+    [InlineData("captions.vtt", "text/vtt", 4096L)]
+    public async Task AttachmentOnlyMessage_IsIdempotentAndRecoversSanitizedDescriptorFromChatRead(string name, string type, long size)
     {
         await using var db = CreateDb();
         var organization = Organization();
@@ -110,8 +113,8 @@ public sealed class CommunicationHubServiceTests
         var recipient = User(organization.Id, "Recipient", OrganizationPermissionLevel.Contributor);
         var asset = new MediaAsset
         {
-            Id = Guid.NewGuid(), OrganizationId = organization.Id, FileName = "storyboard.pdf",
-            ContentType = "application/pdf", SizeBytes = 4096, Sha256 = new string('b', 64),
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, FileName = name,
+            ContentType = type, SizeBytes = size, Sha256 = new string('b', 64),
             StorageKey = "private/storage-key-that-must-not-leak", CreatedAt = DateTimeOffset.UtcNow
         };
         db.AddRange(organization, sender, recipient, asset);
@@ -130,8 +133,14 @@ public sealed class CommunicationHubServiceTests
         Assert.NotNull(first);
         Assert.Equal(first!.Message.Id, replay!.Message.Id);
         var attachment = Assert.Single(Assert.Single(messages!).Attachments);
-        Assert.Equal("storyboard.pdf", attachment.FileName);
+        Assert.Equal(name, attachment.FileName);
         Assert.Equal(asset.Sha256, attachment.Sha256);
+        Assert.Equal(asset.Id, attachment.MediaAssetId);
+        Assert.Equal(asset.Id, Assert.Single(first.Message.Attachments).MediaAssetId);
+        var descriptor = System.Text.Json.JsonSerializer.Deserialize<CSweet.Agent.SDK.CommunicationAttachment>(
+            System.Text.Json.JsonSerializer.Serialize(attachment));
+        Assert.Equal(asset.Id, descriptor!.MediaAssetId);
+        Assert.NotEqual(descriptor.Id, descriptor.MediaAssetId);
         Assert.DoesNotContain(asset.StorageKey, System.Text.Json.JsonSerializer.Serialize(attachment),
             StringComparison.Ordinal);
     }
@@ -798,6 +807,97 @@ public sealed class CommunicationHubServiceTests
         Assert.Empty(await db.CoreConversationMessages.ToListAsync());
     }
 
+    [Fact]
+    public async Task DirectAgentChat_ReusesParticipantPairAcrossProjectsAndInitiators()
+    {
+        await using var db = CreateDb();
+        var organization = Organization();
+        var director = User(organization.Id, "Director", OrganizationPermissionLevel.Manager);
+        var producer = User(organization.Id, "Producer", OrganizationPermissionLevel.Contributor);
+        director.EmployeeType = producer.EmployeeType = EmployeeType.Agent;
+        var team = new OrganizationTeam { Id = Guid.NewGuid(), OrganizationId = organization.Id, Name = "Game" };
+        var project = new Workstream { Id = Guid.NewGuid(), OrganizationId = organization.Id, Name = "Game" };
+        db.AddRange(organization, director, producer, team, project);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var intro = await service.CreateAsync(organization.Id, producer.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [director.Id]));
+        var handoff = await service.CreateAsync(organization.Id, director.Id,
+            new CreateCommunicationChatRequest(null, "Refine the project brief", true, true, [producer.Id],
+                AudienceWorkstreamIds: [project.Id]) { WorkstreamId = project.Id, TeamId = team.Id });
+        Assert.Equal(intro.Chat!.Id, handoff.Chat!.Id);
+        Assert.Single(await db.CoreConversations.ToListAsync());
+        Assert.Null(handoff.Chat.WorkstreamId);
+        Assert.Null(handoff.Chat.TeamId);
+    }
+    [Fact]
+    public async Task MergedChatAddress_ResolvesToCanonicalHistoryAndReadCursor()
+    {
+        await using var db = CreateDb();
+        var org = Organization();
+        var first = User(org.Id, "First", OrganizationPermissionLevel.Contributor);
+        var second = User(org.Id, "Second", OrganizationPermissionLevel.Contributor);
+        db.AddRange(org, first, second);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var canonical = (await service.CreateAsync(org.Id, first.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [second.Id]))).Chat!;
+        var alias = new Conversation { Id = Guid.NewGuid(), OrganizationId = org.Id, InitiatedByOrganizationUserId = second.Id,
+            Kind = ConversationKind.DirectHumanAgent, ArchivedAt = DateTimeOffset.UtcNow, MergedIntoConversationId = canonical.Id };
+        db.Add(alias);
+        await db.SaveChangesAsync();
+        var sent = await service.SendAsync(org.Id, alias.Id, first.Id, new SendCommunicationMessageRequest("Preserved thread", "aliased-send"));
+        Assert.Equal(canonical.Id, sent!.Message.ChatId);
+        Assert.True(await service.CanAccessChatAsync(org.Id, alias.Id, second.Id));
+        var message = Assert.Single((await service.ListMessagesAsync(org.Id, alias.Id, second.Id))!);
+        await service.MarkReadAsync(org.Id, alias.Id, second.Id, message.Sequence);
+        var hub = await service.GetAsync(org.Id, second.Id);
+        var chat = Assert.Single(hub!.Chats);
+        Assert.Contains(alias.Id, chat.MergedConversationIds);
+        Assert.Equal(0, chat.UnreadCount);
+        Assert.Null(await service.ListMessagesAsync(org.Id, alias.Id, Guid.NewGuid()));
+    }
+    [Fact]
+    public async Task ConcurrentReverseDirectChatRequests_ReturnOneConversationAcrossScopes()
+    {
+        var options = new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new CSweetDbContext(options);
+        var org = Organization();
+        var first = User(org.Id, "Director", OrganizationPermissionLevel.Manager);
+        var second = User(org.Id, "Producer", OrganizationPermissionLevel.Contributor);
+        first.EmployeeType = second.EmployeeType = EmployeeType.Agent;
+        db.AddRange(org, first, second);
+        await db.SaveChangesAsync();
+        var created = await Task.WhenAll(Enumerable.Range(0, 20).Select(async i =>
+        {
+            await using var scopeDb = new CSweetDbContext(options);
+            return await CreateService(scopeDb).CreateAsync(org.Id, i % 2 == 0 ? first.Id : second.Id,
+                new CreateCommunicationChatRequest(null, null, true, true, [i % 2 == 0 ? second.Id : first.Id]));
+        }));
+        Assert.Single(created.Select(x => x.Chat!.Id).Distinct());
+        var stored = await db.CoreConversations.SingleAsync();
+        Assert.Equal(Conversation.ParticipantKey(first.Id, second.Id), stored.DirectParticipantKey);
+    }
+
+    [Fact]
+    public async Task OnboardingReusesChatOriginallyOpenedByAgent()
+    {
+        await using var db = CreateDb();
+        var org = Organization();
+        var owner = User(org.Id, "Owner", OrganizationPermissionLevel.Owner);
+        var agent = User(org.Id, "Producer", OrganizationPermissionLevel.Contributor);
+        agent.EmployeeType = EmployeeType.Agent;
+        agent.AgentInstallationId = Guid.NewGuid();
+        db.AddRange(org, owner, agent);
+        await db.SaveChangesAsync();
+        var chat = (await CreateService(db).CreateAsync(org.Id, agent.Id,
+            new CreateCommunicationChatRequest(null, null, true, true, [owner.Id]))).Chat!;
+        var onboarding = await new AgentCommunicationOnboardingService(db).EnsureAsync(org.Id, agent);
+        await db.SaveChangesAsync();
+        Assert.True(onboarding.Succeeded);
+        Assert.Equal(chat.Id, onboarding.ConversationId);
+        Assert.Single(await db.CoreConversations.ToListAsync());
+    }
     private static Organization Organization() => new() { Id = Guid.NewGuid(), Name = "Example",
         Status = OrganizationStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
     private static OrganizationUser User(Guid organizationId, string name, OrganizationPermissionLevel permission, Guid? roleId = null) => new()

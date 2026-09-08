@@ -1,0 +1,37 @@
+@using CSweet.Contracts.Plugins
+@using CSweet.UI.Services
+
+@foreach (var requirement in PluginProviderDeclarations.Collect(Declarations))
+{
+    var profile = Profiles.SingleOrDefault(x => x.Id == requirement.Id);
+    <MudPaper Elevation="0" Outlined="true" Class="pa-3 mt-3">
+        <MudText Typo="Typo.subtitle1">@(requirement.Provider?.DisplayName ?? requirement.Id)</MudText>
+        <MudText Typo="Typo.caption">@requirement.Id</MudText>
+        @if (requirement.Conflicting)
+        {
+            <MudAlert Severity="Severity.Error">Packages declare conflicting provider details. Review their exact package versions before configuring this profile.</MudAlert>
+        }
+        else if (!requirement.CanConfigure)
+        {
+            <MudAlert Severity="Severity.Warning">This package does not declare public OAuth metadata. Ask its publisher for a connector update.</MudAlert>
+        }
+        else if (profile is not null && !requirement.Matches(profile))
+        {
+            <MudAlert Severity="Severity.Error">The existing credential profile does not match the package's declared destinations. It will not be overwritten here. Review the package and deployment configuration.</MudAlert>
+        }
+        else if (profile is null)
+        {
+            <MudText Typo="Typo.body2">Not configured. A deployment administrator must register credentials before users can connect.</MudText>
+            <MudText Typo="Typo.body2">Authorization: @requirement.Provider!.AuthorizationEndpoint</MudText>
+            <MudText Typo="Typo.body2">Token exchange: @(requirement.Provider!.TokenEndpoint)</MudText>
+            <MudButton Variant="Variant.Outlined" Disabled="Busy" OnClick="@(() => Configure.InvokeAsync(requirement))">Configure declared provider</MudButton>
+        }
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<PluginConnectionDeclaration> Declarations { get; set; } = [];
+    [Parameter] public IReadOnlyList<PluginProviderProfileResponse> Profiles { get; set; } = [];
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<PluginProviderDeclarations.Requirement> Configure { get; set; }
+}

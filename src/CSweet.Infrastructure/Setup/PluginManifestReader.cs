@@ -33,9 +33,13 @@ public sealed class PluginManifestReader : IPluginManifestReader
         {
             PropertyNameCaseInsensitive = false
         }) ?? throw new JsonException("Plugin manifest is empty.");
-        if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1") ||
+        var brandingErrors = CSweet.Agent.SDK.AgentCatalogBranding.Validate(
+            manifest.Catalog.ImageUrl, manifest.Catalog.CompanyLogoUrl,
+            manifest.Catalog.AccentColor, manifest.Catalog.LongDescription);
+        if (brandingErrors.Count > 0) throw new JsonException(string.Join(" ", brandingErrors));
+        if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2") ||
             !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
-            throw new JsonException("Executable plugins must require a supported C-Sweet runtime protocol (2.0 or 2.1).");
+            throw new JsonException("Executable plugins must require a supported C-Sweet runtime protocol (2.0, 2.1 or 2.2).");
         if (kind == "agent")
         {
             if (manifest.Catalog.Role is not { } role ||

@@ -11,6 +11,8 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using CSweet.Infrastructure.Persistence;
 using Microsoft.AspNetCore.DataProtection;
 
 namespace CSweet.UnitTests;
@@ -18,10 +20,149 @@ namespace CSweet.UnitTests;
 public sealed class ConnectorActionApprovalTests
 {
     [Fact]
+    public async Task HistoricalStandingPolicyCannotAuthorizeANewConnectorPlan()
+    {
+        await using var f = await Fixture.Create();
+        f.Manager.Role = new() { Id = Guid.NewGuid(), OrganizationId = f.Inner.Organization, Name = "CEO" };
+        f.Inner.Db.Add(f.Manager.Role);
+        f.Inner.Db.AgentInstallationConfigurations.Add(new()
+        {
+            Id = Guid.NewGuid(), AgentInstallationId = f.Inner.Requester.Id, SchemaVersion = "1",
+            SettingsJson = "{\"approvalMode\":\"Fully Autonomous\"}"
+        });
+        f.Inner.Db.PluginStandingPolicies.Add(new()
+        {
+            Id = Guid.NewGuid(), OrganizationId = f.Inner.Organization, AgentInstallationId = f.Inner.Requester.Id,
+            ChannelId = "confirmed", Revision = 1, Status = PluginStandingPolicyStatus.Approved,
+            ApprovedByOrganizationUserId = f.Manager.Id, PayloadHash = f.Plan.PlanHash,
+            PolicyJson = "{\"allowedActionCategories\":[\"Publishing\",\"ContentManagement\",\"CommentReplies\",\"Moderation\",\"LiveConfiguration\",\"Engagement\"]}"
+        });
+        await f.Inner.Db.SaveChangesAsync();
+        var proposal = await f.Request();
+        Assert.Equal(ProposalStatus.Pending, proposal.Status);
+        Assert.Equal("AwaitingApproval", f.Plan.Status);
+        var binding = ConnectorActionApprovalService.Parse(proposal);
+        Assert.True(binding.AlwaysRequiresApproval);
+        Assert.Equal(f.Manager.Id, binding.ApproverOrganizationUserId);
+        Assert.Equal("Fully Autonomous", binding.ApprovalMode);
+        var transport = new MutationTransport();
+        await Assert.ThrowsAnyAsync<Exception>(() => f.Execute(f.Executor(transport)));
+        Assert.Empty(transport.Requests);
+        await f.Service.DecideAsync(f.Inner.Organization, f.Manager.Id, Decision(proposal), default);
+        await f.Execute(f.Executor(transport));
+        Assert.Equal("Completed", f.Plan.Status);
+        Assert.Single(transport.Requests);
+    }
+
+    [Fact]
+    public async Task WrongResponseOwnerAfterMutationIsIndeterminateAndNeverReleased()
+    {
+        await using var f = await Fixture.Create(responseBinding: true);
+        var proposal = await f.Request();
+        await f.Service.DecideAsync(f.Inner.Organization, f.Manager.Id, Decision(proposal), default);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Execute(f.Executor(new MutationTransport())));
+        Assert.Equal("Indeterminate", f.Plan.Status);
+        Assert.Null(f.Plan.ResultJson);
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationStopsPendingOrApprovedWorkAndPersistsOneReceipt(bool approved)
+    {
+        await using var f = await Fixture.Create(); var proposal = await f.Request();
+        f.Inner.Requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] {
+            ConnectorPlanServiceTests.Fixture.Capability, PlatformCapabilities.ConnectorActionCancel });
+        await f.Inner.Db.SaveChangesAsync();
+        if (approved) await f.Service.DecideAsync(f.Inner.Organization, f.Manager.Id, Decision(proposal), default);
+        var service = new ConnectorActionService(f.Inner.Db, f.Inner.Service, f.Service);
+        var request = new CancelConnectorAction(proposal.Id, "cancel-once");
+        var result = await service.CancelAsync(f.Inner.Organization, f.Inner.Requester.Id, request, default);
+        Assert.Equal("Cancelled", result.Status); Assert.Null(result.Result); Assert.Null(result.Decision);
+        Assert.Equal("Cancelled", (await service.CancelAsync(f.Inner.Organization, f.Inner.Requester.Id, request, default)).Status);
+        Assert.Single(await f.Inner.Db.PluginOperationalStates.Where(x => x.Kind == ConnectorActionService.CancellationKind).ToArrayAsync());
+        var transport = new MutationTransport();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Execute(f.Executor(transport)));
+        Assert.Empty(transport.Requests);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CancelAsync(f.Inner.Organization, f.Inner.Requester.Id,
+            request with { IdempotencyKey = "different" }, default));
+    }
+
+    [Theory]
+    [InlineData("Executing")]
+    [InlineData("Completed")]
+    [InlineData("Indeterminate")]
+    public async Task CancellationCannotEraseStartedOrUncertainOutcomes(string status)
+    {
+        await using var f = await Fixture.Create(); var proposal = await f.Request();
+        f.Inner.Requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { PlatformCapabilities.ConnectorActionCancel });
+        f.Plan.Status = status; await f.Inner.Db.SaveChangesAsync();
+        var service = new ConnectorActionService(f.Inner.Db, f.Inner.Service, f.Service);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CancelAsync(f.Inner.Organization, f.Inner.Requester.Id,
+            new(proposal.Id, "cancel"), default));
+        Assert.Equal(status, f.Plan.Status);
+        Assert.Empty(await f.Inner.Db.PluginOperationalStates.Where(x => x.Kind == ConnectorActionService.CancellationKind).ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task CancellationNeedsItsOwnGrantAndCannotSelectAnotherTenantOrInstallation()
+    {
+        await using var f = await Fixture.Create(); var proposal = await f.Request();
+        var service = new ConnectorActionService(f.Inner.Db, f.Inner.Service, f.Service);
+        var request = new CancelConnectorAction(proposal.Id, "cancel");
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.CancelAsync(f.Inner.Organization, f.Inner.Requester.Id, request, default));
+        f.Inner.Requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { PlatformCapabilities.ConnectorActionCancel });
+        await f.Inner.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.CancelAsync(Guid.NewGuid(), f.Inner.Requester.Id, request, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.CancelAsync(f.Inner.Organization, Guid.NewGuid(), request, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.CancelAsync(f.Inner.Organization, f.Inner.Requester.Id,
+            request with { ActionId = Guid.NewGuid() }, default));
+        Assert.Equal("AwaitingApproval", f.Plan.Status);
+    }
+
+    [Fact]
+    public async Task CancellationCannotOverwriteACompetingExecutionClaim()
+    {
+        await using var f = await Fixture.Create(); var proposal = await f.Request();
+        f.Inner.Requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { PlatformCapabilities.ConnectorActionCancel });
+        await f.Inner.Db.SaveChangesAsync();
+        var options = (DbContextOptions<CSweetDbContext>)f.Inner.Db.GetService<IDbContextOptions>();
+        await using (var competing = new CSweetDbContext(options))
+        {
+            var claimed = await competing.ConnectorExecutions.SingleAsync();
+            claimed.Status = "Executing"; claimed.Revision++;
+            await competing.SaveChangesAsync();
+        }
+        var service = new ConnectorActionService(f.Inner.Db, f.Inner.Service, f.Service);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => service.CancelAsync(f.Inner.Organization, f.Inner.Requester.Id,
+            new(proposal.Id, "cancel"), default));
+        await using var verify = new CSweetDbContext(options);
+        Assert.Equal("Executing", (await verify.ConnectorExecutions.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task RevisionFeedbackIsExactAndDisappearsWhenResultAuthorityIsRevoked()
+    {
+        await using var f = await Fixture.Create(); var proposal = await f.Request();
+        f.Inner.Requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] {
+            ConnectorPlanServiceTests.Fixture.Capability, PlatformCapabilities.ConnectorActionRead });
+        await f.Inner.Db.SaveChangesAsync();
+        await f.Service.DecideAsync(f.Inner.Organization, f.Manager.Id, Decision(proposal) with
+            { Decision = "RequestRevision", Comment = "Please shorten the reply." }, default);
+        var service = new ConnectorActionService(f.Inner.Db, f.Inner.Service, f.Service);
+        var result = await service.ReadAsync(f.Inner.Organization, f.Inner.Requester.Id, new(proposal.Id), default);
+        Assert.Equal("RequestRevision", result.Decision!.Decision); Assert.Equal("Please shorten the reply.", result.Decision.Comment);
+        Assert.Null(result.Result);
+        f.Inner.Connection.Status = PluginConnectionStatus.Revoked; await f.Inner.Db.SaveChangesAsync();
+        result = await service.ReadAsync(f.Inner.Organization, f.Inner.Requester.Id, new(proposal.Id), default);
+        Assert.Equal("Unavailable", result.Status); Assert.Null(result.Decision);
+    }
+
+    [Fact]
     public async Task ExactManagerDecisionIsDurableAndReplayCannotCreateAnotherAction()
     {
         await using var f = await Fixture.Create();
         var proposal = await f.Request();
+        Assert.DoesNotContain(f.Plan.Capability, proposal.Summary);
         Assert.Equal(proposal.Id, (await f.Request()).Id);
         Assert.Equal("AwaitingApproval", f.Plan.Status);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.RequireApproved());
@@ -283,8 +424,7 @@ public sealed class ConnectorActionApprovalTests
         f.Manager.EmployeeType = EmployeeType.Agent; f.Manager.AgentInstallationId = Guid.NewGuid();
         await f.Inner.Db.SaveChangesAsync();
         var proposal = await f.Request();
-        var handler = new PluginOperationsCapabilityHandler(f.Inner.Db, new Audit(),
-            new PluginStandingPolicyService(f.Inner.Db, new Audit()), new ConversationService(f.Inner.Db));
+        var handler = new PluginOperationsCapabilityHandler(f.Inner.Db, new Audit());
         var session = new AgentSession("session", "manager", f.Manager.AgentInstallationId.Value.ToString("D"),
             f.Inner.Organization.ToString("D"), Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
             new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(),
@@ -394,11 +534,11 @@ public sealed class ConnectorActionApprovalTests
         public ValueTask DisposeAsync() => Inner.DisposeAsync();
         public ConnectorMutationExecutor Executor(IConnectorHttpTransport transport) => new(Inner.Db, Service, transport, new NoSecrets(), new Audit());
         public Task Execute(ConnectorMutationExecutor executor) => executor.ExecuteAsync(Inner.Organization, Inner.Requester.Id, Plan.Id, Plan.PlanHash, default);
-        public static async Task<Fixture> Create(bool ownership = false)
+        public static async Task<Fixture> Create(bool ownership = false, bool responseBinding = false)
         {
-            var f = new Fixture { Inner = await ConnectorPlanServiceTests.Fixture.Create(ownershipCheck: ownership) };
+            var f = new Fixture { Inner = await ConnectorPlanServiceTests.Fixture.Create(ownershipCheck: ownership, responseBinding: responseBinding) };
             var manifest = JsonSerializer.Deserialize<PluginManifest>(f.Inner.Connector.PackageVersion!.ManifestJson, Json)!;
-            manifest = manifest with { Provides = [manifest.Provides[0] with { Idempotency = "caller-key" }],
+            manifest = manifest with { Provides = [manifest.Provides[0] with { Idempotency = "caller-key", Description = "Change the video title." }],
                 ProviderOperations = [manifest.ProviderOperations[0] with { Effect = "write", Idempotency = "caller-key",
                     Http = manifest.ProviderOperations[0].Http! with { Method = "POST", BodyInputs = new Dictionary<string, string> { ["/title"] = "/search" } } }] };
             f.Inner.Connector.PackageVersion.ManifestJson = JsonSerializer.Serialize(manifest, Json);

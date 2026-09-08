@@ -49,6 +49,7 @@ public sealed class ConnectorReadExecutor(CSweetDbContext db, ConnectorPlanServi
         var response = await transport.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId, frozen.Request, Revalidate, token);
         if (response.StatusCode is < 200 or >= 300)
             throw new InvalidOperationException($"The provider read failed with status {response.StatusCode}; no response content was released.");
+        ConnectorResponseResourceValidator.Validate(response.Body, frozen.Request);
         var sanitized = await SecretResponseSanitizer.SanitizeAsync(response.Body, frozen.Request.SecretResponseFields,
             async (pointer, value, cancellation) =>
             {

@@ -35,6 +35,9 @@ public sealed class AgentCoordinationService(
         CancellationToken cancellationToken = default)
     {
         ValidateStart(request);
+        var canonicalSource = await db.CoreConversations.Where(x => x.OrganizationId == organizationId &&
+            x.Id == request.SourceConversationId).Select(x => x.MergedIntoConversationId).SingleOrDefaultAsync(cancellationToken);
+        if (canonicalSource.HasValue) request = request with { SourceConversationId = canonicalSource.Value };
         var existing = await QuerySession().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey,
             cancellationToken);
@@ -501,6 +504,9 @@ public sealed class AgentCoordinationService(
         Guid organizationId, Guid actorOrganizationUserId, Guid? chatId, bool activeOnly,
         CancellationToken cancellationToken = default)
     {
+        if (chatId.HasValue)
+            chatId = await db.CoreConversations.Where(x => x.OrganizationId == organizationId && x.Id == chatId)
+                .Select(x => x.MergedIntoConversationId).SingleOrDefaultAsync(cancellationToken) ?? chatId;
         var actorIsActive = await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
             x.Id == actorOrganizationUserId && x.OrganizationId == organizationId && x.IsActive,
             cancellationToken);
@@ -518,6 +524,49 @@ public sealed class AgentCoordinationService(
         return mapped;
     }
 
+    public async Task<int> RecoverTransientFailuresAsync(DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        var cutoff = now.AddMinutes(-1);
+        var sessions = await db.AgentCoordinationSessions.AsNoTracking()
+            .Where(x => x.Status == DomainStatus.Failed && x.UpdatedAt <= cutoff &&
+                x.FinalSummary != null && x.FinalSummary.Contains("retryable=true"))
+            .OrderBy(x => x.UpdatedAt).ToListAsync(cancellationToken);
+        var recovered = 0;
+        foreach (var session in sessions)
+        {
+            var correlation = session.Id.ToString("D");
+            var deliveries = await db.AgentWorkItems.AsNoTracking().Where(x =>
+                x.SourceType == "agent-coordination" && x.CorrelationId == correlation)
+                .OrderByDescending(x => x.CreatedAt).ToListAsync(cancellationToken);
+            var failed = deliveries.FirstOrDefault();
+            if (failed is null || failed.Status != AgentWorkStatus.DeadLetter ||
+                !IsTransientDeliveryFailure(failed.LastError) ||
+                deliveries.Where(x => x.CausationId == failed.CausationId).Sum(x => x.AttemptCount) >= 12)
+                continue;
+            var installationIds = new[] { session.InitiatorInstallationId, session.TargetInstallationId };
+            if (await db.AgentInstallations.CountAsync(x => installationIds.Contains(x.Id) && x.IsEnabled &&
+                    x.RevisionStatus == PluginRevisionStatus.Active && x.SetupState == PluginSetupState.Ready,
+                    cancellationToken) != 2 ||
+                await db.CoreOrganizationUsers.CountAsync(x => x.OrganizationId == session.OrganizationId && x.IsActive &&
+                    (x.Id == session.InitiatorOrganizationUserId && x.AgentInstallationId == session.InitiatorInstallationId ||
+                     x.Id == session.TargetOrganizationUserId && x.AgentInstallationId == session.TargetInstallationId), cancellationToken) != 2)
+                continue;
+            await ResumeAsync(session.OrganizationId, session.InitiatorOrganizationUserId, session.InitiatorInstallationId,
+                new ResumeAgentCoordinationRequest(session.Id, session.Revision,
+                    "Retry transient delivery after cooldown, preserving the pending speaker and transcript.",
+                    $"delivery-recovery:{failed.Id:N}"), cancellationToken);
+            recovered++;
+        }
+        return recovered;
+    }
+
+    private static bool IsTransientDeliveryFailure(string? error)
+    {
+        if (error is null || !error.StartsWith("agent-failure:v1;", StringComparison.Ordinal)) return false;
+        var parts = error.Split(';');
+        return parts.Contains("retryable=true", StringComparer.Ordinal) && parts.Any(x =>
+            x is "code=runtime.transport" or "code=runtime.rate_limited" or "code=runtime.timeout");
+    }
     public async Task<AgentCoordinationSession> ResumeAsync(
         Guid organizationId,
         Guid actorOrganizationUserId,
@@ -548,11 +597,21 @@ public sealed class AgentCoordinationService(
         if (session.Status is not (DomainStatus.Failed or DomainStatus.Blocked))
             throw new InvalidOperationException($"The coordination session is {session.Status} and cannot be resumed.");
 
+        // A failed delivery produced no semantic response: retry the failed speaker.
+        var failedDelivery = session.Status == DomainStatus.Failed
+            ? await db.AgentWorkItems.Where(x => x.SourceType == "agent-coordination" &&
+                x.CorrelationId == session.Id.ToString("D") && x.Status == AgentWorkStatus.DeadLetter)
+                .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken)
+            : null;
+        var retryTarget = failedDelivery?.AgentInstallationId == session.TargetInstallationId;
+        var installationId = retryTarget ? session.TargetInstallationId : session.InitiatorInstallationId;
+        var speakerId = retryTarget ? session.TargetOrganizationUserId : session.InitiatorOrganizationUserId;
+        var wasFailed = session.Status == DomainStatus.Failed;
         var now = DateTimeOffset.UtcNow;
         session.Status = DomainStatus.Active;
         session.Revision++;
-        session.IsFinalization = false;
-        session.CurrentOrganizationUserId = session.InitiatorOrganizationUserId;
+        if (!wasFailed) session.IsFinalization = false;
+        session.CurrentOrganizationUserId = speakerId;
         session.CurrentAgentWorkItemId = null;
         session.CompletedAt = null;
         session.FinalSummary = null;
@@ -560,8 +619,7 @@ public sealed class AgentCoordinationService(
         session.UpdatedAt = now;
         await db.SaveChangesAsync(cancellationToken);
         session.CurrentAgentWorkItemId = await EnqueueTurnAsync(
-            session, session.InitiatorInstallationId,
-            session.InitiatorOrganizationUserId, cancellationToken);
+            session, installationId, speakerId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return await MapAsync(session, cancellationToken);

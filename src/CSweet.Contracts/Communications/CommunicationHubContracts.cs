@@ -25,6 +25,7 @@ public sealed record CommunicationChatResponse(
     DateTimeOffset? LastMessageAt,
     int UnreadCount)
 {
+    public IReadOnlyList<Guid> MergedConversationIds { get; init; } = [];
     public Guid? WorkstreamId { get; init; }
     public Guid? TeamId { get; init; }
 }
@@ -96,7 +97,10 @@ public sealed record CommunicationMessageAttachmentResponse(
     string FileName,
     string ContentType,
     long SizeBytes,
-    string Sha256);
+    string Sha256)
+{
+    public Guid? MediaAssetId { get; init; }
+}
 
 public sealed record CommunicationMessageArtifactResponse(
     Guid Id,
@@ -230,7 +234,10 @@ public sealed record ExecutiveDecisionCardResponse(
     string? SelectedOptionId,
     string? FreeTextAnswer,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? AnsweredAt);
+    DateTimeOffset? AnsweredAt)
+{
+    public bool AllowFreeText { get; init; } = true;
+}
 
 public sealed record AnswerExecutiveDecisionRequest(
     [property: MaxLength(80)] string? OptionId,

@@ -11,10 +11,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Communications;
 
-public sealed class ExecutiveDecisionService(
+public sealed partial class ExecutiveDecisionService(
     CSweetDbContext db,
     IChatTurnService turns,
-    IAuditEventWriter? audit = null) : IExecutiveDecisionService
+    IAuditEventWriter? audit = null,
+    IAgentConfigurationService? configurations = null,
+    CSweet.Infrastructure.Setup.AgentWorkRouter? router = null) : IExecutiveDecisionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -74,6 +76,17 @@ public sealed class ExecutiveDecisionService(
                 throw new InvalidOperationException("The decision must be attached to a message sent by the requesting agent.");
         }
 
+        if (command.ConfigurationChange is { } change)
+        {
+            var view = await ReadConfigurationChoiceAsync(command.OrganizationId, command.RequestingInstallationId, change, cancellationToken);
+            var field = view.Fields.Single(x => x.Key == change.Key);
+            var currentLabel = field.Options!.Single(x => x.Value == change.CurrentValue).Label;
+            var proposedLabel = field.Options!.Single(x => x.Value == change.ProposedValue).Label;
+            prompt = $"Current {field.Label}: {currentLabel}. Switch to {proposedLabel}?";
+            options = [new("apply", $"Switch to {proposedLabel}", null), new("leave-unchanged", "Leave unchanged", $"Keep {currentLabel}.")];
+            recommendedOptionId = "apply";
+        }
+
         var now = DateTimeOffset.UtcNow;
         var pending = await db.ExecutiveDecisions
             .Where(x => x.ConversationId == command.ConversationId &&
@@ -85,7 +98,7 @@ public sealed class ExecutiveDecisionService(
             Id = Guid.NewGuid(), OrganizationId = command.OrganizationId, ConversationId = command.ConversationId,
             ChatTurnId = command.ChatTurnId, ConversationMessageId = command.ConversationMessageId,
             RequestingInstallationId = command.RequestingInstallationId,
-            Prompt = prompt, OptionsJson = JsonSerializer.Serialize(options, JsonOptions),
+            Prompt = prompt, OptionsJson = JsonSerializer.Serialize(new StoredDecisionOptions(options, command.ConfigurationChange), JsonOptions),
             RecommendedOptionId = recommendedOptionId, IdempotencyKey = idempotencyKey,
             Status = ExecutiveDecisionStatus.Pending, CreatedAt = now, UpdatedAt = now
         };
@@ -182,14 +195,20 @@ public sealed class ExecutiveDecisionService(
         if (decision.Status != ExecutiveDecisionStatus.Pending)
             return Failure("decision_not_pending", "This decision is no longer pending.", ToCard(decision));
 
-        var options = ReadOptions(decision.OptionsJson);
+        var storedOptions = ReadDecisionOptions(decision.OptionsJson);
+        var options = storedOptions.Options;
         var optionId = Clean(request.OptionId, 80);
         var freeText = Clean(request.SomethingElse, 4000);
+        if (storedOptions.ConfigurationChange is not null && freeText is not null)
+            return Failure("validation_error", "Choose Switch or Leave unchanged for this configuration decision.");
         if ((optionId is null) == (freeText is null))
             return Failure("validation_error", "Choose one option or provide a Something else response.");
         var selected = optionId is null ? null : options.SingleOrDefault(x => x.Id == optionId);
         if (optionId is not null && selected is null)
             return Failure("validation_error", "The selected option is not valid for this decision.");
+
+        if (storedOptions.ConfigurationChange is { } configurationChange)
+            return await AnswerConfigurationChoiceAsync(decision, configurationChange, selected!, actorOrganizationUserId, answerKey, cancellationToken);
 
         var targetAgentId = await db.CoreConversations.AsNoTracking()
             .Where(x => x.Id == conversationId && x.OrganizationId == organizationId && x.ArchivedAt == null)
@@ -286,11 +305,22 @@ public sealed class ExecutiveDecisionService(
             .ToList();
         return new(decision.Id, decision.Prompt, decision.Status.ToString(), options,
             decision.RecommendedOptionId, decision.SelectedOptionId, decision.FreeTextAnswer,
-            decision.CreatedAt, decision.AnsweredAt);
+            decision.CreatedAt, decision.AnsweredAt) { AllowFreeText = ReadDecisionOptions(decision.OptionsJson).ConfigurationChange is null };
     }
 
-    private static List<StoredOption> ReadOptions(string json) =>
-        JsonSerializer.Deserialize<List<StoredOption>>(json, JsonOptions) ?? [];
+    private static List<StoredOption> ReadOptions(string json) => ReadDecisionOptions(json).Options;
+
+    // Legacy decisions stored a bare options array. New decisions also retain their typed action.
+    private static StoredDecisionOptions ReadDecisionOptions(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.ValueKind == JsonValueKind.Array
+            ? new(JsonSerializer.Deserialize<List<StoredOption>>(json, JsonOptions) ?? [], null)
+            : JsonSerializer.Deserialize<StoredDecisionOptions>(json, JsonOptions)
+                ?? throw new InvalidOperationException("The stored decision is invalid.");
+    }
+
+    private sealed record StoredDecisionOptions(List<StoredOption> Options, AgentConfigurationChoice? ConfigurationChange);
 
     private static string Required(string? value, int maximumLength, string name) =>
         Clean(value, maximumLength) ?? throw new ArgumentException($"{name} is required.");

@@ -1,6 +1,9 @@
 using System.Text.Json;
 using CSweet.Application.Core;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.GenAi;
+using CSweet.Infrastructure.GenAi;
+using Microsoft.Extensions.Options;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Communications;
 using CSweet.Infrastructure.Persistence;
@@ -8,12 +11,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Core;
 
-public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
+public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStorageOptions>? mediaOptions = null) : IChatTurnService
 {
-    private const long MaximumAttachmentBytes = 25L * 1024 * 1024;
-    private const long MaximumTotalAttachmentBytes = 50L * 1024 * 1024;
-    private static readonly HashSet<string> AllowedAttachmentTypes = new(StringComparer.OrdinalIgnoreCase)
-    { "image/png", "image/jpeg", "image/webp", "application/pdf", "text/plain", "text/markdown" };
     private static readonly TimeSpan InitialLeaseDuration = TimeSpan.FromMinutes(3);
     private static readonly HashSet<ChatTurnStatus> ActiveStatuses =
     [ChatTurnStatus.Queued, ChatTurnStatus.RecallingMemory, ChatTurnStatus.Dispatching, ChatTurnStatus.Running, ChatTurnStatus.FinalizingMemory];
@@ -153,12 +152,8 @@ public sealed class ChatTurnService(CSweetDbContext db) : IChatTurnService
             .ToListAsync(cancellationToken);
         if (assets.Count != assetIds.Count)
             throw new InvalidOperationException("One or more attachments are unavailable to this organization.");
-        if (assets.Any(x => x.SizeBytes > MaximumAttachmentBytes))
-            throw new InvalidOperationException("Each attachment must be 25 MB or smaller.");
-        if (assets.Sum(x => x.SizeBytes) > MaximumTotalAttachmentBytes)
-            throw new InvalidOperationException("Message attachments must total 50 MB or less.");
-        if (assets.Any(x => !AllowedAttachmentTypes.Contains(x.ContentType)))
-            throw new InvalidOperationException("Attachments must be PNG, JPEG, WebP, PDF, UTF-8 text, or Markdown.");
+        MediaAttachmentPolicy.Validate(assets.Select(x => (x.ContentType, x.SizeBytes)),
+            mediaOptions?.Value.MaximumFileSizeBytes ?? new MediaAssetStorageOptions().MaximumFileSizeBytes);
         return assetIds.Select(id => assets.Single(x => x.Id == id)).ToList();
     }
 

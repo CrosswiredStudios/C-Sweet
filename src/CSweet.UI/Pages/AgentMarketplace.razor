@@ -59,7 +59,7 @@
                 <div class="marketplace-card-grid">
                     @foreach (var agent in FirstPartyAgents)
                     {
-                        <MarketplaceAgentCard Agent="agent" />
+                        <MarketplaceAgentCard @key="agent.AgentReference" Agent="agent" />
                     }
                 </div>
             </section>
@@ -139,7 +139,7 @@
                 <div class="marketplace-card-grid">
                     @foreach (var agent in BrowseAgents)
                     {
-                        <MarketplaceAgentCard Agent="agent" />
+                        <MarketplaceAgentCard @key="agent.AgentReference" Agent="agent" />
                     }
                 </div>
             }

@@ -8,6 +8,7 @@
     <CSweetMemoryRepositoryRoot Condition="'$(CSweetMemoryRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.Memory</CSweetMemoryRepositoryRoot>
     <UseLocalCSweetMemory Condition="'$(UseLocalCSweetMemory)' == '' and Exists('$(CSweetMemoryRepositoryRoot)\src\CSweet.Memory\CSweet.Memory.csproj')">true</UseLocalCSweetMemory>
     <UseLocalCSweetMemory Condition="'$(UseLocalCSweetMemory)' == ''">false</UseLocalCSweetMemory>
+    <CSweetAgentSdkRepositoryRoot Condition="'$(CSweetAgentSdkRepositoryRoot)' == '' and Exists('$(MSBuildThisFileDirectory)..\CSweet.Agent.Sdk\src\CSweet.Agent.SDK\CSweet.Agent.SDK.csproj')">$(MSBuildThisFileDirectory)..\CSweet.Agent.Sdk</CSweetAgentSdkRepositoryRoot>
     <CSweetAgentSdkRepositoryRoot Condition="'$(CSweetAgentSdkRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweetAgentSdk</CSweetAgentSdkRepositoryRoot>
     <UseLocalCSweetAgentSdk Condition="'$(UseLocalCSweetAgentSdk)' == '' and Exists('$(CSweetAgentSdkRepositoryRoot)\src\CSweet.Agent.SDK\CSweet.Agent.SDK.csproj')">true</UseLocalCSweetAgentSdk>
     <UseLocalCSweetAgentSdk Condition="'$(UseLocalCSweetAgentSdk)' == ''">false</UseLocalCSweetAgentSdk>

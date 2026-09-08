@@ -73,6 +73,10 @@ public sealed record PluginRolePolicy
 
 public sealed record PluginCatalogMetadata
 {
+    public string? LongDescription { get; init; }
+    public string? ImageUrl { get; init; }
+    public string? CompanyLogoUrl { get; init; }
+    public string? AccentColor { get; init; }
     public string? Summary { get; init; }
     public string? Category { get; init; }
     public PluginCatalogRole? Role { get; init; }

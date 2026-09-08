@@ -285,7 +285,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         {
             errors.Add("Agent manifest protocol minimumVersion and maximumVersion are required.");
         }
-        else if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1") ||
+        else if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2") ||
                  !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
         {
             errors.Add("Executable plugins must require MCP runtime protocol 2.0 through 2.x.");

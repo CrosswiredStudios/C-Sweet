@@ -129,12 +129,19 @@ public static class CommunicationEndpoints
         });
 
         group.MapGet("/hub/chats/{chatId:guid}/coordination-sessions", async (
-            Guid organizationId, Guid chatId, bool? activeOnly, HttpContext http,
+            Guid organizationId, Guid chatId, bool? activeOnly, Guid? perspectiveOrganizationUserId, HttpContext http,
             ICommunicationHubService hub, IAgentCoordinationService coordination,
             CancellationToken cancellationToken) =>
         {
             var actorId = await ResolveActorAsync(organizationId, http, hub, cancellationToken);
             if (actorId is null) return Results.Forbid();
+            if (perspectiveOrganizationUserId.HasValue && perspectiveOrganizationUserId != actorId)
+            {
+                var view = await hub.GetAsync(organizationId, actorId.Value, perspectiveOrganizationUserId, cancellationToken);
+                if (view is null || !view.Chats.Any(x => x.Id == chatId || x.MergedConversationIds.Contains(chatId)))
+                    return Results.Forbid();
+                actorId = view.ViewedOrganizationUserId;
+            }
             var sessions = await coordination.ListAsync(
                 organizationId, actorId.Value, chatId, activeOnly ?? false, cancellationToken);
             return Results.Ok(sessions.Select(MapCoordination).ToList());

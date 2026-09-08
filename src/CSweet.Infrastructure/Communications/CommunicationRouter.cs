@@ -170,9 +170,11 @@ public sealed class CommunicationRouter(CSweetDbContext db, IChatTurnService tur
     {
         var kind = isDirect ? ConversationKind.DirectHumanAgent : channel?.OrganizationUserId != null ? ConversationKind.AgentChannel :
             channel?.TeamId != null ? ConversationKind.Team : ConversationKind.Project;
+        var directKey = Conversation.ParticipantKey(humanId, targetAgentId);
         var conversation = await db.CoreConversations.Include(x => x.Participants).FirstOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.Kind == kind &&
-            (isDirect ? x.AgentOrganizationUserId == targetAgentId && x.InitiatedByOrganizationUserId == humanId :
+            (isDirect ? x.MergedIntoConversationId == null && (x.DirectParticipantKey == directKey ||
+                x.AgentOrganizationUserId == targetAgentId && x.InitiatedByOrganizationUserId == humanId) :
                 x.TeamId == channel!.TeamId && x.WorkstreamId == channel.WorkstreamId), cancellationToken);
         if (conversation is not null) return conversation;
         var now = DateTimeOffset.UtcNow;

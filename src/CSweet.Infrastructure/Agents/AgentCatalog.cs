@@ -191,6 +191,10 @@ public sealed class AgentCatalogService(
             LicenseSpdxId = ordered.Select(x => x.LicenseSpdxId).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
             LicenseUrl = ordered.Select(x => x.LicenseUrl).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
             IconUrls = ordered.SelectMany(x => x.IconUrls ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            ImageUrl = ordered.Select(x => x.ImageUrl).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+            CompanyLogoUrl = ordered.Select(x => x.CompanyLogoUrl).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+            AccentColor = ordered.Select(x => x.AccentColor).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+            LongDescription = ordered.Select(x => x.LongDescription).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
             Score = ordered.Max(x => x.Score)
         };
     }
@@ -292,7 +296,13 @@ public sealed class InstalledAgentCatalogProvider(CSweetDbContext db) : IAgentCa
             manifest.Catalog.License?.Url,
             manifest.Catalog.IconUrls,
             manifest.RolePolicy?.DeclaredRoleKeys ?? [],
-            manifest.RolePolicy?.SpecializationKeys ?? []);
+            manifest.RolePolicy?.SpecializationKeys ?? [])
+        {
+            ImageUrl = manifest.Catalog.ImageUrl,
+            CompanyLogoUrl = manifest.Catalog.CompanyLogoUrl,
+            AccentColor = manifest.Catalog.AccentColor,
+            LongDescription = manifest.Catalog.LongDescription,
+        };
     }
 
     private static IReadOnlyList<string> ReadList(string? json)
@@ -369,7 +379,13 @@ public sealed class FirstPartyAgentCatalogProvider(IOptions<MarketplaceOptions> 
         NullIfWhiteSpace(item.LicenseUrl),
         item.IconUrls,
         string.IsNullOrWhiteSpace(item.RoleKey) ? [] : [item.RoleKey],
-        item.SpecializationKeys);
+        item.SpecializationKeys)
+    {
+        ImageUrl = item.ImageUrl,
+        CompanyLogoUrl = item.CompanyLogoUrl,
+        AccentColor = item.AccentColor,
+        LongDescription = item.LongDescription,
+    };
 
     private static string? NullIfWhiteSpace(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
     private static bool TryGuid(string reference, string prefix, out Guid id)
@@ -440,7 +456,13 @@ public sealed class MarketplaceAgentCatalogProvider(IMarketplaceDiscoveryService
         item.LicenseUrl,
         item.IconUrls,
         string.IsNullOrWhiteSpace(item.RoleKey) ? [] : [item.RoleKey],
-        []);
+        [])
+    {
+        ImageUrl = item.ImageUrl,
+        CompanyLogoUrl = item.CompanyLogoUrl,
+        AccentColor = item.AccentColor,
+        LongDescription = item.LongDescription,
+    };
 
     private static bool TryGuid(string reference, string prefix, out Guid id)
     {
@@ -599,7 +621,13 @@ public sealed class LocalDirectoryAgentCatalogProvider(
             manifest.Catalog.License?.Url,
             manifest.Catalog.IconUrls,
             manifest.RolePolicy?.DeclaredRoleKeys ?? [],
-            manifest.RolePolicy?.SpecializationKeys ?? []);
+            manifest.RolePolicy?.SpecializationKeys ?? [])
+        {
+            ImageUrl = manifest.Catalog.ImageUrl,
+            CompanyLogoUrl = manifest.Catalog.CompanyLogoUrl,
+            AccentColor = manifest.Catalog.AccentColor,
+            LongDescription = manifest.Catalog.LongDescription,
+        };
     }
 
     private async Task<string> DigestAsync(string directory, CancellationToken token)

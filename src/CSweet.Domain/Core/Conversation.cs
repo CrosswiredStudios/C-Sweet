@@ -2,8 +2,13 @@ namespace CSweet.Domain.Core;
 
 public sealed class Conversation
 {
+    public static string ParticipantKey(Guid first, Guid second) =>
+        string.Join(":", new[] { first.ToString("N"), second.ToString("N") }.Order(StringComparer.Ordinal));
+
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
+    public string? DirectParticipantKey { get; set; }
+    public Guid? MergedIntoConversationId { get; set; }
     public Guid? AgentOrganizationUserId { get; set; }
     public Guid InitiatedByOrganizationUserId { get; set; }
     public ConversationKind Kind { get; set; } = ConversationKind.DirectHumanAgent;

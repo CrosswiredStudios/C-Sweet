@@ -7,6 +7,23 @@ namespace CSweet.UnitTests;
 
 public sealed class ConnectorReadExecutorTests
 {
+    [Theory]
+    [InlineData("confirmed", true)]
+    [InlineData("another-account", false)]
+    public async Task ResponseOwnershipIsCheckedBeforeReadPersistenceOrDelivery(string returnedOwner, bool matches)
+    {
+        await using var f = await ConnectorPlanServiceTests.Fixture.Create(responseBinding: true);
+        var transport = new FakeTransport("confirmed", returnedOwner);
+        var executor = new ConnectorReadExecutor(f.Db, f.Service, transport, new NoSecrets(), new TestAuditEventWriter());
+        var read = () => executor.ExecuteAsync(f.Organization, f.Requester.Id, ConnectorPlanServiceTests.Fixture.Capability,
+            ConnectorPlanServiceTests.Fixture.Input("resource"), "once", default);
+        if (matches) Assert.Equal("confirmed", (await read()).GetProperty("data").GetString());
+        else await Assert.ThrowsAsync<UnauthorizedAccessException>(read);
+        var execution = await f.Db.ConnectorExecutions.SingleAsync();
+        Assert.Equal(matches, execution.Status == "Completed");
+        Assert.Equal(matches, execution.ResultJson is not null);
+        Assert.Empty(await f.Db.PluginOperationalStates.Where(x => x.Kind == "response-secret-reference").ToArrayAsync());
+    }
     [Fact]
     public async Task CompletedReadCannotReturnDataFromATamperedPlan()
     {
@@ -69,7 +86,7 @@ public sealed class ConnectorReadExecutorTests
         Assert.Single(transport.Requests);
     }
 
-    private sealed class FakeTransport(string owner) : IConnectorHttpTransport
+    private sealed class FakeTransport(string owner, string data = "value") : IConnectorHttpTransport
     {
         public List<string> Requests { get; } = [];
         public async Task<ConnectorProviderResponse> SendAsync(Guid connectorId, Guid connectionId,
@@ -77,7 +94,7 @@ public sealed class ConnectorReadExecutorTests
         {
             await revalidate(token); Requests.Add(request.Url);
             return new(200, Encoding.UTF8.GetBytes(request.Url.Contains("/ownership", StringComparison.Ordinal)
-                ? System.Text.Json.JsonSerializer.Serialize(new { owner }) : "{\"data\":\"value\"}"));
+                ? System.Text.Json.JsonSerializer.Serialize(new { owner }) : System.Text.Json.JsonSerializer.Serialize(new { data })));
         }
     }
     private sealed class NoSecrets : IPluginSecretStore

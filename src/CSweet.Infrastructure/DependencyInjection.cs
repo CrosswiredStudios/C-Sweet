@@ -177,7 +177,6 @@ public static class DependencyInjection
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
         builder.Services.AddScoped<IPluginOAuthTokenBroker, PluginOAuthTokenBroker>();
         builder.Services.AddScoped<IPluginProviderProfileRegistry, PluginProviderProfileRegistry>();
-        builder.Services.AddScoped<IPluginStandingPolicyService, PluginStandingPolicyService>();
         builder.Services.AddScoped<IPluginSetupService, PluginSetupService>();
         builder.Services.AddScoped<PluginConnectionCleanupService>();
         builder.Services.AddScoped<ConnectorActionApprovalService>();
@@ -185,6 +184,8 @@ public static class DependencyInjection
         builder.Services.AddScoped<ConnectorProfileApprovalService>();
         builder.Services.AddScoped<ConnectorPlanService>();
         builder.Services.AddScoped<IConnectorHttpTransport, ConnectorHttpTransport>();
+        builder.Services.AddScoped<IConnectorMediaTransport, ConnectorMediaTransport>();
+        builder.Services.AddScoped<ConnectorMediaTransferService>();
         builder.Services.AddScoped<ConnectorReadExecutor>();
         builder.Services.AddScoped<ConnectorMutationExecutor>();
         builder.Services.AddScoped<ConnectorActionService>();
@@ -363,6 +364,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IWorkItemCollaborationService, WorkItemCollaborationService>();
         builder.Services.AddScoped<IWorkSprintService, WorkSprintService>();
         builder.Services.AddScoped<AgentWorkInbox>();
+        builder.Services.AddScoped<AgentWorkRouter>();
         builder.Services.AddScoped<IWorkOrchestrationService, WorkOrchestrationService>();
         builder.Services.AddScoped<IWorkOrchestrator, WorkOrchestrator>();
         var trustedServiceKey = builder.Configuration["CSweet:SourceControl:TrustedServiceKeyBase64"];

@@ -87,7 +87,7 @@ public sealed class ConnectorPlanServiceTests
         public static JsonElement Input(string value) => JsonSerializer.SerializeToElement(new { search = value });
         public Task<ConnectorExecution> Prepare(string value) => Service.PrepareAsync(Organization, Requester.Id, Capability, Input(value), "stable", default);
         public ValueTask DisposeAsync() => Db.DisposeAsync();
-        public static async Task<Fixture> Create(bool ownershipCheck = false)
+        public static async Task<Fixture> Create(bool ownershipCheck = false, bool responseBinding = false)
         {
             var f = new Fixture(); var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var schema = JsonSerializer.Deserialize<JsonElement>("""{"type":"object","properties":{"search":{"type":"string","maxLength":100}},"required":["search"],"additionalProperties":false}""");
@@ -95,7 +95,7 @@ public sealed class ConnectorPlanServiceTests
             var connectorManifest = new PluginManifest
             {
                 Id = "com.example.connector", Kind = "connector", Name = "Example", Version = "0.1.0",
-                Protocol = new() { MinimumVersion = "2.1", MaximumVersion = "2.x" },
+                Protocol = new() { MinimumVersion = responseBinding ? "2.2" : "2.1", MaximumVersion = "2.x" },
                 Runtime = new() { SupportsMultipleInstallations = true },
                 Provides = [new() { Name = Capability, InputSchema = schema, OutputSchema = output, Idempotency = "none" }],
                 Connections = [new() { Id = "account", ProviderProfile = "example.profile", AllowedOrigins = ["https://api.example.com"],
@@ -105,6 +105,7 @@ public sealed class ConnectorPlanServiceTests
                 ProviderOperations = [new() { Capability = Capability, Effect = "read", Idempotency = "none", InputSchema = schema, OutputSchema = output,
                     Http = new() { Connection = "account", ScopeSets = ["base"], Endpoint = "https://api.example.com/items",
                         BoundResourceQuery = "owner", QueryInputs = new Dictionary<string, string> { ["search"] = "/search" },
+                        ResponseResourcePointers = responseBinding ? ["/data"] : [],
                         ResourceChecks = ownershipCheck ? [new() { Endpoint = "https://api.example.com/ownership",
                             InputPointer = "/search", OwnerPointer = "/owner" }] : [] } }]
             };

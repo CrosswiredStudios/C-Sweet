@@ -1,0 +1,174 @@
+@using CSweet.Contracts.GenAi
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<div class="conversation-media-upload">
+    <label class="hub-attachment-button" title="Attach a video, image, document or captions">
+        <MudIcon Icon="@Icons.Material.Outlined.AttachFile" />
+        <input @ref="_input" type="file" accept="@MediaAttachmentPolicy.Accept" @onchange="SelectAsync"
+               disabled="@(Disabled || _busy || !_initialized)" aria-label="@(_ticket is null ? "Attach file" : "Select original file to resume")" />
+    </label>
+    @if (_ticket is not null)
+    {
+        <div role="status" aria-live="polite">
+            <span>@_ticket.Name — @(_busy ? _progress?.Stage : "Paused")</span>
+            @if (_progress is { } progress)
+            {
+                <progress value="@progress.Bytes" max="@progress.Total" aria-label="@progress.Stage"></progress>
+            }
+            @if (_busy)
+            {
+                <button type="button" @onclick="Pause">Pause</button>
+            }
+            else
+            {
+                @if (_file is null) { <small>Select the original file above to resume. Completed bytes are retained.</small> }
+                else { <button type="button" disabled="@Disabled" @onclick="UploadAsync">Resume</button> }
+                <button type="button" disabled="@Disabled" @onclick="RemoveAsync"
+                        title="Stop this attachment. A file already stored in the organization is not deleted.">Remove upload</button>
+            }
+        </div>
+    }
+    @if (_error is not null) { <div role="alert">@_error</div> }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public Guid ConversationId { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public IReadOnlyList<MediaAssetResponse> Attachments { get; set; } = [];
+    [Parameter] public EventCallback<ConversationMediaUploaded> Uploaded { get; set; }
+    [Parameter] public EventCallback<ConversationUploadState> StateChanged { get; set; }
+    private ElementReference _input;
+    private IJSObjectReference? _module;
+    private MediaUploadTicket? _ticket;
+    private SelectedFile? _file;
+    private MediaUploadProgress? _progress;
+    private CancellationTokenSource? _attempt;
+    private bool _busy, _initialized, _disposed;
+    private string? _error;
+    private Guid _organization, _conversation;
+    private sealed record SelectedFile(string Id, string Name, string ContentType, long Size);
+
+    protected override Task OnInitializedAsync()
+    {
+        _organization = OrganizationId; _conversation = ConversationId;
+        // Prevent Send from racing restoration of an unfinished upload after navigation.
+        return StateChanged.InvokeAsync(new(_organization, _conversation, true));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _organization = OrganizationId; _conversation = ConversationId;
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/mediaUploads.js");
+            _ticket = await _module.InvokeAsync<MediaUploadTicket?>("load", _organization, _conversation);
+            // Browser recovery metadata cannot select another organization or conversation.
+            if (_ticket is not null && (_ticket.OrganizationId != _organization || _ticket.ConversationId != _conversation))
+                throw new InvalidOperationException("Upload recovery information did not match this conversation.");
+            _initialized = true;
+            await NotifyAsync();
+        }
+        catch (Exception) { _error = "File attachments could not be initialized. Reload this conversation to try again."; }
+        if (!_disposed) StateHasChanged();
+    }
+
+    private async Task SelectAsync(ChangeEventArgs _)
+    {
+        if (_busy || Disabled || _module is null) return;
+        _error = null;
+        try
+        {
+            var selected = await _module.InvokeAsync<SelectedFile[]>("capture", _input);
+            if (selected.Length == 0) return;
+            if (_file is not null) await _module.InvokeVoidAsync("release", _file.Id);
+            _file = selected[0];
+            await UploadAsync();
+        }
+        catch (Exception) { _error = "The selected file could not be opened. Please select it again."; }
+    }
+
+    private async Task UploadAsync()
+    {
+        if (_busy || Disabled || _file is null || _module is null || _disposed) return;
+        _busy = true; _error = null;
+        using var attempt = new CancellationTokenSource();
+        _attempt = attempt;
+        await NotifyAsync();
+        try
+        {
+            var client = new ResumableAttachmentUpload(Http);
+            var type = MediaAttachmentPolicy.ContentType(_file.Name, _file.ContentType);
+            var policy = await client.ReadPolicyAsync(_organization, attempt.Token);
+            MediaAttachmentPolicy.Validate(Attachments.Where(x => _ticket?.Sha256 is null ||
+                    x.Sha256 != _ticket.Sha256 || x.FileName != _ticket.Name || x.SizeBytes != _ticket.Size)
+                .Select(x => (x.ContentType, x.SizeBytes))
+                .Append((type, _file.Size)), policy.MaximumFileSizeBytes);
+            var selected = _file;
+            var module = _module;
+            var file = new MediaUploadFile(selected.Name, type, selected.Size,
+                (offset, count, ct) => module.InvokeAsync<byte[]>("read", ct, selected.Id, offset, count).AsTask());
+            var asset = await client.UploadAsync(_organization, _conversation, file, _ticket, async ticket =>
+            {
+                attempt.Token.ThrowIfCancellationRequested();
+                await module.InvokeVoidAsync("save", attempt.Token, _organization, _conversation, ticket);
+                _ticket = ticket;
+            }, progress =>
+            {
+                _progress = progress;
+                if (!_disposed) _ = InvokeAsync(StateHasChanged);
+            }, attempt.Token);
+            attempt.Token.ThrowIfCancellationRequested();
+            await Uploaded.InvokeAsync(new(_organization, _conversation, asset));
+            await ClearAsync();
+        }
+        catch (OperationCanceledException) { _error = "Upload paused. Resume when you are ready."; }
+        catch (InvalidOperationException exception) { _error = exception.Message; }
+        catch (Exception) { _error = "The upload was interrupted. Resume to check the stored progress."; }
+        finally
+        {
+            _attempt = null; _busy = false;
+            if (!_disposed) await NotifyAsync();
+        }
+    }
+
+    private void Pause() => _attempt?.Cancel();
+    private async Task RemoveAsync()
+    {
+        if (_busy || _ticket is null || Disabled) return;
+        _busy = true; _error = null;
+        using var attempt = new CancellationTokenSource();
+        _attempt = attempt;
+        try
+        {
+            await new ResumableAttachmentUpload(Http).CancelAsync(_ticket, attempt.Token);
+            await ClearAsync();
+        }
+        catch (Exception) { _error = "The upload could not be stopped. Try removing it again when connected."; }
+        finally { _attempt = null; _busy = false; if (!_disposed) await NotifyAsync(); }
+    }
+    private async Task ClearAsync()
+    {
+        if (_module is null) return;
+        await _module.InvokeVoidAsync("forget", _organization, _conversation);
+        _ticket = null; _progress = null;
+        if (_file is not null) await _module.InvokeVoidAsync("release", _file.Id);
+        _file = null;
+    }
+    private Task NotifyAsync() => StateChanged.InvokeAsync(new(_organization, _conversation, _busy || _ticket is not null));
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true; _attempt?.Cancel();
+        if (_module is null) return;
+        try
+        {
+            if (_file is not null) await _module.InvokeVoidAsync("release", _file.Id);
+            await _module.DisposeAsync();
+        }
+        catch (JSException) { }
+        // Navigating away pauses the transfer; it does not erase its recovery record.
+    }
+}

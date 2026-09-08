@@ -19,13 +19,15 @@ public sealed class AgentCatalogServiceTests
     [Fact]
     public async Task Aggregate_DeduplicatesByAgentIdAndPrefersFirstPartyRepositorySource()
     {
-        var firstParty = Agent("first-party:1", AgentCatalogSource.FirstPartyCatalog);
+        var firstParty = Agent("first-party:1", AgentCatalogSource.FirstPartyCatalog) with { AccentColor = "#224466", ImageUrl = "https://example.com/portrait.webp" };
         var local = Agent("local:1", AgentCatalogSource.LocalDirectory) with
         {
             RoleKey = null,
             RoleName = null,
             LicenseSpdxId = null,
-            IconUrls = []
+            IconUrls = [],
+            LongDescription = "A richer local description.",
+            CompanyLogoUrl = "https://example.com/logo.svg"
         };
         var service = new AgentCatalogService(
             [
@@ -43,6 +45,10 @@ public sealed class AgentCatalogServiceTests
         Assert.Contains(AgentCatalogSource.LocalDirectory, agent.AlternateSources);
         Assert.Equal("https://github.com/example/product-manager", agent.RepositoryUrl);
         Assert.Equal("com.csweet.product-manager", agent.AgentId);
+        Assert.Equal("#224466", agent.AccentColor);
+        Assert.Equal("https://example.com/portrait.webp", agent.ImageUrl);
+        Assert.Equal("https://example.com/logo.svg", agent.CompanyLogoUrl);
+        Assert.Equal("A richer local description.", agent.LongDescription);
         Assert.Equal("product-manager", agent.RoleKey);
         Assert.Equal("Product Manager", agent.RoleName);
     }
@@ -137,6 +143,10 @@ public sealed class AgentCatalogServiceTests
             Assert.True(result.Health.Available);
             Assert.Null(result.Health.Message);
             Assert.Equal(AgentCatalogSource.LocalDirectory, agent.Source);
+            Assert.Equal("https://example.com/portrait.webp", agent.ImageUrl);
+            Assert.Equal("https://example.com/logo.svg", agent.CompanyLogoUrl);
+            Assert.Equal("#224466", agent.AccentColor);
+            Assert.Equal("Delivers discovery, requirements, and roadmap planning.", agent.LongDescription);
             Assert.StartsWith("local:com.csweet.product-manager:", agent.AgentReference);
             Assert.DoesNotContain(root, JsonSerializer.Serialize(agent), StringComparison.OrdinalIgnoreCase);
             Assert.Null(agent.RepositoryUrl);
@@ -176,6 +186,10 @@ public sealed class AgentCatalogServiceTests
 
         var agent = Assert.Single(result.Agents);
         Assert.Equal("Visible Agent", agent.Name);
+        Assert.Equal("https://example.com/portrait.webp", agent.ImageUrl);
+        Assert.Equal("https://example.com/logo.svg", agent.CompanyLogoUrl);
+        Assert.Equal("#224466", agent.AccentColor);
+        Assert.Equal("Delivers discovery, requirements, and roadmap planning.", agent.LongDescription);
         Assert.Equal(AgentAvailabilityState.InstalledEnabled, agent.Availability);
     }
 
@@ -280,6 +294,10 @@ public sealed class AgentCatalogServiceTests
       "events": { "subscribes": [] },
       "catalog": {
         "summary": "Owns product outcomes.",
+        "imageUrl": "https://example.com/portrait.webp",
+        "companyLogoUrl": "https://example.com/logo.svg",
+        "accentColor": "#224466",
+        "longDescription": "Delivers discovery, requirements, and roadmap planning.",
         "category": "Product",
         "role": { "key": "product-manager", "name": "Product Manager" },
         "license": { "spdxId": "MIT" },

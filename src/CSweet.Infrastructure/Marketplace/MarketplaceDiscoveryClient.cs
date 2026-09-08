@@ -30,6 +30,11 @@ public sealed class FirstPartyMarketplaceAgentOptions
     public string ListingSlug { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
+    public string? LongDescription { get; set; }
+    public string? ImageUrl { get; set; }
+    public string? CompanyLogoUrl { get; set; }
+    public string? AccentColor { get; set; }
+
     public string Category { get; set; } = "Operations";
     public string RoleKey { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
@@ -217,7 +222,13 @@ public sealed class MarketplaceDiscoveryClient(
             item.RatingCount, item.IsFeatured, item.RepositoryUrl, item.DocumentationUrl,
             new Uri(http.BaseAddress!, item.ListingPath).ToString(), false,
             item.RoleKey, item.RoleName, item.RoleAliases, item.Keywords,
-            item.LicenseSpdxId, item.LicenseUrl, item.IconUrls);
+            item.LicenseSpdxId, item.LicenseUrl, item.IconUrls)
+        {
+            ImageUrl = item.ImageUrl,
+            CompanyLogoUrl = item.CompanyLogoUrl,
+            AccentColor = item.AccentColor,
+            LongDescription = item.LongDescription,
+        };
 
     private IReadOnlyList<MarketplaceAgentResponse> FirstPartyAgents() =>
         options.Value.FirstPartyAgents
@@ -254,7 +265,13 @@ public sealed class MarketplaceDiscoveryClient(
                 x.Keywords,
                 NullIfWhiteSpace(x.LicenseSpdxId),
                 NullIfWhiteSpace(x.LicenseUrl),
-                x.IconUrls))
+                x.IconUrls)
+            {
+                ImageUrl = x.ImageUrl,
+                CompanyLogoUrl = x.CompanyLogoUrl,
+                AccentColor = x.AccentColor,
+                LongDescription = x.LongDescription,
+            })
             .ToArray();
 
     private static IReadOnlyList<MarketplaceAgentResponse> FilterFirstParty(
@@ -345,7 +362,13 @@ public sealed class MarketplaceDiscoveryClient(
         IReadOnlyList<string>? Keywords = null,
         string? LicenseSpdxId = null,
         string? LicenseUrl = null,
-        IReadOnlyList<string>? IconUrls = null);
+        IReadOnlyList<string>? IconUrls = null)
+    {
+        public string? LongDescription { get; init; }
+        public string? ImageUrl { get; init; }
+        public string? CompanyLogoUrl { get; init; }
+        public string? AccentColor { get; init; }
+    }
 
     private static string? NullIfWhiteSpace(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

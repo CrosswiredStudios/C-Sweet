@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using CSweet.Agent.SDK;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
@@ -11,6 +12,49 @@ namespace CSweet.UnitTests;
 
 public sealed class PluginConnectionCleanupTests
 {
+    [Theory]
+    [InlineData("Prepared", "Cancelled")]
+    [InlineData("AwaitingApproval", "Cancelled")]
+    [InlineData("Approved", "Cancelled")]
+    [InlineData("Blocked", "Cancelled")]
+    [InlineData("Rejected", "Cancelled")]
+    [InlineData("RevisionRequested", "Cancelled")]
+    [InlineData("Expired", "Cancelled")]
+    [InlineData("Cancelled", "Cancelled")]
+    [InlineData("Executing", "Indeterminate")]
+    [InlineData("Indeterminate", "Indeterminate")]
+    [InlineData("Completed", "Completed")]
+    [InlineData("Unrecognized", "Indeterminate")]
+    public async Task DisconnectPurgesProviderCopiesWithoutFalselyCancellingSentActions(string before, string after)
+    {
+        await using var f = await ConnectorPlanServiceTests.Fixture.Create();
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(f.Connector.PackageVersion!.ManifestJson, Json)! with
+        { Setup = new() { EntryFlow = "setup", Required = true, Flows = [new() { Id = "setup", Steps = [new()
+            { Id = "connect", Kind = "oauth-connect", Connection = "account", ScopeSet = "base" }] }] } };
+        f.Connector.PackageVersion.ManifestJson = JsonSerializer.Serialize(manifest, Json);
+        var plan = await f.Prepare("one");
+        plan.Status = before; plan.ApprovalId = Guid.NewGuid();
+        plan.ResultJson = "{\"providerText\":\"purge this\"}";
+        f.Requester.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { PlatformCapabilities.ConnectorActionRead });
+        await f.Db.SaveChangesAsync();
+        using var http = new Http();
+        var service = new PluginSetupService(f.Db, new Secrets(), new EphemeralDataProtectionProvider(), http,
+            null!, new Profiles(), null!, null!, new Audit());
+        await service.DisconnectAsync(f.Organization, f.Connector.Id, "account");
+        Assert.Equal(after, plan.Status); Assert.Null(plan.ResultJson);
+        Assert.Equal("{}", plan.PlanJson); Assert.Empty(plan.ResourceId);
+        Assert.False(f.Connector.IsEnabled); Assert.Equal(PluginConnectionStatus.Revoked, f.Connection.Status);
+
+        // Revoked authority never releases a result or approval feedback, nor a false "not sent" receipt.
+        var actions = new ConnectorActionService(f.Db, f.Service, null!);
+        var receipt = await actions.ReadAsync(f.Organization, f.Requester.Id, new(plan.ApprovalId.Value), default);
+        Assert.Equal(after == "Cancelled" ? "Cancelled" : "Unavailable", receipt.Status);
+        Assert.Null(receipt.Result); Assert.Null(receipt.Decision);
+        if (after != "Cancelled") Assert.Equal("authority_changed", receipt.ConditionCode);
+        await service.DisconnectAsync(f.Organization, f.Connector.Id, "account");
+        Assert.Equal(after, plan.Status); // A repeated disconnect cannot erase the outcome either.
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
