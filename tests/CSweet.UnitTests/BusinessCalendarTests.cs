@@ -166,6 +166,20 @@ public sealed class BusinessCalendarTests
         Assert.Empty(await f.Db.CoreWorkTasks.ToListAsync());
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.ReadAsync(f.Org, actor, f.Query, default));
     }
+    [Fact]
+    public async Task CeoCanScheduleAnUnattachedWorker()
+    {
+        await using var f = await Fixture.Create();
+        var owner = await f.Db.CoreOrganizationUsers.SingleAsync(x => x.Id == f.Owner);
+        owner.PermissionLevel = OrganizationPermissionLevel.Owner;
+        await f.Db.SaveChangesAsync();
+        var worker = await f.Member(OrganizationPermissionLevel.Contributor);
+        await f.Service.CreateAsync(f.Org, f.Actor,
+            new(Event(f.Start) with { Work = new("Instructions", worker.OrganizationUserId!.Value, "Prepare report") }, "ceo"), default);
+        await f.Service.DispatchDueAsync(default);
+        var result = await f.Db.Set<BusinessCalendarDispatch>().SingleAsync();
+        Assert.True(result.Status == "Delivered", result.Error);
+    }
     [Theory]
     [InlineData("Month")]
     [InlineData("Week")]
@@ -176,6 +190,43 @@ public sealed class BusinessCalendarTests
         Assert.Equal($"/organizations/{target}/calendar?view={view}", BusinessNavigation.SwitchDestination($"/organizations/{Guid.NewGuid()}/calendar?view={view}", target));
     }
 
+    [Fact]
+    public async Task MovingDispatchedOneTimeEventPreservesAssignmentWithoutReplaying()
+    {
+        await using var f = await Fixture.Create();
+        var input = Event(f.Start) with { Work = new("Instructions", f.Owner, "Report") };
+        var created = await f.Service.CreateAsync(f.Org, f.Actor, new(input, "move-once"), default);
+        await f.Service.DispatchDueAsync(default);
+        var item = (await f.Db.Set<BusinessCalendarDispatch>().SingleAsync()).WorkItemId;
+        await f.Service.UpdateAsync(f.Org, f.Actor, new(created.Id, created.Revision,
+            input with { StartLocal = f.Start.AddHours(1), EndLocal = f.Start.AddHours(2) }), default);
+        await f.Service.DispatchDueAsync(default);
+        Assert.Single(await f.Db.CoreWorkTasks.ToListAsync());
+        Assert.Equal(item, (await f.Service.ReadAsync(f.Org, f.Actor, f.Query, default)).Occurrences.Single().WorkItemId);
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DueWorkRechecksReportingAuthorityAndTargetStatus(bool deactivate)
+    {
+        await using var f = await Fixture.Create();
+        var manager = await f.Db.CoreOrganizationUsers.SingleAsync(x => x.Id == f.Owner);
+        manager.PermissionLevel = OrganizationPermissionLevel.Manager;
+        var workerActor = await f.Member(OrganizationPermissionLevel.Contributor);
+        var worker = await f.Db.CoreOrganizationUsers.SingleAsync(x => x.Id == workerActor.OrganizationUserId);
+        worker.ReportsToOrganizationUserId = manager.Id;
+        await f.Db.SaveChangesAsync();
+        await f.Service.CreateAsync(f.Org, f.Actor,
+            new(Event(f.Start) with { Work = new("Instructions", worker.Id, "Report") }, "hierarchy"), default);
+        if (deactivate) worker.IsActive = false;
+        else worker.ReportsToOrganizationUserId = null;
+        await f.Db.SaveChangesAsync();
+        await f.Service.DispatchDueAsync(default);
+        var dispatch = await f.Db.Set<BusinessCalendarDispatch>().SingleAsync();
+        Assert.Equal("Blocked", dispatch.Status);
+        Assert.False(string.IsNullOrWhiteSpace(dispatch.Error));
+        Assert.Empty(await f.Db.CoreWorkTasks.ToListAsync());
+    }
     private static CalendarEventInput Event(DateTime start) => new("Planning", start, start.AddHours(1));
     private sealed class FixedClock : TimeProvider { public override DateTimeOffset GetUtcNow() => new(2026, 9, 8, 12, 0, 0, TimeSpan.Zero); }
     private sealed class Fixture : IAsyncDisposable

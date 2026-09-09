@@ -55,21 +55,21 @@
     }
     @if (_editing)
     {
-        <div class="calendar-overlay"><section role="dialog" aria-modal="true" aria-labelledby="event-heading" class="calendar-editor">
+        <div class="calendar-overlay"><MudFocusTrap Class="calendar-focus"><section role="dialog" aria-modal="true" aria-labelledby="event-heading" class="calendar-editor" @onkeydown="EditorKey">
             <header><h2 id="event-heading">@(_selected is null ? "New event" : "Event details")</h2><button aria-label="Close event" @onclick="() => _editing = false">×</button></header>
             @if (_selected?.WorkError is not null) { <p role="alert">@_selected.WorkError</p> }
-            @if (_selected?.WorkItemId is { } workId) { <p>Created assignment: @workId</p> }
+            @if (_selected?.WorkItemId is { } workId) { <p><a href="@($"/organizations/{OrganizationId}/work")">View work queue</a> · Assignment @workId</p> }
             <fieldset disabled="@(!Editable || _saving)">
                 @if (_selected?.Series.Event.Recurrence is not null)
                 { <label>Edit <select @bind="_editScope" @bind:after="ResetScope"><option value="Occurrence">This occurrence</option><option value="Series">Entire series (clears occurrence overrides)</option></select></label> }
                 <label>Title <input @bind="_title" maxlength="300" /></label>
                 <label>Description <textarea @bind="_description" rows="3"></textarea></label>
                 <div class="calendar-fields"><label>Start <input type="datetime-local" @bind="_start" /></label><label>End (exclusive) <input type="datetime-local" @bind="_end" /></label></div>
-                <label><input type="checkbox" @bind="_allDay" /> All day (midnight to midnight)</label>
+                <label><input type="checkbox" @bind="_allDay" @bind:after="AllDayChanged" /> All day (midnight to midnight)</label>
                 <label>Time zone <input @bind="_zone" list="calendar-zones" /></label>
                 <datalist id="calendar-zones">@foreach (var zone in TimeZoneInfo.GetSystemTimeZones()) { <option value="@zone.Id">@zone.DisplayName</option> }</datalist>
                 <label>Location <input @bind="_location" /></label>
-                <label>Owner <select @bind="_owner" disabled="@(_selected is not null && _editScope == "Occurrence")">@foreach (var member in _calendar!.Members) { <option value="@member.Id">@member.Name</option> }</select></label>
+                <label>Owner <select @bind="_owner" disabled="@(!_calendar!.CanConfigure || (_selected is not null && _editScope == "Occurrence"))">@foreach (var member in _calendar!.Members) { <option value="@member.Id">@member.Name</option> }</select></label>
                 <details><summary>Attendees (@_attendees.Count)</summary>@foreach (var member in _calendar!.Members) { <label><input type="checkbox" checked="@_attendees.Contains(member.Id)" @onchange="e => ToggleAttendee(member.Id, e)" /> @member.Name</label> }</details>
                 <label>Reminder minutes before start (comma separated) <input @bind="_reminderText" placeholder="15, 60" /></label>
                 @if (_selected is null || _editScope == "Series")
@@ -86,11 +86,11 @@
                     <p>Work starts at the event start time, subject to current permissions and work approvals.</p>
                 }
             </fieldset>
-            @if (_editorError is not null) { <p class="calendar-error" role="alert">@_editorError</p> }
+            @if (_editorError is not null) { <div class="calendar-error" role="alert">@_editorError <button @onclick="DiscardAndRefresh">Discard edits and refresh</button></div> }
             <footer>@if (Editable) { <button class="primary" disabled="@_saving" @onclick="Save">Save event</button>
                 @if (_selected is not null) { <button disabled="@_saving" @onclick="Cancel">Cancel @(_editScope == "Series" ? "series" : "event")</button> } }
                 <button @onclick="() => _editing = false">Close</button></footer>
-        </section></div>
+        </section></MudFocusTrap></div>
     }
 </div>
 
@@ -143,7 +143,7 @@
         } catch (Exception ex) { _error = ex.Message; }
     }
     private async Task Move(int direction) { _date = View == "Month" ? _date.AddMonths(direction) : _date.AddDays(direction * (View == "Week" ? 7 : 30)); await Load(); }
-    private async Task Today() { _date = DateTime.Today; await Load(); }
+    private async Task Today() { _date = Display(DateTimeOffset.UtcNow).Date; await Load(); }
     private void ChangeView(ChangeEventArgs e) => Navigation.NavigateTo($"/organizations/{OrganizationId}/calendar?view={e.Value}");
     private async Task Dismiss(Guid id) { try { await Api.MarkReadAsync(OrganizationId, id); await Load(); } catch (Exception ex) { _error = ex.Message; } }
     private async Task SaveSettings() { try { await Api.SettingsAsync(OrganizationId, new(_settingsZone, _calendar!.Revision)); await Load(); } catch (Exception ex) { _error = ex.Message; } }
@@ -155,6 +155,14 @@
         _owner = input.OwnerOrganizationUserId ?? _calendar!.ActorId; _attendees = (input.AttendeeIds ?? []).ToHashSet(); _reminderText = string.Join(", ", input.ReminderMinutes ?? []);
         _frequency = input.Recurrence?.Frequency ?? ""; _interval = input.Recurrence?.Interval ?? 1; _count = input.Recurrence?.Count; _until = input.Recurrence?.Until?.ToDateTime(TimeOnly.MinValue);
         _workKind = input.Work?.Kind ?? ""; _target = input.Work?.TargetOrganizationUserId ?? _calendar!.ActorId; _instructions = input.Work?.Instructions ?? ""; _itemId = input.Work?.ItemId?.ToString() ?? ""; _editorError = null;
+    }
+    private void EditorKey(KeyboardEventArgs e) { if (e.Key == "Escape") _editing = false; }
+    private async Task DiscardAndRefresh() { _editing = false; await Load(); }
+    private void AllDayChanged()
+    {
+        if (!_allDay) return;
+        _start = _start.Date; _end = _end.Date;
+        if (_end <= _start) _end = _start.AddDays(1);
     }
     private void ToggleAttendee(Guid id, ChangeEventArgs e) { if (e.Value is true) _attendees.Add(id); else _attendees.Remove(id); }
     private async Task Save() {

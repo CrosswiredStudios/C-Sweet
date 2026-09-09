@@ -1,0 +1,19 @@
+# Business calendar
+
+Each business has a shared calendar under business navigation. Month, week and agenda routes preserve the selected view when switching businesses. Configure the business time zone in Calendar settings; existing businesses default to UTC.
+
+Active members can read. Contributors can create and edit their own events; managers and the CEO can edit all events. Scheduling authority follows the reporting hierarchy, with CEO access to all active workers. Agent manifest requests require the existing installation upgrade permission review; installing an update does not silently approve new access.
+
+Events support local timed or all-day boundaries, attendees, reminders and daily/weekly/monthly/yearly recurrence. Monthly and yearly recurrence skips invalid dates. Spring-forward gaps advance to the first valid minute; ambiguous fall-back times use the earlier instant. An occurrence exception retains its original local recurrence key. All-day end dates are exclusive.
+
+Work instructions create one assignment per occurrence. Existing backlog personal items can be activated once. Scheduling does not grant execution authority: work uses the canonical personal work service and its approvals, outbox and runtime activation. Unsupported agent work remains blocked through the existing work lifecycle. Blocked scheduling appears on the calendar; correct the cause and save the event to retry. Editing a dispatched one-time event retains its assignment link without replaying it.
+
+Recovery executes missed one-time work and the latest missed recurring occurrence, recording earlier occurrences as skipped. Reminders coalesce overdue notices per event and recipient. Already-created assignments remain managed in Work. Calendar cancellations retain tombstones, revisions and transactional change records for future synchronization adapters.
+
+HTTP routes are under `/api/organizations/{organizationId}/calendar`. The SDK exposes typed operations through `context.Platform.Calendar`; capability names and reminder event contracts are in `CSweet.WorkManagement.Contracts`. Calendar creation uses a caller-supplied idempotency key; edits and cancellations require an expected revision.
+
+The additive `AddBusinessCalendar` migration provisions existing calendars. New business creation provisions a UTC calendar. Run the normal application migration/deployment workflow. The AgentHost calendar worker polls every 15 seconds; the UI polls reminders every 30 seconds.
+
+Release packages: WorkManagement.Contracts 3.20.0 and Agent.SDK 3.40.0. The populated SDK checkout is `../CSweet.Agent.Sdk`; the legacy `../CSweetAgentSdk` location is only a fallback. First-party agent manifests, model tools, reminder handling, versions and permission tests are updated together.
+
+Validation: 17 calendar unit tests, two HTTP authentication tests, SDK and contracts suites, agent suites/self-tests, template generation and local NuGet packing. EF reports no pending model changes. Live month/week/agenda views and event form were inspected without creating business data. Relational competing-scheduler stress tests and a live agent/human dispatch walkthrough remain unverified. The broader unit suite has two failures outside calendar (optional briefing settings and an empty manifest fixture).

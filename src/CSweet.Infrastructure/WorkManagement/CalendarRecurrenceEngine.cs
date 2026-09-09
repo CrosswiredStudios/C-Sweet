@@ -58,6 +58,7 @@ public static class CalendarRecurrenceEngine
 
     public static void Validate(CalendarEventInput input)
     {
+        ArgumentNullException.ThrowIfNull(input);
         if (string.IsNullOrWhiteSpace(input.Title) || input.Title.Length > 300 || input.Description?.Length > 16000 || input.Location?.Length > 1000)
             throw new ArgumentException("A title of up to 300 characters is required; description/location are limited to 16000/1000 characters.");
         if (input.StartLocal.Kind != DateTimeKind.Unspecified || input.EndLocal.Kind != DateTimeKind.Unspecified)

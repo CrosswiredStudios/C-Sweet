@@ -16,15 +16,14 @@ public sealed class InstalledAgentCardTests
     [InlineData("Cloning", false)]
     [InlineData("Building", false)]
     [InlineData("Failed", true)]
-    public async Task ActiveOrJustRequestedBuild_RendersDisabledBuildingAndProgress(string status, bool pending)
+    public async Task ActiveOrJustRequestedBuild_RendersUpdatingChipAndProgress(string status, bool pending)
     {
         var html = await Render(Installation(status), pending);
-        Assert.Contains("disabled", html);
-        Assert.Contains("Building", html);
+        Assert.Contains("Updating", html);
         Assert.Contains("Show build progress", html);
         Assert.Contains("Restore dependencies", html);
         Assert.DoesNotContain(">Rebuild<", html);
-        Assert.DoesNotContain("View details", html);
+        Assert.Contains("View details for Agent", html);
     }
 
     [Fact]
@@ -56,7 +55,10 @@ public sealed class InstalledAgentCardTests
         var html = await Render(Installation("Succeeded"), progressTitle: "Agent ready");
         var card = html[..html.IndexOf("</article>", StringComparison.Ordinal)];
         Assert.DoesNotContain("Agent ready", card);
-        Assert.Contains("Available for hire", card);
+        Assert.DoesNotContain("Available for hire", card);
+        Assert.Contains("View details for Agent", card);
+        Assert.Contains("Configure global defaults for Agent", card);
+        Assert.DoesNotContain(">Details<", card);
     }
 
     private static AgentInstallationResponse Installation(string status) => new(

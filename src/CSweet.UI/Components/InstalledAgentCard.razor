@@ -1,6 +1,7 @@
 @using CSweet.Contracts.Agents
 
-<article class="installed-agent-card" aria-label="@Installation.AgentName">
+<article class="installed-agent-card" aria-label="@Installation.AgentName" @onmouseleave="CloseUnpinnedProgress">
+    <button type="button" class="installed-agent-details-target" aria-label="View details for @Installation.AgentName" @onclick="OpenDetails"></button>
     <div class="installed-agent-version">
         <span>@($"v{Installation.AgentVersion}")</span>
         @if (Update is not null)
@@ -8,7 +9,7 @@
             <div class="agent-card-popover-host update-preview @(_updatePreviewOpen ? "is-open" : "")" tabindex="0" aria-label="Update to version @Update.AvailableVersion"
                  @onmouseenter="@(() => _updatePreviewOpen = true)" @onmouseleave="@(() => _updatePreviewOpen = false)"
                  @onfocusin="@(() => _updatePreviewOpen = true)" @onfocusout="@(() => _updatePreviewOpen = false)" @onkeydown="ClosePopupOnEscape">
-                <MudIconButton Icon="@Icons.Material.Filled.SystemUpdateAlt" Color="Color.Primary" Size="Size.Small"
+                <MudIconButton Icon="@Icons.Material.Filled.SystemUpdateAlt" Color="Color.Info" Size="Size.Small"
                                aria-label="@($"Update {Installation.AgentName} to {Update.AvailableVersion}")"
                                Disabled="@(Busy || Building)" OnClick="OnUpdate" />
                 <div class="agent-card-popover" role="tooltip">
@@ -23,31 +24,33 @@
         <div class="installed-agent-name">
             <MudText Typo="Typo.subtitle1">@Installation.AgentName</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">@(Installation.RoleName ?? "Agent definition")</MudText>
-            <MudText Typo="Typo.caption" Color="@StatusColor">@StatusLabel</MudText>
+            @if (Building)
+            {
+                <div class="agent-card-popover-host installed-agent-progress @(_progressOpen ? "is-open" : "")" @onkeydown="ClosePopupOnEscape">
+                    <button type="button" class="installed-agent-updating" aria-label="Show build progress for @Installation.AgentName"
+                            aria-expanded="@_progressOpen" @onclick="ToggleProgress"
+                            @onmouseenter="@(() => _progressOpen = true)" @onfocus="@(() => _progressOpen = true)" @onblur="CloseUnpinnedProgress">
+                        <MudProgressCircular Indeterminate="true" Size="Size.Small" /> Updating
+                    </button>
+                    <div class="agent-card-popover">
+                        <AgentBuildProgressContent Build="Installation.Build" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
+                    </div>
+                </div>
+            }
+            else if (Installation.Build?.Status is "Failed" or "Cancelled" || Installation.SetupState is "NeedsConfiguration" or "Disabled")
+            {
+                <MudText Typo="Typo.caption" Color="@StatusColor">@StatusLabel</MudText>
+            }
         </div>
     </div>
     <div class="installed-agent-actions">
-        @if (Building)
-        {
-            <div class="agent-card-popover-host @(_progressOpen ? "is-open" : "")" tabindex="0" role="button"
-                 aria-label="Show build progress for @Installation.AgentName" aria-expanded="@_progressOpen"
-                 @onclick="ToggleProgress" @onkeydown="HandleProgressKey"
-                 @onmouseenter="@(() => _progressOpen = true)" @onmouseleave="CloseUnpinnedProgress"
-                 @onfocusin="@(() => _progressOpen = true)" @onfocusout="CloseUnpinnedProgress">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="true" Class="building-button">
-                    <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="mr-2" /> Building
-                </MudButton>
-                <div class="agent-card-popover" @onclick:stopPropagation="true">
-                    <AgentBuildProgressContent Build="Installation.Build" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
-                    <MudButton Size="Size.Small" OnClick="OpenDetails">All details</MudButton>
-                </div>
-            </div>
-        }
-        else if (Installation.Build?.Status is "Failed" or "Cancelled")
+        @if (!Building && Installation.Build?.Status is "Failed" or "Cancelled")
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@Busy" OnClick="OnBuild">Rebuild</MudButton>
         }
-        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Info" OnClick="OpenDetails">Details</MudButton>
+        <MudIconButton Icon="@Icons.Material.Outlined.Settings" Color="Color.Default" Size="Size.Small"
+                       aria-label="@($"Configure global defaults for {Installation.AgentName}")" title="Configure global defaults"
+                       Disabled="@Busy" OnClick="ConfigureAsync" />
     </div>
 
 </article>
@@ -139,11 +142,6 @@
     private void OpenDetails() { _progressPinned = false; _progressOpen = false; _detailsOpen = true; }
     private void ToggleProgress() { _progressPinned = !_progressPinned; _progressOpen = _progressPinned; }
     private void CloseUnpinnedProgress() { if (!_progressPinned) _progressOpen = false; }
-    private void HandleProgressKey(KeyboardEventArgs e)
-    {
-        if (e.Key is "Enter" or " ") ToggleProgress();
-        ClosePopupOnEscape(e);
-    }
     private void ClosePopupOnEscape(KeyboardEventArgs e)
     {
         if (e.Key == "Escape") { _progressPinned = false; _progressOpen = false; _updatePreviewOpen = false; }

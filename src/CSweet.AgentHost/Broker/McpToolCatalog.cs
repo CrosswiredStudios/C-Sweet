@@ -829,7 +829,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["boardId"],"properties":{"boardId":{"type":"string","format":"uuid"}},"additionalProperties":false}
             """),
         WorkSprintActions.Create => Schema("""
-            {"type":"object","required":["boardId","name","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"name":{"type":"string","minLength":1,"maxLength":160},"goal":{"type":["string","null"],"maxLength":2048},"startsAt":{"type":["string","null"],"format":"date-time"},"endsAt":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["boardId","name","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"name":{"type":"string","minLength":1,"maxLength":160},"sequence":{"type":["integer","null"],"minimum":1},"goal":{"type":["string","null"],"maxLength":2048},"startsAt":{"type":["string","null"],"format":"date-time"},"endsAt":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkSprintActions.ManageScope => Schema("""
             {"type":"object","required":["boardId","itemId","expectedItemRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"sprintId":{"type":["string","null"],"format":"uuid"},"expectedItemRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

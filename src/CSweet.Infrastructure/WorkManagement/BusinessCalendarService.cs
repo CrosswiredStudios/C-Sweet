@@ -92,7 +92,9 @@ public sealed partial class BusinessCalendarService(CSweetDbContext db, TimeProv
                 var end = CalendarRecurrenceEngine.ToInstant(input.EndLocal, input.TimeZoneId);
                 if (start >= query.To || end <= query.From) continue;
                 var dispatch = dispatches.SingleOrDefault(x => x.EventId == e.Id && x.OccurrenceLocal == occurrence.Key);
-                                var state = dispatch?.WorkItemId is { } workId ? workStates.GetValueOrDefault(workId) : null;
+                if (dispatch == null && Input(e).Recurrence == null)
+                    dispatch = dispatches.FirstOrDefault(x => x.EventId == e.Id && x.Status == "Delivered");
+                var state = dispatch?.WorkItemId is { } workId ? workStates.GetValueOrDefault(workId) : null;
                 result.Add(new(e.Id, occurrence.Key, start, end, View(e, user), input,
                     state?.Status.ToString() ?? dispatch?.Status, state?.BlockReason ?? dispatch?.Error, dispatch?.WorkItemId));
             }
@@ -142,6 +144,7 @@ public sealed partial class BusinessCalendarService(CSweetDbContext db, TimeProv
         await using var transaction = await Transaction(token);
         var e = await Load(org, request.EventId, request.ExpectedRevision, user, token);
         if (e.Cancelled) throw new InvalidOperationException("Cancelled events cannot be edited.");
+        ArgumentNullException.ThrowIfNull(request.Event);
         var input = request.Event with { OwnerOrganizationUserId = request.Event.OwnerOrganizationUserId ?? e.OwnerOrganizationUserId };
         // Keeping another worker's ownership is permitted for that event's manager.
         await ValidateAsync(org, user, actor, input, token);

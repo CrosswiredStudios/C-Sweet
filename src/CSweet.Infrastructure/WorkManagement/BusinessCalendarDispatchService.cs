@@ -30,7 +30,8 @@ public sealed partial class BusinessCalendarService
                 var touched = false;
                 foreach (var occurrence in due)
                 {
-                    if (records.Any(x => x.Kind == "work" && x.OccurrenceLocal == occurrence.Key)) continue;
+                    if (records.Any(x => x.Kind == "work" && (x.OccurrenceLocal == occurrence.Key ||
+                        (Input(e).Recurrence == null && x.Status == "Delivered")))) continue;
                     var record = new BusinessCalendarDispatch { Id = Guid.NewGuid(), EventId = id,
                         OccurrenceLocal = occurrence.Key, DueAt = CalendarRecurrenceEngine.ToInstant(occurrence.Input.StartLocal, occurrence.Input.TimeZoneId),
                         RecipientId = occurrence.Input.Work!.TargetOrganizationUserId };

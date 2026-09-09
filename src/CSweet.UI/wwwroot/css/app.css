@@ -2139,3 +2139,17 @@ body { color: var(--cs-navy); }
 .agent-step-status-inprogress { color: var(--mud-palette-primary); }
 .agent-step-status-failed { color: var(--mud-palette-error); }
 .agent-step-status-cancelled { color: var(--mud-palette-warning-darken); }
+
+/* A native stretched button makes the whole card keyboard accessible; controls stay independent. */
+.installed-agent-details-target { position: absolute; inset: 0; width: 100%; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }
+.installed-agent-details-target:hover { background: var(--mud-palette-action-default-hover); }
+.installed-agent-details-target:focus-visible { outline: 2px solid var(--mud-palette-info); outline-offset: 3px; }
+.installed-agent-identity, .installed-agent-version, .installed-agent-actions { pointer-events: none; }
+.installed-agent-actions > *, .installed-agent-version .agent-card-popover-host, .installed-agent-updating, .agent-card-popover { pointer-events: auto; position: relative; }
+.installed-agent-actions > *, .installed-agent-version .agent-card-popover-host { z-index: 1; }
+.installed-agent-progress { position: static; margin-top: .5rem; }
+.installed-agent-updating { display: inline-flex; align-items: center; gap: .4rem; border: 0; border-radius: 16px; padding: .3rem .65rem; background: var(--mud-palette-info); color: var(--mud-palette-info-text); font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; }
+.installed-agent-updating:focus-visible { outline: 2px solid var(--mud-palette-info); outline-offset: 3px; }
+.installed-agent-updating .mud-progress-circular { width: 14px !important; height: 14px !important; color: inherit; }
+.installed-agent-card .agent-card-popover { position: absolute; }
+.installed-agent-progress > .agent-card-popover { right: 0; width: min(26rem, 100%); }
