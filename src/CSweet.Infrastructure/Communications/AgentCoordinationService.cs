@@ -343,6 +343,7 @@ public sealed class AgentCoordinationService(
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, ConversationId = chat.Id,
             SourceKind = "Board", SourceBoardId = request.BoardId, MaximumTurns = 18,
+            WorkstreamId = board.WorkstreamId, TeamId = board.TeamId,
             InitiatorOrganizationUserId = initiatorOrganizationUserId,
             InitiatorInstallationId = initiatorInstallationId,
             TargetOrganizationUserId = request.TargetOrganizationUserId,

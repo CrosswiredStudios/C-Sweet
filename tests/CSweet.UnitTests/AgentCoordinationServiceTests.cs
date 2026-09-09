@@ -21,6 +21,38 @@ namespace CSweet.UnitTests;
 public sealed class AgentCoordinationServiceTests
 {
     [Fact]
+    public async Task BoardPlanningDeliversAuthoritativeProjectContextToTarget()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var boardId = Guid.NewGuid(); var teamId = Guid.NewGuid(); var workstreamId = Guid.NewGuid();
+        fixture.Db.WorkBoards.Add(new() { Id = boardId, OrganizationId = fixture.OrganizationId,
+            TeamId = teamId, WorkstreamId = workstreamId, ManagerOrganizationUserId = fixture.InitiatorId });
+        foreach (var userId in new[] { fixture.InitiatorId, fixture.TargetId })
+            fixture.Db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId,
+                TeamId = teamId, OrganizationUserId = userId });
+        await fixture.Db.SaveChangesAsync();
+        var chat = new CommunicationChatResponse(fixture.SourceConversationId, "Planning", null,
+            true, true, false, true, DateTimeOffset.UtcNow, [], null, null, 0);
+        var service = new AgentCoordinationService(fixture.Db, new StubCommunicationHubService(chat), fixture.Inbox);
+        var session = await service.StartBoardAsync(fixture.OrganizationId, fixture.InitiatorId,
+            fixture.InitiatorInstallationId, new(fixture.TargetId, boardId, "Planning", "Plan delivery",
+                ["Grounded backlog"], "Decompose accepted scope", "board-context"));
+        fixture.Db.ChangeTracker.Clear();
+        var lease = await fixture.Inbox.ClaimAsync(new McpAgentSession
+        {
+            Id = Guid.NewGuid(), RuntimeInstanceId = Guid.NewGuid(), TickId = Guid.NewGuid(),
+            AgentInstallationId = fixture.TargetInstallationId, OrganizationId = fixture.OrganizationId.ToString("D")
+        }, CancellationToken.None);
+        Assert.NotNull(lease);
+        var turn = lease.Payload.Deserialize<AgentCoordinationTurnRequest>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(turn?.WorkContext);
+        Assert.Equal(workstreamId, turn.WorkContext.WorkstreamId);
+        Assert.Equal(teamId, turn.WorkContext.TeamId);
+        Assert.Equal(boardId, turn.WorkContext.BoardId);
+        Assert.Equal(session.Id, turn.SessionId);
+    }
+
+    [Fact]
     public async Task OutboundAgentKickoff_StartsCoordinationAndLinksSourceMessage()
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
