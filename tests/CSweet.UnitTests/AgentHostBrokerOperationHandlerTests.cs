@@ -9,6 +9,28 @@ namespace CSweet.UnitTests;
 public sealed class AgentHostBrokerOperationHandlerTests
 {
     [Fact]
+    public async Task WorkClaimSurvivesBeyondShortControlTimeout()
+    {
+        using var client = new HttpClient(new DelayedClaimHandler()) { BaseAddress = new Uri("http://agenthost/") };
+        var handler = new AgentHostBrokerOperationHandler(new StubHttpClientFactory(client),
+            new AgentHostBrokerOptions { ControlRequestTimeoutSeconds = 1, TimeoutSeconds = 5 },
+            NullLogger<AgentHostBrokerOperationHandler>.Instance);
+        var result = await handler.HandleAsync(new BrokerOperationContext(Guid.NewGuid(), Guid.NewGuid(),
+            Guid.NewGuid().ToString("N"), "mcp.runtime", "POST", "/mcp", new Dictionary<string, string>(),
+            Encoding.UTF8.GetBytes("{\"method\":\"csweet/work/claim\",\"params\":{\"waitSeconds\":25}}")), CancellationToken.None);
+        Assert.Equal(200, result.StatusCode);
+    }
+
+    private sealed class DelayedClaimHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(1500), token);
+            return new(HttpStatusCode.OK) { Content = new StringContent("{\"result\":null}") };
+        }
+    }
+
+    [Fact]
     public void Options_DefaultTimeoutCoversAgentHostLlmRequests()
     {
         var options = new AgentHostBrokerOptions();
@@ -20,7 +42,7 @@ public sealed class AgentHostBrokerOperationHandlerTests
     [Theory]
     [InlineData("initialize", 10)]
     [InlineData("ping", 10)]
-    [InlineData("csweet/work/claim", 10)]
+    [InlineData("csweet/work/claim", 180)]
     [InlineData("tools/call", 180)]
     public void ResolveTimeoutSeconds_LeavesReconnectHeadroomForControlRequests(
         string method,

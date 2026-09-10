@@ -13,14 +13,24 @@
         <div>
             <MudText Typo="Typo.h3">Approvals</MudText>
             <MudText Color="Color.Secondary">
-                One inbox for team designs, hiring, private code projects, exact-version merges, and artifact decisions.
+                One inbox for approvals, agent questions, and requests for your direction.
             </MudText>
         </div>
         <MudChip T="string" Color="@(_dashboard?.PendingCount > 0 ? Color.Warning : Color.Success)"
                  Variant="Variant.Filled">
-            @(_dashboard?.PendingCount ?? 0) pending
+            @(_dashboard?.PendingCount ?? 0) pending approvals
         </MudChip>
     </MudPaper>
+
+    <MudTabs ActivePanelIndex="@_activeTab" ActivePanelIndexChanged="SelectTab" Class="mb-4" KeepPanelsAlive="true">
+        <MudTabPanel Text="Approvals" />
+        <MudTabPanel Text="Decisions" />
+    </MudTabs>
+
+    <div hidden="@(_activeTab != 1)">
+        <PendingAgentQuestions OrganizationId="OrganizationId" />
+    </div>
+    <div hidden="@(_activeTab != 0)">
 
     @if (_loading)
     {
@@ -47,7 +57,7 @@
         {
             <MudPaper Elevation="0" Outlined="true" Class="approval-empty">
                 <MudIcon Icon="@Icons.Material.Outlined.TaskAlt" Color="Color.Success" Size="Size.Large" />
-                <MudText Typo="Typo.h5">@(_showHistory ? "No approval activity yet" : "You’re all caught up")</MudText>
+                <MudText Typo="Typo.h5">@(_showHistory ? "No approval activity yet" : "No pending approvals")</MudText>
                 <MudText Color="Color.Secondary">
                     @(_showHistory
                         ? "Durable approval requests will appear here when an agent or workflow creates them."
@@ -274,12 +284,17 @@
             </MudStack>
         }
     }
+    </div>
 </div>
 
 </EmployeePortraitScope>
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
+    [SupplyParameterFromQuery(Name = "tab")] public string? SelectedTab { get; set; }
+    private int _activeTab;
+    private string? _lastTab;
+    private void SelectTab(int index) => _activeTab = index;
 
     private ApprovalDashboardResponse? _dashboard;
     private bool _loading = true;
@@ -309,7 +324,11 @@
 
     public void Dispose() => ApprovalNotifications.Changed -= OnApprovalsChanged;
 
-    protected override Task OnParametersSetAsync() => LoadAsync();
+    protected override Task OnParametersSetAsync()
+    {
+        if (_lastTab != SelectedTab) { _activeTab = SelectedTab == "decisions" ? 1 : 0; _lastTab = SelectedTab; }
+        return LoadAsync();
+    }
 
     private async Task LoadAsync()
     {

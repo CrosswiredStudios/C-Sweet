@@ -64,9 +64,10 @@ public static class AgentManagementEndpoints
                 ? Results.Ok(definition) : Results.NotFound());
 
         group.MapPost("/definitions/check-updates", async (
+            Guid? definitionId,
             IAgentUpdateService updateService,
             CancellationToken cancellationToken) =>
-            Results.Ok(await updateService.CheckDefinitionsAsync(cancellationToken)))
+            Results.Ok(await updateService.CheckDefinitionsAsync(cancellationToken, definitionId)))
             .RequireRateLimiting(AgentRateLimiting.ImportPolicy);
 
         group.MapPost("/definitions/{definitionId:guid}/update", async (

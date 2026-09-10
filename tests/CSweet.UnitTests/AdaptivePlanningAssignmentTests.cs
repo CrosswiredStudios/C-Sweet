@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CSweet.AgentHost.Broker;
 using CSweet.Domain.Core;
 using CSweet.Domain.WorkManagement;
 using CSweet.Domain.Security;
@@ -93,6 +94,9 @@ public sealed partial class WorkManagementCapabilityHandlerTests
             AccountableOrganizationUserId = accountableUserId,
             StageAssignments = [new SharedWork.WorkStageAssignment("development", "AgentInstallation", accountableUserId, setup.InstallationId)]
         };
+        var tool = Assert.Single(new McpToolCatalog([]).List(new HashSet<string> { WorkItemActions.RevisePlanning }));
+        JsonSchemaValidator.Validate(JsonSerializer.SerializeToElement(request,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)), tool.InputSchema);
         var result = await InvokeAsync(handler, session, WorkItemActions.RevisePlanning, request);
         Assert.True(result.Succeeded, result.Error);
         var replay = await InvokeAsync(handler, session, WorkItemActions.RevisePlanning, request);

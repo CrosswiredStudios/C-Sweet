@@ -62,7 +62,7 @@ public sealed partial class BusinessCalendarService
                         }
                         record.WorkItemId = item.Id; record.Status = "Delivered";
                     }
-                    catch (System.Exception ex) when (ex is UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+                    catch (System.Exception ex) when (ex is UnauthorizedAccessException or ArgumentException || (ex is InvalidOperationException && !IsDatabaseFailure(ex)))
                     {
                         record.Status = "Blocked"; record.Error = ex.Message;
                         AddReminder(e, e.OwnerOrganizationUserId, $"Scheduled work blocked: {occurrence.Input.Title}. {ex.Message}", record.DueAt, now);
@@ -109,7 +109,7 @@ public sealed partial class BusinessCalendarService
                 }
                 if (transaction != null) await transaction.CommitAsync(token);
             }
-            catch (DbUpdateException)
+            catch (System.Exception ex) when (ex is DbUpdateException || IsRetryableTransactionConflict(ex))
             {
                 if (transaction != null) await transaction.RollbackAsync(token);
                 // A competing scheduler or editor won. Retry from a fresh snapshot next pulse.
@@ -118,6 +118,13 @@ public sealed partial class BusinessCalendarService
         }
     }
 
+    private static bool IsDatabaseFailure(System.Exception error) =>
+        error is System.Data.Common.DbException or DbUpdateException ||
+        error.InnerException is { } inner && IsDatabaseFailure(inner);
+
+    private static bool IsRetryableTransactionConflict(System.Exception error) =>
+        error is Npgsql.PostgresException { SqlState: "40001" or "40P01" } ||
+        error.InnerException is { } inner && IsRetryableTransactionConflict(inner);
     private BusinessCalendarReminder AddReminder(BusinessCalendarEvent e, Guid recipient, string title, DateTimeOffset start, DateTimeOffset now)
     {
         var reminder = new BusinessCalendarReminder { Id = Guid.NewGuid(), OrganizationId = e.OrganizationId,

@@ -4,6 +4,8 @@ namespace CSweet.UI.Services;
 
 public interface ILlmProviderApiClient
 {
+    Task<IReadOnlyList<AgentProviderMigrationCandidate>> ListMigrationCandidatesAsync(CancellationToken cancellationToken = default);
+    Task<MigrateAgentProvidersResponse> MigrateAgentsAsync(MigrateAgentProvidersRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<LlmProviderProfileResponse>> ListAsync(CancellationToken cancellationToken = default);
     Task<LocalLlmProviderDiscoveryResponse> DiscoverLocalAsync(CancellationToken cancellationToken = default);
     Task<PreviewModelCatalogResponse> PreviewModelCatalogAsync(PreviewModelCatalogRequest request, CancellationToken cancellationToken = default);

@@ -37,7 +37,7 @@ public sealed class CompanyDashboardService(CSweetDbContext db, TimeProvider clo
         try
         {
             var order = JsonSerializer.Deserialize<string[]>(record.OrderJson);
-            return DashboardWidgets.IsValid(order) ? order! : DashboardWidgets.DefaultOrder;
+            return DashboardWidgets.Restore(order);
         }
         catch (JsonException) { return DashboardWidgets.DefaultOrder; }
     }

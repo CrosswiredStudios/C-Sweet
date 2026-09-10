@@ -3287,7 +3287,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ConversationId", "RequestingInstallationId", "Status")
                         .IsUnique()
-                        .HasFilter("\"Status\" = 'Pending'");
+                        .HasFilter("\"Status\" = 'Pending' AND (\"OptionsJson\" ->> 'workstreamDecisionId') IS NULL");
 
                     b.ToTable("ExecutiveDecisions");
                 });

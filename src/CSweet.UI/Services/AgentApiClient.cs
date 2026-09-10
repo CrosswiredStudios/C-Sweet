@@ -72,10 +72,10 @@ public sealed class AgentApiClient : IAgentApiClient
     }
 
     public async Task<IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse>> CheckDefinitionUpdatesAsync(
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default, Guid? definitionId = null) =>
         await SendAsync<IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse>>(
             HttpMethod.Post,
-            "api/agents/definitions/check-updates",
+            definitionId is Guid id ? $"api/agents/definitions/check-updates?definitionId={id}" : "api/agents/definitions/check-updates",
             null,
             cancellationToken);
 

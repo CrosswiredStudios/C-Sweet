@@ -290,8 +290,12 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                 team.LeadOrganizationUserId }).Distinct().ToListAsync(token);
         var changes = 0;
         foreach (var member in members)
+        {
             changes += (await TeamAgentGrantProvisioner.EnsureAsync(db, member.OrganizationId, member.InstallationId,
                 member.TeamId, member.LeadOrganizationUserId, DateTimeOffset.UtcNow, token, preserveRevocations: true)).Count;
+            changes += await ApprovedRepositoryGrantReconciler.EnsureAsync(db, member.OrganizationId,
+                member.InstallationId, member.LeadOrganizationUserId, token);
+        }
         if (changes > 0) await db.SaveChangesAsync(token);
         return changes;
     }

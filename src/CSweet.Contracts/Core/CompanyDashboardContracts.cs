@@ -20,7 +20,15 @@ public sealed record CompanyDashboardResponse(ReportingWidget<FinanceReport> Fin
 public sealed record DashboardLayoutRequest(IReadOnlyList<string> Order);
 public static class DashboardWidgets
 {
-    public static IReadOnlyList<string> DefaultOrder { get; } = Array.AsReadOnly(new[] { "approvals", "finance", "legal", "projects" });
-    public static bool IsValid(IReadOnlyList<string>? order) => order is { Count: 4 } &&
-        order.Distinct(StringComparer.Ordinal).Count() == 4 && order.All(DefaultOrder.Contains);
+    public static IReadOnlyList<string> DefaultOrder { get; } = Array.AsReadOnly(new[] { "decisions", "approvals", "finance", "legal", "projects" });
+    public static bool IsValid(IReadOnlyList<string>? order) => order is not null && order.Count == DefaultOrder.Count &&
+        order.Distinct(StringComparer.Ordinal).Count() == DefaultOrder.Count && order.All(DefaultOrder.Contains);
+    public static IReadOnlyList<string> Restore(IReadOnlyList<string>? order)
+    {
+        if (IsValid(order)) return order!;
+        // Preserve existing users' ordering when adding the decisions widget.
+        if (order is { Count: 4 } && order.Distinct(StringComparer.Ordinal).Count() == 4 &&
+            order.All(x => x != "decisions" && DefaultOrder.Contains(x))) return order.Concat(new[] { "decisions" }).ToArray();
+        return DefaultOrder;
+    }
 }

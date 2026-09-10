@@ -1152,7 +1152,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.AnswerIdempotencyKey).HasMaxLength(200);
         entity.HasIndex(x => new { x.RequestingInstallationId, x.IdempotencyKey }).IsUnique();
         entity.HasIndex(x => new { x.ConversationId, x.RequestingInstallationId, x.Status })
-            .IsUnique().HasFilter("\"Status\" = 'Pending'");
+            .IsUnique().HasFilter("\"Status\" = 'Pending' AND (\"OptionsJson\" ->> 'workstreamDecisionId') IS NULL");
         entity.HasIndex(x => x.ChatTurnId);
         entity.HasOne(x => x.Conversation).WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         entity.HasOne(x => x.ChatTurn).WithMany().HasForeignKey(x => x.ChatTurnId).OnDelete(DeleteBehavior.Cascade);

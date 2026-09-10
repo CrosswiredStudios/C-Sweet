@@ -23,6 +23,14 @@ public static class CommunicationEndpoints
         });
         group.MapCommunicationChatTurnEndpoints();
 
+        group.MapGet("/questions/pending", async (Guid organizationId, HttpContext http,
+            ICommunicationHubService hub, IExecutiveDecisionService decisions, CancellationToken cancellationToken) =>
+        {
+            var actorId = await ResolveActorAsync(organizationId, http, hub, cancellationToken);
+            return actorId is null ? Results.Forbid() : Results.Ok(
+                await decisions.ListPendingForUserAsync(organizationId, actorId.Value, cancellationToken));
+        });
+
         group.MapGet("/discord", async (Guid organizationId, ICommunicationWorkspaceService service, CancellationToken cancellationToken) =>
             await service.GetDiscordAsync(organizationId, cancellationToken) is { } connection ? Results.Ok(connection) : Results.NotFound());
 

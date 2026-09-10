@@ -1,0 +1,97 @@
+@using CSweet.Contracts.Communications
+@using CSweet.Contracts.Realtime
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+@implements IDisposable
+
+<section class="pending-decisions @(SummaryOnly ? "decision-summary" : "decision-inbox")" aria-label="Pending Decisions">
+    <div class="decisions-toolbar">
+        <div>
+            @if (!SummaryOnly) { <h2>Pending Decisions</h2> }
+            <p>@(SummaryOnly ? "Keep your team moving with a response." : "Review requests for direction and respond without leaving this page.")</p>
+        </div>
+        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" Disabled="_loading" OnClick="LoadAsync" aria-label="Refresh decisions" />
+    </div>
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    else if (_loading && !_loaded) { <MudProgressLinear Indeterminate="true" /> }
+    else if (_questions.Count == 0)
+    {
+        <div class="decisions-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><span>No decisions need your response.</span></div>
+    }
+    else
+    {
+        <div class="decisions-count"><span>@_questions.Count pending questions</span><span>@_questions.Select(x => x.AgentOrganizationUserId).Distinct().Count() agents</span></div>
+        @if (SummaryOnly)
+        {
+            @foreach (var agent in _questions.GroupBy(x => new { x.AgentOrganizationUserId, x.AgentName }))
+            {
+                <div class="decision-agent-row">
+                    <div class="agent-mark" aria-hidden="true">@agent.Key.AgentName[..1]</div>
+                    <div class="agent-description"><strong>@agent.Key.AgentName</strong><span>@agent.Count() awaiting response</span></div>
+                    <MudButton Href="@($"/organizations/{OrganizationId}/approvals?tab=decisions")" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Review</MudButton>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="decision-list">
+                @foreach (var question in _questions)
+                {
+                    <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Answered="OnAnsweredAsync" />
+                }
+            </div>
+        }
+    }
+    @if (_answered) { <MudAlert Severity="Severity.Success" Dense="true" Class="mt-3">Response sent. The agent can continue from your answer.</MudAlert> }
+</section>
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public bool SummaryOnly { get; set; }
+    private IReadOnlyList<PendingAgentQuestionResponse> _questions = [];
+    private bool _loading, _loaded, _disposed, _answered;
+    private string? _error;
+    private long _loadVersion;
+    private Guid? _loadedOrganization;
+    protected override void OnInitialized()
+    {
+        Realtime.EventReceived += OnEvent;
+        Realtime.Reconnected += OnReconnect;
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedOrganization == OrganizationId) return;
+        _loadedOrganization = OrganizationId;
+        _questions = []; _loaded = false; _answered = false;
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        var version = ++_loadVersion;
+        var organization = OrganizationId;
+        _loading = true; _error = null;
+        try
+        {
+            var items = await Http.GetFromJsonAsync<List<PendingAgentQuestionResponse>>($"api/organizations/{organization}/communications/questions/pending") ?? [];
+            if (!_disposed && version == _loadVersion) { _questions = items; _loaded = true; }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { if (version == _loadVersion) _error = "Could not load pending questions. Use Refresh questions to try again."; }
+        finally { if (version == _loadVersion) _loading = false; }
+    }
+    private async Task OnAnsweredAsync() { _answered = true; await LoadAsync(); }
+    private void OnEvent(AppRealtimeEventEnvelope envelope)
+    {
+        if (envelope.OrganizationId == OrganizationId && envelope.EventType == CommunicationEvents.DecisionUpdated) OnReconnect();
+    }
+    private void OnReconnect()
+    {
+        if (!_disposed) _ = InvokeAsync(async () => { await LoadAsync(); if (!_disposed) StateHasChanged(); });
+    }
+    public void Dispose()
+    {
+        _disposed = true; ++_loadVersion;
+        Realtime.EventReceived -= OnEvent;
+        Realtime.Reconnected -= OnReconnect;
+    }
+}
+

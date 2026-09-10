@@ -2,8 +2,10 @@
 
 <article class="installed-agent-card" aria-label="@Installation.AgentName" @onmouseleave="CloseUnpinnedProgress">
     <button type="button" class="installed-agent-details-target" aria-label="View details for @Installation.AgentName" @onclick="OpenDetails"></button>
+    <div class="installed-agent-controls">
     <div class="installed-agent-version">
-        <span>@($"v{Installation.AgentVersion}")</span>
+        <button type="button" class="installed-agent-version-check" title="Check for updates" aria-label="Check for updates for @Installation.AgentName"
+                disabled="@(Busy || Building || CheckingUpdates)" @onclick="OnCheckUpdates">@($"v{Installation.AgentVersion}")</button>
         @if (Update is not null)
         {
             <div class="agent-card-popover-host update-preview @(_updatePreviewOpen ? "is-open" : "")" tabindex="0" aria-label="Update to version @Update.AvailableVersion"
@@ -18,6 +20,10 @@
                 </div>
             </div>
         }
+    </div>
+        <MudIconButton Icon="@Icons.Material.Outlined.Settings" Color="Color.Default" Size="Size.Small"
+                       aria-label="@($"Configure global defaults for {Installation.AgentName}")" title="Configure global defaults"
+                       Disabled="@Busy" OnClick="ConfigureAsync" />
     </div>
     <div class="installed-agent-identity">
         <img src="@PortraitUrl" alt="" class="installed-agent-portrait" loading="lazy" decoding="async" referrerpolicy="no-referrer" @onerror="UseFallbackPortrait" />
@@ -43,15 +49,12 @@
             }
         </div>
     </div>
-    <div class="installed-agent-actions">
-        @if (!Building && Installation.Build?.Status is "Failed" or "Cancelled")
-        {
+    @if (!Building && Installation.Build?.Status is "Failed" or "Cancelled")
+    {
+        <div class="installed-agent-actions">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@Busy" OnClick="OnBuild">Rebuild</MudButton>
-        }
-        <MudIconButton Icon="@Icons.Material.Outlined.Settings" Color="Color.Default" Size="Size.Small"
-                       aria-label="@($"Configure global defaults for {Installation.AgentName}")" title="Configure global defaults"
-                       Disabled="@Busy" OnClick="ConfigureAsync" />
-    </div>
+        </div>
+    }
 
 </article>
 
@@ -113,6 +116,8 @@
 @code {
     [Parameter, EditorRequired] public AgentInstallationResponse Installation { get; set; } = default!;
     [Parameter] public AgentDefinitionUpdateAvailabilityResponse? Update { get; set; }
+    [Parameter] public bool CheckingUpdates { get; set; }
+    [Parameter] public EventCallback OnCheckUpdates { get; set; }
     [Parameter] public bool Busy { get; set; }
     [Parameter] public bool BuildPending { get; set; }
     [Parameter] public string? ProgressTitle { get; set; }

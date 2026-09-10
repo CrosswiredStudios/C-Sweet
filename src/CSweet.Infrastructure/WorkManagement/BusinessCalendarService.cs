@@ -134,7 +134,7 @@ public sealed partial class BusinessCalendarService(CSweetDbContext db, TimeProv
             SchedulingOrganizationUserId = user.Id, SchedulingInstallationId = actor.InstallationId,
             PayloadJson = Encode(request.Event with { OwnerOrganizationUserId = request.Event.OwnerOrganizationUserId ?? user.Id }),
             CreationKey = creationKey, CreatedAt = clock.GetUtcNow(), UpdatedAt = clock.GetUtcNow() };
-        db.Add(e); Change(e, user.Id, "Created"); await db.SaveChangesAsync(token);
+        db.Add(e); Change(e, user.Id, "Created"); await Persist(null, token);
         return View(e, user);
     }
 
@@ -164,7 +164,7 @@ public sealed partial class BusinessCalendarService(CSweetDbContext db, TimeProv
         }
         await Invalidate(e.Id, request.OccurrenceLocal, token);
         e.Revision++; e.UpdatedAt = clock.GetUtcNow(); Change(e, user.Id, "Updated", request);
-        await db.SaveChangesAsync(token); if (transaction != null) await transaction.CommitAsync(token);
+        await Persist(transaction, token);
         return View(e, user);
     }
 
@@ -177,7 +177,7 @@ public sealed partial class BusinessCalendarService(CSweetDbContext db, TimeProv
         else e.Cancelled = true;
         await Invalidate(e.Id, request.OccurrenceLocal, token);
         e.Revision++; e.UpdatedAt = clock.GetUtcNow(); Change(e, user.Id, "Cancelled", request);
-        await db.SaveChangesAsync(token); if (transaction != null) await transaction.CommitAsync(token);
+        await Persist(transaction, token);
         return View(e, user);
     }
 
@@ -211,6 +211,18 @@ public sealed partial class BusinessCalendarService(CSweetDbContext db, TimeProv
     { OrganizationId = e.OrganizationId, EventId = e.Id, EventRevision = e.Revision, ActorId = actor, Action = action,
       PayloadJson = payload is null ? e.PayloadJson : Encode(payload), OccurredAt = clock.GetUtcNow() });
 
+    private async Task Persist(IDbContextTransaction? transaction, CancellationToken token)
+    {
+        try
+        {
+            await db.SaveChangesAsync(token);
+            if (transaction != null) await transaction.CommitAsync(token);
+        }
+        catch (System.Exception ex) when (IsRetryableTransactionConflict(ex))
+        {
+            throw new DbUpdateConcurrencyException("The calendar changed while saving. Refresh and try again.", ex);
+        }
+    }
     private async Task<IDbContextTransaction?> Transaction(CancellationToken token) => db.Database.IsRelational()
         ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, token) : null;
 
@@ -225,7 +237,7 @@ public sealed partial class BusinessCalendarService(CSweetDbContext db, TimeProv
         settings.TimeZoneId = request.TimeZoneId; settings.Revision++;
         db.Add(new BusinessCalendarChange { OrganizationId = org, EventId = org, EventRevision = settings.Revision,
             ActorId = user.Id, Action = "SettingsUpdated", PayloadJson = Encode(request), OccurredAt = clock.GetUtcNow() });
-        await db.SaveChangesAsync(token);
+        await Persist(null, token);
     }
 
     public async Task<IReadOnlyList<CalendarReminder>> RemindersAsync(Guid org, CalendarActor actor, CancellationToken token)
@@ -240,6 +252,6 @@ public sealed partial class BusinessCalendarService(CSweetDbContext db, TimeProv
         var user = await Authorize(org, actor, CalendarCapabilities.Read, token);
         var item = await db.Set<BusinessCalendarReminder>().SingleOrDefaultAsync(x => x.Id == reminderId && x.OrganizationId == org && x.RecipientId == user.Id, token)
             ?? throw new KeyNotFoundException();
-        item.Read = true; await db.SaveChangesAsync(token);
+        item.Read = true; await Persist(null, token);
     }
 }

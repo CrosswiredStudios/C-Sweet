@@ -21,7 +21,9 @@ public sealed class CompanyDashboardRenderingTests
         Assert.Contains("Hire a legal agent", html);
         Assert.Contains("No approvals need your action", html);
         Assert.Contains("No projects yet", html);
-        Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(html, "class=\"overview-widget").Count);
+        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(html, "class=\"overview-widget").Count);
+        Assert.Contains("Move Pending Decisions up", html);
+        Assert.Contains("No decisions need your response", html);
         Assert.True(html.IndexOf("aria-label=\"Legal\"", StringComparison.Ordinal) < html.IndexOf("aria-label=\"CEO approvals\"", StringComparison.Ordinal));
         Assert.Contains("Move Legal down", html);
         Assert.Contains("Briefing settings", html);
@@ -75,6 +77,7 @@ public sealed class CompanyDashboardRenderingTests
                     new(populated ? [new(Guid.NewGuid(), "Finance Agent")] : [], populated ? new(new(new(2025, 1, 5), "USD", 0, null, 100, null), Guid.NewGuid(), "Finance Agent", DateTimeOffset.UtcNow) : null),
                     new(populated ? [new(Guid.NewGuid(), "Legal Agent")] : [], null));
             }
+            else if (path.EndsWith("/questions/pending")) result = Array.Empty<CSweet.Contracts.Communications.PendingAgentQuestionResponse>();
             else if (path.EndsWith("/approvals")) result = new ApprovalDashboardResponse(Guid.NewGuid(), 0, []);
             else if (path.EndsWith("/inspection"))
             {

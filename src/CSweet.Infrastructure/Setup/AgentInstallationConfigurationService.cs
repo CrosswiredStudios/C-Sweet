@@ -11,7 +11,7 @@ namespace CSweet.Infrastructure.Setup;
 /// <summary>
 /// Owns all agent configuration in the control plane. This service never starts a workload or invokes agent code.
 /// </summary>
-public sealed class AgentInstallationConfigurationService(
+public sealed partial class AgentInstallationConfigurationService(
     CSweetDbContext db,
     IAuditEventWriter auditWriter,
     AgentWorkInbox? inbox = null,

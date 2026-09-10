@@ -22,7 +22,9 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
     CSweetDbContext db,
     IAuditEventWriter audit,
     AgentEmployeeIdentityResolver identityResolver,
-    TimeProvider clock) : IPlatformCapabilityHandler
+    TimeProvider clock,
+    CSweet.Application.Communications.ICommunicationHubService? hub = null,
+    CSweet.Application.Communications.IExecutiveDecisionService? executiveDecisions = null) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly IReadOnlySet<string> Capabilities = new HashSet<string>(StringComparer.Ordinal)
@@ -379,7 +381,12 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             throw new ArgumentException("A decision requires distinct options and a valid recommendation.");
         var existing = await db.WorkstreamDecisions.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.RequestedByInstallationId == installationId && x.IdempotencyKey == request.IdempotencyKey, token);
-        if (existing is not null) return MapDecision(existing);
+        if (existing is not null)
+        {
+            if (hub is not null && executiveDecisions is not null)
+                await WorkstreamDecisionChatReview.PresentAsync(db, hub, executiveDecisions, existing, token);
+            return MapDecision(existing);
+        }
         if (request.SupersedesDecisionId.HasValue && !await db.WorkstreamDecisions.AsNoTracking().AnyAsync(x =>
             x.OrganizationId == organizationId && x.WorkstreamId == request.WorkstreamId && x.Id == request.SupersedesDecisionId, token))
             throw new ArgumentException("The superseded decision was not found in this Workstream.");
@@ -407,6 +414,8 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         await db.SaveChangesAsync(token);
         await audit.WriteAsync("workstream.decision.requested", nameof(WorkstreamDecisionRecord), decision.Id,
             decision.Summary, JsonSerializer.Serialize(new { organizationId, actorId, request.WorkstreamId, request.AuthorityRuleKey }, JsonOptions), token);
+        if (hub is not null && executiveDecisions is not null && decision.Status == W.DecisionStatuses.Pending)
+            await WorkstreamDecisionChatReview.PresentAsync(db, hub, executiveDecisions, decision, token);
         return MapDecision(decision);
     }
 

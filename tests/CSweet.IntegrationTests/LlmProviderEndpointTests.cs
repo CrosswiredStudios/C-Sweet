@@ -18,6 +18,19 @@ namespace CSweet.IntegrationTests;
 public class LlmProviderEndpointTests
 {
     [Fact]
+    public async Task AgentMigration_ListsCandidatesAndRejectsEmptySelection()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        var candidates = await client.GetFromJsonAsync<IReadOnlyList<AgentProviderMigrationCandidate>>(
+            "/api/llm-provider-profiles/agent-migration");
+        Assert.NotNull(candidates);
+        var response = await client.PostAsJsonAsync("/api/llm-provider-profiles/agent-migration",
+            new MigrateAgentProvidersRequest(Guid.NewGuid(), "model", [], false));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Select at least one agent", await response.Content.ReadAsStringAsync());
+    }
+    [Fact]
     public async Task ProviderProfile_CanBeCreatedListedAndFetched()
     {
         await using var factory = CreateFactory();

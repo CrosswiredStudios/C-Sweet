@@ -69,8 +69,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         public DateTimeOffset? FinishedAt { get; set; }
         public string State { get; set; } = "Received";
         public string? Error { get; set; }
-        public List<CapabilityResult> Results { get; } = [];
-        public int ResultBytes { get; set; }
+        public PlatformLlmResultBuffer Results { get; } = new();
         public CancellationTokenSource Cancellation { get; } = new();
         public Task? Execution { get; set; }
         public object Sync { get; } = new();
@@ -125,11 +124,11 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         var deadline = await AccountWaitAsync(job, token);
         lock (job.Sync)
         {
-            if (after > job.Results.Count) throw new ArgumentException("Invalid inference cursor.");
-            // Bound each response well below the Office broker's frame limit.
-            var page = SelectResultPage(job.Results, after);
+            // The next cursor acknowledges the previous response. Keep its data until then
+            // so a lost response can be requested again without loss or duplication.
+            var page = job.Results.Read(after);
             return new { jobId = id, state = job.State, workId = job.WorkId, workDeadline = deadline,
-                next = after + page.Length, completed = job.FinishedAt.HasValue && after + page.Length == job.Results.Count,
+                next = after + page.Length, completed = job.FinishedAt.HasValue && after + page.Length == job.Results.End,
                 error = job.Error, chunks = page.Select(x => new { x.Succeeded, x.HasMore, x.Sequence, x.Error,
                     payload = x.Payload.IsEmpty ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(x.Payload.Span) }) };
         }
@@ -177,9 +176,6 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
             {
                 lock (job.Sync)
                 {
-                    job.ResultBytes += result.Payload.Length;
-                    if (job.ResultBytes > 16 * 1024 * 1024 || job.Results.Count >= 32768)
-                        throw new InvalidOperationException("The inference result exceeded its bounded buffer.");
                     job.Results.Add(result);
                     if (!result.Succeeded) job.Error = result.Error ?? "The provider request failed.";
                 }
@@ -189,10 +185,13 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         }
         catch (OperationCanceledException)
         {
-            job.Error = job.Cancellation.IsCancellationRequested || shutdown.IsCancellationRequested
+            var callerCancelled = job.Cancellation.IsCancellationRequested || shutdown.IsCancellationRequested;
+            job.Error = callerCancelled
                 ? "The inference request was cancelled or its caller disconnected."
                 : "The provider exceeded its generation time limit.";
-            await SetStateAsync(job, "Cancelled", CancellationToken.None);
+            // A provider timeout is a failed attempt eligible for cooldown recovery,
+            // not a deliberate cancellation of the caller's work.
+            await SetStateAsync(job, callerCancelled ? "Cancelled" : "Failed", CancellationToken.None);
         }
         catch (Exception exception)
         {

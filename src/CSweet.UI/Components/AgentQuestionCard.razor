@@ -1,0 +1,65 @@
+@using CSweet.Contracts.Communications
+@inject HttpClient Http
+
+<article class="question-card" aria-label="@($"Question from {Question.AgentName}")">
+    <details>
+    <summary>
+        <span class="question-meta"><strong>@Question.AgentName</strong><span class="question-date">@Question.Decision.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</span><span class="pending-label">Pending</span></span>
+        <span class="question-prompt">@Question.Decision.Prompt</span>
+        <span class="expand-label">Review & respond</span>
+    </summary>
+    <div class="question-response">
+    <fieldset disabled="@_busy">
+        <legend>Your response</legend>
+        @foreach (var option in Question.Decision.Options)
+        {
+            <label><input type="radio" name="@Question.Decision.Id" checked="@(_selected == option.Id)" @onchange="() => Select(option.Id)" />
+                <span><strong>@option.Label</strong> @if (option.Recommended) { <small>Recommended</small> }
+                <span class="option-description">@option.Description</span></span></label>
+        }
+        @if (Question.Decision.AllowFreeText)
+        {
+            <label><input type="radio" name="@Question.Decision.Id" checked="@(_selected == Other)" @onchange="() => Select(Other)" /><span>Something else</span></label>
+        }
+        @if (NeedsText)
+        {
+            <label class="direction-label">Your direction<textarea maxlength="4000" @bind="_direction" @bind:event="oninput"></textarea></label>
+        }
+    </fieldset>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert> }
+    <div class="response-actions">
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Disabled="@(_busy || _selected is null || (NeedsText && string.IsNullOrWhiteSpace(_direction)))" OnClick="SubmitAsync">@(_busy ? "Submitting…" : "Send response")</MudButton>
+        <MudButton Href="@($"/organizations/{OrganizationId}/communications/{Question.ConversationId}")" Size="Size.Small">View conversation</MudButton>
+    </div>
+    </div>
+    </details>
+</article>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public PendingAgentQuestionResponse Question { get; set; } = default!;
+    [Parameter] public EventCallback Answered { get; set; }
+    private const string Other = "__other__";
+    private string? _selected, _direction, _error;
+    private bool _busy;
+    private readonly string _answerKey = Guid.NewGuid().ToString("N");
+    private bool NeedsText => Question.Decision.AllowFreeText && (_selected == Other || _selected == "provide-direction");
+    private void Select(string option) { _selected = option; _error = null; }
+    private async Task SubmitAsync()
+    {
+        if (_busy || _selected is null || (NeedsText && string.IsNullOrWhiteSpace(_direction))) return;
+        _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId}/communications/hub/chats/{Question.ConversationId}/decisions/{Question.Decision.Id}/respond",
+                new AnswerExecutiveDecisionRequest(NeedsText ? null : _selected, NeedsText ? _direction : null, _answerKey));
+            var result = await response.Content.ReadFromJsonAsync<AnswerExecutiveDecisionResponse>();
+            if (response.IsSuccessStatusCode && result?.Succeeded == true) await Answered.InvokeAsync();
+            else _error = result?.Message ?? "Could not send your response. Refresh to check whether this question is still pending.";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { _error = "Could not confirm your response. You can safely try again."; }
+        finally { _busy = false; }
+    }
+}

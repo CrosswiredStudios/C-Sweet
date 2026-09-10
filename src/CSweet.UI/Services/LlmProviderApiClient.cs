@@ -13,6 +13,23 @@ public sealed class LlmProviderApiClient : ILlmProviderApiClient
         _httpClient = httpClient;
     }
 
+    public async Task<IReadOnlyList<AgentProviderMigrationCandidate>> ListMigrationCandidatesAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentProviderMigrationCandidate>>(
+            "api/llm-provider-profiles/agent-migration", cancellationToken) ?? [];
+
+    public async Task<MigrateAgentProvidersResponse> MigrateAgentsAsync(MigrateAgentProvidersRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsJsonAsync("api/llm-provider-profiles/agent-migration", request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(cancellationToken);
+            throw new ApiClientException(response.StatusCode, error.TryGetProperty("message", out var message)
+                ? message.GetString() ?? "Migration failed." : "Migration failed.");
+        }
+        return await response.Content.ReadFromJsonAsync<MigrateAgentProvidersResponse>(cancellationToken)
+            ?? throw new ApiClientException(response.StatusCode, "Migration response was empty.");
+    }
     public async Task<IReadOnlyList<LlmProviderProfileResponse>> ListAsync(CancellationToken cancellationToken = default)
     {
         return await _httpClient.GetFromJsonAsync<IReadOnlyList<LlmProviderProfileResponse>>(

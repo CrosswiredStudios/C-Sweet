@@ -7,5 +7,5 @@ public interface IAgentUpdateService
     Task<IReadOnlyList<AgentUpdateAvailabilityResponse>> CheckAsync(
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse>> CheckDefinitionsAsync(
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, Guid? definitionId = null);
 }

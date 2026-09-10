@@ -276,105 +276,53 @@
 
 @if (BoardId.HasValue)
 {
-<main class="kanban-workspace">
-    <header class="kanban-header">
-        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.ArrowBack"
-                   OnClick="BackToBoards">All boards</MudButton>
-        <div class="kanban-heading">
-            <MudText Typo="Typo.overline" Color="Color.Primary">Company work / Board</MudText>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                <MudText Typo="Typo.h4">@(_detail?.Board.Name ?? "Board")</MudText>
-                @if (!string.IsNullOrWhiteSpace(_detail?.Board.Key))
-                {
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_detail.Board.Key</MudChip>
-                }
-                @if (_detail?.Board.IsArchived == true)
-                {
-                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Archived · read only</MudChip>
-                }
-            </MudStack>
-        </div>
-        @if (_detail is not null)
-        {
-            <MudIconButton Icon="@(_detail.Board.IsFavorite ? Icons.Material.Filled.Star : Icons.Material.Outlined.StarBorder)"
-                           Color="@(_detail.Board.IsFavorite ? Color.Warning : Color.Default)"
-                           OnClick="@(() => SetFavoriteAsync(_detail.Board))" aria-label="Toggle favorite" />
-        }
-    </header>
-    <section class="kanban-content">
-        @if (_detailLoading)
-        {
-            <MudStack Spacing="2">
-                <MudProgressLinear Indeterminate="true" />
-                <MudText Color="Color.Secondary">Loading board details…</MudText>
-            </MudStack>
-        }
-        else if (!string.IsNullOrWhiteSpace(_detailError))
-        {
-            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
-                <MudText Typo="Typo.subtitle2">This board could not be loaded.</MudText>
-                <MudText Typo="Typo.body2">@_detailError</MudText>
-            </MudAlert>
-            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-3">
-                Your board list and existing work are unchanged. You can retry the request or close this window.
-            </MudText>
-        }
-        else if (_detail is not null)
-        {
-            <MudText Color="Color.Secondary">@Description(_detail.Board)</MudText>
-            <div class="kanban-toolbar">
-                <MudTextField T="string" Label="Search this board" @bind-Value="_itemSearch"
-                              Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" />
-                @if (_detail.Board.AllowedActions.Contains(WorkItemActions.Create) && !_detail.Board.IsArchived)
-                {
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                               StartIcon="@Icons.Material.Outlined.AddTask"
-                               OnClick="OpenItemCreator">New work item</MudButton>
-                }
-                <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Disabled="_detailLoading"
-                               OnClick="RetryBoardAsync" aria-label="Refresh board" />
-                @if (_detail.Board.AllowedActions.Contains(WorkSprintActions.Read))
-                {
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Outlined.EventNote"
-                               OnClick="@(() => _sprintsOpen = true)">Sprints</MudButton>
-                }
-                @if (_detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Read))
-                {
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Outlined.AccountTree"
-                               OnClick="OpenOrchestrationAsync">Orchestration</MudButton>
-                }
-                @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ConfigureColumns) &&
-                     !_detail.Board.IsArchived)
-                {
-                    <MudButton Variant="Variant.Outlined"
-                               StartIcon="@Icons.Material.Outlined.ViewColumn"
-                               OnClick="OpenColumnEditor">Configure columns</MudButton>
-                }
-                @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ManageGrants) ||
-                     _detail.Board.AllowedActions.Contains(WorkAutomationActions.Manage))
-                {
-                    <MudMenu Icon="@Icons.Material.Outlined.MoreVert" AriaLabel="More board actions">
-                        @if (_detail.Board.AllowedActions.Contains(WorkAutomationActions.Manage))
-                        {
-                            <MudMenuItem OnClick="OpenAutomationsAsync">Automations</MudMenuItem>
-                        }
-                        @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ManageGrants))
-                        {
-                            <MudMenuItem OnClick="OpenAgentAccessAsync">Access management</MudMenuItem>
-                        }
-                    </MudMenu>
-                }
-            </div>
-            @if (_movePending)
-            {
-                <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-2" />
-            }
+    @if (_detailLoading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+        <p class="pa-4">Loading board details…</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_detailError))
+    {
+        <MudAlert Severity="Severity.Error">@_detailError</MudAlert>
+        <MudButton OnClick="RetryBoardAsync">Retry</MudButton>
+        <MudButton OnClick="BackToBoards">All boards</MudButton>
+    }
+    else if (_detail is not null)
+    {
+        <WorkBoardWorkspace @ref="_boardWorkspace" @key="_detail.Board.Id" Detail="_detail" Sprints="_sprints" SprintError="@_sprintError"
+                            Busy="_movePending" MoveError="@_moveError" OnBack="BackToBoards"
+                            OnFavorite="@(() => SetFavoriteAsync(_detail.Board))" OnRefresh="RefreshBoardViewAsync"
+                            OnCreate="OpenItemCreator" OnManageSprints="@(() => _sprintsOpen = true)"
+                            OnExecution="OpenExecutionAsync" OnOpenItem="OpenItemDetailsAsync"
+                            OnDrop="@((WorkBoardDropRequest request) => MoveItemAsync(request.Item, request.Column, request.BeforeItemId))">
+            <BoardActions>
+                <MudMenu Icon="@Icons.Material.Outlined.MoreVert" AriaLabel="Board settings">
+                    @if (_detail.Board.AllowedActions.Contains(WorkSprintActions.Read))
+                    {
+                        <MudMenuItem OnClick="@(() => _sprintsOpen = true)">Manage sprints</MudMenuItem>
+                    }
+                    @if (_detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Read))
+                    {
+                        <MudMenuItem OnClick="OpenOrchestrationAsync">Orchestration</MudMenuItem>
+                    }
+                    @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ConfigureColumns) && !_detail.Board.IsArchived)
+                    {
+                        <MudMenuItem OnClick="OpenColumnEditor">Configure columns</MudMenuItem>
+                    }
+                    @if (_detail.Board.AllowedActions.Contains(WorkAutomationActions.Manage))
+                    {
+                        <MudMenuItem OnClick="OpenAutomationsAsync">Automations</MudMenuItem>
+                    }
+                    @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ManageGrants))
+                    {
+                        <MudMenuItem OnClick="OpenAgentAccessAsync">Access management</MudMenuItem>
+                    }
+                </MudMenu>
+            </BoardActions>
+            <ContextContent>
             @if (_deliveryPipeline is not null)
             {
-                <MudPaper Outlined="true" Class="pa-3 mt-3">
+                <details class="board-pipeline" open="@(!string.IsNullOrWhiteSpace(_deliveryPipeline.LastError))"><summary>Delivery pipeline · @_deliveryPipeline.Status · @_deliveryPipeline.Stage</summary><div class="pa-3">
                     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                         <div>
                             <MudText Typo="Typo.subtitle1"><b>Delivery pipeline</b></MudText>
@@ -392,7 +340,7 @@
                             @if (_deliveryPipeline.ActiveSprintId.HasValue)
                             {
                                 <MudText Typo="Typo.caption">
-                                    Sprint @_deliveryPipeline.ActiveSprintId · ticket @_deliveryPipeline.ActiveWorkItemId
+                                    Sprint @(SprintFor(_deliveryPipeline.ActiveSprintId)?.Name ?? "Unavailable") · ticket @(_detail.Items.FirstOrDefault(x => x.Id == _deliveryPipeline.ActiveWorkItemId)?.Identifier ?? "Unavailable")
                                 </MudText>
                             }
                             @if (!string.IsNullOrWhiteSpace(_deliveryPipeline.SourcePullRequestUrl))
@@ -416,94 +364,22 @@
                             }
                         </MudAlert>
                     }
-                </MudPaper>
+                </div></details>
             }
-            @if (!string.IsNullOrWhiteSpace(_moveError))
-            {
-                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">@_moveError</MudAlert>
-            }
-            <div class="kanban-columns">
-                @foreach (var column in _detail.Columns)
-                {
-                    var columnItems = WorkBoardPresentation.ItemsForColumn(
-                        _detail.Items, column.Id, _itemSearch);
-                    <MudPaper Outlined="true" Class="@($"kanban-column {DropClass(column)}")"
-                              @ondragover:preventDefault="true"
-                              @ondragenter="@(() => _dragTargetColumnId = column.Id)"
-                              @ondragleave="@(() => ClearDragTarget(column.Id))"
-                              @ondrop="@(() => DropItemAsync(column, null))">
-                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="kanban-column-header">
-                            <MudText Typo="Typo.subtitle1"><b>@column.Name</b></MudText>
-                            <MudChip T="int" Size="Size.Small">@columnItems.Count</MudChip>
-                        </MudStack>
-                        @if (column.WipLimit.HasValue)
-                        {
-                            <MudText Typo="Typo.caption" Color="@WipColor(column, columnItems.Count)">
-                                @columnItems.Count / @column.WipLimit WIP · @column.WipPolicy
-                            </MudText>
-                        }
-                        @foreach (var item in columnItems)
-                        {
-                            <div @ondragover:preventDefault="true"
-                                 @ondrop:stopPropagation="true"
-                                 @ondrop="@(() => DropItemAsync(column, item.Id))">
-                            <article class="kanban-card" aria-label="Open work item @item.Identifier">
-                                <button type="button" class="kanban-drag-handle"
-                                        draggable="@CanDrag(item)"
-                                        @ondragstart="@(() => BeginDrag(item))"
-                                        @ondragend="EndDrag"
-                                        aria-label="Drag @item.Identifier to another column">
-                                    <MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" />
-                                </button>
-                                <button type="button" class="kanban-card-body" @onclick="@(() => OpenItemDetailsAsync(item))">
-                                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-                                        <MudText Typo="Typo.overline" Color="Color.Primary">@(item.Identifier ?? item.Kind)</MudText>
-                                        <MudChip T="string" Size="Size.Small" Color="@PriorityColor(item.Priority)">@item.Priority</MudChip>
-                                    </MudStack>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@TypeLabel(item)</MudText>
-                                    <MudText Typo="Typo.subtitle2"><StructuredMentionText Text="@item.Title" Mentions="@item.Mentions" Field="@CSweet.WorkManagement.Contracts.WorkItemMentionFields.Title" /></MudText>
-                                    @if (!string.IsNullOrWhiteSpace(item.Description))
-                                    {
-                                        <MudText Typo="Typo.caption" Class="kanban-card-preview">@WorkBoardPresentation.DescriptionPreview(item.Description)</MudText>
-                                    }
-                                    <div class="kanban-card-badges">
-                                    @if (SprintFor(item.SprintId) is { } sprint)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Info"
-                                                 Variant="Variant.Outlined">
-                                            @sprint.Name
-                                        </MudChip>
-                                    }
-                                    @if (CurrentApproval(item) is { } approval)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                                 Color="@ApprovalColor(approval.Status)">
-                                            Architecture: @approval.Status
-                                        </MudChip>
-                                    }
-                                    </div>
-                                </button>
-                            </article>
-                            </div>
-                        }
-                        @if (columnItems.Count == 0)
-                        {
-                            <div class="kanban-empty">Drop work here or create a new item.</div>
-                        }
-                    </MudPaper>
-                }
-            </div>
-        }
-    </section>
-</main>
+            </ContextContent>
+        </WorkBoardWorkspace>
+    }
 }
 
-<MudDialog @bind-Visible="_itemDetailsOpen"
-           Options="@(new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true })">
-    <TitleContent>
+@if (_itemDetailsOpen)
+{
+<div class="work-item-drawer-host" @onkeydown="HandleDetailKey">
+<MudDrawer @bind-Open="_itemDetailsOpen" Anchor="Anchor.End" Variant="DrawerVariant.Temporary" Fixed="true" Width="560px" Class="work-item-drawer" Elevation="4" role="dialog" aria-label="Work item details" aria-modal="true">
+    <MudFocusTrap DefaultFocus="DefaultFocus.FirstChild">
+    <header class="work-item-drawer-header">
         <MudText Typo="Typo.h6">@(_detailItem?.Identifier ?? "Work item") · @(_detailItem?.Title)</MudText>
-    </TitleContent>
-    <DialogContent>
+    <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="@(() => _itemDetailsOpen = false)" aria-label="Close work item details" /></header>
+    <div class="work-item-drawer-content">
         @if (_detailItem is { } detailItem)
         {
             <div class="ticket-detail-grid">
@@ -567,7 +443,7 @@
                                 <MudMenuItem Disabled="@(!CanMoveTo(detailItem, targetColumn))"
                                              OnClick="@(() => MoveFromDetailsAsync(detailItem, targetColumn))">Move to @targetColumn.Name</MudMenuItem>
                             }
-                            @foreach (var sprintOption in AssignableSprints)
+                            @foreach (var sprintOption in AssignableSprints.Where(_ => _detail?.Board.IsArchived == false && _detail.Board.AllowedActions.Contains(WorkSprintActions.ManageScope)))
                             {
                                 <MudMenuItem OnClick="@(() => SetItemSprintAsync(detailItem, sprintOption.Id))">Assign @sprintOption.Name</MudMenuItem>
                             }
@@ -576,9 +452,12 @@
                 </aside>
             </div>
         }
-    </DialogContent>
-    <DialogActions><MudButton OnClick="@(() => _itemDetailsOpen = false)">Close</MudButton></DialogActions>
-</MudDialog>
+    </div>
+    <footer class="work-item-drawer-footer"><MudButton OnClick="@(() => _itemDetailsOpen = false)">Close</MudButton></footer>
+    </MudFocusTrap>
+</MudDrawer>
+</div>
+}
 
 <MudDialog @bind-Visible="_automationsOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
@@ -1292,6 +1171,7 @@
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
     <TitleContent><MudText Typo="Typo.h6">New work item</MudText></TitleContent>
     <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">New items are added to the backlog. Assign them to a sprint from their details.</MudText>
         <div class="mt-2">
             <StructuredMentionTextField Label="Title" Value="_itemTitle"
                 ValueChanged="@(value => _itemTitle = value)" Mentions="_itemTitleMentions"
@@ -1499,7 +1379,6 @@
     private WorkBoardSummaryResponse? _detailBoard;
     private WorkBoardDetailResponse? _detail;
     private string _search = "";
-    private string _itemSearch = "";
     private string _editorName = "";
     private string _editorDescription = "";
     private string _editorKey = "";
@@ -1548,8 +1427,7 @@
     private string? _columnsError;
     private string? _detailError;
     private string? _moveError;
-    private WorkBoardItemResponse? _draggedItem;
-    private Guid? _dragTargetColumnId;
+    private WorkBoardWorkspace? _boardWorkspace;
     private bool _movePending;
     private string? _agentAccessError;
     private string? _collaborationError;
@@ -1886,12 +1764,20 @@
 
     private Task RetryBoardAsync() => LoadBoardAsync();
 
+    private async Task RefreshBoardViewAsync()
+    {
+        try { _moveError = null; await RefreshDetailAsync(); }
+        catch (Exception) { _moveError = "The board could not be refreshed. Please try again."; }
+    }
+
     private async Task LoadBoardAsync()
     {
         var boardId = BoardId ?? _detailBoard?.Id;
         if (!boardId.HasValue) return;
         _detailLoading = true;
         _detail = null;
+        _sprints = [];
+        _sprintError = null;
         _detailError = null;
         try
         {
@@ -2001,6 +1887,7 @@
             }
             _itemCreatorOpen = false;
             await RefreshDetailAsync();
+            if (_boardWorkspace is not null) await _boardWorkspace.ShowBacklogAsync();
         }
         catch (Exception exception)
         {
@@ -2399,7 +2286,10 @@
             $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprints");
         if (!response.IsSuccessStatusCode)
         {
-            _sprintError = await response.Content.ReadAsStringAsync();
+            var error = await response.Content.ReadAsStringAsync();
+            _sprintError = string.IsNullOrWhiteSpace(error)
+                ? $"Sprint information could not be loaded (HTTP {(int)response.StatusCode})."
+                : error;
             return;
         }
         _sprints = await response.Content.ReadFromJsonAsync<IReadOnlyList<WorkSprintResponse>>() ?? [];
@@ -2836,40 +2726,7 @@
         finally
         {
             _movePending = false;
-            EndDrag();
         }
-    }
-
-    private bool CanDrag(WorkBoardItemResponse item) =>
-        !_movePending && _detail is { Board.IsArchived: false } &&
-        _detail.Columns.Any(column => CanMoveTo(item, column));
-
-    private void BeginDrag(WorkBoardItemResponse item)
-    {
-        if (!CanDrag(item)) return;
-        _draggedItem = item;
-        _moveError = null;
-    }
-
-    private void EndDrag()
-    {
-        _draggedItem = null;
-        _dragTargetColumnId = null;
-    }
-
-    private async Task DropItemAsync(WorkBoardColumnResponse target, Guid? beforeItemId)
-    {
-        var item = _draggedItem;
-        if (item is null) return;
-        await MoveItemAsync(item, target, beforeItemId);
-    }
-
-    private string DropClass(WorkBoardColumnResponse column) =>
-        _dragTargetColumnId == column.Id && _draggedItem is not null ? "is-drop-target" : string.Empty;
-
-    private void ClearDragTarget(Guid columnId)
-    {
-        if (_dragTargetColumnId == columnId) _dragTargetColumnId = null;
     }
 
     private static Color PriorityColor(string priority) => priority switch
@@ -2880,17 +2737,7 @@
         _ => Color.Info
     };
 
-    private static string TypeLabel(WorkBoardItemResponse item) => item.TypeKey switch
-    {
-        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.SoftwareEpicV1 => "Software Epic",
-        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.SoftwareStoryV1 => "Software Story",
-        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.SoftwareTaskV1 => "Software Task",
-        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.GeneralInitiativeV1 => "Initiative",
-        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.GeneralEpicV1 => "Epic",
-        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.GeneralStoryV1 => "Story",
-        CSweet.WorkManagement.Contracts.WorkItemTypeKeys.GeneralTaskV1 => "Task",
-        _ => string.IsNullOrWhiteSpace(item.TypeKey) ? item.Kind : item.TypeKey
-    };
+    private static string TypeLabel(WorkBoardItemResponse item) => WorkBoardWorkspacePresentation.TypeLabel(item);
 
     private static CSweet.WorkManagement.Contracts.WorkItemApproval? CurrentApproval(WorkBoardItemResponse item) =>
         item.Approvals.OrderByDescending(x => x.UpdatedAt).FirstOrDefault();
@@ -2917,6 +2764,8 @@
         _itemDetailsOpen = true;
         return Task.CompletedTask;
     }
+
+    private void HandleDetailKey(KeyboardEventArgs args) { if (args.Key == "Escape") _itemDetailsOpen = false; }
 
     private void SelectDetailItem(WorkBoardItemResponse item) => _detailItem = item;
 
@@ -3091,9 +2940,15 @@
     {
         if (_detail is null) return;
         var selectedItemId = _selectedItem?.Id;
+        var detailItemId = _detailItem?.Id;
         _detail = await Http.GetFromJsonAsync<WorkBoardDetailResponse>(
             $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}");
         await LoadSprintsAsync();
+        if (detailItemId.HasValue)
+        {
+            _detailItem = _detail?.Items.SingleOrDefault(x => x.Id == detailItemId.Value);
+            if (_detailItem is null) _itemDetailsOpen = false;
+        }
         if (selectedItemId.HasValue)
         {
             _selectedItem = _detail?.Items.SingleOrDefault(x => x.Id == selectedItemId.Value);
@@ -3221,7 +3076,7 @@
             $"api/organizations/{OrganizationId:D}/work/boards/{board.Id:D}/favorite",
             new SetWorkBoardFavoriteRequest(!board.IsFavorite));
         response.EnsureSuccessStatusCode();
-        if (BoardId.HasValue) await LoadBoardAsync();
+        if (BoardId.HasValue) await RefreshBoardViewAsync();
         else await ReloadAsync();
     }
 

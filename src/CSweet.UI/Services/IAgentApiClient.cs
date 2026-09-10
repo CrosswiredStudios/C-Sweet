@@ -24,7 +24,7 @@ public interface IAgentApiClient
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse>> CheckDefinitionUpdatesAsync(
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, Guid? definitionId = null);
 
     Task<AgentInstallationResponse> UpdateDefinitionAsync(
         Guid definitionId,

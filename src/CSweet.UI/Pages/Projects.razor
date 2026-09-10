@@ -37,16 +37,16 @@ else if (WorkstreamId.HasValue && _project is not null)
         }
     </MudGrid>
     <MudTabs @bind-ActivePanelIndex="_tab" Class="mt-4" Rounded="true" ApplyEffectsToContainer="true">
-        <MudTabPanel Text="Overview and health">@ResourcePanel([_project.Project])</MudTabPanel>
-        <MudTabPanel Text="Teams and supervision">@ResourcePanel(_project.Teams)</MudTabPanel>
-        <MudTabPanel Text="Boards, work items, and sprints">@ResourcePanel(_project.Work)</MudTabPanel>
-        <MudTabPanel Text="Documents and reviews">@ResourcePanel(_project.Documents)</MudTabPanel>
-        <MudTabPanel Text="Communications">@ResourcePanel(_project.Communications)</MudTabPanel>
-        <MudTabPanel Text="Decisions, milestones, gates, and authority">@ResourcePanel(_project.Governance)</MudTabPanel>
+        <MudTabPanel Text="Overview and health"><ProjectResourceTable Resources="@(new[] { _project.Project })" /></MudTabPanel>
+        <MudTabPanel Text="Teams and supervision"><ProjectResourceTable Resources="_project.Teams" /></MudTabPanel>
+        <MudTabPanel Text="Boards, work items, and sprints"><ProjectResourceTable Resources="_project.Work" /></MudTabPanel>
+        <MudTabPanel Text="Documents and reviews"><ProjectResourceTable Resources="_project.Documents" /></MudTabPanel>
+        <MudTabPanel Text="Communications"><ProjectResourceTable Resources="_project.Communications" /></MudTabPanel>
+        <MudTabPanel Text="Decisions, milestones, gates, and authority"><ProjectResourceTable Resources="_project.Governance" /></MudTabPanel>
         <MudTabPanel Text="Builds, previews, media, evaluations, and release">
             <MudButton OnClick="RefreshAsync" Variant="Variant.Outlined" Class="mb-3">Refresh delivery status</MudButton>
             <ProjectPreviewLinks Resources="_project.Evidence" />
-            @ResourcePanel(_project.Evidence)
+            <ProjectResourceTable Resources="_project.Evidence" />
         </MudTabPanel>
         <MudTabPanel Text="Audit timeline">
             <MudGrid Class="mb-3">
@@ -181,27 +181,6 @@ else if (_portfolio is not null)
         ("Documents in review", _project.Health.DocumentsInReview), ("Failed builds", _project.Health.FailedBuilds),
         ("Blocking validations", _project.Health.BlockingValidations), ("Release ready", _project.Health.ReleaseReady ? "Yes" : "No")
     ];
-
-    private RenderFragment ResourcePanel(IEnumerable<ProjectInspectionResource> resources) => builder =>
-    {
-        var sequence = 0;
-        builder.OpenComponent<MudTable<ProjectInspectionResource>>(sequence++);
-        builder.AddAttribute(sequence++, "Items", resources);
-        builder.AddAttribute(sequence++, "Dense", true);
-        builder.AddAttribute(sequence++, "Hover", true);
-        builder.AddAttribute(sequence++, "RowTemplate", (RenderFragment<ProjectInspectionResource>)(item => row =>
-        {
-            var i = 0;
-            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Resource");
-            row.AddContent(i++, (RenderFragment)(link => { link.OpenComponent<MudLink>(0); link.AddAttribute(1, "Href", item.DeepLink); link.AddContent(2, item.Title); link.CloseComponent(); })); row.CloseComponent();
-            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Type"); row.AddContent(i++, $"{item.ResourceType} · {item.TypeKey}"); row.CloseComponent();
-            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Status"); row.AddContent(i++, item.Status); row.CloseComponent();
-            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Revision / hash"); row.AddContent(i++, $"r{item.Revision?.ToString() ?? "—"} · {Short(item.Sha256)}"); row.CloseComponent();
-            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Provider"); row.AddContent(i++, item.ProviderPackageId is null ? "—" : $"{item.ProviderPackageId}@{item.ProviderPackageVersion}"); row.CloseComponent();
-            row.OpenComponent<MudTd>(i++); row.AddAttribute(i++, "DataLabel", "Updated"); row.AddContent(i++, item.OccurredAt?.LocalDateTime.ToString() ?? "—"); row.CloseComponent();
-        }));
-        builder.CloseComponent();
-    };
 
     public void Dispose() => Realtime.EventReceived -= OnRealtimeEvent;
 }

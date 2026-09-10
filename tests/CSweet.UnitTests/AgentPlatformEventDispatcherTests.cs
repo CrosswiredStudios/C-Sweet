@@ -164,6 +164,58 @@ public sealed class AgentPlatformEventDispatcherTests
         Assert.Empty(runtime.QueuedInstallationIds);
     }
 
+    [Fact]
+    public async Task CalendarWorkAndReminderReachOnlyTargetInboxAndActivateRuntime()
+    {
+        var runtime = new RecordingRuntimeManager();
+        var services = new ServiceCollection();
+        var database = Guid.NewGuid().ToString();
+        services.AddDbContext<CSweetDbContext>(o => o.UseInMemoryDatabase(database));
+        services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<AgentWorkInbox>();
+        services.AddScoped<AgentWorkRouter>();
+        services.AddSingleton<IAgentRuntimeManager>(runtime);
+        await using var provider = services.BuildServiceProvider();
+        var org = Guid.NewGuid();
+        var owner = Guid.NewGuid();
+        var agent = Guid.NewGuid();
+        var events = new[] { CSweet.WorkManagement.Contracts.CalendarEvents.ReminderDue,
+            CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available };
+        var target = Installation(org, events);
+        var other = Installation(org, events);
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            db.AddRange(target, other, new Organization { Id = org, Name = "Calendar" },
+                new OrganizationUser { Id = owner, OrganizationId = org, DisplayName = "CEO", PermissionLevel = OrganizationPermissionLevel.Owner },
+                new OrganizationUser { Id = agent, OrganizationId = org, DisplayName = "Agent", AgentInstallationId = target.Id,
+                    EmployeeType = EmployeeType.Agent, PermissionLevel = OrganizationPermissionLevel.Contributor });
+            await db.SaveChangesAsync();
+            var calendar = new CSweet.Infrastructure.WorkManagement.BusinessCalendarService(db, TimeProvider.System,
+                new CSweet.Infrastructure.Core.EmployeeHierarchyAccessService(db),
+                new CSweet.Infrastructure.WorkManagement.WorkItemMutationEngine(db, TimeProvider.System));
+            var start = DateTime.SpecifyKind(DateTime.UtcNow.AddMinutes(-5), DateTimeKind.Unspecified);
+            await calendar.CreateAsync(org, new(OrganizationUserId: owner),
+                new(new("Scheduled report", start, start.AddHours(1), AttendeeIds: [agent], ReminderMinutes: [0],
+                    Work: new("Instructions", agent, "Prepare report")), "runtime"), default);
+            await calendar.DispatchDueAsync(default);
+        }
+        var dispatcher = new AgentPlatformEventDispatcher(provider.GetRequiredService<IServiceScopeFactory>(),
+            TimeProvider.System, NullLogger<AgentPlatformEventDispatcher>.Instance);
+        await dispatcher.DispatchPendingAsync(default);
+        await dispatcher.DispatchPendingAsync(default);
+        await using var verify = provider.CreateAsyncScope();
+        var result = verify.ServiceProvider.GetRequiredService<CSweetDbContext>();
+        var inbox = await result.AgentWorkItems.ToListAsync();
+        Assert.Equal(2, inbox.Count);
+        Assert.All(inbox, item => Assert.Equal(target.Id, item.AgentInstallationId));
+        Assert.Single(inbox, item => item.Name == events[0]);
+        Assert.Single(inbox, item => item.Name == events[1]);
+        Assert.Contains(target.Id, runtime.QueuedInstallationIds);
+        Assert.DoesNotContain(other.Id, runtime.QueuedInstallationIds);
+        Assert.All(await result.AgentPlatformEventOutbox.ToListAsync(), item => Assert.Equal(AgentPlatformEventOutboxStatus.Published, item.Status));
+    }
     private static AgentInstallation Installation(Guid organizationId, IReadOnlyList<string> subscriptions)
     {
         var installation = new AgentInstallation

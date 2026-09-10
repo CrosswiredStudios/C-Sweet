@@ -16,6 +16,7 @@ public sealed record CreateExecutiveDecisionCommand(
     string IdempotencyKey)
 {
     public AgentConfigurationChoice? ConfigurationChange { get; init; }
+    public Guid? WorkstreamDecisionId { get; init; }
 }
 
 /// <summary>A user-confirmed change to a preset field on the requesting employee.</summary>
@@ -23,6 +24,8 @@ public sealed record AgentConfigurationChoice(string Key, string CurrentValue, s
 
 public interface IExecutiveDecisionService
 {
+    Task<IReadOnlyList<PendingAgentQuestionResponse>> ListPendingForUserAsync(Guid organizationId,
+        Guid actorOrganizationUserId, CancellationToken cancellationToken = default);
     Task<ExecutiveDecisionCardResponse> CreateAsync(CreateExecutiveDecisionCommand command, CancellationToken cancellationToken = default);
     Task<IReadOnlyDictionary<Guid, ExecutiveDecisionCardResponse>> ListForMessagesAsync(Guid organizationId, Guid conversationId, CancellationToken cancellationToken = default);
     Task<AnswerExecutiveDecisionResponse> AnswerAsync(Guid organizationId, Guid conversationId, Guid decisionId,

@@ -58,7 +58,12 @@
                     <MudText Typo="Typo.h6">Saved Providers</MudText>
                     <MudText Color="Color.Secondary">Configured model endpoints.</MudText>
                 </div>
-                <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@_profiles.Count</MudChip>
+                <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@_profiles.Count</MudChip>
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" aria-label="Saved providers actions" Disabled="@_isBusy">
+                        <MudMenuItem OnClick="@(() => _migrationOpen = true)" Disabled="@(!_profiles.Any(x => x.IsEnabled))">Migrate agents</MudMenuItem>
+                    </MudMenu>
+                </MudStack>
             </div>
 
             @if (_profiles.Count == 0)
@@ -290,7 +295,10 @@
     </DialogActions>
 </MudDialog>
 
+<AgentProviderMigrationDialog @bind-Visible="_migrationOpen" Providers="_profiles" />
+
 @code {
+    private bool _migrationOpen;
     private SetupStatusResponse? _status;
     private IReadOnlyList<LlmProviderProfileResponse> _profiles = [];
     private LlmTokenUsageSummaryResponse? _usageSummary;
@@ -787,7 +795,7 @@
     private static string FormatCharacters(long characters) => FormatTokens(characters);
     private static string FormatPurposes(IReadOnlyDictionary<string, int> purposes) =>
         string.Join(", ", purposes.OrderBy(item => item.Key, StringComparer.Ordinal)
-            .Select(item => $"{item.Key} ×{item.Value}"));
+            .Select(item => $"{item.Key} ï¿½{item.Value}"));
 
     private static string FormatTokens(long tokens) => tokens >= 1_000_000
         ? $"{tokens / 1_000_000d:0.##}M"

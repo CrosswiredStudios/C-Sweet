@@ -18,7 +18,10 @@
                     <span>@Agent.Publisher</span>
                 }
             </span>
-            <span class="agent-brand-state">@SourceLabel</span>
+            @if (Agent.Availability is AgentAvailabilityState.InstalledEnabled or AgentAvailabilityState.InstalledDisabled)
+            {
+                <span class="agent-brand-state">Installed</span>
+            }
         </span>
         <span class="agent-brand-copy">
             <span class="agent-brand-name">@Agent.Name</span>
@@ -125,13 +128,6 @@
     private string RoleLabel => string.IsNullOrWhiteSpace(Agent.RoleName) ? Agent.Category : Agent.RoleName;
     private string? DetailsHref => AgentCatalogBranding.IsImageUrl(Agent.DocumentationUrl) ? Agent.DocumentationUrl
         : AgentCatalogBranding.IsImageUrl(Agent.RepositoryUrl) ? Agent.RepositoryUrl : null;
-    private string SourceLabel => Agent.Source switch
-    {
-        AgentCatalogSource.Installed => "Installed agent",
-        AgentCatalogSource.LocalDirectory => "Local agent",
-        AgentCatalogSource.FirstPartyCatalog => "C-Sweet agent",
-        _ => "Marketplace agent"
-    };
     private string AvailabilityLabel => Agent.Availability switch
     {
         AgentAvailabilityState.InstalledEnabled => "Installed · enabled",

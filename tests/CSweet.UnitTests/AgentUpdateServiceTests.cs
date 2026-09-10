@@ -65,10 +65,11 @@ public sealed class AgentUpdateServiceTests
 
     [Theory]
     [InlineData("present")]
+    [InlineData("present", true)]
     [InlineData("missing")]
     [InlineData("error")]
     [InlineData("invalid-utf8")]
-    public async Task CheckDefinitionsAsync_ReportsUpdatesWithCommitPinnedReleaseNotes(string notesMode)
+    public async Task CheckDefinitionsAsync_ReportsUpdatesWithCommitPinnedReleaseNotes(string notesMode, bool targeted = false)
     {
         await using var dbContext = CreateDbContext();
         var source = new AgentPackageSource
@@ -90,13 +91,37 @@ public sealed class AgentUpdateServiceTests
             UpdatedAt = DateTimeOffset.UtcNow
         };
         dbContext.AddRange(source, package, definition);
+        if (targeted)
+        {
+        var otherSource = new AgentPackageSource
+        {
+            Id = Guid.NewGuid(), RepositoryUrl = "https://github.com/example/unrelated-agent",
+            RepositoryOwner = "example", RepositoryName = "unrelated-agent", DefaultBranch = "main"
+        };
+        var otherPackage = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(), PackageSourceId = otherSource.Id, PackageSource = otherSource,
+            AgentId = "com.example.unrelated-agent", AgentName = "Research Agent", Version = "1.2.3",
+            CommitSha = new string('1', 40), ManifestDigest = new string('a', 64), ManifestJson = "{}",
+            PublisherId = "com.example", PublisherName = "Example", RuntimeType = "dotnet-project"
+        };
+        var otherDefinition = new AgentDefinition
+        {
+            Id = Guid.NewGuid(), PackageSourceId = otherSource.Id, AgentId = otherPackage.AgentId,
+            PackageVersionId = otherPackage.Id, PackageVersion = otherPackage, CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.AddRange(otherSource, otherPackage, otherDefinition);
+        }
         await dbContext.SaveChangesAsync();
         var preview = CreatePreview("1.3.0");
         var repository = new NotesRepository(notesMode);
+        var previewService = new StubPreviewService(preview);
         var service = new AgentUpdateService(
-            dbContext, new StubPreviewService(preview), NullLogger<AgentUpdateService>.Instance, repository);
+            dbContext, previewService, NullLogger<AgentUpdateService>.Instance, repository);
 
-        var result = Assert.Single(await service.CheckDefinitionsAsync());
+        var result = Assert.Single(await service.CheckDefinitionsAsync(definitionId: targeted ? definition.Id : null));
+        Assert.Equal(1, previewService.Calls);
 
         Assert.Equal(definition.Id, result.DefinitionId);
         Assert.True(result.UpdateAvailable);
@@ -160,8 +185,13 @@ public sealed class AgentUpdateServiceTests
 
     private sealed class StubPreviewService(AgentImportPreviewResponse response) : IAgentImportPreviewService
     {
+        public int Calls { get; private set; }
         public Task<AgentImportPreviewResponse> PreviewAsync(
             PreviewAgentImportRequest request,
-            CancellationToken cancellationToken = default) => Task.FromResult(response);
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(response);
+        }
     }
 }

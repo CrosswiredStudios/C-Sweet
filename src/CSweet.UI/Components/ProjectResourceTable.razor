@@ -1,0 +1,19 @@
+@using CSweet.Contracts.Core
+
+<MudTable Items="Resources" Dense="true" Hover="true">
+    <HeaderContent><MudTh>Resource</MudTh><MudTh>Type</MudTh><MudTh>Status</MudTh><MudTh>Revision / hash</MudTh><MudTh>Provider</MudTh><MudTh>Updated</MudTh></HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Resource"><MudLink Href="@context.DeepLink">@context.Title</MudLink></MudTd>
+        <MudTd DataLabel="Type">@context.ResourceType · @context.TypeKey</MudTd>
+        <MudTd DataLabel="Status">@context.Status</MudTd>
+        <MudTd DataLabel="Revision / hash">r@(context.Revision?.ToString() ?? "—") · @Short(context.Sha256)</MudTd>
+        <MudTd DataLabel="Provider">@(context.ProviderPackageId is null ? "—" : $"{context.ProviderPackageId}@{context.ProviderPackageVersion}")</MudTd>
+        <MudTd DataLabel="Updated">@(context.OccurredAt?.LocalDateTime.ToString() ?? "—")</MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText Class="pa-4">No resources in this section yet.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    [Parameter] public IEnumerable<ProjectInspectionResource> Resources { get; set; } = [];
+    private static string Short(string? value) => string.IsNullOrEmpty(value) ? "—" : value[..Math.Min(12, value.Length)];
+}

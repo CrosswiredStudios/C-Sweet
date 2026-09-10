@@ -531,7 +531,8 @@ public sealed class AgentCoordinationService(
         var cutoff = now.AddMinutes(-1);
         var sessions = await db.AgentCoordinationSessions.AsNoTracking()
             .Where(x => x.Status == DomainStatus.Failed && x.UpdatedAt <= cutoff &&
-                x.FinalSummary != null && x.FinalSummary.Contains("retryable=true"))
+                x.FinalSummary != null && (x.FinalSummary.Contains("retryable=true") ||
+                    x.FinalSummary.Contains("code=platform.capability.unavailable")))
             .OrderBy(x => x.UpdatedAt).ToListAsync(cancellationToken);
         var recovered = 0;
         foreach (var session in sessions)
@@ -541,10 +542,24 @@ public sealed class AgentCoordinationService(
                 x.SourceType == "agent-coordination" && x.CorrelationId == correlation)
                 .OrderByDescending(x => x.CreatedAt).ToListAsync(cancellationToken);
             var failed = deliveries.FirstOrDefault();
-            if (failed is null || failed.Status != AgentWorkStatus.DeadLetter ||
-                !IsTransientDeliveryFailure(failed.LastError) ||
-                deliveries.Where(x => x.CausationId == failed.CausationId).Sum(x => x.AttemptCount) >= 12)
-                continue;
+            if (failed is null || failed.Status != AgentWorkStatus.DeadLetter) continue;
+            var attempts = deliveries.Where(x => x.CausationId == failed.CausationId).Sum(x => x.AttemptCount);
+            if (attempts >= 12) continue;
+            if (IsUnavailableInference(failed.LastError))
+            {
+                // Older SDKs label unavailable inference non-retryable. Reassess it as a
+                // bounded availability probe, without treating denied/invalid requests as transient.
+                var delay = TimeSpan.FromMinutes(Math.Min(15, Math.Pow(2, Math.Max(0, attempts - 1))));
+                if (session.UpdatedAt + delay > now) continue;
+                var providerId = await db.AgentRunLogs.AsNoTracking().Where(x =>
+                        x.OrganizationId == session.OrganizationId && x.AgentInstallationId == failed.AgentInstallationId &&
+                        x.StartedAt >= failed.CreatedAt && x.Status == "Failed")
+                    .OrderByDescending(x => x.StartedAt).Select(x => (Guid?)x.ProviderProfileId)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (providerId is null || !await db.LlmProviderProfiles.AnyAsync(x => x.Id == providerId && x.IsEnabled,
+                        cancellationToken)) continue;
+            }
+            else if (!IsTransientDeliveryFailure(failed.LastError)) continue;
             var installationIds = new[] { session.InitiatorInstallationId, session.TargetInstallationId };
             if (await db.AgentInstallations.CountAsync(x => installationIds.Contains(x.Id) && x.IsEnabled &&
                     x.RevisionStatus == PluginRevisionStatus.Active && x.SetupState == PluginSetupState.Ready,
@@ -555,11 +570,19 @@ public sealed class AgentCoordinationService(
                 continue;
             await ResumeAsync(session.OrganizationId, session.InitiatorOrganizationUserId, session.InitiatorInstallationId,
                 new ResumeAgentCoordinationRequest(session.Id, session.Revision,
-                    "Retry transient delivery after cooldown, preserving the pending speaker and transcript.",
+                    "Reassess recoverable execution failure after cooldown, preserving the pending speaker and transcript.",
                     $"delivery-recovery:{failed.Id:N}"), cancellationToken);
             recovered++;
         }
         return recovered;
+    }
+
+    private static bool IsUnavailableInference(string? error)
+    {
+        if (error?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) != true) return false;
+        var parts = error.Split(';');
+        return parts.Contains("code=platform.capability.unavailable", StringComparer.Ordinal) &&
+            parts.Contains("capability=platform.llm.chat-stream.v1", StringComparer.Ordinal);
     }
 
     private static bool IsTransientDeliveryFailure(string? error)

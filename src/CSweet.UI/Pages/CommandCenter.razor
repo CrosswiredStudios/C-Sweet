@@ -51,6 +51,10 @@
                 {
                     <MudAlert Severity="Severity.Warning">@error Use Refresh to try again.</MudAlert>
                 }
+                else if (widget == "decisions")
+                {
+                    <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true" />
+                }
                 else if (widget == "approvals" && _approvals is not null)
                 {
                     @if (!PendingApprovals.Any())
@@ -181,7 +185,7 @@
             LoadAsync<ProjectPortfolioResponse>($"{prefix}/workstreams/inspection", "projects", x => _portfolio = x, token),
             _layoutLoaded ? Task.CompletedTask : LoadAsync<DashboardLayoutRequest>($"{prefix}/dashboard/layout", "layout", x =>
             {
-                _order = DashboardWidgets.IsValid(x.Order) ? x.Order.ToList() : DashboardWidgets.DefaultOrder.ToList();
+                _order = DashboardWidgets.Restore(x.Order).ToList();
                 _layoutLoaded = true; _layoutMessage = null;
             }, token));
         if (token.IsCancellationRequested) return;
@@ -243,7 +247,7 @@
         if (envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
             _ = InvokeAsync(async () => { if (!_disposed) { await RefreshAsync(); StateHasChanged(); } });
     }
-    private static string Title(string key) => key switch { "approvals" => "CEO approvals", "finance" => "Finances", "legal" => "Legal", _ => "Projects & products" };
+    private static string Title(string key) => key switch { "decisions" => "Pending Decisions", "approvals" => "CEO approvals", "finance" => "Finances", "legal" => "Legal", _ => "Projects & products" };
     private static string Money(decimal? value) => value?.ToString("N2") ?? "Not reported";
     private static string DueLabel(DateOnly date)
     {

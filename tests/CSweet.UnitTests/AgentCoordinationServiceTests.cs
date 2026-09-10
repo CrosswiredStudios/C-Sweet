@@ -596,6 +596,52 @@ public sealed class AgentCoordinationServiceTests
     }
 
     [Theory]
+    [InlineData("ready", true)]
+    [InlineData("disabled", false)]
+    [InlineData("no-evidence", false)]
+    [InlineData("other-capability", false)]
+    [InlineData("backoff", false)]
+    [InlineData("exhausted", false)]
+    public async Task RecoveryReassessesUnavailableInferenceWithoutOverridingOtherBlockers(string scenario, bool recover)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var now = DateTimeOffset.UtcNow;
+        var stored = await fixture.Db.AgentCoordinationSessions.Include(x => x.Turns).SingleAsync();
+        var capability = scenario == "other-capability" ? "platform.artifact-package.read.v1" : "platform.llm.chat-stream.v1";
+        var error = $"agent-failure:v1;code=platform.capability.unavailable;retryable=false;capability={capability};diagnosticId=test";
+        var work = await fixture.Inbox.EnqueueAsync(fixture.OrganizationId.ToString("D"), fixture.TargetInstallationId,
+            CSweet.Domain.Setup.AgentWorkKind.Event, AgentCoordinationEvents.TurnRequested, JsonSerializer.SerializeToElement(new {}),
+            "unavailable-inference", now.AddHours(1), correlationId: fixture.SessionId.ToString("D"),
+            causationId: stored.Turns.Single().Id.ToString("D"), sourceType: "agent-coordination",
+            sourceId: Guid.NewGuid().ToString("D"));
+        work.Status = AgentWorkStatus.DeadLetter;
+        work.AttemptCount = scenario == "exhausted" ? 12 : scenario == "backoff" ? 4 : 1;
+        work.LastError = error;
+        stored.Status = AgentCoordinationStatus.Failed;
+        stored.FinalSummary = error;
+        stored.UpdatedAt = now.AddMinutes(-2);
+        stored.CurrentAgentWorkItemId = null;
+        stored.CurrentOrganizationUserId = null;
+        var provider = Guid.NewGuid();
+        fixture.Db.LlmProviderProfiles.Add(new() { Id = provider, IsEnabled = scenario != "disabled" });
+        if (scenario != "no-evidence")
+            fixture.Db.AgentRunLogs.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId,
+                AgentInstallationId = fixture.TargetInstallationId, ProviderProfileId = provider,
+                StartedAt = work.CreatedAt, Status = "Failed" });
+        await fixture.Db.SaveChangesAsync();
+        Assert.Equal(recover ? 1 : 0, await fixture.Service.RecoverTransientFailuresAsync(now));
+        Assert.Equal(0, await fixture.Service.RecoverTransientFailuresAsync(now));
+        Assert.Single(stored.Turns);
+        var pending = await fixture.Db.AgentWorkItems.Where(x => x.Status == AgentWorkStatus.Pending).ToListAsync();
+        if (recover)
+        {
+            Assert.Equal(fixture.TargetInstallationId, Assert.Single(pending).AgentInstallationId);
+            Assert.Equal(AgentCoordinationStatus.Active, stored.Status);
+        }
+        else Assert.Empty(pending);
+    }
+
+    [Theory]
     [InlineData("runtime.rate_limited", true, 3, 120, true)]
     [InlineData("runtime.transport", true, 3, 120, true)]
     [InlineData("runtime.transport", false, 3, 120, false)]

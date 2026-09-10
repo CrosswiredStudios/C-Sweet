@@ -13,7 +13,8 @@ public sealed class AgentHostBrokerOptions
     // enough forwarding headroom for that request and response to complete.
     public int TimeoutSeconds { get; set; } = 180;
     // Control-plane calls must fail early enough for the SDK to reconnect before the
-    // runtime startup circuit breaker fires. Capability calls retain the longer timeout.
+    // runtime startup circuit breaker fires. Capability calls and long-poll work claims
+    // retain the longer timeout; AgentHost may hold an idle claim for 25 seconds.
     public int ControlRequestTimeoutSeconds { get; set; } = 10;
     public int MaximumResponseBytes { get; set; } = 16 * 1024 * 1024;
 
@@ -134,7 +135,7 @@ public sealed class AgentHostBrokerOperationHandler(
             if (document.RootElement.TryGetProperty("method", out var method) &&
                 method.ValueKind == JsonValueKind.String &&
                 method.GetString() is "initialize" or "ping" or "csweet/session/renew" or
-                    "csweet/work/claim" or "csweet/work/renew" or "csweet/work/progress" or
+                    "csweet/work/renew" or "csweet/work/progress" or
                     "csweet/work/complete" or "csweet/work/fail" or "csweet/runtime/complete" or
                     "csweet/llm/start" or "csweet/llm/read" or "csweet/llm/cancel")
                 return options.ControlRequestTimeoutSeconds;

@@ -30,14 +30,15 @@ public sealed partial class ExecutiveDecisionService(
                 x.IdempotencyKey == idempotencyKey, cancellationToken);
         if (existing is not null) return ToCard(existing);
 
-        var prompt = Required(command.Prompt, 2048, nameof(command.Prompt));
-        if (command.Options.Count is < 2 or > 4)
+        var prompt = Required(command.Prompt, command.WorkstreamDecisionId.HasValue ? 4000 : 2048, nameof(command.Prompt));
+        if (command.WorkstreamDecisionId.HasValue && prompt.Length > 2048) prompt = prompt[..2045] + "...";
+        if (command.Options.Count < 2 || (!command.WorkstreamDecisionId.HasValue && command.Options.Count > 4))
             throw new ArgumentException("A decision must contain between two and four mutually exclusive options.");
 
         var options = command.Options.Select(option => new StoredOption(
                 Required(option.Id, 80, "option.id"),
-                Required(option.Label, 160, "option.label"),
-                Clean(option.Description, 500)))
+                Required(option.Label, command.WorkstreamDecisionId.HasValue ? int.MaxValue : 160, "option.label"),
+                Clean(option.Description, command.WorkstreamDecisionId.HasValue ? int.MaxValue : 500)))
             .ToList();
         if (options.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != options.Count)
             throw new ArgumentException("Decision option IDs must be unique.");
@@ -87,6 +88,7 @@ public sealed partial class ExecutiveDecisionService(
             recommendedOptionId = "apply";
         }
 
+        var linked = await ValidateWorkstreamDecisionAsync(command, cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var pending = await db.ExecutiveDecisions
             .Where(x => x.ConversationId == command.ConversationId &&
@@ -98,11 +100,11 @@ public sealed partial class ExecutiveDecisionService(
             Id = Guid.NewGuid(), OrganizationId = command.OrganizationId, ConversationId = command.ConversationId,
             ChatTurnId = command.ChatTurnId, ConversationMessageId = command.ConversationMessageId,
             RequestingInstallationId = command.RequestingInstallationId,
-            Prompt = prompt, OptionsJson = JsonSerializer.Serialize(new StoredDecisionOptions(options, command.ConfigurationChange), JsonOptions),
+            Prompt = prompt, OptionsJson = JsonSerializer.Serialize(new StoredDecisionOptions(options, command.ConfigurationChange, linked?.Id, linked?.Revision), JsonOptions),
             RecommendedOptionId = recommendedOptionId, IdempotencyKey = idempotencyKey,
             Status = ExecutiveDecisionStatus.Pending, CreatedAt = now, UpdatedAt = now
         };
-        foreach (var previous in pending)
+        foreach (var previous in pending.Where(x => ReadDecisionOptions(x.OptionsJson).WorkstreamDecisionId == command.WorkstreamDecisionId))
         {
             previous.Status = ExecutiveDecisionStatus.Superseded;
             previous.SupersededByDecisionId = decision.Id;
@@ -181,6 +183,11 @@ public sealed partial class ExecutiveDecisionService(
             cancellationToken);
         if (!isMember) return Failure("not_authorized", "You are not an active member of this chat.");
 
+        var linkedOptions = ReadDecisionOptions(decision.OptionsJson);
+        if (linkedOptions.WorkstreamDecisionId.HasValue && !await db.CoreOrganizationUsers.AnyAsync(x =>
+            x.Id == actorOrganizationUserId && x.OrganizationId == organizationId && x.IsActive &&
+            x.EmployeeType == EmployeeType.Human && x.PermissionLevel == OrganizationPermissionLevel.Owner, cancellationToken))
+            return Failure("not_authorized", "Only a business owner can resolve this project decision.");
         var answerKey = Clean(request.IdempotencyKey, 160);
         if (answerKey is null) return Failure("validation_error", "An idempotency key is required.");
         if (decision.Status == ExecutiveDecisionStatus.Answered)
@@ -219,6 +226,9 @@ public sealed partial class ExecutiveDecisionService(
         await using var transaction = db.Database.IsRelational()
             ? await db.Database.BeginTransactionAsync(cancellationToken)
             : null;
+        var linkedFailure = await ApplyWorkstreamDecisionAsync(decision, storedOptions, actorOrganizationUserId,
+            selected?.Id, freeText, cancellationToken);
+        if (linkedFailure is not null) return Failure("decision_not_pending", linkedFailure);
         var now = DateTimeOffset.UtcNow;
         decision.SelectedOptionId = selected?.Id;
         decision.FreeTextAnswer = freeText;
@@ -305,7 +315,9 @@ public sealed partial class ExecutiveDecisionService(
             .ToList();
         return new(decision.Id, decision.Prompt, decision.Status.ToString(), options,
             decision.RecommendedOptionId, decision.SelectedOptionId, decision.FreeTextAnswer,
-            decision.CreatedAt, decision.AnsweredAt) { AllowFreeText = ReadDecisionOptions(decision.OptionsJson).ConfigurationChange is null };
+            decision.CreatedAt, decision.AnsweredAt) { AllowFreeText =
+                ReadDecisionOptions(decision.OptionsJson).ConfigurationChange is null &&
+                (ReadDecisionOptions(decision.OptionsJson).WorkstreamDecisionId is null || options.Any(x => x.Id == "provide-direction")) };
     }
 
     private static List<StoredOption> ReadOptions(string json) => ReadDecisionOptions(json).Options;
@@ -320,7 +332,7 @@ public sealed partial class ExecutiveDecisionService(
                 ?? throw new InvalidOperationException("The stored decision is invalid.");
     }
 
-    private sealed record StoredDecisionOptions(List<StoredOption> Options, AgentConfigurationChoice? ConfigurationChange);
+    private sealed record StoredDecisionOptions(List<StoredOption> Options, AgentConfigurationChoice? ConfigurationChange, Guid? WorkstreamDecisionId = null, long? WorkstreamDecisionRevision = null);
 
     private static string Required(string? value, int maximumLength, string name) =>
         Clean(value, maximumLength) ?? throw new ArgumentException($"{name} is required.");

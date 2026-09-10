@@ -2105,7 +2105,9 @@ body { color: var(--cs-navy); }
 
 /* Installed definitions share the compact portrait layout used by personal work boards. */
 .installed-agent-card { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; padding: 1rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 14px; background: var(--mud-palette-surface); min-width: 0; }
-.installed-agent-version { grid-area: 1 / 2; align-self: start; display: flex; align-items: center; justify-content: flex-end; gap: .35rem; min-height: 1.75rem; color: var(--mud-palette-text-secondary); font-size: .8rem; }
+.installed-agent-controls { grid-area: 1 / 2; align-self: center; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; }
+.installed-agent-controls > .mud-icon-button { position: relative; z-index: 1; pointer-events: auto; }
+.installed-agent-version { display: flex; align-items: center; justify-content: flex-end; gap: .35rem; min-height: 1.75rem; color: var(--mud-palette-text-secondary); font-size: .8rem; }
 .installed-agent-identity { grid-area: 1 / 1; display: flex; align-items: center; gap: 1rem; min-width: 0; }
 .installed-agent-portrait { width: 64px; height: 80px; flex: 0 0 64px; object-fit: cover; object-position: center 20%; border-radius: 9px; }
 .installed-agent-name { min-width: 0; overflow-wrap: anywhere; }
@@ -2147,9 +2149,16 @@ body { color: var(--cs-navy); }
 .installed-agent-identity, .installed-agent-version, .installed-agent-actions { pointer-events: none; }
 .installed-agent-actions > *, .installed-agent-version .agent-card-popover-host, .installed-agent-updating, .agent-card-popover { pointer-events: auto; position: relative; }
 .installed-agent-actions > *, .installed-agent-version .agent-card-popover-host { z-index: 1; }
+/* Raise the popup host itself above card controls; its child cannot escape its stacking context. */
+.installed-agent-version .agent-card-popover-host.is-open { z-index: 21; }
 .installed-agent-progress { position: static; margin-top: .5rem; }
 .installed-agent-updating { display: inline-flex; align-items: center; gap: .4rem; border: 0; border-radius: 16px; padding: .3rem .65rem; background: var(--mud-palette-info); color: var(--mud-palette-info-text); font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; }
 .installed-agent-updating:focus-visible { outline: 2px solid var(--mud-palette-info); outline-offset: 3px; }
 .installed-agent-updating .mud-progress-circular { width: 14px !important; height: 14px !important; color: inherit; }
 .installed-agent-card .agent-card-popover { position: absolute; }
 .installed-agent-progress > .agent-card-popover { right: 0; width: min(26rem, 100%); }
+
+.installed-agent-version-check { position: relative; pointer-events: auto; border: 0; background: transparent; color: inherit; font: inherit; padding: .2rem 0; cursor: pointer; }
+.installed-agent-version-check:hover:not(:disabled) { color: var(--mud-palette-info); text-decoration: underline; }
+.installed-agent-version-check:disabled { cursor: default; opacity: .6; }
+.installed-agent-version-check:focus-visible { outline: 2px solid var(--mud-palette-info); outline-offset: 3px; border-radius: 3px; }

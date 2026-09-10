@@ -28,8 +28,8 @@
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isBusy" OnClick="OpenImportDialog" StartIcon="@Icons.Material.Filled.Add">
                 Import Agent
             </MudButton>
-            <MudTooltip Text="Refresh agents">
-                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Secondary" Disabled="@(_isBusy || _isLoading)" OnClick="LoadAsync" />
+            <MudTooltip Text="Fetch agent updates">
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Secondary" aria-label="Fetch agent updates" Disabled="@(_isBusy || _isLoading || _isCheckingUpdates)" OnClick="FetchUpdatesAsync" />
             </MudTooltip>
         </MudStack>
     </MudPaper>
@@ -92,6 +92,8 @@
                         <InstalledAgentCard @key="installation.Id" Installation="installation" Update="availableUpdate"
                                             Busy="@(_isBusy || _isManagingInstallation)"
                                             BuildPending="@_pendingBuildRequests.Contains(installation.Id)"
+                                            CheckingUpdates="@_isCheckingUpdates"
+                                            OnCheckUpdates="@(() => StartUpdateCheck(installation.Id))"
                                             ProgressTitle="@buildProgress?.Title" ProgressDetail="@buildProgress?.Detail"
                                             OnUpdate="@(() => UpdateInstallationAsync(installation, availableUpdate!))"
                                             OnBuild="@(() => RetryBuildAsync(installation))"
@@ -910,29 +912,39 @@
 
         if (loaded)
         {
-            StartUpdateCheck();
             ResumeDefinitionBuildTracking();
         }
     }
 
-    private void StartUpdateCheck()
+    private async Task FetchUpdatesAsync()
+    {
+        await LoadAsync();
+        if (_pageError is null) StartUpdateCheck();
+    }
+
+    private void StartUpdateCheck(Guid? definitionId = null)
     {
         if (_updateCheckTask is { IsCompleted: false })
         {
             return;
         }
 
-        _updateCheckTask = CheckForUpdatesAsync(_disposeCts.Token);
+        _updateCheckTask = CheckForUpdatesAsync(_disposeCts.Token, definitionId);
     }
 
-    private async Task CheckForUpdatesAsync(CancellationToken cancellationToken)
+    private async Task CheckForUpdatesAsync(CancellationToken cancellationToken, Guid? definitionId)
     {
         _isCheckingUpdates = true;
         _updateCheckError = null;
 
         try
         {
-            _updates = await AgentApi.CheckDefinitionUpdatesAsync(cancellationToken);
+            var results = await AgentApi.CheckDefinitionUpdatesAsync(cancellationToken, definitionId);
+            _updates = definitionId is Guid id
+                ? _updates.Where(update => update.DefinitionId != id).Concat(results).ToList()
+                : results;
+            if (definitionId.HasValue && results.Count > 0 && results.All(update => !update.UpdateAvailable && string.IsNullOrWhiteSpace(update.Error)))
+                Snackbar.Add("This agent is up to date.", Severity.Success);
             _updateCheckError = _updates.FirstOrDefault(update => !string.IsNullOrWhiteSpace(update.Error))?.Error;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -941,7 +953,6 @@
         }
         catch
         {
-            _updates = [];
             _updateCheckError = "Agent update checks are temporarily unavailable.";
         }
         finally

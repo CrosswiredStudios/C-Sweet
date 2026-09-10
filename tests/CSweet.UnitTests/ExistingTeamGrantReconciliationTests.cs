@@ -12,21 +12,59 @@ public sealed class ExistingTeamGrantReconciliationTests
     [Theory]
     [InlineData("approved")]
     [InlineData("unapproved")]
+    [InlineData("no-approval-date")]
+    [InlineData("undeclared")]
     [InlineData("ended")]
-    [InlineData("inactive")]
     [InlineData("disabled")]
-    [InlineData("organization-scope")]
-    public async Task UpdatedManifestRepairsOnlyApprovedActiveTeamAccessAndPreservesRevocation(string scenario)
+    public async Task ApprovedRepositoryRequestPermissionIsReconciledWithoutRevivingRevocations(string scenario)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        const string action = CSweet.Agent.SDK.SourceControlCapabilities.ProvisionRepository;
+        var org = Guid.NewGuid(); var installationId = Guid.NewGuid(); var employeeId = Guid.NewGuid(); var teamId = Guid.NewGuid();
+        var package = new AgentPackageVersion { Id = Guid.NewGuid(), ManifestJson = JsonSerializer.Serialize(new
+            { requires = new[] { new { name = scenario == "undeclared" ? "other" : action, scope = "organization" } } }) };
+        db.AgentInstallations.Add(new() { Id = installationId, BusinessId = org.ToString("D"), PackageVersionId = package.Id,
+            PackageVersion = package, Scope = PluginInstallationScope.Organization, IsEnabled = scenario != "disabled",
+            RevisionStatus = PluginRevisionStatus.Active, Grant = new() { Id = Guid.NewGuid(), AgentInstallationId = installationId,
+                ApprovedAt = scenario == "no-approval-date" ? default : DateTimeOffset.UtcNow,
+                RequiredCapabilitiesJson = scenario == "unapproved" ? "[]" : JsonSerializer.Serialize(new[] { action }) } });
+        db.CoreOrganizationUsers.Add(new() { Id = employeeId, OrganizationId = org, AgentInstallationId = installationId,
+            IsActive = true, EmployeeType = EmployeeType.Agent });
+        db.OrganizationTeams.Add(new() { Id = teamId, OrganizationId = org, LeadOrganizationUserId = Guid.NewGuid() });
+        db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = org, OrganizationUserId = employeeId,
+            TeamId = teamId, EndedAt = scenario == "ended" ? DateTimeOffset.UtcNow : null });
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+        var sync = new AgentDefinitionInstallationSynchronizer(db, null!);
+        Assert.Equal(scenario == "approved" ? 1 : 0, await sync.SynchronizeAsync());
+        if (scenario != "approved") { Assert.Empty(await db.ScopedActionGrants.ToListAsync()); return; }
+        var grant = Assert.Single(await db.ScopedActionGrants.ToListAsync());
+        Assert.Equal(org, grant.ScopeId); Assert.Equal(action, grant.Action); Assert.False(grant.CanDelegate);
+        Assert.Equal(0, await sync.SynchronizeAsync());
+        grant.RevokedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+        Assert.Equal(0, await sync.SynchronizeAsync());
+        Assert.NotNull((await db.ScopedActionGrants.SingleAsync()).RevokedAt);
+    }
+
+    public static IEnumerable<object[]> TeamReadCases() =>
+        from scenario in new[] { "approved", "unapproved", "ended", "inactive", "disabled", "organization-scope" }
+        from action in new[] { "work.item.read", "work.board.read" }
+        select new object[] { scenario, action };
+
+    [Theory]
+    [MemberData(nameof(TeamReadCases))]
+    public async Task UpdatedManifestRepairsOnlyApprovedActiveTeamAccessAndPreservesRevocation(string scenario, string action)
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var org = Guid.NewGuid(); var installationId = Guid.NewGuid(); var employeeId = Guid.NewGuid(); var teamId = Guid.NewGuid();
         var package = new AgentPackageVersion { Id = Guid.NewGuid(), ManifestJson = JsonSerializer.Serialize(new
-            { requires = new[] { new { name = "work.item.read", scope = scenario == "organization-scope" ? "organization" : "team" } } }) };
+            { requires = new[] { new { name = action, scope = scenario == "organization-scope" ? "organization" : "team" } } }) };
         db.AgentInstallations.Add(new() { Id = installationId, BusinessId = org.ToString("D"), PackageVersionId = package.Id,
             PackageVersion = package, Scope = PluginInstallationScope.Organization, IsEnabled = scenario != "disabled",
             RevisionStatus = PluginRevisionStatus.Active, Grant = new() { Id = Guid.NewGuid(), AgentInstallationId = installationId,
-                RequiredCapabilitiesJson = scenario == "unapproved" ? "[]" : "[\"work.item.read\"]" } });
+                RequiredCapabilitiesJson = scenario == "unapproved" ? "[]" : JsonSerializer.Serialize(new[] { action }) } });
         db.CoreOrganizationUsers.Add(new() { Id = employeeId, OrganizationId = org, AgentInstallationId = installationId,
             IsActive = scenario != "inactive", EmployeeType = EmployeeType.Agent });
         db.OrganizationTeams.Add(new() { Id = teamId, OrganizationId = org, LeadOrganizationUserId = Guid.NewGuid() });

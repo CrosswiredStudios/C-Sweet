@@ -81,7 +81,7 @@ public sealed class CompanyDashboardTests
     {
         await using var db = Database(); var service = new CompanyDashboardService(db, TimeProvider.System);
         var org = Guid.NewGuid(); var actor = Guid.NewGuid();
-        var order = new[] { "projects", "legal", "finance", "approvals" };
+        var order = new[] { "projects", "legal", "finance", "approvals", "decisions" };
         await service.SaveLayoutAsync(org, actor, new(order), default);
         Assert.Equal(order, await service.LayoutAsync(org, actor, default));
         Assert.Equal(DashboardWidgets.DefaultOrder, await service.LayoutAsync(org, Guid.NewGuid(), default));

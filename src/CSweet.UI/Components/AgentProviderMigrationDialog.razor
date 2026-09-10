@@ -1,0 +1,147 @@
+@using CSweet.Contracts.Llm
+@inject ILlmProviderApiClient ProviderApi
+
+<MudDialog Visible="Visible" VisibleChanged="VisibleChanged" Options="_options">
+    <TitleContent><MudText Typo="Typo.h6">Migrate agents</MudText></TitleContent>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText>Choose agents and their new default provider and model.</MudText>
+            @if (_loading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else
+            {
+                <MudCheckBox T="bool" Label="@($"Select all ({_agents.Count})")"
+                             Value="@(_agents.Count > 0 && _selected.Count == _agents.Count)"
+                             ValueChanged="SelectAll" Disabled="@_busy" />
+                <div style="max-height: 280px; overflow-y: auto;">
+                    @foreach (var agent in _agents)
+                    {
+                        <MudCheckBox T="bool" @key="agent.DefinitionId"
+                                     Label="@($"{agent.Name} ({agent.InstanceCount} instances)")"
+                                     Value="@_selected.Contains(agent.DefinitionId)"
+                                     ValueChanged="@((bool value) => Select(agent.DefinitionId, value))" Disabled="@_busy" />
+                    }
+                </div>
+                @if (_agents.Count == 0)
+                {
+                    <MudText>No installed agents have configurable providers and models.</MudText>
+                }
+                <MudSelect T="Guid?" Label="Provider" Value="_providerId" ValueChanged="ChangeProviderAsync"
+                           Variant="Variant.Outlined" Disabled="@(_busy || _modelsLoading)">
+                    @foreach (var provider in Providers.Where(x => x.IsEnabled))
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)provider.Id)">@provider.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" Label="Model" @bind-Value="_model" Variant="Variant.Outlined"
+                           Disabled="@(_busy || _modelsLoading || _providerId is null)">
+                    @foreach (var model in _models)
+                    {
+                        <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                    }
+                </MudSelect>
+                @if (_modelsLoading) { <MudProgressLinear Indeterminate="true" /> }
+                @if (_catalogWarning is not null) { <MudAlert Severity="Severity.Warning">@_catalogWarning</MudAlert> }
+                <MudCheckBox T="bool" Label="Also apply to all instances across businesses"
+                             @bind-Value="_includeInstances" Disabled="@_busy" />
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @(_includeInstances
+                        ? "Selected agents' instances will use the new provider and model, replacing their provider and model overrides."
+                        : "Existing instances will keep their current provider and model as overrides. New hires will use the new defaults.")
+                    Other settings are preserved.
+                </MudText>
+                <MudText Typo="Typo.body2">@_selected.Count agents selected · @(_includeInstances ? _agents.Where(x => _selected.Contains(x.DefinitionId)).Sum(x => x.InstanceCount) : 0) instances to update</MudText>
+            }
+            @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+            @if (_success is not null) { <MudAlert Severity="Severity.Success">@_success</MudAlert> }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CloseAsync" Disabled="@_busy">Close</MudButton>
+        <MudButton OnClick="UpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_busy || _loading || _modelsLoading || _selected.Count == 0 || _providerId is null || string.IsNullOrWhiteSpace(_model))">
+            @(_busy ? "Updating..." : "Update")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public IReadOnlyList<LlmProviderProfileResponse> Providers { get; set; } = [];
+    private readonly DialogOptions _options = new() { MaxWidth = MaxWidth.Medium, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
+    private bool _wasVisible, _loading, _busy, _modelsLoading, _includeInstances;
+    private IReadOnlyList<AgentProviderMigrationCandidate> _agents = [];
+    private readonly HashSet<Guid> _selected = [];
+    private IReadOnlyList<string> _models = [];
+    private Guid? _providerId;
+    private string? _model, _error, _success, _catalogWarning;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Visible && !_wasVisible)
+        {
+            _wasVisible = true;
+            _selected.Clear();
+            _providerId = null;
+            _model = _error = _success = _catalogWarning = null;
+            _models = [];
+            _includeInstances = false;
+            await LoadAsync();
+        }
+        _wasVisible = Visible;
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try { _agents = await ProviderApi.ListMigrationCandidatesAsync(); }
+        catch (Exception ex) { _agents = []; _error = ex.Message; }
+        finally { _loading = false; }
+    }
+    private void Select(Guid id, bool value) { if (value) _selected.Add(id); else _selected.Remove(id); }
+    private void SelectAll(bool value) { _selected.Clear(); if (value) _selected.UnionWith(_agents.Select(x => x.DefinitionId)); }
+    private Task CloseAsync() => VisibleChanged.InvokeAsync(false);
+
+    private async Task ChangeProviderAsync(Guid? id)
+    {
+        _providerId = id;
+        _model = null;
+        _models = [];
+        _catalogWarning = null;
+        if (id is null) return;
+        _modelsLoading = true;
+        var provider = Providers.Single(x => x.Id == id);
+        var models = new List<string>();
+        if (!string.IsNullOrWhiteSpace(provider.DefaultChatModel)) models.Add(provider.DefaultChatModel);
+        try
+        {
+            var catalog = await ProviderApi.GetModelCatalogAsync(id.Value);
+            if (catalog.Succeeded) models.AddRange(catalog.Models.Select(x => x.Id));
+            else _catalogWarning = catalog.Message ?? "Could not load models. The saved default model is available.";
+        }
+        catch (Exception) { _catalogWarning = "Could not load models. The saved default model is available."; }
+        finally { _modelsLoading = false; }
+        _models = models.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        _model = models.FirstOrDefault();
+    }
+
+    private async Task UpdateAsync()
+    {
+        _busy = true;
+        _error = _success = null;
+        try
+        {
+            var result = await ProviderApi.MigrateAgentsAsync(new(_providerId!.Value, _model!,
+                _agents.Where(x => _selected.Contains(x.DefinitionId))
+                    .Select(x => new AgentProviderMigrationSelection(x.DefinitionId, x.Revision)).ToArray(), _includeInstances));
+            _success = $"Updated {result.AgentCount} agent defaults and {result.InstanceCount} instances.";
+            _selected.Clear();
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; await LoadAsync(); }
+        finally { _busy = false; }
+    }
+}

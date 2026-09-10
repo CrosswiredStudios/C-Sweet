@@ -1,3 +1,5 @@
+using CSweet.Application.Setup;
+using CSweet.Infrastructure.Setup;
 using CSweet.AI.Providers;
 using CSweet.Application.Llm;
 using CSweet.Contracts.Llm;
@@ -12,6 +14,16 @@ public static class LlmProviderProfileEndpoints
     {
         var group = endpoints.MapGroup("/api/llm-provider-profiles");
 
+        var migration = group.MapGroup("/agent-migration").RequireAuthorization("PluginAdministration");
+        migration.MapGet("", async (AgentInstallationConfigurationService configurations, CancellationToken ct) =>
+            Results.Ok(await configurations.ListMigrationCandidatesAsync(ct)));
+        migration.MapPost("", async (MigrateAgentProvidersRequest request,
+            AgentInstallationConfigurationService configurations, CancellationToken ct) =>
+        {
+            try { return Results.Ok(await configurations.MigrateProvidersAsync(request, ct)); }
+            catch (AgentConfigurationConflictException ex) { return Results.Conflict(new { message = ex.Message }); }
+            catch (AgentInstallationException ex) { return Results.BadRequest(new { message = ex.Message }); }
+        });
         group.MapGet("/usage/summary", async (
             ILlmTokenUsageService usageService,
             CancellationToken cancellationToken) =>

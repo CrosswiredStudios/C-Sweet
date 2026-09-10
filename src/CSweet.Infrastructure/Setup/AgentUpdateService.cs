@@ -74,10 +74,11 @@ public sealed class AgentUpdateService : IAgentUpdateService
     }
 
     public async Task<IReadOnlyList<AgentDefinitionUpdateAvailabilityResponse>> CheckDefinitionsAsync(
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, Guid? definitionId = null)
     {
         var definitions = await _dbContext.AgentDefinitions
             .AsNoTracking()
+            .Where(x => definitionId == null || x.Id == definitionId)
             .Include(x => x.PackageVersion)!
                 .ThenInclude(x => x!.PackageSource)
             .OrderBy(x => x.PackageVersion!.AgentName)

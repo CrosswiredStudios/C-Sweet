@@ -17,6 +17,26 @@ namespace CSweet.UnitTests;
 public sealed class PlatformLlmQueueTests
 {
     [Fact]
+    public async Task GenerationTimeoutPersistsFailureAndReleasesProviderForQueuedWork()
+    {
+        await using var fixture = await Fixture.CreateAsync(new() { GenerationTimeoutSeconds = 1 });
+        var first = await fixture.StartAsync(fixture.First);
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var second = await fixture.StartAsync(fixture.Second);
+        var result = await fixture.WaitCompletedAsync(fixture.First, first);
+        Assert.Equal("Failed", result.GetProperty("state").GetString());
+        Assert.Contains("generation time limit", result.GetProperty("error").GetString());
+        await using var scope = fixture.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+        var run = await db.AgentRunLogs.SingleAsync(x => x.Id == first);
+        Assert.Equal("Failed", run.Status);
+        Assert.NotNull(run.CompletedAt);
+        await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal("Completed", (await fixture.WaitCompletedAsync(fixture.Second, second)).GetProperty("state").GetString());
+        Assert.Equal(1, fixture.Executor.MaximumActive);
+    }
+
+    [Fact]
     public async Task DatabaseFailureDoesNotStopEventDispatchAndShutdownStillWorks()
     {
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(3));
@@ -127,7 +147,7 @@ public sealed class PlatformLlmQueueTests
         public required TestWork Second { get; init; }
         public JsonElement Arguments { get; } = JsonSerializer.SerializeToElement(new { providerProfileId = Guid.NewGuid(), messages = new[] { new { role = "user", text = "Hi" } } });
 
-        public static async Task<Fixture> CreateAsync()
+        public static async Task<Fixture> CreateAsync(PlatformLlmJobOptions? options = null)
         {
             var clock = new ManualClock();
             var executor = new ControlledExecutor();
@@ -140,7 +160,7 @@ public sealed class PlatformLlmQueueTests
             services.AddSingleton<IPlatformLlmJobExecutor>(executor);
             services.AddOptions<AgentRuntimeManagerOptions>();
             var provider = services.BuildServiceProvider();
-            var queue = new PlatformLlmJobService(provider.GetRequiredService<IServiceScopeFactory>(), new(), clock,
+            var queue = new PlatformLlmJobService(provider.GetRequiredService<IServiceScopeFactory>(), options ?? new(), clock,
                 NullLogger<PlatformLlmJobService>.Instance);
             await using var scope = provider.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
