@@ -148,8 +148,15 @@
                             @if (node.Status == "offline")
                             {
                                 <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
-                                    This Office is not sending heartbeats. Start the C-Sweet Office services on
-                                    <strong>@node.MachineName</strong>. This page checks for reconnection automatically.
+                                    @if (node.CertificateExpiresAt <= DateTimeOffset.UtcNow)
+                                    {
+                                        <span>The Office connection certificate has expired. Office 0.4.0 or later can recover automatically using its enrolled identity key. If it remains offline, check the Office service logs.</span>
+                                    }
+                                    else
+                                    {
+                                        <span>This Office is not sending heartbeats. Check the C-Sweet Office services and their connection to headquarters on <strong>@node.MachineName</strong>.</span>
+                                    }
+                                    This page checks for reconnection automatically.
                                 </MudAlert>
                                 <MudProgressLinear Indeterminate="true" Color="Color.Warning" Class="mt-2" />
                             }

@@ -100,6 +100,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ISetupService, SetupService>();
         builder.Services.AddScoped<CSweet.Application.WorkManagement.IBusinessCalendarService, CSweet.Infrastructure.WorkManagement.BusinessCalendarService>();
         builder.Services.AddScoped<IExecutionFleetService, ExecutionFleetService>();
+        builder.Services.AddSingleton<OfficeCertificateChallenges>();
         builder.Services.AddScoped<IExecutionPoolAdministrationService, ExecutionPoolAdministrationService>();
         builder.Services.AddOptions<ExecutionFleetOptions>()
             .Bind(builder.Configuration.GetSection(ExecutionFleetOptions.SectionName));

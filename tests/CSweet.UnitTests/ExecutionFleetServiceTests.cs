@@ -1049,6 +1049,103 @@ public sealed class ExecutionFleetServiceTests
             Digest('b'), Now.AddHours(-1), Now.AddDays(1),
             true, true, true, certified, certified ? null : "Certification missing.")]);
 
+    [Theory]
+    [InlineData("expired")]
+    [InlineData("lost-response")]
+    [InlineData("draining")]
+    public async Task RecoveryRequiresOriginalKeyAndPreservesApprovalAndDrain(string scenario)
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var fleet = CreateFleet(db, clock);
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var csr = new CertificateRequest("CN=Office", key, HashAlgorithmName.SHA256).CreateSigningRequestPem();
+        var enrollment = await fleet.CreateEnrollmentAsync();
+        var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!) with
+            { CertificateSigningRequestPem = csr });
+        Assert.True((await fleet.ApproveNodeAsync(claim.OfficeId!.Value)).Succeeded);
+        var node = await db.ExecutionNodes.SingleAsync();
+        (await db.ExecutionNodeEnrollments.SingleAsync()).ReceiptHash = null;
+        node.Status = scenario == "draining" ? ExecutionNodeStatus.Draining : ExecutionNodeStatus.Offline;
+        await db.SaveChangesAsync();
+        clock.Advance(TimeSpan.FromDays(30));
+        Assert.False((await fleet.RotateOperationalCertificateAsync(node.Id,
+            node.CertificateThumbprint, node.CertificateSerialNumber)).Succeeded);
+        var status = node.Status;
+        var challenge = (await fleet.CreateCertificateRecoveryChallengeAsync(node.Id))!;
+        var request = new OfficeCertificateRecoveryRequest(challenge.Challenge, Convert.ToBase64String(key.SignData(
+            OfficeCertificateRecoveryProof.Payload(node.Id, challenge.Challenge), HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation)));
+        var recovered = await fleet.RecoverOperationalCertificateAsync(node.Id, request);
+        Assert.True(recovered.Succeeded);
+        Assert.True(recovered.ExpiresAt > clock.GetUtcNow());
+        Assert.Equal(status, node.Status);
+        Assert.False((await fleet.RecoverOperationalCertificateAsync(node.Id, request)).Succeeded);
+        // If the response or disk write was lost, a new proof returns the same current certificate.
+        var retry = (await fleet.CreateCertificateRecoveryChallengeAsync(node.Id))!;
+        var retried = await fleet.RecoverOperationalCertificateAsync(node.Id, new(retry.Challenge,
+            Convert.ToBase64String(key.SignData(OfficeCertificateRecoveryProof.Payload(node.Id, retry.Challenge),
+                HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation))));
+        Assert.Equal(recovered.CertificateBase64, retried.CertificateBase64);
+        Assert.Equal(recovered.ExpiresAt, retried.ExpiresAt);
+        Assert.False((await fleet.GetOperationalCertificateAsync(node.Id, new(claim.EnrollmentReceipt!))).Succeeded);
+    }
+
+    [Theory]
+    [InlineData("wrong-key")]
+    [InlineData("wrong-office")]
+    [InlineData("expired-challenge")]
+    [InlineData("revoked")]
+    [InlineData("pending")]
+    [InlineData("enrollment-revoked")]
+    [InlineData("malformed")]
+    public async Task RecoveryRejectsUntrustedProofsAndInactiveIdentities(string scenario)
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var fleet = CreateFleet(db, clock);
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var wrongKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var enrollment = await fleet.CreateEnrollmentAsync();
+        var claim = await fleet.ClaimNodeAsync(Claim(enrollment.Enrollment!.EnrollmentToken!) with
+        {
+            CertificateSigningRequestPem = new CertificateRequest("CN=Office", key, HashAlgorithmName.SHA256).CreateSigningRequestPem()
+        });
+        Assert.True((await fleet.ApproveNodeAsync(claim.OfficeId!.Value)).Succeeded);
+        var node = await db.ExecutionNodes.SingleAsync();
+        var challenge = (await fleet.CreateCertificateRecoveryChallengeAsync(node.Id))!;
+        if (scenario == "revoked") node.Status = ExecutionNodeStatus.Revoked;
+        if (scenario == "pending") node.ApprovedAt = null;
+        if (scenario == "enrollment-revoked") (await db.ExecutionNodeEnrollments.SingleAsync()).Status = ExecutionEnrollmentStatus.Revoked;
+        await db.SaveChangesAsync();
+        if (scenario == "expired-challenge") clock.Advance(TimeSpan.FromMinutes(2));
+        var signingKey = scenario == "wrong-key" ? wrongKey : key;
+        var signature = Convert.ToBase64String(signingKey.SignData(OfficeCertificateRecoveryProof.Payload(
+            scenario == "wrong-office" ? Guid.NewGuid() : node.Id, challenge.Challenge),
+            HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        var result = await fleet.RecoverOperationalCertificateAsync(node.Id,
+            new(challenge.Challenge, scenario == "malformed" ? new string('!', 88) : signature));
+        Assert.False(result.Succeeded);
+    }
+
+    [Fact]
+    public void RecoveryChallengesAreBoundedOneUseAndFailClosedAfterRestart()
+    {
+        var clock = new MutableTimeProvider(Now);
+        var store = new OfficeCertificateChallenges(clock);
+        var id = Guid.NewGuid();
+        var first = store.Create(id)!;
+        Assert.False(new OfficeCertificateChallenges(clock).Consume(id, first.Challenge));
+        Assert.False(store.Consume(Guid.NewGuid(), first.Challenge));
+        Assert.False(store.Consume(id, first.Challenge));
+        for (var i = 0; i < 1024; i++) Assert.NotNull(store.Create(id));
+        Assert.Null(store.Create(id));
+        clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.NotNull(store.Create(id));
+    }
+
     private static string Digest(char value) => $"sha256:{new string(value, 64)}";
     private static ExecutionFleetService CreateFleet(
         CSweetDbContext db,
@@ -1072,7 +1169,7 @@ public sealed class ExecutionFleetServiceTests
                 BuilderGuestImageDigest = Digest('a'),
                 RuntimeGuestImageDigest = Digest('a')
             }),
-            localCapacityProbe: capacityProbe);
+            localCapacityProbe: capacityProbe, certificateChallenges: new OfficeCertificateChallenges(clock));
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 

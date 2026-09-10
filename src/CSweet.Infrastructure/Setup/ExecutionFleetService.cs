@@ -26,7 +26,8 @@ public sealed class ExecutionFleetService(
     IExecutionNodeCertificateAuthority? certificateAuthority = null,
     IConfiguration? appConfiguration = null,
     IOptions<AgentRuntimeManagerOptions>? runtimeOptions = null,
-    ILocalOfficeCapacityProbe? localCapacityProbe = null) : IExecutionFleetService
+    ILocalOfficeCapacityProbe? localCapacityProbe = null,
+    OfficeCertificateChallenges? certificateChallenges = null) : IExecutionFleetService
 {
     private const string CurrentProtocolVersion = "1.0";
     private static readonly TimeSpan EnrollmentLifetime = TimeSpan.FromMinutes(15);
@@ -1080,6 +1081,58 @@ public sealed class ExecutionFleetService(
         return CertificateResponse(node, "Operational certificate is current.");
     }
 
+    public Task<OfficeCertificateChallengeResponse?> CreateCertificateRecoveryChallengeAsync(
+        Guid nodeId, CancellationToken cancellationToken = default)
+    {
+        // Do not disclose approval/enrollment state to anonymous callers.
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(certificateChallenges?.Create(nodeId));
+    }
+
+    public async Task<OfficeCertificateResponse> RecoverOperationalCertificateAsync(
+        Guid nodeId, OfficeCertificateRecoveryRequest request, CancellationToken cancellationToken = default)
+    {
+        OfficeCertificateResponse rejected = new(false, "node_recovery_rejected",
+            "Office identity recovery was rejected.", null, null, null);
+        if (certificateChallenges?.Consume(nodeId, request.Challenge) != true ||
+            request.SignatureBase64 is null || request.SignatureBase64.Length != 88)
+            return rejected;
+
+        // Serialize approval/revocation and issuance in relational deployments. A conflicting
+        // administrator change aborts this transaction; the client retries with a new challenge.
+        await using var transaction = dbContext.Database.IsRelational()
+            ? await dbContext.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken)
+            : null;
+        var node = await dbContext.ExecutionNodes.SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
+        if (node is null || node.ApprovedAt is null ||
+            node.Status is not (ExecutionNodeStatus.Ready or ExecutionNodeStatus.Offline or ExecutionNodeStatus.Draining) ||
+            !await dbContext.ExecutionNodeEnrollments.AnyAsync(x => x.ExecutionNodeId == nodeId &&
+                x.Status == ExecutionEnrollmentStatus.Approved, cancellationToken))
+            return rejected;
+        try
+        {
+            var csr = CertificateRequest.LoadSigningRequestPem(node.CertificateSigningRequestPem, HashAlgorithmName.SHA256);
+            using var key = ECDsa.Create();
+            key.ImportSubjectPublicKeyInfo(csr.PublicKey.ExportSubjectPublicKeyInfo(), out _);
+            if (key.ExportParameters(false).Curve.Oid.Value != "1.2.840.10045.3.1.7" ||
+                !key.VerifyData(OfficeCertificateRecoveryProof.Payload(nodeId, request.Challenge),
+                    Convert.FromBase64String(request.SignatureBase64), HashAlgorithmName.SHA256,
+                    DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
+                return rejected;
+        }
+        catch (Exception exception) when (exception is CryptographicException or FormatException or ArgumentException)
+        {
+            return rejected;
+        }
+        if (!TryIssueCertificate(node, timeProvider.GetUtcNow(), out var error)) return error!;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        await auditWriter.WriteAsync("execution-node.certificate-recovered", nameof(ExecutionNode), node.Id,
+            "Verified the enrolled Office private key and recovered its operational certificate.",
+            cancellationToken: cancellationToken);
+        return CertificateResponse(node, "Office identity verified; operational certificate recovered.");
+    }
+
     private bool TryIssueCertificate(
         ExecutionNode node,
         DateTimeOffset now,
@@ -1176,7 +1229,7 @@ public sealed class ExecutionFleetService(
     private string? QualificationFailure(ExecutionNode node, DateTimeOffset now)
     {
         if (string.IsNullOrWhiteSpace(node.CertificateThumbprint) || node.CertificateExpiresAt <= now)
-            return "The Office identity certificate is missing or expired. Re-enroll this host.";
+            return "The Office identity certificate is missing or expired. Office 0.4.0 or later automatically recovers using its enrolled identity key; check Office service logs if recovery fails.";
         if (!string.Equals(node.ProtocolVersion, CurrentProtocolVersion, StringComparison.Ordinal))
             return $"The Office protocol version is not supported. Required: {CurrentProtocolVersion}; reported: {node.ProtocolVersion}.";
         if (!Version.TryParse(node.NodeVersion, out var version) || version < MinimumNodeVersion)
