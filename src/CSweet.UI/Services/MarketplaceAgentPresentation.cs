@@ -12,6 +12,7 @@ public static partial class MarketplaceAgentPresentation
         AgentCatalogBranding.IsImageUrl(value) || value == CSweetCompanyLogoUrl;
 
     public const string DefaultAccentColor = "#1C6252";
+    public static bool IsAccentColor(string? value) => AgentCatalogBranding.IsAccentColor(value);
 
     // Only this bundled artwork directory is accepted as a local image source.
     // External manifests keep the SDK's absolute-HTTPS requirement.

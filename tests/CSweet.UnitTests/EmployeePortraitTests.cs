@@ -30,6 +30,23 @@ public sealed class EmployeePortraitTests
     }
 
     [Fact]
+    public void InstalledBrandingIsUsedWithoutCatalogLookup()
+    {
+        var installationId = Guid.NewGuid();
+        var person = Person("Research lead", installationId);
+        var installation = Installation(installationId) with
+        {
+            ImageUrl = "https://example.com/cached-agent.jpg",
+            RoleName = "Research Lead",
+            AccentColor = "#224466"
+        };
+        var portraits = EmployeePortraits.Build([person], [installation], []);
+        Assert.Equal(installation.ImageUrl, portraits.Find(person.Id));
+        Assert.Equal(installation.RoleName, portraits.FindRole(person.Id));
+        Assert.Equal(installation.AccentColor, portraits.FindAccent(person.Id));
+    }
+
+    [Fact]
     public void RoleTitlesResolveCatalogKeysWithoutOverwritingCustomTitles()
     {
         var catalog = EmployeePortraits.Build([], [], [Agent() with

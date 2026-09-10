@@ -79,6 +79,8 @@
 .hub-welcome-icon, .hub-empty-icon { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 17px; margin-bottom: 15px; color: #fff; background: #2d3541; font-size: 1.6rem; font-weight: 700; }
 .hub-message { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 11px; padding: 9px 8px; border-radius: 7px; }
 .hub-message:hover { background: #fafafd; }
+.hub-message.agent-accent { background: color-mix(in srgb, var(--agent-accent) 7%, #fff); }
+.hub-message.agent-accent:hover { background: color-mix(in srgb, var(--agent-accent) 10%, #fff); }
 .hub-message-body { min-width: 0; }
 .hub-message-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin-top: .75rem; }
 .hub-system-action-message { max-width: 38rem; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; margin: 10px 8px 12px 57px; padding: 16px; border: 1px solid #dcd6f8; border-radius: 13px; background: linear-gradient(135deg, #faf9ff, #f4f1ff); box-shadow: 0 5px 18px rgba(63, 48, 135, .08); }

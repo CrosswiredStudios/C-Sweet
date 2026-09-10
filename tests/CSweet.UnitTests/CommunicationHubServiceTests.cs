@@ -665,6 +665,8 @@ public sealed class CommunicationHubServiceTests
         var hub = Assert.IsType<CommunicationHubResponse>(
             await service.GetAsync(organization.Id, owner.Id));
 
+        Assert.Equal(owner.Id,
+            Assert.Single(hub.People, person => person.Id == agent.Id).ReportsToOrganizationUserId);
         var chat = Assert.Single(hub.Chats, item => item.IsDirect);
         Assert.Equal("Product Manager", chat.Title);
         Assert.Equal(CommunicationPresenceStatuses.Starting,

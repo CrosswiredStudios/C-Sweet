@@ -417,6 +417,7 @@ public sealed class AgentDefinitionService(
             AgentBuildSummaryMapper.Create(build))
         {
             ImageUrl = catalog.ImageUrl,
+            AccentColor = catalog.AccentColor,
             RoleName = catalog.Role?.Name,
             Summary = catalog.Summary,
             DefaultProvidedCapabilities = JsonSerializer.Deserialize<string[]>(definition.DefaultProvidedCapabilitiesJson, JsonOptions) ?? [],

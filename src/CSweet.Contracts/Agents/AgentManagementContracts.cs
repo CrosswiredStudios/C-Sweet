@@ -31,6 +31,7 @@ public sealed record AgentDefinitionResponse(
     AgentBuildSummaryResponse? Build = null)
 {
     public string? ImageUrl { get; init; }
+    public string? AccentColor { get; init; }
     public string? RoleName { get; init; }
     public string? Summary { get; init; }
     public IReadOnlyList<string> DefaultProvidedCapabilities { get; init; } = [];

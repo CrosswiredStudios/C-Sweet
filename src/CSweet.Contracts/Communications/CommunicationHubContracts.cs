@@ -49,7 +49,8 @@ public sealed record CommunicationPersonResponse(
     Guid? RoleId,
     string? RoleName,
     string PresenceStatus = CommunicationPresenceStatuses.Available,
-    string? PresenceDetail = null);
+    string? PresenceDetail = null,
+    Guid? ReportsToOrganizationUserId = null);
 
 public static class CommunicationPresenceStatuses
 {
@@ -84,6 +85,7 @@ public sealed record CommunicationHubMessageResponse(
     CSweet.Contracts.Core.HiringWorkflowApprovalResponse? HiringWorkflow = null)
 {
     public string MessageType { get; init; } = CommunicationMessageTypes.Standard;
+    public string? SenderAccentColor { get; init; }
     public Guid? CoordinationSessionId { get; init; }
     public IReadOnlyList<CommunicationMessageMentionResponse> Mentions { get; init; } = [];
     public IReadOnlyList<CommunicationMessageAttachmentResponse> Attachments { get; init; } = [];

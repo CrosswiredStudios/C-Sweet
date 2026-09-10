@@ -1717,6 +1717,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     private static AgentInstallationResponse ToResponse(AgentInstallation installation)
     {
         var package = installation.PackageVersion!;
+        var catalog = DeserializeManifest(package.ManifestJson).Catalog;
         var grant = installation.Grant!;
         var schedule = installation.Schedule!;
         var build = package.BuildJobs.OrderByDescending(x => x.Attempt).FirstOrDefault();
@@ -1757,6 +1758,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             AgentBuildSummaryMapper.Create(build),
             runtime is null ? null : ToRunResponse(runtime))
         {
+            ImageUrl = catalog.ImageUrl,
+            AccentColor = catalog.AccentColor,
+            RoleName = catalog.Role?.Name,
+            Summary = catalog.Summary,
             PluginKind = package.PluginKind.ToString(),
             InstallationScope = installation.Scope.ToString(),
             InstallationKey = installation.InstallationKey == Guid.Empty ? installation.Id : installation.InstallationKey,

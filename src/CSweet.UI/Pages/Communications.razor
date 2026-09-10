@@ -91,6 +91,23 @@
                     <p class="hub-nav-empty">No channels yet</p>
                 }
 
+                <div class="hub-section-title direct"><span>Direct Reports</span></div>
+                @foreach (var entry in DirectReports)
+                {
+                    <button class="hub-nav-item @(entry.Chat?.Id == _selected?.Id ? "active" : null) @(entry.Chat is not null && ChatUnread(entry.Chat) > 0 ? "unread" : null)"
+                            @onclick="@(() => OpenDirectEntryAsync(entry))">
+                        <span class="presence-dot @PresenceClass(entry.Person.PresenceStatus)"
+                              title="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"
+                              aria-label="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"></span><span class="hub-avatar dm-portrait"><PersonAvatarContent EmployeeId="entry.Person.Id" IsAgent="true" Initials="@Initials(entry.Person.DisplayName)" /></span><span>@entry.Title</span>
+                        @if (entry.Chat is not null && ChatUnread(entry.Chat) > 0) { <span class="hub-unread-dot" aria-label="@($"{ChatUnread(entry.Chat)} unread messages")"></span> }
+                        <span class="agent-mark">AI</span>
+                    </button>
+                }
+                @if (!DirectReports.Any())
+                {
+                    <p class="hub-nav-empty">No direct reports</p>
+                }
+
                 <div class="hub-section-title direct"><span>Direct messages</span></div>
                 @foreach (var entry in DirectMessages)
                 {
@@ -327,7 +344,8 @@
                         }
                         else
                         {
-                            <article class="hub-message @(message.SenderOrganizationUserId == _hub.ViewedOrganizationUserId ? "mine" : null)">
+                            <article class="hub-message @(message.SenderOrganizationUserId == _hub.ViewedOrganizationUserId ? "mine" : null) @(HasMessageAccent(message) ? "agent-accent" : null)"
+                                     style="@MessageAccentStyle(message)">
                             <div class="hub-avatar @AvatarClass(message.SenderEmployeeType)"><PersonAvatarContent EmployeeId="message.SenderOrganizationUserId" IsAgent="@(message.SenderEmployeeType == "Agent")" Initials="@Initials(message.SenderDisplayName)" /></div>
                             <div class="hub-message-body">
                                 <div class="hub-message-meta">
@@ -852,6 +870,9 @@
         .FirstOrDefault(x => x.Id == organizationUserId)?.DisplayName ?? fallback;
     private IEnumerable<CommunicationChatResponse> FilteredChats => (_hub?.Chats ?? []).Where(x => string.IsNullOrWhiteSpace(_search) || x.Title.Contains(_search, StringComparison.OrdinalIgnoreCase));
     private IEnumerable<DirectMessageEntry> DirectMessages => BuildDirectMessages();
+    private IEnumerable<DirectMessageEntry> DirectReports => DirectMessages.Where(x =>
+        x.Person.EmployeeType == "Agent" &&
+        x.Person.ReportsToOrganizationUserId == _hub?.CurrentOrganizationUserId);
     private IEnumerable<NotificationResponse> MentionNotifications => _notifications
         .Where(x => x.Category == "Mention" && x.DismissedAt is null)
         .OrderByDescending(x => x.CreatedAt);
@@ -1920,6 +1941,10 @@
 
     private static string ParticipantSummary(CommunicationChatResponse chat) => string.Join(", ", chat.Participants.Take(4).Select(x => x.DisplayName)) + (chat.Participants.Count > 4 ? $" +{chat.Participants.Count - 4}" : string.Empty);
     private static string AvatarClass(string type) => type == "Agent" ? "agent" : "human";
+    private static bool HasMessageAccent(CommunicationHubMessageResponse message) =>
+        MarketplaceAgentPresentation.IsAccentColor(message.SenderAccentColor);
+    private static string? MessageAccentStyle(CommunicationHubMessageResponse message) =>
+        HasMessageAccent(message) ? $"--agent-accent: {message.SenderAccentColor}" : null;
     private static string PresenceClass(string? status) => status switch
     {
         CommunicationPresenceStatuses.Unhealthy => "unhealthy",

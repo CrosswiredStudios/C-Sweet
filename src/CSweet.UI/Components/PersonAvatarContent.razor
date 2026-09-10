@@ -1,6 +1,6 @@
 @if (IsAgent)
 {
-    <img class="person-portrait" src="@ImageUrl" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" @onerror="ImageFailed" />
+    <img class="person-portrait" src="@ImageUrl" alt="" loading="eager" fetchpriority="high" decoding="async" referrerpolicy="no-referrer" @onerror="ImageFailed" />
 }
 else
 {

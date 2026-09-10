@@ -24,6 +24,7 @@ public sealed record AgentInstallationResponse(
     AgentRuntimeRunResponse? LatestRuntime = null)
 {
     public string? ImageUrl { get; init; }
+    public string? AccentColor { get; init; }
     public string? RoleName { get; init; }
     public string? Summary { get; init; }
     public IReadOnlyList<string> RequiredCapabilities { get; init; } = [];

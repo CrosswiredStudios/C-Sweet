@@ -171,7 +171,8 @@ public sealed class CommunicationHubService(
             { MergedConversationIds = aliases.Where(a => a.CanonicalId == x.Id).Select(a => a.Id).ToArray() }).ToList(),
             people.Select(x => new CommunicationPersonResponse(
                 x.Id, x.DisplayName, x.EmployeeType.ToString(), x.RoleId, x.Role?.Name,
-                presences[x.Id].Status, presences[x.Id].Detail)).ToList(),
+                presences[x.Id].Status, presences[x.Id].Detail,
+                x.ReportsToOrganizationUserId)).ToList(),
             audiences);
     }
 
@@ -202,6 +203,7 @@ public sealed class CommunicationHubService(
         var users = await db.CoreOrganizationUsers.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId)
             .ToDictionaryAsync(x => x.Id, cancellationToken);
+        var accentColors = await LoadAgentAccentColorsAsync(users, cancellationToken);
         var messages = await db.CoreConversationMessages.AsNoTracking()
             .Where(x => x.ConversationId == chatId)
             .Include(x => x.Mentions)
@@ -263,7 +265,8 @@ public sealed class CommunicationHubService(
                 message.CorrelationId != Guid.Empty &&
                 hiringCards.TryGetValue(message.CorrelationId, out var hiringWorkflow)
                     ? hiringWorkflow
-                    : null);
+                    : null,
+                accentColors);
             if (connectorCards.TryGetValue(message.Id, out var connectorCard)) response = response with { ConnectorApproval = connectorCard };
             responses.Add(highestSequence == message.Sequence
                 ? response
@@ -1048,13 +1051,40 @@ public sealed class CommunicationHubService(
             new(CommunicationPresenceStatuses.Offline, detail);
     }
 
+    private async Task<IReadOnlyDictionary<Guid, string>> LoadAgentAccentColorsAsync(
+        IReadOnlyDictionary<Guid, OrganizationUser> users,
+        CancellationToken cancellationToken)
+    {
+        var installationIds = users.Values
+            .Where(x => x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId.HasValue)
+            .Select(x => x.AgentInstallationId!.Value)
+            .Distinct()
+            .ToList();
+        if (installationIds.Count == 0) return new Dictionary<Guid, string>();
+
+        var snapshots = await db.AgentInstallations.AsNoTracking()
+            .Where(x => installationIds.Contains(x.Id))
+            .Select(x => new { x.Id, ManifestJson = x.PackageVersion!.ManifestJson })
+            .ToListAsync(cancellationToken);
+        var byInstallation = new Dictionary<Guid, string>();
+        foreach (var snapshot in snapshots)
+        {
+            var accent = AgentConfigurationRules.DeserializeManifest(snapshot.ManifestJson).Catalog.AccentColor;
+            if (CSweet.Agent.SDK.AgentCatalogBranding.IsAccentColor(accent)) byInstallation[snapshot.Id] = accent!;
+        }
+        return users.Values
+            .Where(x => x.AgentInstallationId is { } id && byInstallation.ContainsKey(id))
+            .ToDictionary(x => x.Id, x => byInstallation[x.AgentInstallationId!.Value]);
+    }
+
     private static CommunicationHubMessageResponse MapMessage(
         ConversationMessage message,
         IReadOnlyDictionary<Guid, OrganizationUser> users,
         IReadOnlyDictionary<Guid, ExecutiveDecisionCardResponse>? decisions = null,
         IReadOnlyList<SuggestedUserActionResponse>? actions = null,
         Contracts.Core.ResourceChangeRequestResponse? resourceChange = null,
-        Contracts.Core.HiringWorkflowApprovalResponse? hiringWorkflow = null)
+        Contracts.Core.HiringWorkflowApprovalResponse? hiringWorkflow = null,
+        IReadOnlyDictionary<Guid, string>? accentColors = null)
     {
         var sender = message.SenderOrganizationUserId.HasValue && users.TryGetValue(message.SenderOrganizationUserId.Value, out var user) ? user : null;
         var isSystemAction = string.Equals(
@@ -1071,6 +1101,8 @@ public sealed class CommunicationHubService(
             resourceChange,
             hiringWorkflow)
         {
+            SenderAccentColor = sender is not null && accentColors?.TryGetValue(sender.Id, out var accent) == true
+                ? accent : null,
             CoordinationSessionId = message.CoordinationSessionId,
             Attachments = message.Attachments.Select(x => new CommunicationMessageAttachmentResponse(
                 x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)

@@ -39,11 +39,9 @@
             var people = Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
                 $"api/core/organizations/{organization:D}/users", request.Token);
             var installations = AgentApi.ListInstallationsAsync(request.Token);
-            var catalog = Http.GetFromJsonAsync<AvailableAgentSearchResult>(
-                $"api/core/organizations/{organization:D}/agents/available?limit=100", request.Token);
-            await Task.WhenAll(people, installations, catalog);
+            await Task.WhenAll(people, installations);
             if (_disposed || request.IsCancellationRequested || organization != OrganizationId) return;
-            _portraits = EmployeePortraits.Build(await people ?? [], await installations, (await catalog)?.Agents ?? []);
+            _portraits = EmployeePortraits.Build(await people ?? [], await installations, []);
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }
         catch (Exception error)

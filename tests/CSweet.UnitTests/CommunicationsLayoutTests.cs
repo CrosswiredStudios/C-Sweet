@@ -56,6 +56,21 @@ public sealed class CommunicationsLayoutTests
     }
 
     [Fact]
+    public void DirectReportsAreShownBeforeTheCompanyDirectory()
+    {
+        var razor = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "src", "CSweet.UI", "Pages", "Communications.razor"));
+
+        var reportsHeading = razor.IndexOf("<span>Direct Reports</span>", StringComparison.Ordinal);
+        var directMessagesHeading = razor.IndexOf("<span>Direct messages</span>", StringComparison.Ordinal);
+        Assert.True(reportsHeading >= 0);
+        Assert.True(directMessagesHeading > reportsHeading);
+        Assert.Contains("x.Person.EmployeeType == \"Agent\"", razor, StringComparison.Ordinal);
+        Assert.Contains("x.Person.ReportsToOrganizationUserId == _hub?.CurrentOrganizationUserId", razor, StringComparison.Ordinal);
+        Assert.Contains("@foreach (var entry in DirectReports)", razor, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HiringSuggestionCarouselSupportsCompactAccessibleHorizontalNavigation()
     {
         var root = FindRepositoryRoot();

@@ -26,7 +26,7 @@
                        Disabled="@Busy" OnClick="ConfigureAsync" />
     </div>
     <div class="installed-agent-identity">
-        <img src="@PortraitUrl" alt="" class="installed-agent-portrait" loading="lazy" decoding="async" referrerpolicy="no-referrer" @onerror="UseFallbackPortrait" />
+        <img src="@PortraitUrl" alt="" class="installed-agent-portrait" loading="eager" fetchpriority="high" decoding="async" referrerpolicy="no-referrer" @onerror="UseFallbackPortrait" />
         <div class="installed-agent-name">
             <MudText Typo="Typo.subtitle1">@Installation.AgentName</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">@(Installation.RoleName ?? "Agent definition")</MudText>
