@@ -192,6 +192,8 @@ app.MapEmployeeEndpoints();
 app.MapTeamEndpoints();
 app.MapHiringEndpoints();
 app.MapApprovalEndpoints();
+app.MapWebPreviewGrantEndpoints();
+app.MapWebHostEndpoints();
 app.MapWorkstreamInspectionEndpoints();
 app.MapToolchainCertificationEndpoints();
 app.MapExecutiveBriefingEndpoints();

@@ -8,6 +8,7 @@ public static class AgentRateLimiting
     public const string ImportPolicy = "agent-import";
     public const string BuildPolicy = "agent-build";
     public const string RunPolicy = "agent-run";
+    public const string WebHostHeartbeatPolicy = "web-host-heartbeat";
     public const string AuthPolicy = "authentication";
 
     public static IServiceCollection AddAgentRateLimiting(this IServiceCollection services)
@@ -19,6 +20,7 @@ public static class AgentRateLimiting
             AddFixedWindow(options, BuildPolicy, 5);
             AddFixedWindow(options, RunPolicy, 20);
             AddFixedWindow(options, AuthPolicy, 10);
+            AddFixedWindow(options, WebHostHeartbeatPolicy, 120);
         });
         return services;
     }

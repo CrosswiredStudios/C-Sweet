@@ -155,12 +155,23 @@
                         }
                         else if (item.AgentAction is { } agentAction)
                         {
-                            @if (item.CanManageStandingPolicy)
+                            @if (item.CanManageStandingPolicy && agentAction.ActionType != "web-preview.grant")
                             {
                                 <MudButton Variant="Variant.Outlined" Class="my-3"
                                     Href="@($"/organizations/{OrganizationId:D}/connector-actions/{item.Id:D}/standing-policy")">Manage automatic approval rules</MudButton>
                                 <MudText Typo="Typo.caption">Owner-only rules for future requests, separate from this action's decision.</MudText>
                             }
+                            @if (agentAction.ActionType == "web-preview.grant")
+                            {
+                                <WebPreviewGrantReview ReviewPayloadJson="@agentAction.ReviewPayloadJson" />
+                                @if (item.CanManageStandingPolicy && item.Status == "Active")
+                                {
+                                    <MudButton Class="mt-3" Color="Color.Error" Variant="Variant.Outlined" Disabled="@(_decidingId.HasValue)"
+                                        OnClick="@(() => RevokeWebPreviewGrantAsync(item))">Revoke preview access</MudButton>
+                                }
+                            }
+                            else
+                            {
                             <MudGrid Class="mt-3">
                                 <MudItem xs="12" md="6"><strong>Account</strong><br />@(agentAction.AccountName ?? agentAction.ChannelId)</MudItem>
                                 <MudItem xs="12" md="6"><strong>Action</strong><br />@agentAction.ActionType</MudItem>
@@ -186,7 +197,9 @@
                                     <MudItem xs="12" md="6"><strong>Approval expires</strong><br />@agentAction.ExpiresAt.Value.ToLocalTime().ToString("g")</MudItem>
                                 }
                             </MudGrid>
-                            @if (item.CanDecide && item.Status == "Pending")
+                            }
+                            @if (item.CanDecide && item.Status == "Pending" &&
+                                (agentAction.ActionType != "web-preview.grant" || WebPreviewGrantReview.IsValid(agentAction.ReviewPayloadJson)))
                             {
                                 <MudTextField Value="@Feedback(item.Id)" ValueChanged="@((string value) => SetFeedback(item.Id, value))"
                                               Label="Decision feedback" Lines="2" Variant="Variant.Outlined" Class="mt-3" />
@@ -427,6 +440,20 @@
         }
     }
 
+    private async Task RevokeWebPreviewGrantAsync(ApprovalDashboardItemResponse item)
+    {
+        if (item.AgentAction?.ResourceId is not { } id || !Guid.TryParse(id, out var grantId) || _decidingId.HasValue) return;
+        _decidingId = item.Id;
+        _decisionErrors.Remove(item.Id);
+        try
+        {
+            using var response = await Http.PostAsync($"api/core/organizations/{OrganizationId:D}/web-preview-grants/{grantId:D}/revoke", null);
+            if (!response.IsSuccessStatusCode) { _decisionErrors[item.Id] = "Preview access could not be revoked. Refresh and try again."; return; }
+            await LoadAsync();
+        }
+        catch (HttpRequestException) { _decisionErrors[item.Id] = "The server could not be reached. Refresh to check the grant status."; }
+        finally { _decidingId = null; }
+    }
     private async Task DecideAgentActionAsync(ApprovalDashboardItemResponse item, string decision)
     {
         if (item.AgentAction is not { } action || _decidingId.HasValue) return;

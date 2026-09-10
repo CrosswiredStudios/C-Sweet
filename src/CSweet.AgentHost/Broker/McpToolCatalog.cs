@@ -8,6 +8,7 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
+using CSweet.WebHost.Contracts;
 using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.AgentHost.Broker;
@@ -116,6 +117,10 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Read durable decisions by id or Workstream."),
         Write(W.DecisionCapabilityNames.DecideV1, "decide_workstream_decision",
             "Select an option for a pending decision when authorized by the Workstream authority envelope."),
+        Approval(WebPreviewCapabilities.RequestGrant, "request_web_preview_grant",
+            "Request a bounded private hosting grant for a Workstream and the installed Web Previews plugin. The exact limits appear in the business owner approval inbox. This does not grant access or start a workload."),
+        Read(WebPreviewCapabilities.Preflight, "check_web_preview",
+            "Check a private preview manifest against current workstream access, plugin installation and standing grants. projectId is the Workstream ID. Missing authority returns the next request action; missing runtime capacity remains unavailable."),
         Read(W.DeliveryEvidenceCapabilityNames.ToolchainCatalogReadV2, "read_eligible_toolchains",
             "Read only automation-certified toolchain adapters compatible with requested targets and operations."),
         Write(W.DeliveryEvidenceCapabilityNames.BuildRequestV2, "request_delivery_build",
@@ -526,6 +531,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
 
     private static JsonElement InputFor(string capability)
     {
+        if (capability is WebPreviewCapabilities.RequestGrant or WebPreviewCapabilities.Preflight) return WebPreviewToolSchemas.Input(capability);
         if (W.CalendarCapabilities.All.Contains(capability)) return CalendarToolSchemas.Input(capability);
         if (capability is CompanyReportingCapabilities.Finance or CompanyReportingCapabilities.Legal or CompanyReportingCapabilities.Project)
             return CompanyReportingSchemas.Input(capability);

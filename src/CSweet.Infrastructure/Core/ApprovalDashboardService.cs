@@ -81,9 +81,12 @@ public sealed class ApprovalDashboardService(
             .OrderByDescending(x => x.CreatedAt)
             .Take(250)
             .ToListAsync(cancellationToken);
+        var previewGrants = await db.WebPreviewGrants.AsNoTracking().Where(x => x.OrganizationId == organizationId)
+            .ToDictionaryAsync(x => x.ApprovalProposalId, cancellationToken);
         items.AddRange(agentActions.Select(proposal =>
         {
             var managerId = managersByInstallation.GetValueOrDefault(proposal.AgentInstallationId);
+            var previewGrant = previewGrants.GetValueOrDefault(proposal.Id);
             var connectorBinding = proposal.ActionType == ConnectorActionApprovalService.ActionType
                 ? ConnectorActionApprovalService.Parse(proposal) : null;
             return new ApprovalDashboardItemResponse(
@@ -91,20 +94,22 @@ public sealed class ApprovalDashboardService(
                 ApprovalDashboardKinds.AgentAction,
                 Humanize(proposal.ActionType),
                 proposal.Summary,
-                proposal.Status.ToString(),
+                previewGrant?.Status ?? proposal.Status.ToString(),
                 Name(installationNames, proposal.AgentInstallationId, "Agent employee"),
+                proposal.ActionType == WebPreviewGrantService.ActionType ? ownerLabel :
                 connectorBinding is not null ? Name(names, connectorBinding.ApproverOrganizationUserId, "Assigned approver") :
                     managerId == Guid.Empty ? ownerLabel : Name(names, managerId, ownerLabel),
                 proposal.CreatedAt,
                 proposal.DecidedAt,
                 $"/organizations/{organizationId:D}/approvals",
                 proposal.Status == ProposalStatus.Pending &&
-                (connectorBinding is not null ? actor.Id == connectorBinding.ApproverOrganizationUserId &&
+                (proposal.ActionType == WebPreviewGrantService.ActionType ? actor.PermissionLevel == OrganizationPermissionLevel.Owner && actor.EmployeeType == EmployeeType.Human :
+                  connectorBinding is not null ? actor.Id == connectorBinding.ApproverOrganizationUserId &&
                     connectorBinding.ExpiresAt > DateTimeOffset.UtcNow :
                     actor.PermissionLevel == OrganizationPermissionLevel.Owner || actor.Id == managerId))
             {
                 AgentAction = ReadManagedAction(proposal),
-                CanManageStandingPolicy = connectorBinding?.Effect == "write" && actor.EmployeeType == EmployeeType.Human &&
+                CanManageStandingPolicy = (previewGrant?.Status == "Active" || connectorBinding?.Effect == "write") && actor.EmployeeType == EmployeeType.Human &&
                     actor.ApplicationUserId is not null && actor.PermissionLevel == OrganizationPermissionLevel.Owner
             };
         }));

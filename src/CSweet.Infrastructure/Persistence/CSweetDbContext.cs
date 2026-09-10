@@ -27,6 +27,9 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
 
     public DbSet<SourceControlBusinessSettings> SourceControlBusinessSettings => Set<SourceControlBusinessSettings>();
 
+    public DbSet<WebHostRegistration> WebHostRegistrations => Set<WebHostRegistration>();
+    public DbSet<WebPreviewGrantRecord> WebPreviewGrants => Set<WebPreviewGrantRecord>();
+    public DbSet<WebPreviewJobRecord> WebPreviewJobs => Set<WebPreviewJobRecord>();
     // Setup entities
     public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
     public DbSet<LlmProviderProfile> LlmProviderProfiles => Set<LlmProviderProfile>();
@@ -689,6 +692,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         
         // Apply core business domain entity configurations
         CoreConfigurations.Apply(modelBuilder);
+        WebPreviewConfigurations.Apply(modelBuilder);
         CompanyDashboardConfigurations.Apply(modelBuilder);
         WorkManagementConfigurations.Apply(modelBuilder);
         modelBuilder.Entity<SystemConfiguration>(entity =>

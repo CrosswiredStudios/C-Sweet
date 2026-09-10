@@ -104,7 +104,9 @@ public static class ApprovalEndpoints
                     .Where(x => x.AgentInstallationId == proposal.AgentInstallationId)
                     .Select(x => x.SettingsJson).SingleOrDefaultAsync(cancellationToken);
                 var approvalMode = ReadApprovalMode(configurationJson);
-                var authorized = approvalMode == "Manager Approval"
+                var authorized = proposal.ActionType == WebPreviewGrantService.ActionType
+                    ? actor.PermissionLevel == OrganizationPermissionLevel.Owner && actor.EmployeeType == EmployeeType.Human
+                    : approvalMode == "Manager Approval"
                     ? agent?.ReportsToOrganizationUserId == actor.Id
                     : actor.PermissionLevel == OrganizationPermissionLevel.Owner;
                 if (!authorized) return Results.Forbid();
@@ -122,7 +124,12 @@ public static class ApprovalEndpoints
                     expiresNode.TryGetDateTimeOffset(out var expiresAt) && expiresAt <= DateTimeOffset.UtcNow)
                 {
                     proposal.Status = ProposalStatus.Cancelled;
-                    proposal.DecidedAt = DateTimeOffset.UtcNow;
+                    if (proposal.ActionType == WebPreviewGrantService.ActionType && proposal.Status != ProposalStatus.Approved)
+                {
+                    var grant = await db.WebPreviewGrants.SingleOrDefaultAsync(x => x.ApprovalProposalId == proposal.Id, cancellationToken);
+                    if (grant is not null) { grant.Status = proposal.Status.ToString(); grant.Revision++; }
+                }
+                proposal.DecidedAt = DateTimeOffset.UtcNow;
                     await db.SaveChangesAsync(cancellationToken);
                     return Results.Conflict(new
                     {
@@ -169,6 +176,11 @@ public static class ApprovalEndpoints
                     proposal.Status = request.Decision == ResourceChangeDecisionKinds.Reject
                         ? ProposalStatus.Rejected
                         : ProposalStatus.Cancelled;
+                }
+                if (proposal.ActionType == WebPreviewGrantService.ActionType && proposal.Status != ProposalStatus.Approved)
+                {
+                    var grant = await db.WebPreviewGrants.SingleOrDefaultAsync(x => x.ApprovalProposalId == proposal.Id, cancellationToken);
+                    if (grant is not null) { grant.Status = proposal.Status.ToString(); grant.Revision++; }
                 }
                 proposal.DecidedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);

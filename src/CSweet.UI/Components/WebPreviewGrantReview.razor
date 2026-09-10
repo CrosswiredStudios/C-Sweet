@@ -1,0 +1,48 @@
+@using System.Text.Json
+
+@if (Read(ReviewPayloadJson) is { } review)
+{
+    <MudPaper Class="pa-4 mt-3" Outlined="true" aria-label="Private web preview access">
+        <MudText Typo="Typo.h6">Private web preview access</MudText>
+        <MudText Class="my-2">@review.Reason</MudText>
+        <MudGrid>
+            <MudItem xs="12" md="6"><strong>Workstream</strong><br />@review.WorkstreamName</MudItem>
+            <MudItem xs="12" md="6"><strong>Audience</strong><br />Members of this Workstream</MudItem>
+            <MudItem xs="12"><strong>Source repositories</strong><br />@string.Join(", ", review.Repositories)</MudItem>
+            <MudItem xs="12" md="6"><strong>Running previews</strong><br />Up to @review.MaximumConcurrentPreviews at once</MudItem>
+            <MudItem xs="12" md="6"><strong>Time per preview</strong><br />Up to @TimeSpan.FromSeconds(review.MaximumLifetimeSeconds).TotalHours.ToString("0.##") hours</MudItem>
+            <MudItem xs="12" md="6"><strong>Resources per preview</strong><br />@review.Resources.CpuCount CPU cores,
+                @review.Resources.MemoryMb MiB memory, @review.Resources.DiskMb MiB disposable storage</MudItem>
+            <MudItem xs="12" md="6"><strong>Total processing allowance</strong><br />@review.MaximumCpuSeconds CPU-seconds</MudItem>
+            <MudItem xs="12" md="6"><strong>Process and log limits</strong><br />@review.Resources.MaximumProcesses processes;
+                @review.Resources.MaximumLogBytes bytes of logs per preview</MudItem>
+            <MudItem xs="12" md="6"><strong>Access expires</strong><br />@review.ExpiresAt.ToLocalTime().ToString("g")</MudItem>
+        </MudGrid>
+        <MudText Class="mt-3">Allows private preview creation, status checks, stopping, and diagnostic reads within these limits.
+            External connections and public publishing require separate capabilities.</MudText>
+    </MudPaper>
+}
+else
+{
+    <MudAlert Severity="Severity.Error">The exact preview access terms are unavailable. Refresh this review before deciding.</MudAlert>
+}
+
+@code {
+    [Parameter] public string? ReviewPayloadJson { get; set; }
+    public sealed record Limits(int CpuCount,int MemoryMb,int DiskMb,int MaximumProcesses,int MaximumLogBytes);
+    public sealed record Review(string Reason,string WorkstreamName,string[] Repositories,Limits Resources,
+        int MaximumConcurrentPreviews,long MaximumCpuSeconds,int MaximumLifetimeSeconds,DateTimeOffset ExpiresAt);
+    public static bool IsValid(string? json)=>Read(json) is not null;
+    private static Review? Read(string? json)
+    {
+        if(string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            var review=JsonSerializer.Deserialize<Review>(json,new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            return review?.Resources is not null && review.Repositories is { Length: >0 } &&
+                review.MaximumConcurrentPreviews>0 && review.MaximumCpuSeconds>0 && review.MaximumLifetimeSeconds>=300
+                ? review : null;
+        }
+        catch(JsonException) { return null; }
+    }
+}

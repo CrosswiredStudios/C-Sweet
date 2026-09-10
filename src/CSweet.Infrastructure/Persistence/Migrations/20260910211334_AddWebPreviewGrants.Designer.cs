@@ -3,6 +3,7 @@ using System;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CSweet.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CSweetDbContext))]
-    partial class CSweetDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260910211334_AddWebPreviewGrants")]
+    partial class AddWebPreviewGrants
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -10701,94 +10704,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("TeamRepositoryPolicies");
                 });
 
-            modelBuilder.Entity("CSweet.Domain.Setup.WebHostRegistration", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("BootstrapJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("IdentityKeyDigest")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<string>("IdentityPublicKeyBase64")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("LastSequence")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("MaximumCapacityJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ProviderInstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("RegisteredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("RegisteredByOrganizationUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RegistrationDigest")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<Guid>("RegistrationRequestId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ReportedHeartbeatJson")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IdentityKeyDigest")
-                        .IsUnique();
-
-                    b.HasIndex("ProviderInstallationId");
-
-                    b.HasIndex("OrganizationId", "RegistrationRequestId")
-                        .IsUnique();
-
-                    b.HasIndex("OrganizationId", "Status", "LastHeartbeatAt");
-
-                    b.ToTable("WebHostRegistrations", (string)null);
-                });
-
             modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewGrantRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -14237,21 +14152,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Repository");
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebHostRegistration", b =>
-                {
-                    b.HasOne("CSweet.Domain.Core.Organization", null)
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
-                        .WithMany()
-                        .HasForeignKey("ProviderInstallationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewGrantRecord", b =>

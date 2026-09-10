@@ -436,6 +436,10 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentAttentionInvalidationService, AgentAttentionInvalidationService>();
         builder.Services.AddScoped<IApprovalDashboardService, ApprovalDashboardService>();
         builder.Services.AddScoped<IManagedActionExecutor, WorkstreamManagedActionExecutor>();
+        builder.Services.AddOptions<WebHostRegistryOptions>().Bind(builder.Configuration.GetSection(WebHostRegistryOptions.SectionName));
+        builder.Services.AddScoped<WebHostRegistryService>();
+        builder.Services.AddScoped<WebPreviewGrantService>();
+        builder.Services.AddScoped<IManagedActionExecutor>(services => services.GetRequiredService<WebPreviewGrantService>());
         builder.Services.AddScoped<ManifestInfrastructureProviderGateway>();
         builder.Services.AddScoped<IInfrastructureProviderGateway>(services =>
             services.GetRequiredService<ManifestInfrastructureProviderGateway>());
