@@ -95,5 +95,11 @@ public interface IExecutionFleetService
         string certificateSerialNumber,
         CancellationToken cancellationToken = default);
 
+    Task<OfficeCertificateChallengeResponse?> CreateCertificateRecoveryChallengeAsync(
+        Guid nodeId, CancellationToken cancellationToken = default);
+
+    Task<OfficeCertificateResponse> RecoverOperationalCertificateAsync(
+        Guid nodeId, OfficeCertificateRecoveryRequest request, CancellationToken cancellationToken = default);
+
     Task<bool> IsReadyAsync(CancellationToken cancellationToken = default);
 }

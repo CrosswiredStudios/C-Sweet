@@ -536,10 +536,11 @@ public sealed class OfficeGatewayService(
             ?? throw new RpcException(new Status(StatusCode.Unauthenticated, "The node is unknown."));
         if (node.Status == ExecutionNodeStatus.Revoked || node.CertificateExpiresAt <= timeProvider.GetUtcNow())
             throw new RpcException(new Status(StatusCode.PermissionDenied, "The node identity is inactive."));
-        var certificate = context.GetHttpContext().Connection.ClientCertificate;
-        if (certificate is not null && string.Equals(
-                Normalize(certificate.Thumbprint), Normalize(node.CertificateThumbprint), StringComparison.Ordinal) &&
-            string.Equals(Normalize(certificate.SerialNumber), Normalize(node.CertificateSerialNumber), StringComparison.Ordinal))
+        var http = context.GetHttpContext();
+        var certificate = http.Connection.ClientCertificate;
+        var connectionItems = http.Features.Get<Microsoft.AspNetCore.Connections.Features.IConnectionItemsFeature>()?.Items
+            ?? http.Items;
+        if (OfficeConnectionIdentity.Authorize(node, certificate, connectionItems, timeProvider.GetUtcNow()))
             return;
         logger.LogWarning("Rejected Office {OfficeId} because its client certificate did not match.", nodeId);
         throw new RpcException(new Status(StatusCode.Unauthenticated, "A matching Office client certificate is required."));

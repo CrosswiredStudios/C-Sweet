@@ -23,7 +23,37 @@ builder.Services.Configure<ExecutionGatewayOptions>(
     builder.Configuration.GetSection(ExecutionGatewayOptions.SectionName));
 builder.Services.AddSingleton<ExecutionAssignmentSigner>();
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("office-certificate-recovery", _ =>
+        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter("recovery", _ => new()
+        {
+            PermitLimit = 120,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+});
 var app = builder.Build();
+app.UseRateLimiter();
+app.MapPost("/api/offices/{officeId:guid}/certificate/challenge", async (
+    Guid officeId, HttpContext context, IExecutionFleetService fleet, CancellationToken cancellationToken) =>
+{
+    if (!context.Request.IsHttps) return Results.BadRequest();
+    var challenge = await fleet.CreateCertificateRecoveryChallengeAsync(officeId, cancellationToken);
+    context.Response.Headers.CacheControl = "no-store";
+    return challenge is null ? Results.StatusCode(429) : Results.Ok(challenge);
+}).RequireRateLimiting("office-certificate-recovery");
+app.MapPost("/api/offices/{officeId:guid}/certificate/recover", async (
+    Guid officeId, OfficeCertificateRecoveryRequest request, HttpContext context,
+    IExecutionFleetService fleet, CancellationToken cancellationToken) =>
+{
+    if (!context.Request.IsHttps) return Results.BadRequest();
+    var result = await fleet.RecoverOperationalCertificateAsync(officeId, request, cancellationToken);
+    context.Response.Headers.CacheControl = "no-store";
+    return result.Succeeded ? Results.Ok(result) : Results.Unauthorized();
+}).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(4096))
+  .RequireRateLimiting("office-certificate-recovery");
 app.MapGrpcService<OfficeGatewayService>();
 app.MapGet("/api/offices/assignment-trust", (ExecutionAssignmentSigner signer) =>
     Results.Ok(new HeadquartersAssignmentTrustResponse(

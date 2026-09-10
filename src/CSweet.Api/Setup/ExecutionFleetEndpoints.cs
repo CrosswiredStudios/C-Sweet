@@ -15,6 +15,12 @@ public static class ExecutionFleetEndpoints
             .RequireAuthorization("HostAdministration");
 
         group.MapGet("/", GetAsync);
+        group.MapGet("/nodes/{nodeId:guid}/activity", async (
+            Guid nodeId, CSweetDbContext db, CancellationToken cancellationToken) =>
+        {
+            var activity = await GetOfficeActivityAsync(db, nodeId, cancellationToken);
+            return activity is null ? Results.NotFound() : Results.Ok(activity);
+        });
         group.MapPost("/pools", async (
             CreateExecutionPoolRequest request,
             IExecutionPoolAdministrationService service,
@@ -145,6 +151,10 @@ public static class ExecutionFleetEndpoints
             .GroupBy(x => x.ExecutionPoolId)
             .Select(group => new { PoolId = group.Key, Count = group.Count() })
             .ToDictionaryAsync(x => x.PoolId, x => x.Count, cancellationToken);
+        var nodeActivity = await ActiveOfficeAssignments(db)
+            .GroupBy(x => x.ExecutionNodeId!.Value)
+            .Select(group => new { Id = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(x => x.Id, x => x.Count, cancellationToken);
         var settings = await db.AgentRuntimeGlobalSettings.AsNoTracking()
             .OrderBy(x => x.UpdatedAt).FirstOrDefaultAsync(cancellationToken);
         var defaultRuntimePoolId = settings?.DefaultRuntimeExecutionPoolId ??
@@ -181,7 +191,29 @@ public static class ExecutionFleetEndpoints
                     installation.ExecutionPoolId,
                     effectivePoolId,
                     pools.Single(pool => pool.Id == effectivePoolId).Name);
-            }).ToArray());
+            }).ToArray(),
+            nodes.ToDictionary(node => node.Id, node => nodeActivity.GetValueOrDefault(node.Id)));
+    }
+
+    private static IQueryable<ExecutionWorkloadAssignment> ActiveOfficeAssignments(CSweetDbContext db) =>
+        db.ExecutionWorkloadAssignments.AsNoTracking().Where(x => x.ExecutionNodeId != null &&
+            (x.Status == ExecutionAssignmentStatus.Pending || x.Status == ExecutionAssignmentStatus.Assigned ||
+             x.Status == ExecutionAssignmentStatus.Starting || x.Status == ExecutionAssignmentStatus.Running ||
+             x.Status == ExecutionAssignmentStatus.Stopping));
+
+    internal static async Task<OfficeActivityResponse?> GetOfficeActivityAsync(
+        CSweetDbContext db, Guid nodeId, CancellationToken cancellationToken = default)
+    {
+        if (!await db.ExecutionNodes.AsNoTracking().AnyAsync(x => x.Id == nodeId, cancellationToken)) return null;
+        var active = await ActiveOfficeAssignments(db).CountAsync(x => x.ExecutionNodeId == nodeId, cancellationToken);
+        var recent = await db.ExecutionWorkloadAssignments.AsNoTracking().Where(x => x.ExecutionNodeId == nodeId)
+            .OrderByDescending(x => x.QueuedAt).Take(50).ToListAsync(cancellationToken);
+        return new(active, recent.Select(x => new ExecutionAssignmentSummaryResponse(
+            x.Id, x.ExecutionPoolId, x.ExecutionNodeId, x.AgentBuildJobId, x.AgentRuntimeInstanceId,
+            x.WorkloadKind.ToString().ToLowerInvariant(), x.Status.ToString().ToLowerInvariant(),
+            x.ProviderId, x.GuestImageDigest, x.Attempt, x.FencingEpoch, x.ReservedCpuCount,
+            x.ReservedMemoryMb, x.ReservedDiskMb, x.QueuedAt, x.AssignedAt, x.StartedAt, x.CompletedAt,
+            x.FailureCode)).ToArray());
     }
 
     private static IResult Mutation(ExecutionFleetMutationResponse result) =>

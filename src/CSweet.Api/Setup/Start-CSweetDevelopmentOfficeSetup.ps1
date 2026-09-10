@@ -162,7 +162,7 @@ try {
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = '0.3.0'
+        officeVersion = '0.4.0'
         existingInstallationState = $existingInstallationState
     } | ConvertTo-Json -Compress
     $preflight = $null
@@ -211,7 +211,7 @@ try {
                 machineName = [Environment]::MachineName
                 operatingSystem = 'windows'
                 architecture = $architecture
-                officeVersion = '0.3.0'
+                officeVersion = '0.4.0'
                 existingInstallationState = 'none'
             } | ConvertTo-Json -Compress
             $preflight = Invoke-CSweetPinnedRestMethod -Method Post `
@@ -266,7 +266,7 @@ try {
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = '0.3.0'
+        officeVersion = '0.4.0'
     } | ConvertTo-Json -Compress
     $redemption = Invoke-CSweetPinnedRestMethod -Method Post `
         -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/redeem') -Body $request

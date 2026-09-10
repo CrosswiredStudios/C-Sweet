@@ -5,12 +5,12 @@ namespace CSweet.UnitTests;
 public sealed class ExecutionFleetPageTests
 {
     [Fact]
-    public void OfflineOffice_ShowsReconnectProgressInsteadOfResumeAction()
+    public void OfflineOffice_ExplainsReconnectInsteadOfOfferingResume()
     {
         var source = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(), "src", "CSweet.UI", "Pages", "ExecutionFleet.razor"));
 
-        Assert.Contains("node.Status == \"offline\"", source, StringComparison.Ordinal);
+        Assert.Contains("Status(node) == \"Offline\"", source, StringComparison.Ordinal);
         Assert.Contains("This page checks for reconnection automatically.", source, StringComparison.Ordinal);
         Assert.Contains("<MudProgressLinear Indeterminate=\"true\"", source, StringComparison.Ordinal);
         Assert.Contains("else if (node.Status == \"draining\")", source, StringComparison.Ordinal);
