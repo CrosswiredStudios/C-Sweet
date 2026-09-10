@@ -16,12 +16,12 @@
                 else
                 {
                     <strong>Agent execution capacity is unavailable.</strong>
-                    <div>Office is not ready to run builds or agents. Open the execution fleet to check its connection and resolve any issues.</div>
+                    <div>Office is not ready to run builds or agents. Open Offices to check connection status and resolve any issues.</div>
                 }
             </div>
             <MudButton Variant="Variant.Filled" Color="Color.Inherit"
                        StartIcon="@Icons.Material.Filled.Dns"
-                       OnClick="OpenFleet">Open execution fleet</MudButton>
+                       OnClick="OpenFleet">Open Offices</MudButton>
         </MudStack>
     </MudAlert>
 }
@@ -76,7 +76,7 @@
         }
     }
 
-    private void OpenFleet() => Navigation.NavigateTo("/settings/agents/execution-fleet");
+    private void OpenFleet() => Navigation.NavigateTo("/settings/offices");
 
     public ValueTask DisposeAsync()
     {

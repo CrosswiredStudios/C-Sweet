@@ -1,0 +1,29 @@
+.offices-page { display:flex; flex-direction:column; gap:1.25rem; }
+.offices-page ::deep .mud-alert-text-warning { color:#765100; }
+.offices-page ::deep .mud-chip-color-warning { color:#684900; background-color:#fff0c2; }
+.office-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+.office-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; }
+.office-summary > div { padding:1.25rem; border:1px solid var(--mud-palette-divider); border-radius:12px; background:var(--mud-palette-surface); }
+.office-summary strong { display:block; font-size:1.8rem; line-height:1.3; }
+.office-summary span, .office-meta, .office-facts span { color:var(--mud-palette-text-secondary); font-size:.875rem; }
+.office-toolbar { display:grid; grid-template-columns:minmax(200px,1fr) minmax(180px,240px); gap:1rem; margin-bottom:1.5rem; }
+.office-table-scroll { overflow-x:auto; }
+.office-table { width:100%; border-collapse:collapse; text-align:left; }
+.office-table th { color:var(--mud-palette-text-secondary); font-size:.8rem; font-weight:600; }
+.office-table th, .office-table td { padding:1rem .75rem; border-bottom:1px solid var(--mud-palette-divider); vertical-align:middle; }
+.office-table tbody tr:hover { background:var(--mud-palette-action-default-hover); }
+.office-name { font-weight:600; color:var(--mud-palette-primary); text-decoration:none; }
+.office-name:hover { text-decoration:underline; }
+.office-name:focus-visible { outline:2px solid var(--mud-palette-primary); outline-offset:4px; }
+.office-meta { display:block; margin-top:.25rem; overflow-wrap:anywhere; }
+.office-empty { padding:2.5rem 1rem; text-align:center; }
+.office-detail-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
+.office-facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.5rem; margin-top:1.5rem; }
+.office-facts strong { display:block; margin-top:.25rem; font-weight:500; overflow-wrap:anywhere; }
+.office-upgrade-steps { padding-left:1.5rem; margin-top:1rem; }
+.office-upgrade-steps li { padding:.5rem 0 1rem .4rem; }
+.office-upgrade-steps p { margin:.4rem 0 .7rem; }
+.office-provider { border-top:1px solid var(--mud-palette-divider); margin-top:1rem; padding-top:1rem; }
+.office-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+@media(max-width:700px) { .office-summary, .office-facts { grid-template-columns:repeat(2,minmax(0,1fr)); } .office-toolbar { grid-template-columns:1fr; } }
+@media(max-width:420px) { .office-facts { grid-template-columns:1fr; } }

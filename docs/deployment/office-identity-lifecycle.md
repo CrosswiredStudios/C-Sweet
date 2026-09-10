@@ -27,3 +27,13 @@ A new TLS connection must present the exact current, unexpired operational certi
 3. Start Office and verify a new certificate, fresh heartbeats, and the execution fleet becoming ready. Resume an administrator-drained Office separately when appropriate.
 
 The implementation tests expiry after 30 days, spent bootstrap receipts, replay, altered Office IDs, wrong keys, revoked/unapproved enrollment, drain preservation, lost responses, atomic certificate installation, actual TLS certificate switching, and HTTP/2 connection authentication through renewal and revocation. Windows TLS was exercised locally; Linux/macOS certification and signed installer publishing remain release-workflow checks.
+
+## Manage Offices in Settings
+
+Open **Settings > Platform > Offices** (`/settings/offices`). The list includes every Office enrolled with this server, independent of the focused business. Search by Office, machine, or pool; filter connection status; open an Office for its version, capabilities, certificate status, and recent work. The previous `/settings/agents/execution-fleet` address remains supported.
+
+For an upgrade, open the Office's **Upgrade steps**, choose **Prepare upgrade** to drain it, and wait for a fresh, verified zero active-work count. Open the signed releases (or configured platform package) and run the upgrade on that Office machine using the release instructions and its local preflight checks. Preserve the existing identity. After it reconnects, verify the installed version and choose **Resume work**. Headquarters does not push or install Office updates remotely.
+
+If the Office is offline, the server cannot confirm local drain state or idle capacity; the page does not declare it safe to upgrade. Inspect the Office services and local maintenance state on that machine. Revoked Offices cannot recover access by upgrading. Setup lives under **Add Office**; workload pools and agent routing remain available under **Advanced**.
+
+Active-work counts cover all assigned work, including old workloads outside the recent-history window. Detail history contains the latest 50 workloads for that Office, rather than a slice of server-wide activity. Status refreshes every 15 seconds without overwriting unsaved label or pool edits.

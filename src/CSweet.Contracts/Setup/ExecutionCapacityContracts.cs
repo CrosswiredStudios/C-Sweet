@@ -47,7 +47,8 @@ public sealed record CreateLocalOfficeSetupSessionRequest(
     string PresetKey,
     int AllocatableCpuCount,
     int AllocatableMemoryMb,
-    int AllocatableDiskMb);
+    int AllocatableDiskMb,
+    Guid? UpgradeOfficeId = null);
 
 public sealed record LaunchLocalOfficeSetupRequest(string LaunchUri);
 
@@ -104,7 +105,8 @@ public sealed record OfficePackageLinksResponse(
     string? WindowsPackageOverrideUrl,
     string? LinuxPackageOverrideUrl,
     string? MacOsPackageOverrideUrl,
-    string? ControlPlaneUrl);
+    string? ControlPlaneUrl,
+    bool CanLaunchLocalUpgrade = false);
 
 public sealed record SelectExecutionOnboardingModeRequest(string Mode);
 public sealed record ExecutionEnrollmentResponse(

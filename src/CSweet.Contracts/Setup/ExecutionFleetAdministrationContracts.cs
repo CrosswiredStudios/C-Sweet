@@ -4,7 +4,8 @@ public sealed record ExecutionFleetAdministrationResponse(
     IReadOnlyList<ExecutionPoolResponse> Pools,
     IReadOnlyList<ExecutionNodeSummaryResponse> Nodes,
     IReadOnlyList<ExecutionAssignmentSummaryResponse> RecentAssignments,
-    IReadOnlyList<AgentExecutionPoolOverrideResponse> InstallationOverrides);
+    IReadOnlyList<AgentExecutionPoolOverrideResponse> InstallationOverrides,
+    IReadOnlyDictionary<Guid, int>? ActiveAssignmentsByOffice = null);
 
 public sealed record CreateExecutionPoolRequest(
     string Name,
@@ -58,3 +59,7 @@ public sealed record ExecutionAssignmentSummaryResponse(
     string? FailureCode);
 
 public sealed record UpdateExecutionNodeLabelsRequest(IReadOnlyDictionary<string, string> Labels);
+
+public sealed record OfficeActivityResponse(
+    int ActiveAssignmentCount,
+    IReadOnlyList<ExecutionAssignmentSummaryResponse> RecentAssignments);
