@@ -978,7 +978,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         modelBuilder.Entity<LocalOfficeSetupSession>(entity =>
         {
             entity.HasKey(x => x.Id);
-            entity.Property(x => x.HandoffSecretHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.HandoffSecretHash).HasMaxLength(64).IsRequired().IsConcurrencyToken();
             entity.Property(x => x.MachineBindingHash).HasMaxLength(64).IsRequired();
             entity.Property(x => x.OperatingSystem).HasMaxLength(32).IsRequired();
             entity.Property(x => x.Architecture).HasMaxLength(32).IsRequired();

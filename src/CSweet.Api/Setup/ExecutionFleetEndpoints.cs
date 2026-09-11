@@ -9,12 +9,66 @@ namespace CSweet.Api.Setup;
 
 public static class ExecutionFleetEndpoints
 {
+    public static async Task<IResult> UpdateOfficeSettingsAsync(Guid nodeId, UpdateOfficeSettingsRequest request,
+        CSweetDbContext db, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200 || request.Name.Any(char.IsControl))
+            return Results.BadRequest(new ExecutionFleetMutationResponse(false, "invalid_name", "Enter an Office name of up to 200 characters."));
+        var node = await db.ExecutionNodes.SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
+        if (node is null) return Results.NotFound();
+        if (node.Status is ExecutionNodeStatus.Revoked or ExecutionNodeStatus.PendingApproval)
+            return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_unavailable", "Approve this Office before changing its settings."));
+        var now = clock.GetUtcNow();
+        if (await db.LocalOfficeSetupSessions.AnyAsync(x => x.UpgradeOfficeId == nodeId && x.ExpiresAt > now &&
+            (x.Status == LocalOfficeSetupSessionStatus.Created || x.Status == LocalOfficeSetupSessionStatus.Redeemed ||
+             x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress), cancellationToken))
+            return Results.BadRequest(new ExecutionFleetMutationResponse(false, "maintenance_in_progress", "Finish Office maintenance before changing its settings."));
+        if (!await db.ExecutionPools.AnyAsync(x => x.Id == request.ExecutionPoolId && x.IsEnabled, cancellationToken))
+            return Results.BadRequest(new ExecutionFleetMutationResponse(false, "pool_unavailable", "Choose an enabled workload group."));
+        if (node.ExecutionPoolId != request.ExecutionPoolId && await db.ExecutionWorkloadAssignments.AnyAsync(x =>
+            x.ExecutionNodeId == nodeId && (x.Status == ExecutionAssignmentStatus.Pending || x.Status == ExecutionAssignmentStatus.Assigned || x.Status == ExecutionAssignmentStatus.Starting ||
+                x.Status == ExecutionAssignmentStatus.Running || x.Status == ExecutionAssignmentStatus.Stopping), cancellationToken))
+            return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_busy", "Let current work finish before changing the workload group."));
+        node.Name = request.Name.Trim();
+        node.ExecutionPoolId = request.ExecutionPoolId;
+        node.UpdatedAt = clock.GetUtcNow();
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new ExecutionFleetMutationResponse(true, null, "Office settings saved."));
+    }
+
     public static IEndpointRouteBuilder MapExecutionFleetEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/execution-fleet")
             .RequireAuthorization("HostAdministration");
 
         group.MapGet("/", GetAsync);
+        group.MapPut("/nodes/{nodeId:guid}/settings", UpdateOfficeSettingsAsync);
+        group.MapGet("/nodes/{nodeId:guid}/recovery-package", async (
+            Guid nodeId, CSweetDbContext db, IHttpClientFactory clients,
+            Microsoft.Extensions.Options.IOptions<CSweet.Infrastructure.Setup.ExecutionFleetOptions> options,
+            CancellationToken cancellationToken) =>
+        {
+            var node = await db.ExecutionNodes.AsNoTracking().SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
+            if (node is null) return Results.NotFound();
+            if (!Uri.TryCreate(options.Value.ReleaseManifestUrl, UriKind.Absolute, out var manifestUri) || manifestUri.Scheme != "https")
+                return Results.Ok(new { url = (string?)null });
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(10));
+                using var client = clients.CreateClient();
+                using var response = await client.GetAsync(manifestUri, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+                response.EnsureSuccessStatusCode();
+                if (response.RequestMessage?.RequestUri?.Scheme != "https") return Results.Ok(new { url = (string?)null });
+                await response.Content.LoadIntoBufferAsync(1024 * 1024, timeout.Token);
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+                return Results.Ok(new { url = FindRecoveryPackage(document.RootElement, node.OperatingSystem, node.Architecture) });
+            }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+            {
+                return Results.Ok(new { url = (string?)null });
+            }
+        });
         group.MapGet("/nodes/{nodeId:guid}/activity", async (
             Guid nodeId, CSweetDbContext db, CancellationToken cancellationToken) =>
         {
@@ -58,7 +112,7 @@ public static class ExecutionFleetEndpoints
                 return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_not_draining",
                     "Only an approved, deliberately drained Office can be resumed."));
             if (await db.LocalOfficeSetupSessions.AnyAsync(x => x.UpgradeOfficeId == nodeId &&
-                x.RecoveryAction == "upgrade" && x.ExpiresAt > clock.GetUtcNow() &&
+                (x.RecoveryAction == "upgrade" || x.RecoveryAction == "repair") && x.ExpiresAt > clock.GetUtcNow() &&
                 (x.Status == LocalOfficeSetupSessionStatus.Created || x.Status == LocalOfficeSetupSessionStatus.Redeemed), cancellationToken))
                 return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_upgrade_in_progress",
                     "Wait for the Office upgrade to finish before resuming work."));
@@ -234,6 +288,24 @@ public static class ExecutionFleetEndpoints
     {
         try { return JsonSerializer.Deserialize<string[]>(json) ?? []; }
         catch (JsonException) { return []; }
+    }
+
+    internal static string? FindRecoveryPackage(JsonElement manifest, string os, string architecture)
+    {
+        if (!manifest.TryGetProperty("schemaVersion", out var schema) || !schema.TryGetInt32(out var version) || version != 1 ||
+            !manifest.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array) return null;
+        foreach (var asset in assets.EnumerateArray())
+        {
+            if (asset.ValueKind != JsonValueKind.Object) continue;
+            string? Text(string name) => asset.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+            if (!string.Equals(Text("operatingSystem"), os, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Text("architecture"), architecture, StringComparison.OrdinalIgnoreCase) ||
+                Text("sha256") is not { Length: 64 } digest || !digest.All(Uri.IsHexDigit) ||
+                !Uri.TryCreate(Text("url"), UriKind.Absolute, out var uri) || uri.Scheme != "https" || !string.IsNullOrEmpty(uri.UserInfo)) continue;
+            if (os == "windows" && Text("packageType") != "msi") continue;
+            return uri.AbsoluteUri;
+        }
+        return null;
     }
 
     private static ExecutionNodeSummaryResponse Map(ExecutionNode node) => new(

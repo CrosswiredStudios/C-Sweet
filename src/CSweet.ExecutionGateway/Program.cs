@@ -54,6 +54,15 @@ app.MapPost("/api/offices/{officeId:guid}/certificate/recover", async (
     return result.Succeeded ? Results.Ok(result) : Results.Unauthorized();
 }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(4096))
   .RequireRateLimiting("office-certificate-recovery");
+app.MapPost("/api/offices/{officeId:guid}/maintenance/claim", async (
+    Guid officeId, HttpContext context, IExecutionFleetService fleet, CancellationToken cancellationToken) =>
+{
+    if (!context.Request.IsHttps || context.Connection.ClientCertificate is not { } certificate)
+        return Results.Unauthorized();
+    context.Response.Headers.CacheControl = "no-store";
+    var handoff = await fleet.ClaimOfficeMaintenanceAsync(officeId, certificate.Thumbprint, certificate.SerialNumber, cancellationToken);
+    return handoff is null ? Results.NoContent() : Results.Ok(new { launchUri = handoff });
+}).RequireRateLimiting("office-certificate-recovery");
 app.MapGrpcService<OfficeGatewayService>();
 app.MapGet("/api/offices/assignment-trust", (ExecutionAssignmentSigner signer) =>
     Results.Ok(new HeadquartersAssignmentTrustResponse(

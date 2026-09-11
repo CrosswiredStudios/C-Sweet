@@ -48,7 +48,8 @@ public sealed record CreateLocalOfficeSetupSessionRequest(
     int AllocatableCpuCount,
     int AllocatableMemoryMb,
     int AllocatableDiskMb,
-    Guid? UpgradeOfficeId = null);
+    Guid? UpgradeOfficeId = null,
+    bool Repair = false);
 
 public sealed record LaunchLocalOfficeSetupRequest(string LaunchUri);
 
@@ -76,7 +77,8 @@ public sealed record LocalOfficeSetupSessionResponse(
     DateTimeOffset? AdministratorApprovalRequestedAt = null,
     string RecoveryAction = "none",
     bool RecoveryCanReconnect = false,
-    Guid? UpgradeOfficeId = null);
+    Guid? UpgradeOfficeId = null,
+    Guid? ConnectedOfficeId = null);
 
 public sealed record LocalOfficeSetupActionResponse(
     bool Succeeded,

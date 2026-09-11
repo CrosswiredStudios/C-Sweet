@@ -230,18 +230,19 @@ public sealed class ExecutionFleetService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (OperatingSystem.IsLinux())
+        if (request.UpgradeOfficeId is null && OperatingSystem.IsLinux())
             return await LocalFailureAsync("manual_setup_required",
                 "Linux Office setup uses the signed package and an explicit administrator command.", cancellationToken);
-        if (!OperatingSystem.IsWindows())
+        if (request.UpgradeOfficeId is null && !OperatingSystem.IsWindows())
             return await LocalFailureAsync("assisted_setup_unavailable",
                 "Assisted local Office setup is unavailable on this platform.", cancellationToken);
         ExecutionNode? upgradeOffice = null;
         if (request.UpgradeOfficeId is { } upgradeId)
         {
-            if (!DevelopmentLauncherConfigured || !await CanUpgradeOfficeAsync(upgradeId, cancellationToken))
+            if (!(request.Repair ? await CanRepairOfficeAsync(upgradeId, cancellationToken)
+                : await CanUpgradeOfficeAsync(upgradeId, cancellationToken)))
                 return await LocalFailureAsync("upgrade_unavailable",
-                    "Guided upgrade requires the local Windows launcher and an approved, connected, drained Office with no active work.", cancellationToken);
+                    "This Office cannot be repaired yet. Check that access is approved and its work has finished.", cancellationToken);
             if (await dbContext.LocalOfficeSetupSessions.AnyAsync(x => x.UpgradeOfficeId == upgradeId &&
                 x.CreatedByUserId != createdByUserId &&
                 (x.Status == LocalOfficeSetupSessionStatus.Created || x.Status == LocalOfficeSetupSessionStatus.Redeemed) &&
@@ -249,7 +250,7 @@ public sealed class ExecutionFleetService(
                 return await LocalFailureAsync("upgrade_in_progress", "Another administrator is already upgrading this Office.", cancellationToken);
             upgradeOffice = await dbContext.ExecutionNodes.SingleAsync(x => x.Id == upgradeId, cancellationToken);
             request = new("custom", upgradeOffice.AllocatableCpuCount, upgradeOffice.AllocatableMemoryMb,
-                upgradeOffice.AllocatableDiskMb, upgradeId);
+                upgradeOffice.AllocatableDiskMb, upgradeId, request.Repair);
         }
         var now = timeProvider.GetUtcNow();
         await ExpireLocalSetupSessionsAsync(now, cancellationToken);
@@ -266,20 +267,28 @@ public sealed class ExecutionFleetService(
             .FirstOrDefaultAsync(cancellationToken);
         if (existing is not null && upgradeOffice is not null &&
             (existing.Status == LocalOfficeSetupSessionStatus.Ready ||
-             existing.Status == LocalOfficeSetupSessionStatus.Connected && existing.ExecutionNodeId == upgradeOffice.Id))
+             // Enrollment is finished once it has produced this approved Office. A stale
+             // workload connection must not turn that old onboarding session into a lock.
+             existing.Status == LocalOfficeSetupSessionStatus.Connected && existing.ExecutionNodeId == upgradeOffice.Id &&
+                 existing.RecoveryAction is not ("repair" or "upgrade") ||
+             existing.Status == LocalOfficeSetupSessionStatus.Connected && existing.UpgradeOfficeId == upgradeOffice.Id && Map(existing, null, null).State == "ready" ||
+             // A handoff that has never been launched can safely be replaced by repair.
+             existing.Status == LocalOfficeSetupSessionStatus.Created && existing.UpgradeOfficeId == upgradeOffice.Id &&
+                 existing.RecoveryAction == "upgrade" && request.Repair && existing.AdministratorApprovalRequestedAt is null))
         {
             existing.Status = LocalOfficeSetupSessionStatus.Revoked;
+            existing.SetupReceiptHash = null;
             existing.UpdatedAt = now;
             await dbContext.SaveChangesAsync(cancellationToken);
             existing = null;
         }
         if (existing is not null && upgradeOffice is not null &&
-            (existing.RecoveryAction != "upgrade" || existing.UpgradeOfficeId != upgradeOffice.Id))
+            existing.UpgradeOfficeId != upgradeOffice.Id)
             return await LocalFailureAsync("local_setup_in_progress", "Finish the existing local setup before upgrading this Office.", cancellationToken);
         if (existing is not null)
         {
             var existingResponse = Map(existing, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
-                DevelopmentLauncherConfigured ? "server" : "protocol");
+                LocalSetupLaunchMethod(existing));
             if (existingResponse.State != "failed")
                 return new LocalOfficeSetupActionResponse(true, "local_setup_in_progress",
                     existingResponse.State == "ready"
@@ -354,14 +363,14 @@ public sealed class ExecutionFleetService(
             Id = Guid.NewGuid(),
             CreatedByUserId = createdByUserId,
             HandoffSecretHash = Hash(handoff),
-            MachineBindingHash = MachineBindingHash(Environment.MachineName, "windows",
-                System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString()),
+            MachineBindingHash = MachineBindingHash(upgradeOffice?.MachineName ?? Environment.MachineName, "windows",
+                upgradeOffice?.Architecture ?? System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString()),
             OperatingSystem = "windows",
-            Architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
+            Architecture = upgradeOffice?.Architecture ?? System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
             ControlPlaneOrigin = controlPlaneOrigin,
             ControlPlaneCertificateSha256 = controlPlaneCertificateSha256,
             UpgradeOfficeId = upgradeOffice?.Id,
-            RecoveryAction = upgradeOffice is null ? "none" : "upgrade",
+            RecoveryAction = upgradeOffice is null ? "none" : request.Repair ? "repair" : "upgrade",
             PresetKey = presetKey,
             AllocatableCpuCount = request.AllocatableCpuCount,
             AllocatableMemoryMb = request.AllocatableMemoryMb,
@@ -372,6 +381,13 @@ public sealed class ExecutionFleetService(
             CreatedAt = now,
             UpdatedAt = now
         };
+        if (upgradeOffice is not null && request.Repair)
+        {
+            // Stop dispatch before handing control to the independent local safety check.
+            upgradeOffice.DrainingAt ??= now;
+            upgradeOffice.Status = ExecutionNodeStatus.Draining;
+            upgradeOffice.UpdatedAt = now;
+        }
         dbContext.LocalOfficeSetupSessions.Add(session);
         try
         {
@@ -395,7 +411,7 @@ public sealed class ExecutionFleetService(
             return new LocalOfficeSetupActionResponse(true, "local_setup_in_progress",
                 "Local Office setup is already in progress.",
                 Map(concurrent, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
-                    DevelopmentLauncherConfigured ? "server" : "protocol"),
+                    LocalSetupLaunchMethod(concurrent)),
                 await GetOnboardingStatusAsync(cancellationToken));
         }
         await auditWriter.WriteAsync("office.local-setup.created", nameof(LocalOfficeSetupSession), session.Id,
@@ -403,7 +419,7 @@ public sealed class ExecutionFleetService(
             cancellationToken: cancellationToken);
 
         var launchUri = LocalSetupLaunchUri(session, handoff);
-        var launchMethod = DevelopmentLauncherConfigured ? "server" : "protocol";
+        var launchMethod = LocalSetupLaunchMethod(session);
         return new LocalOfficeSetupActionResponse(true, null, "Local Office setup is ready.",
             Map(session, packageUri?.AbsoluteUri, launchUri, launchMethod),
             await GetOnboardingStatusAsync(cancellationToken));
@@ -425,7 +441,7 @@ public sealed class ExecutionFleetService(
         if (session.Status != LocalOfficeSetupSessionStatus.Created || session.ExpiresAt <= now)
             return await LocalFailureAsync("session_not_launchable",
                 "This setup session can no longer request administrator approval.", cancellationToken);
-        if (session.RecoveryAction == "upgrade" && !await CanUpgradeOfficeAsync(session.UpgradeOfficeId, cancellationToken))
+        if ((session.RecoveryAction is "upgrade" or "repair") && !await MaintenanceReadyAsync(session, cancellationToken))
             return await LocalFailureAsync("upgrade_not_safe", "Drain the selected Office and wait for active work to finish before upgrading.", cancellationToken);
         if (!TryReadLaunchHandoff(request.LaunchUri, session, out var handoff))
             return await LocalFailureAsync("invalid_handoff", "The secure setup handoff is invalid.", cancellationToken);
@@ -434,7 +450,7 @@ public sealed class ExecutionFleetService(
             ? string.Empty
             : $"&certificate={session.ControlPlaneCertificateSha256}";
         var launchUri = LocalSetupLaunchUri(session, handoff);
-        var launchMethod = DevelopmentLauncherConfigured ? "server" : "protocol";
+        var launchMethod = LocalSetupLaunchMethod(session);
         if (launchMethod == "server")
         {
             var launch = TryStartWindowsDevelopmentSetup(session.Id, launchUri);
@@ -469,9 +485,29 @@ public sealed class ExecutionFleetService(
             .SingleOrDefaultAsync(x => x.Id == sessionId && x.CreatedByUserId == createdByUserId, cancellationToken);
         if (session is null)
             return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
+        var display = Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null, LocalSetupLaunchMethod(session));
+        if (display.State == "failed" && session.UpgradeOfficeId is not null && session.Status == LocalOfficeSetupSessionStatus.Redeemed)
+        {
+            var tracked = await dbContext.LocalOfficeSetupSessions.SingleAsync(x => x.Id == sessionId, cancellationToken);
+            tracked.Status = LocalOfficeSetupSessionStatus.Failed;
+            tracked.SetupReceiptHash = null;
+            tracked.ErrorCode = display.ErrorCode ?? "office_setup_failed";
+            tracked.ErrorMessage = display.ErrorMessage ?? display.Message;
+            tracked.UpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        if (display.State == "ready" && session.UpgradeOfficeId is not null)
+        {
+            var tracked = await dbContext.LocalOfficeSetupSessions.SingleAsync(x => x.Id == sessionId, cancellationToken);
+            if (tracked.Status != LocalOfficeSetupSessionStatus.Ready)
+            {
+                tracked.Status = LocalOfficeSetupSessionStatus.Ready;
+                tracked.UpdatedAt = now;
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
         return new LocalOfficeSetupActionResponse(true, null, "Local Office setup status loaded.",
-            Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
-                DevelopmentLauncherConfigured ? "server" : "protocol"),
+            display,
             await GetOnboardingStatusAsync(cancellationToken));
     }
 
@@ -492,7 +528,7 @@ public sealed class ExecutionFleetService(
                   x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress ||
                   x.Status == LocalOfficeSetupSessionStatus.Ready ||
                   x.Status == LocalOfficeSetupSessionStatus.Failed &&
-                  x.ErrorCode == "office_removal_failed"))
+                  (x.ErrorCode == "office_removal_failed" || x.UpgradeOfficeId != null)))
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
         if (session is { Status: LocalOfficeSetupSessionStatus.Failed, ErrorCode: "office_removal_failed" })
@@ -507,7 +543,7 @@ public sealed class ExecutionFleetService(
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         var mapped = session is null ? null : Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
-            DevelopmentLauncherConfigured ? "server" : "protocol");
+            LocalSetupLaunchMethod(session));
         if (session is not null && mapped?.State == "recoveryrequired" &&
             session.Status != LocalOfficeSetupSessionStatus.RecoveryRequired)
         {
@@ -524,7 +560,7 @@ public sealed class ExecutionFleetService(
             session.UpdatedAt = now;
             await dbContext.SaveChangesAsync(cancellationToken);
             mapped = Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
-                DevelopmentLauncherConfigured ? "server" : "protocol");
+                LocalSetupLaunchMethod(session));
         }
         if (session is not null && mapped?.State == "failed")
         {
@@ -533,7 +569,7 @@ public sealed class ExecutionFleetService(
             session.ErrorMessage ??= mapped.ErrorMessage ?? mapped.Message;
             session.UpdatedAt = now;
             await dbContext.SaveChangesAsync(cancellationToken);
-            mapped = null;
+            if (session.UpgradeOfficeId is null) mapped = null;
         }
         return new LocalOfficeSetupActionResponse(true, null, "Local Office setup status loaded.",
             mapped,
@@ -568,7 +604,7 @@ public sealed class ExecutionFleetService(
         return new LocalOfficeSetupActionResponse(true, null, "Local Office setup is ready to continue.",
             Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl,
                 LocalSetupLaunchUri(session, handoff),
-                DevelopmentLauncherConfigured ? "server" : "protocol"),
+                LocalSetupLaunchMethod(session)),
             await GetOnboardingStatusAsync(cancellationToken));
     }
 
@@ -588,7 +624,14 @@ public sealed class ExecutionFleetService(
             x.Id == sessionId && x.CreatedByUserId == createdByUserId, cancellationToken);
         if (session is null)
             return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
-        if (session.RecoveryAction == "upgrade" || session.Status != LocalOfficeSetupSessionStatus.RecoveryRequired)
+        if (action == "remove" && session.UpgradeOfficeId is not null &&
+            session.RecoveryAction is "repair" or "upgrade" && session.Status == LocalOfficeSetupSessionStatus.Failed)
+        {
+            session.Status = LocalOfficeSetupSessionStatus.RecoveryRequired;
+            session.RecoveryAction = "none";
+            session.RecoveryCanReconnect = false;
+        }
+        if (session.RecoveryAction is "upgrade" or "repair" || session.Status != LocalOfficeSetupSessionStatus.RecoveryRequired)
             return await LocalFailureAsync("recovery_not_available", "This Office does not currently require recovery.", cancellationToken);
         if (action == "reconnect" && !session.RecoveryCanReconnect)
             return await LocalFailureAsync("reconnect_not_safe",
@@ -612,7 +655,7 @@ public sealed class ExecutionFleetService(
         return new LocalOfficeSetupActionResponse(true, null,
             action == "reconnect" ? "Office reassignment is ready." : "Office removal is ready.",
             Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl,
-                LocalSetupLaunchUri(session, handoff), DevelopmentLauncherConfigured ? "server" : "protocol"),
+                LocalSetupLaunchUri(session, handoff), LocalSetupLaunchMethod(session)),
             await GetOnboardingStatusAsync(cancellationToken));
     }
 
@@ -639,11 +682,24 @@ public sealed class ExecutionFleetService(
         if (!MachineMatches(session, request.MachineName, request.OperatingSystem, request.Architecture))
             return PreflightFailure("machine_mismatch", "The setup handoff was created for a different Windows machine.");
 
-        if (session.RecoveryAction == "upgrade")
+        if (session.RecoveryAction == "repair" &&
+            (Version.Parse(request.OfficeVersion) < new Version(0, 5, 0) || observed != "clean"))
         {
-            if (observed != "clean" || !await CanUpgradeOfficeAsync(session.UpgradeOfficeId, cancellationToken))
+            session.Status = LocalOfficeSetupSessionStatus.Failed;
+            session.ErrorCode = Version.Parse(request.OfficeVersion) < new Version(0, 5, 0)
+                ? "recovery_app_update_required" : "repair_preflight_failed";
+            session.ErrorMessage = session.ErrorCode == "recovery_app_update_required"
+                ? "Get the current recovery app on the Office computer, then try repair again."
+                : "The recovery app could not verify that local work has finished. Nothing has been removed.";
+            session.UpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return PreflightFailure(session.ErrorCode, session.ErrorMessage);
+        }
+        if (session.RecoveryAction is "upgrade" or "repair")
+        {
+            if (observed != "clean" || !await MaintenanceReadyAsync(session, cancellationToken))
                 return PreflightFailure("upgrade_not_safe", "The selected Office must be drained with no active work and valid local state.");
-            return new(true, null, "Office upgrade preflight completed.", session.Id, "upgrade", true);
+            return new(true, null, "Office upgrade preflight completed.", session.Id, session.RecoveryAction, true);
         }
 
         if (session.RecoveryAction == "remove")
@@ -725,9 +781,9 @@ public sealed class ExecutionFleetService(
                 Encoding.ASCII.GetBytes(session.MachineBindingHash), Encoding.ASCII.GetBytes(machineBinding)))
             return RedeemFailure("machine_mismatch", "The setup handoff was created for a different Windows machine.");
 
-        if (session.RecoveryAction == "upgrade")
+        if (session.RecoveryAction is "upgrade" or "repair")
         {
-            if (!await CanUpgradeOfficeAsync(session.UpgradeOfficeId, cancellationToken))
+            if (!await MaintenanceReadyAsync(session, cancellationToken))
                 return RedeemFailure("upgrade_not_safe", "The Office is no longer ready for maintenance.");
             var receipt = Base64Url(RandomNumberGenerator.GetBytes(32));
             session.Status = LocalOfficeSetupSessionStatus.Redeemed;
@@ -740,11 +796,17 @@ public sealed class ExecutionFleetService(
                 $"Authorized an identity-preserving upgrade of Office {session.UpgradeOfficeId}.", cancellationToken: cancellationToken);
             return new(true, null, "Office upgrade authorized.", session.Id, null, session.ControlPlaneOrigin,
                 session.ControlPlaneCertificateSha256, session.AllocatableCpuCount, session.AllocatableMemoryMb,
-                session.AllocatableDiskMb, session.MaximumConcurrentWorkloads, false, "upgrade", receipt);
+                session.AllocatableDiskMb, session.MaximumConcurrentWorkloads, false, session.RecoveryAction, receipt);
         }
 
         await EnsureDefaultPoolAsync(cancellationToken);
         var pool = await DefaultPoolAsync(cancellationToken);
+        if (session.UpgradeOfficeId is { } previousOfficeId)
+        {
+            var previousPoolId = await dbContext.ExecutionNodes.Where(x => x.Id == previousOfficeId)
+                .Select(x => x.ExecutionPoolId).SingleOrDefaultAsync(cancellationToken);
+            pool = await dbContext.ExecutionPools.SingleOrDefaultAsync(x => x.Id == previousPoolId && x.IsEnabled, cancellationToken) ?? pool;
+        }
         var enrollmentToken = Base64Url(RandomNumberGenerator.GetBytes(32));
         var setupReceipt = Base64Url(RandomNumberGenerator.GetBytes(32));
         var enrollment = new ExecutionNodeEnrollment
@@ -796,8 +858,8 @@ public sealed class ExecutionFleetService(
 
         if (resultCode == "office_upgrade_completed")
         {
-            if (session.RecoveryAction != "upgrade" || session.Status != LocalOfficeSetupSessionStatus.Redeemed) return false;
-            session.Status = LocalOfficeSetupSessionStatus.Ready;
+            if (session.RecoveryAction is not ("upgrade" or "repair") || session.Status != LocalOfficeSetupSessionStatus.Redeemed) return false;
+            session.Status = LocalOfficeSetupSessionStatus.Connected;
             session.SetupReceiptHash = null;
             session.CompletedAt = timeProvider.GetUtcNow();
             session.UpdatedAt = timeProvider.GetUtcNow();
@@ -821,7 +883,7 @@ public sealed class ExecutionFleetService(
         session.ErrorCode = resultCode;
         session.ErrorMessage = RecoveryMessage(resultCode);
         session.UpdatedAt = now;
-        if (session.RecoveryAction != "upgrade" && resultCode is ("existing_office_detected" or "existing_office_active" or "reconnect_unsafe" or
+        if (session.RecoveryAction is not ("upgrade" or "repair") && resultCode is ("existing_office_detected" or "existing_office_active" or "reconnect_unsafe" or
             "office_removal_failed"))
         {
             session.Status = LocalOfficeSetupSessionStatus.RecoveryRequired;
@@ -857,6 +919,21 @@ public sealed class ExecutionFleetService(
             session.Status == LocalOfficeSetupSessionStatus.Created && session.RecoveryAction == "removed") return true;
         if (session.Status != LocalOfficeSetupSessionStatus.RemovalInProgress) return false;
         var now = timeProvider.GetUtcNow();
+        if (session.UpgradeOfficeId is { } previousId)
+        {
+            var previous = await dbContext.ExecutionNodes.SingleOrDefaultAsync(x => x.Id == previousId, cancellationToken);
+            if (previous is not null)
+            {
+                previous.Status = ExecutionNodeStatus.Revoked;
+                previous.RevokedAt = now;
+                previous.UpdatedAt = now;
+            }
+            foreach (var enrollment in await dbContext.ExecutionNodeEnrollments.Where(x => x.ExecutionNodeId == previousId).ToListAsync(cancellationToken))
+            {
+                enrollment.Status = ExecutionEnrollmentStatus.Revoked;
+                enrollment.RevokedAt = now;
+            }
+        }
         session.Status = LocalOfficeSetupSessionStatus.Created;
         session.RecoveryAction = "removed";
         session.CompletedAt = null;
@@ -1654,7 +1731,7 @@ public sealed class ExecutionFleetService(
             (x.Status == LocalOfficeSetupSessionStatus.Created ||
              x.Status == LocalOfficeSetupSessionStatus.RecoveryRequired ||
              x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress ||
-             x.RecoveryAction == "upgrade" && x.Status == LocalOfficeSetupSessionStatus.Redeemed)).ToListAsync(cancellationToken);
+             (x.RecoveryAction == "upgrade" || x.RecoveryAction == "repair") && (x.Status == LocalOfficeSetupSessionStatus.Redeemed || x.Status == LocalOfficeSetupSessionStatus.Connected))).ToListAsync(cancellationToken);
         if (expired.Count == 0) return;
         foreach (var session in expired)
         {
@@ -1740,7 +1817,17 @@ public sealed class ExecutionFleetService(
         string? launchUri,
         string? launchMethod = null)
     {
-        var status = session.Status == LocalOfficeSetupSessionStatus.Connected &&
+        if (session.RecoveryAction is "repair" or "upgrade" && session.UpgradeOfficeId is { } target && session.Status == LocalOfficeSetupSessionStatus.Connected &&
+            session.CompletedAt is { } completed)
+        {
+            var office = dbContext.ExecutionNodes.AsNoTracking().SingleOrDefault(x => x.Id == target);
+            if (office is { RevokedAt: null, ApprovedAt: not null, LastHeartbeatAt: not null } &&
+                office.LastHeartbeatAt > completed && office.LastHeartbeatAt >= timeProvider.GetUtcNow().AddSeconds(-30) &&
+                office.CertificateExpiresAt > timeProvider.GetUtcNow() &&
+                office.Status is ExecutionNodeStatus.Ready or ExecutionNodeStatus.Draining)
+                session.Status = LocalOfficeSetupSessionStatus.Ready;
+        }
+        var status = session.RecoveryAction is not ("repair" or "upgrade") && session.Status == LocalOfficeSetupSessionStatus.Connected &&
             session.ExecutionNode is { Status: ExecutionNodeStatus.Ready, LastHeartbeatAt: not null }
             ? LocalOfficeSetupSessionStatus.Ready
             : session.Status;
@@ -1772,7 +1859,7 @@ public sealed class ExecutionFleetService(
                 session.ErrorMessage ?? "The Office setup did not complete.", 0, (int?)null, (int?)null),
             _ => ("install", "Preparing your Office", "C-Sweet is continuing setup.", 0, (int?)null, (int?)null)
         };
-        if (session.RecoveryAction == "upgrade" && status == LocalOfficeSetupSessionStatus.Ready)
+        if ((session.RecoveryAction is "upgrade" or "repair") && status == LocalOfficeSetupSessionStatus.Ready)
         {
             phaseName = "Upgrade installed";
             message = "Verify the Office version and connection, then resume work when ready.";
@@ -1797,7 +1884,7 @@ public sealed class ExecutionFleetService(
                 if (effectiveErrorCode is "existing_office_detected" or "existing_office_active" or
                     "reconnect_unsafe" or "office_removal_failed" or "office_setup_failed")
                     effectiveErrorMessage = RecoveryMessage(effectiveErrorCode);
-                if (session.RecoveryAction != "upgrade" && effectiveErrorCode is ("existing_office_detected" or "existing_office_active" or
+                if (session.RecoveryAction is not ("upgrade" or "repair") && effectiveErrorCode is ("existing_office_detected" or "existing_office_active" or
                     "reconnect_unsafe" or "office_removal_failed"))
                 {
                     status = LocalOfficeSetupSessionStatus.RecoveryRequired;
@@ -1843,7 +1930,7 @@ public sealed class ExecutionFleetService(
                 }
             }
         }
-        else if (session.RecoveryAction != "upgrade" && status == LocalOfficeSetupSessionStatus.Redeemed &&
+        else if (session.RecoveryAction is not ("upgrade" or "repair") && status == LocalOfficeSetupSessionStatus.Redeemed &&
                  session.RedeemedAt is { } redeemedAt &&
                  timeProvider.GetUtcNow() - redeemedAt >= TimeSpan.FromSeconds(45))
         {
@@ -1862,7 +1949,7 @@ public sealed class ExecutionFleetService(
             windowsPackageUrl, launchUri, effectiveErrorCode, effectiveErrorMessage,
             minimumSeconds, maximumSeconds, launchMethod,
             session.AdministratorApprovalRequestedAt, session.RecoveryAction,
-            effectiveRecoveryCanReconnect, session.RecoveryAction == "upgrade" ? session.UpgradeOfficeId : null);
+            effectiveRecoveryCanReconnect, session.UpgradeOfficeId, session.ExecutionNodeId);
     }
 
     private string LocalSetupLaunchUri(LocalOfficeSetupSession session, string handoff)
@@ -1870,8 +1957,8 @@ public sealed class ExecutionFleetService(
         var certificateParameter = string.IsNullOrWhiteSpace(session.ControlPlaneCertificateSha256)
             ? string.Empty
             : $"&certificate={session.ControlPlaneCertificateSha256}";
-        var bootstrapOrigin = LocalSetupBootstrapOrigin(session.ControlPlaneOrigin);
-        return $"csweet-office://enroll/v1?session={session.Id:D}&origin={Uri.EscapeDataString(bootstrapOrigin)}{certificateParameter}{(session.RecoveryAction == "upgrade" ? $"&office={session.UpgradeOfficeId:D}" : "")}#handoff={handoff}";
+        var bootstrapOrigin = LocalSetupLaunchMethod(session) == "server" ? LocalSetupBootstrapOrigin(session.ControlPlaneOrigin) : session.ControlPlaneOrigin;
+        return $"csweet-office://enroll/v1?session={session.Id:D}&origin={Uri.EscapeDataString(bootstrapOrigin)}{certificateParameter}{(session.UpgradeOfficeId is not null && session.RecoveryAction is "upgrade" or "repair" or "remove" ? $"&office={session.UpgradeOfficeId:D}&operation={session.RecoveryAction}" : "")}#handoff={handoff}";
     }
 
     private string LocalSetupBootstrapOrigin(string fallback)
@@ -1884,12 +1971,65 @@ public sealed class ExecutionFleetService(
                 : fallback;
     }
 
+    public async Task<string?> ClaimOfficeMaintenanceAsync(Guid officeId, string thumbprint, string serialNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var now = timeProvider.GetUtcNow();
+        var node = await dbContext.ExecutionNodes.AsNoTracking().SingleOrDefaultAsync(x => x.Id == officeId, cancellationToken);
+        if (node is null || node.ApprovedAt is null || node.RevokedAt is not null || node.Status == ExecutionNodeStatus.Revoked ||
+            node.CertificateExpiresAt is null || node.CertificateExpiresAt <= now || string.IsNullOrWhiteSpace(thumbprint) || string.IsNullOrWhiteSpace(serialNumber) ||
+            !string.Equals(NormalizeHex(node.CertificateThumbprint), NormalizeHex(thumbprint), StringComparison.Ordinal) ||
+            !string.Equals(NormalizeHex(node.CertificateSerialNumber), NormalizeHex(serialNumber), StringComparison.Ordinal)) return null;
+        var session = await dbContext.LocalOfficeSetupSessions.Where(x => x.UpgradeOfficeId == officeId &&
+            (x.RecoveryAction == "repair" || x.RecoveryAction == "upgrade") && x.Status == LocalOfficeSetupSessionStatus.Created &&
+            x.AdministratorApprovalRequestedAt != null && x.ExpiresAt > now).OrderBy(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken);
+        if (session is null || LocalSetupLaunchMethod(session) == "server") return null;
+        var handoff = Base64Url(RandomNumberGenerator.GetBytes(32));
+        session.HandoffSecretHash = Hash(handoff);
+        session.UpdatedAt = now;
+        try { await dbContext.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException) { return null; }
+        await auditWriter.WriteAsync("office.maintenance.dispatched", nameof(LocalOfficeSetupSession), session.Id,
+            $"Delivered the authorized maintenance request to Office {officeId}.", cancellationToken: cancellationToken);
+        return LocalSetupLaunchUri(session, handoff);
+    }
+
+    private string LocalSetupLaunchMethod(LocalOfficeSetupSession session)
+    {
+        if (session.RecoveryAction is "repair" or "upgrade" && session.UpgradeOfficeId is { } officeId)
+        {
+            var version = dbContext.ExecutionNodes.AsNoTracking().Where(x => x.Id == officeId).Select(x => x.NodeVersion).FirstOrDefault();
+            if (Version.TryParse(version, out var installed) && installed >= new Version(0, 5, 0)) return "agent";
+        }
+        return DevelopmentLauncherConfigured && MachineMatches(session, Environment.MachineName, "windows",
+            System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString()) ? "server" : "protocol";
+    }
+
+    private Task<bool> MaintenanceReadyAsync(LocalOfficeSetupSession session, CancellationToken cancellationToken) =>
+        session.RecoveryAction == "repair" ? CanRepairOfficeAsync(session.UpgradeOfficeId, cancellationToken)
+            : CanUpgradeOfficeAsync(session.UpgradeOfficeId, cancellationToken);
+
+    internal async Task<bool> CanRepairOfficeAsync(Guid? officeId, CancellationToken cancellationToken = default)
+    {
+        if (officeId is null) return false;
+        var node = await dbContext.ExecutionNodes.AsNoTracking().SingleOrDefaultAsync(x => x.Id == officeId, cancellationToken);
+        if (node is null || !string.Equals(node.OperatingSystem, "windows", StringComparison.OrdinalIgnoreCase) ||
+            node.ApprovedAt is null || node.RevokedAt is not null ||
+            node.Status is not (ExecutionNodeStatus.Ready or ExecutionNodeStatus.Offline or ExecutionNodeStatus.Draining)) return false;
+        // A stale heartbeat or expired certificate is precisely what repair must be able to fix.
+        // The elevated helper independently checks local work before stopping either service.
+        return !await dbContext.ExecutionWorkloadAssignments.AnyAsync(x => x.ExecutionNodeId == officeId &&
+            (x.Status == ExecutionAssignmentStatus.Pending || x.Status == ExecutionAssignmentStatus.Assigned ||
+             x.Status == ExecutionAssignmentStatus.Starting || x.Status == ExecutionAssignmentStatus.Running ||
+             x.Status == ExecutionAssignmentStatus.Stopping), cancellationToken);
+    }
+
     internal async Task<bool> CanUpgradeOfficeAsync(Guid? officeId, CancellationToken cancellationToken = default)
     {
         if (officeId is null) return false;
         var node = await dbContext.ExecutionNodes.AsNoTracking().SingleOrDefaultAsync(x => x.Id == officeId, cancellationToken);
         var now = timeProvider.GetUtcNow();
-        if (node is null || !IsLocalMachine(node.MachineName, node.OperatingSystem, Environment.MachineName, "windows") ||
+        if (node is null || !string.Equals(node.OperatingSystem, "windows", StringComparison.OrdinalIgnoreCase) ||
             node.Status != ExecutionNodeStatus.Draining || node.ApprovedAt is null || node.RevokedAt is not null ||
             node.CertificateExpiresAt is null || node.CertificateExpiresAt <= now || node.LastHeartbeatAt is null || node.LastHeartbeatAt < now.AddSeconds(-30)) return false;
         return !await dbContext.ExecutionWorkloadAssignments.AnyAsync(x => x.ExecutionNodeId == officeId &&
@@ -1916,7 +2056,7 @@ public sealed class ExecutionFleetService(
             !string.Equals(uri.AbsolutePath, "/v1", StringComparison.Ordinal) ||
             !Guid.TryParse(QueryValue(uri, "session"), out var requestedSessionId) ||
             requestedSessionId != session.Id ||
-            !string.Equals(QueryValue(uri, "origin"), LocalSetupBootstrapOrigin(session.ControlPlaneOrigin),
+            !string.Equals(QueryValue(uri, "origin"), LocalSetupLaunchMethod(session) == "server" ? LocalSetupBootstrapOrigin(session.ControlPlaneOrigin) : session.ControlPlaneOrigin,
                 StringComparison.Ordinal) ||
             !uri.Fragment.StartsWith("#handoff=", StringComparison.Ordinal))
             return false;

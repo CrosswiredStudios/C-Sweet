@@ -7,6 +7,7 @@
 @using CSweet.UI.Services
 @inject HttpClient Http
 @inject ISetupApiClient SetupApi
+@inject NavigationManager Navigation
 @implements IAsyncDisposable
 
 <PageTitle>@(SelectedOffice is { } selected ? $"{selected.Name} - Offices - C-Sweet" : "Offices - C-Sweet")</PageTitle>
@@ -16,12 +17,13 @@
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Server settings</MudText>
             <MudText Typo="Typo.h3">@(SelectedOffice?.Name ?? "Offices")</MudText>
-            <MudText Color="Color.Secondary">@(OfficeId is null ? "Manage every Office connected to this server, wherever it runs." : "Connection, work, maintenance, and upgrade information for this Office.")</MudText>
+            <MudText Color="Color.Secondary">@(OfficeId is null ? "Manage every Office connected to this server, wherever it runs." : "Manage this computer and the work it runs.")</MudText>
         </div>
         <div class="office-actions">
             @if (OfficeId is not null)
             {
                 <MudButton Href="/settings/offices" Variant="Variant.Outlined">All Offices</MudButton>
+                @if (_careInProgress) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCareAsync">View progress</MudButton> }
             }
             else
             {
@@ -94,7 +96,7 @@
                                     <td><div class="office-actions"><MudButton Href="@OfficeUrl(node.Id)" Size="Size.Small">Details</MudButton>
                                     @if (node.Status != "revoked" && node.Status != "pendingapproval")
                                     {
-                                        <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">Upgrade</MudButton>
+                                        <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">Repair</MudButton>
                                     }
                                     @if (node.Status == "ready")
                                     {
@@ -200,16 +202,22 @@
     }
     else if (_fleet is not null && SelectedOffice is { } node)
     {
+        <LocalOfficeUpgrade @key="node.Id" @ref="_officeCare" Office="node" Disabled="ActionsDisabled" PackageUrl="PackageUrl(node)"
+            ShowSummary="false" ActiveWork="ActiveWork(node.Id)" InProgressChanged="CareProgressChanged"
+            OnSessionChanged="session => _careSession = session" ActionMessage="_message" ActionSucceeded="_messageSucceeded"
+            OnChanged="LoadAsync" OnResume='@(() => NodeActionAsync(node.Id, "resume"))' OnPause='@(() => NodeActionAsync(node.Id, "drain"))' />
+        <MudTabs @bind-ActivePanelIndex="_activeTab" KeepPanelsAlive="true" Elevation="0" Rounded="true" Class="office-tabs">
+        <MudTabPanel Text="Overview">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
             <div class="office-detail-heading"><div><MudChip T="string" Color="@StatusColor(node)">@Status(node)</MudChip><MudText>@node.MachineName · @node.OperatingSystem / @node.Architecture</MudText></div>
                 <div class="office-actions">
                     @if (node.Status == "ready")
                     {
-                        <MudButton Variant="Variant.Outlined" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>Drain Office</MudButton>
+                        <MudButton Variant="Variant.Outlined" Disabled="@(!CanAct(node) || _careInProgress)" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>Pause new work</MudButton>
                     }
                     else if (node.Status == "draining")
                     {
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>Resume work</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanAct(node) || _careInProgress)" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>Allow new work</MudButton>
                     }
                     @if (node.Status == "pendingapproval")
                     {
@@ -228,67 +236,24 @@
             @if (Status(node) == "Offline")
             {
                 <MudAlert Severity="Severity.Warning" Class="mt-3">
-                    @if (node.CertificateExpiresAt <= DateTimeOffset.UtcNow)
-                    {
-                        <span>The connection certificate has expired. Office 0.4.0 or later can recover automatically with its original identity key. Check the Office services and logs on @node.MachineName.</span>
-                    }
-                    else
-                    {
-                        <span>This Office is not sending heartbeats. Check its services and connection to this server on @node.MachineName.</span>
-                    }
-                    This page checks for reconnection automatically.
+                    This Office isn't connected. Open Office care to get it working again.
                 </MudAlert>
             }
-            @if (node.Status == "draining")
+            else if (node.Status == "draining")
             {
-                <MudAlert Severity="Severity.Info" Class="mt-3">Draining stops new work. Existing work is allowed to finish. Resume work when maintenance is complete.</MudAlert>
+                <MudText Class="mt-3">New work is paused. Current work is allowed to finish.</MudText>
             }
         </MudPaper>
         <MudPaper Elevation="1" Class="surface-panel command-section-wide" id="upgrade">
-            <MudText Typo="Typo.h5">Upgrade this Office</MudText>
-            <MudText Color="Color.Secondary">Install updates on <strong>@node.MachineName</strong>. Prepare the Office for maintenance, then use the available installer for this machine.</MudText>
+            <MudText Typo="Typo.h5">@(_careInProgress ? "Maintenance in progress" : "Office care")</MudText>
+            <MudText Class="mt-2">@(_careInProgress ? "You can check progress at any time." : "Repair the connection or update the Office software with step-by-step help.")</MudText>
             @if (node.Status is "revoked" or "pendingapproval")
             {
-                <MudAlert Severity="Severity.Warning" Class="mt-3">@(node.Status == "revoked" ? "This Office's access is revoked. An upgrade will not restore access; a new enrollment and approval are required." : "Approve this Office before using server-managed maintenance actions.")</MudAlert>
+                <MudAlert Severity="Severity.Warning">@(node.Status == "revoked" ? "This Office's access was removed. Add it again to restore access." : "Approve this Office before managing it.")</MudAlert>
             }
-            else
-            {
-            <ol class="office-upgrade-steps">
-                <li><strong>Prepare for maintenance</strong><p>Drain the Office so it stops receiving new work, then wait for active work to reach zero.</p>
-                    @if (node.Status == "ready")
-                    {
-                        <MudButton Variant="Variant.Outlined" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>Prepare upgrade</MudButton>
-                    }
-                    @if (ReadyForUpgrade(node))
-                    {
-                        <MudAlert Severity="Severity.Success" Dense="true">Connected, draining, and no active work reported. The installer must also pass its local safety checks.</MudAlert>
-                    }
-                    else
-                    {
-                        <MudText Color="Color.Warning">@UpgradeReadiness(node)</MudText>
-                    }
-                </li>
-                @if (node.IsLocalMachine && _packages?.CanLaunchLocalUpgrade == true)
-                {
-                    <li><strong>Install the update</strong>
-                        <LocalOfficeUpgrade @key="node.Id" Office="node" ReadyForUpgrade="ReadyForUpgrade(node)" OnChanged="LoadAsync" />
-                    </li>
-                }
-                else
-                {
-                <li><strong>Get the signed release</strong><p>Installed version: @node.NodeVersion. Check the release notes for the version you intend to install and any required server update.</p>
-                    <MudButton Href="https://github.com/CrosswiredStudios/CSweet.Office/releases" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">View Office releases</MudButton>
-                    @if (PackageUrl(node) is { } packageUrl)
-                    {
-                        <MudButton Href="@packageUrl" Target="_blank" rel="noopener noreferrer">Configured package</MudButton>
-                    }
-                </li>
-                <li><strong>Run the upgrade on @node.MachineName</strong><p>@InstallerInstructions(node) Keep the existing Office identity and configuration. Follow the release's upgrade instructions; do not uninstall, remove identity files, or create a new enrollment.</p></li>
-                }
-                <li><strong>Verify and resume</strong><p>Return here and confirm the installed version changed and the Office reconnected. Select Resume work when maintenance is complete.</p></li>
-            </ol>
-            }
+            <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCareAsync">@(_careInProgress ? "View progress" : "Open Office care")</MudButton>
         </MudPaper>
+        <MudExpansionPanels><MudExpansionPanel Text="Connection details and diagnostics">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
             <MudText Typo="Typo.h5">Connection and capabilities</MudText>
             <MudText>Certificate expires: @Heartbeat(node.CertificateExpiresAt)</MudText>
@@ -307,8 +272,21 @@
                 <MudText Class="mt-3">Security profile: @profile · @(node.Labels.GetValueOrDefault("csweet.security.mixed-use") == "true" ? "Shared-use machine" : "Dedicated machine")</MudText>
             }
         </MudPaper>
+        </MudExpansionPanel></MudExpansionPanels>
+        </MudTabPanel>
+        <MudTabPanel Text="Work &amp; activity">
+        @if (_careSession is { } care)
+        {
+            <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+                <MudText Typo="Typo.h6">Office maintenance</MudText>
+                <MudText>@care.PhaseDisplayName</MudText>
+                <MudText Typo="Typo.body2">@care.Message</MudText>
+                <MudButton OnClick="OpenCareAsync">View details</MudButton>
+            </MudPaper>
+        }
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
             <MudText Typo="Typo.h5">Recent work</MudText>
+            <MudText Class="mt-2">Active jobs: @ActiveWorkLabel(node.Id)</MudText>
             @if (_activityError is not null) { <MudAlert Severity="Severity.Warning">@_activityError</MudAlert> }
             else if (_activity is null) { <MudText>Loading work history…</MudText> }
             else if (_activity.RecentAssignments.Count == 0) { <MudText Class="mt-3">No work has been assigned to this Office.</MudText> }
@@ -318,32 +296,46 @@
                     <thead><tr><th scope="col">Queued</th><th scope="col">Work</th><th scope="col">Status</th><th scope="col">Outcome</th></tr></thead><tbody>
                     @foreach (var assignment in _activity.RecentAssignments)
                     {
-                        <tr><td>@Heartbeat(assignment.QueuedAt)</td><td>@assignment.WorkloadKind</td><td>@assignment.Status</td><td>@(assignment.FailureCode ?? "—")</td></tr>
+                        <tr><td>@Heartbeat(assignment.QueuedAt)</td><td>@WorkName(assignment.WorkloadKind)</td><td>@assignment.Status</td><td>@if (assignment.FailureCode is { } failure) { <details><summary>View details</summary>@failure</details> } else { <span>—</span> }</td></tr>
                     }
                 </tbody></table></div>
             }
         </MudPaper>
+        </MudTabPanel>
+        <MudTabPanel Text="Settings">
+        <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+            <MudText Typo="Typo.h5">Office settings</MudText>
+            <MudTextField Label="Office name" @bind-Value="_officeName" Disabled="@(ActionsDisabled || _careInProgress)" MaxLength="200" />
+            <MudSelect T="Guid" Label="Workload group" @bind-Value="_officePool" Disabled="@(ActionsDisabled || _careInProgress)">
+                @foreach (var pool in _fleet.Pools.Where(x => x.IsEnabled || x.Id == node.ExecutionPoolId))
+                { <MudSelectItem T="Guid" Value="pool.Id">@pool.Name</MudSelectItem> }
+            </MudSelect>
+            <MudText Typo="Typo.body2" Class="mt-3">This computer reports a limit of @node.MaximumConcurrentWorkloads jobs at once. Its capacity is managed by the Office installation.</MudText>
+            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(ActionsDisabled || _careInProgress || string.IsNullOrWhiteSpace(_officeName))" OnClick="SaveOfficeAsync">Save changes</MudButton>
+        </MudPaper>
         <MudExpansionPanels>
             <MudExpansionPanel Text="Office labels and access">
-                <MudTextField Label="Office labels" HelperText="key=value, comma separated" @bind-Value="_nodeLabelEdits[node.Id]" Disabled="@ActionsDisabled" />
-                <MudButton Disabled="@ActionsDisabled" OnClick="() => SaveNodeLabelsAsync(node.Id)">Save labels</MudButton>
+                <MudTextField Label="Office labels" HelperText="key=value, comma separated" @bind-Value="_nodeLabelEdits[node.Id]" Disabled="@(ActionsDisabled || _careInProgress)" />
+                <MudButton Disabled="@(ActionsDisabled || _careInProgress)" OnClick="() => SaveNodeLabelsAsync(node.Id)">Save labels</MudButton>
                 @if (node.Status != "revoked")
                 {
                     <MudDivider Class="my-4" />
-                    <MudText>Revoking access disconnects this Office and fences its active work. Re-enrollment is required to trust it again.</MudText>
+                    <MudText>Removing access disconnects this Office and stops its current work. You will need to add the Office again to reconnect it.</MudText>
                     @if (_confirmRevocation)
                     {
                         <MudAlert Severity="Severity.Warning">Revoke @node.Name? Any active work will lose access immediately.</MudAlert>
-                        <MudButton Color="Color.Error" Disabled="@ActionsDisabled" OnClick="() => RevokeAsync(node.Id)">Confirm revocation</MudButton>
+                        <MudButton Color="Color.Error" Disabled="@(ActionsDisabled || _careInProgress)" OnClick="() => RevokeAsync(node.Id)">Confirm revocation</MudButton>
                         <MudButton OnClick="() => _confirmRevocation = false">Cancel</MudButton>
                     }
                     else
                     {
-                        <MudButton Color="Color.Error" Disabled="@ActionsDisabled" OnClick="() => _confirmRevocation = true">Revoke access</MudButton>
+                        <MudButton Color="Color.Error" Disabled="@(ActionsDisabled || _careInProgress)" OnClick="() => _confirmRevocation = true">Revoke access</MudButton>
                     }
                 }
             </MudExpansionPanel>
         </MudExpansionPanels>
+        </MudTabPanel>
+        </MudTabs>
     }
     else if (_fleet is not null)
     {
@@ -359,6 +351,21 @@
     private bool _refreshing;
     private bool _showSetup;
     private bool _confirmRevocation;
+    private LocalOfficeUpgrade? _officeCare;
+    private LocalOfficeSetupSessionResponse? _careSession;
+    private bool _careInProgress, _openCareOnRender;
+    private int _activeTab;
+    private Guid? _settingsOffice;
+    private string _officeName = "";
+    private Guid _officePool;
+    private Task OpenCareAsync() => _officeCare?.OpenAsync() ?? Task.CompletedTask;
+    private static string WorkName(string kind) => kind.ToLowerInvariant() switch { "builder" => "Agent build", "runtime" => "Agent run", "toolchainbuild" => "Application build", _ => kind };
+    private void CareProgressChanged(bool inProgress) => _careInProgress = inProgress;
+    private Task SaveOfficeAsync() => MutateAsync(HttpMethod.Put, $"api/execution-fleet/nodes/{OfficeId:D}/settings", new UpdateOfficeSettingsRequest(_officeName, _officePool));
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_openCareOnRender && _officeCare is not null) { _openCareOnRender = false; await OpenCareAsync(); }
+    }
     private string _search = "";
     private string _statusFilter = "all";
     private string? _loadError;
@@ -391,6 +398,7 @@
         var url = node.OperatingSystem switch { "windows" => _packages?.WindowsPackageOverrideUrl, "linux" => _packages?.LinuxPackageOverrideUrl, "macos" => _packages?.MacOsPackageOverrideUrl, _ => null };
         return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == "https" ? uri.AbsoluteUri : null;
     }
+    private sealed record RecoveryPackageLink(string? Url);
     private static string InstallerInstructions(ExecutionNodeSummaryResponse node) => node.OperatingSystem switch
     {
         "windows" => "Use the signed Windows installer with administrator access.",
@@ -418,6 +426,12 @@
             _activity = null;
             _packages = null;
             _confirmRevocation = false;
+            _activeTab = 0;
+            _careInProgress = false;
+            _officeCare = null;
+            _careSession = null;
+            _settingsOffice = null;
+            _openCareOnRender = Navigation.Uri.EndsWith("#upgrade", StringComparison.Ordinal);
             _loadedOfficeId = OfficeId;
         }
         await LoadAsync();
@@ -445,6 +459,12 @@
             var fleet = await Http.GetFromJsonAsync<ExecutionFleetAdministrationResponse>("api/execution-fleet", _lifetime.Token);
             if (fleet is null) throw new InvalidDataException("The server returned no Office status.");
             _fleet = fleet;
+            if (SelectedOffice is { } selectedOffice && _settingsOffice != selectedOffice.Id)
+            {
+                _settingsOffice = selectedOffice.Id;
+                _officeName = selectedOffice.Name;
+                _officePool = selectedOffice.ExecutionPoolId;
+            }
             foreach (var pool in fleet.Pools) _poolEdits.TryAdd(pool.Id, PoolEditModel.From(pool));
             foreach (var node in fleet.Nodes) _nodeLabelEdits.TryAdd(node.Id, string.Join(',', node.Labels
                 .Where(x => !x.Key.StartsWith("csweet.security.", StringComparison.Ordinal))
@@ -464,7 +484,16 @@
                 }
                 if (_packages is null)
                 {
-                    try { _packages = (await SetupApi.GetExecutionCapacityStatusAsync(_lifetime.Token)).Packages; }
+                    try
+                    {
+                        _packages = (await SetupApi.GetExecutionCapacityStatusAsync(_lifetime.Token)).Packages;
+                        var selected = fleet.Nodes.Single(x => x.Id == id);
+                        if (_packages is not null && selected.OperatingSystem == "windows" && _packages.WindowsPackageOverrideUrl is null)
+                        {
+                            var download = await Http.GetFromJsonAsync<RecoveryPackageLink>($"api/execution-fleet/nodes/{id:D}/recovery-package", _lifetime.Token);
+                            if (download?.Url is { } url) _packages = _packages with { WindowsPackageOverrideUrl = url };
+                        }
+                    }
                     catch (Exception exception) when (exception is HttpRequestException or ApiClientException or System.Text.Json.JsonException) { /* The signed releases link remains available. */ }
                 }
             }
