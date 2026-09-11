@@ -59,6 +59,7 @@ public sealed record ExecutionAssignmentSummaryResponse(
     string? FailureCode);
 
 public sealed record UpdateExecutionNodeLabelsRequest(IReadOnlyDictionary<string, string> Labels);
+public sealed record UpdateOfficeSettingsRequest(string Name, Guid ExecutionPoolId);
 
 public sealed record OfficeActivityResponse(
     int ActiveAssignmentCount,

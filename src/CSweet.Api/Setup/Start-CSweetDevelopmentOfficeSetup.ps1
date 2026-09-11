@@ -151,8 +151,9 @@ try {
     }
 
     $upgradeOfficeText = Get-QueryValue $uri 'office'
-    $isUpgrade = -not [String]::IsNullOrWhiteSpace($upgradeOfficeText)
-    if ($isUpgrade) {
+    $operation = Get-QueryValue $uri 'operation'
+    $isUpgrade = -not [String]::IsNullOrWhiteSpace($upgradeOfficeText) -and $operation -in @('upgrade', 'repair')
+    if (-not [String]::IsNullOrWhiteSpace($upgradeOfficeText)) {
         $expectedOfficeId = [guid]$upgradeOfficeText
         $statePath = Join-Path $env:ProgramData 'CSweet\Office\node\node-state.json'
         if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { throw 'The selected Office identity is unavailable.' }
@@ -172,7 +173,7 @@ try {
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = '0.4.0'
+        officeVersion = '0.5.0'
         existingInstallationState = $existingInstallationState
     } | ConvertTo-Json -Compress
     $preflight = $null
@@ -221,7 +222,7 @@ try {
                 machineName = [Environment]::MachineName
                 operatingSystem = 'windows'
                 architecture = $architecture
-                officeVersion = '0.4.0'
+                officeVersion = '0.5.0'
                 existingInstallationState = 'none'
             } | ConvertTo-Json -Compress
             $preflight = Invoke-CSweetPinnedRestMethod -Method Post `
@@ -276,7 +277,7 @@ try {
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = '0.4.0'
+        officeVersion = '0.5.0'
     } | ConvertTo-Json -Compress
     $redemption = Invoke-CSweetPinnedRestMethod -Method Post `
         -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/redeem') -Body $request
@@ -303,7 +304,7 @@ try {
     $allocatableDiskMb = Get-RequiredPositiveIntProperty $redemption 'allocatableDiskMb'
     $maximumConcurrentWorkloads = Get-RequiredPositiveIntProperty $redemption 'maximumConcurrentWorkloads'
 
-    if ($isUpgrade -and [string]$redemption.existingInstallationAction -cne 'upgrade') {
+    if ($isUpgrade -and [string]$redemption.existingInstallationAction -notin @('upgrade', 'repair')) {
         throw 'Headquarters did not authorize the selected Office upgrade.'
     }
     if (-not $isUpgrade) {
@@ -313,6 +314,12 @@ try {
             "/grant:r" "*$($identity.User.Value):F" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'The Office enrollment handoff could not be protected.' }
     }
+    $operation = Get-QueryValue $uri 'operation'
+    if ($isUpgrade -and $operation -eq 'repair') {
+        $maintenanceScript = Join-Path $officeScriptRoot 'Enter-CSweetOfficeMaintenance.ps1'
+        & $maintenanceScript -OfficeId $expectedOfficeId | Out-Null
+    }
+
     $installerAction = if ($isUpgrade) { 'none' } else { [string]$redemption.existingInstallationAction }
 
     Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `

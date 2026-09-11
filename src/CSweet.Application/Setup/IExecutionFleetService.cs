@@ -5,6 +5,9 @@ namespace CSweet.Application.Setup;
 
 public interface IExecutionFleetService
 {
+    Task<string?> ClaimOfficeMaintenanceAsync(Guid officeId, string thumbprint, string serialNumber,
+        CancellationToken cancellationToken = default);
+
     Task EnsureDefaultPoolAsync(CancellationToken cancellationToken = default);
 
     Task<ExecutionCapacityOnboardingResponse> GetOnboardingStatusAsync(

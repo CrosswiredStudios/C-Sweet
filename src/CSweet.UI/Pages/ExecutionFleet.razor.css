@@ -2,6 +2,7 @@
 .offices-page ::deep .mud-alert-text-warning { color:#765100; }
 .offices-page ::deep .mud-chip-color-warning { color:#684900; background-color:#fff0c2; }
 .office-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+.office-tabs ::deep .mud-tabs-panels { padding-top:1.5rem; }
 .office-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; }
 .office-summary > div { padding:1.25rem; border:1px solid var(--mud-palette-divider); border-radius:12px; background:var(--mud-palette-surface); }
 .office-summary strong { display:block; font-size:1.8rem; line-height:1.3; }

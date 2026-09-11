@@ -1185,15 +1185,16 @@ public sealed class ExecutionFleetServiceTests
         Assert.False(await fleet.ReportLocalSetupResultAsync(completed));
         Assert.Equal(node.Id, (await db.ExecutionNodes.SingleAsync()).Id);
         Assert.Equal(ExecutionNodeStatus.Draining, node.Status);
+        clock.Advance(TimeSpan.FromSeconds(1));
         node.LastHeartbeatAt = clock.GetUtcNow();
         await db.SaveChangesAsync();
+        Assert.Equal("ready", (await fleet.GetLocalSetupSessionAsync(created.Session.Id, owner)).Session!.State);
         var repeated = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id), owner);
         Assert.True(repeated.Succeeded, repeated.Message);
         Assert.NotEqual(created.Session.Id, repeated.Session!.Id);
     }
 
     [Theory]
-    [InlineData("remote")]
     [InlineData("active")]
     [InlineData("resumed")]
     [InlineData("revoked")]
@@ -1255,6 +1256,189 @@ public sealed class ExecutionFleetServiceTests
         var entity = db.Model.FindEntityType(typeof(LocalOfficeSetupSession))!;
         Assert.True(entity.FindProperty(nameof(LocalOfficeSetupSession.Status))!.IsConcurrencyToken);
         Assert.Contains(entity.GetIndexes(), x => x.IsUnique && x.Properties.Count == 1 && x.Properties[0].Name == nameof(LocalOfficeSetupSession.UpgradeOfficeId));
+    }
+
+    [Fact]
+    public async Task GuidedRepair_ExpiredOfflineRemoteOfficeKeepsIdentityAndWaitsForHeartbeat()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        var fleet = UpgradeFleet(db, clock);
+        await new SetupService(db).EnsureSeededAsync();
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        node.MachineName = "remote-office";
+        node.Status = ExecutionNodeStatus.Offline;
+        node.CertificateExpiresAt = Now.AddDays(-1);
+        node.LastHeartbeatAt = Now.AddDays(-2);
+        db.ExecutionNodes.Add(node);
+        await db.SaveChangesAsync();
+        var owner = Guid.NewGuid();
+        var created = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id, Repair: true), owner);
+        Assert.True(created.Succeeded, created.Message);
+        Assert.Equal("protocol", created.Session!.LaunchMethod);
+        Assert.Equal(ExecutionNodeStatus.Draining, node.Status);
+        var handoff = Uri.UnescapeDataString(new Uri(created.Session.LaunchUri!).Fragment["#handoff=".Length..]);
+        Assert.False((await fleet.PreflightLocalSetupSessionAsync(new(handoff, "wrong-computer", "windows", node.Architecture, "0.5.0", "clean"))).Succeeded);
+        Assert.True((await fleet.PreflightLocalSetupSessionAsync(new(handoff, node.MachineName, "windows", node.Architecture, "0.5.0", "clean"))).ProceedToRedemption);
+        var redeemed = await fleet.RedeemLocalSetupSessionAsync(new(handoff, node.MachineName, "windows", node.Architecture, "0.5.0"));
+        Assert.True(redeemed.Succeeded);
+        Assert.Null(redeemed.EnrollmentToken);
+        Assert.Empty(db.ExecutionNodeEnrollments);
+        Assert.True(await fleet.ReportLocalSetupResultAsync(new(created.Session.Id, redeemed.SetupReceipt!, "office_upgrade_completed", node.MachineName, "windows", node.Architecture)));
+        Assert.Equal("connected", (await fleet.GetLocalSetupSessionAsync(created.Session.Id, owner)).Session!.State);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        node.CertificateExpiresAt = Now.AddDays(1);
+        node.LastHeartbeatAt = clock.GetUtcNow();
+        await db.SaveChangesAsync();
+        Assert.Equal("ready", (await fleet.GetLocalSetupSessionAsync(created.Session.Id, owner)).Session!.State);
+        Assert.Equal(node.Id, (await db.ExecutionNodes.SingleAsync()).Id);
+    }
+
+    [Theory]
+    [InlineData("active")]
+    [InlineData("revoked")]
+    [InlineData("unapproved")]
+    public async Task GuidedRepair_RejectsUnsafeOffice(string reason)
+    {
+        await using var db = CreateDb();
+        var fleet = UpgradeFleet(db, new MutableTimeProvider(Now));
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        if (reason == "revoked") node.RevokedAt = Now;
+        if (reason == "unapproved") node.ApprovedAt = null;
+        db.ExecutionNodes.Add(node);
+        if (reason == "active") db.ExecutionWorkloadAssignments.Add(new() { Id = Guid.NewGuid(), ExecutionNodeId = node.Id,
+            ExecutionPoolId = node.ExecutionPoolId, Status = ExecutionAssignmentStatus.Running, QueuedAt = Now });
+        await db.SaveChangesAsync();
+        Assert.False(await fleet.CanRepairOfficeAsync(node.Id));
+    }
+
+    [Fact]
+    public async Task GuidedRepair_RemoteClaimRequiresCertificateAuthorizationAndOneUseHandoff()
+    {
+        await using var db = CreateDb();
+        var fleet = UpgradeFleet(db, new MutableTimeProvider(Now));
+        await new SetupService(db).EnsureSeededAsync();
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        node.MachineName = "remote-office";
+        node.NodeVersion = "0.5.0";
+        node.CertificateThumbprint = "ABCD";
+        node.CertificateSerialNumber = "1234";
+        db.ExecutionNodes.Add(node);
+        await db.SaveChangesAsync();
+        var owner = Guid.NewGuid();
+        var created = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id, Repair: true), owner);
+        Assert.True(created.Succeeded, created.Message);
+        Assert.Equal("agent", created.Session!.LaunchMethod);
+        Assert.Null(await fleet.ClaimOfficeMaintenanceAsync(node.Id, "ABCD", "1234"));
+        Assert.True((await fleet.LaunchLocalSetupSessionAsync(created.Session.Id, owner, new(created.Session.LaunchUri!))).Succeeded);
+        Assert.Null(await fleet.ClaimOfficeMaintenanceAsync(node.Id, "FFFF", "1234"));
+        var claimed = await fleet.ClaimOfficeMaintenanceAsync(node.Id, "ABCD", "1234");
+        Assert.NotNull(claimed);
+        var oldHandoff = Uri.UnescapeDataString(new Uri(created.Session.LaunchUri!).Fragment["#handoff=".Length..]);
+        Assert.False((await fleet.RedeemLocalSetupSessionAsync(new(oldHandoff, node.MachineName, "windows", node.Architecture, "0.5.0"))).Succeeded);
+        var handoff = Uri.UnescapeDataString(new Uri(claimed!).Fragment["#handoff=".Length..]);
+        var redeemed = await fleet.RedeemLocalSetupSessionAsync(new(handoff, node.MachineName, "windows", node.Architecture, "0.5.0"));
+        Assert.True(redeemed.Succeeded);
+        Assert.Null(await fleet.ClaimOfficeMaintenanceAsync(node.Id, "ABCD", "1234"));
+        Assert.True(await fleet.ReportLocalSetupResultAsync(new(created.Session.Id, redeemed.SetupReceipt!, "office_setup_failed", node.MachineName, "windows", node.Architecture)));
+        Assert.Equal("failed", (await fleet.GetActiveLocalSetupSessionAsync(owner)).Session!.State);
+        Assert.NotEqual(ExecutionNodeStatus.Revoked, node.Status);
+        var removal = await fleet.SelectLocalSetupRecoveryAsync(created.Session.Id, owner, new("remove"));
+        Assert.True(removal.Succeeded, removal.Message);
+        Assert.Equal("protocol", removal.Session!.LaunchMethod);
+        Assert.Equal("remove", removal.Session.RecoveryAction);
+        Assert.Null(await fleet.ClaimOfficeMaintenanceAsync(node.Id, "ABCD", "1234"));
+    }
+
+    [Theory]
+    [InlineData("0.3.0", "clean", "recovery_app_update_required")]
+    [InlineData("0.5.0", "active", "repair_preflight_failed")]
+    [InlineData("0.5.0", "unsafe", "repair_preflight_failed")]
+    public async Task GuidedRepair_PreflightFailureIsVisibleAndDoesNotRedeem(string version, string state, string error)
+    {
+        await using var db = CreateDb();
+        var fleet = UpgradeFleet(db, new MutableTimeProvider(Now));
+        await new SetupService(db).EnsureSeededAsync();
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        node.MachineName = "remote-office";
+        db.ExecutionNodes.Add(node);
+        await db.SaveChangesAsync();
+        var owner = Guid.NewGuid();
+        var created = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id, Repair: true), owner);
+        Assert.True(created.Succeeded, created.Message);
+        var handoff = Uri.UnescapeDataString(new Uri(created.Session!.LaunchUri!).Fragment["#handoff=".Length..]);
+        var preflight = await fleet.PreflightLocalSetupSessionAsync(new(handoff, node.MachineName, "windows", node.Architecture, version, state));
+        Assert.False(preflight.ProceedToRedemption);
+        Assert.Equal(error, preflight.ErrorCode);
+        var restored = await fleet.GetActiveLocalSetupSessionAsync(owner);
+        Assert.Equal("failed", restored.Session!.State);
+        Assert.False((await fleet.RedeemLocalSetupSessionAsync(new(handoff, node.MachineName, "windows", node.Architecture, "0.5.0"))).Succeeded);
+        Assert.Empty(db.ExecutionNodeEnrollments);
+    }
+
+    [Theory]
+    [InlineData("completed-onboarding")]
+    [InlineData("unlaunched-upgrade")]
+    [InlineData("running-upgrade")]
+    [InlineData("other-office-setup")]
+    public async Task GuidedRepair_HandlesExistingSetupWithoutDiscardingRunningInstallers(string scenario)
+    {
+        await using var db = CreateDb();
+        var fleet = UpgradeFleet(db, new MutableTimeProvider(Now));
+        await new SetupService(db).EnsureSeededAsync();
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        node.Status = ExecutionNodeStatus.Offline;
+        node.CertificateExpiresAt = Now.AddDays(-1);
+        node.LastHeartbeatAt = Now.AddDays(-2);
+        db.ExecutionNodes.Add(node);
+        var owner = Guid.NewGuid();
+        var enrollment = new ExecutionNodeEnrollment { Id = Guid.NewGuid(), ExecutionNodeId = node.Id,
+            ExecutionPoolId = node.ExecutionPoolId, Status = ExecutionEnrollmentStatus.Approved, CreatedAt = Now.AddDays(-2) };
+        db.ExecutionNodeEnrollments.Add(enrollment);
+        var onboarding = scenario == "completed-onboarding";
+        var other = scenario == "other-office-setup";
+        var running = scenario == "running-upgrade";
+        var old = new LocalOfficeSetupSession {
+            Id = Guid.NewGuid(), CreatedByUserId = owner, CreatedAt = Now.AddDays(-2), UpdatedAt = Now.AddDays(-2),
+            ExpiresAt = Now.AddHours(1), ExecutionNodeEnrollmentId = onboarding ? enrollment.Id : null,
+            ExecutionNodeId = onboarding ? node.Id : null, UpgradeOfficeId = onboarding || other ? null : node.Id,
+            RecoveryAction = onboarding || other ? "none" : "upgrade", SetupReceiptHash = "existing-receipt",
+            HandoffSecretHash = "old-handoff", Status = onboarding ? LocalOfficeSetupSessionStatus.Connected
+                : running || other ? LocalOfficeSetupSessionStatus.Redeemed : LocalOfficeSetupSessionStatus.Created,
+            RedeemedAt = running || other ? Now : null, AdministratorApprovalRequestedAt = running || other ? Now : null
+        };
+        db.LocalOfficeSetupSessions.Add(old);
+        await db.SaveChangesAsync();
+        var result = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id, Repair: true), owner);
+        if (other)
+        {
+            Assert.False(result.Succeeded);
+            Assert.Equal("local_setup_in_progress", result.ErrorCode);
+            Assert.Equal(LocalOfficeSetupSessionStatus.Redeemed, old.Status);
+        }
+        else if (running)
+        {
+            Assert.True(result.Succeeded, result.Message);
+            Assert.Equal(old.Id, result.Session!.Id);
+            Assert.Equal("upgrade", result.Session.RecoveryAction);
+            Assert.Equal("existing-receipt", old.SetupReceiptHash);
+        }
+        else
+        {
+            Assert.True(result.Succeeded, result.Message);
+            Assert.NotEqual(old.Id, result.Session!.Id);
+            Assert.Equal("repair", result.Session.RecoveryAction);
+            Assert.Equal(LocalOfficeSetupSessionStatus.Revoked, old.Status);
+            Assert.Null(old.SetupReceiptHash);
+        }
+        Assert.Null(node.RevokedAt);
+        Assert.Equal(ExecutionEnrollmentStatus.Approved, enrollment.Status);
+        Assert.Single(db.ExecutionNodeEnrollments);
     }
 
     private static ExecutionNode UpgradeNode(Guid poolId) => new()

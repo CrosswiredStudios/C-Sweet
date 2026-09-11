@@ -1,69 +1,269 @@
 @using CSweet.Contracts.Setup
 @inject ISetupApiClient SetupApi
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
 @implements IAsyncDisposable
 
-<div class="mt-4" aria-live="polite">
-    <MudText>Guided Windows upgrade on <strong>@Office.MachineName</strong>. Uses the configured local development installer and preserves this Office's identity, pool, and capacity. Windows will request administrator approval.</MudText>
-    @if (_session is null || _session.State is "failed" or "expired" or "revoked" or "ready")
+@if (ShowSummary)
+{
+    <MudPaper Elevation="0" Outlined="true" Class="pa-6">
+        <MudText Typo="Typo.h5">@SummaryTitle</MudText>
+        <MudText Class="mt-2">@SummaryDescription</MudText>
+        <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAsync">@(OperationInProgress ? "View progress" : "Open Office care")</MudButton>
+    </MudPaper>
+}
+<MudDialog @bind-Visible="_open" Options="_dialogOptions">
+<TitleContent><MudText Typo="Typo.h6">Office care</MudText><MudText Typo="Typo.body2">@Office.Name · @Office.MachineName</MudText></TitleContent>
+<DialogContent>
+<div class="office-repair-guide" aria-live="polite" aria-busy="@OperationInProgress">
+@if (ActionMessage is not null)
+{ <MudAlert Class="mb-3" Severity="@(ActionSucceeded ? Severity.Success : Severity.Warning)">@ActionMessage</MudAlert> }
+@if (Office.Status is "revoked" or "pendingapproval")
+{
+    <MudText>@(Office.Status == "revoked" ? "This Office no longer has access. Use Add Office to connect it again." : "Approve this Office on its overview before continuing.")</MudText>
+}
+else if (Office.OperatingSystem != "windows")
+{
+    <MudText Typo="Typo.h5">Set up this Office on @Office.MachineName</MudText>
+    <MudText Class="mt-2">Use the Office installer on that computer. Return here to check its connection.</MudText>
+    @RecoveryDownload
+}
+else if (_confirmRemoval)
+{
+    <MudText Typo="Typo.h5">Reinstall this Office?</MudText>
+    <MudText Class="mt-2">We'll replace the Office installation on @Office.MachineName and guide you through reconnecting it. Work must finish first.</MudText>
+    <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="ReinstallAsync">Reinstall Office</MudButton>
+    <MudButton Class="mt-4" Disabled="@_busy" OnClick="() => _confirmRemoval = false">Go back</MudButton>
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning" Class="mt-3">@_error</MudAlert> }
+}
+else
+{
+    <MudText Typo="Typo.h5">@Title</MudText>
+    <MudText Class="mt-2">@Description</MudText>
+    <div class="repair-stages" aria-label="Repair progress">
+        @foreach (var step in new[] { "Prepare", _operation == "upgrade" ? "Update" : "Repair", "Reconnect" })
+        {
+            <span class="@(step == Stage ? "current" : "")">@step</span>
+        }
+    </div>
+    @if (_initializing)
     {
-        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !ReadyForUpgrade)" OnClick="StartAsync">Upgrade Office</MudButton>
+        <MudProgressLinear Indeterminate="true" Class="my-3" />
+        <MudText>Checking for work already in progress…</MudText>
     }
-    @if (_session is { State: "created" })
+    else if (_operation == "upgrade" && CanBeginNew && Office.Status != "draining")
     {
-        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !ReadyForUpgrade)" OnClick="LaunchAsync">@(_session.AdministratorApprovalRequestedAt is null ? "Continue with Windows approval" : "Retry Windows approval")</MudButton>
+        <MudText Class="mt-3">Pause new work before installing an update. We'll let current work finish.</MudText>
+        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Disabled || _busy || !OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow))" OnClick="OnPause">Pause new work</MudButton>
     }
-    @if (_session is not null)
+    else if (_operation == "upgrade" && CanBeginNew && ActiveWork != 0)
     {
-        <MudText Class="mt-3"><strong>@_session.PhaseDisplayName</strong></MudText>
-        <MudText>@_session.Message</MudText>
-        <MudProgressLinear Class="mt-2" Value="@_session.PercentComplete" Color="Color.Primary" />
+        <MudProgressLinear Indeterminate="true" Class="my-3" />
+        <MudText>@(ActiveWork is null ? "Checking whether current work has finished…" : $"Waiting for {ActiveWork} job(s) to finish…")</MudText>
+    }
+    else if (_session is null || _session.State is "failed" or "expired" or "revoked" or "recoveryrequired")
+    {
+        @if (_session?.State is "failed" or "recoveryrequired")
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@CannotStart" OnClick="() => _confirmRemoval = true">Review reinstall</MudButton>
+        }
+        <MudButton Variant="@(_session is null ? Variant.Filled : Variant.Text)" Color="Color.Primary" Disabled="@CannotStart" OnClick="StartAsync" StartIcon="@Icons.Material.Outlined.Build">@(_busy ? "Starting…" : _operation == "upgrade" ? "Install update" : _session is null ? "Repair connection" : "Try repair again")</MudButton>
+        @if (_session is null && _operation == "repair" && OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow))
+        {
+            <MudButton Disabled="@CannotStart" OnClick="BeginUpdate">Update Office</MudButton>
+        }
+        <MudText Typo="Typo.caption" Class="mt-2 d-block">Your Office settings and identity will be kept. Work must finish before repair can continue.</MudText>
+        @if (_session?.ErrorCode == "recovery_app_update_required")
+        {
+            <MudAlert Severity="Severity.Info" Class="mt-3">Get the current recovery app on @Office.MachineName, then try repair again.</MudAlert>
+            @RecoveryDownload
+        }
+    }
+    else if (_session.State == "created")
+    {
+        @if (_session.AdministratorApprovalRequestedAt is not null)
+        {
+            <MudProgressLinear Class="my-3" Indeterminate="true" />
+            <MudText>Waiting for @Office.MachineName. Allow the Windows prompt if one appears.</MudText>
+            <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="OpenHelperAsync">Need help opening the recovery app?</MudButton>
+        }
+        else if (_session.LaunchMethod == "agent")
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="LaunchAsync">Continue on @Office.MachineName</MudButton>
+        }
+        else if (_session.LaunchMethod == "server")
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="LaunchAsync">Continue</MudButton>
+            <MudText Typo="Typo.caption" Class="mt-2 d-block">Windows will ask you to allow the repair on @Office.MachineName.</MudText>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">Open this page on <strong>@Office.MachineName</strong>, then select Open recovery app. Keep that computer turned on and connected to C-Sweet.</MudAlert>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="LaunchAsync">Open recovery app</MudButton>
+            @RecoveryDownload
+            <MudButton OnClick="CopyPageAsync">Copy this page's link</MudButton>
+        }
+    }
+    else if (_session.State == "ready")
+    {
+        <MudAlert Severity="Severity.Success" Dense="true">This Office is connected again.</MudAlert>
+        @if (_session.ConnectedOfficeId is { } replacement && replacement != Office.Id)
+        {
+            <MudButton Href="@($"/settings/offices/{replacement}")" Color="Color.Primary">Open your reinstalled Office</MudButton>
+        }
+        else if (Office.Status == "draining")
+        {
+            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="OnResume">Resume work</MudButton>
+        }
+        @if (_session.ConnectedOfficeId is null || _session.ConnectedOfficeId == Office.Id)
+        { <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="BeginUpdate">Update Office</MudButton> }
+    }
+    else
+    {
+        <MudProgressLinear Class="my-3" Indeterminate="true" />
+        <MudText Typo="Typo.caption">You can leave this page. The repair status will be here when you return.</MudText>
     }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning" Class="mt-3">@_error</MudAlert> }
+    <MudExpansionPanels Class="mt-4" Elevation="0"><MudExpansionPanel Text="Technical details and help">
+        <MudText Typo="Typo.body2">Computer: @Office.MachineName</MudText>
+        <MudText Typo="Typo.body2">Installed version: @Office.NodeVersion</MudText>
+        @if (_session is not null) { <MudText Typo="Typo.body2">@_session.PhaseDisplayName: @_session.Message</MudText> }
+        @if (_diagnostic is not null) { <MudText Typo="Typo.body2">@_diagnostic</MudText> }
+        <MudButton OnClick="CopyDetailsAsync" Size="Size.Small">Copy diagnostic summary</MudButton>
+        @RecoveryDownload
+    </MudExpansionPanel></MudExpansionPanels>
+}
 </div>
+</DialogContent>
+<DialogActions>
+    @if (OperationInProgress) { <MudText Typo="Typo.caption">You can close this dialog. We'll keep working.</MudText> }
+    <MudButton OnClick="() => _open = false">Close</MudButton>
+</DialogActions>
+</MudDialog>
 
 @code {
     [Parameter, EditorRequired] public ExecutionNodeSummaryResponse Office { get; set; } = default!;
-    [Parameter] public bool ReadyForUpgrade { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? PackageUrl { get; set; }
     [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback OnResume { get; set; }
+    [Parameter] public EventCallback OnPause { get; set; }
+    [Parameter] public EventCallback<bool> InProgressChanged { get; set; }
+    [Parameter] public bool ShowSummary { get; set; } = true;
+    [Parameter] public int? ActiveWork { get; set; }
+    [Parameter] public EventCallback<LocalOfficeSetupSessionResponse> OnSessionChanged { get; set; }
+    [Parameter] public string? ActionMessage { get; set; }
+    [Parameter] public bool ActionSucceeded { get; set; }
+    private bool _open, _ignoreCompleted, _initializing = true;
+    private string _operation = "repair";
+    private static readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = false };
+    private bool OperationInProgress => _busy || OfficeCareState.IsInProgress(_session?.State);
+    private bool CanBeginNew => _session is null || _session.State is "failed" or "expired" or "revoked" or "recoveryrequired";
+    private void BeginUpdate() { _session = null; _ignoreCompleted = true; _operation = "upgrade"; _error = null; }
+    private string SummaryTitle => OperationInProgress ? "Office maintenance is in progress" : Office.Status == "pendingapproval" ? "Waiting for approval" : Office.Status == "revoked" ? "Access removed" : OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow) ? "Your Office is connected" : "Your Office needs attention";
+    private string SummaryDescription => OperationInProgress ? "Open Office care to check progress or complete the next step." : "Manage this Office's connection and software in one guided dialog.";
+    public Task OpenAsync() { _open = true; StateHasChanged(); return Task.CompletedTask; }
     private LocalOfficeSetupSessionResponse? _session;
     private readonly CancellationTokenSource _lifetime = new();
     private Task? _poll;
-    private bool _busy;
-    private string? _error;
-
+    private IJSObjectReference? _module;
+    private bool _busy, _confirmRemoval;
+    private string? _error, _diagnostic;
+    private bool CannotStart => _initializing || OperationInProgress || Disabled || Office.Status is "revoked" or "pendingapproval";
+    private RenderFragment RecoveryDownload => @<text>@if (PackageUrl is not null)
+        { <MudButton Href="@PackageUrl" Target="_blank" rel="noopener noreferrer">Get recovery app</MudButton> }
+        else { <MudText Typo="Typo.caption" Class="d-block mt-2">A recovery download is not available from this server yet.</MudText> }</text>;
+    private string Stage => _session?.State is "connected" or "ready" ? "Reconnect" : _session?.State == "redeemed" ? _operation == "upgrade" ? "Update" : "Repair" : "Prepare";
+    private string Title => _session?.State switch
+    {
+        null => _operation == "upgrade" ? "Update this Office" : "Let's get this Office ready",
+        "created" when _session.RecoveryAction == "removed" => "Install your Office again",
+        "created" when _session.RecoveryAction == "remove" => "Ready to reinstall",
+        "created" => "Ready to check this computer",
+        "removalinprogress" => "Removing the old installation",
+        "redeemed" => _operation == "upgrade" ? "Updating your Office" : "Repairing your Office",
+        "connected" => "Checking the connection",
+        "ready" => "Your Office is connected",
+        _ => "Repair needs attention"
+    };
+    private string Description => _session?.State switch
+    {
+        "created" when _session.RecoveryAction == "removed" => "Get the recovery app on this computer, then open it to finish setting up your Office.",
+        "created" when _session.RecoveryAction == "remove" => "Continue on the Office computer to remove its old installation. We will guide you through setting it up again.",
+        "created" => "The recovery app will check that it is safe to repair this Office.",
+        "removalinprogress" => "Keep the computer on while the old installation is removed.",
+        "redeemed" => "Keep the computer on. We'll take care of the services and connection.",
+        "connected" => "The repair has finished. We're waiting for this Office to reconnect.",
+        "ready" => "The connection has been verified. You can start work again when you're ready.",
+        _ when _operation == "upgrade" => "We'll finish current work, install the available software, and check the connection.",
+        _ => "We'll check the computer, repair its connection, and confirm it is working."
+    };
     protected override async Task OnInitializedAsync()
     {
         try { Accept(await SetupApi.GetActiveLocalOfficeSetupSessionAsync(_lifetime.Token)); }
         catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
-        { _error = "Could not restore upgrade status. Retry before starting another upgrade."; }
+        { Fail("We couldn't check for a repair in progress. Try again.", ex.Message); }
+        finally { _initializing = false; }
+        await InProgressChanged.InvokeAsync(OperationInProgress);
+        if (_session is not null) await OnSessionChanged.InvokeAsync(_session);
         _poll = PollAsync();
     }
-
-    private async Task StartAsync()
-    {
-        if (_busy || !ReadyForUpgrade) return;
-        _busy = true;
-        try
-        {
-            var result = await SetupApi.CreateLocalOfficeSetupSessionAsync(new("custom",
-                Office.AllocatableCpuCount, Office.AllocatableMemoryMb, Office.AllocatableDiskMb, Office.Id), _lifetime.Token);
-            Accept(result);
-            _poll ??= PollAsync();
-        }
-        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
-        { _error = "Could not prepare the upgrade. Refresh Office status and try again."; }
-        finally { _busy = false; }
-    }
-
     private void Accept(LocalOfficeSetupActionResponse result)
     {
-        _error = result.Succeeded ? null : result.Message;
-        if (result.Session is { RecoveryAction: "upgrade" } session && session.UpgradeOfficeId == Office.Id) _session = session;
+        if (!result.Succeeded)
+        {
+            Fail(result.ErrorCode == "local_setup_in_progress" ? "Another Office setup is still running. Let it finish, then retry this repair."
+                : "The repair could not continue. Review the repair details or try again.", result.Message);
+            return;
+        }
+        // Polling an unrelated onboarding session must not erase this repair's error.
+        if (result.Session is { } session && session.UpgradeOfficeId == Office.Id)
+        {
+            if (_ignoreCompleted && session.State == "ready") return;
+            _error = null;
+            if (session.State == "ready" && (session.ConnectedOfficeId is null || session.ConnectedOfficeId == Office.Id) &&
+                !OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow))
+            {
+                _session = null;
+                _diagnostic = null;
+                return;
+            }
+            _session = session;
+            if (session.RecoveryAction == "upgrade") _operation = "upgrade";
+            _diagnostic = session.ErrorMessage;
+            if (session.State == "failed") _error = session.RecoveryAction is "repair" or "upgrade"
+                ? "We couldn't finish the repair. Try again or review reinstall."
+                : "Setup needs attention. Review the details before continuing.";
+        }
     }
-
+    private void Fail(string message, string diagnostic) { _error = message; _diagnostic = diagnostic; }
+    private async Task StartAsync()
+    {
+        if (CannotStart) return;
+        _busy = true; _error = null;
+        await InProgressChanged.InvokeAsync(true);
+        try
+        {
+            Accept(await SetupApi.CreateLocalOfficeSetupSessionAsync(new("custom", Office.AllocatableCpuCount,
+                Office.AllocatableMemoryMb, Office.AllocatableDiskMb, Office.Id, Repair: _operation != "upgrade"), _lifetime.Token));
+            await OnChanged.InvokeAsync();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
+        { Fail("We couldn't start the repair. Check that this Office has finished its work, then try again.", ex.Message); }
+        finally { _busy = false; await InProgressChanged.InvokeAsync(OperationInProgress); }
+    }
+    private async Task ReinstallAsync()
+    {
+        if (_busy || Disabled || !_confirmRemoval || _session is null) return;
+        _busy = true;
+        try { Accept(await SetupApi.SelectLocalOfficeRecoveryAsync(_session.Id, "remove", _lifetime.Token)); }
+        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
+        { Fail("We couldn't prepare the reinstall. Try again.", ex.Message); }
+        finally { _busy = false; _confirmRemoval = false; await InProgressChanged.InvokeAsync(OperationInProgress); }
+    }
     private async Task LaunchAsync()
     {
-        if (_busy || !ReadyForUpgrade || _session is null) return;
+        if (_busy || Disabled || _session is null || _session.AdministratorApprovalRequestedAt is not null) return;
         _busy = true;
         try
         {
@@ -71,12 +271,31 @@
                 Accept(await SetupApi.RefreshLocalOfficeSetupSessionHandoffAsync(_session.Id, _lifetime.Token));
             if (_error is not null || _session.LaunchUri is null) return;
             Accept(await SetupApi.LaunchLocalOfficeSetupSessionAsync(_session.Id, new(_session.LaunchUri), _lifetime.Token));
+            if (_error is null && _session.LaunchMethod == "protocol")
+                await (await ModuleAsync()).InvokeVoidAsync("launchExternalUri", _session.LaunchUri);
         }
-        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
-        { _error = "Windows setup could not start. Check administrator approval and try again."; }
+        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException or JSException)
+        { Fail("The recovery app didn't open. Try again and allow the Windows prompt.", ex.Message); }
+        finally { _busy = false; await InProgressChanged.InvokeAsync(OperationInProgress); }
+    }
+    private async Task OpenHelperAsync()
+    {
+        if (_busy || Disabled || _session is null) return;
+        _busy = true;
+        try
+        {
+            Accept(await SetupApi.RefreshLocalOfficeSetupSessionHandoffAsync(_session.Id, _lifetime.Token));
+            if (_error is null && _session.LaunchUri is not null)
+                await (await ModuleAsync()).InvokeVoidAsync("launchExternalUri", _session.LaunchUri);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or JSException or TaskCanceledException)
+        { Fail("Open this page on the Office computer and try again.", ex.Message); }
         finally { _busy = false; }
     }
-
+    private async Task<IJSObjectReference> ModuleAsync() => _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/auth-security.js");
+    private async Task CopyPageAsync() => await (await ModuleAsync()).InvokeVoidAsync("copyText", Navigation.Uri);
+    private async Task CopyDetailsAsync() => await (await ModuleAsync()).InvokeVoidAsync("copyText",
+        $"Office: {Office.Name}\nComputer: {Office.MachineName}\nVersion: {Office.NodeVersion}\nStatus: {Office.Status}\nRepair: {_session?.State}\nDetails: {_diagnostic ?? _session?.Message}");
     private async Task PollAsync()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
@@ -85,23 +304,27 @@
             while (await timer.WaitForNextTickAsync(_lifetime.Token))
                 await InvokeAsync(async () =>
                 {
-                    if (!_busy && _session is not null)
+                    if (_busy) return;
+                    try
                     {
-                        try { Accept(await SetupApi.GetLocalOfficeSetupSessionAsync(_session.Id, _lifetime.Token)); }
-                        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
-                        { _error = "Upgrade status is unavailable. This page will retry automatically."; }
-                        await OnChanged.InvokeAsync();
-                        StateHasChanged();
+                        Accept(_session is null ? await SetupApi.GetActiveLocalOfficeSetupSessionAsync(_lifetime.Token)
+                            : await SetupApi.GetLocalOfficeSetupSessionAsync(_session.Id, _lifetime.Token));
                     }
+                    catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
+                    { Fail("Connection interrupted. We'll keep checking the repair status.", ex.Message); }
+                    await OnChanged.InvokeAsync();
+                    await InProgressChanged.InvokeAsync(OperationInProgress);
+                    if (_session is not null) await OnSessionChanged.InvokeAsync(_session);
+                    StateHasChanged();
                 });
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
     }
-
     public async ValueTask DisposeAsync()
     {
         _lifetime.Cancel();
         if (_poll is not null) await _poll;
+        if (_module is not null) { try { await _module.DisposeAsync(); } catch (JSDisconnectedException) { } }
         _lifetime.Dispose();
     }
 }

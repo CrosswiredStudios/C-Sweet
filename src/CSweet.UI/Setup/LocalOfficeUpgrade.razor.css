@@ -1,0 +1,4 @@
+.office-repair-guide { max-width: 760px; padding: .5rem 0; }
+.repair-stages { display: flex; gap: .65rem; margin: 1.5rem 0; flex-wrap: wrap; }
+.repair-stages span { padding: .45rem 1rem; border-radius: 2rem; background: var(--mud-palette-background-gray); color: var(--mud-palette-text-secondary); font-size: .85rem; }
+.repair-stages .current { background: var(--mud-palette-primary); color: var(--mud-palette-primary-text); font-weight: 600; }
