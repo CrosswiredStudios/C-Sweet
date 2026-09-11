@@ -148,6 +148,8 @@ builder.Services.AddHostedService<BusinessOnboardingOperationWorker>();
 var app = builder.Build();
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
+app.UseMiddleware<WebPreviewGatewayMiddleware>();
 app.UseAgentBrokerAuthentication();
 
 if (app.Environment.IsDevelopment())
@@ -194,6 +196,7 @@ app.MapHiringEndpoints();
 app.MapApprovalEndpoints();
 app.MapWebPreviewGrantEndpoints();
 app.MapWebHostEndpoints();
+app.MapWebPreviewAccessEndpoints();
 app.MapWorkstreamInspectionEndpoints();
 app.MapToolchainCertificationEndpoints();
 app.MapExecutiveBriefingEndpoints();

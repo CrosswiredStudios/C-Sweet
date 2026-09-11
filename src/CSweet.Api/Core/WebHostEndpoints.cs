@@ -70,10 +70,11 @@ public static class WebHostEndpoints
                 FormatException or System.Security.Cryptography.CryptographicException)
             { return Results.BadRequest(new { code = "InvalidWebHostMessage" }); }
         }).AllowAnonymous().RequireRateLimiting(CSweet.Api.Agents.AgentRateLimiting.WebHostHeartbeatPolicy);
+        endpoints.MapWebHostDispatchEndpoints();
         return endpoints;
     }
 
-    private static async Task<T> ReadAsync<T>(HttpRequest request, int limit, CancellationToken token)
+    internal static async Task<T> ReadAsync<T>(HttpRequest request, int limit, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(15));

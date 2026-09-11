@@ -6,11 +6,12 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Isolation.Security;
 using CSweet.WorkManagement.Contracts;
+using CSweet.WebHost.Contracts;
 using Microsoft.EntityFrameworkCore;
 namespace CSweet.Infrastructure.WorkManagement;
 
 public sealed record PreparedWebPreviewArtifact(Guid OrganizationId, Guid ProjectId, Guid RepositoryId,
-    Guid BuildId, string SourceRevision, string SourceArtifactDigest, string Digest, Stream Content) : IDisposable
+    Guid BuildId, string SourceRevision, string SourceArtifactDigest, string Digest, Stream Content, long BuildRevision = 0, string OutputsJson = "", Guid AssignmentId = default) : IDisposable
 {
     public long Length => Content.Length;
     public void Dispose() => Content.Dispose();
@@ -25,10 +26,12 @@ public sealed class WebPreviewArtifactService(CSweetDbContext db, IAgentArtifact
     private const long MaximumSourceArchiveBytes = 512L * 1024 * 1024;
     private static readonly DateTimeOffset ZipTimestamp = new(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-    public async Task<PreparedWebPreviewArtifact> PrepareStaticAsync(Guid organizationId, Guid projectId,
-        Guid repositoryId, Guid buildId, string sourceRevision, CancellationToken token)
+    public Task<PreparedWebPreviewArtifact> PrepareStaticAsync(Guid organizationId, Guid projectId, Guid repositoryId,
+        Guid buildId, string sourceRevision, CancellationToken token) => PrepareAsync(organizationId, projectId, repositoryId, buildId, sourceRevision, PreviewMode.Static, token);
+    public async Task<PreparedWebPreviewArtifact> PrepareAsync(Guid organizationId, Guid projectId,
+        Guid repositoryId, Guid buildId, string sourceRevision, PreviewMode mode, CancellationToken token)
     {
-        if (organizationId == Guid.Empty || projectId == Guid.Empty || repositoryId == Guid.Empty || buildId == Guid.Empty ||
+        if (!Enum.IsDefined(mode) || organizationId == Guid.Empty || projectId == Guid.Empty || repositoryId == Guid.Empty || buildId == Guid.Empty ||
             (sourceRevision is not { Length: 40 or 64 } || !sourceRevision.All(char.IsAsciiHexDigit)))
             throw new ArgumentException("An exact organization, project, repository, build and source revision are required.");
         await PreparationSlot.WaitAsync(token);
@@ -53,7 +56,7 @@ public sealed class WebPreviewArtifactService(CSweetDbContext db, IAgentArtifact
                 throw new InvalidDataException("The stored build output manifest is incomplete.");
             await using var source = await store.OpenReadAsync(assignment.ResultArtifactDigest!, token);
             using var verified = new BoundedDigestReadStream(source, MaximumSourceArchiveBytes);
-            var bundle = await WebPreviewBundle.ReadAsync(verified, manifest, token);
+            var bundle = await WebPreviewBundle.ReadAsync(verified, manifest, token, requireStaticIndex: mode == PreviewMode.Static);
             await verified.VerifyCompleteAsync(assignment.ResultArtifactDigest!, token);
             var result = new MemoryStream();
             try
@@ -66,7 +69,10 @@ public sealed class WebPreviewArtifactService(CSweetDbContext db, IAgentArtifact
                         token.ThrowIfCancellationRequested();
                         if (!names.Add(file.Key) || file.Key.Split('/').Any(x => x.EndsWith('.') || x.EndsWith(' ')))
                             throw new InvalidDataException("The output paths are not safe for a product artifact.");
-                        var entry = zip.CreateEntry("site/" + file.Key, CompressionLevel.NoCompression);
+                                                if (mode == PreviewMode.Containers && !(file.Key.StartsWith("source/", StringComparison.Ordinal) ||
+                            file.Key.StartsWith("images/", StringComparison.Ordinal) && file.Key.EndsWith(".tar", StringComparison.Ordinal) && file.Key.Count(c => c == '/') == 1))
+                            throw new InvalidDataException("Container build outputs may contain only source/ files and images/*.tar inputs.");
+                        var entry = zip.CreateEntry(mode == PreviewMode.Static ? "site/" + file.Key : file.Key, CompressionLevel.NoCompression);
                         entry.LastWriteTime = ZipTimestamp;
                         entry.ExternalAttributes = unchecked((int)0x81a40000); // Regular file, 0644; never a symlink or executable hook.
                         await using var output = entry.Open();
@@ -89,7 +95,7 @@ public sealed class WebPreviewArtifactService(CSweetDbContext db, IAgentArtifact
                         x.Status == ExecutionAssignmentStatus.Completed, token))
                     throw new InvalidOperationException("The build evidence changed during product preparation.");
                 await RequireRepositoryAsync(organizationId, repositoryId, token);
-                return new(organizationId, projectId, repositoryId, buildId, sourceRevision, assignment.ResultArtifactDigest!, digest, result);
+                return new(organizationId, projectId, repositoryId, buildId, sourceRevision, assignment.ResultArtifactDigest!, digest, result, build.Revision, build.OutputsJson, assignment.Id);
             }
             catch { result.Dispose(); throw; }
         }

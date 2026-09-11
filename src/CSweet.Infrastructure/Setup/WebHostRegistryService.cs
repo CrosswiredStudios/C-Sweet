@@ -18,7 +18,7 @@ public sealed class WebHostRegistryOptions
 }
 
 public sealed class WebHostRegistryService(CSweetDbContext db, WebPreviewGrantService grants,
-    IOptions<WebHostRegistryOptions> options, TimeProvider clock)
+    IOptions<WebHostRegistryOptions> options, TimeProvider clock, WebHostReleaseCatalog? releases = null)
 {
     public async Task<WebHostBootstrap> RegisterAsync(Guid organizationId, Guid applicationUserId,
         RegisterWebHost request, CancellationToken token)
@@ -96,7 +96,8 @@ public sealed class WebHostRegistryService(CSweetDbContext db, WebPreviewGrantSe
         host.Revision++;
         // The concurrency token makes replay consumption atomic across Headquarters replicas.
         await db.SaveChangesAsync(token);
-        return new(message.RequestId, message.Sequence, now, false, "CertifiedDispatchNotConfigured");
+        var ready = releases?.Select(host, now.AddMinutes(5)) is not null;
+        return new(message.RequestId, message.Sequence, now, ready, ready ? "Ready" : "CertifiedDispatchNotConfigured");
     }
 
     public async Task<IReadOnlyList<WebHostRegistrationView>> ListAsync(Guid organizationId,
@@ -110,7 +111,7 @@ public sealed class WebHostRegistryService(CSweetDbContext db, WebPreviewGrantSe
                 x.RevokedAt is not null ? "Revoked" : x.ExpiresAt <= now ? "Expired" : x.Status,
                 x.ExpiresAt, x.LastHeartbeatAt,
                 x.RevokedAt is null && x.ExpiresAt > now && x.LastHeartbeatAt > now.AddMinutes(-2),
-                false, "CertifiedDispatchNotConfigured")).ToArray();
+                releases?.Select(x, now.AddMinutes(5)) is not null, releases?.Select(x, now.AddMinutes(5)) is not null ? "Ready" : "CertifiedDispatchNotConfigured")).ToArray();
     }
 
     public async Task RevokeAsync(Guid organizationId, Guid hostId, Guid applicationUserId, CancellationToken token)

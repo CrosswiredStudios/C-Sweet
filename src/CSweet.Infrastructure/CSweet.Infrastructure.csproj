@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CSweet.WebHost.Contracts" Condition="'$(UseLocalWebHostContracts)' != 'true'" />
+    <ProjectReference Include="$(CSweetWebHostContractsRepositoryRoot)/src/CSweet.WebHost.Contracts/CSweet.WebHost.Contracts.csproj" Condition="'$(UseLocalWebHostContracts)' == 'true'" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="CSweet.UnitTests" />
   </ItemGroup>
 
@@ -49,3 +53,4 @@
                       Condition="'$(UseLocalWebHost)' == 'true'" />
     <PackageReference Include="CSweet.WebHost.Core" Condition="'$(UseLocalWebHost)' != 'true'" />
   </ItemGroup>
+</Project>

@@ -6,6 +6,61 @@ internal static class WebPreviewConfigurations
 {
     public static void Apply(ModelBuilder model)
     {
+        model.Entity<WebPreviewFindingRecord>(entity =>
+        {
+            entity.ToTable("WebPreviewFindings"); entity.HasKey(x => x.Id);
+            entity.Property(x => x.Fingerprint).HasMaxLength(71).IsRequired();
+            entity.Property(x => x.EvidenceJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => new { x.OrganizationId, x.ProjectId, x.BuildId, x.Fingerprint }).IsUnique();
+            entity.HasIndex(x => x.RetainUntil);
+            entity.HasOne<WebPreviewJobRecord>().WithMany().HasForeignKey(x => x.PreviewId).OnDelete(DeleteBehavior.Restrict);
+        });
+        model.Entity<WebPreviewTriageRoute>(entity =>
+        {
+            entity.ToTable("WebPreviewTriageRoutes"); entity.HasKey(x => x.ProjectId);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasOne<CSweet.Domain.Core.Workstream>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
+        });
+        model.Entity<WebPreviewBrowserSession>(entity =>
+        {
+            entity.ToTable("WebPreviewBrowserSessions"); entity.HasKey(x => x.Id);
+            entity.Property(x => x.TicketHash).HasMaxLength(71).IsRequired();
+            entity.Property(x => x.SessionHash).HasMaxLength(71);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.TicketHash).IsUnique();
+            entity.HasIndex(x => x.SessionHash).IsUnique();
+            entity.HasIndex(x => x.ExpiresAt);
+            entity.HasOne<WebPreviewJobRecord>().WithMany().HasForeignKey(x => x.PreviewId).OnDelete(DeleteBehavior.Restrict);
+        });
+        model.Entity<WebHostCommandRecord>(entity =>
+        {
+            entity.ToTable("WebHostCommands"); entity.HasKey(x => x.Id);
+            entity.Property(x => x.Action).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.BodyJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.ResponseJson).HasColumnType("text");
+            entity.Property(x => x.ResponseDigest).HasMaxLength(71);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => new { x.WebHostId, x.Status, x.CreatedAt });
+            entity.HasOne<WebPreviewJobRecord>().WithMany().HasForeignKey(x => x.PreviewId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<WebHostRegistration>().WithMany().HasForeignKey(x => x.WebHostId).OnDelete(DeleteBehavior.Restrict);
+        });
+        model.Entity<WebPreviewProjectAdmission>(entity =>
+        {
+            entity.ToTable("WebPreviewProjectAdmissions"); entity.HasKey(x => x.WorkstreamId);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasOne<CSweet.Domain.Core.Workstream>().WithMany().HasForeignKey(x => x.WorkstreamId).OnDelete(DeleteBehavior.Restrict);
+        });
+        model.Entity<WebPreviewEvidenceRecord>(entity =>
+        {
+            entity.ToTable("WebPreviewEvidence"); entity.HasKey(x => x.Id);
+            entity.Property(x => x.DiagnosticJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.Fingerprint).HasMaxLength(71).IsRequired();
+            entity.HasIndex(x => new { x.PreviewId, x.HostSequence }).IsUnique();
+            entity.HasIndex(x => x.RetainUntil);
+            entity.HasOne<WebPreviewJobRecord>().WithMany().HasForeignKey(x => x.PreviewId).OnDelete(DeleteBehavior.Restrict);
+        });
         model.Entity<WebHostRegistration>(entity =>
         {
             entity.ToTable("WebHostRegistrations"); entity.HasKey(x => x.Id);
@@ -48,6 +103,8 @@ internal static class WebPreviewConfigurations
         model.Entity<WebPreviewJobRecord>(entity =>
         {
             entity.ToTable("WebPreviewJobs"); entity.HasKey(x=>x.Id);
+            entity.Property(x=>x.AssignmentJson).HasColumnType("text").IsRequired();
+            entity.Property(x=>x.SourceArtifactDigest).HasMaxLength(71).IsRequired();
             entity.Property(x=>x.ManifestJson).HasColumnType("text").IsRequired();
             entity.Property(x=>x.ManifestDigest).HasMaxLength(71).IsRequired();
             entity.Property(x=>x.RequestDigest).HasMaxLength(71).IsRequired();

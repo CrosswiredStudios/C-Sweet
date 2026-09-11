@@ -13,7 +13,7 @@ public sealed record WebPreviewBundle(IReadOnlyDictionary<string, WebPreviewFile
     public const int MaximumFiles = 4096;
 
     public static async Task<WebPreviewBundle> ReadAsync(Stream archive,
-        IReadOnlyList<BuildOutputManifestEntry> manifest, CancellationToken token = default)
+        IReadOnlyList<BuildOutputManifestEntry> manifest, CancellationToken token = default, bool requireStaticIndex = true)
     {
         if (manifest.Count is 0 or > MaximumFiles)
             throw new InvalidDataException("A web preview needs a bounded output manifest.");
@@ -22,14 +22,14 @@ public sealed record WebPreviewBundle(IReadOnlyDictionary<string, WebPreviewFile
         foreach (var file in manifest)
         {
             if (!ValidPath(file.RelativePath) || !expected.TryAdd(file.RelativePath, file) ||
-                file.Size < 0 || file.Size > MaximumFileBytes || file.Sha256.Length != 64 || !file.Sha256.All(Uri.IsHexDigit) ||
+                file.Size < 0 || file.Size > (requireStaticIndex ? MaximumFileBytes : MaximumTotalBytes) || file.Sha256.Length != 64 || !file.Sha256.All(Uri.IsHexDigit) ||
                 string.IsNullOrWhiteSpace(file.ContentType) || file.ContentType.Any(char.IsControl))
                 throw new InvalidDataException("The web build manifest contains an invalid file.");
             total += file.Size;
             if (total > MaximumTotalBytes) throw new InvalidDataException("The web preview exceeds its output budget.");
         }
-        if (!expected.TryGetValue("index.html", out var index) ||
-            !index.ContentType.Split(';')[0].Trim().Equals("text/html", StringComparison.OrdinalIgnoreCase))
+        if (requireStaticIndex && (!expected.TryGetValue("index.html", out var index) ||
+            !index.ContentType.Split(';')[0].Trim().Equals("text/html", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("A static web preview requires an HTML index.html at its output root.");
         var files = new Dictionary<string, WebPreviewFile>(StringComparer.Ordinal);
         using var reader = new TarReader(archive, leaveOpen: true);

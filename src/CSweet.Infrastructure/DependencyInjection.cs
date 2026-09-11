@@ -438,6 +438,17 @@ public static class DependencyInjection
         builder.Services.AddScoped<IApprovalDashboardService, ApprovalDashboardService>();
         builder.Services.AddScoped<IManagedActionExecutor, WorkstreamManagedActionExecutor>();
         builder.Services.AddOptions<WebHostRegistryOptions>().Bind(builder.Configuration.GetSection(WebHostRegistryOptions.SectionName));
+        builder.Services.AddOptions<WebHostExecutionOptions>().Bind(builder.Configuration.GetSection(WebHostExecutionOptions.SectionName));
+        builder.Services.AddSingleton<IWebHostAuthorizationSigner, WebHostAuthorizationSigner>();
+        builder.Services.AddSingleton<WebHostReleaseCatalog>();
+        builder.Services.AddOptions<WebPreviewGatewayOptions>().Bind(builder.Configuration.GetSection(WebPreviewGatewayOptions.SectionName));
+        builder.Services.AddSingleton<WebPreviewOrigins>();
+        builder.Services.AddScoped<WebPreviewGatewayService>();
+        builder.Services.AddScoped<IWebPreviewGateway>(services => services.GetRequiredService<WebPreviewGatewayService>());
+        builder.Services.AddScoped<WebPreviewTriageService>();
+        builder.Services.AddScoped<WebPreviewManagementService>();
+        builder.Services.AddHostedService<WebPreviewMaintenanceWorker>();
+        builder.Services.AddScoped<WebPreviewExecutionService>();
         builder.Services.AddScoped<WebHostRegistryService>();
         builder.Services.AddScoped<CSweet.Infrastructure.WorkManagement.WebPreviewArtifactService>();
         builder.Services.AddScoped<WebPreviewGrantService>();

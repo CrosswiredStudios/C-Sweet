@@ -16,7 +16,7 @@ using System.Text.Json;
 
 namespace CSweet.Infrastructure.Persistence;
 
-public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>, IDataProtectionKeyContext
+public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>, IDataProtectionKeyContext
 {
     private static readonly JsonSerializerOptions EventJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -27,6 +27,12 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
 
     public DbSet<SourceControlBusinessSettings> SourceControlBusinessSettings => Set<SourceControlBusinessSettings>();
 
+    public DbSet<WebPreviewFindingRecord> WebPreviewFindings => Set<WebPreviewFindingRecord>();
+    public DbSet<WebPreviewTriageRoute> WebPreviewTriageRoutes => Set<WebPreviewTriageRoute>();
+    public DbSet<WebPreviewBrowserSession> WebPreviewBrowserSessions => Set<WebPreviewBrowserSession>();
+    public DbSet<WebHostCommandRecord> WebHostCommands => Set<WebHostCommandRecord>();
+    public DbSet<WebPreviewProjectAdmission> WebPreviewProjectAdmissions => Set<WebPreviewProjectAdmission>();
+    public DbSet<WebPreviewEvidenceRecord> WebPreviewEvidence => Set<WebPreviewEvidenceRecord>();
     public DbSet<WebHostRegistration> WebHostRegistrations => Set<WebHostRegistration>();
     public DbSet<WebPreviewGrantRecord> WebPreviewGrants => Set<WebPreviewGrantRecord>();
     public DbSet<WebPreviewJobRecord> WebPreviewJobs => Set<WebPreviewJobRecord>();
@@ -230,6 +236,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         CaptureArtifactEvents();
         CaptureApprovalEvents();
         CaptureProjectResourceEvents();
+        CaptureWebPreviewEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -244,6 +251,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
         CaptureArtifactEvents();
         CaptureApprovalEvents();
         CaptureProjectResourceEvents();
+        CaptureWebPreviewEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 

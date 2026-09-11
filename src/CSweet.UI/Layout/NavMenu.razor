@@ -1,4 +1,5 @@
 @implements IDisposable
+@inject HttpClient Http
 @inject IBusinessContext BusinessContext
 @inject IAuthenticationApiClient AuthenticationApi
 @inject AuthSessionStore AuthSession
@@ -29,6 +30,10 @@
                     <MudNavLink Href="@WorkHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.ViewKanban" Class="business-nav-link">
                         Work
                     </MudNavLink>
+                    @if (_webPreviewsEnabled)
+                    {
+                        <MudNavLink Href="@($"/organizations/{BusinessContext.SelectedBusiness.Id}/web-previews")" Icon="@Icons.Material.Outlined.Preview" Class="business-nav-link">Private previews</MudNavLink>
+                    }
                     <MudNavLink Href="@ProjectsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="business-nav-link">
                         Projects
                     </MudNavLink>
@@ -175,12 +180,27 @@
         Navigation.LocationChanged += OnLocationChanged;
         CommunicationUnread.Changed += OnUnreadChanged;
         Approvals.Changed += OnUnreadChanged;
+        _ = LoadPreviewAvailabilityAsync();
         _ = Approvals.InitializeAsync();
         _ = CommunicationUnread.InitializeAsync();
     }
 
+    private bool _webPreviewsEnabled;
+    private sealed record PreviewAvailability(bool Enabled);
+    private async Task LoadPreviewAvailabilityAsync()
+    {
+        _webPreviewsEnabled = false;
+        if (BusinessContext.SelectedBusiness is not { } business) { StateHasChanged(); return; }
+        try
+        {
+            var result = await Http.GetFromJsonAsync<PreviewAvailability>($"api/core/organizations/{business.Id:D}/web-previews/availability");
+            if (BusinessContext.SelectedBusiness?.Id == business.Id) _webPreviewsEnabled = result?.Enabled == true;
+        }
+        catch (Exception error) when (error is HttpRequestException or System.Text.Json.JsonException) { }
+        StateHasChanged();
+    }
     private string CurrentPath() => Navigation.ToBaseRelativePath(Navigation.Uri);
-    private void OnContextChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnContextChanged() => _ = InvokeAsync(LoadPreviewAvailabilityAsync);
     private void OnLocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(StateHasChanged);
     private void OnUnreadChanged() => _ = InvokeAsync(StateHasChanged);
 

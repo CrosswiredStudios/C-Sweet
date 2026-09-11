@@ -14,10 +14,7 @@ GitHub/
   CSweet.Agent.Sdk/              # Uses source when present; published SDK otherwise
 ```
 
-The four repositories have CrosswiredStudios GitHub remotes configured. WebHost, WebHost.Contracts and
-WebPreviews already have a main branch. Isolation currently has no remote branches and needs its initial
-source commit/push. This implementation also has local changes that must be committed and pushed before
-other developers receive them. NuGet publication is not required for this clone-based workflow.
+Push the changed sibling repositories together so other developers receive matching source versions. No NuGet publication is required for this clone-based workflow.
 Keep Office.Contracts current with Headquarters: the current source includes the upstream 0.6.0
 certificate-recovery API plus the compatible 0.6.1 isolation/sibling-build changes.
 
@@ -32,11 +29,11 @@ dotnet build ../CSweet.Plugins.WebPreviews/CSweet.Plugins.WebPreviews.slnx -c Re
 ```
 
 Directory.Build.props detects sibling source for Isolation, WebHost, WebHost.Contracts and Office.Contracts.
-The Web Previews plugin also detects the sibling Agent SDK. Explicitly supplied properties take precedence.
+The Web Previews plugin also detects the sibling Agent SDK. Software Developer and Video Game Engineer detect the plugin sibling and reference its separate Client project. BrowserProbe is inside WebHost; Client is inside WebPreviews. No additional repository is needed for either project. Explicitly supplied properties take precedence.
 Missing checkouts fall back to the pinned packages; they are not downloaded as source or silently created.
 
 For custom checkout locations, set CSweetIsolationRepositoryRoot, CSweetWebHostRepositoryRoot,
-CSweetWebHostContractsRepositoryRoot, CSweetOfficeContractsRepositoryRoot or CSweetAgentSdkRepositoryRoot
+CSweetWebHostContractsRepositoryRoot, CSweetOfficeContractsRepositoryRoot CSweetWebPreviewsRepositoryRoot or CSweetAgentSdkRepositoryRoot
 to the relevant repository directory. Automatic detection uses those roots, and project references use
 the same paths.
 
@@ -48,14 +45,14 @@ Package-only release checks still use:
 -p:UseLocalWebHostContracts=false
 -p:UseLocalOfficeContracts=false
 -p:UseLocalCSweetAgentSdk=false
+-p:UseLocalWebPreviews=false
 ```
 
 These checks require the exact versions in a configured package feed. They remain mandatory because local
 source builds can otherwise hide stale package versions. Office.Contracts is now 0.6.1 in both Office and
-Headquarters; new WebHost/Isolation/plugin packages remain unpublished 0.1.0 development packages.
+Headquarters; WebHost remains 0.2.0; WebHost.Contracts and WebPreviews are 0.3.0; Isolation remains 0.1.0. WebPreviews.Client is 0.3.0, Software QA is 0.8.0, Software Developer is 0.9.0 and Video Game Engineer is 2.6.0. These packages have not been published.
 
-Building the projects does not install WebHost or launch product VMs. Runtime installation, certified guest
-images, signed dispatch and the private gateway are separate steps tracked in
+Building the projects does not install WebHost or launch product VMs. Runtime installation and certified guest images require the hardened release environment. Deployment and certification gates are tracked in
 [the implementation checklist](implementation/web-previews.md).
 
 Once source changes are pushed, clone missing siblings from the common parent directory:

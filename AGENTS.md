@@ -22,3 +22,9 @@
 - When changing an agent repository, bump and synchronize its version BEFORE writing release notes.
 - Then read the final version from that repository's `csweet-plugin.json` and write `releases/<version>.md` with the same version in its heading. Never put new changes under the previous version.
 - If the version changes again, retarget unpublished notes and re-check the final manifest, implementation/package version, filename, and heading before handoff. Preserve published historical notes.
+
+## Asynchronous agent work
+
+- Prefer durable events over agent polling loops for asynchronous platform operations.
+- Persist state changes and their notification outbox records atomically. Treat events as wake hints, not authoritative snapshots or execution grants.
+- Agents may be offline, miss notifications, or receive duplicates/out-of-order delivery. Provide authorized current-state reads and bounded discovery for wake/reconnect recovery; make resulting effects idempotent.

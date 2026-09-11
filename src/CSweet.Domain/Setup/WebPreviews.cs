@@ -37,6 +37,11 @@ public sealed class WebPreviewJobRecord
     public Guid RepositoryId { get; set; }
     public Guid BuildId { get; set; }
     public Guid? WebHostId { get; set; }
+    public string AssignmentJson { get; set; } = "{}";
+    public string SourceArtifactDigest { get; set; } = "";
+    public long ArtifactLength { get; set; }
+    public long LastEvidenceSequence { get; set; }
+    public DateTimeOffset? TeardownConfirmedAt { get; set; }
     public string ManifestJson { get; set; } = "{}";
     public string ManifestDigest { get; set; } = "";
     public string IdempotencyKey { get; set; } = "";

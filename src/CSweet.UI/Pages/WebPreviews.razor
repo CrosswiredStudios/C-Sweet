@@ -1,0 +1,79 @@
+@page "/organizations/{OrganizationId:guid}/web-previews"
+@using System.Net.Http.Json
+@inject HttpClient Http
+<PageTitle>Private previews - C-Sweet</PageTitle>
+<div class="setup-shell">
+    <MudPaper Elevation="0" Class="page-header">
+        <div><MudText Typo="Typo.h3">Private previews</MudText><MudText>Test and demo your team's products with temporary, controlled hosting.</MudText></div>
+        <MudButton OnClick="LoadAsync" Disabled="_busy">Refresh</MudButton>
+    </MudPaper>
+    @if (_message is not null) { <MudAlert Severity="Severity.Warning">@_message</MudAlert> }
+    @if (_data is { Enabled: false }) { <MudAlert Severity="Severity.Info">Install and enable the optional Web Previews plugin to offer hosting to this business.</MudAlert> }
+    @if (_data is not null)
+    {
+        @if (_data.Previews.Count == 0) { <MudText Class="pa-4">No private previews yet. An agent can request a hosting grant in Approvals, then start a preview from a successful build.</MudText> }
+        @foreach (var preview in _data.Previews)
+        {
+            <MudPaper Class="pa-4 mb-3" Outlined="true">
+                <MudText Typo="Typo.h6">@preview.Project</MudText>
+                <MudText>@preview.Phase · Expires @preview.ExpiresAt.ToLocalTime().ToString("g") · @preview.FindingCount diagnostic findings</MudText>
+                @if (preview.AccessReference is not null) { <MudButton Href="@preview.AccessReference" Target="_blank" Rel="noopener noreferrer" Color="Color.Primary">Open private preview</MudButton> }
+                @if (_data.Owner && !preview.TeardownConfirmed && preview.Phase != "Stopping") { <MudButton OnClick="@(() => StopAsync(preview.Id))" Disabled="_busy">Stop preview</MudButton> }
+                @if (preview.Phase == "Stopping") { <MudText Typo="Typo.caption">Access is closed. Resources remain reserved until the host confirms removal.</MudText> }
+                @if (preview.FailureCode is not null) { <MudText Color="Color.Warning">The preview needs attention. Its diagnostic evidence is available to the assigned agent.</MudText> }
+            </MudPaper>
+        }
+        @if (_data.Owner && _data.Enabled)
+        {
+            <MudPaper Class="pa-4" Outlined="true">
+                <MudText Typo="Typo.h6">Assign diagnostic triage</MudText>
+                <MudText>Choose who analyzes failures and which project board receives defect tickets. The employee also needs the normal permission to create tickets on that board.</MudText>
+                <MudSelect T="Guid" Label="Project" @bind-Value="_project">
+                    @foreach (var project in _data.Projects) { <MudSelectItem T="Guid" Value="project.Id">@project.Name</MudSelectItem> }
+                </MudSelect>
+                <MudSelect T="Guid" Label="Triage employee" @bind-Value="_employee">
+                    @foreach (var employee in _data.TriageEmployees) { <MudSelectItem T="Guid" Value="employee.Id">@employee.Name</MudSelectItem> }
+                </MudSelect>
+                <MudSelect T="Guid" Label="Project board" @bind-Value="_board">
+                    @foreach (var board in _data.Boards.Where(x => x.ProjectId == _project)) { <MudSelectItem T="Guid" Value="board.Id">@board.Name</MudSelectItem> }
+                </MudSelect>
+                <MudSelect T="Guid" Label="Parent ticket for defects" @bind-Value="_parent">
+                    @foreach (var parent in _data.Parents.Where(x => x.ProjectId == _board)) { <MudSelectItem T="Guid" Value="parent.Id">@parent.Name</MudSelectItem> }
+                </MudSelect>
+                <MudButton OnClick="SaveTriageAsync" Disabled="@(_busy || _project == Guid.Empty || _employee == Guid.Empty || !_data.Parents.Any(x => x.Id == _parent && x.ProjectId == _board) || !_data.Boards.Any(x => x.Id == _board && x.ProjectId == _project))">Save triage assignment</MudButton>
+            </MudPaper>
+        }
+    }
+</div>
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    private bool _busy; private string? _message; private Dashboard? _data;
+    private Guid _project, _employee, _board, _parent;
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        _busy = true; _message = null;
+        try { _data = await Http.GetFromJsonAsync<Dashboard>($"api/core/organizations/{OrganizationId:D}/web-previews"); }
+        catch (HttpRequestException) { _data = null; _message = "Previews could not be loaded. Check your business access and try again."; }
+        finally { _busy = false; }
+    }
+    private async Task StopAsync(Guid id)
+    {
+        _busy = true;
+        try { using var result = await Http.PostAsync($"api/core/organizations/{OrganizationId:D}/web-previews/{id:D}/stop", null);
+            if (result.IsSuccessStatusCode) await LoadAsync(); else _message = "The preview could not be stopped. Refresh to check its status."; }
+        catch (HttpRequestException) { _message = "The server could not be reached. Refresh to check the preview status."; }
+        finally { _busy = false; }
+    }
+    private async Task SaveTriageAsync()
+    {
+        _busy = true;
+        try { using var result = await Http.PutAsJsonAsync($"api/core/organizations/{OrganizationId:D}/web-previews/triage/{_project:D}", new { installationId = _employee, boardId = _board, parentItemId = _parent });
+            _message = result.IsSuccessStatusCode ? "Triage assignment saved." : "Choose an active employee with preview triage and access to this project."; }
+        catch (HttpRequestException) { _message = "The triage assignment could not be saved. Try again."; }
+        finally { _busy = false; }
+    }
+    private sealed record Dashboard(bool Enabled, bool Owner, List<Preview> Previews, List<Choice> Projects, List<Choice> Boards, List<Choice> TriageEmployees, List<Choice> Parents);
+    private sealed record Choice(Guid Id, string Name, Guid? ProjectId);
+    private sealed record Preview(Guid Id, Guid ProjectId, string Project, string Phase, DateTimeOffset ExpiresAt, string? AccessReference, string? FailureCode, bool TeardownConfirmed, int FindingCount);
+}

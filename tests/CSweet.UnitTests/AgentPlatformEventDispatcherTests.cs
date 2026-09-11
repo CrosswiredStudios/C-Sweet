@@ -216,6 +216,54 @@ public sealed class AgentPlatformEventDispatcherTests
         Assert.DoesNotContain(other.Id, runtime.QueuedInstallationIds);
         Assert.All(await result.AgentPlatformEventOutbox.ToListAsync(), item => Assert.Equal(AgentPlatformEventOutboxStatus.Published, item.Status));
     }
+    [Fact]
+    public async Task Preview_wakes_survive_offline_subscription_delay_activation_failure_and_delivery_replay()
+    {
+        const string changed = CSweet.WebHost.Contracts.WebPreviewEvents.Changed;
+        var runtime = new RecordingRuntimeManager { FailNext = true };
+        var services = new ServiceCollection(); var database = Guid.NewGuid().ToString("N");
+        services.AddDbContext<CSweetDbContext>(options => options.UseInMemoryDatabase(database));
+        services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+        services.AddSingleton(TimeProvider.System); services.AddScoped<AgentWorkInbox>(); services.AddScoped<AgentWorkRouter>();
+        services.AddSingleton<IAgentRuntimeManager>(runtime);
+        await using var provider = services.BuildServiceProvider(); var org = Guid.NewGuid();
+        var target = Installation(org, []); target.IsEnabled = false;
+        var unrelated = Installation(org, [changed]);
+        var eventId = Guid.NewGuid();
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>(); db.AddRange(target, unrelated);
+            db.AgentPlatformEventOutbox.Add(new() { Id = eventId, OrganizationId = org, TargetInstallationId = target.Id, EventType = changed,
+                DataJson = JsonSerializer.Serialize(new CSweet.WebHost.Contracts.PreviewChangedEvent(Guid.NewGuid(), 2)),
+                IdempotencyKey = eventId.ToString("D"), OccurredAt = DateTimeOffset.UtcNow.AddDays(-14), NextAttemptAt = DateTimeOffset.UtcNow.AddDays(-14) });
+            await db.SaveChangesAsync();
+        }
+        var dispatcher = new AgentPlatformEventDispatcher(provider.GetRequiredService<IServiceScopeFactory>(), TimeProvider.System, NullLogger<AgentPlatformEventDispatcher>.Instance);
+        await dispatcher.DispatchPendingAsync(default);
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            Assert.Empty(await db.AgentWorkItems.ToListAsync());
+            var item = await db.AgentPlatformEventOutbox.SingleAsync(); Assert.Equal(AgentPlatformEventOutboxStatus.Pending, item.Status);
+            var installation = await db.AgentInstallations.Include(x => x.Grant).SingleAsync(x => x.Id == target.Id);
+            installation.IsEnabled = true; installation.Grant!.EventSubscriptionsJson = JsonSerializer.Serialize(new[] { changed });
+            item.NextAttemptAt = DateTimeOffset.UtcNow.AddMinutes(-1); await db.SaveChangesAsync();
+        }
+        await dispatcher.DispatchPendingAsync(default);
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>(); var work = await db.AgentWorkItems.SingleAsync();
+            Assert.Equal(target.Id, work.AgentInstallationId); Assert.Equal(eventId.ToString("D"), work.SourceId);
+            Assert.True(work.DeadlineAt > DateTimeOffset.UtcNow.AddYears(1));
+            var item = await db.AgentPlatformEventOutbox.SingleAsync(); Assert.Equal(AgentPlatformEventOutboxStatus.Published, item.Status);
+            // Simulate a crash after inbox persistence but before the outbox publication acknowledgement.
+            item.Status = AgentPlatformEventOutboxStatus.Pending; item.NextAttemptAt = DateTimeOffset.UtcNow.AddMinutes(-1); await db.SaveChangesAsync();
+        }
+        await dispatcher.DispatchPendingAsync(default);
+        await using var verify = provider.CreateAsyncScope();
+        Assert.Single(await verify.ServiceProvider.GetRequiredService<CSweetDbContext>().AgentWorkItems.ToListAsync());
+        Assert.DoesNotContain(unrelated.Id, runtime.QueuedInstallationIds);
+    }
     private static AgentInstallation Installation(Guid organizationId, IReadOnlyList<string> subscriptions)
     {
         var installation = new AgentInstallation

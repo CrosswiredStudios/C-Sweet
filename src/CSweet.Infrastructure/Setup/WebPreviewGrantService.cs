@@ -13,7 +13,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CSweet.Infrastructure.Setup;
 
 /// <summary>Authorization is resolved from current server-owned organization and workstream records on every call.</summary>
-public sealed class WebPreviewGrantService(CSweetDbContext db, TimeProvider clock) : IManagedActionExecutor
+public sealed class WebPreviewGrantService(CSweetDbContext db, TimeProvider clock, WebHostReleaseCatalog? releases = null) : IManagedActionExecutor
 {
     public const string ActionType = "web-preview.grant";
     public const string PluginId = "com.csweet.web-previews";
@@ -45,7 +45,7 @@ public sealed class WebPreviewGrantService(CSweetDbContext db, TimeProvider cloc
         var proposalId=Guid.NewGuid();
         var policy=new PreviewGrant(id,1,organizationId,request.ProjectId,installationId,request.ProviderInstallationId,
             [WebPreviewCapabilities.Preflight,WebPreviewCapabilities.Start,WebPreviewCapabilities.Read,
-             WebPreviewCapabilities.Stop,WebPreviewCapabilities.Diagnostics],
+             WebPreviewCapabilities.Stop,WebPreviewCapabilities.Diagnostics,WebPreviewCapabilities.Renew,WebPreviewCapabilities.Test,WebPreviewCapabilities.Build],
             request.RepositoryIds,request.MaximumResources,request.MaximumConcurrentPreviews,request.MaximumCpuSeconds,
             request.MaximumLifetimeSeconds,[],request.ExpiresAt,false);
         var policyJson=JsonSerializer.Serialize(policy,PreviewJson.Options);
@@ -146,7 +146,7 @@ public sealed class WebPreviewGrantService(CSweetDbContext db, TimeProvider cloc
         var actor=await RequireActorAsync(organizationId,installationId,WebPreviewCapabilities.Preflight,token);
         await RequireWorkstreamAsync(organizationId,actor.Id,request.ProjectId,token);
         await RequireProviderAsync(organizationId,request.ProviderInstallationId,token);
-        var problems=ManifestValidator.Validate(request.Manifest).ToList();
+        var problems=ManifestValidator.Validate(request.Manifest).Where(x => x.Field != "artifactDigest" || request.BuildId is null || request.Manifest.ArtifactDigest is not null).ToList();
         var digest=WorkloadAuthorizationEnvelope.Digest(JsonSerializer.Serialize(request.Manifest,PreviewJson.Options));
         if(problems.Count>0) return new(false,problems,digest);
         var now=clock.GetUtcNow();
@@ -157,8 +157,7 @@ public sealed class WebPreviewGrantService(CSweetDbContext db, TimeProvider cloc
         if(grants.Count==0) return new(false,[new("GrantRequired","grant",
             "Request a bounded hosting grant with web-preview.grant.request.v1. The business owner can review it in Approvals.")],digest);
         var active=await db.WebPreviewJobs.AsNoTracking().CountAsync(x=>x.OrganizationId==organizationId &&
-            x.WorkstreamId==request.ProjectId && x.ExpiresAt>now &&
-            x.Phase!="Stopped" && x.Phase!="Expired" && x.Phase!="Revoked" && x.Phase!="Failed",token);
+            x.WorkstreamId==request.ProjectId && x.TeardownConfirmedAt==null,token);
         PreviewPreflight? result=null;
         foreach(var grant in grants)
         {
@@ -166,13 +165,29 @@ public sealed class WebPreviewGrantService(CSweetDbContext db, TimeProvider cloc
                 ?? throw new InvalidDataException("The stored preview grant is invalid.");
             result=PreviewPolicy.Evaluate(organizationId,installationId,request,policy,WebPreviewCapabilities.Start,
                 active,grant.ReservedCpuSeconds,now);
+                        // A successful immutable build supplies the final digest during admission; preflight
+            // may inspect its policy without pretending an unverified digest authorizes execution.
+            if (request.BuildId is { } buildId && buildId != Guid.Empty && request.Manifest.ArtifactDigest is null &&
+                await db.DeliveryBuilds.AsNoTracking().AnyAsync(x => x.Id == buildId && x.OrganizationId == organizationId &&
+                    x.WorkstreamId == request.ProjectId && x.RepositoryId == request.RepositoryId &&
+                    x.SourceRevision == request.Manifest.SourceRevision && x.Status == "Succeeded", token))
+            {
+                var remaining = result.Problems.Where(x => x.Field != "artifactDigest").ToArray();
+                result = result with { Problems = remaining, Allowed = remaining.Length == 0 };
+            }
             if(result.Allowed) break;
         }
-        // Host registration and dispatch are added separately. Never advertise a runnable preview based only on a grant.
-        return result! with { Allowed=false,Problems=[..result.Problems,
-            new("RuntimeUnavailable","host","No certified WebHost dispatch is connected to this Headquarters yet.")] };
-    }
-    public async Task<PreviewGrantProposal> RevokeAsync(Guid organizationId,Guid grantId,Guid applicationUserId,CancellationToken token)
+        if (result!.Allowed && releases is not null)
+        {
+            var hosts = await db.WebHostRegistrations.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+                x.ProviderInstallationId == request.ProviderInstallationId && x.RevokedAt == null).ToListAsync(token);
+            if (hosts.Any(x => releases.Select(x, now.AddSeconds(request.Manifest.LifetimeSeconds)) is not null &&
+                request.Manifest.Resources.Fits(JsonSerializer.Deserialize<WebHostHeartbeat>(x.ReportedHeartbeatJson!, PreviewJson.Options)!.Available)))
+                return result;
+        }
+        return result with { Allowed=false,Problems=[..result.Problems,
+            new("RuntimeUnavailable","host","A configured certified WebHost with capacity and a supported build is required.")] };
+    }    public async Task<PreviewGrantProposal> RevokeAsync(Guid organizationId,Guid grantId,Guid applicationUserId,CancellationToken token)
     {
         if(!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x=>x.OrganizationId==organizationId &&
             x.ApplicationUserId==applicationUserId && x.IsActive && x.ArchivedAt==null &&

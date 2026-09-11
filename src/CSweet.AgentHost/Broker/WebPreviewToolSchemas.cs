@@ -7,6 +7,25 @@ internal static class WebPreviewToolSchemas
 {
     public static JsonElement Input(string capability)
     {
+        if (capability == WebPreviewCapabilities.List) return JsonSerializer.Deserialize<JsonElement>("""{"type":"object","required":["projectId"],"properties":{"projectId":{"type":"string","format":"uuid"},"afterId":{"type":["string","null"],"format":"uuid"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}""");
+        if (capability == WebPreviewCapabilities.Renew) return JsonSerializer.Deserialize<JsonElement>("""{"type":"object","required":["previewId","totalLifetimeSeconds","idempotencyKey"],"properties":{"previewId":{"type":"string","format":"uuid"},"totalLifetimeSeconds":{"type":"integer","minimum":300},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200}},"additionalProperties":false}""");
+        if (capability == WebPreviewCapabilities.Test) return JsonSerializer.Deserialize<JsonElement>("""{"type":"object","required":["previewId","idempotencyKey","checks"],"properties":{"previewId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"checks":{"type":"array","minItems":1,"maxItems":10,"items":{"type":"object","required":["path"],"properties":{"path":{"type":"string","maxLength":8192},"selector":{"type":["string","null"],"maxLength":256},"expectedText":{"type":["string","null"],"maxLength":2048}},"additionalProperties":false}}},"additionalProperties":false}""");
+        if (capability == WebPreviewCapabilities.Build)
+        {
+            var build = JsonNode.Parse("""{"type":"object","required":["preview","toolchainDefinitionId","toolchainProviderInstallationId","recipeKey","targetKey","configuration"],"properties":{"preview":{},"toolchainDefinitionId":{"type":"string","format":"uuid"},"toolchainProviderInstallationId":{"type":"string","format":"uuid"},"recipeKey":{"type":"string","maxLength":200},"targetKey":{"type":"string","maxLength":200},"configuration":{"type":"object"},"maximumAttempts":{"type":"integer","minimum":1,"maximum":5}},"additionalProperties":false}""")!;
+            build["properties"]!["preview"] = JsonNode.Parse(Input(WebPreviewCapabilities.Preflight).GetRawText());
+            return JsonSerializer.SerializeToElement(build);
+        }
+        if (capability is WebPreviewCapabilities.Read or WebPreviewCapabilities.Stop or WebPreviewCapabilities.Diagnostics)
+        {
+            var identity = JsonNode.Parse("""{"type":"object","properties":{"previewId":{"type":"string","format":"uuid"}},"required":["previewId"],"additionalProperties":false}""")!;
+            if (capability == WebPreviewCapabilities.Diagnostics)
+            {
+                identity["properties"]!["afterSequence"] = JsonNode.Parse("""{"type":"integer","minimum":0}""");
+                identity["properties"]!["limit"] = JsonNode.Parse("""{"type":"integer","minimum":1,"maximum":256}""");
+            }
+            return JsonSerializer.SerializeToElement(identity);
+        }
         var resource=JsonNode.Parse("""
             {"type":"object","properties":{"cpuCount":{"type":"integer","minimum":1},"memoryMb":{"type":"integer","minimum":128},
             "diskMb":{"type":"integer","minimum":64},"maximumProcesses":{"type":"integer","minimum":1},
@@ -36,6 +55,9 @@ internal static class WebPreviewToolSchemas
             """)!;
         if(capability==WebPreviewCapabilities.RequestGrant) root["properties"]!["maximumResources"]=resource;
         else root["properties"]!["manifest"]!["properties"]!["resources"]=resource;
+        if (capability != WebPreviewCapabilities.RequestGrant)
+            root["properties"]!["buildId"] = JsonNode.Parse("""{"type":"string","format":"uuid"}""");
+        if (capability == WebPreviewCapabilities.Start) ((JsonArray)root["required"]!).Add("buildId");
         return JsonSerializer.SerializeToElement(root);
     }
 }
