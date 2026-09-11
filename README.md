@@ -237,3 +237,5 @@ Open a focused [issue](https://github.com/CrosswiredStudios/csweet/issues), expl
   ·
   <a href="https://github.com/CrosswiredStudios/csweet/issues">Join the conversation</a>
 </div>
+
+For Web Previews development, see the [sibling checkout instructions](docs/web-previews-development.md). Cloning the component repositories side by side enables source builds without publishing new NuGet packages.

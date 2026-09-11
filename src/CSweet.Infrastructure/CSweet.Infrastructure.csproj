@@ -45,6 +45,6 @@
   </ItemGroup>
 
 <ItemGroup>
-<ProjectReference Include="../../../CSweet.WebHost/src/CSweet.WebHost.Core/CSweet.WebHost.Core.csproj" Condition="'$(UseLocalWebHost)' == 'true'" />
+<ProjectReference Include="$(CSweetWebHostRepositoryRoot)/src/CSweet.WebHost.Core/CSweet.WebHost.Core.csproj" Condition="'$(UseLocalWebHost)' == 'true'" />
 <PackageReference Include="CSweet.WebHost.Core" Condition="'$(UseLocalWebHost)' != 'true'" />
 </ItemGroup></Project>

@@ -159,6 +159,18 @@ public sealed class WebHostRegistryTests
         Assert.Equal(2, (await replica.WebHostRegistrations.SingleAsync()).LastSequence);
     }
 
+    [Fact] public async Task Unavailable_provider_can_report_missing_image_without_claiming_it_is_ready()
+    {
+        await using var f = new Fixture(); await f.SeedAsync(); var host = await f.RegisterAsync();
+        var heartbeat = new WebHostHeartbeat(host.Enrollment.Id, Now, new(0,0,0,0,0),
+            [new("webhost-hyperv-gen2", "0.1.0", "", false, null, false, "Installation unavailable.")]);
+        var receipt = await f.Service.HeartbeatAsync(f.Message(host, heartbeat: heartbeat), default);
+        Assert.False(receipt.ExecutionReady);
+        Assert.True(Assert.Single(await f.Service.ListAsync(f.OrganizationId, f.Owner.ApplicationUserId!.Value, default)).Connected);
+        heartbeat = heartbeat with { Providers = [heartbeat.Providers[0] with { Certified = true, Available = true }] };
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service.HeartbeatAsync(f.Message(host, 2, heartbeat), default));
+    }
+
     [Fact] public async Task Rejects_excess_capacity_and_disabled_provider_reports()
     {
         await using var f = new Fixture(); await f.SeedAsync(); var host = await f.RegisterAsync();

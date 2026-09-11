@@ -19,4 +19,16 @@
     <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == '' and Exists('$(CSweetOfficeContractsRepositoryRoot)\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj')">true</UseLocalOfficeContracts>
     <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == ''">false</UseLocalOfficeContracts>
   </PropertyGroup>
+  <PropertyGroup>
+    <!-- Prefer sibling source checkouts; explicit false retains package-only release validation. -->
+    <CSweetIsolationRepositoryRoot Condition="'$(CSweetIsolationRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.Isolation</CSweetIsolationRepositoryRoot>
+    <UseLocalIsolation Condition="'$(UseLocalIsolation)' == '' and Exists('$(CSweetIsolationRepositoryRoot)\src\CSweet.Isolation.Security\CSweet.Isolation.Security.csproj')">true</UseLocalIsolation>
+    <UseLocalIsolation Condition="'$(UseLocalIsolation)' == ''">false</UseLocalIsolation>
+    <CSweetWebHostRepositoryRoot Condition="'$(CSweetWebHostRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.WebHost</CSweetWebHostRepositoryRoot>
+    <UseLocalWebHost Condition="'$(UseLocalWebHost)' == '' and Exists('$(CSweetWebHostRepositoryRoot)\src\CSweet.WebHost.Core\CSweet.WebHost.Core.csproj')">true</UseLocalWebHost>
+    <UseLocalWebHost Condition="'$(UseLocalWebHost)' == ''">false</UseLocalWebHost>
+    <CSweetWebHostContractsRepositoryRoot Condition="'$(CSweetWebHostContractsRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.WebHost.Contracts</CSweetWebHostContractsRepositoryRoot>
+    <UseLocalWebHostContracts Condition="'$(UseLocalWebHostContracts)' == '' and Exists('$(CSweetWebHostContractsRepositoryRoot)\src\CSweet.WebHost.Contracts\CSweet.WebHost.Contracts.csproj')">true</UseLocalWebHostContracts>
+    <UseLocalWebHostContracts Condition="'$(UseLocalWebHostContracts)' == ''">false</UseLocalWebHostContracts>
+  </PropertyGroup>
 </Project>
