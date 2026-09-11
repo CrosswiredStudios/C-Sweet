@@ -439,6 +439,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IManagedActionExecutor, WorkstreamManagedActionExecutor>();
         builder.Services.AddOptions<WebHostRegistryOptions>().Bind(builder.Configuration.GetSection(WebHostRegistryOptions.SectionName));
         builder.Services.AddScoped<WebHostRegistryService>();
+        builder.Services.AddScoped<CSweet.Infrastructure.WorkManagement.WebPreviewArtifactService>();
         builder.Services.AddScoped<WebPreviewGrantService>();
         builder.Services.AddScoped<IManagedActionExecutor>(services => services.GetRequiredService<WebPreviewGrantService>());
         builder.Services.AddScoped<ManifestInfrastructureProviderGateway>();

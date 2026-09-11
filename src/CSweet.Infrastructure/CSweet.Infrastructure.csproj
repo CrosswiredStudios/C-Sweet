@@ -49,4 +49,3 @@
                       Condition="'$(UseLocalWebHost)' == 'true'" />
     <PackageReference Include="CSweet.WebHost.Core" Condition="'$(UseLocalWebHost)' != 'true'" />
   </ItemGroup>
-</Project>

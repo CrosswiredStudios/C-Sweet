@@ -84,7 +84,8 @@ public sealed class WebHostRegistryService(CSweetDbContext db, WebPreviewGrantSe
             heartbeat.Available.MaximumProcesses < 0 || heartbeat.Available.MaximumLogBytes < 0 ||
             !heartbeat.Available.Fits(capacity) || heartbeat.Providers is not { Count: > 0 and <= 16 } ||
             heartbeat.Providers.Any(x => x is null || x.Id is not { Length: > 0 and <= 128 } ||
-                x.Version is not { Length: > 0 and <= 64 } || !WorkloadAuthorizationEnvelope.IsDigest(x.GuestImageDigest) ||
+                x.Version is not { Length: > 0 and <= 64 } || (!WorkloadAuthorizationEnvelope.IsDigest(x.GuestImageDigest) &&
+                    (x.Certified || x.Available || x.GuestImageDigest != string.Empty)) ||
                 x.UnavailableReason is { Length: > 512 }) ||
             heartbeat.Providers.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != heartbeat.Providers.Count)
             throw new ArgumentException("The WebHost heartbeat does not match its registered scope and capacity.");
