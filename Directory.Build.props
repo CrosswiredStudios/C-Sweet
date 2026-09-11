@@ -18,5 +18,8 @@
     <CSweetOfficeContractsRepositoryRoot Condition="'$(CSweetOfficeContractsRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.Office.Contracts</CSweetOfficeContractsRepositoryRoot>
     <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == '' and Exists('$(CSweetOfficeContractsRepositoryRoot)\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj')">true</UseLocalOfficeContracts>
     <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == ''">false</UseLocalOfficeContracts>
+    <CSweetWebHostRepositoryRoot Condition="'$(CSweetWebHostRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.WebHost</CSweetWebHostRepositoryRoot>
+    <UseLocalWebHost Condition="'$(UseLocalWebHost)' == '' and Exists('$(CSweetWebHostRepositoryRoot)\src\CSweet.WebHost.Core\CSweet.WebHost.Core.csproj')">true</UseLocalWebHost>
+    <UseLocalWebHost Condition="'$(UseLocalWebHost)' == ''">false</UseLocalWebHost>
   </PropertyGroup>
 </Project>

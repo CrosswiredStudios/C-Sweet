@@ -1146,6 +1146,138 @@ public sealed class ExecutionFleetServiceTests
         Assert.NotNull(store.Create(id));
     }
 
+    [Fact]
+    public async Task GuidedUpgrade_PreservesIdentityAndUsesOneUseCompletionReceipt()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        var fleet = UpgradeFleet(db, clock);
+        await new SetupService(db).EnsureSeededAsync();
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        db.ExecutionNodes.Add(node);
+        await db.SaveChangesAsync();
+        var owner = Guid.NewGuid();
+        var created = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id), owner);
+        Assert.True(created.Succeeded, created.Message);
+        Assert.Equal(node.Id, created.Session!.UpgradeOfficeId);
+        Assert.Equal(node.AllocatableCpuCount, created.Session.AllocatableCpuCount);
+        var uri = new Uri(created.Session.LaunchUri!);
+        Assert.Contains($"office={node.Id:D}", uri.Query);
+        var handoff = Uri.UnescapeDataString(uri.Fragment["#handoff=".Length..]);
+        var preflight = await fleet.PreflightLocalSetupSessionAsync(new(handoff, node.MachineName,
+            "windows", node.Architecture, "0.4.0", "clean"));
+        Assert.True(preflight.ProceedToRedemption);
+        var redeemed = await fleet.RedeemLocalSetupSessionAsync(new(handoff, node.MachineName,
+            "windows", node.Architecture, "0.4.0"));
+        Assert.True(redeemed.Succeeded);
+        Assert.Null(redeemed.EnrollmentToken);
+        Assert.Empty(db.ExecutionNodeEnrollments);
+        Assert.False((await fleet.RedeemLocalSetupSessionAsync(new(handoff, node.MachineName,
+            "windows", node.Architecture, "0.4.0"))).Succeeded);
+        Assert.False(await fleet.ReportLocalSetupResultAsync(new(created.Session.Id, "wrong",
+            "office_upgrade_completed", node.MachineName, "windows", node.Architecture)));
+        clock.Advance(TimeSpan.FromMinutes(45));
+        var completed = new ReportAssistedOfficeSetupResultRequest(created.Session.Id, redeemed.SetupReceipt!,
+            "office_upgrade_completed", node.MachineName, "windows", node.Architecture);
+        Assert.True(await fleet.ReportLocalSetupResultAsync(completed));
+        Assert.False(await fleet.ReportLocalSetupResultAsync(completed));
+        Assert.Equal(node.Id, (await db.ExecutionNodes.SingleAsync()).Id);
+        Assert.Equal(ExecutionNodeStatus.Draining, node.Status);
+        node.LastHeartbeatAt = clock.GetUtcNow();
+        await db.SaveChangesAsync();
+        var repeated = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id), owner);
+        Assert.True(repeated.Succeeded, repeated.Message);
+        Assert.NotEqual(created.Session.Id, repeated.Session!.Id);
+    }
+
+    [Theory]
+    [InlineData("remote")]
+    [InlineData("active")]
+    [InlineData("resumed")]
+    [InlineData("revoked")]
+    [InlineData("expired")]
+    [InlineData("missing_certificate")]
+    [InlineData("stale")]
+    public async Task GuidedUpgrade_RejectsUnsafeTargets(string reason)
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        var fleet = UpgradeFleet(db, clock);
+        await new SetupService(db).EnsureSeededAsync();
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        db.ExecutionNodes.Add(node);
+        if (reason == "remote") node.MachineName = "another-machine";
+        if (reason == "resumed") node.Status = ExecutionNodeStatus.Ready;
+        if (reason == "revoked") node.RevokedAt = Now;
+        if (reason == "expired") node.CertificateExpiresAt = Now.AddSeconds(-1);
+        if (reason == "missing_certificate") node.CertificateExpiresAt = null;
+        if (reason == "stale") node.LastHeartbeatAt = Now.AddMinutes(-1);
+        if (reason == "active") db.ExecutionWorkloadAssignments.Add(new()
+        {
+            Id = Guid.NewGuid(), ExecutionNodeId = node.Id, ExecutionPoolId = node.ExecutionPoolId,
+            Status = ExecutionAssignmentStatus.Running, QueuedAt = Now.AddDays(-1)
+        });
+        await db.SaveChangesAsync();
+        Assert.False(await fleet.CanUpgradeOfficeAsync(node.Id));
+    }
+
+    [Fact]
+    public async Task GuidedUpgrade_RechecksDrainBeforeRedemption()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        var fleet = UpgradeFleet(db, clock);
+        await new SetupService(db).EnsureSeededAsync();
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        db.ExecutionNodes.Add(node);
+        await db.SaveChangesAsync();
+        var created = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id), Guid.NewGuid());
+        Assert.True(created.Succeeded, created.Message);
+        var handoff = Uri.UnescapeDataString(new Uri(created.Session!.LaunchUri!).Fragment["#handoff=".Length..]);
+        node.Status = ExecutionNodeStatus.Ready;
+        await db.SaveChangesAsync();
+        var result = await fleet.RedeemLocalSetupSessionAsync(new(handoff, node.MachineName, "windows", node.Architecture, "0.4.0"));
+        Assert.False(result.Succeeded);
+        Assert.Equal("upgrade_not_safe", result.ErrorCode);
+    }
+
+    [Fact]
+    public void GuidedUpgrade_MigrationMatchesModelAndSeparatesEnrollmentIdentity()
+    {
+        using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseNpgsql("Host=localhost;Database=model_check;Username=unused;Password=unused").Options);
+        Assert.False(db.Database.HasPendingModelChanges());
+        var entity = db.Model.FindEntityType(typeof(LocalOfficeSetupSession))!;
+        Assert.True(entity.FindProperty(nameof(LocalOfficeSetupSession.Status))!.IsConcurrencyToken);
+        Assert.Contains(entity.GetIndexes(), x => x.IsUnique && x.Properties.Count == 1 && x.Properties[0].Name == nameof(LocalOfficeSetupSession.UpgradeOfficeId));
+    }
+
+    private static ExecutionNode UpgradeNode(Guid poolId) => new()
+    {
+        Id = Guid.NewGuid(), ExecutionPoolId = poolId, Name = "Local Office", MachineName = Environment.MachineName,
+        OperatingSystem = "windows", Architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
+        Status = ExecutionNodeStatus.Draining, ApprovedAt = Now, DrainingAt = Now,
+        LastHeartbeatAt = Now, CertificateExpiresAt = Now.AddDays(1),
+        AllocatableCpuCount = 2, AllocatableMemoryMb = 4096, AllocatableDiskMb = 20480, MaximumConcurrentWorkloads = 1
+    };
+
+    private static ExecutionFleetService UpgradeFleet(CSweetDbContext db, TimeProvider clock) => CreateFleet(db, clock,
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["CSweet:ExecutionGateway:PublicUrl"] = "https://office.example.test",
+            ["CSweet:ExecutionGateway:PublicCertificateSha256"] = new string('a', 64)
+        }).Build(), fleetOptions: new ExecutionFleetOptions
+        {
+            PublicLaunchEnabled = true,
+            WindowsDevelopmentLauncherScript = typeof(ExecutionFleetServiceTests).Assembly.Location,
+            WindowsDevelopmentOfficeBootstrapScript = typeof(ExecutionFleetServiceTests).Assembly.Location
+        });
+
     private static string Digest(char value) => $"sha256:{new string(value, 64)}";
     private static ExecutionFleetService CreateFleet(
         CSweetDbContext db,

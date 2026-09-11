@@ -156,6 +156,7 @@ public sealed class LocalOfficeSetupSession
     public Guid CreatedByUserId { get; set; }
     public Guid? ExecutionNodeEnrollmentId { get; set; }
     public Guid? ExecutionNodeId { get; set; }
+    public Guid? UpgradeOfficeId { get; set; }
     public string HandoffSecretHash { get; set; } = string.Empty;
     public string MachineBindingHash { get; set; } = string.Empty;
     public string OperatingSystem { get; set; } = "windows";

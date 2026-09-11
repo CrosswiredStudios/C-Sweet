@@ -37,3 +37,13 @@ For an upgrade, open the Office's **Upgrade steps**, choose **Prepare upgrade** 
 If the Office is offline, the server cannot confirm local drain state or idle capacity; the page does not declare it safe to upgrade. Inspect the Office services and local maintenance state on that machine. Revoked Offices cannot recover access by upgrading. Setup lives under **Add Office**; workload pools and agent routing remain available under **Advanced**.
 
 Active-work counts cover all assigned work, including old workloads outside the recent-history window. Detail history contains the latest 50 workloads for that Office, rather than a slice of server-wide activity. Status refreshes every 15 seconds without overwriting unsaved label or pool edits.
+
+### Guided local Windows upgrades
+
+When the Windows development launcher is configured, **Offices → Details → Upgrade Office** uses the same elevated runtime preparation launcher as onboarding. Drain the Office and wait for zero active assignments, start the upgrade, and accept Windows administrator approval. The details page reports installer progress and restores the administrator's session after a reload. Verify the installed version and a fresh connection before resuming work.
+
+Upgrade sessions bind to the selected local Office, preserve identity and configuration, issue no enrollment token, and require a one-use completion receipt. Headquarters rechecks maintenance readiness before launching and redeeming the handoff; the local launcher verifies the installed Office ID, and the existing installer checks its drain marker, active work, payload integrity, and certification. Resume is blocked during an active upgrade. The five-minute launch handoff becomes a two-hour completion window when redeemed.
+
+Apply the `AddOfficeUpgradeTarget` database migration with this server update. This adds a separate upgrade target and prevents concurrent active upgrades of one Office without changing its enrollment history.
+
+This guided path currently uses the configured Windows development bootstrap. Packaged and remote Offices still require their platform installer on the Office machine. Reassignment or destructive removal are separate recovery operations, not routine upgrades.

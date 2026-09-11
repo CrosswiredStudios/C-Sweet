@@ -44,7 +44,9 @@
     <ProjectReference Include="..\CSweet.AI\CSweet.AI.csproj" />
   </ItemGroup>
 
-<ItemGroup>
-<ProjectReference Include="../../../CSweet.WebHost/src/CSweet.WebHost.Core/CSweet.WebHost.Core.csproj" Condition="'$(UseLocalWebHost)' == 'true'" />
-<PackageReference Include="CSweet.WebHost.Core" Condition="'$(UseLocalWebHost)' != 'true'" />
-</ItemGroup></Project>
+  <ItemGroup>
+    <ProjectReference Include="$(CSweetWebHostRepositoryRoot)\src\CSweet.WebHost.Core\CSweet.WebHost.Core.csproj"
+                      Condition="'$(UseLocalWebHost)' == 'true'" />
+    <PackageReference Include="CSweet.WebHost.Core" Condition="'$(UseLocalWebHost)' != 'true'" />
+  </ItemGroup>
+</Project>

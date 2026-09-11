@@ -150,6 +150,16 @@ try {
         }
     }
 
+    $upgradeOfficeText = Get-QueryValue $uri 'office'
+    $isUpgrade = -not [String]::IsNullOrWhiteSpace($upgradeOfficeText)
+    if ($isUpgrade) {
+        $expectedOfficeId = [guid]$upgradeOfficeText
+        $statePath = Join-Path $env:ProgramData 'CSweet\Office\node\node-state.json'
+        if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { throw 'The selected Office identity is unavailable.' }
+        $installedState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        if ([guid]$installedState.OfficeId -ne $expectedOfficeId) { throw 'The installed Office does not match the Office selected in Headquarters.' }
+    }
+
     $recoveryProbe = Join-Path $officeScriptRoot 'Get-CSweetOfficeRecoveryState.ps1'
     $existingInstallationState = if (Test-Path -LiteralPath $recoveryProbe -PathType Leaf) {
         [string](& $recoveryProbe)
@@ -270,7 +280,7 @@ try {
     } | ConvertTo-Json -Compress
     $redemption = Invoke-CSweetPinnedRestMethod -Method Post `
         -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/redeem') -Body $request
-    if (-not $redemption.succeeded -or [String]::IsNullOrWhiteSpace([string]$redemption.enrollmentToken)) {
+    if (-not $redemption.succeeded -or (-not $isUpgrade -and [String]::IsNullOrWhiteSpace([string]$redemption.enrollmentToken))) {
         throw 'C-Sweet could not authorize the local Office setup session.'
     }
     if ([String]::IsNullOrWhiteSpace([string]$redemption.controlPlaneUrl)) {
@@ -293,11 +303,17 @@ try {
     $allocatableDiskMb = Get-RequiredPositiveIntProperty $redemption 'allocatableDiskMb'
     $maximumConcurrentWorkloads = Get-RequiredPositiveIntProperty $redemption 'maximumConcurrentWorkloads'
 
-    $tokenPath = Join-Path $setupRoot "office-enrollment-$($sessionId.ToString('N')).secret"
-    [IO.File]::WriteAllText($tokenPath, [string]$redemption.enrollmentToken, [Text.UTF8Encoding]::new($false))
-    & "$env:SystemRoot\System32\icacls.exe" $tokenPath '/inheritance:r' `
-        "/grant:r" "*$($identity.User.Value):F" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'The Office enrollment handoff could not be protected.' }
+    if ($isUpgrade -and [string]$redemption.existingInstallationAction -cne 'upgrade') {
+        throw 'Headquarters did not authorize the selected Office upgrade.'
+    }
+    if (-not $isUpgrade) {
+        $tokenPath = Join-Path $setupRoot "office-enrollment-$($sessionId.ToString('N')).secret"
+        [IO.File]::WriteAllText($tokenPath, [string]$redemption.enrollmentToken, [Text.UTF8Encoding]::new($false))
+        & "$env:SystemRoot\System32\icacls.exe" $tokenPath '/inheritance:r' `
+            "/grant:r" "*$($identity.User.Value):F" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'The Office enrollment handoff could not be protected.' }
+    }
+    $installerAction = if ($isUpgrade) { 'none' } else { [string]$redemption.existingInstallationAction }
 
     Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
         -State running -PhaseKey start-bootstrap -PhaseDisplayName 'Starting secure runtime preparation' `
@@ -335,10 +351,23 @@ try {
             -EnrollmentTokenInputPath $tokenPath -AssistedSetupSessionId $sessionId `
             -AllocatableCpuCount $allocatableCpuCount -AllocatableMemoryMb $allocatableMemoryMb `
             -AllocatableDiskMb $allocatableDiskMb -MaximumConcurrentWorkloads $maximumConcurrentWorkloads `
-            -ExistingInstallationAction ([string]$redemption.existingInstallationAction) `
+            -ExistingInstallationAction $installerAction `
             -ProgressPath $progressPath -ProgressJobId $sessionId -ProgressWorkflow 'developer-bootstrap' `
             -NonInteractive
         if ($LASTEXITCODE -ne 0) { throw "Office installation exited with code $LASTEXITCODE." }
+        if ($isUpgrade) {
+            $completed = @{
+                assistedSetupSessionId = $sessionId
+                setupReceipt = [string]$redemption.setupReceipt
+                resultCode = 'office_upgrade_completed'
+                machineName = [Environment]::MachineName
+                operatingSystem = 'windows'
+                architecture = $architecture
+            } | ConvertTo-Json -Compress
+            Invoke-CSweetPinnedRestMethod -Method Post `
+                -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/result') -Body $completed | Out-Null
+        }
+
     }
     catch {
         $failureMessage = $_.Exception.Message

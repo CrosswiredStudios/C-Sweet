@@ -75,7 +75,8 @@ public sealed record LocalOfficeSetupSessionResponse(
     string? LaunchMethod = null,
     DateTimeOffset? AdministratorApprovalRequestedAt = null,
     string RecoveryAction = "none",
-    bool RecoveryCanReconnect = false);
+    bool RecoveryCanReconnect = false,
+    Guid? UpgradeOfficeId = null);
 
 public sealed record LocalOfficeSetupActionResponse(
     bool Succeeded,

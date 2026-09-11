@@ -4,6 +4,7 @@ using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
@@ -11,9 +12,10 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CSweet.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CSweetDbContext))]
-    partial class CSweetDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260911010000_AddOfficeUpgradeTarget")]
+    partial class AddOfficeUpgradeTarget
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

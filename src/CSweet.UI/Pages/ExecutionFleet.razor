@@ -94,7 +94,7 @@
                                     <td><div class="office-actions"><MudButton Href="@OfficeUrl(node.Id)" Size="Size.Small">Details</MudButton>
                                     @if (node.Status != "revoked" && node.Status != "pendingapproval")
                                     {
-                                        <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">Upgrade steps</MudButton>
+                                        <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">Upgrade</MudButton>
                                     }
                                     @if (node.Status == "ready")
                                     {
@@ -246,7 +246,7 @@
         </MudPaper>
         <MudPaper Elevation="1" Class="surface-panel command-section-wide" id="upgrade">
             <MudText Typo="Typo.h5">Upgrade this Office</MudText>
-            <MudText Color="Color.Secondary">Install updates on <strong>@node.MachineName</strong>. This server can prepare the Office for maintenance; it cannot install software remotely.</MudText>
+            <MudText Color="Color.Secondary">Install updates on <strong>@node.MachineName</strong>. Prepare the Office for maintenance, then use the available installer for this machine.</MudText>
             @if (node.Status is "revoked" or "pendingapproval")
             {
                 <MudAlert Severity="Severity.Warning" Class="mt-3">@(node.Status == "revoked" ? "This Office's access is revoked. An upgrade will not restore access; a new enrollment and approval are required." : "Approve this Office before using server-managed maintenance actions.")</MudAlert>
@@ -268,6 +268,14 @@
                         <MudText Color="Color.Warning">@UpgradeReadiness(node)</MudText>
                     }
                 </li>
+                @if (node.IsLocalMachine && _packages?.CanLaunchLocalUpgrade == true)
+                {
+                    <li><strong>Install the update</strong>
+                        <LocalOfficeUpgrade @key="node.Id" Office="node" ReadyForUpgrade="ReadyForUpgrade(node)" OnChanged="LoadAsync" />
+                    </li>
+                }
+                else
+                {
                 <li><strong>Get the signed release</strong><p>Installed version: @node.NodeVersion. Check the release notes for the version you intend to install and any required server update.</p>
                     <MudButton Href="https://github.com/CrosswiredStudios/CSweet.Office/releases" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">View Office releases</MudButton>
                     @if (PackageUrl(node) is { } packageUrl)
@@ -276,6 +284,7 @@
                     }
                 </li>
                 <li><strong>Run the upgrade on @node.MachineName</strong><p>@InstallerInstructions(node) Keep the existing Office identity and configuration. Follow the release's upgrade instructions; do not uninstall, remove identity files, or create a new enrollment.</p></li>
+                }
                 <li><strong>Verify and resume</strong><p>Return here and confirm the installed version changed and the Office reconnected. Select Resume work when maintenance is complete.</p></li>
             </ol>
             }

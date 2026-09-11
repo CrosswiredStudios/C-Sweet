@@ -985,7 +985,7 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
             entity.Property(x => x.ControlPlaneOrigin).HasMaxLength(2048).IsRequired();
             entity.Property(x => x.ControlPlaneCertificateSha256).HasMaxLength(64);
             entity.Property(x => x.PresetKey).HasMaxLength(32).IsRequired();
-            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired().IsConcurrencyToken();
             entity.Property(x => x.ErrorCode).HasMaxLength(128);
             entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
             entity.Property(x => x.RecoveryAction).HasMaxLength(16).IsRequired();
@@ -995,6 +995,8 @@ public sealed class CSweetDbContext : IdentityDbContext<ApplicationUser, Identit
                 .HasFilter("\"Status\" IN ('Created', 'Redeemed', 'Connected', 'RecoveryRequired', 'RemovalInProgress')");
             entity.HasIndex(x => new { x.CreatedByUserId, x.CreatedAt });
             entity.HasIndex(x => x.ExecutionNodeEnrollmentId).IsUnique();
+            entity.HasIndex(x => x.UpgradeOfficeId).IsUnique()
+                .HasFilter("\"UpgradeOfficeId\" IS NOT NULL AND \"Status\" IN ('Created', 'Redeemed')");
             entity.HasIndex(x => x.ExecutionNodeId).IsUnique();
             entity.HasOne(x => x.ExecutionNodeEnrollment)
                 .WithMany()

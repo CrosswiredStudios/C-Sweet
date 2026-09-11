@@ -57,6 +57,11 @@ public static class ExecutionFleetEndpoints
             if (node.Status != ExecutionNodeStatus.Draining || node.ApprovedAt is null || node.RevokedAt is not null)
                 return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_not_draining",
                     "Only an approved, deliberately drained Office can be resumed."));
+            if (await db.LocalOfficeSetupSessions.AnyAsync(x => x.UpgradeOfficeId == nodeId &&
+                x.RecoveryAction == "upgrade" && x.ExpiresAt > clock.GetUtcNow() &&
+                (x.Status == LocalOfficeSetupSessionStatus.Created || x.Status == LocalOfficeSetupSessionStatus.Redeemed), cancellationToken))
+                return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_upgrade_in_progress",
+                    "Wait for the Office upgrade to finish before resuming work."));
             node.DrainingAt = null;
             node.Status = node.LastHeartbeatAt >= clock.GetUtcNow().AddSeconds(-30)
                 ? ExecutionNodeStatus.Ready : ExecutionNodeStatus.Offline;
@@ -244,5 +249,7 @@ public static class ExecutionFleetEndpoints
             provider.CertificationExpiresAt, provider.SupportsBuilderWorkloads,
             provider.SupportsRuntimeWorkloads, provider.SupportsToolchainBuildWorkloads,
             provider.IsAvailable, provider.UnavailableReason)).ToArray(),
-        DeserializeDictionary(node.LabelsJson));
+        DeserializeDictionary(node.LabelsJson),
+        string.Equals(node.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(node.OperatingSystem, OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsLinux() ? "linux" : "macos", StringComparison.OrdinalIgnoreCase));
 }
