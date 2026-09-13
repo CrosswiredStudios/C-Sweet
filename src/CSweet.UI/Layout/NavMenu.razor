@@ -1,5 +1,4 @@
 @implements IDisposable
-@inject HttpClient Http
 @inject IBusinessContext BusinessContext
 @inject IAuthenticationApiClient AuthenticationApi
 @inject AuthSessionStore AuthSession
@@ -30,16 +29,13 @@
                     <MudNavLink Href="@WorkHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.ViewKanban" Class="business-nav-link">
                         Work
                     </MudNavLink>
-                    @if (_webPreviewsEnabled)
-                    {
-                        <MudNavLink Href="@($"/organizations/{BusinessContext.SelectedBusiness.Id}/web-previews")" Icon="@Icons.Material.Outlined.Preview" Class="business-nav-link">Private previews</MudNavLink>
-                    }
                     <MudNavLink Href="@ProjectsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="business-nav-link">
                         Projects
                     </MudNavLink>
                     <MudNavLink Href="@SourceControlHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="business-nav-link">
                         Source Control
                     </MudNavLink>
+                    <MudNavLink Href="@ComputeHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Dns" Class="business-nav-link">Compute</MudNavLink>
                     <MudNavLink Href="@ApprovalsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Approval" Class="business-nav-link">
                         <span class="communications-nav-content">
                             <span class="communications-nav-label">Approvals</span>
@@ -83,6 +79,7 @@
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.ViewKanban" /> Work</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /> Projects</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /> Source Control</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Dns" /> Compute</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Approval" /> Approvals</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Description" /> Documents</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Groups" /> Employees</div>
@@ -114,6 +111,7 @@
 </div>
 
 @code {
+    private string? ComputeHref => BusinessContext.SelectedBusiness is { } b ? $"/organizations/{b.Id}/compute" : null;
     private string? CalendarHref => BusinessContext.SelectedBusiness is { } b ? $"/organizations/{b.Id}/calendar" : null;
     private string? OverviewHref => BusinessContext.SelectedBusiness is { } business
         ? $"/organizations/{business.Id}/command-center"
@@ -180,27 +178,12 @@
         Navigation.LocationChanged += OnLocationChanged;
         CommunicationUnread.Changed += OnUnreadChanged;
         Approvals.Changed += OnUnreadChanged;
-        _ = LoadPreviewAvailabilityAsync();
         _ = Approvals.InitializeAsync();
         _ = CommunicationUnread.InitializeAsync();
     }
 
-    private bool _webPreviewsEnabled;
-    private sealed record PreviewAvailability(bool Enabled);
-    private async Task LoadPreviewAvailabilityAsync()
-    {
-        _webPreviewsEnabled = false;
-        if (BusinessContext.SelectedBusiness is not { } business) { StateHasChanged(); return; }
-        try
-        {
-            var result = await Http.GetFromJsonAsync<PreviewAvailability>($"api/core/organizations/{business.Id:D}/web-previews/availability");
-            if (BusinessContext.SelectedBusiness?.Id == business.Id) _webPreviewsEnabled = result?.Enabled == true;
-        }
-        catch (Exception error) when (error is HttpRequestException or System.Text.Json.JsonException) { }
-        StateHasChanged();
-    }
     private string CurrentPath() => Navigation.ToBaseRelativePath(Navigation.Uri);
-    private void OnContextChanged() => _ = InvokeAsync(LoadPreviewAvailabilityAsync);
+    private void OnContextChanged() => _ = InvokeAsync(StateHasChanged);
     private void OnLocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(StateHasChanged);
     private void OnUnreadChanged() => _ = InvokeAsync(StateHasChanged);
 

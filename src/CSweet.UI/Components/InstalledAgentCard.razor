@@ -43,13 +43,13 @@
                     </div>
                 </div>
             }
-            else if (Installation.Build?.Status is "Failed" or "Cancelled" || Installation.SetupState is "NeedsConfiguration" or "Disabled")
+            else if (Installation.Build?.Status is "Failed" or "Cancelled" || Installation.SetupState is "BuildFailed" or "NeedsConfiguration" or "Disabled")
             {
                 <MudText Typo="Typo.caption" Color="@StatusColor">@StatusLabel</MudText>
             }
         </div>
     </div>
-    @if (!Building && Installation.Build?.Status is "Failed" or "Cancelled")
+    @if (!Building && (Installation.Build?.Status is "Failed" or "Cancelled" || Installation.SetupState == "BuildFailed"))
     {
         <div class="installed-agent-actions">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@Busy" OnClick="OnBuild">Rebuild</MudButton>
@@ -138,7 +138,7 @@
     {
         "Failed" => "Build failed",
         "Cancelled" => "Build cancelled",
-        _ => Installation.SetupState switch { "Available" => "Available for hire", "NeedsConfiguration" => "Needs configuration", "Disabled" => "Disabled", _ => "Installed" }
+        _ => Installation.SetupState switch { "Available" => "Available for hire", "BuildFailed" => "Package unavailable", "NeedsConfiguration" => "Needs configuration", "Disabled" => "Disabled", _ => "Installed" }
     };
     private Color StatusColor => Installation.Build?.Status is "Failed" or "Cancelled" && !Building ? Color.Error : Color.Secondary;
     private string PortraitUrl => !_portraitFailed && MarketplaceAgentPresentation.IsAgentImageUrl(Installation.ImageUrl)

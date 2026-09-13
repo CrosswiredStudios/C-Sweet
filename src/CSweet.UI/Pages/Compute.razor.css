@@ -1,0 +1,7 @@
+.compute-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.compute-freshness { min-height: 36px; padding-top: 8px; margin-bottom: 16px; color: var(--mud-palette-text-secondary); font-size: .8rem; }
+.compute-setup { border-left: 4px solid var(--mud-palette-primary); }
+.compute-empty { text-align: center; color: var(--mud-palette-text-secondary); }
+.compute-count { font-size: .85rem; padding: 3px 9px; border-radius: 16px; background: var(--mud-palette-background-grey); }
+.compute-id { font-family: monospace; color: var(--mud-palette-text-secondary); }
+.compute-failure { color: var(--mud-palette-error); max-width: 240px; overflow-wrap: anywhere; }

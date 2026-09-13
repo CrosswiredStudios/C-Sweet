@@ -15,6 +15,23 @@ namespace CSweet.UnitTests;
 public sealed class PersonalTodoServiceTests
 {
     [Fact]
+    public async Task InstalledAgentNormalPriorityPassesBrokerAndPersistsCanonicalMedium()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var request = Add("Hello World", "normal-priority", setup.Agent.Id) with { Priority = "Normal" };
+        var tool = Assert.Single(new CSweet.AgentHost.Broker.McpToolCatalog([]).List(new HashSet<string> { PersonalTodoActions.Add }));
+        CSweet.AgentHost.Broker.JsonSchemaValidator.Validate(
+            System.Text.Json.JsonSerializer.SerializeToElement(request, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)), tool.InputSchema);
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var actor = new PersonalTodoActor(setup.FirstManager.Id, null);
+        var item = await service.AddAsync(setup.Organization.Id, actor, request);
+        Assert.Equal("Medium", item.Priority);
+        Assert.Equal(item.Id, (await service.AddAsync(setup.Organization.Id, actor, request)).Id);
+        Assert.Equal(WorkTaskPriority.Medium, (await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id)).Priority);
+    }
+    [Fact]
     public async Task ProvisioningIsIdempotentAndRotatesDirectManagerGrants()
     {
         await using var db = CreateDb();

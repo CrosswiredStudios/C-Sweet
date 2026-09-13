@@ -1072,17 +1072,40 @@ public sealed class AgentRuntimeManagerTests
         Assert.Contains("'Stopping'", index.GetFilter());
     }
 
+    [Fact]
+    public async Task MissingBuiltArtifact_FailsBeforeAllocatingVmAndAllowsRebuild()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        var runner = new FakeRunner();
+        installation.Schedule!.ActivationMode = ActivationMode.AlwaysOn;
+        await db.SaveChangesAsync();
+        var manager = CreateManager(db, runner, artifactExists: false);
+        await manager.EnsureRuntimeQueuedAsync(installation.Id, "Test missing package");
+        await manager.ReconcileAsync();
+        Assert.Empty(runner.Starts);
+        Assert.Equal(AgentPackageVersionStatus.Failed, installation.PackageVersion!.Status);
+        Assert.NotNull(installation.Schedule!.AutomaticStartSuppressedAt);
+        Assert.Contains("missing from Headquarters artifact storage", (await db.AgentRuntimeInstances.SingleAsync()).Reason);
+    }
+
+    private sealed class TestArtifactStore(bool exists) : IAgentArtifactStore
+    {
+        public Task<bool> ExistsAsync(string digest, CancellationToken cancellationToken = default) => Task.FromResult(exists);
+        public Task<Stream> OpenReadAsync(string digest, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentArtifactReference> ImportAsync(Stream content, ArtifactImportDescriptor descriptor, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
     private static AgentRuntimeManager CreateManager(
         CSweetDbContext db,
         FakeRunner runner,
-        IAgentRuntimeEligibilityService? eligibility = null)
+        IAgentRuntimeEligibilityService? eligibility = null, bool artifactExists = true)
     {
         runner.Db = db;
         return new(db, runner, new StaticGuestImageRegistry(), new TestAuditEventWriter(), Options.Create(new AgentRuntimeManagerOptions
         {
             RuntimeGuestImageVersion = "1.0",
             RuntimeGuestImageDigest = "sha256:" + new string('d', 64)
-        }), NullLogger<AgentRuntimeManager>.Instance, eligibility ?? new AllowAllRuntimeEligibility());
+        }), NullLogger<AgentRuntimeManager>.Instance, eligibility ?? new AllowAllRuntimeEligibility(), new TestArtifactStore(artifactExists));
     }
 
     private sealed class AllowAllRuntimeEligibility : IAgentRuntimeEligibilityService

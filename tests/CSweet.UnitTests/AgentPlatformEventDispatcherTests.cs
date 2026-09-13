@@ -217,9 +217,9 @@ public sealed class AgentPlatformEventDispatcherTests
         Assert.All(await result.AgentPlatformEventOutbox.ToListAsync(), item => Assert.Equal(AgentPlatformEventOutboxStatus.Published, item.Status));
     }
     [Fact]
-    public async Task Preview_wakes_survive_offline_subscription_delay_activation_failure_and_delivery_replay()
+    public async Task Personal_todo_wakes_survive_offline_subscription_delay_activation_failure_and_delivery_replay()
     {
-        const string changed = CSweet.WebHost.Contracts.WebPreviewEvents.Changed;
+        const string changed = CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available;
         var runtime = new RecordingRuntimeManager { FailNext = true };
         var services = new ServiceCollection(); var database = Guid.NewGuid().ToString("N");
         services.AddDbContext<CSweetDbContext>(options => options.UseInMemoryDatabase(database));
@@ -234,7 +234,7 @@ public sealed class AgentPlatformEventDispatcherTests
         {
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>(); db.AddRange(target, unrelated);
             db.AgentPlatformEventOutbox.Add(new() { Id = eventId, OrganizationId = org, TargetInstallationId = target.Id, EventType = changed,
-                DataJson = JsonSerializer.Serialize(new CSweet.WebHost.Contracts.PreviewChangedEvent(Guid.NewGuid(), 2)),
+                DataJson = JsonSerializer.Serialize(new { todoId = Guid.NewGuid(), revision = 2 }),
                 IdempotencyKey = eventId.ToString("D"), OccurredAt = DateTimeOffset.UtcNow.AddDays(-14), NextAttemptAt = DateTimeOffset.UtcNow.AddDays(-14) });
             await db.SaveChangesAsync();
         }

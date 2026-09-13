@@ -8,6 +8,10 @@
     <Project Path="src/CSweet.App/CSweet.App.csproj" />
     <Project Path="src/CSweet.AppHost/CSweet.AppHost.csproj" />
     <Project Path="src/CSweet.Application/CSweet.Application.csproj" />
+    <Project Path="src/CSweet.Compute.Contracts/CSweet.Compute.Contracts.csproj" />
+    <Project Path="src/CSweet.Compute.Guest/CSweet.Compute.Guest.csproj" />
+    <Project Path="src/CSweet.Compute.HyperV/CSweet.Compute.HyperV.csproj" />
+    <Project Path="src/CSweet.Compute.Runtime/CSweet.Compute.Runtime.csproj" />
     <Project Path="src/CSweet.Contracts/CSweet.Contracts.csproj" />
     <Project Path="src/CSweet.Domain/CSweet.Domain.csproj" />
     <Project Path="src/CSweet.ExecutionGateway/CSweet.ExecutionGateway.csproj" />
@@ -23,6 +27,7 @@
     <Project Path="src/CSweet.WorkerHost/CSweet.WorkerHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/CSweet.Compute.GuestFixture/CSweet.Compute.GuestFixture.csproj" />
     <Project Path="tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj" />
     <Project Path="tests/CSweet.UnitTests/CSweet.UnitTests.csproj" />
   </Folder>

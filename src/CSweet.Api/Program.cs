@@ -44,6 +44,9 @@ builder.Services.AddChatGateway(builder.Configuration);
 builder.Services.AddCommunicationPluginRuntime();
 builder.Services.AddAgentManagement();
 builder.Services.AddAgentRateLimiting();
+CSweet.Api.Compute.ComputeProviderEndpoints.AddComputeProviderIngress(builder.Services);
+builder.Services.AddHostedService<CSweet.Api.Compute.ComputeLocalSetupWorker>();
+builder.Services.AddHostedService<CSweet.Api.Compute.ComputeFailedProvisionCleanupWorker>();
 builder.Services.AddHostedService<MemoryCaptureWorker>();
 builder.Services.AddHostedService<ChatTurnWorker>();
 builder.Services.AddHostedService<ArtifactReviewJobWorker>();
@@ -145,11 +148,14 @@ builder.Services.AddHostedService<WorkOrchestrationWorker>();
 builder.Services.AddHostedService<AgentHireOperationWorker>();
 builder.Services.AddHostedService<BusinessOnboardingOperationWorker>();
 
+builder.Services.AddHttpClient("ComputeDownloadMetadata", client => client.Timeout = TimeSpan.FromSeconds(5))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<CSweet.Api.Compute.ComputeDownloadProgress>();
+
 var app = builder.Build();
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
-app.UseMiddleware<WebPreviewGatewayMiddleware>();
 app.UseAgentBrokerAuthentication();
 
 if (app.Environment.IsDevelopment())
@@ -182,6 +188,9 @@ app.MapGenAiEndpoints();
 app.MapSetupEndpoints();
 app.MapOfficeBootstrapEndpoints();
 app.MapExecutionFleetEndpoints();
+CSweet.Api.Compute.ComputeAdministrationEndpoints.MapComputeAdministrationEndpoints(app);
+CSweet.Api.Compute.ComputeDashboardEndpoints.MapComputeDashboardEndpoints(app);
+CSweet.Api.Compute.ComputeProviderEndpoints.MapComputeProviderEndpoints(app);
 app.MapAgentRuntimeSettingsEndpoints();
 app.MapPlanningRunEndpoints();
 app.MapPlanningWorkflowEndpoints();
@@ -194,9 +203,6 @@ app.MapEmployeeEndpoints();
 app.MapTeamEndpoints();
 app.MapHiringEndpoints();
 app.MapApprovalEndpoints();
-app.MapWebPreviewGrantEndpoints();
-app.MapWebHostEndpoints();
-app.MapWebPreviewAccessEndpoints();
 app.MapWorkstreamInspectionEndpoints();
 app.MapToolchainCertificationEndpoints();
 app.MapExecutiveBriefingEndpoints();

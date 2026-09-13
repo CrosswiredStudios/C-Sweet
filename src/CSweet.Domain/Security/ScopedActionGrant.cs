@@ -35,6 +35,8 @@ public sealed class ScopedActionGrant
     public Guid? ParentGrantId { get; set; }
     public GrantSubjectKind GrantedBySubjectKind { get; set; }
     public Guid? GrantedBySubjectId { get; set; }
+    /// <summary>Versioned action-specific constraints; empty policy never permits compute admission.</summary>
+    public string ConstraintsJson { get; set; } = "{}";
     public long Revision { get; set; } = 1;
     public DateTimeOffset GrantedAt { get; set; }
     public DateTimeOffset? ExpiresAt { get; set; }

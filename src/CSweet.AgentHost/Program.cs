@@ -73,8 +73,6 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, WorkforcePlatformCapabili
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkstreamGovernanceCapabilityHandler>();
 builder.Services.AddScoped<DeliveryEvidenceCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler>(services => services.GetRequiredService<DeliveryEvidenceCapabilityHandler>());
-builder.Services.AddScoped<IPlatformCapabilityHandler, WebPreviewCapabilityHandler>();
- builder.Services.AddScoped<IPlatformCapabilityHandler, WebPreviewTriageCapabilityHandler>();
  builder.Services.AddScoped<WorkManagementCapabilityHandler>();
 builder.Services.AddHostedService<ToolchainCertificationWorker>();
 builder.Services.AddHostedService<AgentCoordinationRecoveryDispatcher>();
@@ -95,6 +93,7 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, PersonalTodoCapabilityHan
 builder.Services.AddScoped<IPlatformCapabilityHandler, CalendarCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ArtifactCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, InfrastructurePlatformCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, ComputeCapabilityHandler>();
 var agentBrokerKey = builder.Configuration["CSweet:SourceControl:AgentBrokerKeyBase64"];
 var coreBrokerBaseUrl = builder.Configuration["CSweet:SourceControl:CoreBrokerBaseUrl"];
 if (HasValidBrokerConfiguration(agentBrokerKey, coreBrokerBaseUrl, out var coreBrokerUri))

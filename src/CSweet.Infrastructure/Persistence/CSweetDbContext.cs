@@ -27,15 +27,6 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public DbSet<SourceControlBusinessSettings> SourceControlBusinessSettings => Set<SourceControlBusinessSettings>();
 
-    public DbSet<WebPreviewFindingRecord> WebPreviewFindings => Set<WebPreviewFindingRecord>();
-    public DbSet<WebPreviewTriageRoute> WebPreviewTriageRoutes => Set<WebPreviewTriageRoute>();
-    public DbSet<WebPreviewBrowserSession> WebPreviewBrowserSessions => Set<WebPreviewBrowserSession>();
-    public DbSet<WebHostCommandRecord> WebHostCommands => Set<WebHostCommandRecord>();
-    public DbSet<WebPreviewProjectAdmission> WebPreviewProjectAdmissions => Set<WebPreviewProjectAdmission>();
-    public DbSet<WebPreviewEvidenceRecord> WebPreviewEvidence => Set<WebPreviewEvidenceRecord>();
-    public DbSet<WebHostRegistration> WebHostRegistrations => Set<WebHostRegistration>();
-    public DbSet<WebPreviewGrantRecord> WebPreviewGrants => Set<WebPreviewGrantRecord>();
-    public DbSet<WebPreviewJobRecord> WebPreviewJobs => Set<WebPreviewJobRecord>();
     // Setup entities
     public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
     public DbSet<LlmProviderProfile> LlmProviderProfiles => Set<LlmProviderProfile>();
@@ -236,7 +227,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureArtifactEvents();
         CaptureApprovalEvents();
         CaptureProjectResourceEvents();
-        CaptureWebPreviewEvents();
+        CaptureComputeEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -251,7 +242,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureArtifactEvents();
         CaptureApprovalEvents();
         CaptureProjectResourceEvents();
-        CaptureWebPreviewEvents();
+        CaptureComputeEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -652,6 +643,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        ComputeConfigurations.Apply(modelBuilder);
         BusinessCalendarConfiguration.Apply(modelBuilder);
         modelBuilder.ApplyConfiguration(new ConnectorExecutionConfiguration());
         modelBuilder.ApplyConfiguration(new ConnectorProfileApprovalConfiguration());
@@ -700,7 +692,6 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         
         // Apply core business domain entity configurations
         CoreConfigurations.Apply(modelBuilder);
-        WebPreviewConfigurations.Apply(modelBuilder);
         CompanyDashboardConfigurations.Apply(modelBuilder);
         WorkManagementConfigurations.Apply(modelBuilder);
         modelBuilder.Entity<SystemConfiguration>(entity =>

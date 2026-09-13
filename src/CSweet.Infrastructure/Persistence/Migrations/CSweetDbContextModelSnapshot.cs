@@ -904,6 +904,538 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("UserNotifications");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeAdmission", b =>
+                {
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("InstallationId");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.ToTable("ComputeAdmissions", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeAgentAccess", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("GrantsCreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SetupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("WorkstreamId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SetupId");
+
+                    b.HasIndex("WorkstreamId");
+
+                    b.ToTable("ComputeAgentAccess", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeAuditOutbox", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RequestJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeliveredAt", "CreatedAt", "Id");
+
+                    b.ToTable("ComputeAuditOutbox", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeEnvironment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DesiredEnvironmentKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("DesiredState")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastFailureCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Persistence")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ProviderId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid?>("ProviderNodeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProviderResourceId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("RequestDigest")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("character varying(71)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SpecificationJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("TeardownConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("WorkstreamId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InstallationId");
+
+                    b.HasIndex("WorkstreamId");
+
+                    b.HasIndex("DesiredState", "LeaseExpiresAt");
+
+                    b.HasIndex("OrganizationId", "InstallationId", "DesiredEnvironmentKey")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "InstallationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "InstallationId", "WorkstreamId", "Id");
+
+                    b.ToTable("ComputeEnvironments", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeLocalSetup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("HandoffExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HandoffHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TemplateId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId")
+                        .IsUnique();
+
+                    b.ToTable("ComputeLocalSetups", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeNodeRegistration", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProviderId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerificationPublicKeyBase64")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.ToTable("ComputeNodes", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeOperation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AuthorityJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DispatchLeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DispatchLeaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LastResultDigest")
+                        .HasMaxLength(71)
+                        .HasColumnType("character varying(71)");
+
+                    b.Property<long>("LastResultSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestDigest")
+                        .HasMaxLength(71)
+                        .HasColumnType("character varying(71)");
+
+                    b.Property<string>("ResultJson")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TemplateJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("WorkloadJson")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId", "Generation");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.HasIndex("OrganizationId", "InstallationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("ComputeOperations", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeProviderWake", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProviderId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperationId")
+                        .IsUnique();
+
+                    b.HasIndex("PublishedAt", "NextAttemptAt");
+
+                    b.HasIndex("OrganizationId", "NodeId", "ProviderId", "CreatedAt");
+
+                    b.ToTable("ComputeProviderWakes", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeRequestReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestDigest")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("character varying(71)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("OrganizationId", "InstallationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("ComputeRequestReceipts", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeTemplatePlacement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("TemplateRegistrationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NodeId", "OrganizationId");
+
+                    b.HasIndex("TemplateRegistrationId", "NodeId")
+                        .IsUnique();
+
+                    b.HasIndex("TemplateRegistrationId", "OrganizationId");
+
+                    b.ToTable("ComputeTemplatePlacements", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeTemplateRegistration", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TemplateId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TemplateJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "TemplateId")
+                        .IsUnique();
+
+                    b.ToTable("ComputeTemplates", (string)null);
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.ActionProposal", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6287,6 +6819,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<bool>("CanDelegate")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("ConstraintsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -10710,558 +11246,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("TeamRepositoryPolicies");
                 });
 
-            modelBuilder.Entity("CSweet.Domain.Setup.WebHostCommandRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("BodyJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("BrowserSessionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("DeliveredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("PreviewId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResponseDigest")
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<string>("ResponseJson")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<Guid>("WebHostId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PreviewId");
-
-                    b.HasIndex("WebHostId", "Status", "CreatedAt");
-
-                    b.ToTable("WebHostCommands", (string)null);
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebHostRegistration", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("BootstrapJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("IdentityKeyDigest")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<string>("IdentityPublicKeyBase64")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("LastSequence")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("MaximumCapacityJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ProviderInstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("RegisteredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("RegisteredByOrganizationUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RegistrationDigest")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<Guid>("RegistrationRequestId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ReportedHeartbeatJson")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IdentityKeyDigest")
-                        .IsUnique();
-
-                    b.HasIndex("ProviderInstallationId");
-
-                    b.HasIndex("OrganizationId", "RegistrationRequestId")
-                        .IsUnique();
-
-                    b.HasIndex("OrganizationId", "Status", "LastHeartbeatAt");
-
-                    b.ToTable("WebHostRegistrations", (string)null);
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewBrowserSession", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("ClientEventCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("OrganizationUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("PreviewId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("SessionHash")
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<DateTimeOffset?>("TicketConsumedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("TicketExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("TicketHash")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExpiresAt");
-
-                    b.HasIndex("PreviewId");
-
-                    b.HasIndex("SessionHash")
-                        .IsUnique();
-
-                    b.HasIndex("TicketHash")
-                        .IsUnique();
-
-                    b.ToTable("WebPreviewBrowserSessions", (string)null);
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewEvidenceRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("DiagnosticJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Fingerprint")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<long>("HostSequence")
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("PreviewId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("RetainUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RetainUntil");
-
-                    b.HasIndex("PreviewId", "HostSequence")
-                        .IsUnique();
-
-                    b.ToTable("WebPreviewEvidence", (string)null);
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewFindingRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("BoardId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BuildId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("EvidenceJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Fingerprint")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("PreviewId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("RetainUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid?>("TicketId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("TriageInstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("TriageWorkId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PreviewId");
-
-                    b.HasIndex("RetainUntil");
-
-                    b.HasIndex("OrganizationId", "ProjectId", "BuildId", "Fingerprint")
-                        .IsUnique();
-
-                    b.ToTable("WebPreviewFindings", (string)null);
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewGrantRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ApprovalArtifactId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ApprovalContentDigest")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<Guid>("ApprovalProposalId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ApprovalRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ApprovedByOrganizationUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("InstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PolicyJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("ProviderInstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RequestDigest")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<Guid>("RequestedByOrganizationUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("ReservedCpuSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<Guid>("WorkstreamId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ApprovalArtifactId");
-
-                    b.HasIndex("ApprovalProposalId")
-                        .IsUnique();
-
-                    b.HasIndex("ApprovalRevisionId");
-
-                    b.HasIndex("InstallationId");
-
-                    b.HasIndex("ProviderInstallationId");
-
-                    b.HasIndex("WorkstreamId");
-
-                    b.HasIndex("OrganizationId", "InstallationId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("OrganizationId", "WorkstreamId", "Status");
-
-                    b.ToTable("WebPreviewGrants", (string)null);
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewJobRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AccessReference")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<long>("ArtifactLength")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("AssignmentJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("BuildId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FailureCode")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<Guid>("GrantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("GrantRevision")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("InstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("LastAccessAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("LastEvidenceSequence")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ManifestDigest")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<string>("ManifestJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Phase")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<Guid>("ProviderInstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("RepositoryId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RequestDigest")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("SourceArtifactDigest")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("character varying(71)");
-
-                    b.Property<DateTimeOffset?>("TeardownConfirmedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("WebHostId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("WorkstreamId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GrantId");
-
-                    b.HasIndex("OrganizationId", "InstallationId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("OrganizationId", "WorkstreamId", "Phase", "ExpiresAt");
-
-                    b.ToTable("WebPreviewJobs", (string)null);
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewProjectAdmission", b =>
-                {
-                    b.Property<Guid>("WorkstreamId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.HasKey("WorkstreamId");
-
-                    b.ToTable("WebPreviewProjectAdmissions", (string)null);
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewTriageRoute", b =>
-                {
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BoardId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("InstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("OrganizationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ParentItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.HasKey("ProjectId");
-
-                    b.ToTable("WebPreviewTriageRoutes", (string)null);
-                });
-
             modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkBoard", b =>
                 {
                     b.Property<Guid>("Id")
@@ -13015,6 +12999,134 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeAdmission", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeAgentAccess", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Compute.ComputeLocalSetup", null)
+                        .WithMany()
+                        .HasForeignKey("SetupId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.Workstream", null)
+                        .WithMany()
+                        .HasForeignKey("WorkstreamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeEnvironment", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.Workstream", null)
+                        .WithMany()
+                        .HasForeignKey("WorkstreamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeLocalSetup", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeNodeRegistration", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeOperation", b =>
+                {
+                    b.HasOne("CSweet.Domain.Compute.ComputeEnvironment", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeProviderWake", b =>
+                {
+                    b.HasOne("CSweet.Domain.Compute.ComputeOperation", null)
+                        .WithMany()
+                        .HasForeignKey("OperationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeRequestReceipt", b =>
+                {
+                    b.HasOne("CSweet.Domain.Compute.ComputeEnvironment", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeTemplatePlacement", b =>
+                {
+                    b.HasOne("CSweet.Domain.Compute.ComputeNodeRegistration", null)
+                        .WithMany()
+                        .HasForeignKey("NodeId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Compute.ComputeTemplateRegistration", null)
+                        .WithMany()
+                        .HasForeignKey("TemplateRegistrationId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeTemplateRegistration", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.AgentHireOperation", b =>
                 {
                     b.HasOne("CSweet.Domain.Setup.AgentDefinition", null)
@@ -14521,135 +14633,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Repository");
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebHostCommandRecord", b =>
-                {
-                    b.HasOne("CSweet.Domain.Setup.WebPreviewJobRecord", null)
-                        .WithMany()
-                        .HasForeignKey("PreviewId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Setup.WebHostRegistration", null)
-                        .WithMany()
-                        .HasForeignKey("WebHostId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebHostRegistration", b =>
-                {
-                    b.HasOne("CSweet.Domain.Core.Organization", null)
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
-                        .WithMany()
-                        .HasForeignKey("ProviderInstallationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewBrowserSession", b =>
-                {
-                    b.HasOne("CSweet.Domain.Setup.WebPreviewJobRecord", null)
-                        .WithMany()
-                        .HasForeignKey("PreviewId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewEvidenceRecord", b =>
-                {
-                    b.HasOne("CSweet.Domain.Setup.WebPreviewJobRecord", null)
-                        .WithMany()
-                        .HasForeignKey("PreviewId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewFindingRecord", b =>
-                {
-                    b.HasOne("CSweet.Domain.Setup.WebPreviewJobRecord", null)
-                        .WithMany()
-                        .HasForeignKey("PreviewId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewGrantRecord", b =>
-                {
-                    b.HasOne("CSweet.Domain.Core.Artifact", null)
-                        .WithMany()
-                        .HasForeignKey("ApprovalArtifactId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Core.ActionProposal", null)
-                        .WithMany()
-                        .HasForeignKey("ApprovalProposalId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Core.ArtifactRevision", null)
-                        .WithMany()
-                        .HasForeignKey("ApprovalRevisionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
-                        .WithMany()
-                        .HasForeignKey("InstallationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Core.Organization", null)
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
-                        .WithMany()
-                        .HasForeignKey("ProviderInstallationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CSweet.Domain.Core.Workstream", null)
-                        .WithMany()
-                        .HasForeignKey("WorkstreamId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewJobRecord", b =>
-                {
-                    b.HasOne("CSweet.Domain.Setup.WebPreviewGrantRecord", null)
-                        .WithMany()
-                        .HasForeignKey("GrantId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewProjectAdmission", b =>
-                {
-                    b.HasOne("CSweet.Domain.Core.Workstream", null)
-                        .WithMany()
-                        .HasForeignKey("WorkstreamId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CSweet.Domain.Setup.WebPreviewTriageRoute", b =>
-                {
-                    b.HasOne("CSweet.Domain.Core.Workstream", null)
-                        .WithMany()
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkBoard", b =>

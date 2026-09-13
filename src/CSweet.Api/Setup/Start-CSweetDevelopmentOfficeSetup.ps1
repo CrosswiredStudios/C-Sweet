@@ -344,6 +344,15 @@ try {
         if ([String]::IsNullOrWhiteSpace([string]$payloadRoot)) {
             throw 'The certified Office payload was not created.'
         }
+        # Reuse this setup session's UAC approval and progress channel. Image preparation
+        # is an application step, never a command the user has to run.
+        $headquartersRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+        $computePreparation = Join-Path $headquartersRoot 'scripts\Ensure-ComputeLinuxImage.ps1'
+        if (-not (Test-Path -LiteralPath $computePreparation -PathType Leaf)) {
+            throw 'This C-Sweet build is missing its Linux preparation component. Update C-Sweet and retry setup.'
+        }
+        & $computePreparation -ProgressPath $progressPath -ProgressJobId $sessionId `
+            -ProgressHelperPath $progressHelper | Out-Host
         $officeInstaller = Join-Path $officeScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1'
         if (-not (Test-Path -LiteralPath $officeInstaller -PathType Leaf)) {
             throw 'The C-Sweet Office installer is unavailable.'

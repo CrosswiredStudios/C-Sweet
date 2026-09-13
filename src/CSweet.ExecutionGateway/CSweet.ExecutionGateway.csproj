@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup><UsesOfficeContracts>true</UsesOfficeContracts></PropertyGroup>
+  <PropertyGroup><UsesOfficeContracts>true</UsesOfficeContracts><DefineConstants>$(DefineConstants);COMPUTE_GATEWAY</DefineConstants></PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Grpc.AspNetCore" />
   </ItemGroup>
@@ -10,5 +10,13 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="CSweet.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../CSweet.Api/Compute/ComputeProviderEndpoints.cs" Link="Compute/ComputeProviderEndpoints.cs" />
+    <Compile Include="../CSweet.Api/Compute/ComputeResultEndpoint.cs" Link="Compute/ComputeResultEndpoint.cs" />
+    <Compile Include="../CSweet.Api/Compute/ComputeWorkEndpoints.cs" Link="Compute/ComputeWorkEndpoints.cs" />
+    <Compile Include="../CSweet.Api/Compute/ComputeProviderWakeChannels.cs" Link="Compute/ComputeProviderWakeChannels.cs" />
+    <Compile Include="../CSweet.Api/Compute/ComputeProviderWakeWorker.cs" Link="Compute/ComputeProviderWakeWorker.cs" />
+    <Compile Include="../CSweet.Api/Compute/ComputeLocalSetupEndpoints.cs" Link="Compute/ComputeLocalSetupEndpoints.cs" />
   </ItemGroup>
 </Project>

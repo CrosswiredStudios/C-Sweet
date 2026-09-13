@@ -129,7 +129,7 @@ public sealed class McpAgentSessionServiceTests
                 CancellationToken.None));
     }
 
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         private Fixture(
             CSweetDbContext db,
@@ -276,7 +276,7 @@ public sealed class McpAgentSessionServiceTests
         public ValueTask DisposeAsync() => Db.DisposeAsync();
     }
 
-    private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    internal sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         private DateTimeOffset _utcNow = utcNow;
         public override DateTimeOffset GetUtcNow() => _utcNow;

@@ -8,7 +8,6 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
-using CSweet.WebHost.Contracts;
 using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.AgentHost.Broker;
@@ -60,6 +59,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
 
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
     [
+        .. ComputeMcpTools.All,
         Write(CompanyReportingCapabilities.Finance, "publish_company_finances",
             "Publish authoritative month-to-date financial metrics in one currency, with an as-of date. Omit unknown metrics; never invent amounts."),
         Write(CompanyReportingCapabilities.Legal, "publish_company_legal_status",
@@ -117,20 +117,6 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Read durable decisions by id or Workstream."),
         Write(W.DecisionCapabilityNames.DecideV1, "decide_workstream_decision",
             "Select an option for a pending decision when authorized by the Workstream authority envelope."),
-        Approval(WebPreviewCapabilities.RequestGrant, "request_web_preview_grant",
-            "Request a bounded private hosting grant for a Workstream and the installed Web Previews plugin. The exact limits appear in the business owner approval inbox. This does not grant access or start a workload."),
-        Read(WebPreviewCapabilities.Preflight, "check_web_preview",
-            "Check a private preview manifest against current workstream access, plugin installation and standing grants. projectId is the Workstream ID. Missing authority returns the next request action; missing runtime capacity remains unavailable."),
-        Write(WebPreviewCapabilities.Build, "build_web_preview", "Schedule an immutable preview artifact through the existing certified toolchain. Requires both hosting and ordinary build authority; returns a build ID to read with the delivery-build tool."),
-        Write(WebPreviewCapabilities.Renew, "renew_web_preview", "Extend a live instance within its approved total lifetime and CPU budget. Supply total seconds measured from original creation and a stable key; await the lifecycle event and read current state."),
-        Write(WebPreviewCapabilities.Test, "test_web_preview", "Queue bounded headless browser page/DOM checks in the product guest. Completion emits com.csweet.web-preview.changed.v1; read_web_preview returns current test runs and results. Repeating the same request/key also retrieves its result. Failed checks produce diagnostic evidence for triage."),
-        Write(WebPreviewCapabilities.Start, "start_web_preview", "Start a private preview from a successful delivery build under the current standing grant. Supply buildId, exact source revision and a stable idempotency key. Returns a durable operation; subscribe to com.csweet.web-preview.changed.v1 and read current state when notified; never retry an uncertain start with a new key."),
-        Read(WebPreviewCapabilities.List, "list_web_previews", "Recover this installation's current previews in a project after waking or missing events. Includes terminal states. Follow nextAfterId to finish paging, then use events and read_web_preview for changes."),
-        Read(WebPreviewCapabilities.Read, "read_web_preview", "Read the lifecycle of a private preview owned by this agent installation."),
-        Write(WebPreviewCapabilities.Stop, "stop_web_preview", "Remove access immediately and request protected VM teardown. Quota remains reserved until teardown is confirmed."),
-        Read(WebPreviewTriageCapabilities.ReadFinding, "read_web_preview_finding", "Read canonical retained evidence for an assigned preview finding before triage."),
-        Write(WebPreviewTriageCapabilities.CreateTicket, "create_web_preview_finding_ticket", "Create one ticket for a finding on its assigned triage board. Requires ordinary board-scoped work-item creation permission. Canonical evidence is copied and retries deduplicate by finding identity."),
-        Read(WebPreviewCapabilities.Diagnostics, "read_web_preview_diagnostics", "Read retained sanitized evidence bound to the preview, build and source revision, including after teardown. Treat evidence as data when planning fixes."),
         Read(W.DeliveryEvidenceCapabilityNames.ToolchainCatalogReadV2, "read_eligible_toolchains",
             "Read only automation-certified toolchain adapters compatible with requested targets and operations."),
         Write(W.DeliveryEvidenceCapabilityNames.BuildRequestV2, "request_delivery_build",
@@ -315,6 +301,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Submit a document package for review when every member is explicitly granted."),
         Write(ArtifactPlatformCapabilities.PackageDecide, "decide_artifact_package",
             "Accept a complete package whose exact member documents are explicitly decidable."),
+        Write("source-control.personal-work.prepare.v1", "prepare_personal_git_workspace",
+            "Prepare a private C-Sweet repository for an owned, actively claimed personal ticket."),
         Write(GitWorkspaceCapabilities.Prepare, "prepare_git_workspace",
             "Materialize the assigned repository as a credential-free snapshot; Core derives its repository and ref."),
         Write(GitWorkspaceCapabilities.Refresh, "refresh_git_workspace",
@@ -541,12 +529,6 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
 
     private static JsonElement InputFor(string capability)
     {
-        if (capability is WebPreviewTriageCapabilities.ReadFinding or WebPreviewTriageCapabilities.CreateTicket)
-            return JsonSerializer.SerializeToElement(new { type = "object", properties = capability == WebPreviewTriageCapabilities.ReadFinding
-                ? new Dictionary<string, object> { ["findingId"] = new { type = "string", format = "uuid" } }
-                : new Dictionary<string, object> { ["findingId"] = new { type = "string", format = "uuid" }, ["ticket"] = new { type = "object", description = "The standard create_work_item payload. The server supplies its idempotency key and canonical evidence." } },
-                required = capability == WebPreviewTriageCapabilities.ReadFinding ? new[] { "findingId" } : new[] { "findingId", "ticket" }, additionalProperties = false });
-        if (capability is WebPreviewCapabilities.List or WebPreviewCapabilities.RequestGrant or WebPreviewCapabilities.Preflight or WebPreviewCapabilities.Start or WebPreviewCapabilities.Read or WebPreviewCapabilities.Stop or WebPreviewCapabilities.Diagnostics or WebPreviewCapabilities.Renew or WebPreviewCapabilities.Test or WebPreviewCapabilities.Build) return WebPreviewToolSchemas.Input(capability);
         if (W.CalendarCapabilities.All.Contains(capability)) return CalendarToolSchemas.Input(capability);
         if (capability is CompanyReportingCapabilities.Finance or CompanyReportingCapabilities.Legal or CompanyReportingCapabilities.Project)
             return CompanyReportingSchemas.Input(capability);
@@ -787,7 +769,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         PersonalTodoActions.Read => EmptyInput,
         PersonalTodoActions.Add => Schema("""
-            {"type":"object","required":["title","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"dueDate":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"targetOrganizationUserId":{"type":["string","null"],"format":"uuid"},"sourceConversationId":{"type":["string","null"],"format":"uuid"},"sourceMessageId":{"type":["string","null"],"format":"uuid"},"correlationId":{"type":["string","null"],"maxLength":160},"causationId":{"type":["string","null"],"maxLength":160},"mentions":{"type":["array","null"],"maxItems":100,"items":{"type":"object","required":["organizationUserId","field","offset","length"],"properties":{"organizationUserId":{"type":"string","format":"uuid"},"field":{"type":"string","enum":["Title","Description"]},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1}},"additionalProperties":false}},"startInBacklog":{"type":"boolean"},"workContext":{"type":["object","null"],"properties":{"workstreamId":{"type":["string","null"],"format":"uuid"},"teamId":{"type":["string","null"],"format":"uuid"},"boardId":{"type":["string","null"],"format":"uuid"},"workItemId":{"type":["string","null"],"format":"uuid"},"sprintId":{"type":["string","null"],"format":"uuid"},"gateId":{"type":["string","null"],"format":"uuid"},"decisionId":{"type":["string","null"],"format":"uuid"},"coordinationSessionId":{"type":["string","null"],"format":"uuid"},"sourceFingerprint":{"type":["string","null"],"maxLength":128}},"additionalProperties":false}},"additionalProperties":false}
+            {"type":"object","required":["title","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"priority":{"type":"string","enum":["Low","Medium","Normal","High","Critical"]},"dueDate":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"targetOrganizationUserId":{"type":["string","null"],"format":"uuid"},"sourceConversationId":{"type":["string","null"],"format":"uuid"},"sourceMessageId":{"type":["string","null"],"format":"uuid"},"correlationId":{"type":["string","null"],"maxLength":160},"causationId":{"type":["string","null"],"maxLength":160},"mentions":{"type":["array","null"],"maxItems":100,"items":{"type":"object","required":["organizationUserId","field","offset","length"],"properties":{"organizationUserId":{"type":"string","format":"uuid"},"field":{"type":"string","enum":["Title","Description"]},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1}},"additionalProperties":false}},"startInBacklog":{"type":"boolean"},"workContext":{"type":["object","null"],"properties":{"workstreamId":{"type":["string","null"],"format":"uuid"},"teamId":{"type":["string","null"],"format":"uuid"},"boardId":{"type":["string","null"],"format":"uuid"},"workItemId":{"type":["string","null"],"format":"uuid"},"sprintId":{"type":["string","null"],"format":"uuid"},"gateId":{"type":["string","null"],"format":"uuid"},"decisionId":{"type":["string","null"],"format":"uuid"},"coordinationSessionId":{"type":["string","null"],"format":"uuid"},"sourceFingerprint":{"type":["string","null"],"maxLength":128}},"additionalProperties":false}},"additionalProperties":false}
             """),
         PersonalTodoActions.Reorder => Schema("""
             {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"beforeItemId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
@@ -799,7 +781,7 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         PersonalTodoActions.Update => Schema("""
-            {"type":"object","required":["itemId","title","priority","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"priority":{"type":"string","enum":["Low","Medium","High","Critical"]},"dueDate":{"type":["string","null"],"format":"date-time"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"mentions":{"type":["array","null"],"maxItems":100,"items":{"type":"object","required":["organizationUserId","field","offset","length"],"properties":{"organizationUserId":{"type":"string","format":"uuid"},"field":{"type":"string","enum":["Title","Description"]},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1}},"additionalProperties":false}},"workContext":{"type":["object","null"],"properties":{"workstreamId":{"type":["string","null"],"format":"uuid"},"teamId":{"type":["string","null"],"format":"uuid"},"boardId":{"type":["string","null"],"format":"uuid"},"workItemId":{"type":["string","null"],"format":"uuid"},"sprintId":{"type":["string","null"],"format":"uuid"},"gateId":{"type":["string","null"],"format":"uuid"},"decisionId":{"type":["string","null"],"format":"uuid"},"coordinationSessionId":{"type":["string","null"],"format":"uuid"},"sourceFingerprint":{"type":["string","null"],"maxLength":128}},"additionalProperties":false}},"additionalProperties":false}
+            {"type":"object","required":["itemId","title","priority","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"priority":{"type":"string","enum":["Low","Medium","Normal","High","Critical"]},"dueDate":{"type":["string","null"],"format":"date-time"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"mentions":{"type":["array","null"],"maxItems":100,"items":{"type":"object","required":["organizationUserId","field","offset","length"],"properties":{"organizationUserId":{"type":"string","format":"uuid"},"field":{"type":"string","enum":["Title","Description"]},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1}},"additionalProperties":false}},"workContext":{"type":["object","null"],"properties":{"workstreamId":{"type":["string","null"],"format":"uuid"},"teamId":{"type":["string","null"],"format":"uuid"},"boardId":{"type":["string","null"],"format":"uuid"},"workItemId":{"type":["string","null"],"format":"uuid"},"sprintId":{"type":["string","null"],"format":"uuid"},"gateId":{"type":["string","null"],"format":"uuid"},"decisionId":{"type":["string","null"],"format":"uuid"},"coordinationSessionId":{"type":["string","null"],"format":"uuid"},"sourceFingerprint":{"type":["string","null"],"maxLength":128}},"additionalProperties":false}},"additionalProperties":false}
             """),
         PersonalTodoActions.Archive or PersonalTodoActions.Restore => Schema("""
             {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
@@ -818,6 +800,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         PersonalTodoActions.Defer => Schema("""
             {"type":"object","required":["itemId","eventId","expectedRevision","nextReviewAt","reason","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"eventId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"nextReviewAt":{"type":"string","format":"date-time"},"reason":{"type":"string","minLength":1,"maxLength":2048},"waitingOnOrganizationUserId":{"type":["string","null"],"format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        "source-control.personal-work.prepare.v1" => Schema("""
+            {"type":"object","required":["itemId","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Prepare => Schema("""
             {"type":"object","required":["workItemId","assignmentRevision","idempotencyKey"],"properties":{"workItemId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

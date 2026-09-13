@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../CSweet.Compute.Contracts/CSweet.Compute.Contracts.csproj" /></ItemGroup>
+</Project>

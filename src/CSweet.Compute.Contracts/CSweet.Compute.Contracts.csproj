@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../CSweet.Domain/CSweet.Domain.csproj" /></ItemGroup>
+</Project>

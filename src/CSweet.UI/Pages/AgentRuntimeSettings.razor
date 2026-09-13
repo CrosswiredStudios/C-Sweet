@@ -2,7 +2,6 @@
 @layout SettingsLayout
 @using CSweet.Contracts.Setup
 @inject IAgentRuntimeSettingsApiClient AgentRuntimeSettingsApi
-@inject NavigationManager Navigation
 
 <PageTitle>Agent Runtime - C-Sweet</PageTitle>
 
@@ -16,22 +15,10 @@
     </MudPaper>
 
     <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-        <AgentExecutionSetupStep ShowNavigation="false" OnStatusChanged="HandleExecutionStatusChanged" />
-        @if (_isExecutionReady)
-        {
-            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mt-4">
-                <MudStack Spacing="2">
-                    <MudText Typo="Typo.subtitle2">Certified execution capacity is ready.</MudText>
-                    <MudText Typo="Typo.body2">
-                        C-Sweet creates a private VM only while an agent is building or running, then removes it automatically.
-                    </MudText>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.ArrowForward" OnClick="ContinueToAgentBuilds">
-                        Continue to build or run agents
-                    </MudButton>
-                </MudStack>
-            </MudAlert>
-        }
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Outlined.Dns" Color="Color.Primary" />
+            <MudText>Certified execution capacity is managed on the <MudLink Href="/settings/offices">Offices</MudLink> page.</MudText>
+        </MudStack>
     </MudPaper>
 
     @if (_isLoading)
@@ -149,7 +136,6 @@
     private bool _isLoading = true, _isBusy, _enableImportedAgents, _allowAlwaysOnCommunityAgents,
         _allowPublicInternetByDefault, _keepFailedBuildWorkspaces, _removeWorkloadsAfterCompletion,
         _removeWorkspacesAfterCompletion;
-    private bool _isExecutionReady;
     private bool? _actionSucceeded;
     private string? _pageError, _actionMessage;
     private string _defaultActivationMode = "OnDemand", _defaultOverlapPolicy = "Skip", _defaultRestartPolicy = "Never",
@@ -165,11 +151,6 @@
     private Severity ActionMessageSeverity => _actionSucceeded == true ? Severity.Success : Severity.Error;
 
     protected override Task OnInitializedAsync() => LoadAsync();
-
-    private void HandleExecutionStatusChanged(ExecutionCapacityOnboardingResponse status) =>
-        _isExecutionReady = status.IsReady;
-
-    private void ContinueToAgentBuilds() => Navigation.NavigateTo("/settings/agents");
 
     private async Task LoadAsync()
     {

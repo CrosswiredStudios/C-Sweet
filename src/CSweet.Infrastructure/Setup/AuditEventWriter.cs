@@ -72,6 +72,11 @@ public sealed class AuditEventWriter : IAuditEventWriter
                     await db.Database.ExecuteSqlInterpolatedAsync(
                         $"SELECT pg_advisory_xact_lock(hashtext({streamKey}))", cancellationToken);
 
+                if (request.EventId == Guid.Empty) throw new ArgumentException("Audit event identity cannot be empty.");
+                var existing = request.EventId is { } eventId
+                    ? await db.AuditEvents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == eventId, cancellationToken)
+                    : null;
+
                 var previousHash = await db.AuditEvents.AsNoTracking()
                     .Where(x => x.OrganizationId == organizationId && x.IntegrityVersion == 1)
                     .OrderByDescending(x => x.Sequence)
@@ -86,7 +91,7 @@ public sealed class AuditEventWriter : IAuditEventWriter
                     : null;
                 var item = new AuditEvent
                 {
-                    Id = Guid.NewGuid(),
+                    Id = request.EventId ?? Guid.NewGuid(),
                     OrganizationId = organizationId,
                     Category = Clean(request.Category, 48, "Domain"),
                     Direction = Clean(request.Direction, 32, "Internal"),
@@ -133,6 +138,18 @@ public sealed class AuditEventWriter : IAuditEventWriter
                     IntegrityVersion = 1,
                     PreviousRecordHash = previousHash
                 };
+                // Stable producer identity makes delivery safe across a crash after ledger
+                // commit. Compare all sealed evidence, preserving only server-generated values.
+                if (existing is not null)
+                {
+                    item.CreatedAt = existing.CreatedAt;
+                    if (request.OccurredAt is null) item.OccurredAt = existing.OccurredAt;
+                    if (request.TraceId is null && ambient?.TraceId is null) item.TraceId = existing.TraceId;
+                    item.PreviousRecordHash = existing.PreviousRecordHash;
+                    if (AuditIntegrity.ComputeRecordHash(item) != existing.RecordHash)
+                        throw new InvalidOperationException("Audit event identity already has different evidence.");
+                    return existing.Id;
+                }
                 item.RecordHash = AuditIntegrity.ComputeRecordHash(item);
                 item.IntegritySeal = _protector.Protect(item.RecordHash);
                 db.AuditEvents.Add(item);

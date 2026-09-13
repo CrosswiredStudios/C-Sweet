@@ -387,7 +387,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             StructuredMentionsJson = normalized.MentionsJson,
             Kind = WorkItemKind.Task,
             Status = request.StartInBacklog ? WorkTaskStatus.Backlog : WorkTaskStatus.Ready,
-            Priority = Enum.Parse<WorkTaskPriority>(request.Priority, true),
+            Priority = Enum.Parse<WorkTaskPriority>(CanonicalPriority(request.Priority), true),
             DueDate = request.DueDate,
             BoardRank = (await db.CoreWorkTasks.Where(x => x.BoardId == board.Id)
                 .Select(x => (long?)x.BoardRank).MaxAsync(cancellationToken) ?? 0) + 1024,
@@ -492,7 +492,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.Title = normalized.Title;
         item.Description = normalized.Description;
         item.StructuredMentionsJson = normalized.MentionsJson;
-        item.Priority = Enum.Parse<WorkTaskPriority>(request.Priority, true);
+        item.Priority = Enum.Parse<WorkTaskPriority>(CanonicalPriority(request.Priority), true);
         item.DueDate = request.DueDate;
         if (request.WorkContext is not null)
         {
@@ -867,6 +867,10 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             throw new UnauthorizedAccessException("The source message was not addressed to the target agent.");
     }
 
+    // Older agent packages use Normal for the standard Medium priority.
+    private static string CanonicalPriority(string priority) =>
+        string.Equals(priority, "Normal", StringComparison.OrdinalIgnoreCase) ? "Medium" : priority;
+
     private static void ValidateAdd(Wire.AddPersonalTodoItemRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Trim().Length > 512)
@@ -875,7 +879,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             throw new ArgumentException("A personal to-do description cannot exceed 8192 characters.");
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Trim().Length > 160)
             throw new ArgumentException("A personal to-do idempotency key is required.");
-        if (!Enum.TryParse<WorkTaskPriority>(request.Priority, true, out _))
+        if (!Enum.TryParse<WorkTaskPriority>(CanonicalPriority(request.Priority), true, out _))
             throw new ArgumentException("The personal to-do priority is invalid.");
         if ((request.CorrelationId?.Trim().Length ?? 0) > 160 ||
             (request.CausationId?.Trim().Length ?? 0) > 160)
@@ -888,7 +892,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             throw new ArgumentException("A personal task title between 1 and 512 characters is required.");
         if ((description?.Trim().Length ?? 0) > 8192)
             throw new ArgumentException("A personal task description cannot exceed 8192 characters.");
-        if (!Enum.TryParse<WorkTaskPriority>(priority, true, out _))
+        if (!Enum.TryParse<WorkTaskPriority>(CanonicalPriority(priority), true, out _))
             throw new ArgumentException("The personal task priority is invalid.");
     }
 

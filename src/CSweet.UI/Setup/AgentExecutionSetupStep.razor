@@ -45,7 +45,7 @@
         @if (_status.SelectedMode == "local")
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                Prepare RuntimeHost and the signed provider on this machine, then enroll the Office below.
+                C-Sweet prepares this machine automatically. Windows may ask for administrator approval; setup continues here afterward.
             </MudAlert>
             @if (_status.LocalPrerequisites is { Count: > 0 })
             {

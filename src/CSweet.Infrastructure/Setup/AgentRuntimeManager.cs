@@ -19,7 +19,9 @@ public sealed class AgentRuntimeManager(
     IAuditEventWriter auditWriter,
     IOptions<AgentRuntimeManagerOptions> options,
     ILogger<AgentRuntimeManager> logger,
-    IAgentRuntimeEligibilityService eligibility) : IPluginRuntimeManager
+    IAgentRuntimeEligibilityService eligibility,
+    IAgentArtifactStore artifacts,
+    CSweet.Infrastructure.Compute.ComputeDefaultsService? computeDefaults = null) : IPluginRuntimeManager
 {
     private const int MaximumAlwaysOnStartupAttempts = 3;
     private static readonly AgentRuntimeStatus[] WorkloadActiveStatuses =
@@ -31,6 +33,7 @@ public sealed class AgentRuntimeManager(
         bool interactive = false,
         CancellationToken cancellationToken = default)
     {
+        if (computeDefaults is not null) await computeDefaults.EnsureRequestedAsync(installationId, cancellationToken, interactive);
         var activeRuntime = await dbContext.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .OrderByDescending(x => x.QueuedAt)
@@ -140,6 +143,7 @@ public sealed class AgentRuntimeManager(
         if (!runtimeEligibility.IsEligible)
             throw new AgentInstallationException(runtimeEligibility.Reason ?? "The installation is not eligible to restart.");
 
+        if (computeDefaults is not null) await computeDefaults.EnsureRequestedAsync(installationId, cancellationToken, interactive);
         var activeRuntime = await dbContext.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .OrderByDescending(x => x.QueuedAt)
@@ -691,6 +695,23 @@ public sealed class AgentRuntimeManager(
             return true;
         }
 
+        if (!await artifacts.ExistsAsync(NormalizeDigest(package.PackageDigest, "agent artifact"), cancellationToken))
+        {
+            package.Status = AgentPackageVersionStatus.Failed;
+            var definitions = await dbContext.AgentDefinitions
+                .Where(x => x.PackageVersionId == package.Id && x.Status != AgentDefinitionStatus.Disabled)
+                .ToListAsync(cancellationToken);
+            foreach (var definition in definitions)
+            {
+                definition.Status = AgentDefinitionStatus.BuildFailed;
+                definition.IsAvailableForHire = false;
+                definition.UpdatedAt = now;
+            }
+            await FailBeforeStartAsync(instance, now,
+                "The built agent package is missing from Headquarters artifact storage. Retry the package build in agent settings before restarting the agent.",
+                cancellationToken, suppressFurtherAlwaysOnStarts: true);
+            return true;
+        }
         var globalCount = await dbContext.AgentRuntimeInstances.CountAsync(x => WorkloadActiveStatuses.Contains(x.Status), cancellationToken);
         var businessCount = await dbContext.AgentRuntimeInstances.CountAsync(x => WorkloadActiveStatuses.Contains(x.Status) && x.AgentInstallation!.BusinessId == installation.BusinessId, cancellationToken);
         var installationCount = await dbContext.AgentRuntimeInstances.CountAsync(x => WorkloadActiveStatuses.Contains(x.Status) && x.AgentInstallationId == installation.Id, cancellationToken);

@@ -5,7 +5,6 @@ using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using CSweet.WorkManagement.Contracts;
-using CSweet.WebHost.Contracts;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
@@ -47,7 +46,7 @@ public sealed class AgentPlatformEventDispatcher(
                     item.TargetInstallationId,
                     requireSubscription: true,
                     deadline: item.EventType is WorkItemEvents.Assigned or
-                        CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available or WebPreviewEvents.Changed
+                        CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available
                         ? new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero)
                         : now.AddHours(1),
                     cancellationToken: cancellationToken);
@@ -73,7 +72,7 @@ public sealed class AgentPlatformEventDispatcher(
                             recipientInstallationId);
                     }
                 }
-                if ((item.EventType == PersonalTodoEvents.Available || item.EventType == WebPreviewEvents.Changed) && deliveries == 0)
+                if (item.EventType == PersonalTodoEvents.Available && deliveries == 0)
                 {
                     item.Attempts++;
                     item.NextAttemptAt = now.AddSeconds(30);
@@ -114,7 +113,7 @@ public sealed class AgentPlatformEventDispatcher(
                 item.Attempts++;
                 item.NextAttemptAt = now.AddSeconds(Math.Min(60, Math.Pow(2, item.Attempts)));
                 item.LastError = exception.Message;
-                if (item.Attempts >= 12 && item.EventType != WebPreviewEvents.Changed) item.Status = AgentPlatformEventOutboxStatus.Failed;
+                if (item.Attempts >= 12) item.Status = AgentPlatformEventOutboxStatus.Failed;
                 if (audit is not null && item.EventType == ResourceChangeEvents.Requested)
                     await audit.WriteAsync(
                         "management.resource-change.delivery-retry",

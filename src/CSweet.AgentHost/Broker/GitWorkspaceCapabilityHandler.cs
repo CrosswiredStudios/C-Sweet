@@ -19,15 +19,17 @@ namespace CSweet.AgentHost.Broker;
 /// Authorizes assignment-scoped source-control operations and delegates them to CSweet.GitHost.
 /// This process never handles provider credentials and never executes Git or repository code.
 /// </summary>
-public sealed class GitWorkspaceCapabilityHandler(
+public sealed partial class GitWorkspaceCapabilityHandler(
     CSweetDbContext db,
     ITrustedGitHostClient gitHost,
     IScopedActionAuthorizationService authorization,
-    ISourceControlDecisionSigner decisionSigner) : IPlatformCapabilityHandler
+    ISourceControlDecisionSigner decisionSigner,
+    ITrustedSourceControlHostClient? sourceHost = null) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly HashSet<string> Handled =
     [
+        PersonalPrepareCapability,
         GitWorkspaceCapabilities.Prepare,
         GitWorkspaceCapabilities.Refresh,
         GitWorkspaceCapabilities.Inspect,
@@ -69,6 +71,8 @@ public sealed class GitWorkspaceCapabilityHandler(
         {
             object value = request.Capability switch
             {
+                PersonalPrepareCapability => await PreparePersonalAsync(organizationId, installationId,
+                    Read<PersonalPrepareInput>(request), cancellationToken),
                 GitWorkspaceCapabilities.Prepare => await PrepareAsync(
                     organizationId, installationId,
                     Read<PrepareGitWorkspaceRequest>(request), cancellationToken),
@@ -776,6 +780,11 @@ public sealed class GitWorkspaceCapabilityHandler(
         var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.Id == workItemId,
             cancellationToken) ?? throw new KeyNotFoundException("The assigned work item was not found.");
+        var personalBoard = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == item.BoardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Personal, cancellationToken);
+        if (personalBoard is not null)
+            return await RequirePersonalAssignmentAsync(organizationId, installationId, item, personalBoard,
+                assignmentRevision, action, cancellationToken);
         if (item.AssignmentRevision != assignmentRevision)
             throw new UnauthorizedAccessException("The source-control assignment revision is stale.");
         var activeStageKey = await (

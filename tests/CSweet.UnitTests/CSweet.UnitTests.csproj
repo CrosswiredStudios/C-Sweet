@@ -9,6 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/CSweet.Compute.Guest/CSweet.Compute.Guest.csproj" />
+    <ProjectReference Include="../../src/CSweet.Compute.HyperV/CSweet.Compute.HyperV.csproj" />
+    <ProjectReference Include="../../src/CSweet.Compute.Runtime/CSweet.Compute.Runtime.csproj" />
     <PackageReference Include="coverlet.collector">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -46,4 +49,9 @@
   </ItemGroup>
 
   <ItemGroup><EmbeddedResource Include="Fixtures/video-game-production.v2.5.json" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../CSweet.Compute.GuestFixture/CSweet.Compute.GuestFixture.csproj" ReferenceOutputAssembly="false" /></ItemGroup>
+  <Target Name="CopyComputeGuestFixture" AfterTargets="Build">
+    <ItemGroup><ComputeGuestFixtureFiles Include="../CSweet.Compute.GuestFixture/bin/$(Configuration)/$(TargetFramework)/CSweet.Compute.GuestFixture.*" /></ItemGroup>
+    <Copy SourceFiles="@(ComputeGuestFixtureFiles)" DestinationFolder="$(OutDir)guest-fixture" />
+  </Target>
 </Project>

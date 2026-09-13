@@ -1,0 +1,215 @@
+@page "/organizations/{OrganizationId:guid}/compute"
+@using CSweet.Contracts.Compute
+@implements IDisposable
+@inject HttpClient Http
+
+<PageTitle>Compute - C-Sweet</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6 compute-page">
+    <div class="compute-heading">
+        <div>
+            <MudText Typo="Typo.overline">Business resources</MudText>
+            <MudText Typo="Typo.h4">Compute</MudText>
+            <MudText Color="Color.Secondary">Test instances requested by your agents.</MudText>
+        </div>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_loading" OnClick="LoadAsync">Refresh</MudButton>
+    </div>
+    <div class="compute-freshness" role="status">
+        @if (_dashboard is not null)
+        {
+            <span>Checked @_dashboard.CheckedAt.ToLocalTime().ToString("T") · Refreshes every 10 seconds</span>
+        }
+    </div>
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+    }
+    @if (_dashboard is null && _loading)
+    {
+        <MudProgressLinear Indeterminate="true" aria-label="Loading compute" />
+    }
+    @if (_dashboard is { } dashboard)
+    {
+        @if (dashboard.Setup is { } setup)
+        {
+            <MudPaper Outlined="true" Elevation="0" Class="compute-setup pa-5 mb-6">
+                <div class="compute-heading">
+                    <MudText Typo="Typo.h6">Linux preparation</MudText>
+                    <MudChip T="string" Color="@StateColor(setup.State)" Size="Size.Small">@SetupLabel(setup.State)</MudChip>
+                </div>
+                <MudText Class="mt-2">@(setup.DownloadSecondsRemaining == 0 ? "Download complete. Preparing the Linux image." : setup.Stage)</MudText>
+                @if (setup.State == "Running" && setup.PreparationStep > 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mt-2">Step @setup.PreparationStep of 3 · Download image → Prepare Linux image → Install compute service</MudText>
+                }
+                @if (setup.PreparationStep == 2)
+                {
+                    <MudText Typo="Typo.h6" Class="mt-3">Expected duration: 10–30 minutes</MudText>
+                    <MudText Typo="Typo.caption">This is the expected duration of the image-build stage. A reliable time remaining is not available yet.</MudText>
+                }
+                @if (setup.DownloadedBytes is { } bytes)
+                {
+                    @if (setup.TotalDownloadBytes is > 0)
+                    {
+                        var percent = Math.Clamp(100d * bytes / setup.TotalDownloadBytes.Value, 0, 100);
+                        <div class="compute-heading mt-3">
+                            <MudText Typo="Typo.h6">@percent.ToString("0")% · @Downloaded(bytes) of @Downloaded(setup.TotalDownloadBytes.Value)</MudText>
+                            <MudText Typo="Typo.subtitle1">@DownloadEta(setup)</MudText>
+                        </div>
+                        <MudProgressLinear Value="percent" Color="Color.Primary" Size="Size.Medium" Class="my-3"
+                                           aria-label="Linux image download progress" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.h6" Class="mt-2">@Downloaded(bytes) downloaded</MudText>
+                        <MudText Typo="Typo.body2">Total size unavailable · Estimated time unavailable</MudText>
+                    }
+                    @if (setup.DownloadBytesPerSecond is { } speed)
+                    {
+                        <MudText Typo="Typo.body2">@(speed / 1_000_000d < 1 ? $"{speed / 1_000d:0} KB/s" : $"{speed / 1_000_000d:0.0} MB/s") · Recent average speed</MudText>
+                    }
+                    @if (setup.DownloadSecondsRemaining != 0)
+                    {
+                        <MudText Typo="Typo.caption">Time remaining is for the download. Image preparation and instance startup follow.</MudText>
+                    }
+                }
+                @if (setup.State is "Running" or "Pending")
+                {
+                    @if (setup.InstallerRunning == true)
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-2">Installer process is running · Verified @dashboard.CheckedAt.ToLocalTime().ToString("T")</MudText>
+                    }
+                    <MudText Typo="Typo.body2" Class="mt-2">Agents waiting for compute continue automatically when preparation finishes.</MudText>
+                    @if (setup.LastProgressAt is { } progress && dashboard.CheckedAt - progress > TimeSpan.FromMinutes(2))
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mt-3">No recent progress reported. The last update was @progress.ToLocalTime().ToString("g"). Preparation may still be working; this is not confirmation that it has stopped.</MudAlert>
+                    }
+                    else if (setup.LastProgressAt is { } recent)
+                    {
+                        <MudText Typo="Typo.caption">Progress reported @recent.ToLocalTime().ToString("T")</MudText>
+                    }
+                }
+                @if (setup.FailureCode is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mt-3">Preparation could not complete. Reference: @setup.FailureCode</MudAlert>
+                }
+            </MudPaper>
+        }
+        <MudText Typo="Typo.h6" Class="mb-3">Instances <span class="compute-count">@dashboard.Resources.Count</span></MudText>
+        @if (dashboard.Resources.Count == 0)
+        {
+            <MudPaper Outlined="true" Elevation="0" Class="compute-empty pa-8">
+                <MudIcon Icon="@Icons.Material.Outlined.Dns" Size="Size.Large" Color="Color.Secondary" />
+                <MudText Typo="Typo.h6" Class="mt-2">No compute instances yet</MudText>
+                <MudText Class="mt-2">@(dashboard.Setup?.State is "Pending" or "Running" ? "Linux preparation is underway. Provisioned instances will appear here." : "Instances appear here when an agent requests compute for this business.")</MudText>
+            </MudPaper>
+        }
+        else
+        {
+            <MudTable Items="dashboard.Resources" Hover="true" Elevation="0" Breakpoint="Breakpoint.Md" Class="compute-table">
+                <HeaderContent>
+                    <MudTh>Instance</MudTh><MudTh>Agent / project</MudTh><MudTh>State</MudTh><MudTh>Resources</MudTh><MudTh>Lease expires</MudTh><MudTh>Last change</MudTh><MudTh>Network grants</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Instance"><strong>@context.OperatingSystem</strong><br /><span class="compute-id">@context.Id.ToString("N")[..8]</span></MudTd>
+                    <MudTd DataLabel="Agent / project"><strong>@context.Agent</strong><br />@context.Project</MudTd>
+                    <MudTd DataLabel="State">
+                        <MudChip T="string" Color="@StateColor(context.State)" Size="Size.Small">@context.State</MudChip>
+                        @if (context.FailureCode is not null) { <div class="compute-failure">@context.FailureCode</div> }
+                        @if (context.State is "Requested" or "Provisioning" or "Bootstrapping" && dashboard.CheckedAt - context.UpdatedAt > TimeSpan.FromMinutes(2))
+                        {
+                            <div class="compute-failure">No recent provider update. Startup may be stalled.</div>
+                        }
+                        @if (context.DesiredState == "Destroyed" && context.State != "Destroyed") { <div>Removal requested</div> }
+                        @if (context.LeaseExpiresAt <= dashboard.CheckedAt && context.State != "Destroyed") { <div>Lease expired</div> }
+                    </MudTd>
+                    <MudTd DataLabel="Resources">@context.CpuCount CPU · @(context.MemoryMiB / 1024d) GiB RAM<br />@(context.DiskMiB / 1024d) GiB disk</MudTd>
+                    <MudTd DataLabel="Lease expires">@context.LeaseExpiresAt.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Last change">@context.UpdatedAt.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Network grants">
+                        <div>@(context.LocalLinkAllowed ? "Local test link allowed" : "Local test link not granted")</div>
+                        <MudText Typo="Typo.caption">Guest port 8080 · This instance only · Expires with its lease</MudText>
+                        @if (dashboard.CanManageNetwork && context.LeaseExpiresAt > dashboard.CheckedAt && context.State is not ("Destroyed" or "Destroying"))
+                        {
+                            <MudButton Size="Size.Small" Disabled="_grantBusy" OnClick="@(() => SetLocalLinkAsync(context))">@(context.LocalLinkAllowed ? "Revoke local link" : "Grant local link access")</MudButton>
+                        }
+                        <MudText Typo="Typo.caption">Outbound, private-network and public internet access are not granted by this action.</MudText>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+            @if (dashboard.HasMore) { <MudText Typo="Typo.caption">Showing the 100 most recent instances.</MudText> }
+        }
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    private readonly CancellationTokenSource _stop = new();
+    private ComputeDashboard? _dashboard;
+    private Guid _loadedOrganization;
+    private bool _loading;
+    private string? _error;
+    private bool _grantBusy;
+    private async Task SetLocalLinkAsync(ComputeResourceStatus resource)
+    {
+        _grantBusy = true;
+        try
+        {
+            using var response = await Http.PutAsJsonAsync($"api/organizations/{OrganizationId}/compute/{resource.Id}/local-link", new { enabled = !resource.LocalLinkAllowed }, _stop.Token);
+            response.EnsureSuccessStatusCode();
+            await LoadAsync();
+        }
+        catch (Exception) { _error = "Could not change the network grant. Refresh Compute and try again."; }
+        finally { _grantBusy = false; }
+    }
+    protected override void OnInitialized() => _ = RefreshLoopAsync();
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedOrganization == OrganizationId) return;
+        _loadedOrganization = OrganizationId;
+        _dashboard = null;
+        _error = null;
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        if (_loading || _stop.IsCancellationRequested) return;
+        var organization = OrganizationId;
+        _loading = true;
+        try
+        {
+            var result = await Http.GetFromJsonAsync<ComputeDashboard>($"api/organizations/{organization}/compute", _stop.Token);
+            if (organization != OrganizationId) return;
+            _dashboard = result;
+            _error = null;
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception) { if (organization == OrganizationId) _error = "Could not refresh compute. Displayed information may be out of date. Please try again."; }
+        finally { _loading = false; }
+    }
+    private async Task RefreshLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_stop.Token))
+                await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+    private static string Downloaded(long bytes) => bytes >= 1_000_000_000 ? $"{bytes / 1_000_000_000d:0.00} GB" : $"{bytes / 1_000_000d:0} MB";
+    private static string DownloadEta(ComputeSetupStatus setup)
+    {
+        if (setup.DownloadSecondsRemaining == 0) return "Download complete";
+        if (setup.DownloadWaitingForProgress) return "Waiting for download progress · ETA unavailable";
+        if (setup.DownloadSecondsRemaining is not { } seconds) return "Estimating time remaining…";
+        if (seconds < 60) return "Less than a minute remaining";
+        if (seconds < 3600) return $"About {Math.Ceiling(seconds / 60):0} minutes remaining";
+        var minutes = (long)Math.Ceiling(seconds / 60);
+        return $"About {minutes / 60}h {minutes % 60}m remaining";
+    }
+    private static string SetupLabel(string state) => state == "Running" ? "Preparing" : state;
+    private static Color StateColor(string state) => state switch { "Ready" => Color.Success, "Failed" => Color.Error,
+        "Running" or "Provisioning" or "Bootstrapping" or "Busy" => Color.Info, "Stopped" or "Destroyed" => Color.Default, _ => Color.Warning };
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

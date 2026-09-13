@@ -1,3 +1,4 @@
+using CSweet.ExecutionGateway.Compute;
 using CSweet.Office.Contracts.ControlPlane;
 using CSweet.Application.Setup;
 using CSweet.ExecutionGateway;
@@ -14,6 +15,8 @@ builder.WebHost.ConfigureKestrel(kestrel => kestrel.ConfigureHttpsDefaults(https
 }));
 builder.AddServiceDefaults();
 builder.AddCSweetInfrastructure();
+builder.Services.AddComputeProviderIngress();
+builder.Services.AddHostedService<ComputeProviderWakeWorker>();
 builder.Services.AddGrpc(options =>
 {
     options.MaxReceiveMessageSize = 16 * 1024 * 1024;
@@ -36,6 +39,8 @@ builder.Services.AddRateLimiter(options =>
 });
 var app = builder.Build();
 app.UseRateLimiter();
+app.MapComputeProviderEndpoints();
+app.MapComputeLocalSetupEndpoints();
 app.MapPost("/api/offices/{officeId:guid}/certificate/challenge", async (
     Guid officeId, HttpContext context, IExecutionFleetService fleet, CancellationToken cancellationToken) =>
 {

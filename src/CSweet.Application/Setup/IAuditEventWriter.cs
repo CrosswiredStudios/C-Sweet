@@ -38,7 +38,8 @@ public sealed record AuditEventWriteRequest(
     ReadOnlyMemory<byte>? Payload = null,
     string? ErrorCode = null,
     string? ErrorMessage = null,
-    bool UseAmbientOrganization = true);
+    bool UseAmbientOrganization = true,
+    Guid? EventId = null);
 
 public sealed record AuditActor(
     string Kind,

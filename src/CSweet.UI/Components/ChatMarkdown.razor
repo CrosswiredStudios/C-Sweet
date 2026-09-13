@@ -1,4 +1,7 @@
 @using Markdig
+@using Markdig.Renderers.Html
+@using Markdig.Syntax
+@using Markdig.Syntax.Inlines
 
 <div class="chat-markdown">@((MarkupString)Render(Content))</div>
 
@@ -11,5 +14,19 @@
     [Parameter, EditorRequired]
     public string Content { get; set; } = string.Empty;
 
-    private static string Render(string value) => Markdown.ToHtml(value, Pipeline);
+    private static string Render(string value)
+    {
+        var document = Markdown.Parse(value, Pipeline);
+        foreach (var link in document.Descendants<LinkInline>().Where(link => !link.IsImage))
+        {
+            if (Uri.TryCreate(link.Url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
+            {
+                var attributes = link.GetAttributes();
+                attributes.Properties?.RemoveAll(property => property.Key is "target" or "rel");
+                attributes.AddPropertyIfNotExist("target", "_blank");
+                attributes.AddPropertyIfNotExist("rel", "noopener noreferrer");
+            }
+        }
+        return document.ToHtml(Pipeline);
+    }
 }
