@@ -199,39 +199,33 @@
 </MudContainer>
 }
 
-<MudDialog @bind-Visible="_personalBoardOpen"
-           Options="@(new DialogOptions { FullScreen = true, FullWidth = true })">
-    <TitleContent>
-        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-            <div>
-                <MudText Typo="Typo.overline" Color="Color.Primary">Protected work</MudText>
-                <MudText Typo="Typo.h5">@(_selectedPersonalBoard?.OwnerDisplayName ?? "Personal board")</MudText>
-            </div>
-            <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="ClosePersonalBoard"
-                           aria-label="Close personal board" />
-        </MudStack>
-    </TitleContent>
+<MudDialog @bind-Visible="_personalBoardOpen" Class="personal-board-dialog" ContentClass="personal-board-dialog-content" Options="@(new DialogOptions { FullScreen = true, FullWidth = true, NoHeader = true, CloseOnEscapeKey = true })">
     <DialogContent>
         @if (_personalBoardLoading)
         {
             <MudProgressLinear Indeterminate="true" />
         }
-        else if (!string.IsNullOrWhiteSpace(_personalBoardDialogError))
+        @if (!string.IsNullOrWhiteSpace(_personalBoardDialogError))
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
                 @_personalBoardDialogError
             </MudAlert>
         }
-        else if (_selectedPersonalBoard is not null)
+        @if (_selectedPersonalBoard is not null && string.IsNullOrWhiteSpace(_personalBoardDialogError))
         {
-            <EmployeePersonalBoard OrganizationId="OrganizationId"
+            <EmployeePersonalBoard @key="_selectedPersonalBoard.BoardId" OrganizationId="OrganizationId"
                 EmployeeId="_selectedPersonalBoard.OwnerOrganizationUserId"
                 Board="_selectedPersonalBoard"
                 CanAdd="true"
                 CanExecute="@(_personalTodos?.CurrentOrganizationUserId == _selectedPersonalBoard.OwnerOrganizationUserId)"
                 IncludeArchived="_personalBoardIncludeArchived"
                 IncludeArchivedChanged="SetPersonalBoardIncludeArchivedAsync"
-                RefreshRequested="RefreshPersonalBoardDialogAsync" />
+                CloseRequested="ClosePersonalBoard" RefreshRequested="RefreshPersonalBoardDialogAsync" />
+        }
+
+        @if (_selectedPersonalBoard is null || !string.IsNullOrWhiteSpace(_personalBoardDialogError))
+        {
+            <button type="button" class="mud-button-root mud-button-text pa-3" @onclick="ClosePersonalBoard">Close personal board</button>
         }
     </DialogContent>
 </MudDialog>

@@ -65,6 +65,21 @@ public static class WorkBoardEndpoints
             { return Results.BadRequest(new { error = "invalid_personal_todo", message = exception.Message }); }
         });
 
+        personalTodoGroup.MapPost("/items/activate", async (
+            Guid organizationId, Wire.ActivatePersonalTodoItemRequest request,
+            HttpContext http, CSweetDbContext db, IPersonalTodoService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actor = await ResolvePersonalTodoActorAsync(organizationId, http, db, cancellationToken);
+            if (actor is null) return Results.Unauthorized();
+            try { return Results.Ok(await service.ActivateAsync(organizationId, actor, request, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (DbUpdateConcurrencyException exception)
+            { return Results.Conflict(new { error = "revision_conflict", message = exception.Message }); }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            { return Results.BadRequest(new { error = "invalid_personal_task", message = exception.Message }); }
+        });
         personalTodoGroup.MapPost("/items/requeue", async (
             Guid organizationId, Wire.RequeuePersonalTodoItemRequest request,
             HttpContext http, CSweetDbContext db, IPersonalTodoService service,

@@ -24,7 +24,7 @@ public static class AgentWorkFailure
         {
             "platform.llm.chat-stream.v1" => "Inference could not run. Check the configured provider's model readiness and inference diagnostics, then retry this task.",
             "platform.decision.decide.v1" => "The project decision could not be approved. Check its authority and current revision before retrying this task.",
-            _ => "This task stopped after a non-retryable execution failure. Review the agent's work diagnostics and resolve the cause before retrying."
+            _ => "This task stopped after an execution failure exhausted automatic recovery or could not be retried. Review the agent's work diagnostics and resolve the cause before retrying."
         };
     }
 }

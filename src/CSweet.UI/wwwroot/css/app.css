@@ -2162,3 +2162,10 @@ body { color: var(--cs-navy); }
 .installed-agent-version-check:hover:not(:disabled) { color: var(--mud-palette-info); text-decoration: underline; }
 .installed-agent-version-check:disabled { cursor: default; opacity: .6; }
 .installed-agent-version-check:focus-visible { outline: 2px solid var(--mud-palette-info); outline-offset: 3px; border-radius: 3px; }
+
+/* Personal board dialogs are rendered in MudBlazor's portal, outside component ancestry. */
+.personal-task-dialog.mud-dialog { max-width: 820px; border-radius: 20px; overflow: hidden; border: 1px solid var(--mud-palette-lines-default); box-shadow: 0 24px 80px #142c4340, 0 4px 12px #142c4314; }
+.personal-task-dialog .personal-task-dialog-content { padding: 0; margin: 0; }
+.personal-board-filter-popover { border-radius: 15px !important; border: 1px solid var(--mud-palette-lines-default); box-shadow: 0 18px 50px #233d5924, 0 3px 9px #233d5910 !important; }
+.personal-board-dialog .personal-board-dialog-content { padding: 20px; }
+@media (max-width: 600px) { .personal-board-dialog .personal-board-dialog-content { padding: 8px; } }

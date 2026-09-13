@@ -25,6 +25,8 @@ public sealed class PlatformLlmQueueTests
         var second = await fixture.StartAsync(fixture.Second);
         var result = await fixture.WaitCompletedAsync(fixture.First, first);
         Assert.Equal("Failed", result.GetProperty("state").GetString());
+        Assert.True(result.GetProperty("retryable").GetBoolean());
+        Assert.Equal("llm.provider_unavailable", result.GetProperty("failureCode").GetString());
         Assert.Contains("generation time limit", result.GetProperty("error").GetString());
         await using var scope = fixture.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
@@ -34,6 +36,16 @@ public sealed class PlatformLlmQueueTests
         await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
         Assert.Equal("Completed", (await fixture.WaitCompletedAsync(fixture.Second, second)).GetProperty("state").GetString());
         Assert.Equal(1, fixture.Executor.MaximumActive);
+    }
+
+    [Fact]
+    public void UnboundedPersonalWorkDeadlineDoesNotOverflowWhileWaitingForInference()
+    {
+        var deadline = new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero);
+        Assert.Equal(DateTimeOffset.MaxValue, PlatformLlmJobService.ExtendDeadline(deadline, TimeSpan.FromSeconds(5)));
+        Assert.Equal(DateTimeOffset.MaxValue, PlatformLlmJobService.ExtendDeadline(DateTimeOffset.MaxValue, TimeSpan.FromSeconds(5)));
+        var bounded = DateTimeOffset.UtcNow;
+        Assert.Equal(bounded.AddMinutes(1), PlatformLlmJobService.ExtendDeadline(bounded, TimeSpan.FromMinutes(1)));
     }
 
     [Fact]

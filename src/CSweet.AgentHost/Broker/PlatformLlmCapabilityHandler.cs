@@ -236,6 +236,7 @@ public sealed class PlatformLlmCapabilityHandler
 
         IAsyncEnumerator<ChatResponseUpdate>? updates = null;
         string? providerError = null;
+        var providerRetryable = false;
         try
         {
             _logger.LogInformation(
@@ -273,6 +274,7 @@ public sealed class PlatformLlmCapabilityHandler
         catch (OperationCanceledException) when (requestToken.IsCancellationRequested)
         {
             providerError = "The platform LLM request timed out.";
+            providerRetryable = true;
         }
         catch (Exception exception)
         {
@@ -285,6 +287,7 @@ public sealed class PlatformLlmCapabilityHandler
                 input.ProviderProfileId,
                 selectedModel);
             providerError = LlmProviderFailureMessage.From(exception);
+            providerRetryable = LlmProviderFailureMessage.IsTransient(exception);
         }
 
         if (providerError is not null || updates is null)
@@ -298,7 +301,7 @@ public sealed class PlatformLlmCapabilityHandler
                 responseText,
                 providerError);
             await TryPersistRunLogAsync(runLog, CancellationToken.None);
-            yield return Failure(request.RequestId, providerError ?? "The platform LLM provider could not start the request.");
+            yield return Failure(request.RequestId, providerError ?? "The platform LLM provider could not start the request.", providerRetryable);
             yield break;
         }
 
@@ -332,6 +335,7 @@ public sealed class PlatformLlmCapabilityHandler
                 catch (OperationCanceledException) when (requestToken.IsCancellationRequested)
                 {
                     providerError = "The platform LLM request timed out.";
+                    providerRetryable = true;
                 }
                 catch (Exception exception)
                 {
@@ -344,6 +348,7 @@ public sealed class PlatformLlmCapabilityHandler
                         input.ProviderProfileId,
                         selectedModel);
                     providerError = LlmProviderFailureMessage.From(exception);
+                    providerRetryable = LlmProviderFailureMessage.IsTransient(exception);
                 }
 
                 if (providerError is not null)
@@ -357,7 +362,7 @@ public sealed class PlatformLlmCapabilityHandler
                         responseText,
                         providerError);
                     await TryPersistRunLogAsync(runLog, CancellationToken.None);
-                    yield return Failure(request.RequestId, providerError);
+                    yield return Failure(request.RequestId, providerError, providerRetryable);
                     yield break;
                 }
 
@@ -845,12 +850,14 @@ public sealed class PlatformLlmCapabilityHandler
         HasMore = hasMore
     };
 
-    private static CapabilityResult Failure(string requestId, string error) => new()
+    private static CapabilityResult Failure(string requestId, string error, bool retryable = false) => new()
     {
         RequestId = requestId,
         Succeeded = false,
         ContentType = "application/json",
         Error = error,
+        FailureCode = retryable ? "llm.provider_unavailable" : "llm.request_failed",
+        Retryable = retryable,
         HasMore = false
     };
 }

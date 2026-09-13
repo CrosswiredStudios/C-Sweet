@@ -2,6 +2,14 @@ namespace CSweet.AgentHost.Broker;
 
 internal static class LlmProviderFailureMessage
 {
+    internal static bool IsTransient(Exception exception) => exception switch
+    {
+        HttpRequestException http => http.StatusCode is null || (int)http.StatusCode is 408 or 429 or >= 500,
+        System.ClientModel.ClientResultException client => client.Status is 408 or 429 or >= 500,
+        TimeoutException or System.Net.Sockets.SocketException => true,
+        _ => exception.Message.Contains("No model loaded", StringComparison.OrdinalIgnoreCase)
+    };
+
     // Return approved explanations, never raw provider bodies, endpoints, credentials or prompts.
     internal static string From(Exception exception)
     {

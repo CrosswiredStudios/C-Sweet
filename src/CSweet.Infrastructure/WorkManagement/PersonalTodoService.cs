@@ -158,12 +158,13 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 x.Status == AgentPlatformEventOutboxStatus.Pending &&
                 x.IdempotencyKey.StartsWith(prefix), cancellationToken);
             if (hasPendingWake) continue;
-            // SDK failures release a claim before reporting the failed delivery. Do not turn a
-            // permanent failure back into a fresh availability event every reconciliation pass.
+            // SDK failures release a claim before reporting the failed delivery. Dead-lettered
+            // deliveries have exhausted recovery (or failed permanently); reconciliation must
+            // not reset their attempt budget by creating a fresh availability event.
             var lastDelivery = await db.AgentWorkItems.AsNoTracking().Where(x =>
                     x.AgentInstallationId == owner.AgentInstallationId && x.IdempotencyKey.StartsWith(prefix))
                 .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken);
-            if (lastDelivery?.Status == AgentWorkStatus.DeadLetter && AgentWorkFailure.IsNonRetryable(lastDelivery.LastError))
+            if (lastDelivery?.Status == AgentWorkStatus.DeadLetter)
             {
                 var task = await db.CoreWorkTasks.SingleAsync(x => x.Id == ready.Id, cancellationToken);
                 if (task.Status == WorkTaskStatus.Ready && task.ClaimEventId == null)
@@ -556,7 +557,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         if (item.ArchivedAt.HasValue)
             throw new InvalidOperationException("Restore this personal task before changing its status.");
         if (!Enum.TryParse<WorkTaskStatus>(request.Status, true, out var status) ||
-            status is not (WorkTaskStatus.Ready or WorkTaskStatus.Running or
+            status is not (WorkTaskStatus.Backlog or WorkTaskStatus.Ready or WorkTaskStatus.Running or
                 WorkTaskStatus.Blocked or WorkTaskStatus.Completed))
             throw new ArgumentException("The requested personal task status is invalid.");
         if (status == WorkTaskStatus.Blocked && string.IsNullOrWhiteSpace(request.Reason))
@@ -1142,6 +1143,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
 
     private static WorkBoardColumn ColumnForStatus(WorkBoard board, WorkTaskStatus status) => status switch
     {
+        WorkTaskStatus.Backlog => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo),
         WorkTaskStatus.Completed => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Done),
         WorkTaskStatus.Ready => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo),
         WorkTaskStatus.Blocked => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Blocked),

@@ -69,6 +69,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         public DateTimeOffset? FinishedAt { get; set; }
         public string State { get; set; } = "Received";
         public string? Error { get; set; }
+        public bool Retryable { get; set; }
         public PlatformLlmResultBuffer Results { get; } = new();
         public CancellationTokenSource Cancellation { get; } = new();
         public Task? Execution { get; set; }
@@ -129,7 +130,9 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
             var page = job.Results.Read(after);
             return new { jobId = id, state = job.State, workId = job.WorkId, workDeadline = deadline,
                 next = after + page.Length, completed = job.FinishedAt.HasValue && after + page.Length == job.Results.End,
-                error = job.Error, chunks = page.Select(x => new { x.Succeeded, x.HasMore, x.Sequence, x.Error,
+                error = job.Error, retryable = job.Retryable,
+                failureCode = job.Error is null ? null : job.Retryable ? "llm.provider_unavailable" : "llm.request_failed",
+                chunks = page.Select(x => new { x.Succeeded, x.HasMore, x.Sequence, x.Error, x.FailureCode, x.Retryable,
                     payload = x.Payload.IsEmpty ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(x.Payload.Span) }) };
         }
     }
@@ -177,7 +180,11 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                 lock (job.Sync)
                 {
                     job.Results.Add(result);
-                    if (!result.Succeeded) job.Error = result.Error ?? "The provider request failed.";
+                    if (!result.Succeeded)
+                    {
+                        job.Error = result.Error ?? "The provider request failed.";
+                        job.Retryable = result.Retryable == true;
+                    }
                 }
             }
             await AccountWaitAsync(job, token);
@@ -186,6 +193,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         catch (OperationCanceledException)
         {
             var callerCancelled = job.Cancellation.IsCancellationRequested || shutdown.IsCancellationRequested;
+            job.Retryable = !callerCancelled;
             job.Error = callerCancelled
                 ? "The inference request was cancelled or its caller disconnected."
                 : "The provider exceeded its generation time limit.";
@@ -197,6 +205,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         {
             logger.LogWarning(exception, "Inference job {JobId} failed.", job.Id);
             job.Error = "The inference request failed. Review the provider/runtime diagnostics.";
+            job.Retryable = LlmProviderFailureMessage.IsTransient(exception);
             await SetStateAsync(job, "Failed", CancellationToken.None);
         }
         finally { lock (job.Sync) job.FinishedAt = clock.GetUtcNow(); }
@@ -229,7 +238,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                     .Value.InferenceWaitAllowanceSeconds;
                 if (now - job.CreatedAt > TimeSpan.FromSeconds(Math.Clamp(allowance, 0, 86400)))
                     throw new InvalidOperationException("The infrastructure inference waiting allowance was exhausted.");
-                work.DeadlineAt += delta;
+                work.DeadlineAt = ExtendDeadline(work.DeadlineAt, delta);
                 var previous = runtimeAccounted.GetValueOrDefault(runtimeId, job.AccountedAt);
                 if (previous < job.AccountedAt) previous = job.AccountedAt;
                 if (now > previous) runtime.RuntimeDeadlineAt += now - previous;
@@ -242,6 +251,10 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         }
         finally { budgetGate.Release(); }
     }
+
+    internal static DateTimeOffset ExtendDeadline(DateTimeOffset deadline, TimeSpan elapsed) =>
+        elapsed <= TimeSpan.Zero ? deadline :
+        elapsed >= DateTimeOffset.MaxValue - deadline ? DateTimeOffset.MaxValue : deadline + elapsed;
 
     private async Task SetStateAsync(Job job, string state, CancellationToken token)
     {

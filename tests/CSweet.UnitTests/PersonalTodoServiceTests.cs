@@ -445,8 +445,11 @@ public sealed class PersonalTodoServiceTests
         Assert.NotNull((await db.CoreWorkTasks.SingleAsync(x => x.Id == item.Id)).ArchivedAt);
     }
 
-    [Fact]
-    public async Task PermanentDeliveryFailureBecomesVisibleBlockerInsteadOfNewWakeLoop()
+    [Theory]
+    [InlineData("agent-failure:v1;code=capability.failed;retryable=false;capability=platform.decision.decide.v1;diagnosticId=test", "authority")]
+    [InlineData("agent-failure:v1;code=agent.unhandled;diagnosticId=test", "automatic recovery")]
+    [InlineData("agent-failure:v1;code=runtime.transport;retryable=true;diagnosticId=test", "automatic recovery")]
+    public async Task ExhaustedDeliveryFailureBecomesVisibleBlockerInsteadOfNewWakeLoop(string error, string reason)
     {
         await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
         var service = new PersonalTodoService(db, TimeProvider.System);
@@ -458,15 +461,22 @@ public sealed class PersonalTodoServiceTests
             AgentInstallationId = setup.Agent.AgentInstallationId!.Value, Name = Wire.PersonalTodoEvents.Available,
             IdempotencyKey = wake.IdempotencyKey + ":" + setup.Agent.AgentInstallationId,
             Status = AgentWorkStatus.DeadLetter, CreatedAt = DateTimeOffset.UtcNow,
-            LastError = "agent-failure:v1;code=capability.failed;retryable=false;capability=platform.decision.decide.v1;diagnosticId=test" });
+            LastError = error, AttemptCount = 3, MaximumAttempts = 3 });
         await db.SaveChangesAsync();
         await service.ReconcileAsync(); await service.ReconcileAsync();
         var task = await db.CoreWorkTasks.SingleAsync(x => x.Id == added.Id);
         Assert.Equal(WorkTaskStatus.Blocked, task.Status);
-        Assert.Contains("authority", task.BlockReason);
+        Assert.Contains(reason, task.BlockReason);
         Assert.Equal(WorkBoardColumnCategory.Blocked, (await db.WorkBoardColumns.SingleAsync(x => x.Id == task.BoardColumnId)).Category);
         Assert.Single(await db.AgentPlatformEventOutbox.ToListAsync());
         Assert.Single(await db.UserNotifications.Where(x => x.Category == "PersonalTodoBlocked").ToListAsync());
+        var requeued = await service.RequeueAsync(setup.Organization.Id,
+            new PersonalTodoActor(setup.FirstManager.Id, null), new(task.Id, task.Revision, "retry-after-fix"));
+        await service.ReconcileAsync();
+        Assert.Equal(Wire.PersonalTodoStatuses.Ready, requeued.Status);
+        Assert.Equal(WorkTaskStatus.Ready, task.Status);
+        Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.Status == AgentPlatformEventOutboxStatus.Pending).ToListAsync());
     }
     private static Wire.AddPersonalTodoItemRequest Add(string title, string key, Guid? target) =>
         new(title, null, Wire.WorkPriorities.Medium, null, key, target);

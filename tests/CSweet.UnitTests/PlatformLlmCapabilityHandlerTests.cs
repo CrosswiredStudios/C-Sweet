@@ -260,8 +260,10 @@ public sealed class PlatformLlmCapabilityHandlerTests
         Assert.Equal(46, agentUsage.Usage.TotalTokens);
     }
 
-    [Fact]
-    public async Task StreamAsync_PersistsPartialUsageWhenProviderStreamFails()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StreamAsync_PersistsPartialUsageWhenProviderStreamFails(bool temporary)
     {
         await using var db = new CSweetDbContext(
             new DbContextOptionsBuilder<CSweetDbContext>()
@@ -270,7 +272,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
         var providerId = await AddProviderAsync(db);
         var handler = new PlatformLlmCapabilityHandler(
             db,
-            new StreamingProviderFactory(new ThrowingAfterUsageChatClient()),
+            new StreamingProviderFactory(new ThrowingAfterUsageChatClient(temporary)),
             new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             [],
@@ -284,6 +286,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
         Assert.True(results[0].HasMore);
         Assert.False(results[1].Succeeded);
         Assert.False(results[1].HasMore);
+        Assert.Equal(temporary, results[1].Retryable);
         var log = Assert.Single(await db.AgentRunLogs.AsNoTracking().ToListAsync());
         Assert.Equal("Failed", log.Status);
         Assert.Equal(8, log.TokenInputCount);
@@ -454,7 +457,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
         }
     }
 
-    private sealed class ThrowingAfterUsageChatClient : IChatClient
+    private sealed class ThrowingAfterUsageChatClient(bool temporary) : IChatClient
     {
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> messages,
@@ -470,6 +473,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             await Task.Yield();
             yield return new ChatResponseUpdate(ChatRole.Assistant,
                 [new UsageContent(new UsageDetails { InputTokenCount = 8, OutputTokenCount = 3 })]);
+            if (temporary) throw new HttpRequestException("Provider disconnected.");
             throw new InvalidOperationException("Provider stream failed.");
         }
 
