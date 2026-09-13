@@ -326,9 +326,32 @@ public sealed class AgentWorkInbox(
             session, workId, attemptNumber, leaseToken, cancellationToken);
         var now = timeProvider.GetUtcNow();
         attempt.LeaseExpiresAt = now.Add(LeaseDuration);
+        await RenewPersonalTaskClaimAsync(attempt.AgentWorkItem!, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         AgentRuntimeMetrics.Work("lease_renewed", attempt.AgentWorkItem!.Kind);
         return attempt.LeaseExpiresAt;
+    }
+
+    private async Task RenewPersonalTaskClaimAsync(
+        AgentWorkItem work, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (work.Kind != AgentWorkKind.Event || !Guid.TryParse(work.SourceId, out var eventId) ||
+            !Guid.TryParse(work.OrganizationId, out var organizationId))
+            return;
+
+        // The authenticated delivery renews only a still-live claim held by this installation.
+        // Never revive an expired, released, reassigned, or manager-blocked personal task.
+        var claims = await db.CoreWorkTasks.Where(x =>
+            x.OrganizationId == organizationId && x.Status == WorkTaskStatus.Running &&
+            x.ArchivedAt == null && x.ClaimEventId == eventId && x.ClaimExpiresAt > now &&
+            x.Board != null && x.Board.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal &&
+            db.CoreOrganizationUsers.Any(owner => owner.Id == x.Board.OwnerOrganizationUserId &&
+                owner.OrganizationId == organizationId && owner.IsActive &&
+                owner.AgentInstallationId == work.AgentInstallationId))
+            .ToListAsync(cancellationToken);
+        foreach (var claim in claims)
+            claim.ClaimExpiresAt = now.AddMinutes(5);
+        // Lease bookkeeping does not change the task revision expected by the active callback.
     }
 
     public async Task AppendProgressAsync(

@@ -11,6 +11,64 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentWorkInboxTests
 {
+    [Theory]
+    [InlineData("active")]
+    [InlineData("expired")]
+    [InlineData("blocked")]
+    [InlineData("other-event")]
+    [InlineData("other-owner")]
+    [InlineData("other-tenant")]
+    public async Task RuntimeRenewalKeepsOnlyItsLivePersonalClaimAlive(string scenario)
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var installation = Installation(clock.GetUtcNow());
+        var organizationId = Guid.NewGuid();
+        installation.BusinessId = organizationId.ToString("D");
+        var runtime = Runtime(installation, clock.GetUtcNow());
+        var eventId = Guid.NewGuid();
+        var owner = new CSweet.Domain.Core.OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, IsActive = true,
+            AgentInstallationId = scenario == "other-owner" ? Guid.NewGuid() : installation.Id
+        };
+        var board = new CSweet.Domain.WorkManagement.WorkBoard
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            Kind = CSweet.Domain.WorkManagement.WorkBoardKind.Personal, OwnerOrganizationUserId = owner.Id
+        };
+        var task = new CSweet.Domain.Core.WorkTask
+        {
+            Id = Guid.NewGuid(), OrganizationId = scenario == "other-tenant" ? Guid.NewGuid() : organizationId,
+            Board = board, BoardId = board.Id, Revision = 17,
+            Status = scenario == "blocked" ? CSweet.Domain.Core.WorkTaskStatus.Blocked : CSweet.Domain.Core.WorkTaskStatus.Running,
+            ClaimEventId = scenario == "other-event" ? Guid.NewGuid() : eventId,
+            ClaimExpiresAt = clock.GetUtcNow().AddMinutes(scenario == "expired" ? -1 : 5)
+        };
+        var originalExpiry = task.ClaimExpiresAt;
+        db.AddRange(installation, runtime, owner, board, task);
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Event,
+            CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available, Json("{}"), "personal-renewal",
+            clock.GetUtcNow().AddHours(1), sourceId: eventId.ToString("D"));
+        var session = Session(installation, runtime);
+        var work = (await inbox.ClaimAsync(session, default))!;
+
+        // Six minutes of coding outlasts the original five-minute personal claim.
+        for (var i = 0; i < 12; i++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(30));
+            await inbox.RenewAsync(session, work.WorkId, work.Attempt, work.LeaseToken, default);
+        }
+        await db.Entry(task).ReloadAsync();
+        Assert.Equal(17, task.Revision);
+        Assert.Equal(scenario == "active" ? clock.GetUtcNow().AddMinutes(5) : originalExpiry, task.ClaimExpiresAt);
+        await inbox.CancelAsync(work.WorkId, "Stopped", default);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            inbox.RenewAsync(session, work.WorkId, work.Attempt, work.LeaseToken, default));
+    }
+
     [Fact]
     public async Task QueuedOrdinaryWorkCannotBeClaimedAfterSetupBecomesRequired()
     {
