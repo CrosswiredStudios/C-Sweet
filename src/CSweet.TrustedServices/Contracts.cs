@@ -102,7 +102,8 @@ public static class WorkspaceSnapshotHeaders
 }
 public sealed record AgentBrokerWorkspaceOperationRequest(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
     Guid WorkItemId, long AssignmentRevision, string WorkspaceKey, string IdempotencyKey, string Operation,
-    string? CommitMessage = null, bool RetainOnFailure = true, string? ProposedChangeTitle = null, string? ProposedChangeBody = null);
+    string? CommitMessage = null, bool RetainOnFailure = true, string? ProposedChangeTitle = null, string? ProposedChangeBody = null,
+    byte[]? Archive = null);
 public sealed record AgentBrokerWorkspaceOperationResult(string Status, string BaseSha,
     IReadOnlyList<string> ChangedFiles, string DiffSummary, string? CommitSha = null, string? Branch = null,
-    string? ReviewUrl = null, bool Removed = false, DateTimeOffset? RetainUntil = null, string Provider = "InternalGit");
+    string? ReviewUrl = null, bool Removed = false, DateTimeOffset? RetainUntil = null, string Provider = "InternalGit", byte[]? Archive = null);

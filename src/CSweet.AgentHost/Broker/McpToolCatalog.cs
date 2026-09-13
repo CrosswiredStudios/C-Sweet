@@ -305,6 +305,8 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Prepare a private C-Sweet repository for an owned, actively claimed personal ticket."),
         Write(GitWorkspaceCapabilities.Prepare, "prepare_git_workspace",
             "Materialize the assigned repository as a credential-free snapshot; Core derives its repository and ref."),
+        Write(GitWorkspaceCapabilities.Sync, "sync_git_workspace", "Transfer an owned source snapshot between Core and the isolated runtime.")
+            with { MaximumInputBytes = 768 * 1024 },
         Write(GitWorkspaceCapabilities.Refresh, "refresh_git_workspace",
             "Refresh an assigned credential-free snapshot against its authorized base and return bounded conflicts."),
         Read(GitWorkspaceCapabilities.Inspect, "inspect_git_workspace",
@@ -803,6 +805,9 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             """),
         "source-control.personal-work.prepare.v1" => Schema("""
             {"type":"object","required":["itemId","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        GitWorkspaceCapabilities.Sync => Schema("""
+            {"type":"object","required":["workspaceId","assignmentRevision","direction","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"direction":{"type":"string","enum":["pull","push"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"archive":{"type":["string","null"],"maxLength":699052}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Prepare => Schema("""
             {"type":"object","required":["workItemId","assignmentRevision","idempotencyKey"],"properties":{"workItemId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

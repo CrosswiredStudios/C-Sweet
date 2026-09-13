@@ -1523,8 +1523,12 @@
         _pipelineDoneColumnId.HasValue &&
         _pipelineRepositoryId.HasValue;
 
-    protected override void OnInitialized() =>
+    protected override void OnInitialized()
+    {
         Realtime.EventReceived += OnRealtimeEvent;
+        Realtime.Connected += OnRealtimeReconnected;
+        Realtime.Reconnected += OnRealtimeReconnected;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -3131,13 +3135,19 @@
     {
         if (envelope.OrganizationId != OrganizationId ||
             envelope.EventType != AppRealtimeEvents.WorkBoardChanged ||
-            _detail is null ||
             !envelope.Data.TryGetProperty("boardId", out var boardIdElement) ||
-            !boardIdElement.TryGetGuid(out var boardId) ||
-            boardId != _detail.Board.Id) return;
+            !boardIdElement.TryGetGuid(out var boardId)) return;
+        var personalBoard = _personalTodos?.Boards.Any(x => x.BoardId == boardId) == true;
+        if (boardId != _detail?.Board.Id && !personalBoard) return;
         _realtimeRefreshPending = true;
         if (_realtimeRefreshRunning) return;
         _ = InvokeAsync(RefreshFromRealtimeAsync);
+    }
+
+    private void OnRealtimeReconnected()
+    {
+        _realtimeRefreshPending = true;
+        if (!_realtimeRefreshRunning) _ = InvokeAsync(RefreshFromRealtimeAsync);
     }
 
     private async Task RefreshFromRealtimeAsync()
@@ -3151,13 +3161,16 @@
                 _realtimeRefreshPending = false;
                 try
                 {
-                    await RefreshDetailAsync();
+                    if (_detail is not null) await RefreshDetailAsync();
+                    await LoadPersonalTodosAsync();
+                    if (_personalBoardOpen && _personalBoardIncludeArchived) await RefreshPersonalBoardDialogAsync();
                     if (_collaborationOpen && _selectedItem is not null)
                         await LoadCollaborationAsync();
                     if (_sprintReport is not null)
                         await LoadSprintReportAsync();
                     if (_automationsOpen)
                         await LoadAutomationsAsync();
+                    StateHasChanged();
                 }
                 catch (Exception exception)
                 {
@@ -3174,6 +3187,8 @@
     public ValueTask DisposeAsync()
     {
         Realtime.EventReceived -= OnRealtimeEvent;
+        Realtime.Connected -= OnRealtimeReconnected;
+        Realtime.Reconnected -= OnRealtimeReconnected;
         return ValueTask.CompletedTask;
     }
 

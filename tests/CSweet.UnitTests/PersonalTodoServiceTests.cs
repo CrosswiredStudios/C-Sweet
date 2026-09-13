@@ -106,6 +106,12 @@ public sealed class PersonalTodoServiceTests
                 fullBlockReason, "block"));
         Assert.Equal(WorkTaskStatus.Blocked.ToString(), blocked.Status);
         Assert.Equal(fullBlockReason, blocked.BlockReason);
+        var realtime = (await db.ApplicationRealtimeOutbox.ToListAsync()).Single(x =>
+            x.DataJson.Contains(blocked.Id.ToString()) && System.Text.Json.JsonDocument.Parse(x.DataJson).RootElement.GetProperty("revision").GetInt64() == blocked.Revision);
+        Assert.Equal(CSweet.Contracts.Realtime.AppRealtimeEvents.WorkBoardChanged, realtime.EventType);
+        Assert.Contains(setup.FirstManager.Id.ToString(), realtime.RecipientOrganizationUserIdsJson);
+        Assert.DoesNotContain(setup.SecondManager.Id.ToString(), realtime.RecipientOrganizationUserIdsJson);
+        Assert.DoesNotContain(fullBlockReason, realtime.DataJson);
         var notification = Assert.Single(await db.UserNotifications.Where(x =>
             x.RecipientOrganizationUserId == setup.FirstManager.Id &&
             x.Category == "PersonalTodoBlocked").ToListAsync());
@@ -121,6 +127,8 @@ public sealed class PersonalTodoServiceTests
             new Wire.RequeuePersonalTodoItemRequest(blocked.Id, blocked.Revision, "requeue"));
         Assert.Equal(WorkTaskStatus.Ready.ToString(), requeued.Status);
         Assert.Null(requeued.BlockReason);
+        Assert.Contains(await db.ApplicationRealtimeOutbox.ToListAsync(), x => x.DataJson.Contains(requeued.Id.ToString()) &&
+            System.Text.Json.JsonDocument.Parse(x.DataJson).RootElement.GetProperty("revision").GetInt64() == requeued.Revision);
         Assert.Equal(2, await db.AgentPlatformEventOutbox.CountAsync(x =>
             x.EventType == Wire.PersonalTodoEvents.Available));
 

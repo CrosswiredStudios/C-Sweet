@@ -8,6 +8,10 @@ namespace CSweet.AgentHost.Broker;
 /// </summary>
 public interface ITrustedGitHostClient
 {
+    Task<GitWorkspaceSyncResult> SyncAsync(TrustedWorkspaceOperationRequest request, string direction, byte[]? archive, CancellationToken ct) =>
+        throw new InvalidOperationException("Workspace snapshot transfer is unavailable.");
+    Task CreatePersonalRepositoryAsync(CSweet.TrustedServices.AgentBrokerPersonalRepositoryRequest request, CancellationToken ct) =>
+        throw new InvalidOperationException("The Core personal repository broker is unavailable.");
     Task<GitWorkspaceLockResult> LocksAsync(TrustedWorkspaceOperationRequest request, string operation, string? path, string? id, string? cursor, CancellationToken ct) =>
         throw new InvalidOperationException("Workspace locks are unavailable.");
     Task<TrustedWorkspaceMaterialization> PrepareAsync(

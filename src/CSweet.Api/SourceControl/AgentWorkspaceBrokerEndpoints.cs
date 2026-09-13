@@ -7,6 +7,19 @@ public static class AgentWorkspaceBrokerEndpoints
 {
     public static IEndpointRouteBuilder MapAgentWorkspaceBrokerEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        // Authenticated by AgentBrokerAuthenticationMiddleware, like the other /agent-broker routes.
+        endpoints.MapPost("/agent-broker/v2/workspaces/personal-repository", async (
+            AgentBrokerPersonalRepositoryRequest request, PersonalRepositoryBroker broker, ILogger<PersonalRepositoryBroker> logger, CancellationToken ct) =>
+        {
+            try { await broker.CreateAsync(request, ct); return Results.NoContent(); }
+            catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
+            catch (ArgumentException) { return Results.BadRequest(); }
+            catch (Exception error) when (error is IOException or InvalidOperationException or HttpRequestException)
+            {
+                logger.LogWarning(error, "Personal repository creation failed for ticket {WorkItemId}", request.WorkItemId);
+                return Results.Conflict(new { error = "personal_repository_unavailable" });
+            }
+        }).AllowAnonymous();
         endpoints.MapPost("/agent-broker/v2/workspaces/prepare", async (
                 AgentBrokerWorkspacePrepareRequest request,
                 IAgentWorkspaceBroker broker,

@@ -9,6 +9,32 @@ namespace CSweet.AgentHost.Broker;
 /// </summary>
 public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHostClient
 {
+    public async Task<CSweet.Agent.SDK.GitWorkspaceSyncResult> SyncAsync(TrustedWorkspaceOperationRequest request, string direction, byte[]? archive, CancellationToken ct)
+    {
+        using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/operate",
+            new AgentBrokerWorkspaceOperationRequest(request.OrganizationId, request.RepositoryId, request.WorkspaceId,
+                request.WorkItemId, request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey, "snapshot-" + direction, Archive: archive), ct);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Core rejected the workspace transfer. Check the current assignment and snapshot limits.");
+        var result = await response.Content.ReadFromJsonAsync<AgentBrokerWorkspaceOperationResult>(ct)
+            ?? throw new InvalidOperationException("Core returned no snapshot result.");
+        return new(result.Archive);
+    }
+    public async Task CreatePersonalRepositoryAsync(AgentBrokerPersonalRepositoryRequest request, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/personal-repository", request, ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                throw new UnauthorizedAccessException("Core rejected personal repository access. Check the current task claim and repository policy.");
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException("Core could not prepare the personal repository. Check source-control service health and repository policy.");
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new InvalidOperationException("The Core repository broker is unavailable. The retained task can be retried when Core is ready.", exception);
+        }
+    }
+
     public async Task<CSweet.Agent.SDK.GitWorkspaceLockResult> LocksAsync(TrustedWorkspaceOperationRequest request, string operation, string? path, string? id, string? cursor, CancellationToken ct)
     {
         using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/locks", new AgentBrokerWorkspaceLockRequest(

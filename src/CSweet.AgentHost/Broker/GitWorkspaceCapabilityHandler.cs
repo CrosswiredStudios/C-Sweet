@@ -23,13 +23,13 @@ public sealed partial class GitWorkspaceCapabilityHandler(
     CSweetDbContext db,
     ITrustedGitHostClient gitHost,
     IScopedActionAuthorizationService authorization,
-    ISourceControlDecisionSigner decisionSigner,
-    ITrustedSourceControlHostClient? sourceHost = null) : IPlatformCapabilityHandler
+    ISourceControlDecisionSigner decisionSigner) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly HashSet<string> Handled =
     [
         PersonalPrepareCapability,
+        GitWorkspaceCapabilities.Sync,
         GitWorkspaceCapabilities.Prepare,
         GitWorkspaceCapabilities.Refresh,
         GitWorkspaceCapabilities.Inspect,
@@ -73,6 +73,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             {
                 PersonalPrepareCapability => await PreparePersonalAsync(organizationId, installationId,
                     Read<PersonalPrepareInput>(request), cancellationToken),
+                GitWorkspaceCapabilities.Sync => await SyncWorkspaceAsync(organizationId, installationId, Read<GitWorkspaceSyncRequest>(request), cancellationToken),
                 GitWorkspaceCapabilities.Prepare => await PrepareAsync(
                     organizationId, installationId,
                     Read<PrepareGitWorkspaceRequest>(request), cancellationToken),

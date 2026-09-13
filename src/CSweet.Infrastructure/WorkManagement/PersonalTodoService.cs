@@ -15,7 +15,7 @@ using Wire = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
-public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider clock) : IWorkItemMutationEngine
+public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvider clock) : IWorkItemMutationEngine
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
@@ -188,7 +188,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
                 cancellationToken);
         }
         if (db.ChangeTracker.HasChanges())
-            await db.SaveChangesAsync(cancellationToken);
+            await SaveChangesWithRealtimeAsync(cancellationToken);
     }
 
     private async Task CoalesceAvailableDeliveriesAsync(
@@ -284,7 +284,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
             }
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         await ReconcileGrantsAsync(board, owner, cancellationToken);
         if (transaction is not null)
             await transaction.CommitAsync(cancellationToken);
@@ -397,7 +397,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         if (item.Status == WorkTaskStatus.Ready)
             await QueueAvailableAsync(organizationId, owner, board.Id, item.Id, now, cancellationToken);
         await AddManagerCreatedNotificationAsync(actorUser, owner, item, cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -420,7 +420,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         ready.Insert(index, item);
         for (var i = 0; i < ready.Count; i++) ready[i].BoardRank = (i + 1L) * 1024;
         item.Revision++; item.UpdatedAt = clock.GetUtcNow();
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -445,7 +445,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         var owner = await OwnerAsync(board, cancellationToken);
         await QueueAvailableAsync(organizationId, owner, board.Id, item.Id, item.UpdatedAt,
             cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -471,7 +471,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.UpdatedAt = clock.GetUtcNow();
         await QueueAvailableAsync(organizationId, await OwnerAsync(board, cancellationToken),
             board.Id, item.Id, item.UpdatedAt, cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -501,7 +501,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         }
         item.Revision++;
         item.UpdatedAt = clock.GetUtcNow();
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -520,7 +520,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.ClaimExpiresAt = null;
         item.Revision++;
         item.UpdatedAt = item.ArchivedAt.Value;
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -537,7 +537,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.ArchivedAt = null;
         item.Revision++;
         item.UpdatedAt = clock.GetUtcNow();
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -582,7 +582,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.UpdatedAt = now;
         if (status == WorkTaskStatus.Blocked)
             await AddBlockedNotificationsAsync(item, board, item.BlockReason!, now, cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -612,7 +612,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         }
         if (expired.Count > 0)
         {
-            await db.SaveChangesAsync(cancellationToken);
+            await SaveChangesWithRealtimeAsync(cancellationToken);
             foreach (var stale in expired)
                 db.Entry(stale).State = EntityState.Detached;
         }
@@ -629,6 +629,8 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
                 .FirstOrDefaultAsync(cancellationToken);
             if (candidate is null)
                 break;
+            await using var claimTransaction = db.Database.CurrentTransaction is null && db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
             var updated = await db.CoreWorkTasks
                 .Where(x => x.Id == candidate.Id && x.Status == WorkTaskStatus.Ready &&
                     x.Revision == candidate.Revision)
@@ -641,8 +643,13 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
                     .SetProperty(x => x.Revision, x => x.Revision + 1)
                     .SetProperty(x => x.UpdatedAt, now), cancellationToken);
             if (updated == 1)
+            {
                 item = await db.CoreWorkTasks.SingleAsync(x => x.Id == candidate.Id,
                     cancellationToken);
+                await QueuePersonalRealtimeAsync(item, cancellationToken);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            if (claimTransaction is not null) await claimTransaction.CommitAsync(cancellationToken);
         }
         if (item is null)
             return new Wire.PersonalTodoClaim(null);
@@ -696,7 +703,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         item.WaitingOnOrganizationUserId = request.WaitingOnOrganizationUserId;
         item.Revision++;
         item.UpdatedAt = clock.GetUtcNow();
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -724,7 +731,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
         if (status == WorkTaskStatus.Ready)
             await QueueAvailableAsync(organizationId, await OwnerAsync(board, cancellationToken),
                 board.Id, item.Id, now, cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -789,7 +796,7 @@ public sealed class WorkItemMutationEngine(CSweetDbContext db, TimeProvider cloc
                 GrantedBySubjectId = owner.Id, GrantedAt = now
             });
         }
-        if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync(token);
+        if (db.ChangeTracker.HasChanges()) await SaveChangesWithRealtimeAsync(token);
     }
 
     private async Task RequireGrantAsync(Guid organizationId, Guid boardId, PersonalTodoActor actor,

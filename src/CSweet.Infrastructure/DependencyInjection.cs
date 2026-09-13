@@ -379,6 +379,7 @@ public static class DependencyInjection
         builder.Services.AddSingleton<WorkspaceArtifactValidator>();
         builder.Services.AddScoped<IWorkspaceVolumeBridge, WorkspaceVolumeBridge>();
         builder.Services.AddScoped<IAgentWorkspaceBroker, AgentWorkspaceBroker>();
+        builder.Services.AddScoped<PersonalRepositoryBroker>();
         builder.Services.TryAddSingleton<TrustedRequestReplayCache>();
         builder.Services.Configure<AgentBrokerAuthenticationOptions>(options =>
         {

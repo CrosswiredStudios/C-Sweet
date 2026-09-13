@@ -10,7 +10,7 @@ public sealed partial class AgentWorkspaceBroker
     public async Task<AgentBrokerWorkspaceOperationResult> ExecuteAsync(AgentBrokerWorkspaceOperationRequest request,
         string publicBaseUrl, CancellationToken cancellationToken = default)
     {
-        if (request.Operation is not ("inspect" or "publish" or "refresh" or "cleanup") ||
+        if (request.Operation is not ("inspect" or "publish" or "refresh" or "cleanup" or "snapshot-pull" or "snapshot-push") ||
             string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160)
             throw new ArgumentException("Invalid workspace operation.");
         var workspace = await AuthorizeWorkspaceOperationAsync(request, cancellationToken);
@@ -19,6 +19,16 @@ public sealed partial class AgentWorkspaceBroker
             u.AgentInstallationId == workspace.AgentInstallationId && u.IsActive).Select(u => u.Id).SingleAsync(cancellationToken);
         var lease = new WorkspaceVolumeLease(workspace.OrganizationId, workspace.AgentInstallationId, workspace.Id,
             workspace.WorkItemId, workspace.AssignmentRevision);
+        if (request.Operation == "snapshot-push")
+        {
+            if (request.Archive is not { Length: > 0 and <= 524288 }) throw new InvalidDataException("Snapshot transfer exceeds its limit.");
+            using (var zip = new System.IO.Compression.ZipArchive(new MemoryStream(request.Archive), System.IO.Compression.ZipArchiveMode.Read))
+                if (zip.Entries.Count > 4096 || zip.Entries.Sum(x => x.Length) > 16 * 1024 * 1024)
+                    throw new InvalidDataException("Snapshot content exceeds its limit.");
+            await using var input = new MemoryStream(request.Archive, writable: false);
+            await volumes.ImportAsync(lease, input, cancellationToken: cancellationToken);
+            return new("Uploaded", workspace.BaseCommitSha, [], "");
+        }
         WorkspaceVolumeExport export;
         try { export = await volumes.ExportAsync(lease, cancellationToken); }
         catch (WorkspaceSnapshotUnavailableException) when (request.Operation == "cleanup")
@@ -26,6 +36,12 @@ public sealed partial class AgentWorkspaceBroker
             // A previous cleanup may have removed the snapshot before its response was delivered.
             await volumes.RemoveAsync(lease, cancellationToken);
             return new("Removed", workspace.BaseCommitSha, [], "", Removed: true);
+        }
+        if (request.Operation == "snapshot-pull")
+        {
+            if (export.Archive.Length > 524288 || export.Manifest.TotalBytes > 16 * 1024 * 1024 || export.Manifest.FileCount > 4096)
+                throw new InvalidDataException("Snapshot exceeds its transfer limit.");
+            return new("Downloaded", workspace.BaseCommitSha, [], "", Archive: export.Archive);
         }
         var operation = request.Operation == "cleanup" ? "inspect" : request.Operation;
         string? githubReviewUrl = null;

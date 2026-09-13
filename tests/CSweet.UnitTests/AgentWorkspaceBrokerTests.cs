@@ -40,7 +40,9 @@ public sealed class AgentWorkspaceBrokerTests
             (await db.SourceControlConnections.SingleAsync()).Provider = SourceControlProvider.InternalGit;
             await db.SaveChangesAsync();
             await store.ExecuteAsync(new(request.OrganizationId, request.RepositoryId, "create", "main"));
-            var host = new FakeHost { NativeStore = store }; var volumes = new FakeVolumes();
+            var host = new FakeHost { NativeStore = store };
+            var volumes = new WorkspaceVolumeBridge(db, artifacts, Microsoft.Extensions.Options.Options.Create(
+                new CSweet.Infrastructure.Setup.AgentRuntimeManagerOptions { WorkspaceSnapshotStorePath = Path.Combine(root, "snapshots") }));
             var broker = new AgentWorkspaceBroker(db, host, volumes);
             var prepared = await broker.PrepareAsync(request);
             var workspace = await db.SourceControlWorkspaces.SingleAsync();
@@ -51,9 +53,16 @@ public sealed class AgentWorkspaceBrokerTests
             await File.WriteAllTextAsync(Path.Combine(input, ".gitattributes"), "*.bin filter=lfs diff=lfs merge=lfs -text\n");
             await File.WriteAllBytesAsync(Path.Combine(input, "asset.bin"), [0, 1, 2, 255]);
             using var output = new MemoryStream(); var manifest = await artifacts.CreateZipAsync(input, output);
-            volumes.ExportOverride = new(output.ToArray(), manifest);
             var operation = new AgentBrokerWorkspaceOperationRequest(request.OrganizationId, request.RepositoryId, request.WorkspaceId,
                 request.WorkItemId, request.AssignmentRevision, prepared.WorkspaceKey, "publish-once", "inspect", "Offline feature");
+            var uploaded = await broker.ExecuteAsync(operation with { Operation = "snapshot-push", Archive = output.ToArray() }, "http://localhost");
+            Assert.Equal("Uploaded", uploaded.Status);
+            var downloaded = await broker.ExecuteAsync(operation with { Operation = "snapshot-pull" }, "http://localhost");
+            Assert.Equal(output.ToArray(), downloaded.Archive);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => broker.ExecuteAsync(operation with {
+                Operation = "snapshot-push", AssignmentRevision = operation.AssignmentRevision + 1, Archive = output.ToArray() }, "http://localhost"));
+            await Assert.ThrowsAsync<InvalidDataException>(() => broker.ExecuteAsync(operation with {
+                Operation = "snapshot-push", Archive = new byte[524289] }, "http://localhost"));
             Assert.Equal("Modified", (await broker.ExecuteAsync(operation, "http://localhost")).Status);
             var acquired = await broker.LocksAsync(new(operation, "create", "asset.bin"));
             var fileLock = Assert.Single(acquired.Locks);
@@ -91,7 +100,8 @@ public sealed class AgentWorkspaceBrokerTests
             Assert.False(Directory.Exists(Path.Combine(restored, ".git"))); Assert.Null(host.Request);
             workspace.BaseCommitSha = published.CommitSha!; await db.SaveChangesAsync();
             Assert.True((await broker.ExecuteAsync(operation with { Operation = "cleanup", IdempotencyKey = "cleanup" }, "http://localhost")).Removed);
-            Assert.True(volumes.Removed);
+            await Assert.ThrowsAsync<WorkspaceSnapshotUnavailableException>(() => volumes.ExportAsync(
+                new(request.OrganizationId, request.AgentInstallationId, request.WorkspaceId, request.WorkItemId, request.AssignmentRevision)));
         }
         finally
         {

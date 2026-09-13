@@ -10,22 +10,29 @@ public sealed class AgentBrokerAuthenticationTests
     private static readonly byte[] AgentKey = Enumerable.Repeat((byte)0x41, 32).ToArray();
     private static readonly byte[] GitHostKey = Enumerable.Repeat((byte)0x47, 32).ToArray();
 
-    [Fact]
-    public async Task AgentBrokerSignatureIsAcceptedByCoreBrokerOnly()
+    [Theory]
+    [InlineData("agent-broker/v2/workspaces/prepare")]
+    [InlineData("agent-broker/v2/workspaces/personal-repository")]
+    public async Task AgentBrokerSignatureIsAcceptedByCoreBrokerOnly(string path)
     {
         var time = new FixedTimeProvider(new DateTimeOffset(2026, 8, 3, 22, 0, 0, TimeSpan.Zero));
-        var captured = await SignAgentRequestAsync(time, "agent-broker/v2/workspaces/prepare");
+        var captured = await SignAgentRequestAsync(time, path);
         var accepted = false;
         var agentMiddleware = new AgentBrokerAuthenticationMiddleware(
             _ => { accepted = true; return Task.CompletedTask; },
             AgentOptions(),
             new TrustedRequestReplayCache(time),
             time);
-        var agentContext = CreateContext(captured, "/agent-broker/v2/workspaces/prepare");
+        var agentContext = CreateContext(captured, "/" + path);
 
         await agentMiddleware.InvokeAsync(agentContext);
 
         Assert.True(accepted);
+        accepted = false;
+        var unsigned = CreateContext(captured with { Headers = new Dictionary<string, string[]>() }, "/" + path);
+        await agentMiddleware.InvokeAsync(unsigned);
+        Assert.False(accepted);
+        Assert.Equal(StatusCodes.Status401Unauthorized, unsigned.Response.StatusCode);
 
         var trustedCalled = false;
         var trustedMiddleware = new TrustedServiceAuthenticationMiddleware(

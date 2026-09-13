@@ -62,8 +62,7 @@ public sealed partial class GitWorkspaceCapabilityHandler
                 x.OrganizationId == business && x.ConnectionId == repository.ConnectionId, ct);
             if (!currentPolicy.IsEnabled || currentPolicy.RequiresManagerApproval || repository.Connection.Status != SourceControlConnectionStatus.Connected)
                 throw new UnauthorizedAccessException("Automatic repository creation is no longer approved.");
-            await (sourceHost ?? throw new InvalidOperationException("Internal Git is unavailable.")).ExecuteInternalAsync(
-                new(business, repository.Id, "create", repository.DefaultBranch), ct);
+            await gitHost.CreatePersonalRepositoryAsync(new(business, installation, item.Id, input.IdempotencyKey), ct);
             repository.Status = SourceControlRepositoryStatus.Ready;
             repository.LastVerifiedAt = now;
             repository.Revision++;
