@@ -25,15 +25,54 @@ public sealed class PlatformLlmCapabilityHandlerTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    [Fact]
+    public async Task StreamAsync_Reports_which_broker_context_limit_was_exceeded()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var providerId = await AddProviderAsync(db);
+        var client = new StreamingChatClient();
+        var limits = new PlatformLlmJobOptions
+        {
+            MaximumMessageCharacters = 10,
+            MaximumRequestBytes = 1024
+        };
+        var handler = new PlatformLlmCapabilityHandler(db, new StreamingProviderFactory(client),
+            new AgentEmployeeIdentityResolver(db), new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+            [], new TestMediaAssetService(), NullLogger<PlatformLlmCapabilityHandler>.Instance, limits);
+        var session = new AgentSession(Guid.NewGuid().ToString("N"), "test-agent", Guid.NewGuid().ToString("D"),
+            Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(),
+                new HashSet<string>([PlatformCapabilities.LlmChatStream], StringComparer.Ordinal), 1));
+        var request = new RequestCapability
+        {
+            RequestId = Guid.NewGuid().ToString("N"), Capability = PlatformCapabilities.LlmChatStream,
+            Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                providerProfileId = providerId,
+                messages = new[] { new { role = "user", text = new string('x', 11) } }
+            }, JsonOptions))
+        };
+
+        var results = new List<CapabilityResult>();
+        await foreach (var result in handler.StreamAsync(session, request, CancellationToken.None)) results.Add(result);
+
+        var failure = Assert.Single(results);
+        Assert.False(failure.Succeeded);
+        Assert.Contains("message characters: 11/10", failure.Error);
+        Assert.Contains("Compact the conversation", failure.Error);
+        Assert.Null(client.ReceivedOptions);
+    }
+
     [Theory]
-    [InlineData(128000, 128000, true)]
-    [InlineData(128000, 128001, false)]
-    [InlineData(4096, 4097, false)]
-    [InlineData(null, 32768, true)]
-    [InlineData(null, 32769, false)]
-    [InlineData(128000, 0, false)]
-    [InlineData(128000, null, true)]
-    public async Task StreamAsync_UsesConfiguredProviderOutputLimit(int? configured, int? requested, bool accepted)
+    [InlineData(128000, 128000, 128000)]
+    [InlineData(128000, 128001, 128000)]
+    [InlineData(4096, 4097, 4096)]
+    [InlineData(null, 32768, 32768)]
+    [InlineData(null, 32769, 32768)]
+    [InlineData(128000, 0, -1)]
+    [InlineData(128000, null, null)]
+    public async Task StreamAsync_UsesConfiguredProviderOutputLimit(int? configured, int? requested, int? effective)
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
@@ -59,12 +98,12 @@ public sealed class PlatformLlmCapabilityHandlerTests
         };
         var results = new List<CapabilityResult>();
         await foreach (var result in handler.StreamAsync(session, request, CancellationToken.None)) results.Add(result);
-        if (accepted)
+        if (effective != -1)
         {
             Assert.NotEmpty(results);
             Assert.All(results, result => Assert.True(result.Succeeded, result.Error));
             Assert.NotNull(client.ReceivedOptions);
-            Assert.Equal(requested, client.ReceivedOptions.MaxOutputTokens);
+            Assert.Equal(effective, client.ReceivedOptions.MaxOutputTokens);
         }
         else
         {

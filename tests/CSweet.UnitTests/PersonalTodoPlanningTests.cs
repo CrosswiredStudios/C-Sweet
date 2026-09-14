@@ -1,5 +1,6 @@
 using CSweet.Application.WorkManagement;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 using Wire = CSweet.WorkManagement.Contracts;
@@ -124,7 +125,226 @@ public sealed partial class PersonalTodoServiceTests
         await service.BlockAsync(setup.Organization.Id, actor, new(root.Id, eventId, plan.RootRevision, "Test runner failed", "block"));
         Assert.Equal(WorkTaskStatus.Blocked, (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.Id)).Status);
         Assert.Equal(WorkTaskStatus.Blocked, (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.ParentItemId)).Status);
+        var blockedRoot = await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id);
+        await service.RequeueAsync(setup.Organization.Id, actor,
+            new(root.Id, blockedRoot.Revision, "resume-plan"));
+        Assert.Equal(WorkTaskStatus.Backlog, (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.Id)).Status);
+        Assert.Equal(WorkTaskStatus.Backlog,
+            (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.ParentItemId)).Status);
     }
+
+    [Fact]
+    public async Task ProviderUpdateAutomaticallyReopensBlockedEpicAndItsActivePlanTickets()
+    {
+        await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 9, 14, 1, 54, 0, TimeSpan.Zero);
+        db.AgentInstallations.Add(Installation(setup, now.AddMinutes(-1)));
+        await db.SaveChangesAsync();
+        var clock = new FixedTimeProvider(now);
+        var service = new PersonalTodoService(db, clock);
+        var actor = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+        var root = await service.AddAsync(setup.Organization.Id, actor, Add("Tetris", "provider-recovery", null));
+        var stored = await db.CoreWorkTasks.SingleAsync(); var eventId = Guid.NewGuid();
+        stored.Status = WorkTaskStatus.Running; stored.ClaimEventId = eventId;
+        stored.ClaimExpiresAt = now.AddMinutes(5); await db.SaveChangesAsync();
+        var plan = await service.CreatePlanAsync(setup.Organization.Id, actor, Plan(root.Id));
+        var task = plan.Items.First(x => x.Kind == "Task");
+        await service.ReportPlanTaskAsync(setup.Organization.Id, actor,
+            new(root.Id, task.Id, task.Revision, "Running", null, "start"));
+        const string reason = "Development is blocked: The requested output-token budget must be between 1 and 32000 for the selected provider.";
+        await service.BlockAsync(setup.Organization.Id, actor,
+            new(root.Id, eventId, plan.RootRevision, reason, "block"));
+        var providerId = Guid.NewGuid();
+        db.LlmProviderProfiles.Add(new LlmProviderProfile
+        {
+            Id = providerId, Name = "vLLM", BaseUrl = "http://localhost:8000/v1",
+            DefaultChatModel = "test", IsEnabled = true, CreatedAt = now,
+            UpdatedAt = now
+        });
+        db.LlmProviderProfiles.Add(new LlmProviderProfile
+        {
+            Id = Guid.NewGuid(), Name = "Unrelated", BaseUrl = "http://localhost:9000/v1",
+            DefaultChatModel = "other", IsEnabled = true, CreatedAt = now,
+            UpdatedAt = now.AddMinutes(1)
+        });
+        db.AgentRunLogs.Add(new AgentRunLog
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.Organization.Id,
+            EmployeeId = setup.Agent.Id, AgentInstallationId = setup.Agent.AgentInstallationId,
+            AgentKey = "software-developer", ProviderProfileId = providerId, Model = "test",
+            StartedAt = now, CompletedAt = now, Status = "Failed", PromptHash = "test",
+            FailureMessage = reason
+        });
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await db.SaveChangesAsync();
+
+        await service.ReconcileAsync();
+
+        Assert.Equal(WorkTaskStatus.Blocked,
+            (await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id)).Status);
+        (await db.LlmProviderProfiles.SingleAsync(x => x.Id == providerId)).UpdatedAt = now.AddMinutes(3);
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await db.SaveChangesAsync();
+        await service.ReconcileAsync();
+
+        var reopenedRoot = await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id);
+        Assert.Equal(WorkTaskStatus.Ready, reopenedRoot.Status);
+        Assert.Null(reopenedRoot.BlockReason);
+        var reopenedTask = await db.CoreWorkTasks.SingleAsync(x => x.Id == task.Id);
+        Assert.Equal(WorkTaskStatus.Backlog, reopenedTask.Status);
+        Assert.Null(reopenedTask.BlockReason);
+        Assert.Equal(WorkTaskStatus.Backlog,
+            (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.ParentItemId)).Status);
+        Assert.Contains(await db.AgentPlatformEventOutbox.ToListAsync(), x =>
+            x.Status == AgentPlatformEventOutboxStatus.Pending &&
+            x.IdempotencyKey.StartsWith($"personal-todo-available:{root.Id:N}:"));
+    }
+
+    [Fact]
+    public async Task AgentUpdateAutomaticallyReopensItsOlderDevelopmentBlockAndPlanChildren()
+    {
+        await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 9, 14, 1, 54, 0, TimeSpan.Zero);
+        db.AgentInstallations.Add(Installation(setup, now.AddMinutes(-1)));
+        await db.SaveChangesAsync();
+        var clock = new FixedTimeProvider(now);
+        var service = new PersonalTodoService(db, clock);
+        var actor = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+        var root = await service.AddAsync(setup.Organization.Id, actor, Add("Tetris", "agent-update-recovery", null));
+        var stored = await db.CoreWorkTasks.SingleAsync(); var eventId = Guid.NewGuid();
+        stored.Status = WorkTaskStatus.Running; stored.ClaimEventId = eventId;
+        stored.ClaimExpiresAt = now.AddMinutes(5); await db.SaveChangesAsync();
+        var plan = await service.CreatePlanAsync(setup.Organization.Id, actor, Plan(root.Id));
+        var task = plan.Items.First(x => x.Kind == "Task");
+        await service.ReportPlanTaskAsync(setup.Organization.Id, actor,
+            new(root.Id, task.Id, task.Revision, "Running", null, "start"));
+        await service.BlockAsync(setup.Organization.Id, actor,
+            new(root.Id, eventId, plan.RootRevision,
+                "Development is blocked: Application tests failed.", "block"));
+
+        await service.ReconcileAsync();
+        Assert.Equal(WorkTaskStatus.Blocked,
+            (await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id)).Status);
+
+        clock.Advance(TimeSpan.FromMinutes(2));
+        (await db.AgentInstallations.SingleAsync(x => x.Id == setup.Agent.AgentInstallationId)).UpdatedAt = clock.GetUtcNow();
+        await db.SaveChangesAsync();
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await service.ReconcileAsync();
+
+        var reopenedRoot = await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id);
+        Assert.Equal(WorkTaskStatus.Ready, reopenedRoot.Status);
+        Assert.Null(reopenedRoot.BlockReason);
+        Assert.Equal(WorkTaskStatus.Backlog,
+            (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.Id)).Status);
+        Assert.Equal(WorkTaskStatus.Backlog,
+            (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.ParentItemId)).Status);
+        Assert.Contains(await db.AgentPlatformEventOutbox.ToListAsync(), x =>
+            x.Status == AgentPlatformEventOutboxStatus.Pending &&
+            x.IdempotencyKey.StartsWith($"personal-todo-available:{root.Id:N}:"));
+    }
+
+    [Theory]
+    [InlineData("agent-failure:v1;code=runtime.transport;retryable=true;diagnosticId=test")]
+    [InlineData("agent-failure:v1;code=agent.invalid_operation;diagnosticId=test")]
+    [InlineData("agent-failure:v1;code=agent.payload_invalid;diagnosticId=test")]
+    public async Task DueAttentionReviewAutomaticallyReopensRecoverableAgentFailureAndPlanChildren(string failure)
+    {
+        await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 9, 14, 3, 20, 0, TimeSpan.Zero);
+        db.AgentInstallations.Add(Installation(setup, now.AddMinutes(-10)));
+        await db.SaveChangesAsync();
+        var clock = new FixedTimeProvider(now);
+        var service = new PersonalTodoService(db, clock);
+        var actor = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+        var root = await service.AddAsync(setup.Organization.Id, actor, Add("Tetris", "transport-recovery", null));
+        var stored = await db.CoreWorkTasks.SingleAsync(); var eventId = Guid.NewGuid();
+        stored.Status = WorkTaskStatus.Running; stored.ClaimEventId = eventId;
+        stored.ClaimExpiresAt = now.AddMinutes(5); await db.SaveChangesAsync();
+        var plan = await service.CreatePlanAsync(setup.Organization.Id, actor, Plan(root.Id));
+        var task = plan.Items.First(x => x.Kind == "Task");
+        await service.ReportPlanTaskAsync(setup.Organization.Id, actor,
+            new(root.Id, task.Id, task.Revision, "Running", null, "start"));
+        await service.BlockAsync(setup.Organization.Id, actor,
+            new(root.Id, eventId, plan.RootRevision,
+                "This task stopped after an execution failure exhausted automatic recovery or could not be retried.", "block"));
+
+        // Repeated failures increase the delay but must never permanently consume recovery.
+        for (var index = 0; index < 3; index++)
+        {
+            var historicalAt = now.AddHours(-1 - index);
+            db.AgentWorkItems.Add(new AgentWorkItem
+            {
+                Id = Guid.NewGuid(), OrganizationId = setup.Organization.Id.ToString("D"),
+                AgentInstallationId = setup.Agent.AgentInstallationId!.Value,
+                Kind = AgentWorkKind.Event, Name = Wire.PersonalTodoEvents.Available,
+                PayloadHash = "historical", CorrelationId = "historical-failure",
+                IdempotencyKey = $"personal-todo-available:{root.Id:N}:historical-{index}",
+                Status = AgentWorkStatus.DeadLetter, AvailableAt = historicalAt,
+                DeadlineAt = historicalAt.AddMinutes(1), MaximumAttempts = 3, AttemptCount = 3,
+                CreatedAt = historicalAt, CompletedAt = historicalAt.AddMinutes(1), LastError = failure
+            });
+        }
+        var failedAt = now.AddMinutes(1);
+        db.AgentWorkItems.Add(new AgentWorkItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.Organization.Id.ToString("D"),
+            AgentInstallationId = setup.Agent.AgentInstallationId!.Value,
+            Kind = AgentWorkKind.Event, Name = Wire.PersonalTodoEvents.Available,
+            PayloadHash = "payload", CorrelationId = "transport-failure",
+            IdempotencyKey = $"personal-todo-available:{root.Id:N}:failed",
+            Status = AgentWorkStatus.DeadLetter, AvailableAt = now, DeadlineAt = failedAt,
+            MaximumAttempts = 3, AttemptCount = 3, CreatedAt = now, CompletedAt = failedAt,
+            LastError = failure
+        });
+        db.AgentSchedules.Add(new AgentSchedule
+        {
+            Id = Guid.NewGuid(),
+            AgentInstallationId = setup.Agent.AgentInstallationId.Value,
+            ActivationMode = ActivationMode.OnDemand, TickFrequencySeconds = 3600,
+            NextAttentionReviewAt = failedAt.AddMinutes(1), MaxRuntimeSeconds = 600,
+            MaxRetriesPerTick = 3, OverlapPolicy = OverlapPolicy.Skip, IsEnabled = true
+        });
+        await db.SaveChangesAsync();
+
+        await service.ReconcileAsync();
+        var waitingRoot = await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id);
+        Assert.Equal(WorkTaskStatus.Blocked, waitingRoot.Status);
+        Assert.Equal(failedAt.AddMinutes(8), waitingRoot.NextReviewAt);
+        Assert.Contains("retry this task automatically", waitingRoot.BlockReason);
+
+        clock.Advance(TimeSpan.FromMinutes(9));
+
+        await service.ReconcileAsync();
+
+        var reopenedRoot = await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id);
+        Assert.Equal(WorkTaskStatus.Ready, reopenedRoot.Status);
+        Assert.Null(reopenedRoot.BlockReason);
+        Assert.Equal(WorkTaskStatus.Backlog,
+            (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.Id)).Status);
+        Assert.Equal(WorkTaskStatus.Backlog,
+            (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.ParentItemId)).Status);
+        Assert.Contains(await db.AgentPlatformEventOutbox.ToListAsync(), x =>
+            x.Status == AgentPlatformEventOutboxStatus.Pending &&
+            x.IdempotencyKey.StartsWith($"personal-todo-available:{root.Id:N}:"));
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+        public void Advance(TimeSpan duration) => now = now.Add(duration);
+    }
+
+    private static AgentInstallation Installation(Setup setup, DateTimeOffset updatedAt) => new()
+    {
+        Id = setup.Agent.AgentInstallationId!.Value,
+        PackageVersionId = Guid.NewGuid(),
+        BusinessId = setup.Organization.Id.ToString("D"),
+        IsEnabled = true,
+        RevisionStatus = PluginRevisionStatus.Active,
+        CreatedAt = updatedAt,
+        UpdatedAt = updatedAt
+    };
 
     private static Wire.CreatePersonalWorkPlanRequest Plan(Guid root) => new(root, "Tetris Clone MVP",
     [

@@ -8,7 +8,7 @@
 <PageTitle>Source Control</PageTitle>
 
 <MudContainer @key="OrganizationId" MaxWidth="MaxWidth.Large" Class="source-workspace py-6">
-    <div class="source-surface">
+    <div class="source-surface @(RepositoryId is null ? null : "repository-open")">
     <div class="source-header">
         <div>
             <MudText Typo="Typo.h4">Source control</MudText>

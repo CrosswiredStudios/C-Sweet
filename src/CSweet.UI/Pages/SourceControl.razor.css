@@ -64,3 +64,8 @@
     .source-setting-row .source-row-copy { flex-basis: auto; }
     .source-surface ::deep .repository-empty { padding: 35px 16px; }
 }
+
+.repository-open > .source-header,
+.repository-open > .source-tabs,
+.repository-open > .source-attention,
+.repository-open > .source-footer { display: none; }

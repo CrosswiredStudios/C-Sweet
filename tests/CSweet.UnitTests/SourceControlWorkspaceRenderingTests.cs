@@ -73,6 +73,66 @@ public sealed class SourceControlWorkspaceRenderingTests
     }
 
     [Fact]
+    public async Task RepositoryDetailMapsCSweetCapabilitiesIntoFocusedTabs()
+    {
+        var api = new WorkspaceApi();
+        var connection = Connection("InternalGit");
+        var repository = Repository(connection.Id, "orbit-game", "Ready");
+        api.RepositoryDetails = new(repository, 1, new("main",
+            [new("refs/heads/main", "1234567890abcdef")],
+            [new("1234567890abcdef", "C-Sweet", "Initialize repository")],
+            ["README.md", "src/Game.cs"]));
+
+        var html = await RenderAsync<InternalRepositoryDetail>(api, new()
+        {
+            [nameof(InternalRepositoryDetail.OrganizationId)] = api.Business,
+            [nameof(InternalRepositoryDetail.RepositoryId)] = repository.Id,
+            [nameof(InternalRepositoryDetail.CanManage)] = false
+        });
+
+        Assert.Contains("Repository sections", html);
+        Assert.Contains(">Code</button>", html);
+        Assert.Contains(">Changes</button>", html);
+        Assert.Contains(">Branches</button>", html);
+        Assert.Contains(">Access</button>", html);
+        Assert.DoesNotContain(">Settings</button>", html);
+        Assert.Contains("README.md", html);
+        Assert.Contains("src", html);
+        Assert.Contains("Clone &amp; access", html);
+        Assert.DoesNotContain("New file", html);
+        Assert.DoesNotContain("Star", html);
+        Assert.DoesNotContain("Fork", html);
+    }
+
+    [Fact]
+    public async Task RepositoryDetailShowsLatestWorkBranchWhenDefaultBranchHasNoFiles()
+    {
+        var api = new WorkspaceApi();
+        var connection = Connection("InternalGit");
+        var repository = Repository(connection.Id, "tetris", "Ready");
+        const string workBranch = "csweet/tetris-build";
+        api.RepositoryDetails = new(repository, 1, new("main",
+            [new("refs/heads/main", "1111111111111111"), new($"refs/heads/{workBranch}", "2222222222222222")],
+            [new("1111111111111111", "C-Sweet", "Initialize repository")], []));
+        api.WorkBranchDetails = new(repository, 1, new("main",
+            [new("refs/heads/main", "1111111111111111"), new($"refs/heads/{workBranch}", "2222222222222222")],
+            [new("2222222222222222", "Daniel Kim", "Build game")], ["index.html", "main.js"]));
+        api.Proposals = [new(Guid.NewGuid(), repository.Id, "2222222222222222", workBranch, "main", "AwaitingValidation", DateTimeOffset.UtcNow, false)];
+
+        var html = await RenderAsync<InternalRepositoryDetail>(api, new()
+        {
+            [nameof(InternalRepositoryDetail.OrganizationId)] = api.Business,
+            [nameof(InternalRepositoryDetail.RepositoryId)] = repository.Id,
+            [nameof(InternalRepositoryDetail.CanManage)] = false
+        });
+
+        Assert.Contains(workBranch, html);
+        Assert.Contains("Showing the latest work branch", html);
+        Assert.Contains("index.html", html);
+        Assert.Contains("main.js", html);
+        Assert.Contains(api.Requests, request => request.Contains("reference=refs%2Fheads%2Fcsweet%2Ftetris-build", StringComparison.OrdinalIgnoreCase));
+    }
+    [Fact]
     public async Task UnfinishedOnboardingOpensConnections()
     {
         var api = new WorkspaceApi { Onboarding = new(Guid.NewGuid(), null, "ExistingGitHub", "Pending", "authorize-source-access", DateTimeOffset.UtcNow.AddHours(1)) };
@@ -106,13 +166,20 @@ public sealed class SourceControlWorkspaceRenderingTests
         public List<string> Requests { get; } = [];
         public IReadOnlyList<SourceControlRepositorySummary> Repositories { get; set; } = [];
         public SourceControlOnboardingSummary? Onboarding { get; init; }
+        public InternalRepositoryDetails? RepositoryDetails { get; set; }
+        public InternalRepositoryDetails? WorkBranchDetails { get; set; }
+        public IReadOnlyList<InternalGitProposalSummary> Proposals { get; set; } = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
-            Requests.Add(path);
+            Requests.Add(request.RequestUri.PathAndQuery);
             object body = path.EndsWith("/dashboard")
                 ? new SourceControlDashboardResponse([], Repositories, Onboarding, new(false, false, null), true)
                 : path.EndsWith("/internal/repositories") ? Repositories
+                : path.EndsWith("/team") ? Array.Empty<InternalGitTeamAccess>()
+                : path.EndsWith("/proposals") ? Proposals
+                : WorkBranchDetails is not null && path.EndsWith("/" + WorkBranchDetails.Repository.Id.ToString("D")) && request.RequestUri.Query.Contains("reference=", StringComparison.OrdinalIgnoreCase) ? WorkBranchDetails
+                : RepositoryDetails is not null && path.EndsWith("/" + RepositoryDetails.Repository.Id.ToString("D")) ? RepositoryDetails
                 : path.EndsWith("/teams") ? new { Teams = Array.Empty<object>() }
                 : throw new InvalidOperationException("Unexpected request: " + path);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(body, body.GetType()) });

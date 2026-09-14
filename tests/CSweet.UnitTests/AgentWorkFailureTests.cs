@@ -24,4 +24,21 @@ public sealed class AgentWorkFailureTests
         Assert.Contains("Review the agent's diagnostics", message);
         Assert.DoesNotContain("private", message);
     }
+
+    [Theory]
+    [InlineData("agent-failure:v1;code=runtime.transport;retryable=true", true)]
+    [InlineData("agent-failure:v1;code=agent.invalid_operation", true)]
+    [InlineData("agent-failure:v1;code=agent.payload_invalid", true)]
+    [InlineData("agent-failure:v1;code=agent.unhandled", true)]
+    [InlineData("agent-failure:v1;code=platform.capability.unavailable;retryable=false", false)]
+    [InlineData("private exception body", false)]
+    public void AttentionReviewRecoveryIsBoundedToRecoverableAgentFailures(string error, bool expected) =>
+        Assert.Equal(expected, AgentWorkFailure.IsRecoverableAtAttentionReview(error));
+
+    [Theory]
+    [InlineData("agent-failure:v1;code=agent.invalid_operation;diagnosticId=test", "structured result")]
+    [InlineData("agent-failure:v1;code=agent.payload_invalid;diagnosticId=test", "invalid structured result")]
+    [InlineData("agent-failure:v1;code=runtime.transport;retryable=true;diagnosticId=test", "retry this task automatically")]
+    public void RecoverableFailuresExplainAutomaticAttentionRecovery(string error, string expected) =>
+        Assert.Contains(expected, AgentWorkFailure.DescribeBlocker(error));
 }

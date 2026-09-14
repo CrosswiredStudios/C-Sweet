@@ -30,6 +30,23 @@ public sealed partial class WorkItemMutationEngine
             child.BlockReason = reason; child.Revision++; child.UpdatedAt = clock.GetUtcNow();
         }
     }
+
+    private async Task ReopenBlockedPlanChildrenAsync(WorkTask root, CancellationToken ct)
+    {
+        if (ReadPlanSpecification(root)?.PersonalPlan?.Execution != "Coordinator") return;
+        var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == root.BoardId, ct);
+        var children = await db.CoreWorkTasks.Where(x => x.BoardId == root.BoardId &&
+            x.Status == WorkTaskStatus.Blocked).ToListAsync(ct);
+        foreach (var child in children.Where(x => x.Id != root.Id &&
+            ReadPlanSpecification(x)?.PersonalPlan?.RootItemId == root.Id))
+        {
+            child.Status = WorkTaskStatus.Backlog;
+            child.BoardColumnId = ColumnForStatus(board, WorkTaskStatus.Backlog).Id;
+            child.BlockReason = null;
+            child.Revision++;
+            child.UpdatedAt = clock.GetUtcNow();
+        }
+    }
     private static Wire.WorkItemPlanningSpecification? ReadPlanSpecification(WorkTask item) =>
         string.IsNullOrWhiteSpace(item.PlanningSpecificationJson) ? null :
             JsonSerializer.Deserialize<Wire.WorkItemPlanningSpecification>(item.PlanningSpecificationJson, JsonOptions);

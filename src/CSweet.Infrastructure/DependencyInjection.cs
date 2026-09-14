@@ -109,6 +109,13 @@ public static class DependencyInjection
         builder.Services.AddSingleton<IExecutionNodeCertificateAuthority, ExecutionNodeCertificateAuthority>();
         builder.Services.AddScoped<IExecutionWorkloadOrchestrator, ExecutionWorkloadOrchestrator>();
         builder.Services.AddScoped<ExecutionArtifactGrantLeaseService>();
+        var executionBrokerLimits = builder.Configuration
+            .GetSection(ExecutionBrokerLimitsOptions.SectionName)
+            .Get<ExecutionBrokerLimitsOptions>() ?? new ExecutionBrokerLimitsOptions();
+        if (executionBrokerLimits.MaximumRequestCount < 1 || executionBrokerLimits.MaximumRequestBodyBytes < 1 ||
+            executionBrokerLimits.MaximumResponseBodyBytes < 1 || executionBrokerLimits.MaximumFrameBytes < 1)
+            throw new InvalidOperationException("The execution broker limits are invalid.");
+        builder.Services.AddSingleton(executionBrokerLimits);
         builder.Services.AddScoped<IExecutionBrokerSessionRunner, ExecutionBrokerSessionRunner>();
         builder.Services.AddSingleton<IAuditExecutionContextAccessor, AuditExecutionContextAccessor>();
         builder.Services.AddSingleton<IAuditEventWriter, AuditEventWriter>();

@@ -363,4 +363,24 @@ public sealed class McpCapabilityRegistryTests
             }),
             tool.InputSchema);
     }
+
+    [Fact]
+    public void PublishGitWorkspaceSchema_AcceptsTypedValidationEvidence()
+    {
+        var registry = new McpToolCatalog([]);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([GitWorkspaceCapabilities.Publish], StringComparer.Ordinal)));
+        var request = new PublishGitWorkspaceRequest(
+            Guid.NewGuid(),
+            1,
+            "Complete playable board",
+            "Tetris Clone MVP",
+            "Completed planned task: Implement playable board",
+            "tetris-checkpoint",
+            [new GitValidationResult("node tests/game.test.js", true, 0, "All tests passed.")]);
+
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            tool.InputSchema);
+    }
 }

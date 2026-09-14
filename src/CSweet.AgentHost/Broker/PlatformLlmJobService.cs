@@ -16,6 +16,11 @@ public sealed class PlatformLlmJobOptions
     public int MaximumConcurrentRequests { get; set; } = 1;
     public int MaximumQueuedRequests { get; set; } = 256;
     public int GenerationTimeoutSeconds { get; set; } = 900;
+    public int MaximumRequestBytes { get; set; } = 4 * 1024 * 1024;
+    public int MaximumMessageCount { get; set; } = 512;
+    public int MaximumMessageCharacters { get; set; } = 1_048_576;
+    public int MaximumToolCount { get; set; } = 256;
+    public int DefaultMaximumOutputTokens { get; set; } = 32_768;
 }
 
 public interface IPlatformLlmJobExecutor
@@ -82,7 +87,8 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         if (string.IsNullOrWhiteSpace(key) || key.Length > 128)
             throw new ArgumentException("An inference request key is required.");
         var bytes = JsonSerializer.SerializeToUtf8Bytes(arguments);
-        if (bytes.Length > 1_048_576) throw new ArgumentException("The inference payload is too large.");
+        if (bytes.Length > options.MaximumRequestBytes)
+            throw new ArgumentException($"The inference payload exceeds the configured {options.MaximumRequestBytes}-byte limit.");
         var provider = arguments.GetProperty("providerProfileId").GetGuid();
         var hash = Convert.ToHexString(SHA256.HashData(bytes));
         await budgetGate.WaitAsync(token);

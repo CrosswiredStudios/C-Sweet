@@ -69,6 +69,10 @@
                 }
             </MudPaper>
         }
+        @if (SelectedRepository is { } selectedId && _repositories.Any(r => r.Id == selectedId))
+        {
+            <InternalRepositoryDetail OrganizationId="OrganizationId" RepositoryId="selectedId" CanManage="CanManage" SelectedReference="@SelectedReference" SelectedFile="@SelectedFile" />
+        }
         @if (_details is not null)
         {
             <MudDivider />
@@ -274,7 +278,7 @@
             if (_repositories.Any(r => r.Id == id))
             {
                 _externalRepository = null;
-                await InspectAsync(id, SelectedReference, SelectedFile);
+                _details = null;
             }
             else
             {

@@ -248,6 +248,48 @@ public sealed class AgentRuntimeManagerTests
     }
 
     [Fact]
+    public async Task OnDemandReconciliation_QueuesReplacementForExpiredLeasedWork()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, due: false);
+        installation.Schedule!.ActivationMode = ActivationMode.OnDemand;
+        installation.Schedule.NextTickAt = null;
+        var now = DateTimeOffset.UtcNow;
+        var priorRuntime = RunningInstance(installation.Id, now.AddMinutes(-5));
+        priorRuntime.TransitionTo(AgentRuntimeStatus.Stopping, now.AddMinutes(-2), "Broker session ended.");
+        priorRuntime.TransitionTo(AgentRuntimeStatus.Failed, now.AddMinutes(-2), "Broker session ended.");
+        var work = new AgentWorkItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = installation.BusinessId,
+            AgentInstallationId = installation.Id, Kind = AgentWorkKind.Event,
+            Name = "test.event", ProtectedPayload = [1], PayloadHash = "hash",
+            CorrelationId = Guid.NewGuid().ToString("N"), IdempotencyKey = "leased-event",
+            Status = AgentWorkStatus.Leased, AvailableAt = now.AddMinutes(-5),
+            DeadlineAt = now.AddHours(1), CreatedAt = now.AddMinutes(-5),
+            AttemptCount = 1, MaximumAttempts = 3
+        };
+        var attempt = new AgentWorkAttempt
+        {
+            Id = Guid.NewGuid(), AgentWorkItemId = work.Id, RuntimeInstanceId = priorRuntime.Id,
+            Attempt = 1, LeaseTokenHash = "lease", ClaimedAt = now.AddMinutes(-4),
+            LeaseExpiresAt = now.AddMinutes(1)
+        };
+        work.Attempts.Add(attempt);
+        db.AddRange(priorRuntime, work);
+        await db.SaveChangesAsync();
+        var manager = CreateManager(db, new FakeRunner());
+
+        Assert.Equal(0, await manager.EnsurePendingOnDemandRuntimesAsync());
+
+        attempt.LeaseExpiresAt = now.AddSeconds(-1);
+        await db.SaveChangesAsync();
+
+        Assert.Equal(1, await manager.EnsurePendingOnDemandRuntimesAsync());
+        Assert.Equal(0, await manager.EnsurePendingOnDemandRuntimesAsync());
+        Assert.Single(await db.AgentRuntimeInstances.Where(x => x.Status == AgentRuntimeStatus.Queued).ToListAsync());
+    }
+
+    [Fact]
     public async Task AlwaysOnReconciliation_StopsAfterThreeStartupFailuresAndRetainsDetails()
     {
         await using var db = CreateDb();

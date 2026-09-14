@@ -229,9 +229,10 @@ public sealed class AgentRuntimeManager(
                 x.Schedule.ActivationMode == ActivationMode.OnDemand &&
                 dbContext.AgentWorkItems.Any(work =>
                     work.AgentInstallationId == x.Id &&
-                    work.Status == AgentWorkStatus.Pending &&
-                    work.AvailableAt <= now &&
-                    work.DeadlineAt > now) &&
+                    work.DeadlineAt > now &&
+                    ((work.Status == AgentWorkStatus.Pending && work.AvailableAt <= now) ||
+                     (work.Status == AgentWorkStatus.Leased && work.Attempts.Any(attempt =>
+                         attempt.FinishedAt == null && attempt.LeaseExpiresAt <= now)))) &&
                 !x.RuntimeInstances.Any(runtime =>
                     runtime.Status == AgentRuntimeStatus.Queued ||
                     WorkloadActiveStatuses.Contains(runtime.Status)))

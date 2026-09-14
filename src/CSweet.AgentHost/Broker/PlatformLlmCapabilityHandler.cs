@@ -26,6 +26,7 @@ public sealed class PlatformLlmCapabilityHandler
     private readonly IReadOnlyList<IConversationAttachmentSourceResolver> _attachmentResolvers;
     private readonly IMediaAssetService _mediaAssets;
     private readonly TimeSpan _generationTimeout;
+    private readonly PlatformLlmJobOptions _options;
     private readonly PlatformLlmJobService? _jobs;
 
     public PlatformLlmCapabilityHandler(
@@ -46,7 +47,8 @@ public sealed class PlatformLlmCapabilityHandler
         _attachmentResolvers = attachmentResolvers.ToList();
         _mediaAssets = mediaAssets;
         _logger = logger;
-        _generationTimeout = TimeSpan.FromSeconds(jobOptions?.GenerationTimeoutSeconds ?? 120);
+        _options = jobOptions ?? new PlatformLlmJobOptions();
+        _generationTimeout = TimeSpan.FromSeconds(_options.GenerationTimeoutSeconds);
         _jobs = jobs;
     }
 
@@ -56,9 +58,10 @@ public sealed class PlatformLlmCapabilityHandler
         [EnumeratorCancellation] CancellationToken cancellationToken,
         bool providerSlotAcquired = false)
     {
-        if (request.Payload.Length > 1_048_576)
+        if (request.Payload.Length > _options.MaximumRequestBytes)
         {
-            yield return Failure(request.RequestId, "The LLM request exceeds the 1 MB limit.");
+            yield return Failure(request.RequestId,
+                $"The LLM request exceeds the configured {_options.MaximumRequestBytes}-byte payload limit.");
             yield break;
         }
 
@@ -92,12 +95,23 @@ public sealed class PlatformLlmCapabilityHandler
             yield break;
         }
 
-        if (input.Messages.Count > 128 ||
-            input.Messages.Sum(MessageSize) > 262_144 ||
-            (input.Tools?.Count ?? 0) > 128 ||
-            input.Temperature is < 0 or > 2)
+        var messageCharacters = input.Messages.Sum(MessageSize);
+        var toolCount = input.Tools?.Count ?? 0;
+        if (input.Messages.Count > _options.MaximumMessageCount ||
+            messageCharacters > _options.MaximumMessageCharacters ||
+            toolCount > _options.MaximumToolCount)
         {
-            yield return Failure(request.RequestId, "The LLM request exceeds the message, text, or tool limit.");
+            yield return Failure(request.RequestId,
+                $"The LLM request exceeds the message, text, or tool limit. " +
+                $"Messages: {input.Messages.Count}/{_options.MaximumMessageCount}; " +
+                $"message characters: {messageCharacters}/{_options.MaximumMessageCharacters}; " +
+                $"tools: {toolCount}/{_options.MaximumToolCount}. Compact the conversation and retry.");
+            yield break;
+        }
+
+        if (input.Temperature is < 0 or > 2)
+        {
+            yield return Failure(request.RequestId, "The LLM request temperature must be between 0 and 2.");
             yield break;
         }
 
@@ -122,12 +136,28 @@ public sealed class PlatformLlmCapabilityHandler
 
         // Provider configuration is the control-plane limit. A fixed 32K cap here
         // prevented agents from using larger budgets explicitly configured by users.
-        var maximumOutputTokens = profile.MaxOutputTokens is > 0 ? profile.MaxOutputTokens.Value : 32_768;
-        if (input.MaxOutputTokens is < 1 || input.MaxOutputTokens > maximumOutputTokens)
+        var maximumOutputTokens = profile.MaxOutputTokens is > 0
+            ? profile.MaxOutputTokens.Value
+            : _options.DefaultMaximumOutputTokens;
+        if (input.MaxOutputTokens is < 1)
         {
             yield return Failure(request.RequestId,
                 $"The requested output-token budget must be between 1 and {maximumOutputTokens} for the selected provider.");
             yield break;
+        }
+        // MaxOutputTokens is a caller preference and an upper bound, not a requirement that
+        // the provider produce that many tokens. Keep a portable agent running when its saved
+        // preference exceeds a newly selected provider's control-plane limit.
+        var effectiveMaxOutputTokens = input.MaxOutputTokens.HasValue
+            ? Math.Min(input.MaxOutputTokens.Value, maximumOutputTokens)
+            : (int?)null;
+        if (effectiveMaxOutputTokens != input.MaxOutputTokens)
+        {
+            _logger.LogInformation(
+                "Capped platform LLM request {RequestId} output tokens from {RequestedMaxOutputTokens} to provider limit {MaximumOutputTokens}.",
+                request.RequestId,
+                input.MaxOutputTokens,
+                maximumOutputTokens);
         }
 
         var selectedModel = string.IsNullOrWhiteSpace(input.Model)
@@ -214,7 +244,7 @@ public sealed class PlatformLlmCapabilityHandler
         var options = new ChatOptions
         {
             Temperature = input.Temperature,
-            MaxOutputTokens = input.MaxOutputTokens,
+            MaxOutputTokens = effectiveMaxOutputTokens,
             Instructions = identity is null
                 ? combinedInstructions
                 : AgentEmployeeIdentityResolver.ApplyToInstructions(session, identity, combinedInstructions),

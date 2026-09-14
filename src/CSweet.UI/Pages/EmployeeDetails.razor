@@ -138,7 +138,43 @@
                         <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">Runtime</MudText><MudText>@(_runtime?.Stage ?? "Unavailable")</MudText><MudText Color="Color.Secondary">@(_runtime?.Reason ?? _runtime?.RuntimeStatus)</MudText></MudPaper></MudItem>
                         <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">Schedule & resources</MudText><MudText>@(_installation?.Schedule.ActivationMode ?? "Unavailable")</MudText><MudText Color="Color.Secondary">@(_installation is null ? "" : $"{_installation.MemoryMb} MB · {_installation.CpuPercent}% CPU · {_installation.Schedule.MaxRuntimeSeconds}s max runtime")</MudText></MudPaper></MudItem>
                         <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">Capabilities & access</MudText><MudText Typo="Typo.caption">Capabilities: @(_installation is null ? "—" : string.Join(", ", _installation.GrantedCapabilities))</MudText><MudText Typo="Typo.caption">Network: @(_installation is null ? "—" : string.Join(", ", _installation.GrantedNetworkAccess))</MudText></MudPaper></MudItem>
-                        <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">History, build & configuration</MudText><MudText>@_runtimeRuns.Count runtime run(s)</MudText><MudText Color="Color.Secondary">Build: @(_installation?.Build?.Status ?? "No build status") · Configuration: @(_configuration?.SynchronizationStatus ?? "Unavailable")</MudText><MudText Typo="Typo.caption">@(_configuration?.Fields.Count ?? 0) configuration field(s); secret values remain masked.</MudText>@if (_buildLog is not null) { <MudExpansionPanels Class="mt-2"><MudExpansionPanel Text="Build log"><pre style="white-space:pre-wrap;max-height:20rem;overflow:auto">@_buildLog.Content</pre></MudExpansionPanel></MudExpansionPanels> }<MudButton Class="mt-2" Href="@($"/organizations/{OrganizationId}/employees/{EmployeeId}/memory")">Memory</MudButton></MudPaper></MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudPaper Outlined="true" Class="pa-4">
+                                <MudText Typo="Typo.h6">History, build & configuration</MudText>
+                                <MudText>@_runtimeRuns.Count runtime run(s)</MudText>
+                                <MudText Color="Color.Secondary">Build: @(_installation?.Build?.Status ?? "No build status") · Configuration: @(_configuration?.SynchronizationStatus ?? "Unavailable")</MudText>
+                                <MudText Typo="Typo.caption">@(_configuration?.Fields.Count ?? 0) configuration field(s); secret values remain masked.</MudText>
+                                @if (_runtimeRuns.Count > 0)
+                                {
+                                    <MudExpansionPanels MultiExpansion="true" Class="mt-2">
+                                        @foreach (var run in _runtimeRuns.Take(10))
+                                        {
+                                            <MudExpansionPanel Text="@($"{run.QueuedAt.LocalDateTime:g} · {run.Status}")">
+                                                @if (!string.IsNullOrWhiteSpace(run.Reason))
+                                                {
+                                                    <MudAlert Severity="@RuntimeRunSeverity(run.Status)" Dense="true" Variant="Variant.Outlined">@run.Reason</MudAlert>
+                                                }
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">Runtime @run.Id · Tick @run.TickId</MudText>
+                                                @if (run.Events.Count > 0)
+                                                {
+                                                    <pre style="white-space:pre-wrap;max-height:16rem;overflow:auto">@RuntimeEventLog(run)</pre>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(run.LogExcerpt))
+                                                {
+                                                    <MudText Typo="Typo.subtitle2">Runtime output</MudText>
+                                                    <pre style="white-space:pre-wrap;max-height:20rem;overflow:auto">@run.LogExcerpt</pre>
+                                                }
+                                            </MudExpansionPanel>
+                                        }
+                                    </MudExpansionPanels>
+                                }
+                                @if (_buildLog is not null)
+                                {
+                                    <MudExpansionPanels Class="mt-2"><MudExpansionPanel Text="Build log"><pre style="white-space:pre-wrap;max-height:20rem;overflow:auto">@_buildLog.Content</pre></MudExpansionPanel></MudExpansionPanels>
+                                }
+                                <MudButton Class="mt-2" Href="@($"/organizations/{OrganizationId}/employees/{EmployeeId}/memory")">Memory</MudButton>
+                            </MudPaper>
+                        </MudItem>
                     </MudGrid>
                 }
             </MudTabPanel>
@@ -240,6 +276,16 @@
         }
     }
     private IReadOnlyList<EmployeeModelInferenceUsageResponse>? UsageFor(string window) => _usage.GetValueOrDefault(window);
+    private static Severity RuntimeRunSeverity(string status) => status switch
+    {
+        "Completed" or "Running" => Severity.Success,
+        "Queued" or "Starting" or "WaitingForMcpSession" => Severity.Info,
+        "Cancelled" => Severity.Warning,
+        _ => Severity.Error
+    };
+    private static string RuntimeEventLog(AgentRuntimeRunResponse run) =>
+        string.Join(Environment.NewLine, run.Events.Select(runtimeEvent =>
+            $"[{runtimeEvent.OccurredAt.LocalDateTime:yyyy-MM-dd HH:mm:ss}] {runtimeEvent.Status}: {runtimeEvent.Reason}"));
     private void ToggleProfileEdit()
     {
         _editingProfile = !_editingProfile; _profileError = null;

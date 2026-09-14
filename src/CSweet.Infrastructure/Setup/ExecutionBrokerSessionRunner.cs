@@ -13,6 +13,15 @@ using Microsoft.Extensions.Logging;
 
 namespace CSweet.Infrastructure.Setup;
 
+public sealed class ExecutionBrokerLimitsOptions
+{
+    public const string SectionName = "CSweet:ExecutionBroker:Limits";
+    public int MaximumRequestCount { get; set; } = 100_000;
+    public int MaximumRequestBodyBytes { get; set; } = 16 * 1024 * 1024;
+    public int MaximumResponseBodyBytes { get; set; } = 16 * 1024 * 1024;
+    public int MaximumFrameBytes { get; set; } = 16 * 1024 * 1024;
+}
+
 /// <summary>Terminates all guest broker sessions centrally after node tunnel authorization.</summary>
 public sealed class ExecutionBrokerSessionRunner(
     CSweetDbContext dbContext,
@@ -22,6 +31,7 @@ public sealed class ExecutionBrokerSessionRunner(
     IBuilderArtifactResultPublisher builderPublisher,
     ITrustedSourceControlHostClient sourceControlHost,
     ArtifactStoreOptions artifactOptions,
+    ExecutionBrokerLimitsOptions brokerLimits,
     TimeProvider timeProvider,
     ILogger<ExecutionBrokerSessionRunner> logger) : IExecutionBrokerSessionRunner
 {
@@ -73,7 +83,10 @@ public sealed class ExecutionBrokerSessionRunner(
             workload.BrokerLease.BootToken,
             workload.BrokerLease.ExpiresAt,
             new HashSet<string>(StringComparer.Ordinal) { "mcp.runtime" },
-            100_000, 1024 * 1024, 16 * 1024 * 1024, 16 * 1024 * 1024);
+            brokerLimits.MaximumRequestCount,
+            brokerLimits.MaximumRequestBodyBytes,
+            brokerLimits.MaximumResponseBodyBytes,
+            brokerLimits.MaximumFrameBytes);
         var boot = new GuestBootConfiguration
         {
             WorkloadId = workload.WorkloadId.ToString("D"),
@@ -90,7 +103,7 @@ public sealed class ExecutionBrokerSessionRunner(
             TickId = workload.Identity.TickId.ToString("D"),
             LocalBrokerSocketPath = "/run/csweet/broker.sock",
             WorkloadTokenPath = "/run/csweet/workload-token",
-            MaximumFrameBytes = 16 * 1024 * 1024
+            MaximumFrameBytes = brokerLimits.MaximumFrameBytes
         };
         var start = new StartCommand
         {
@@ -207,7 +220,10 @@ public sealed class ExecutionBrokerSessionRunner(
                 workload.BrokerLease.ExpiresAt,
                 new HashSet<string>(StringComparer.Ordinal)
                     { "build.fetch", "build.artifact", "build.progress" },
-                100_000, 1024 * 1024, 1024 * 1024, 16 * 1024 * 1024);
+                brokerLimits.MaximumRequestCount,
+                brokerLimits.MaximumRequestBodyBytes,
+                brokerLimits.MaximumResponseBodyBytes,
+                brokerLimits.MaximumFrameBytes);
             var boot = new GuestBootConfiguration
             {
                 WorkloadId = workload.WorkloadId.ToString("D"),
@@ -220,7 +236,7 @@ public sealed class ExecutionBrokerSessionRunner(
                 WorkloadKind = (int)WorkloadKind.Builder,
                 LocalBrokerSocketPath = "/run/csweet/broker.sock",
                 WorkloadTokenPath = "/run/csweet/workload-token",
-                MaximumFrameBytes = 16 * 1024 * 1024
+                MaximumFrameBytes = brokerLimits.MaximumFrameBytes
             };
             var start = new StartCommand
             {
@@ -372,7 +388,10 @@ public sealed class ExecutionBrokerSessionRunner(
                 workload.BrokerLease.ExpiresAt,
                 new HashSet<string>(StringComparer.Ordinal)
                     { "mcp.runtime", "build.fetch", "build.artifact", "build.progress" },
-                100_000, 1024 * 1024, 1024 * 1024, 16 * 1024 * 1024);
+                brokerLimits.MaximumRequestCount,
+                brokerLimits.MaximumRequestBodyBytes,
+                brokerLimits.MaximumResponseBodyBytes,
+                brokerLimits.MaximumFrameBytes);
             var boot = new GuestBootConfiguration
             {
                 WorkloadId = workload.WorkloadId.ToString("D"),
@@ -389,7 +408,7 @@ public sealed class ExecutionBrokerSessionRunner(
                 TickId = workload.Identity.TickId.ToString("D"),
                 LocalBrokerSocketPath = "/run/csweet/broker.sock",
                 WorkloadTokenPath = "/run/csweet/workload-token",
-                MaximumFrameBytes = 16 * 1024 * 1024
+                MaximumFrameBytes = brokerLimits.MaximumFrameBytes
             };
             var start = new StartCommand
             {

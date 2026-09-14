@@ -1,0 +1,61 @@
+<div class="file-preview">
+    <div class="file-preview-header">
+        <strong class="file-preview-name">@FileName</strong>
+        <div class="file-preview-actions">
+            @if (Viewer.SupportsPreview)
+            {
+                <div class="file-preview-toggle" role="group" aria-label="File display mode">
+                    <MudButton Size="Size.Small" Variant="@(_showRaw ? Variant.Text : Variant.Filled)" Color="Color.Primary" OnClick="() => _showRaw = false">@Viewer.PreviewLabel</MudButton>
+                    <MudButton Size="Size.Small" Variant="@(_showRaw ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick="() => _showRaw = true">@Viewer.RawLabel</MudButton>
+                </div>
+            }
+            <MudButton Size="Size.Small" OnClick="OnClose">Close file</MudButton>
+        </div>
+    </div>
+    <div class="file-preview-body">
+        @if (Viewer.SupportsPreview && !_showRaw)
+        {
+            <DynamicComponent Type="Viewer.ComponentType" Parameters="@PreviewParameters" />
+        }
+        else
+        {
+            <PlainTextFileViewer Content="@Content" />
+        }
+        @if (Loading)
+        {
+            <div class="file-preview-loading-overlay" aria-label="Loading file"><MudProgressCircular Indeterminate="true" /></div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Content { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? FileName { get; set; }
+
+    [Parameter]
+    public bool Loading { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private IFileContentViewer Viewer => FileViewerRegistry.Resolve(FileName);
+    private bool _showRaw;
+    private string? _lastFileName;
+    private string? _lastContent;
+
+    protected override void OnParametersSet()
+    {
+        // Default to the preview whenever a different file (or its content) is opened.
+        if (_lastFileName != FileName || _lastContent != Content)
+        {
+            _lastFileName = FileName;
+            _lastContent = Content;
+            _showRaw = false;
+        }
+    }
+
+    private Dictionary<string, object?> PreviewParameters => new() { ["Content"] = Content };
+}

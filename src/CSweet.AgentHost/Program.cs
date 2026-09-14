@@ -48,8 +48,10 @@ builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService
 builder.Services.AddScoped<AgentEmployeeIdentityResolver>();
 builder.Services.AddScoped<PlatformLlmCapabilityHandler>();
 var llmQueue = builder.Configuration.GetSection(PlatformLlmJobOptions.SectionName).Get<PlatformLlmJobOptions>() ?? new();
-if (llmQueue.MaximumConcurrentRequests is < 1 or > 64 || llmQueue.MaximumQueuedRequests is < 1 or > 4096 ||
-    llmQueue.GenerationTimeoutSeconds is < 1 or > 86400)
+if (llmQueue.MaximumConcurrentRequests < 1 || llmQueue.MaximumQueuedRequests < 1 ||
+    llmQueue.GenerationTimeoutSeconds < 1 || llmQueue.MaximumRequestBytes < 1 ||
+    llmQueue.MaximumMessageCount < 1 || llmQueue.MaximumMessageCharacters < 1 || llmQueue.MaximumToolCount < 1 ||
+    llmQueue.DefaultMaximumOutputTokens < 1)
     throw new InvalidOperationException("The LLM queue limits are invalid.");
 builder.Services.AddSingleton(llmQueue);
 builder.Services.AddScoped<IPlatformLlmJobExecutor, PlatformLlmJobExecutor>();

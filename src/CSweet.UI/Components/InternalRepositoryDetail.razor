@@ -1,0 +1,250 @@
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.SourceControl
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<section class="repository-detail-shell" aria-label="Repository details">
+    @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="Loading repository" /> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+    @if (_details is not null)
+    {
+        <header class="repository-detail-header">
+            <div class="repository-title">
+                <MudIcon Icon="@Icons.Material.Outlined.AccountTree" />
+                <div>
+                    <div class="repository-breadcrumb"><span>Source control</span><MudIcon Icon="@Icons.Material.Outlined.ChevronRight" Size="Size.Small" /><strong>@_details.Repository.Name</strong></div>
+                    <MudText Typo="Typo.caption" Class="repository-muted">@_details.Repository.CanonicalPath / @(_details.Repository.IsPrivate ? "Private" : "Public")</MudText>
+                </div>
+            </div>
+            <MudButton OnClick="CloseRepository" StartIcon="@Icons.Material.Outlined.ArrowBack">All repositories</MudButton>
+        </header>
+        <nav class="repository-tabs" aria-label="Repository sections">
+            @foreach (var section in Enum.GetValues<RepositorySection>())
+            {
+                @if (section != RepositorySection.Settings || CanManage)
+                {
+                    <button type="button" class="@TabClass(section)" aria-current="@(section == _section ? "page" : null)" @onclick="() => _section = section">@section</button>
+                }
+            }
+        </nav>
+
+        @if (_section == RepositorySection.Code)
+        {
+            <div class="repository-code-layout">
+                <main class="repository-code-main">
+                    @if (_details.Inspection.Refs.Count == 0)
+                    {
+                        <div class="repository-empty repository-empty-compact"><MudIcon Icon="@Icons.Material.Outlined.FolderOpen" /><MudText Typo="Typo.h6">This repository is empty</MudText><MudText Class="repository-muted">Push a commit to @_details.Repository.DefaultBranch to start browsing files.</MudText></div>
+                    }
+                    else
+                    {
+                        <div class="code-toolbar">
+                            <MudSelect T="string" Value="@CurrentReference" ValueChanged="ChangeReferenceAsync" Variant="Variant.Outlined" Dense="true" Class="branch-select" aria-label="Branch or tag">
+                                @foreach (var reference in _details.Inspection.Refs) { <MudSelectItem T="string" Value="@reference.Name">@ShortReference(reference.Name)</MudSelectItem> }
+                            </MudSelect>
+                            <span class="code-toolbar-summary">@BranchCount @Pluralize(BranchCount, "branch") / @TagCount @(TagCount == 1 ? "tag" : "tags")</span>
+                            <MudTextField @bind-Value="_fileSearch" Placeholder="Go to file" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Class="file-search" aria-label="Find a file" />
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Terminal" OnClick="() => _section = RepositorySection.Access">Clone &amp; access</MudButton>
+                        </div>
+                        @if (_showingLatestWorkBranch)
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                                @_details.Repository.DefaultBranch does not contain any files yet. Showing the latest work branch.
+                            </MudAlert>
+                        }
+                        <div class="code-browser">
+                            @if (_details.Inspection.Commits.FirstOrDefault() is { } latest) { <div class="code-commit-bar"><MudIcon Icon="@Icons.Material.Outlined.Commit" /><strong>@latest.Author</strong><span class="code-commit-subject">@latest.Subject</span><code>@latest.Sha[..Math.Min(8, latest.Sha.Length)]</code></div> }
+                            @if (string.IsNullOrWhiteSpace(_fileSearch) && !string.IsNullOrEmpty(_browserPath)) { <button type="button" class="code-row code-row-button" @onclick="NavigateUp"><MudIcon Icon="@Icons.Material.Outlined.FolderOpen" /><span class="code-entry-name">..</span><span></span></button> }
+                            @foreach (var entry in BrowserEntries) { <button type="button" class="code-row code-row-button" @onclick="() => OpenEntryAsync(entry)"><MudIcon Icon="@(entry.IsDirectory ? Icons.Material.Outlined.Folder : Icons.Material.Outlined.InsertDriveFile)" /><span class="code-entry-name">@entry.DisplayName</span><span class="code-entry-kind">@(entry.IsDirectory ? "Directory" : "File")</span></button> }
+                            @if (BrowserEntries.Count == 0) { <div class="code-empty-search">@(string.IsNullOrWhiteSpace(_fileSearch) ? "No files at this location." : $"No files match '{_fileSearch}'.")</div> }
+                        </div>
+                        @if (_fileLoading || _details.Inspection.Content is not null) { <FileContentViewer FileName="@_selectedFile" Content="@FileContent" Loading="_fileLoading" OnClose="CloseFile" /> }
+                        <section class="detail-card commits-card"><h2>Recent commits</h2>@foreach (var commit in _details.Inspection.Commits) { <div class="commit-row"><span>@commit.Subject</span><span>@commit.Author</span><code>@commit.Sha[..Math.Min(8, commit.Sha.Length)]</code></div> }</section>
+                    }
+                </main>
+                <aside class="repository-sidebar">
+                    <section class="sidebar-card"><h2>About</h2><p>Private source code managed by C-Sweet.</p><dl><div><dt>Default branch</dt><dd>@_details.Repository.DefaultBranch</dd></div><div><dt>Status</dt><dd>@StatusLabel(_details.Repository.Status)</dd></div></dl></section>
+                    <section class="sidebar-card"><div class="sidebar-heading"><h2>Team access</h2><MudButton Size="Size.Small" OnClick="() => _section = RepositorySection.Access">Manage</MudButton></div>@if (_teamAccess.Count == 0) { <p class="repository-muted">No teams assigned.</p> } else { @foreach (var access in _teamAccess.Where(a => !a.Disabled)) { <div class="sidebar-team"><MudIcon Icon="@Icons.Material.Outlined.Groups" Size="Size.Small" /><span>@access.TeamName</span>@if (access.IsPrimary) { <span class="repository-pill">Primary</span> }</div> } }</section>
+                    @if (CanManage) { <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Settings" OnClick="() => _section = RepositorySection.Settings">Repository settings</MudButton> }
+                </aside>
+            </div>
+        }
+        else if (_section == RepositorySection.Changes)
+        {
+            <section class="detail-card"><div class="section-heading"><div><h2>Proposed changes</h2><p>Review changes awaiting C-Sweet's approval workflow.</p></div><span>@_proposals.Count open</span></div>@if (_proposals.Count == 0) { <div class="section-empty">There are no proposed changes.</div> }@foreach (var proposal in _proposals) { <div class="action-row"><div><strong>@proposal.Branch to @proposal.TargetBranch</strong><p>@ShortSha(proposal.CommitSha) / @proposal.Status / QA @(proposal.QaPassed ? "passed" : "pending")</p></div><MudButton OnClick="@(() => InspectProposalAsync(proposal.Id))" Disabled="_busy" Variant="Variant.Outlined">Review diff</MudButton></div> }@if (_proposalDiff is not null) { <pre class="proposal-diff">@_proposalDiff</pre> }</section>
+        }
+        else if (_section == RepositorySection.Branches)
+        {
+            <section class="detail-card">
+                <div class="section-heading"><div><h2>Branches and tags</h2><p>Browse refs or create a branch/tag from a commit.</p></div><span>@BranchCount branches / @TagCount tags</span></div>
+                @if (CanManage && _details.Repository.Status == "Ready") { <div class="ref-create"><MudTextField @bind-Value="_newRef" Label="New ref" HelperText="refs/heads/name or refs/tags/name" Disabled="_busy" Variant="Variant.Outlined" /><MudTextField @bind-Value="_refTarget" Label="Target commit SHA" Disabled="_busy" Variant="Variant.Outlined" /><MudButton OnClick="CreateRefAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_newRef) || string.IsNullOrWhiteSpace(_refTarget))" Variant="Variant.Filled" Color="Color.Primary">Create ref</MudButton></div> }
+                @foreach (var reference in _details.Inspection.Refs) { <div class="action-row"><button type="button" class="ref-link" @onclick="() => ChangeReferenceAsync(reference.Name)"><MudIcon Icon="@(reference.Name.StartsWith("refs/tags/") ? Icons.Material.Outlined.LocalOffer : Icons.Material.Outlined.CallSplit)" Size="Size.Small" /><span>@ShortReference(reference.Name)</span><code>@ShortSha(reference.Sha)</code></button>@if (CanManage && _details.Repository.Status == "Ready" && reference.Name != "refs/heads/" + _details.Repository.DefaultBranch) { <MudButton Color="Color.Error" OnClick="@(() => _deleteRef = reference)" Disabled="_busy">Delete</MudButton> }</div> }
+                @if (_deleteRef is not null) { <MudAlert Severity="Severity.Warning">Delete @_deleteRef.Name at @ShortSha(_deleteRef.Sha)? <MudButton Color="Color.Error" OnClick="DeleteRefAsync" Disabled="_busy">Confirm</MudButton><MudButton OnClick="@(() => _deleteRef = null)">Cancel</MudButton></MudAlert> }
+            </section>
+        }
+        else if (_section == RepositorySection.Access)
+        {
+            <div class="settings-layout">
+                <section class="detail-card"><h2>Git client access</h2><p>Clone credentials and large-file controls for this repository.</p><InternalGitClientAccess @key="RepositoryId" OrganizationId="OrganizationId" RepositoryId="RepositoryId" CanManage="CanManage" /><InternalGitLocks OrganizationId="OrganizationId" RepositoryId="RepositoryId" CanManage="@(CanManage && _details.Repository.Status == "Ready")" /></section>
+                <section class="detail-card"><h2>Team access</h2>@if (CanManage && _details.Repository.Status == "Ready") { <div class="access-form"><MudSelect T="Guid" @bind-Value="_team" Label="Assign to team" Variant="Variant.Outlined">@foreach (var team in _teams) { <MudSelectItem T="Guid" Value="team.Id">@team.Name</MudSelectItem> }</MudSelect><MudCheckBox @bind-Value="_primary" Label="Use as the team's primary repository" /><MudSelect T="string" @bind-Value="_mergePolicy" Label="Merge approval" Variant="Variant.Outlined"><MudSelectItem T="string" Value="@("LeadAuthorizedAutoMerge")">QA and team lead</MudSelectItem><MudSelectItem T="string" Value="@("LeadAndAdministratorApproval")">QA, team lead and administrator</MudSelectItem></MudSelect><MudButton OnClick="AssignTeamAsync" Disabled="@(_busy || _team == Guid.Empty)" Variant="Variant.Filled" Color="Color.Primary">Save team access</MudButton></div> }@if (_teamAccess.Count == 0) { <div class="section-empty">No teams have access.</div> }@foreach (var access in _teamAccess) { <div class="action-row"><div><strong>@access.TeamName</strong><p>@(access.Disabled ? "Revoked" : access.IsPrimary ? "Primary repository" : "Available") / @(access.MergeApprovalMode == "LeadAndAdministratorApproval" ? "QA, lead and administrator" : "QA and lead")</p></div>@if (CanManage) { <div><MudButton Disabled="_busy" OnClick="@(() => EditTeam(access))">Edit</MudButton>@if (!access.Disabled) { <MudButton Disabled="_busy" Color="Color.Error" OnClick="@(() => RevokeTeamAsync(access))">Revoke</MudButton> }</div> }</div> }</section>
+            </div>
+        }
+        else if (_section == RepositorySection.Settings && CanManage)
+        {
+            <div class="settings-layout"><section class="detail-card"><h2>Repository settings</h2><p>Change the repository identity and default branch.</p><div class="settings-form"><MudTextField @bind-Value="_editName" Label="Name" Disabled="_busy" Variant="Variant.Outlined" /><MudTextField @bind-Value="_editBranch" Label="Default branch" Disabled="_busy" Variant="Variant.Outlined" /><MudCheckBox @bind-Value="_archived" Label="Archived (blocks new work; keeps history)" Disabled="_busy" /><MudButton OnClick="SaveAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">Save repository</MudButton></div></section>@if (_details.Repository.Status == "Archived") { <section class="detail-card danger-card"><h2>Delete repository</h2><p>Deletion permanently removes Git history. Repositories with team assignments or work history must remain archived.</p><MudTextField @bind-Value="_deleteName" Label="Type the repository name to confirm" Variant="Variant.Outlined" /><MudButton OnClick="DeleteAsync" Color="Color.Error" Variant="Variant.Filled" Disabled="@(_busy || _deleteName != _details.Repository.Name)">Delete repository permanently</MudButton></section> }</div>
+        }
+    }
+</section>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid RepositoryId { get; set; }
+    [Parameter] public bool CanManage { get; set; }
+    [Parameter] public string? SelectedReference { get; set; }
+    [Parameter] public string? SelectedFile { get; set; }
+    private InternalRepositoryDetails? _details;
+    private IReadOnlyList<TeamSummaryResponse> _teams = [];
+    private IReadOnlyList<InternalGitTeamAccess> _teamAccess = [];
+    private IReadOnlyList<InternalGitProposalSummary> _proposals = [];
+    private Guid _loadedRepository;
+    private string? _loadedReference, _loadedFile, _selectedRef, _selectedFile, _error, _proposalDiff;
+    private string _browserPath = "", _fileSearch = "", _editName = "", _editBranch = "main", _deleteName = "", _newRef = "", _refTarget = "", _mergePolicy = "LeadAuthorizedAutoMerge";
+    private Guid _team;
+    private bool _busy, _fileLoading, _primary = true, _archived, _showingLatestWorkBranch;
+    private InternalGitRef? _deleteRef;
+    private RepositorySection _section = RepositorySection.Code;
+    private IJSObjectReference? _navModule;
+    private string Endpoint => $"api/organizations/{OrganizationId:D}/source-control/internal/repositories";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedRepository == RepositoryId && _loadedReference == SelectedReference && _loadedFile == SelectedFile) return;
+        var fileOnlyChange = _loadedRepository == RepositoryId && _loadedReference == SelectedReference && _details is not null;
+        _loadedRepository = RepositoryId; _loadedReference = SelectedReference; _loadedFile = SelectedFile;
+        if (fileOnlyChange) await LoadFileContentAsync(SelectedReference, SelectedFile);
+        else await LoadDetailsAsync(SelectedReference, SelectedFile);
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _navModule is null)
+        {
+            _navModule = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/fileNavigation.js");
+        }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (_navModule is not null) { await _navModule.DisposeAsync(); _navModule = null; }
+    }
+    private async Task LoadDetailsAsync(string? reference = null, string? file = null) => await RunAsync(async () =>
+    {
+        _details = await Http.GetFromJsonAsync<InternalRepositoryDetails>(InspectionUrl(reference, file));
+        if (_details is null) return;
+        _teamAccess = await Http.GetFromJsonAsync<List<InternalGitTeamAccess>>($"{Endpoint}/{RepositoryId:D}/team") ?? [];
+        _proposals = await Http.GetFromJsonAsync<List<InternalGitProposalSummary>>($"{Endpoint}/{RepositoryId:D}/proposals") ?? [];
+        _showingLatestWorkBranch = false;
+        if (string.IsNullOrWhiteSpace(reference) && file is null && _details.Inspection.Files.Count == 0 &&
+            LatestAvailableWorkReference(_details, _proposals) is { } workReference)
+        {
+            _details = await Http.GetFromJsonAsync<InternalRepositoryDetails>(InspectionUrl(workReference, null));
+            if (_details is null) return;
+            reference = workReference;
+            _showingLatestWorkBranch = true;
+        }
+        if (CanManage) { var teams = await Http.GetFromJsonAsync<TeamDirectoryResponse>($"api/core/organizations/{OrganizationId:D}/teams?includeArchived=false"); _teams = teams?.Teams.Where(t => !t.IsArchived).ToList() ?? []; }
+        _team = Guid.Empty; _proposalDiff = null; _deleteName = ""; _deleteRef = null; _selectedRef = reference; _selectedFile = file; _browserPath = file is null ? "" : ParentPath(file); _editName = _details.Repository.Name; _editBranch = _details.Repository.DefaultBranch; _archived = _details.Repository.Status == "Archived";
+    });
+    private async Task LoadFileContentAsync(string? reference, string? file)
+    {
+        _fileLoading = true;
+        try
+        {
+            var details = await Http.GetFromJsonAsync<InternalRepositoryDetails>(InspectionUrl(reference, file));
+            if (details is null || _details is null) return;
+            _details = _details with { Inspection = details.Inspection };
+            _selectedFile = file;
+            _loadedFile = file;
+            _browserPath = file is null ? "" : ParentPath(file);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _fileLoading = false;
+        }
+    }
+    private string FileContent => _details?.Inspection.Content ?? string.Empty;
+    private int BranchCount => _details?.Inspection.Refs.Count(r => r.Name.StartsWith("refs/heads/")) ?? 0;
+    private int TagCount => _details?.Inspection.Refs.Count(r => r.Name.StartsWith("refs/tags/")) ?? 0;
+    private string CurrentReference => _selectedRef ?? $"refs/heads/{_details?.Repository.DefaultBranch}";
+    private IReadOnlyList<BrowserEntry> BrowserEntries
+    {
+        get
+        {
+            if (_details is null) return [];
+            if (!string.IsNullOrWhiteSpace(_fileSearch)) return _details.Inspection.Files.Where(p => p.Contains(_fileSearch, StringComparison.OrdinalIgnoreCase)).OrderBy(p => p).Select(p => new BrowserEntry(p, p, false)).ToList();
+            var prefix = string.IsNullOrEmpty(_browserPath) ? "" : _browserPath + "/";
+            return _details.Inspection.Files.Where(path => path.StartsWith(prefix, StringComparison.Ordinal)).Select(path => path[prefix.Length..]).Where(path => path.Length > 0).Select(path => path.Split('/', 2)).GroupBy(parts => parts[0], StringComparer.Ordinal).Select(group => new BrowserEntry(group.Key, group.Key, group.Any(parts => parts.Length > 1))).OrderByDescending(entry => entry.IsDirectory).ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+    }
+    private async Task OpenEntryAsync(BrowserEntry entry)
+    {
+        if (_details is null) return;
+        var path = !string.IsNullOrWhiteSpace(_fileSearch) ? entry.Path : string.IsNullOrEmpty(_browserPath) ? entry.Name : $"{_browserPath}/{entry.Name}";
+        if (entry.IsDirectory) { _browserPath = path; _selectedFile = null; return; }
+        _fileSearch = "";
+        await PushUrlAsync(RepositoryUrl(_selectedRef, path));
+        await LoadFileContentAsync(_selectedRef, path);
+    }
+    private void NavigateUp() => _browserPath = ParentPath(_browserPath);
+    private async Task CloseFile()
+    {
+        if (_details is null) return;
+        await PushUrlAsync(RepositoryUrl(_selectedRef));
+        _details = _details with { Inspection = _details.Inspection with { Content = null } };
+        _selectedFile = null; _loadedFile = null; _browserPath = "";
+    }
+    private async Task PushUrlAsync(string url)
+    {
+        if (_navModule is null) { Navigation.NavigateTo(url); return; }
+        await _navModule.InvokeVoidAsync("pushState", url);
+    }
+    private Task ChangeReferenceAsync(string reference) { Navigation.NavigateTo(RepositoryUrl(reference)); return Task.CompletedTask; }
+    private void CloseRepository() => Navigation.NavigateTo($"/organizations/{OrganizationId:D}/source-control");
+    private async Task SaveAsync() => await RunAsync(async () => { if (_details is null) return; using var response = await Http.PutAsJsonAsync($"{Endpoint}/{RepositoryId:D}", new UpdateInternalRepositoryRequest(_editName, _editBranch, _archived, _details.Revision)); await CheckAsync(response); await LoadDetailsAsync(_selectedRef); });
+    private async Task DeleteAsync() => await RunAsync(async () => { if (_details is null) return; using var response = await Http.PostAsJsonAsync($"{Endpoint}/{RepositoryId:D}/delete", new DeleteInternalRepositoryRequest(_deleteName, _details.Revision)); await CheckAsync(response); CloseRepository(); });
+    private Task CreateRefAsync() => ChangeRefAsync(new("create", _newRef, new string('0', 40), _refTarget));
+    private Task DeleteRefAsync() => _deleteRef is null ? Task.CompletedTask : ChangeRefAsync(new("delete", _deleteRef.Name, _deleteRef.Sha));
+    private async Task ChangeRefAsync(InternalGitRefRequest request) => await RunAsync(async () => { using var response = await Http.PostAsJsonAsync($"{Endpoint}/{RepositoryId:D}/refs", request); await CheckAsync(response); if (_details is not null) _details = _details with { Inspection = (await response.Content.ReadFromJsonAsync<InternalGitRepositoryInspection>())! }; _deleteRef = null; _newRef = ""; _refTarget = ""; });
+    private async Task AssignTeamAsync() => await RunAsync(async () => { using var response = await Http.PutAsJsonAsync($"{Endpoint}/{RepositoryId:D}/team", new SetInternalRepositoryTeamRequest(_team, _primary, _mergePolicy, _teamAccess.SingleOrDefault(a => a.TeamId == _team)?.Revision ?? 0)); await CheckAsync(response); await ReloadTeamAccessAsync(); });
+    private void EditTeam(InternalGitTeamAccess access) { _team = access.TeamId; _primary = access.IsPrimary; _mergePolicy = access.MergeApprovalMode; }
+    private async Task RevokeTeamAsync(InternalGitTeamAccess access) => await RunAsync(async () => { using var response = await Http.PutAsJsonAsync($"{Endpoint}/{RepositoryId:D}/team", new SetInternalRepositoryTeamRequest(access.TeamId, false, access.MergeApprovalMode, access.Revision, true)); await CheckAsync(response); await ReloadTeamAccessAsync(); });
+    private async Task ReloadTeamAccessAsync() => _teamAccess = await Http.GetFromJsonAsync<List<InternalGitTeamAccess>>($"{Endpoint}/{RepositoryId:D}/team") ?? [];
+    private async Task InspectProposalAsync(Guid id) => await RunAsync(async () => { var diff = await Http.GetFromJsonAsync<InternalGitRepositoryInspection>($"{Endpoint}/{RepositoryId:D}/proposals/{id:D}"); _proposalDiff = diff?.Content; });
+    private string InspectionUrl(string? reference, string? file) => Navigation.GetUriWithQueryParameters($"{Endpoint}/{RepositoryId:D}", new Dictionary<string, object?> { ["reference"] = reference, ["file"] = file });
+    private string RepositoryUrl(string? reference, string? file = null) => Navigation.GetUriWithQueryParameters($"/organizations/{OrganizationId:D}/source-control/{RepositoryId:D}", new Dictionary<string, object?> { ["reference"] = reference, ["file"] = file });
+    private string TabClass(RepositorySection section) => section == _section ? "repository-tab repository-tab-active" : "repository-tab";
+    private static string ShortReference(string value) => value.StartsWith("refs/heads/") ? value[11..] : value.StartsWith("refs/tags/") ? value[10..] : value;
+    private static string ShortSha(string value) => value[..Math.Min(8, value.Length)];
+    private static string? LatestAvailableWorkReference(InternalRepositoryDetails details,
+        IReadOnlyList<InternalGitProposalSummary> proposals)
+    {
+        var availableBranches = details.Inspection.Refs.Where(item => item.Name.StartsWith("refs/heads/", StringComparison.Ordinal))
+            .Select(item => item.Name).ToHashSet(StringComparer.Ordinal);
+        return proposals.Where(proposal => proposal.Status is not ("Failed" or "Superseded" or "Merged"))
+            .Select(proposal => $"refs/heads/{proposal.Branch}")
+            .FirstOrDefault(availableBranches.Contains);
+    }
+    private static string ParentPath(string path) { var separator = path.LastIndexOf('/'); return separator < 0 ? "" : path[..separator]; }
+    private static string Pluralize(int count, string word) => count == 1 ? word : word + "es";
+    private static string StatusLabel(string status) => status is "Connected" ? "Ready" : status;
+    private async Task RunAsync(Func<Task> action) { _busy = true; _error = null; try { await action(); } catch (Exception ex) { _error = ex.Message; } finally { _busy = false; } }
+    private static async Task CheckAsync(HttpResponseMessage response) { if (response.IsSuccessStatusCode) return; var body = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(); throw new InvalidOperationException(body.TryGetProperty("message", out var message) ? message.GetString() : "Repository operation failed."); }
+    private sealed record BrowserEntry(string Name, string Path, bool IsDirectory) { public string DisplayName => Path; }
+    private enum RepositorySection { Code, Changes, Branches, Access, Settings }
+}
+
+

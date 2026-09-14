@@ -1,0 +1,8 @@
+<div class="file-preview-markdown">
+    <ChatMarkdown Content="@Content" />
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Content { get; set; } = string.Empty;
+}

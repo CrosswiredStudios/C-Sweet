@@ -19,6 +19,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan AgentFailureRecoveryWindow = TimeSpan.FromHours(24);
+    private static readonly TimeSpan MaximumAgentFailureRecoveryDelay = TimeSpan.FromMinutes(15);
     private const int SoftOpenItemLimit = 100;
     private const int HardOpenItemLimit = 250;
     private const int BlockedNotificationTitleExcerptLength = 96;
@@ -62,6 +64,9 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             .ToListAsync(cancellationToken);
         var now = clock.GetUtcNow();
         await CoalesceAvailableDeliveriesAsync(now, cancellationToken);
+        await RecoverAgentUpdatedBlockedWorkAsync(now, cancellationToken);
+        await RecoverProviderBlockedWorkAsync(now, cancellationToken);
+        await RecoverAgentFailureWithBackoffAsync(now, cancellationToken);
         var dueReviews = await db.CoreWorkTasks
             .Include(x => x.Board)
             .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
@@ -174,6 +179,14 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                     task.Status = WorkTaskStatus.Blocked;
                     task.BoardColumnId = ColumnForStatus(board, WorkTaskStatus.Blocked).Id;
                     task.BlockReason = AgentWorkFailure.DescribeBlocker(lastDelivery.LastError);
+                    if (AgentWorkFailure.IsRecoverableAtAttentionReview(lastDelivery.LastError))
+                    {
+                        var recentFailureCount = await CountRecentRecoverableDeliveryFailuresAsync(
+                            owner.AgentInstallationId!.Value, prefix, now, cancellationToken);
+                        task.NextReviewAt = AgentFailureRetryAt(lastDelivery.CompletedAt ?? lastDelivery.CreatedAt,
+                            recentFailureCount);
+                        task.WaitingReason = "Waiting for automatic agent-run recovery.";
+                    }
                     await BlockRunningPlanChildrenAsync(task, task.BlockReason, cancellationToken);
                     await AddBlockedNotificationsAsync(task, board, task.BlockReason, now, cancellationToken);
                     task.Revision++;
@@ -192,6 +205,184 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         }
         if (db.ChangeTracker.HasChanges())
             await SaveChangesWithRealtimeAsync(cancellationToken);
+    }
+
+    private async Task RecoverProviderBlockedWorkAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var blocked = await db.CoreWorkTasks
+            .Include(x => x.Board)
+            .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
+                x.Board.OwnerOrganizationUserId.HasValue && x.ArchivedAt == null &&
+                x.IsExecutable && x.Status == WorkTaskStatus.Blocked)
+            .ToListAsync(cancellationToken);
+        foreach (var item in blocked.Where(x => AgentWorkFailure.IsLlmProviderBlocker(x.BlockReason)))
+        {
+            var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
+                x.Id == item.Board!.OwnerOrganizationUserId && x.IsActive &&
+                x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId != null,
+                cancellationToken);
+            if (owner is null) continue;
+            var failedProviderId = await db.AgentRunLogs.AsNoTracking()
+                .Where(x => x.AgentInstallationId == owner.AgentInstallationId &&
+                    x.Status == "Failed" && x.StartedAt <= item.UpdatedAt)
+                .OrderByDescending(x => x.StartedAt)
+                .Select(x => (Guid?)x.ProviderProfileId)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!failedProviderId.HasValue) continue;
+            var providerRecovered = await db.LlmProviderProfiles.AsNoTracking().AnyAsync(x =>
+                x.Id == failedProviderId.Value && x.IsEnabled &&
+                (x.UpdatedAt > item.UpdatedAt || x.LastSuccessfulConnectionAt > item.UpdatedAt),
+                cancellationToken);
+            if (!providerRecovered) continue;
+            var board = await db.WorkBoards.Include(x => x.Columns)
+                .SingleAsync(x => x.Id == item.BoardId, cancellationToken);
+            item.Status = WorkTaskStatus.Ready;
+            item.BoardColumnId = ColumnForStatus(board, WorkTaskStatus.Ready).Id;
+            item.BlockReason = null;
+            item.ClaimEventId = null;
+            item.ClaimExpiresAt = null;
+            item.NextReviewAt = null;
+            item.WaitingReason = null;
+            item.WaitingOnOrganizationUserId = null;
+            item.Revision++;
+            item.UpdatedAt = now;
+            await ReopenBlockedPlanChildrenAsync(item, cancellationToken);
+            await QueueAvailableAsync(item.OrganizationId, owner, board.Id, item.Id, now,
+                cancellationToken);
+        }
+    }
+
+    private async Task RecoverAgentUpdatedBlockedWorkAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var blocked = await db.CoreWorkTasks
+            .Include(x => x.Board)
+            .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
+                x.Board.OwnerOrganizationUserId.HasValue && x.ArchivedAt == null &&
+                x.IsExecutable && x.Status == WorkTaskStatus.Blocked)
+            .ToListAsync(cancellationToken);
+        foreach (var item in blocked.Where(x => AgentWorkFailure.IsDevelopmentBlocker(x.BlockReason)))
+        {
+            var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
+                x.Id == item.Board!.OwnerOrganizationUserId && x.IsActive &&
+                x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId != null,
+                cancellationToken);
+            if (owner?.AgentInstallationId is not { } installationId ||
+                item.AssignedAgentInstallationId != installationId)
+                continue;
+            var installationUpdatedAt = await db.AgentInstallations.AsNoTracking()
+                .Where(x => x.Id == installationId && x.IsEnabled &&
+                    x.RevisionStatus == PluginRevisionStatus.Active)
+                .Select(x => (DateTimeOffset?)x.UpdatedAt)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (installationUpdatedAt is null || installationUpdatedAt <= item.UpdatedAt)
+                continue;
+
+            var board = await db.WorkBoards.Include(x => x.Columns)
+                .SingleAsync(x => x.Id == item.BoardId, cancellationToken);
+            item.Status = WorkTaskStatus.Ready;
+            item.BoardColumnId = ColumnForStatus(board, WorkTaskStatus.Ready).Id;
+            item.BlockReason = null;
+            item.ClaimEventId = null;
+            item.ClaimExpiresAt = null;
+            item.NextReviewAt = null;
+            item.WaitingReason = null;
+            item.WaitingOnOrganizationUserId = null;
+            item.Revision++;
+            item.UpdatedAt = now;
+            await ReopenBlockedPlanChildrenAsync(item, cancellationToken);
+            await QueueAvailableAsync(item.OrganizationId, owner, board.Id, item.Id, now,
+                cancellationToken);
+        }
+    }
+
+    private async Task RecoverAgentFailureWithBackoffAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var blocked = await db.CoreWorkTasks
+            .Include(x => x.Board)
+            .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
+                x.Board.OwnerOrganizationUserId.HasValue && x.ArchivedAt == null &&
+                x.IsExecutable && x.Status == WorkTaskStatus.Blocked)
+            .ToListAsync(cancellationToken);
+        foreach (var item in blocked)
+        {
+            var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
+                x.Id == item.Board!.OwnerOrganizationUserId && x.IsActive &&
+                x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId != null,
+                cancellationToken);
+            if (owner?.AgentInstallationId is not { } installationId ||
+                item.AssignedAgentInstallationId != installationId)
+                continue;
+
+            var prefix = $"personal-todo-available:{item.Id:N}:";
+            var failedDelivery = await db.AgentWorkItems.AsNoTracking()
+                .Where(x => x.AgentInstallationId == installationId &&
+                    x.IdempotencyKey.StartsWith(prefix) && x.Status == AgentWorkStatus.DeadLetter)
+                .OrderByDescending(x => x.CreatedAt)
+                .Select(x => new { x.LastError, x.CompletedAt, x.CreatedAt })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (failedDelivery is null ||
+                !AgentWorkFailure.IsRecoverableAtAttentionReview(failedDelivery.LastError))
+                continue;
+
+            var recentFailureCount = await CountRecentRecoverableDeliveryFailuresAsync(
+                installationId, prefix, now, cancellationToken);
+            var retryAt = AgentFailureRetryAt(
+                failedDelivery.CompletedAt ?? failedDelivery.CreatedAt, recentFailureCount);
+            item.BlockReason = AgentWorkFailure.DescribeBlocker(failedDelivery.LastError);
+            item.NextReviewAt = retryAt;
+            item.WaitingReason = "Waiting for automatic agent-run recovery.";
+            if (retryAt > now)
+                continue;
+
+            var board = await db.WorkBoards.Include(x => x.Columns)
+                .SingleAsync(x => x.Id == item.BoardId, cancellationToken);
+            item.Status = WorkTaskStatus.Ready;
+            item.BoardColumnId = ColumnForStatus(board, WorkTaskStatus.Ready).Id;
+            item.BlockReason = null;
+            item.ClaimEventId = null;
+            item.ClaimExpiresAt = null;
+            item.NextReviewAt = null;
+            item.WaitingReason = null;
+            item.WaitingOnOrganizationUserId = null;
+            item.Revision++;
+            item.UpdatedAt = now;
+            await ReopenBlockedPlanChildrenAsync(item, cancellationToken);
+            await QueueAvailableAsync(item.OrganizationId, owner, board.Id, item.Id, now,
+                cancellationToken);
+        }
+    }
+
+    private async Task<int> CountRecentRecoverableDeliveryFailuresAsync(
+        Guid installationId,
+        string idempotencyPrefix,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var since = now.Subtract(AgentFailureRecoveryWindow);
+        var errors = await db.AgentWorkItems.AsNoTracking()
+            .Where(x => x.AgentInstallationId == installationId &&
+                x.IdempotencyKey.StartsWith(idempotencyPrefix) &&
+                x.Status == AgentWorkStatus.DeadLetter && x.CreatedAt >= since)
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => x.LastError)
+            .Take(32)
+            .ToListAsync(cancellationToken);
+        return Math.Max(1, errors.Count(AgentWorkFailure.IsRecoverableAtAttentionReview));
+    }
+
+    private static DateTimeOffset AgentFailureRetryAt(DateTimeOffset failedAt, int recentFailureCount)
+    {
+        var exponent = Math.Clamp(recentFailureCount - 1, 0, 4);
+        var delay = TimeSpan.FromMinutes(Math.Pow(2, exponent));
+        if (delay > MaximumAgentFailureRecoveryDelay)
+            delay = MaximumAgentFailureRecoveryDelay;
+        return failedAt.Add(delay);
     }
 
     private async Task CoalesceAvailableDeliveriesAsync(
@@ -446,6 +637,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         item.BlockReason = null; item.ClaimEventId = null;
         item.ClaimExpiresAt = null; item.NextReviewAt = null; item.WaitingReason = null;
         item.WaitingOnOrganizationUserId = null; item.Revision++; item.UpdatedAt = clock.GetUtcNow();
+        await ReopenBlockedPlanChildrenAsync(item, cancellationToken);
         var owner = await OwnerAsync(board, cancellationToken);
         await QueueAvailableAsync(organizationId, owner, board.Id, item.Id, item.UpdatedAt,
             cancellationToken);
