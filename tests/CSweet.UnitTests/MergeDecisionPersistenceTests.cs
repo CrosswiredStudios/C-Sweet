@@ -42,7 +42,7 @@ public sealed class MergeDecisionPersistenceTests
             PublicationId = publication.Id, CommitSha = publication.CommitSha, ResultsJson = "[{\"command\":\"npm test\",\"succeeded\":true,\"exitCode\":0}]", Status = SourceControlValidationStatus.Passed });
         await db.SaveChangesAsync(); db.ChangeTracker.Clear();
         var signer = new Signer();
-        var handler = new GitWorkspaceCapabilityHandler(db, new UnavailableTrustedGitHostClient(), new Authorization(), signer);
+        var handler = new GitWorkspaceCapabilityHandler(db, new UnavailableTrustedGitHostClient(), new Authorization(), signer, WorkspaceSyncTestOptions.Value);
         var session = new AgentSession("session", "lead", installation.ToString(), org.ToString(), "runtime", "tick",
             new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { GitMergeCapabilities.Authorize, GitMergeCapabilities.Review }, 1));
         var reviewRequest = new RequestCapability { RequestId = "review", Capability = GitMergeCapabilities.Review,

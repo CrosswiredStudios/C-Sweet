@@ -306,7 +306,7 @@ public class CoreServiceTests
         var personalBoard = await dbContext.WorkBoards.Include(x => x.Columns).SingleAsync(x =>
             x.OwnerOrganizationUserId == result.OrganizationUser.Id);
         Assert.Equal(WorkBoardKind.Personal, personalBoard.Kind);
-        Assert.Equal(4, personalBoard.Columns.Count);
+        Assert.Equal(5, personalBoard.Columns.Count);
         Assert.Equal(PersonalTodoActions.All.Count, await dbContext.ScopedActionGrants.CountAsync(x =>
             x.ScopeKind == GrantScopeKind.Board && x.ScopeId == personalBoard.Id &&
             x.SubjectKind == GrantSubjectKind.AgentInstallation &&

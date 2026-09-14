@@ -165,7 +165,7 @@
     }
 </MudPaper>
 
-@if (_personalTodos?.Boards.Count > 0)
+@if (_personalTodos?.Boards.Count > 0 || !string.IsNullOrWhiteSpace(_personalTodoError))
 {
     <MudPaper Elevation="1" Class="surface-panel mt-5">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
@@ -179,15 +179,18 @@
             <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Color="Color.Primary"
                            OnClick="LoadPersonalTodosAsync" aria-label="Refresh personal boards" />
         </MudStack>
-        <EmployeePortraitScope OrganizationId="OrganizationId">
-            <div class="personal-board-grid">
-                @foreach (var board in _personalTodos.Boards)
-                {
-                    <PersonalBoardCard @key="board.OwnerOrganizationUserId" Board="board"
-                                       OpenRequested="@(() => OpenPersonalBoard(board))" />
-                }
-            </div>
-        </EmployeePortraitScope>
+        @if (_personalTodos?.Boards.Count > 0)
+        {
+            <EmployeePortraitScope OrganizationId="OrganizationId">
+                <div class="personal-board-grid">
+                    @foreach (var board in _personalTodos.Boards)
+                    {
+                        <PersonalBoardCard @key="board.OwnerOrganizationUserId" Board="board"
+                                           OpenRequested="@(() => OpenPersonalBoard(board))" />
+                    }
+                </div>
+            </EmployeePortraitScope>
+        }
         @if (!string.IsNullOrWhiteSpace(_personalTodoError))
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
@@ -1596,6 +1599,7 @@
             if (response.StatusCode == HttpStatusCode.Forbidden)
             {
                 _personalTodos = null;
+                _personalTodoError = "You do not have access to personal work boards for this company.";
                 return;
             }
             response.EnsureSuccessStatusCode();
@@ -1609,7 +1613,8 @@
         }
         catch (Exception exception)
         {
-            _personalTodoError = exception.Message;
+            _personalTodos = null;
+            _personalTodoError = $"Personal boards could not be loaded. {exception.Message}";
         }
     }
 

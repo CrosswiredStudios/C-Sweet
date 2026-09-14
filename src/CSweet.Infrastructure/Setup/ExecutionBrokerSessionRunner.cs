@@ -8,8 +8,10 @@ using CSweet.ExecutionArtifacts;
 using CSweet.Office.Contracts.Guest;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.SourceControl;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.Setup;
 
@@ -32,6 +34,7 @@ public sealed class ExecutionBrokerSessionRunner(
     ITrustedSourceControlHostClient sourceControlHost,
     ArtifactStoreOptions artifactOptions,
     ExecutionBrokerLimitsOptions brokerLimits,
+    IOptions<WorkspaceSyncTransferOptions> workspaceSyncOptions,
     TimeProvider timeProvider,
     ILogger<ExecutionBrokerSessionRunner> logger) : IExecutionBrokerSessionRunner
 {
@@ -111,6 +114,12 @@ public sealed class ExecutionBrokerSessionRunner(
             MaximumLogBytes = workload.ResourceLimits.MaximumLogBytes
         };
         start.Entrypoint.AddRange(workload.Entrypoint);
+        start.Environment.Add("CSWEET_WORKSPACE_MAXIMUM_ARCHIVE_BYTES",
+            workspaceSyncOptions.Value.MaximumArchiveBytes.ToString(CultureInfo.InvariantCulture));
+        start.Environment.Add("CSWEET_WORKSPACE_MAXIMUM_EXPANDED_BYTES",
+            workspaceSyncOptions.Value.MaximumExpandedBytes.ToString(CultureInfo.InvariantCulture));
+        start.Environment.Add("CSWEET_WORKSPACE_MAXIMUM_FILE_COUNT",
+            workspaceSyncOptions.Value.MaximumFileCount.ToString(CultureInfo.InvariantCulture));
         var diagnostics = new RuntimeDiagnosticBrokerStreamHandler(
             workload.WorkloadId, workload.Identity.InstallationId);
         var session = new GuestBrokerHostSession(

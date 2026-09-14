@@ -14,6 +14,31 @@ namespace CSweet.UnitTests;
 
 public sealed class WorkBoardPageTests
 {
+    [Fact]
+    public async Task BoardDirectoryShowsPersonalBoardLoadFailure()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddMudServices();
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton<NavigationManager, TestNavigation>();
+        services.AddSingleton(new HttpClient(new PersonalBoardFailureApi()) { BaseAddress = new Uri("http://localhost/") });
+        services.AddScoped<AppRealtimeState>();
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkBoards>(ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                [nameof(WorkBoards.OrganizationId)] = BoardApi.OrganizationId
+            }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Personal boards", html);
+        Assert.Contains("Personal boards could not be loaded", html);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -76,6 +101,27 @@ public sealed class WorkBoardPageTests
             else
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(result, result.GetType()) });
+        }
+    }
+
+    private sealed class PersonalBoardFailureApi : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/work/boards"))
+            {
+                var directory = new WorkBoardDirectoryResponse([], true);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(directory)
+                });
+            }
+
+            if (path.EndsWith("/work/personal-todos"))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
         }
     }
 

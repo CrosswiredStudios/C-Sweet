@@ -41,4 +41,19 @@ public sealed class McpGatewayEndpointsTests
 
         Assert.Equal("The platform capability failed without an error message.", text);
     }
+
+    [Fact]
+    public void GetToolResponseText_SummarizesPayloadAboveConfiguredInlineLimit()
+    {
+        var result = new CapabilityResult
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            Succeeded = true,
+            Payload = JsonPayload.From(System.Text.Encoding.UTF8.GetBytes("{\"value\":\"large\"}"))
+        };
+
+        var text = McpGatewayEndpoints.GetToolResponseText(result, 4);
+
+        Assert.Equal($"The capability returned {result.Payload.Length} bytes in structuredContent.", text);
+    }
 }

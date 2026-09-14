@@ -34,13 +34,13 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
          PersonalTodoActions.Activate,
          PersonalTodoActions.Claim, PersonalTodoActions.Complete, PersonalTodoActions.Block,
          PersonalTodoActions.Release, PersonalTodoActions.Defer, PersonalTodoActions.Update,
-         PersonalTodoActions.Archive, PersonalTodoActions.Restore], StringComparer.Ordinal);
+         PersonalTodoActions.Archive, PersonalTodoActions.Restore, PersonalTodoActions.Cancel], StringComparer.Ordinal);
     private static readonly IReadOnlySet<string> HumanOwnerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
          PersonalTodoActions.Activate,
          PersonalTodoActions.Requeue, PersonalTodoActions.Complete, PersonalTodoActions.Block,
          PersonalTodoActions.Release, PersonalTodoActions.Defer, PersonalTodoActions.Update,
-         PersonalTodoActions.Archive, PersonalTodoActions.Restore], StringComparer.Ordinal);
+         PersonalTodoActions.Archive, PersonalTodoActions.Restore, PersonalTodoActions.Cancel], StringComparer.Ordinal);
     private static readonly IReadOnlySet<string> ManagerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
          PersonalTodoActions.Activate,
@@ -456,7 +456,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                     NewColumn("To Do", WorkBoardColumnCategory.ToDo, 0),
                     NewColumn("Doing", WorkBoardColumnCategory.InProgress, 1),
                     NewColumn("Blocked", WorkBoardColumnCategory.Blocked, 2),
-                    NewColumn("Done", WorkBoardColumnCategory.Done, 3)
+                    NewColumn("Done", WorkBoardColumnCategory.Done, 3),
+                    NewColumn("Cancelled", WorkBoardColumnCategory.Cancelled, 4)
                 ]
             };
             db.WorkBoards.Add(board);
@@ -465,8 +466,20 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         {
             board.Kind = WorkBoardKind.Personal;
             if (!board.Columns.Any(x => x.Category == WorkBoardColumnCategory.Blocked))
-                board.Columns.Add(NewColumn("Blocked", WorkBoardColumnCategory.Blocked,
-                    board.Columns.Count));
+                AddMissingColumn("Blocked", WorkBoardColumnCategory.Blocked);
+            if (!board.Columns.Any(x => x.Category == WorkBoardColumnCategory.Cancelled))
+                AddMissingColumn("Cancelled", WorkBoardColumnCategory.Cancelled);
+
+            void AddMissingColumn(string name, WorkBoardColumnCategory category)
+            {
+                var column = NewColumn(name, category,
+                    board.Columns.Select(x => x.Position).DefaultIfEmpty(-1).Max() + 1);
+                column.BoardId = board.Id;
+                // These columns have assigned GUIDs. Navigation discovery on a loaded
+                // board otherwise treats them as existing rows and issues an UPDATE.
+                board.Columns.Add(column);
+                db.WorkBoardColumns.Add(column);
+            }
             var expectedName = PersonalName(owner.DisplayName);
             if (board.ManagerOrganizationUserId != owner.ReportsToOrganizationUserId ||
                 board.Name != expectedName)
@@ -754,7 +767,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             throw new InvalidOperationException("Restore this personal task before changing its status.");
         if (!Enum.TryParse<WorkTaskStatus>(request.Status, true, out var status) ||
             status is not (WorkTaskStatus.Backlog or WorkTaskStatus.Ready or WorkTaskStatus.Running or
-                WorkTaskStatus.Blocked or WorkTaskStatus.Completed))
+                WorkTaskStatus.Blocked or WorkTaskStatus.Completed or WorkTaskStatus.Cancelled))
             throw new ArgumentException("The requested personal task status is invalid.");
         if (status == WorkTaskStatus.Blocked && string.IsNullOrWhiteSpace(request.Reason))
             throw new ArgumentException("A block reason is required.");
@@ -763,6 +776,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         {
             WorkTaskStatus.Completed => PersonalTodoActions.Complete,
             WorkTaskStatus.Blocked => PersonalTodoActions.Block,
+            WorkTaskStatus.Cancelled => PersonalTodoActions.Cancel,
             _ => PersonalTodoActions.Release
         };
         await RequireGrantAsync(organizationId, item.BoardId!.Value, actor, action, cancellationToken);
@@ -1359,6 +1373,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         WorkTaskStatus.Ready => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo),
         WorkTaskStatus.Blocked => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Blocked),
         WorkTaskStatus.Running => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.InProgress),
+        WorkTaskStatus.Cancelled => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Cancelled),
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unsupported personal task status.")
     };
 

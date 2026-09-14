@@ -14,6 +14,36 @@ namespace CSweet.UnitTests;
 
 public sealed partial class PersonalTodoServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DirectoryUpgradesExistingBoardsWithMissingColumns(bool missingBlocked)
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        await service.EnsureBoardAsync(setup.Organization.Id, setup.Agent.Id);
+        db.WorkBoardColumns.RemoveRange(await db.WorkBoardColumns.Where(x =>
+            x.Category == WorkBoardColumnCategory.Cancelled ||
+            (missingBlocked && x.Category == WorkBoardColumnCategory.Blocked)).ToListAsync());
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var directory = await service.ListAsync(setup.Organization.Id,
+            new PersonalTodoActor(setup.FirstManager.Id, null));
+        db.ChangeTracker.Clear();
+        await service.ListAsync(setup.Organization.Id,
+            new PersonalTodoActor(setup.FirstManager.Id, null));
+
+        Assert.Contains(directory.Boards, x => x.OwnerOrganizationUserId == setup.Agent.Id);
+        var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x =>
+            x.OwnerOrganizationUserId == setup.Agent.Id);
+        Assert.Single(board.Columns, x => x.Category == WorkBoardColumnCategory.Cancelled);
+        Assert.Single(board.Columns, x => x.Category == WorkBoardColumnCategory.Blocked);
+        Assert.Equal(board.Columns.Count, board.Columns.Select(x => x.Position).Distinct().Count());
+    }
+
     [Fact]
     public async Task InstalledAgentNormalPriorityPassesBrokerAndPersistsCanonicalMedium()
     {
@@ -47,7 +77,8 @@ public sealed partial class PersonalTodoServiceTests
         Assert.Equal(setup.Agent.Id, board.OwnerOrganizationUserId);
         Assert.Equal(
             [WorkBoardColumnCategory.ToDo, WorkBoardColumnCategory.InProgress,
-             WorkBoardColumnCategory.Blocked, WorkBoardColumnCategory.Done],
+             WorkBoardColumnCategory.Blocked, WorkBoardColumnCategory.Done,
+             WorkBoardColumnCategory.Cancelled],
             board.Columns.OrderBy(x => x.Position).Select(x => x.Category).ToArray());
         Assert.Equal(PersonalTodoActions.All.Count, ActiveGrants(db, board.Id, GrantSubjectKind.AgentInstallation,
             setup.Agent.AgentInstallationId!.Value).Count());

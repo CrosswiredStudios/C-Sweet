@@ -62,7 +62,7 @@ public sealed class MergeReviewerAuthorizationTests
         }
         db.AddRange(team, board, item, user, membership, sprint, execution, stage);
         await db.SaveChangesAsync();
-        var handler = new GitWorkspaceCapabilityHandler(db, new UnavailableTrustedGitHostClient(), auth, null!);
+        var handler = new GitWorkspaceCapabilityHandler(db, new UnavailableTrustedGitHostClient(), auth, null!, WorkspaceSyncTestOptions.Value);
         foreach (var action in new[] { GitMergeCapabilities.Review, GitMergeCapabilities.Authorize })
         {
             var task = handler.RequireMergeReviewerAsync(org, installation, item.Id, scenario == "revision" ? 6 : 7, action, default);

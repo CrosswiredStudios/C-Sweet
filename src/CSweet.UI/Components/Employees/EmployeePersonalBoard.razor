@@ -116,7 +116,14 @@
                         {
                             <div class="secondary-actions">
                                 @if (item.ArchivedAt.HasValue) { <button type="button" class="board-button" disabled="@_busy" @onclick="RestoreAsync">Restore ticket</button> }
-                                else { <button type="button" class="text-action" disabled="@_busy" @onclick="BeginTransferAsync">Transfer to board</button><button type="button" class="text-action" disabled="@_busy" @onclick="ArchiveAsync">Archive ticket</button> }
+                                else
+                                {
+                                    <button type="button" class="text-action" disabled="@_busy" @onclick="BeginTransferAsync">Transfer to board</button><button type="button" class="text-action" disabled="@_busy" @onclick="ArchiveAsync">Archive ticket</button>
+                                    @if (item.Status == Wire.PersonalTodoStatuses.Cancelled)
+                                    { <button type="button" class="board-button" disabled="@_busy" @onclick="ReopenAsync">Reopen ticket</button> }
+                                    else
+                                    { <button type="button" class="board-button" disabled="@_busy" @onclick="CancelAsync">Cancel ticket</button> }
+                                }
                             </div>
                         }
                     </aside>

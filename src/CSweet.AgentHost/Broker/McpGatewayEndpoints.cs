@@ -8,13 +8,13 @@ using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.AgentHost.Broker;
 
 public static class McpGatewayEndpoints
 {
     private const string ProtocolVersion = "2025-06-18";
-    private const int MaximumRequestBytes = 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static IEndpointRouteBuilder MapCSweetMcpGateway(this IEndpointRouteBuilder endpoints)
@@ -38,14 +38,16 @@ public static class McpGatewayEndpoints
         ConnectorReadExecutor connectorReads,
         PlatformLlmJobService llmJobs,
         IAuditEventWriter audit,
+        IOptions<McpGatewayOptions> gatewayOptions,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        if (http.Request.ContentLength is > MaximumRequestBytes)
-            return RpcError(null, -32600, "The MCP request exceeds 1 MiB.", StatusCodes.Status413PayloadTooLarge);
-        var body = await ReadLimitedBodyAsync(http.Request.Body, cancellationToken);
+        var limits = gatewayOptions.Value;
+        if (http.Request.ContentLength is > 0 && http.Request.ContentLength > limits.MaximumRequestBytes)
+            return RpcError(null, -32600, $"The MCP request exceeds the configured {limits.MaximumRequestBytes}-byte limit.", StatusCodes.Status413PayloadTooLarge);
+        var body = await ReadLimitedBodyAsync(http.Request.Body, limits.MaximumRequestBytes, cancellationToken);
         if (body is null)
-            return RpcError(null, -32600, "The MCP request exceeds 1 MiB.", StatusCodes.Status413PayloadTooLarge);
+            return RpcError(null, -32600, $"The MCP request exceeds the configured {limits.MaximumRequestBytes}-byte limit.", StatusCodes.Status413PayloadTooLarge);
 
         JsonDocument document;
         try { document = JsonDocument.Parse(body); }
@@ -125,6 +127,7 @@ public static class McpGatewayEndpoints
                         connectorReads,
                         inbox,
                         audit,
+                        limits.MaximumInlineTextBytes,
                         loggerFactory.CreateLogger("CSweet.AgentHost.Broker.McpGateway"),
                         cancellationToken),
                     "csweet/tools/call-stream" => await StreamToolAsync(
@@ -298,6 +301,7 @@ public static class McpGatewayEndpoints
         ConnectorReadExecutor connectorReads,
         AgentWorkInbox inbox,
         IAuditEventWriter audit,
+        int maximumInlineTextBytes,
         ILogger logger,
         CancellationToken cancellationToken)
     {
@@ -417,7 +421,7 @@ public static class McpGatewayEndpoints
             audit, session, tool, request, terminal, cancellationToken);
         return Results.Json(Success(id, new
         {
-            content = new[] { new { type = "text", text = GetToolResponseText(terminal) } },
+            content = new[] { new { type = "text", text = GetToolResponseText(terminal, maximumInlineTextBytes) } },
             structuredContent = structured,
             isError = !terminal.Succeeded,
             _meta = terminal.Succeeded ? null : new
@@ -521,10 +525,12 @@ public static class McpGatewayEndpoints
         // Error envelopes have their own shape; validating them as success hides the real denial.
         if (succeeded) JsonSchemaValidator.Validate(payload, schema);
     }
-    internal static string GetToolResponseText(CapabilityResult result)
+    internal static string GetToolResponseText(CapabilityResult result, int maximumInlineTextBytes = int.MaxValue)
     {
-        if (!result.Payload.IsEmpty)
+        if (!result.Payload.IsEmpty && result.Payload.Length <= maximumInlineTextBytes)
             return result.Payload.ToStringUtf8();
+        if (!result.Payload.IsEmpty)
+            return $"The capability returned {result.Payload.Length} bytes in structuredContent.";
         if (!string.IsNullOrWhiteSpace(result.Error))
             return result.Error;
         return result.Succeeded
@@ -816,6 +822,7 @@ public static class McpGatewayEndpoints
 
     private static async Task<byte[]?> ReadLimitedBodyAsync(
         Stream stream,
+        int maximumRequestBytes,
         CancellationToken cancellationToken)
     {
         await using var buffer = new MemoryStream();
@@ -825,7 +832,7 @@ public static class McpGatewayEndpoints
             var read = await stream.ReadAsync(chunk, cancellationToken);
             if (read == 0)
                 return buffer.ToArray();
-            if (buffer.Length + read > MaximumRequestBytes)
+            if (buffer.Length + read > maximumRequestBytes)
                 return null;
             await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
         }

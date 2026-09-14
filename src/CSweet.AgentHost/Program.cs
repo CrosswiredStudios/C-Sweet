@@ -23,6 +23,11 @@ builder.Services.AddHostedService<AgentCatalogWarmupService>();
 builder.Services.AddScoped<IPlatformCapabilityDispatcher, PlatformCapabilityDispatcher>();
 builder.Services.AddScoped<CSweet.Infrastructure.Setup.PluginSetupAssistancePolicy>();
 builder.Services.AddScoped<McpToolCatalog>();
+builder.Services.AddOptions<McpGatewayOptions>()
+    .Bind(builder.Configuration.GetSection(McpGatewayOptions.SectionName))
+    .Validate(options => options.MaximumRequestBytes > 0 && options.MaximumInlineTextBytes > 0,
+        "MCP gateway limits must be positive.")
+    .ValidateOnStart();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ConnectorActionCapabilityHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<AgentWorkInbox>();

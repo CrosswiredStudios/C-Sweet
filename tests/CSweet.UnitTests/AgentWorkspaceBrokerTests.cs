@@ -22,7 +22,7 @@ public sealed class AgentWorkspaceBrokerTests
         (await db.SourceControlRepositories.SingleAsync()).ExternalRepositoryId = identity;
         await db.SaveChangesAsync(); db.ChangeTracker.Clear();
         var host = new FakeHost(); var volumes = new FakeVolumes();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new AgentWorkspaceBroker(db, host, volumes).PrepareAsync(seeded.Request));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value).PrepareAsync(seeded.Request));
         Assert.Null(host.Request); Assert.Null(volumes.Lease);
     }
 
@@ -43,7 +43,13 @@ public sealed class AgentWorkspaceBrokerTests
             var host = new FakeHost { NativeStore = store };
             var volumes = new WorkspaceVolumeBridge(db, artifacts, Microsoft.Extensions.Options.Options.Create(
                 new CSweet.Infrastructure.Setup.AgentRuntimeManagerOptions { WorkspaceSnapshotStorePath = Path.Combine(root, "snapshots") }));
-            var broker = new AgentWorkspaceBroker(db, host, volumes);
+            var broker = new AgentWorkspaceBroker(db, host, volumes, Microsoft.Extensions.Options.Options.Create(
+                new WorkspaceSyncTransferOptions
+                {
+                    MaximumArchiveBytes = 512 * 1024,
+                    MaximumExpandedBytes = 16 * 1024 * 1024,
+                    MaximumFileCount = 4096
+                }));
             var prepared = await broker.PrepareAsync(request);
             var workspace = await db.SourceControlWorkspaces.SingleAsync();
             workspace.Status = SourceControlWorkspaceStatus.Ready; workspace.BaseCommitSha = prepared.BaseCommitSha; workspace.WorkspaceKey = prepared.WorkspaceKey;
@@ -128,7 +134,7 @@ public sealed class AgentWorkspaceBrokerTests
         if (revoked == "team") (await db.OrganizationTeams.SingleAsync()).ArchivedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(); db.ChangeTracker.Clear();
         var host = new FakeHost(); var volumes = new FakeVolumes();
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => new AgentWorkspaceBroker(db, host, volumes).PrepareAsync(seeded.Request));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value).PrepareAsync(seeded.Request));
         Assert.Null(host.Request); Assert.Null(volumes.Lease);
     }
 
@@ -139,7 +145,7 @@ public sealed class AgentWorkspaceBrokerTests
         var seeded = await SeedAsync(db);
         var host = new FakeHost();
         var volumes = new FakeVolumes();
-        var broker = new AgentWorkspaceBroker(db, host, volumes);
+        var broker = new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value);
 
         var result = await broker.PrepareAsync(seeded.Request);
 
@@ -163,7 +169,7 @@ public sealed class AgentWorkspaceBrokerTests
         await db.SaveChangesAsync();
         var host = new FakeHost();
         var volumes = new FakeVolumes();
-        var broker = new AgentWorkspaceBroker(db, host, volumes);
+        var broker = new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value);
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => broker.PrepareAsync(seeded.Request));
 
@@ -184,7 +190,7 @@ public sealed class AgentWorkspaceBrokerTests
         (await db.SourceControlRepositories.SingleAsync()).ExternalRepositoryId = "42";
         await db.SaveChangesAsync();
         var host = new FakeHost(); var volumes = new FakeVolumes();
-        var result = await new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request with { ProposedChangeTitle = "Feature", ProposedChangeBody = "Details" }, "http://localhost");
+        var result = await new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value).ExecuteAsync(request with { ProposedChangeTitle = "Feature", ProposedChangeBody = "Details" }, "http://localhost");
         Assert.Null(host.Operation); Assert.Equal(71234, host.GitHubOperation!.InstallationId);
         Assert.Equal(42, host.GitHubOperation.ExternalRepositoryId);
         Assert.Equal("private-owner", host.GitHubOperation.Owner);
@@ -204,7 +210,7 @@ public sealed class AgentWorkspaceBrokerTests
         await using var db = CreateDb();
         var request = await SeedOperationAsync(db, operation);
         var host = new FakeHost(); var volumes = new FakeVolumes();
-        var result = await new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost:5097");
+        var result = await new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value).ExecuteAsync(request, "http://localhost:5097");
         Assert.Equal(request.WorkspaceId, host.Operation!.WorkspaceId);
         Assert.Equal(request.RepositoryId, host.Operation.RepositoryId);
         Assert.Equal("csweet/safe-work", host.Operation.Branch);
@@ -228,7 +234,7 @@ public sealed class AgentWorkspaceBrokerTests
         if (revoked == "identity") (await db.CoreOrganizationUsers.SingleAsync()).IsActive = false;
         await db.SaveChangesAsync();
         var host = new FakeHost(); var volumes = new FakeVolumes();
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value).ExecuteAsync(request, "http://localhost"));
         Assert.Null(host.Operation); Assert.Null(volumes.Lease);
     }
 
@@ -238,7 +244,7 @@ public sealed class AgentWorkspaceBrokerTests
         await using var db = CreateDb();
         var request = await SeedOperationAsync(db, "refresh");
         var host = new FakeHost { LatestSha = new string('c', 40) }; var volumes = new FakeVolumes();
-        var result = await new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost");
+        var result = await new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value).ExecuteAsync(request, "http://localhost");
         Assert.Equal("Conflict", result.Status); Assert.Null(volumes.Manifest);
         Assert.Equal(new string('a', 40), result.BaseSha);
     }
@@ -248,7 +254,7 @@ public sealed class AgentWorkspaceBrokerTests
     {
         await using var db = CreateDb(); var request = await SeedOperationAsync(db, "cleanup");
         var host = new FakeHost(); var volumes = new FakeVolumes { Missing = true };
-        var result = await new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost");
+        var result = await new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value).ExecuteAsync(request, "http://localhost");
         Assert.True(result.Removed); Assert.True(volumes.Removed); Assert.Null(host.Operation);
     }
 
@@ -257,7 +263,7 @@ public sealed class AgentWorkspaceBrokerTests
     {
         await using var db = CreateDb(); var request = await SeedOperationAsync(db, "refresh");
         var host = new FakeHost { LatestSha = new string('c', 40), CleanAtLatest = true }; var volumes = new FakeVolumes();
-        var result = await new AgentWorkspaceBroker(db, host, volumes).ExecuteAsync(request, "http://localhost");
+        var result = await new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value).ExecuteAsync(request, "http://localhost");
         Assert.Equal("Refreshed", result.Status); Assert.Equal(host.LatestSha, result.BaseSha); Assert.Null(volumes.Manifest);
     }
 

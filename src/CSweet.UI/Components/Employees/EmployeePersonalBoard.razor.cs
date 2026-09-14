@@ -254,6 +254,24 @@ public partial class EmployeePersonalBoard
             _notice = "Ticket restored";
         })) _dialogOpen = false;
     }
+    private async Task CancelAsync()
+    {
+        if (_busy || !CanExecute || _selectedItem is not { ArchivedAt: null, Status: not Wire.PersonalTodoStatuses.Cancelled } item) return;
+        if (await MutateAsync(async () =>
+        {
+            _selectedItem = await MoveItemAsync(item, Wire.PersonalTodoStatuses.Cancelled);
+            _notice = "Ticket cancelled";
+        })) _dialogOpen = false;
+    }
+    private async Task ReopenAsync()
+    {
+        if (_busy || !CanExecute || _selectedItem is not { ArchivedAt: null, Status: Wire.PersonalTodoStatuses.Cancelled } item) return;
+        if (await MutateAsync(async () =>
+        {
+            _selectedItem = await MoveItemAsync(item, Wire.PersonalTodoStatuses.Ready);
+            _notice = "Ticket reopened";
+        })) _dialogOpen = false;
+    }
     private async Task BeginTransferAsync()
     {
         if (_busy || !CanExecute) return;

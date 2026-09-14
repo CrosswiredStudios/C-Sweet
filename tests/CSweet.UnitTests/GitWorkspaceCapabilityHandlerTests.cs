@@ -63,7 +63,7 @@ public sealed class GitWorkspaceCapabilityHandlerTests
     [InlineData(GitWorkspaceCapabilities.UnlockFile)]
     public async Task FileLocksRequireAnExplicitCapabilityBeforeDatabaseOrHostAccess(string capability)
     {
-        var handler = new GitWorkspaceCapabilityHandler(null!, new UnavailableTrustedGitHostClient(), null!, null!);
+        var handler = new GitWorkspaceCapabilityHandler(null!, new UnavailableTrustedGitHostClient(), null!, null!, WorkspaceSyncTestOptions.Value);
         var session = new AgentSession("session", "developer", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "runtime", "tick",
             new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { GitWorkspaceCapabilities.Publish }, 1));
         var request = new RequestCapability { RequestId = "lock", Capability = capability,

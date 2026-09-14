@@ -2,13 +2,33 @@ using CSweet.AI.Providers;
 using CSweet.Infrastructure;
 using CSweet.Infrastructure.Llm;
 using CSweet.Infrastructure.Setup;
+using CSweet.Infrastructure.SourceControl;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
 public sealed class InfrastructureDependencyInjectionTests
 {
+    [Fact]
+    public async Task HostWithInvalidWorkspaceSyncLimitsStartsUntilWorkspaceSyncIsUsed()
+    {
+        var builder = CreateInfrastructureBuilder();
+        builder.Configuration["CSweet:SourceControl:WorkspaceSync:MaximumArchiveBytes"] = "0";
+        builder.Configuration["CSweet:SourceControl:WorkspaceSync:MaximumExpandedBytes"] = "0";
+        builder.Configuration["CSweet:SourceControl:WorkspaceSync:MaximumFileCount"] = "0";
+        builder.AddCSweetInfrastructure();
+
+        using var host = builder.Build();
+        await host.StartAsync();
+
+        Assert.Throws<OptionsValidationException>(() =>
+            host.Services.GetRequiredService<IOptions<WorkspaceSyncTransferOptions>>().Value);
+
+        await host.StopAsync();
+    }
+
     [Fact]
     public void ResolvingLlmSecretStore_DoesNotRequireWritableParentDirectory()
     {

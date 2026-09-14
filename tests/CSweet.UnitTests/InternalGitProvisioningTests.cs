@@ -188,7 +188,7 @@ public sealed class InternalGitProvisioningTests
             new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { SourceControlCapabilities.ProvisionRepository }, 1));
         var request = new RequestCapability { RequestId = "request", Capability = SourceControlCapabilities.ProvisionRepository,
             Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new ProvisionSourceControlRepositoryRequest(fixture.Workstream, "Product", null, template ?? Guid.Empty, key), new JsonSerializerOptions(JsonSerializerDefaults.Web))) };
-        var handler = new GitWorkspaceCapabilityHandler(db, new UnavailableTrustedGitHostClient(), auth, new Signer());
+        var handler = new GitWorkspaceCapabilityHandler(db, new UnavailableTrustedGitHostClient(), auth, new Signer(), WorkspaceSyncTestOptions.Value);
         var results = new List<CapabilityResult>(); await foreach (var result in handler.HandleAsync(session, request, default)) results.Add(result);
         return Assert.Single(results);
     }

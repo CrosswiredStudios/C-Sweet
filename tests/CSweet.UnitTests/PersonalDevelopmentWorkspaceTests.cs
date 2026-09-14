@@ -39,7 +39,7 @@ public sealed class PersonalDevelopmentWorkspaceTests
         using var http = new HttpClient(new CoreTransport(core)) { BaseAddress = new Uri("http://core/") };
         var host = new Host(new CoreWorkspaceBrokerClient(http));
         // AgentHost has no ITrustedSourceControlHostClient or GitHost credentials.
-        var handler = new GitWorkspaceCapabilityHandler(f.Db, host, null!, null!);
+        var handler = new GitWorkspaceCapabilityHandler(f.Db, host, null!, null!, WorkspaceSyncTestOptions.Value);
         var session = new AgentSession("session", "developer", f.Installation.ToString(), f.Organization.ToString(), "runtime", "tick",
             new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { capability, GitWorkspaceCapabilities.Prepare }, 1));
         var request = new RequestCapability { RequestId = "personal", Capability = capability, ContentType = "application/json",

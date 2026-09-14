@@ -10,7 +10,7 @@ public static class PersonalBoardPresentation
     [
         ("Backlog", Wire.PersonalTodoStatuses.Backlog), ("To Do", Wire.PersonalTodoStatuses.Ready),
         ("Doing", Wire.PersonalTodoStatuses.Running), ("Blocked", Wire.PersonalTodoStatuses.Blocked),
-        ("Done", Wire.PersonalTodoStatuses.Completed)
+        ("Done", Wire.PersonalTodoStatuses.Completed), ("Cancelled", Wire.PersonalTodoStatuses.Cancelled)
     ];
 
     public static string StatusLabel(string status) => Columns.FirstOrDefault(x => x.Status == status).Label ?? status;

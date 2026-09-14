@@ -12,6 +12,8 @@ using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using CSweet.WorkManagement.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using CSweet.Infrastructure.SourceControl;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -23,8 +25,10 @@ public sealed partial class GitWorkspaceCapabilityHandler(
     CSweetDbContext db,
     ITrustedGitHostClient gitHost,
     IScopedActionAuthorizationService authorization,
-    ISourceControlDecisionSigner decisionSigner) : IPlatformCapabilityHandler
+    ISourceControlDecisionSigner decisionSigner,
+    IOptions<WorkspaceSyncTransferOptions> transferOptions) : IPlatformCapabilityHandler
 {
+    private readonly WorkspaceSyncTransferOptions _transferLimits = transferOptions.Value;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly HashSet<string> Handled =
     [

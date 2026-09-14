@@ -49,11 +49,11 @@ public static class AgentWorkFailure
         var capability = error?.Split(';').FirstOrDefault(x => x.StartsWith("capability=", StringComparison.Ordinal))?[11..];
         var code = error?.Split(';').FirstOrDefault(x => x.StartsWith("code=", StringComparison.Ordinal))?[5..];
         if (code is "agent.invalid_operation")
-            return "The agent stopped before reporting a structured result. C-Sweet will resume this task at the next attention review within its automatic recovery limit.";
+            return "The agent stopped before reporting a structured result. C-Sweet will retry this task automatically at the next attention review within its automatic recovery limit.";
         if (code is "agent.payload_invalid")
-            return "The agent returned an invalid structured result. C-Sweet will resume this task at the next attention review within its automatic recovery limit.";
+            return "The agent returned an invalid structured result. C-Sweet will retry this task automatically at the next attention review within its automatic recovery limit.";
         if (code is "agent.unhandled" or "runtime.transport")
-            return "The agent run ended unexpectedly. C-Sweet will retry this task automatically; repeated failures use a longer backoff.";
+            return "The agent run ended unexpectedly. C-Sweet will retry this task automatically within its automatic recovery limit; repeated failures use a longer backoff.";
         return capability switch
         {
             "platform.llm.chat-stream.v1" => "Inference could not run. Check the configured provider's model readiness and inference diagnostics, then retry this task.",

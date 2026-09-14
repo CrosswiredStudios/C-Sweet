@@ -250,6 +250,12 @@ public static class DependencyInjection
         builder.Services.AddScoped<AgentRuntimeStartupCleanupService>();
         builder.Services.AddOptions<AgentRuntimeManagerOptions>()
             .Bind(builder.Configuration.GetSection(AgentRuntimeManagerOptions.SectionName));
+        builder.Services.AddOptions<CSweet.Infrastructure.SourceControl.WorkspaceSyncTransferOptions>()
+            .Bind(builder.Configuration.GetSection(CSweet.Infrastructure.SourceControl.WorkspaceSyncTransferOptions.SectionName))
+            .Validate(options => options.MaximumArchiveBytes > 0 &&
+                                 options.MaximumExpandedBytes > 0 &&
+                                 options.MaximumFileCount > 0,
+                "Workspace sync transfer limits must be positive.");
         builder.Services.AddOptions<GitHubAgentRepositoryOptions>()
             .Bind(builder.Configuration.GetSection(GitHubAgentRepositoryOptions.SectionName));
         builder.Services.AddHttpClient<GitHubAgentRepositoryClient>(client =>

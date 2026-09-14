@@ -21,10 +21,12 @@ public sealed partial class AgentWorkspaceBroker
             workspace.WorkItemId, workspace.AssignmentRevision);
         if (request.Operation == "snapshot-push")
         {
-            if (request.Archive is not { Length: > 0 and <= 524288 }) throw new InvalidDataException("Snapshot transfer exceeds its limit.");
+            if (request.Archive is not { Length: > 0 } || request.Archive.Length > _transferLimits.MaximumArchiveBytes)
+                throw new InvalidDataException("Snapshot transfer exceeds its configured limit.");
             using (var zip = new System.IO.Compression.ZipArchive(new MemoryStream(request.Archive), System.IO.Compression.ZipArchiveMode.Read))
-                if (zip.Entries.Count > 4096 || zip.Entries.Sum(x => x.Length) > 16 * 1024 * 1024)
-                    throw new InvalidDataException("Snapshot content exceeds its limit.");
+                if (zip.Entries.Count > _transferLimits.MaximumFileCount ||
+                    zip.Entries.Sum(x => x.Length) > _transferLimits.MaximumExpandedBytes)
+                    throw new InvalidDataException("Snapshot content exceeds its configured limit.");
             await using var input = new MemoryStream(request.Archive, writable: false);
             await volumes.ImportAsync(lease, input, cancellationToken: cancellationToken);
             return new("Uploaded", workspace.BaseCommitSha, [], "");
@@ -39,8 +41,10 @@ public sealed partial class AgentWorkspaceBroker
         }
         if (request.Operation == "snapshot-pull")
         {
-            if (export.Archive.Length > 524288 || export.Manifest.TotalBytes > 16 * 1024 * 1024 || export.Manifest.FileCount > 4096)
-                throw new InvalidDataException("Snapshot exceeds its transfer limit.");
+            if (export.Archive.Length > _transferLimits.MaximumArchiveBytes ||
+                export.Manifest.TotalBytes > _transferLimits.MaximumExpandedBytes ||
+                export.Manifest.FileCount > _transferLimits.MaximumFileCount)
+                throw new InvalidDataException("Snapshot exceeds its configured transfer limit.");
             return new("Downloaded", workspace.BaseCommitSha, [], "", Archive: export.Archive);
         }
         var operation = request.Operation == "cleanup" ? "inspect" : request.Operation;

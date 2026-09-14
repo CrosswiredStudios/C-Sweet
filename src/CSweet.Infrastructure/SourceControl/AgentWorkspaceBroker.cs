@@ -3,6 +3,7 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.TrustedServices;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.SourceControl;
 
@@ -24,8 +25,10 @@ public interface IAgentWorkspaceBroker
 public sealed partial class AgentWorkspaceBroker(
     CSweetDbContext db,
     ITrustedSourceControlHostClient gitHost,
-    IWorkspaceVolumeBridge volumes) : IAgentWorkspaceBroker
+    IWorkspaceVolumeBridge volumes,
+    IOptions<WorkspaceSyncTransferOptions> transferOptions) : IAgentWorkspaceBroker
 {
+    private readonly WorkspaceSyncTransferOptions _transferLimits = transferOptions.Value;
     public async Task<AgentBrokerWorkspacePrepareResult> PrepareAsync(
         AgentBrokerWorkspacePrepareRequest request,
         CancellationToken cancellationToken = default)
