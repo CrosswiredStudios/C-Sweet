@@ -1,0 +1,5 @@
+.work-item-type { display: inline-flex; align-items: center; gap: .3rem; font-size: .75rem; font-weight: 600; color: #3564a5; }
+.work-item-type.epic { color: #7750ad; }
+.work-item-type.story { color: #197455; }
+.work-item-type.bug { color: #b34040; }
+.work-item-type.initiative { color: #8a6414; }

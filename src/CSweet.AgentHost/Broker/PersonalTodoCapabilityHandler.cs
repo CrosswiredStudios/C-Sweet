@@ -46,6 +46,10 @@ public sealed class PersonalTodoCapabilityHandler(
         {
             object result = request.Capability switch
             {
+                PersonalTodoActions.CreatePlan => await service.CreatePlanAsync(organizationId, actor,
+                    Read<Wire.CreatePersonalWorkPlanRequest>(request), token),
+                PersonalTodoActions.ReportPlanTask => await service.ReportPlanTaskAsync(organizationId, actor,
+                    Read<Wire.ReportPersonalWorkPlanTaskRequest>(request), token),
                 PersonalTodoActions.Read => await service.ListAsync(organizationId, actor, false, token),
                 PersonalTodoActions.Add => await service.AddAsync(organizationId, actor,
                     Read<Wire.AddPersonalTodoItemRequest>(request), token),

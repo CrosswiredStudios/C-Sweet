@@ -279,6 +279,10 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             "Release SDK-managed personal work after a retryable callback failure."),
         HiddenWrite(PersonalTodoActions.Defer, "defer_personal_todo",
             "Defer SDK-managed personal work until a platform-scheduled review."),
+        HiddenWrite(PersonalTodoActions.CreatePlan, "create_personal_work_plan",
+            "Atomically create an MVP epic with testable stories and ordered tasks for a live owned request."),
+        HiddenWrite(PersonalTodoActions.ReportPlanTask, "report_personal_plan_task",
+            "Record execution and evidence for one task in the currently claimed request's plan."),
         Write(ArtifactPlatformCapabilities.Create, "create_artifact",
             "Create one Markdown document and receive read, revise, and submit grants only for that new file."),
         Read(ArtifactPlatformCapabilities.Read, "get_artifact",
@@ -770,6 +774,12 @@ public sealed class McpToolCatalog(IEnumerable<IPlatformCapabilityHandler> handl
             {"type":"object","required":["boardId","itemId","targetBoardId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"targetBoardId":{"type":"string","format":"uuid"},"targetColumnId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         PersonalTodoActions.Read => EmptyInput,
+        PersonalTodoActions.CreatePlan => Schema("""
+            {"type":"object","required":["rootItemId","epicTitle","stories","idempotencyKey"],"properties":{"rootItemId":{"type":"string","format":"uuid"},"epicTitle":{"type":"string","minLength":1,"maxLength":160},"stories":{"type":"array","minItems":2,"maxItems":12,"items":{"type":"object"}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        PersonalTodoActions.ReportPlanTask => Schema("""
+            {"type":"object","required":["rootItemId","taskItemId","expectedRevision","status","idempotencyKey"],"properties":{"rootItemId":{"type":"string","format":"uuid"},"taskItemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"status":{"type":"string","enum":["Running","Completed","Blocked"]},"evidence":{"type":["string","null"],"maxLength":4096},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
         PersonalTodoActions.Add => Schema("""
             {"type":"object","required":["title","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":512},"description":{"type":["string","null"],"maxLength":8192},"priority":{"type":"string","enum":["Low","Medium","Normal","High","Critical"]},"dueDate":{"type":["string","null"],"format":"date-time"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"targetOrganizationUserId":{"type":["string","null"],"format":"uuid"},"sourceConversationId":{"type":["string","null"],"format":"uuid"},"sourceMessageId":{"type":["string","null"],"format":"uuid"},"correlationId":{"type":["string","null"],"maxLength":160},"causationId":{"type":["string","null"],"maxLength":160},"mentions":{"type":["array","null"],"maxItems":100,"items":{"type":"object","required":["organizationUserId","field","offset","length"],"properties":{"organizationUserId":{"type":"string","format":"uuid"},"field":{"type":"string","enum":["Title","Description"]},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1}},"additionalProperties":false}},"startInBacklog":{"type":"boolean"},"workContext":{"type":["object","null"],"properties":{"workstreamId":{"type":["string","null"],"format":"uuid"},"teamId":{"type":["string","null"],"format":"uuid"},"boardId":{"type":["string","null"],"format":"uuid"},"workItemId":{"type":["string","null"],"format":"uuid"},"sprintId":{"type":["string","null"],"format":"uuid"},"gateId":{"type":["string","null"],"format":"uuid"},"decisionId":{"type":["string","null"],"format":"uuid"},"coordinationSessionId":{"type":["string","null"],"format":"uuid"},"sourceFingerprint":{"type":["string","null"],"maxLength":128}},"additionalProperties":false}},"additionalProperties":false}
             """),

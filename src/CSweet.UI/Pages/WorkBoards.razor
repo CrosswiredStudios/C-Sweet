@@ -396,7 +396,25 @@
                             <MudText Typo="Typo.caption" Class="mt-3">Architecture artifact: @planning.ArchitectureArtifactDigest</MudText>
                         }
                     }
-                    <MudText Typo="Typo.subtitle1" Class="mt-4"><b>Related work</b></MudText>
+                    @if (_detail?.Items.FirstOrDefault(x => x.Id == detailItem.ParentItemId) is { } parentItem)
+                    {
+                        <MudText Typo="Typo.subtitle1" Class="mt-4"><b>Parent ticket</b></MudText>
+                        <MudButton OnClick="@(() => SelectDetailItem(parentItem))">
+                            <CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@parentItem.Kind" />
+                            @parentItem.Title
+                        </MudButton>
+                    }
+                    @{ var children = _detail?.Items.Where(x => x.ParentItemId == detailItem.Id).OrderBy(x => x.Rank).ToList() ?? []; }
+                    <MudText Typo="Typo.subtitle1" Class="mt-4"><b>Child tickets</b> · @children.Count(x => x.Status == "Completed") / @children.Count complete</MudText>
+                    @if (children.Count == 0) { <MudText Typo="Typo.body2" Color="Color.Secondary">No child tickets.</MudText> }
+                    @foreach (var child in children)
+                    {
+                        <MudButton Variant="Variant.Text" OnClick="@(() => SelectDetailItem(child))">
+                            <CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@child.Kind" />
+                            @(child.Identifier ?? child.Id.ToString("N")[..8]) · @child.Title · @child.Status
+                        </MudButton>
+                    }
+                    <MudText Typo="Typo.subtitle1" Class="mt-4"><b>Dependencies and related work</b></MudText>
                     @foreach (var related in RelatedItems(detailItem))
                     {
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => SelectDetailItem(related))">
@@ -2772,8 +2790,6 @@
         if (_detail is null) return [];
         var dependencyIds = item.Planning?.DependencyItemIds ?? [];
         return _detail.Items.Where(candidate =>
-                candidate.Id == item.ParentItemId ||
-                candidate.ParentItemId == item.Id ||
                 dependencyIds.Contains(candidate.Id) ||
                 (candidate.Planning?.DependencyItemIds.Contains(item.Id) ?? false))
             .OrderBy(x => x.Kind)

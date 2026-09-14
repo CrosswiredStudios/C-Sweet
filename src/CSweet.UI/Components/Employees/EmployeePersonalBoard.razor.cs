@@ -107,7 +107,9 @@ public partial class EmployeePersonalBoard
     private static string Short(Guid? value) => value?.ToString("N")[..8].ToUpperInvariant() ?? "";
     private string BoardHref(Wire.PersonalTodoItem item) => $"/organizations/{OrganizationId:D}/work/boards/{item.WorkContext!.BoardId!.Value:D}";
     private static string TechnicalDetails(Wire.PersonalTodoItem item) => JsonSerializer.Serialize(item, DetailJson);
-    private bool CanMoveAny(Wire.PersonalTodoItem item) => Present.Columns.Any(x => Present.CanMove(item, x.Status, CanExecute, CanAdd));
+    private bool CanMoveAny(Wire.PersonalTodoItem item) =>
+        (item.PlanRootId is null || item.PlanRootId == item.Id) &&
+        Present.Columns.Any(x => Present.CanMove(item, x.Status, CanExecute, CanAdd));
     private bool CanDrag(Wire.PersonalTodoItem item) => !_busy && CanMoveAny(item);
     private void StartDrag(Wire.PersonalTodoItem item) { if (CanDrag(item)) _draggedItem = item; }
     private void EndDrag() { _draggedItem = null; _dropTarget = null; }
@@ -190,6 +192,8 @@ public partial class EmployeePersonalBoard
 
     private async Task<Wire.PersonalTodoItem> MoveItemAsync(Wire.PersonalTodoItem item, string status, string? reason = null)
     {
+        if (item.PlanRootId is { } rootId && rootId != item.Id)
+            throw new InvalidOperationException("Progress is managed through the parent epic. Requeue the epic to resume its plan.");
         var editingBlockReason = CanExecute && item.ArchivedAt is null && item.Status == status && status == Wire.PersonalTodoStatuses.Blocked;
         if (!editingBlockReason && !Present.CanMove(item, status, CanExecute, CanAdd))
             throw new InvalidOperationException("This move is not available for this ticket.");

@@ -1,0 +1,65 @@
+@using System.Net.Http.Json
+@using CSweet.Contracts.WorkManagement
+@implements IAsyncDisposable
+@inject HttpClient Http
+
+<section class="pa-4 my-4" style="border:1px solid var(--mud-palette-lines-default);border-radius:12px" aria-label="Live task activity">
+    <h3>Live activity</h3>
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Warning">@_error</MudAlert>
+    }
+    @if (_activity is { } activity)
+    {
+        <p><strong>@activity.State</strong> · Ticket: @activity.TaskStatus</p>
+        <p>@activity.Message</p>
+        @if (activity.Phase is not null) { <p><strong>Last reported step:</strong> @activity.Phase</p> }
+        <p>Task progress: @At(activity.LastProgressAt)</p>
+        @if (activity.LeaseExpiresAt is { } lease) { <p>Worker lease valid until @At(lease)</p> }
+        @if (activity.MaximumAttempts > 0) { <p>Execution attempt @activity.Attempt of @activity.MaximumAttempts</p> }
+        @if (activity.NextReviewAt is { } review) { <p>Next automatic review: @At(review)</p> }
+        @if (activity.AgentInferenceStatus is not null)
+        {
+            <p>Agent model activity: @activity.AgentInferenceStatus · started @At(activity.AgentInferenceStartedAt)
+                @if (activity.AgentInferenceCompletedAt is { } completed) { <span> · finished @At(completed)</span> }
+            </p>
+            <small>Model activity is for this agent and may include other work. It does not prove this ticket advanced.</small>
+        }
+        <p><small>Checked @At(activity.CheckedAt). Refreshes every 15 seconds. Completion time is not yet known.</small></p>
+    }
+    else if (_error is null) { <p>Checking the current worker and task state…</p> }
+</section>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid ItemId { get; set; }
+    private PersonalTodoActivityResponse? _activity;
+    private string? _error;
+    private readonly CancellationTokenSource _stop = new();
+    private Task? _loop;
+    protected override Task OnInitializedAsync() { _loop = RefreshAsync(); return Task.CompletedTask; }
+    private async Task RefreshAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        try
+        {
+            do
+            {
+                try
+                {
+                    _activity = await Http.GetFromJsonAsync<PersonalTodoActivityResponse>(
+                        $"api/organizations/{OrganizationId:D}/work/personal-todos/items/{ItemId:D}/activity", _stop.Token);
+                    _error = null;
+                }
+                catch (Exception error) when (error is HttpRequestException or System.Text.Json.JsonException)
+                { _error = "Activity could not be refreshed. Any values below are from the last successful check; current progress is unknown."; }
+                catch (OperationCanceledException) when (!_stop.IsCancellationRequested)
+                { _error = "The activity check timed out. Any values below are from the last successful check; retrying automatically."; }
+                await InvokeAsync(StateHasChanged);
+            } while (await timer.WaitForNextTickAsync(_stop.Token));
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+    private static string At(DateTimeOffset? time) => time?.ToLocalTime().ToString("HH:mm:ss zzz") ?? "Not reported";
+    public async ValueTask DisposeAsync() { await _stop.CancelAsync(); if (_loop is not null) await _loop; _stop.Dispose(); }
+}

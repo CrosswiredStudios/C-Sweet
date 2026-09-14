@@ -1,0 +1,22 @@
+@using Wire = CSweet.WorkManagement.Contracts
+
+@if (Items.FirstOrDefault(x => x.Id == Item.ParentItemId) is { } parent)
+{
+    <section class="task-result"><h3>Parent ticket</h3><button type="button" class="text-action" @onclick="@(() => OnOpen.InvokeAsync(parent))"><CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@parent.Kind" /> @parent.Title</button></section>
+}
+@{ var children = Items.Where(x => x.ParentItemId == Item.Id).OrderBy(x => x.Rank).ToList(); }
+@if (children.Count > 0)
+{
+    <section class="task-result"><h3>Child tickets · @children.Count(x => x.Status == Wire.PersonalTodoStatuses.Completed) / @children.Count complete</h3>
+        @foreach (var child in children)
+        {
+            <p><button type="button" class="text-action" @onclick="@(() => OnOpen.InvokeAsync(child))"><CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@child.Kind" /> @child.Title · @PersonalBoardPresentation.StatusLabel(child.Status)</button></p>
+        }
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public Wire.PersonalTodoItem Item { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<Wire.PersonalTodoItem> Items { get; set; } = [];
+    [Parameter] public EventCallback<Wire.PersonalTodoItem> OnOpen { get; set; }
+}

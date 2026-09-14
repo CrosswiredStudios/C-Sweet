@@ -12,6 +12,8 @@ public sealed class PersonalTodoService : IPersonalTodoService
     private readonly IWorkItemMutationEngine _engine;
 
     public PersonalTodoService(IWorkItemMutationEngine engine) => _engine = engine;
+    public Task<Wire.PersonalWorkPlan> CreatePlanAsync(Guid organizationId, PersonalTodoActor actor, Wire.CreatePersonalWorkPlanRequest request, CancellationToken cancellationToken = default) => _engine.CreatePlanAsync(organizationId, actor, request, cancellationToken);
+    public Task<Wire.PersonalTodoItem> ReportPlanTaskAsync(Guid organizationId, PersonalTodoActor actor, Wire.ReportPersonalWorkPlanTaskRequest request, CancellationToken cancellationToken = default) => _engine.ReportPlanTaskAsync(organizationId, actor, request, cancellationToken);
     public PersonalTodoService(CSweet.Infrastructure.Persistence.CSweetDbContext db, TimeProvider clock)
         : this(new WorkItemMutationEngine(db, clock)) { }
 

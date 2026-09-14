@@ -23,7 +23,7 @@ docker/volumes/
 **/*.gguf
 **/*.bin
 **/*.safetensors
-/.tmp
+**/.tmp
 /artifacts
 /.artifacts
 /.artifacts

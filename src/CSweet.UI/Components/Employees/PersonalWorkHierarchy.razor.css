@@ -1,0 +1,6 @@
+.task-result { margin-top: 1.5rem; }
+h3 { font-size: 1rem; font-weight: 600; margin-bottom: .65rem; }
+p { margin: .5rem 0; }
+.text-action { display: inline-flex; align-items: center; gap: .5rem; border: 0; padding: .3rem 0; background: transparent; color: var(--mud-palette-primary); cursor: pointer; text-align: left; }
+.text-action:hover { text-decoration: underline; }
+.text-action:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }

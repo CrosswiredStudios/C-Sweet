@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsPackable>false</IsPackable><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup><ProjectReference Include="../CSweet.Compute.Runtime/CSweet.Compute.Runtime.csproj" /></ItemGroup>
-<ItemGroup><PackageReference Include="CSweet.Isolation.HyperV" /><PackageReference Include="Microsoft.Extensions.Hosting" /><PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" /></ItemGroup>
+<ItemGroup>
+  <PackageReference Include="CSweet.Isolation.HyperV" Condition="'$(UseLocalIsolation)' != 'true'" />
+  <ProjectReference Include="$(CSweetIsolationRepositoryRoot)\src\CSweet.Isolation.HyperV\CSweet.Isolation.HyperV.csproj" Condition="'$(UseLocalIsolation)' == 'true'" />
+  <PackageReference Include="Microsoft.Extensions.Hosting" />
+  <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+</ItemGroup>
 </Project>

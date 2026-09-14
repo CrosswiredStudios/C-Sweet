@@ -6,6 +6,10 @@ public sealed record PersonalTodoActor(Guid OrganizationUserId, Guid? AgentInsta
 
 public interface IPersonalTodoService
 {
+    Task<PersonalWorkPlan> CreatePlanAsync(Guid organizationId, PersonalTodoActor actor,
+        CreatePersonalWorkPlanRequest request, CancellationToken cancellationToken = default);
+    Task<PersonalTodoItem> ReportPlanTaskAsync(Guid organizationId, PersonalTodoActor actor,
+        ReportPersonalWorkPlanTaskRequest request, CancellationToken cancellationToken = default);
     Task ReconcileAsync(CancellationToken cancellationToken = default);
     Task EnsureBoardAsync(Guid organizationId, Guid ownerOrganizationUserId,
         CancellationToken cancellationToken = default);

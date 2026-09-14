@@ -7,6 +7,25 @@ namespace CSweet.UnitTests;
 public sealed class RuntimeDiagnosticBrokerStreamHandlerTests
 {
     [Fact]
+    public async Task PreservesFailureHeaderAfterIdleLoggingAndGuestExitReplaceTheRollingTail()
+    {
+        var workloadId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var handler = new RuntimeDiagnosticBrokerStreamHandler(workloadId, installationId);
+        await handler.HandleAsync(new(workloadId, installationId, "runtime.logs", 0,
+            Encoding.UTF8.GetBytes("info: previous request\nfail: AgentRuntimeWorker\nHttpRequestException: request rejected (413)\n" +
+                new string('s', 6000) + "\ninfo: renewing lease"), false, null), default);
+        await handler.HandleAsync(new(workloadId, installationId, "runtime.logs", 1,
+            Encoding.UTF8.GetBytes("info: " + new string('x', 10000)), false, null), default);
+        handler.CaptureExitDetail("info: idle timeout elapsed\0");
+
+        Assert.Contains("HttpRequestException: request rejected (413)", handler.Latest);
+        Assert.EndsWith("info: idle timeout elapsed", handler.Latest);
+        Assert.DoesNotContain('\0', handler.Latest!);
+        Assert.InRange(handler.Latest!.Length, 1, 8192);
+    }
+
+    [Fact]
     public void CapturesBoundedExitDetailWhenBuilderNeverStreamsDiagnostics()
     {
         var handler = new RuntimeDiagnosticBrokerStreamHandler(Guid.NewGuid(), Guid.NewGuid());

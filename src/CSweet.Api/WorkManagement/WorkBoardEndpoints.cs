@@ -23,6 +23,23 @@ public static class WorkBoardEndpoints
             endpoints.MapGroup(
                 "/api/organizations/{organizationId:guid}/work/boards/{boardId:guid}/orchestration");
 
+        personalTodoGroup.MapGet("/items/{itemId:guid}/activity", async (
+            Guid organizationId, Guid itemId, HttpContext http, CSweetDbContext db,
+            IPersonalTodoService service, Microsoft.AspNetCore.DataProtection.IDataProtectionProvider protection,
+            TimeProvider clock, CancellationToken cancellationToken) =>
+        {
+            var actor = await ResolvePersonalTodoActorAsync(organizationId, http, db, cancellationToken);
+            if (actor is null) return Results.Unauthorized();
+            try
+            {
+                var directory = await service.ListAsync(organizationId, actor, true, cancellationToken);
+                var item = directory.Boards.SelectMany(x => x.Items).SingleOrDefault(x => x.Id == itemId);
+                if (item is null) return Results.NotFound();
+                return Results.Ok(await new PersonalTodoActivityReader(db, protection, clock).ReadAsync(organizationId, item, cancellationToken));
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+
         personalTodoGroup.MapGet("/", async (
             Guid organizationId, bool? includeArchived, HttpContext http, CSweetDbContext db,
             IPersonalTodoService service, CancellationToken cancellationToken) =>

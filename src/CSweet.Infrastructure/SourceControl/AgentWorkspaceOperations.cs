@@ -87,7 +87,7 @@ public sealed partial class AgentWorkspaceBroker
             return new("Refreshed", latest, [], "");
         }
         var url = request.Operation == "publish" && result.Status == "Published"
-            ? $"{publicBaseUrl.TrimEnd('/')}/organizations/{workspace.OrganizationId:D}/source-control?repository={repository.Id:D}&reference={Uri.EscapeDataString("refs/heads/" + workspace.BranchName)}"
+            ? $"{publicBaseUrl.TrimEnd('/')}/organizations/{workspace.OrganizationId:D}/source-control/{repository.Id:D}?reference={Uri.EscapeDataString("refs/heads/" + workspace.BranchName)}"
             : null;
         return new(result.Status, result.BaseSha, result.ChangedFiles, result.DiffSummary, result.CommitSha, workspace.BranchName, githubReviewUrl ?? url, Provider: repository.Connection!.Provider.ToString());
     }

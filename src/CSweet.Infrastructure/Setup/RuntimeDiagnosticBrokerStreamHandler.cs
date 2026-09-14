@@ -11,6 +11,7 @@ internal sealed class RuntimeDiagnosticBrokerStreamHandler(
     private const int MaximumDiagnosticCharacters = 8 * 1024;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private long _nextSequence;
+    private string? _lastFailure;
 
     public string? Latest { get; private set; }
 
@@ -19,10 +20,7 @@ internal sealed class RuntimeDiagnosticBrokerStreamHandler(
     public void CaptureExitDetail(string? detail)
     {
         if (string.IsNullOrWhiteSpace(detail)) return;
-        Latest = new string(detail
-            .Where(character => !char.IsControl(character) || character is '\r' or '\n' or '\t')
-            .TakeLast(MaximumDiagnosticCharacters)
-            .ToArray());
+        Capture(detail);
     }
 
     public Task HandleAsync(GuestBrokerStreamContext chunk, CancellationToken cancellationToken)
@@ -40,11 +38,31 @@ internal sealed class RuntimeDiagnosticBrokerStreamHandler(
         {
             throw new InvalidDataException("The runtime diagnostic stream is not valid UTF-8.", exception);
         }
-        Latest = new string(decoded
-            .Where(character => !char.IsControl(character) || character is '\r' or '\n' or '\t')
-            .TakeLast(MaximumDiagnosticCharacters)
-            .ToArray());
+        Capture(decoded);
         _nextSequence++;
         return Task.CompletedTask;
+    }
+
+    private void Capture(string text)
+    {
+        var clean = new string(text
+            .Where(character => !char.IsControl(character) || character is '\r' or '\n' or '\t')
+            .ToArray());
+        // Guests send rolling snapshots. Retain the most recent error header before
+        // ordinary lease/HTTP logging pushes it out of the final diagnostic tail.
+        var failureStart = Math.Max(clean.LastIndexOf("fail: ", StringComparison.Ordinal),
+            clean.LastIndexOf("crit: ", StringComparison.Ordinal));
+        if (failureStart >= 0)
+        {
+            var failureEnd = clean.Length;
+            foreach (var prefix in new[] { "info: ", "warn: ", "dbug: ", "trce: " })
+            {
+                var next = clean.IndexOf(prefix, failureStart + 6, StringComparison.Ordinal);
+                if (next >= 0) failureEnd = Math.Min(failureEnd, next);
+            }
+            _lastFailure = clean.Substring(failureStart, Math.Min(failureEnd - failureStart, 4096));
+        }
+        var header = _lastFailure is null ? "" : $"Last reported failure:\n{_lastFailure}\nLatest runtime output:\n";
+        Latest = header + new string(clean.TakeLast(MaximumDiagnosticCharacters - header.Length).ToArray());
     }
 }

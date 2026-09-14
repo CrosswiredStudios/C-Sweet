@@ -12,7 +12,7 @@ using Wire = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
 
-public sealed class EmployeePersonalBoardTests
+public sealed partial class EmployeePersonalBoardTests
 {
     [Fact]
     public void PreviewKeeps150TextElementsWithoutSplittingEmojiOrCombiningCharacters()

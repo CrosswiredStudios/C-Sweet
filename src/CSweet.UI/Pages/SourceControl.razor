@@ -1,4 +1,5 @@
 @page "/organizations/{OrganizationId:guid}/source-control"
+@page "/organizations/{OrganizationId:guid}/source-control/{RepositoryId:guid}"
 @using CSweet.Contracts.SourceControl
 @using CSweet.Contracts.Core
 @inject HttpClient Http
@@ -52,7 +53,7 @@
         }
         <div hidden="@(_section != WorkspaceSection.Repositories)">
             <InternalRepositoryManager OrganizationId="OrganizationId" CanManage="_dashboard.CanManageSourceControl"
-                                       SelectedRepository="SelectedRepository" SelectedReference="SelectedReference"
+                                       SelectedRepository="RepositoryId" SelectedReference="@SelectedReference" SelectedFile="@SelectedFile"
                                        Repositories="_dashboard.Repositories" Connections="_dashboard.Connections"
                                        @bind-Creating="_creating" OnChanged="LoadAsync" />
         </div>
@@ -241,8 +242,9 @@
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
-    [SupplyParameterFromQuery(Name = "repository")] public Guid? SelectedRepository { get; set; }
+    [Parameter] public Guid? RepositoryId { get; set; }
     [SupplyParameterFromQuery(Name = "reference")] public string? SelectedReference { get; set; }
+    [SupplyParameterFromQuery(Name = "file")] public string? SelectedFile { get; set; }
 
     private enum WorkspaceSection { Repositories, Connections, Activity, Settings }
     private WorkspaceSection _section;
@@ -299,7 +301,7 @@
             if (version != _loadVersion || business != OrganizationId) return;
             var firstLoad = _dashboard is null;
             _dashboard = dashboard;
-            if (firstLoad && SelectedRepository is null && _dashboard?.ActiveOnboarding is not null)
+            if (firstLoad && RepositoryId is null && _dashboard?.ActiveOnboarding is not null)
                 _section = WorkspaceSection.Connections;
             if (_dashboard is { CanManageSourceControl: true,
                                 ActiveOnboarding: { ConnectionId: { } connectionId } active } &&

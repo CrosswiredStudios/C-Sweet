@@ -27,7 +27,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
     private static readonly Counter<long> SoftLimitWarnings = Meter.CreateCounter<long>("csweet.personal_work.soft_limit_warnings");
     private static readonly Counter<long> HardLimitRejections = Meter.CreateCounter<long>("csweet.personal_work.hard_limit_rejections");
     private static readonly IReadOnlySet<string> OwnerActions = new HashSet<string>(
-        [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder, PersonalTodoActions.Requeue,
+        [PersonalTodoActions.CreatePlan, PersonalTodoActions.ReportPlanTask,
+         PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder, PersonalTodoActions.Requeue,
          PersonalTodoActions.Activate,
          PersonalTodoActions.Claim, PersonalTodoActions.Complete, PersonalTodoActions.Block,
          PersonalTodoActions.Release, PersonalTodoActions.Defer, PersonalTodoActions.Update,
@@ -136,7 +137,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         var strandedReady = await db.CoreWorkTasks.AsNoTracking()
             .Where(x => x.Board != null && x.Board.Kind == WorkBoardKind.Personal &&
                 x.Board.OwnerOrganizationUserId.HasValue && x.ArchivedAt == null &&
-                x.Status == WorkTaskStatus.Ready)
+                x.Status == WorkTaskStatus.Ready && x.IsExecutable)
             .Select(x => new
             {
                 x.Id,
@@ -173,6 +174,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                     task.Status = WorkTaskStatus.Blocked;
                     task.BoardColumnId = ColumnForStatus(board, WorkTaskStatus.Blocked).Id;
                     task.BlockReason = AgentWorkFailure.DescribeBlocker(lastDelivery.LastError);
+                    await BlockRunningPlanChildrenAsync(task, task.BlockReason, cancellationToken);
                     await AddBlockedNotificationsAsync(task, board, task.BlockReason, now, cancellationToken);
                     task.Revision++;
                     task.UpdatedAt = now;
@@ -430,6 +432,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         CancellationToken cancellationToken = default)
     {
         var item = await LoadPersonalItemAsync(organizationId, request.ItemId, cancellationToken);
+        RequireIndependentExecution(item);
         await RequireGrantAsync(organizationId, item.BoardId!.Value, actor, PersonalTodoActions.Requeue, cancellationToken);
         var isWaitingInProgress = item.Status == WorkTaskStatus.Running &&
             !item.ClaimEventId.HasValue && !item.ClaimExpiresAt.HasValue;
@@ -456,6 +459,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         CancellationToken cancellationToken = default)
     {
         var item = await LoadPersonalItemAsync(organizationId, request.ItemId, cancellationToken);
+        RequireIndependentExecution(item);
         await RequireGrantAsync(organizationId, item.BoardId!.Value, actor,
             PersonalTodoActions.Activate, cancellationToken);
         if (item.ArchivedAt.HasValue)
@@ -624,7 +628,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         {
             var candidate = await db.CoreWorkTasks.AsNoTracking()
                 .Where(x => x.BoardId == board.Id && x.ArchivedAt == null &&
-                    x.Status == WorkTaskStatus.Ready)
+                    x.Status == WorkTaskStatus.Ready && x.IsExecutable)
                 .OrderBy(x => x.BoardRank).ThenBy(x => x.CreatedAt)
                 .Select(x => new { x.Id, x.Revision })
                 .FirstOrDefaultAsync(cancellationToken);
@@ -720,6 +724,13 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         if (item.Status != WorkTaskStatus.Running || item.ClaimEventId != eventId)
             throw new InvalidOperationException("The personal work item is not claimed by this event.");
         RequireRevision(item, expectedRevision);
+        if (status == WorkTaskStatus.Completed && ReadPlanSpecification(item)?.PersonalPlan?.Execution == "Coordinator")
+        {
+            var boardItems = await db.CoreWorkTasks.Where(x => x.BoardId == item.BoardId).ToListAsync(cancellationToken);
+            if (boardItems.Any(x => x.Kind == WorkItemKind.Task && ReadPlanSpecification(x)?.PersonalPlan?.RootItemId == item.Id &&
+                (x.Status != WorkTaskStatus.Completed || x.ArchivedAt != null)))
+                throw new InvalidOperationException("All planned tasks, including verified deployment, must finish before the epic can complete.");
+        }
         var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == item.BoardId, cancellationToken);
         var now = clock.GetUtcNow();
         item.Status = status; item.ResultSummary = summary?.Trim();
@@ -728,7 +739,10 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         item.WaitingOnOrganizationUserId = null; item.Revision++; item.UpdatedAt = now;
         item.BoardColumnId = ColumnForStatus(board, status).Id;
         if (status == WorkTaskStatus.Blocked)
+        {
+            await BlockRunningPlanChildrenAsync(item, reason!, cancellationToken);
             await AddBlockedNotificationsAsync(item, board, reason!, now, cancellationToken);
+        }
         if (status == WorkTaskStatus.Ready)
             await QueueAvailableAsync(organizationId, await OwnerAsync(board, cancellationToken),
                 board.Id, item.Id, now, cancellationToken);
@@ -1082,6 +1096,11 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             item.Revision, item.DueDate, item.SourceConversationId, item.SourceMessageId, mentions,
             item.ResultSummary, item.BlockReason, item.CreatedAt, item.UpdatedAt, item.ArchivedAt)
         {
+            Kind = item.Kind.ToString(),
+            ParentItemId = item.ParentWorkTaskId,
+            PlanRootId = ReadPlanSpecification(item)?.PersonalPlan?.RootItemId,
+            PlanExecution = ReadPlanSpecification(item)?.PersonalPlan?.Execution,
+            AcceptanceCriteria = ReadPlanSpecification(item)?.AcceptanceCriteria ?? [],
             MentionSpans = mentionSpans,
             CorrelationId = item.CorrelationId,
             WorkContext = DeserializeWorkContext(item.PersonalWorkContextJson),

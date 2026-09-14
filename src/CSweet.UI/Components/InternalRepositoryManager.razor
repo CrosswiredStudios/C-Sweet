@@ -1,6 +1,7 @@
 @using CSweet.Contracts.Core
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
+@inject NavigationManager Navigation
 
 <section class="repository-workspace" aria-label="Repositories">
     <MudStack Spacing="3">
@@ -39,7 +40,7 @@
                 </div>
             }
         }
-        else if (AllRepositories.Count > 0)
+        else if (AllRepositories.Count > 0 && SelectedRepository is null)
         {
             <div class="repository-list-heading"><span>@AllRepositories.Count @(AllRepositories.Count == 1 ? "repository" : "repositories")</span><span>All providers</span></div>
             <MudTable Items="AllRepositories" Hover="true" Elevation="0" Class="repository-list">
@@ -58,7 +59,7 @@
         @if (_externalRepository is { } external)
         {
             <MudPaper Outlined="true" Class="pa-4">
-                <div class="repository-create-heading"><MudText Typo="Typo.h6">@external.Name</MudText><MudButton OnClick="() => _externalRepository = null">Close</MudButton></div>
+                <div class="repository-create-heading"><MudText Typo="Typo.h6">@external.Name</MudText><MudButton OnClick="CloseRepository">Close</MudButton></div>
                 <MudText>@external.CanonicalPath</MudText>
                 <MudText Typo="Typo.body2">@ProviderLabel(external) · @external.DefaultBranch · @RepositoryStatusLabel(external.Status)</MudText>
                 @if (!string.IsNullOrWhiteSpace(external.HealthMessage)) { <MudAlert Severity="Severity.Warning" Class="mt-3">@external.HealthMessage</MudAlert> }
@@ -71,7 +72,54 @@
         @if (_details is not null)
         {
             <MudDivider />
-            <div class="repository-create-heading"><MudText Typo="Typo.h6">@_details.Repository.Name</MudText><MudButton OnClick="() => _details = null" Disabled="_busy">Close repository</MudButton></div>
+            <div class="repository-detail-header">
+                <div class="repository-title">
+                    <MudIcon Icon="@Icons.Material.Outlined.AccountTree" />
+                    <div><MudText Typo="Typo.h5">@_details.Repository.Name</MudText><MudText Typo="Typo.caption" Class="repository-muted">@_details.Repository.CanonicalPath · @(_details.Repository.IsPrivate ? "Private" : "Public")</MudText></div>
+                </div>
+                <MudButton OnClick="CloseRepository" Disabled="_busy" StartIcon="@Icons.Material.Outlined.ArrowBack">All repositories</MudButton>
+            </div>
+            @if (_details.Inspection.Refs.Count == 0)
+            {
+                <div class="repository-empty repository-empty-compact">
+                    <MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />
+                    <MudText Typo="Typo.h6">This repository is empty</MudText>
+                    <MudText Class="repository-muted">Push a commit to @_details.Repository.DefaultBranch to start browsing files.</MudText>
+                </div>
+            }
+            else
+            {
+                <div class="code-toolbar">
+                    <MudSelect T="string" Value="@CurrentReference" ValueChanged="ChangeReferenceAsync" Variant="Variant.Outlined" Dense="true" Class="branch-select" aria-label="Branch or tag">
+                        @foreach (var reference in _details.Inspection.Refs)
+                        {
+                            <MudSelectItem T="string" Value="@reference.Name">@ShortReference(reference.Name)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <span class="code-toolbar-summary">@_details.Inspection.Commits.Count recent @(_details.Inspection.Commits.Count == 1 ? "commit" : "commits")</span>
+                </div>
+                <div class="code-browser">
+                    @if (_details.Inspection.Commits.FirstOrDefault() is { } latest)
+                    {
+                        <div class="code-commit-bar"><MudIcon Icon="@Icons.Material.Outlined.Commit" /><strong>@latest.Author</strong><span class="code-commit-subject">@latest.Subject</span><code>@latest.Sha[..8]</code></div>
+                    }
+                    @if (!string.IsNullOrEmpty(_browserPath))
+                    {
+                        <button type="button" class="code-row code-row-button" @onclick="NavigateUp"><MudIcon Icon="@Icons.Material.Outlined.FolderOpen" /><span class="code-entry-name">..</span><span></span></button>
+                    }
+                    @foreach (var entry in BrowserEntries)
+                    {
+                        <button type="button" class="code-row code-row-button" @onclick="() => OpenEntryAsync(entry)">
+                            <MudIcon Icon="@(entry.IsDirectory ? Icons.Material.Outlined.Folder : Icons.Material.Outlined.InsertDriveFile)" />
+                            <span class="code-entry-name">@entry.Name</span><span class="code-entry-kind">@(entry.IsDirectory ? "Directory" : "File")</span>
+                        </button>
+                    }
+                </div>
+                @if (_details.Inspection.Content is not null)
+                {
+                    <div class="file-preview"><div class="file-preview-header"><strong>@_selectedFile</strong><MudButton Size="Size.Small" OnClick="CloseFile">Close file</MudButton></div><pre><code>@_details.Inspection.Content</code></pre></div>
+                }
+            }
             @if (CanManage)
             {
                 <MudTextField @bind-Value="_editName" Label="Name" Disabled="_busy" />
@@ -143,10 +191,7 @@
             }
             <MudText Typo="Typo.subtitle1">Recent commits</MudText>
             @foreach (var commit in _details.Inspection.Commits) { <MudText Typo="Typo.body2">@commit.Sha[..8] · @commit.Subject · @commit.Author</MudText> }
-            <MudText Typo="Typo.subtitle1">Files</MudText>
-            @foreach (var file in _details.Inspection.Files) { <MudButton OnClick="@(() => InspectAsync(_details.Repository.Id, _selectedRef, file))" Disabled="_busy">@file</MudButton> }
-            @if (_details.Inspection.Content is not null) { <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:32rem;overflow:auto">@_details.Inspection.Content</pre> }
-            @if (_details.Inspection.Refs.Count == 0) { <MudText Color="Color.Secondary">This repository has no commits yet.</MudText> }
+
         }
     </MudStack>
 </section>
@@ -163,6 +208,7 @@
     private Guid _loadedOrganization;
     private Guid? _loadedSelection;
     private string? _loadedReference;
+    private string? _loadedFile;
     private IReadOnlyList<SourceControlRepositorySummary> AllRepositories => _repositories
         .Concat(Repositories.Where(r => !Connections.Any(c => c.Id == r.ConnectionId && c.Provider == "InternalGit")))
         .DistinctBy(r => r.Id).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -185,21 +231,20 @@
         _ => Color.Default
     };
     private Task CloseCreateAsync() => CreatingChanged.InvokeAsync(false);
-    private async Task OpenRepositoryAsync(SourceControlRepositorySummary repository)
-    {
-        _details = null; _externalRepository = null;
-        if (IsInternal(repository)) await InspectAsync(repository.Id);
-        else _externalRepository = repository;
-    }
+    private void OpenRepositoryAsync(SourceControlRepositorySummary repository)
+        => Navigation.NavigateTo($"/organizations/{OrganizationId:D}/source-control/{repository.Id:D}");
+    private void CloseRepository() => Navigation.NavigateTo($"/organizations/{OrganizationId:D}/source-control");
     [Parameter] public Guid? SelectedRepository { get; set; }
     [Parameter] public string? SelectedReference { get; set; }
+    [Parameter] public string? SelectedFile { get; set; }
     private IReadOnlyList<SourceControlRepositorySummary> _repositories = [];
     private IReadOnlyList<TeamSummaryResponse> _teams = [];
     private IReadOnlyList<InternalGitTeamAccess> _teamAccess = [];
     private IReadOnlyList<InternalGitProposalSummary> _proposals = [];
     private InternalRepositoryDetails? _details;
     private string _name = "", _branch = "main", _editName = "", _editBranch = "main";
-    private string? _error, _selectedRef, _proposalDiff;
+    private string? _error, _selectedRef, _selectedFile, _proposalDiff;
+    private string _browserPath = "";
     private string _deleteName = "", _newRef = "", _refTarget = "", _mergePolicy = "LeadAuthorizedAutoMerge";
     private Guid _team;
     private bool _primary = true;
@@ -212,7 +257,7 @@
         {
             _loadedOrganization = OrganizationId;
             _repositories = []; _teams = []; _details = null; _externalRepository = null;
-            _loadedSelection = null; _loadedReference = null;
+            _loadedSelection = null; _loadedReference = null; _loadedFile = null;
             await RunAsync(async () =>
             {
                 await LoadAsync();
@@ -223,10 +268,19 @@
                 }
             });
         }
-        if (SelectedRepository is { } id && (_loadedSelection != id || _loadedReference != SelectedReference) && _repositories.Any(r => r.Id == id))
+        if (SelectedRepository is { } id && (_loadedSelection != id || _loadedReference != SelectedReference || _loadedFile != SelectedFile))
         {
-            _loadedSelection = id; _loadedReference = SelectedReference;
-            await InspectAsync(id, SelectedReference);
+            _loadedSelection = id; _loadedReference = SelectedReference; _loadedFile = SelectedFile;
+            if (_repositories.Any(r => r.Id == id))
+            {
+                _externalRepository = null;
+                await InspectAsync(id, SelectedReference, SelectedFile);
+            }
+            else
+            {
+                _details = null;
+                _externalRepository = AllRepositories.FirstOrDefault(r => r.Id == id);
+            }
         }
     }
     private async Task LoadAsync() => _repositories = await Http.GetFromJsonAsync<List<SourceControlRepositorySummary>>(Endpoint) ?? [];
@@ -238,25 +292,27 @@
     });
     private async Task InspectAsync(Guid id, string? reference = null, string? file = null) => await RunAsync(async () =>
     {
-        _details = await Http.GetFromJsonAsync<InternalRepositoryDetails>($"{Endpoint}/{id:D}?reference={Uri.EscapeDataString(reference ?? "")}&file={Uri.EscapeDataString(file ?? "")}");
+        _details = await Http.GetFromJsonAsync<InternalRepositoryDetails>(InspectionUrl(id, reference, file));
         if (_details is null) return;
         _teamAccess = await Http.GetFromJsonAsync<List<InternalGitTeamAccess>>($"{Endpoint}/{id:D}/team") ?? [];
         _team = Guid.Empty;
         _proposals = await Http.GetFromJsonAsync<List<InternalGitProposalSummary>>($"{Endpoint}/{id:D}/proposals") ?? [];
-        _proposalDiff = null; _deleteName = ""; _deleteRef = null; _selectedRef = reference;
+        _proposalDiff = null; _deleteName = ""; _deleteRef = null; _selectedRef = reference; _selectedFile = file;
+        _browserPath = file is null ? "" : ParentPath(file);
         _editName = _details.Repository.Name; _editBranch = _details.Repository.DefaultBranch; _archived = _details.Repository.Status == "Archived";
     });
     private async Task SaveAsync() => await RunAsync(async () =>
     {
         if (_details is null) return;
         using var response = await Http.PutAsJsonAsync($"{Endpoint}/{_details.Repository.Id:D}", new UpdateInternalRepositoryRequest(_editName, _editBranch, _archived, _details.Revision));
-        await CheckAsync(response); _details = null; await LoadAsync();
+        await CheckAsync(response); await InspectAsync(_details.Repository.Id, _selectedRef);
     });
     private async Task DeleteAsync() => await RunAsync(async () =>
     {
         if (_details is null) return;
         using var response = await Http.PostAsJsonAsync($"{Endpoint}/{_details.Repository.Id:D}/delete", new DeleteInternalRepositoryRequest(_deleteName, _details.Revision));
         await CheckAsync(response); _details = null; _deleteName = ""; await LoadAsync();
+        Navigation.NavigateTo($"/organizations/{OrganizationId:D}/source-control");
     });
     private Task CreateRefAsync() => ChangeRefAsync(new("create", _newRef, new string('0', 40), _refTarget));
     private Task DeleteRefAsync() => _deleteRef is null ? Task.CompletedTask : ChangeRefAsync(new("delete", _deleteRef.Name, _deleteRef.Sha));
@@ -289,6 +345,54 @@
         var diff = await Http.GetFromJsonAsync<InternalGitRepositoryInspection>($"{Endpoint}/{_details.Repository.Id:D}/proposals/{proposalId:D}");
         _proposalDiff = diff?.Content;
     });
+    private string CurrentReference => _selectedRef ?? $"refs/heads/{_details?.Repository.DefaultBranch}";
+    private IReadOnlyList<BrowserEntry> BrowserEntries
+    {
+        get
+        {
+            if (_details is null) return [];
+            var prefix = string.IsNullOrEmpty(_browserPath) ? "" : _browserPath + "/";
+            return _details.Inspection.Files.Where(path => path.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(path => path[prefix.Length..]).Where(path => path.Length > 0).Select(path => path.Split('/', 2))
+                .GroupBy(parts => parts[0], StringComparer.Ordinal)
+                .Select(group => new BrowserEntry(group.Key, group.Any(parts => parts.Length > 1)))
+                .OrderByDescending(entry => entry.IsDirectory).ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+    }
+    private async Task OpenEntryAsync(BrowserEntry entry)
+    {
+        if (_details is null) return;
+        var path = string.IsNullOrEmpty(_browserPath) ? entry.Name : $"{_browserPath}/{entry.Name}";
+        if (entry.IsDirectory) { _browserPath = path; _selectedFile = null; return; }
+        await InspectAsync(_details.Repository.Id, _selectedRef, path);
+        Navigation.NavigateTo(RepositoryUrl(_details.Repository.Id, _selectedRef, path), replace: true);
+    }
+    private void NavigateUp() => _browserPath = ParentPath(_browserPath);
+    private void CloseFile()
+    {
+        if (_details is null) return;
+        _details = _details with { Inspection = _details.Inspection with { Content = null } };
+        _selectedFile = null;
+        Navigation.NavigateTo(RepositoryUrl(_details.Repository.Id, _selectedRef), replace: true);
+    }
+    private Task ChangeReferenceAsync(string reference)
+    {
+        if (_details is not null) Navigation.NavigateTo(RepositoryUrl(_details.Repository.Id, reference));
+        return Task.CompletedTask;
+    }
+    private string InspectionUrl(Guid id, string? reference, string? file)
+    {
+        var url = $"{Endpoint}/{id:D}";
+        return Navigation.GetUriWithQueryParameters(url, new Dictionary<string, object?> { ["reference"] = reference, ["file"] = file });
+    }    private string RepositoryUrl(Guid id, string? reference, string? file = null)
+    {
+        var url = $"/organizations/{OrganizationId:D}/source-control/{id:D}";
+        return Navigation.GetUriWithQueryParameters(url, new Dictionary<string, object?> { ["reference"] = reference, ["file"] = file });
+    }
+    private static string ShortReference(string reference) => reference.StartsWith("refs/heads/", StringComparison.Ordinal) ? reference[11..]
+        : reference.StartsWith("refs/tags/", StringComparison.Ordinal) ? reference[10..] : reference;
+    private static string ParentPath(string path) { var separator = path.LastIndexOf('/'); return separator < 0 ? "" : path[..separator]; }
+    private sealed record BrowserEntry(string Name, bool IsDirectory);
     private async Task RunAsync(Func<Task> action)
     {
         _busy = true; _error = null;

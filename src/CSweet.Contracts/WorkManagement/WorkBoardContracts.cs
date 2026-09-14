@@ -68,6 +68,8 @@ public static class WorkAutomationActions
 
 public static class PersonalTodoActions
 {
+    public const string CreatePlan = CSweet.WorkManagement.Contracts.PersonalWorkPlanCapabilities.Create;
+    public const string ReportPlanTask = CSweet.WorkManagement.Contracts.PersonalWorkPlanCapabilities.ReportTask;
     public const string Read = WorkManagementCapabilityNames.PersonalTodoRead;
     public const string Add = WorkManagementCapabilityNames.PersonalTodoAdd;
     public const string Reorder = WorkManagementCapabilityNames.PersonalTodoReorder;
@@ -83,7 +85,7 @@ public static class PersonalTodoActions
     public const string Restore = WorkManagementCapabilityNames.PersonalTodoRestore;
 
     public static readonly IReadOnlyList<string> All =
-        [Read, Add, Reorder, Requeue, Activate, Claim, Complete, Block, Release, Defer, Update, Archive, Restore];
+        [Read, Add, Reorder, Requeue, Activate, Claim, Complete, Block, Release, Defer, Update, Archive, Restore, CreatePlan, ReportPlanTask];
 }
 
 public sealed record EmployeeDetailsPermissions(

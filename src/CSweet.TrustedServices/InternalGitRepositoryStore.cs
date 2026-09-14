@@ -157,7 +157,10 @@ public sealed partial class InternalGitRepositoryStore(IOptions<InternalGitStora
         var branch = (await RunAsync(path, ["symbolic-ref", "--short", "HEAD"], cancellationToken)).Trim();
         var refs = await RefsAsync(path, cancellationToken);
         if (refs.Count == 0) return new(branch, refs, [], []);
-        var selected = requestedRef ?? $"refs/heads/{branch}";
+        var headRef = $"refs/heads/{branch}";
+        var selected = requestedRef ?? (refs.Any(r => r.Name == headRef)
+            ? headRef
+            : refs.FirstOrDefault(r => r.Name.StartsWith("refs/heads/", StringComparison.Ordinal))?.Name ?? refs[0].Name);
         var commit = refs.SingleOrDefault(r => r.Name == selected)?.Sha
             ?? throw new ArgumentException("Select an existing branch or tag.");
         var log = await RunAsync(path, ["log", "-30", "--format=%H%x09%an%x09%s", commit, "--"], cancellationToken);

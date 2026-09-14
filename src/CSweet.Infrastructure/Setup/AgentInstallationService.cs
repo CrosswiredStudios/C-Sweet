@@ -889,9 +889,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         if (!settings.EnableImportedAgents)
             throw new AgentInstallationException("Imported agents are disabled in global runtime settings.");
         var manifest = DeserializeManifest(installation.PackageVersion!.ManifestJson);
+        var effectiveConfiguration = await new AgentInstallationConfigurationService(_dbContext, _auditWriter)
+            .ResolveInstallationAsync(installationId, cancellationToken);
         await ValidateConfigurationAsync(
             manifest,
-            DeserializeConfigurationSettings(installation.Configuration?.SettingsJson),
+            effectiveConfiguration.Settings,
             allowUnknownSettings: true,
             cancellationToken);
         var now = DateTimeOffset.UtcNow;

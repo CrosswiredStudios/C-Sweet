@@ -17,6 +17,57 @@ namespace CSweet.UnitTests;
 public sealed class AgentInstallationServiceTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EnableAsync_ValidatesInheritedDefaultsAndEmployeeOverrides(bool invalidOverride)
+    {
+        await using var db = CreateDbContext();
+        var package = await SeedAsync(db, requiresConfiguration: true);
+        var providerId = await db.LlmProviderProfiles.Select(x => x.Id).SingleAsync();
+        var service = CreateService(db);
+        var installed = await service.InstallAsync(package.Id, ValidRequest() with
+        {
+            ConfigurationSettings = new Dictionary<string, JsonElement>
+            {
+                ["llmProviderId"] = JsonSerializer.SerializeToElement(providerId.ToString("D")),
+                ["llmModel"] = JsonSerializer.SerializeToElement("test-model")
+            }
+        });
+        var installation = await db.AgentInstallations.Include(x => x.Configuration).Include(x => x.Schedule)
+            .SingleAsync(x => x.Id == installed.Id);
+        var definition = new AgentDefinition
+        {
+            Id = Guid.NewGuid(), AgentId = package.AgentId, PackageSourceId = package.PackageSourceId,
+            PackageVersionId = package.Id, PackageVersion = package,
+            Configuration = new AgentDefinitionConfiguration
+            {
+                Id = Guid.NewGuid(), SettingsJson = installation.Configuration!.SettingsJson
+            }
+        };
+        db.AgentDefinitions.Add(definition);
+        installation.AgentDefinition = definition;
+        installation.AgentDefinitionId = definition.Id;
+        var overrides = invalidOverride ? "{\"llmProviderId\":\"\"}" : "{\"llmModel\":\"employee-model\"}";
+        installation.Configuration.SettingsJson = overrides;
+        installation.IsEnabled = false;
+        installation.Schedule!.IsEnabled = false;
+        await db.SaveChangesAsync();
+
+        if (invalidOverride)
+        {
+            await Assert.ThrowsAsync<AgentInstallationException>(() => service.EnableAsync(installed.Id));
+            Assert.False(installation.IsEnabled);
+        }
+        else
+        {
+            var enabled = await service.EnableAsync(installed.Id);
+            Assert.True(enabled.IsEnabled);
+            Assert.True(installation.Schedule.IsEnabled);
+        }
+        Assert.Equal(overrides, installation.Configuration.SettingsJson);
+    }
+
+    [Theory]
     [InlineData(true, true)]
     [InlineData(true, false)]
     [InlineData(false, true)]

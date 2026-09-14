@@ -125,7 +125,7 @@
             <div class="backlog-list" aria-label="Unscheduled work">
                 @foreach (var item in VisibleItems)
                 {
-                    <button type="button" class="backlog-row" @key="item.Id" @onclick="@(() => OnOpenItem.InvokeAsync(item))"><span class="ticket-reference">@Present.ShortIdentifier(item, Detail.Board.Key)</span><span class="backlog-title"><strong>@item.Title</strong><small>@Present.TypeLabel(item) · @ColumnName(item) @if (Attention(item) is { } reason) { <span class="attention-text"> · @reason</span> }</small></span><span class="ticket-owner">@(item.AssignedDisplayName ?? "Unassigned")</span><span>@(item.EstimatePoints?.ToString("0.##") ?? "—") pts</span></button>
+                    <button type="button" class="backlog-row" @key="item.Id" @onclick="@(() => OnOpenItem.InvokeAsync(item))"><span class="ticket-reference">@Present.ShortIdentifier(item, Detail.Board.Key)</span><span class="backlog-title"><strong>@item.Title</strong><small><WorkItemTypeBadge Kind="@item.Kind" /> · @ColumnName(item) @if (Attention(item) is { } reason) { <span class="attention-text"> · @reason</span> }</small></span><span class="ticket-owner">@(item.AssignedDisplayName ?? "Unassigned")</span><span>@(item.EstimatePoints?.ToString("0.##") ?? "—") pts</span></button>
                 }
                 @if (VisibleItems.Count == 0) { <p class="workspace-empty">@(HasFilters ? "No work matches these filters." : "No unscheduled work. Planned sprint items are available under Sprints.")</p> }
             </div>
@@ -160,7 +160,7 @@
                         {
                             <article class="work-ticket" @key="item.Id" @ondragover:preventDefault="true" @ondrop:stopPropagation="true" @ondrop="@(() => DropAsync(column, item.Id))">
                                 <button type="button" class="ticket-open" @onclick="@(() => OnOpenItem.InvokeAsync(item))" aria-label="Open @item.Identifier: @item.Title">
-                                    <span class="ticket-top"><span title="@item.Identifier">@Present.ShortIdentifier(item, Detail.Board.Key) · @Present.TypeLabel(item)</span><span>@(item.EstimatePoints.HasValue ? $"{item.EstimatePoints:0.##} pts" : "")</span></span>
+                                    <span class="ticket-top"><span title="@item.Identifier">@Present.ShortIdentifier(item, Detail.Board.Key) · <WorkItemTypeBadge Kind="@item.Kind" /></span><span>@(item.EstimatePoints.HasValue ? $"{item.EstimatePoints:0.##} pts" : "")</span></span>
                                     <span class="ticket-title"><StructuredMentionText Text="@item.Title" Mentions="@item.Mentions" Field="@Wire.WorkItemMentionFields.Title" /></span>
                                     @if (_showDescriptions && !string.IsNullOrWhiteSpace(item.Description)) { <span class="ticket-description">@WorkBoardPresentation.DescriptionPreview(item.Description)</span> }
                                     <span class="ticket-footer"><span class="ticket-owner"><span class="owner-avatar" aria-hidden="true">@Initials(item.AssignedDisplayName)</span>@(item.AssignedDisplayName ?? "Unassigned")</span><span class="ticket-priority">@item.Priority</span></span>

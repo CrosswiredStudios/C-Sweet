@@ -95,7 +95,6 @@ public sealed class PlatformLlmCapabilityHandler
         if (input.Messages.Count > 128 ||
             input.Messages.Sum(MessageSize) > 262_144 ||
             (input.Tools?.Count ?? 0) > 128 ||
-            input.MaxOutputTokens is < 1 or > 32_768 ||
             input.Temperature is < 0 or > 2)
         {
             yield return Failure(request.RequestId, "The LLM request exceeds the message, text, or tool limit.");
@@ -118,6 +117,16 @@ public sealed class PlatformLlmCapabilityHandler
                 input.Model,
                 "The selected LLM provider profile does not exist or is disabled.");
             yield return Failure(request.RequestId, "The selected LLM provider is unavailable.");
+            yield break;
+        }
+
+        // Provider configuration is the control-plane limit. A fixed 32K cap here
+        // prevented agents from using larger budgets explicitly configured by users.
+        var maximumOutputTokens = profile.MaxOutputTokens is > 0 ? profile.MaxOutputTokens.Value : 32_768;
+        if (input.MaxOutputTokens is < 1 || input.MaxOutputTokens > maximumOutputTokens)
+        {
+            yield return Failure(request.RequestId,
+                $"The requested output-token budget must be between 1 and {maximumOutputTokens} for the selected provider.");
             yield break;
         }
 

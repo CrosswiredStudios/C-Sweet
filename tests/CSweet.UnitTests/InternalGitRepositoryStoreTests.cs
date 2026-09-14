@@ -65,6 +65,22 @@ public sealed class InternalGitRepositoryStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task InspectFallsBackToAnExistingBranchWhenHeadHasNoCommit()
+    {
+        await Store.ExecuteAsync(new(_business, _repository, "create", "main"));
+        var snapshot = await Store.PrepareAsync(new(_business, _repository, Guid.NewGuid(), "main", "work/one", null, "prepare-1"), new());
+        await Store.ExecuteAsync(new(_business, _repository, "update-ref", Ref: "refs/heads/feature",
+            ExpectedSha: new string('0', 40), TargetSha: snapshot.BaseCommitSha));
+        var repositoryPath = Path.Combine(_root, _business.ToString("N"), _repository.ToString("N") + ".git");
+        File.WriteAllText(Path.Combine(repositoryPath, "HEAD"), "ref: refs/heads/missing\n");
+        await Store.ExecuteAsync(new(_business, _repository, "delete-ref", Ref: "refs/heads/main", ExpectedSha: snapshot.BaseCommitSha));
+
+        var inspection = await Store.ExecuteAsync(new(_business, _repository, "inspect"));
+
+        Assert.NotEmpty(inspection.Commits);
+        Assert.Contains(inspection.Refs, reference => reference.Name == "refs/heads/feature");
+    }
+    [Fact]
     public async Task DeleteRemovesOnlySelectedRepositoryAndIsIdempotent()
     {
         await Store.ExecuteAsync(new(_business, _repository, "create", "main"));

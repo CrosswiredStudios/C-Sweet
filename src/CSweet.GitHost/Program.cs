@@ -154,7 +154,7 @@ app.MapPost("/internal/v3/repositories/execute", async (InternalGitRepositoryReq
     InternalGitRepositoryStore store, CancellationToken ct) =>
 {
     try { return Results.Ok(await store.ExecuteAsync(request, ct)); }
-    catch (ArgumentException) { return Results.BadRequest(new { error = "invalid_repository_operation" }); }
+    catch (ArgumentException ex) { app.Logger.LogWarning(ex, "Internal repository operation {Operation} was rejected for {OrganizationId}/{RepositoryId}; ref={Ref}; path={Path}.", request.Operation, request.OrganizationId, request.RepositoryId, request.Ref, request.Path); return Results.BadRequest(new { error = "invalid_repository_operation", message = ex.Message }); }
     catch (KeyNotFoundException) { return Results.NotFound(); }
     catch (Exception ex) when (ex is IOException or InvalidOperationException)
     { return Results.Conflict(new { error = "repository_operation_failed" }); }

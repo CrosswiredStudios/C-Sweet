@@ -12,7 +12,7 @@ using Wire = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
 
-public sealed class PersonalTodoServiceTests
+public sealed partial class PersonalTodoServiceTests
 {
     [Fact]
     public async Task InstalledAgentNormalPriorityPassesBrokerAndPersistsCanonicalMedium()

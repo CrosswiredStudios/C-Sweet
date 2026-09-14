@@ -102,8 +102,16 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
         var options = new OpenAIClientOptions { Endpoint = endpoint, NetworkTimeout = _networkTimeout };
         var chatClient = new ChatClient(selectedModel, new ApiKeyCredential(apiKey), options);
 
-        return chatClient.AsIChatClient();
+        return ApplyProviderDefaults(chatClient.AsIChatClient(), profile.MaxOutputTokens);
     }
+
+    internal static IChatClient ApplyProviderDefaults(IChatClient client, int? maxOutputTokens) =>
+        new ConfigureOptionsChatClient(client, options =>
+        {
+            // An explicit per-call budget takes precedence over the provider default.
+            // ConfigureOptionsChatClient clones caller options before applying defaults.
+            options.MaxOutputTokens ??= maxOutputTokens;
+        });
 
     private async Task<string> ResolveApiKeyAsync(LlmProviderProfile profile, CancellationToken cancellationToken)
     {
@@ -116,7 +124,12 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
             }
         }
 
-        return profile.ProviderType.IsLocalRuntime()
+        // Custom/self-hosted compatible endpoints may intentionally require no key.
+        // The OpenAI SDK still requires a non-empty credential to construct its client,
+        // unlike the HTTP client used by setup's connection test. This placeholder is
+        // not a credential or an authentication bypass; the endpoint enforces its auth.
+        return profile.ProviderType.IsLocalRuntime() ||
+            profile.ProviderType is LlmProviderType.Custom or LlmProviderType.OpenAiCompatible
             ? LocalApiKeyPlaceholder
             : string.Empty;
     }

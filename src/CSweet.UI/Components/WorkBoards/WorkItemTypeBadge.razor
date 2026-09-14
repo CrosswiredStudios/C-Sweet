@@ -1,0 +1,16 @@
+<span class="work-item-type @Kind.ToLowerInvariant()" title="@Kind" aria-label="@Kind">
+    <MudIcon Icon="@Icon" Size="Size.Small" />
+    <span>@Kind</span>
+</span>
+
+@code {
+    [Parameter] public string Kind { get; set; } = "Task";
+    private string Icon => Kind switch
+    {
+        "Initiative" => Icons.Material.Outlined.Flag,
+        "Epic" => Icons.Material.Outlined.Bolt,
+        "Story" => Icons.Material.Outlined.AutoStories,
+        "Bug" => Icons.Material.Outlined.BugReport,
+        _ => Icons.Material.Outlined.CheckBox
+    };
+}

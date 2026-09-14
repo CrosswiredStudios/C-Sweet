@@ -39,7 +39,7 @@
                 @foreach (var item in items)
                 {
                     <button @key="item.Id" type="button" class="personal-ticket" disabled="@_busy" draggable="@(CanDrag(item) ? "true" : "false")" @ondragstart="@(() => StartDrag(item))" @ondragend="EndDrag" @onclick="@(() => OpenDetails(item))">
-                        <span class="ticket-reference"><span>@Short(item.Id)</span>@if (CanDrag(item)) { <MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /> }</span>
+                        <span class="ticket-reference"><span>@Short(item.Id) · <CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@item.Kind" /></span>@if (CanDrag(item)) { <MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /> }</span>
                         <strong class="ticket-title"><StructuredMentionText Text="@item.Title" Mentions="@item.MentionSpans" Field="@Wire.WorkItemMentionFields.Title" /></strong>
                         @if (!string.IsNullOrWhiteSpace(item.Description)) { <span class="ticket-description">@Present.Excerpt(Present.Description(item.Description))</span> }
                         <span class="ticket-footer"><span class="ticket-priority">@Present.Priority(item.Priority)</span><span class="ticket-owner">@Present.Initials(Board.OwnerDisplayName)</span></span>
@@ -61,6 +61,7 @@
             <header class="task-header">
                 <div class="task-breadcrumb"><span><MudIcon Icon="@Icons.Material.Outlined.Layers" Size="Size.Small" />Personal work / <strong>@(_creating ? "New task" : Short(_selectedItem?.Id))</strong></span><button type="button" class="icon-action" disabled="@_busy" aria-label="Close ticket" @onclick="CloseDetails"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></div>
                 <h2>@(_creating ? "Create personal task" : _selectedItem?.Title)</h2>
+                @if (_selectedItem is { } typedItem) { <CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@typedItem.Kind" /> }
                 <span class="task-status @(_selectedItem?.Status == Wire.PersonalTodoStatuses.Blocked ? "warning" : "")">@(_creating ? "To Do" : _selectedItem?.ArchivedAt.HasValue == true ? "Archived" : Present.StatusLabel(_selectedItem?.Status ?? ""))</span>
             </header>
             @if (!string.IsNullOrWhiteSpace(_error)) { <MudAlert Severity="Severity.Error" Class="ma-4">@_error</MudAlert> }
@@ -76,6 +77,7 @@
             {
                 <div class="task-body">
                     <div class="task-description">
+                        @if (_dialogOpen) { <PersonalTodoActivity @key="item.Id" OrganizationId="OrganizationId" ItemId="item.Id" /> }
                         <div class="section-heading"><h3><MudIcon Icon="@Icons.Material.Outlined.Subject" Size="Size.Small" />Description</h3>
                             @if (CanExecute && item.ArchivedAt is null && !_editingDetails) { <button type="button" class="text-action" disabled="@_busy" @onclick="@(() => _editingDetails = true)">Edit details</button> }
                         </div>
@@ -90,6 +92,11 @@
                         @if (_editStatus == Wire.PersonalTodoStatuses.Blocked && CanExecute && item.ArchivedAt is null) { <MudTextField T="string" @bind-Value="_blockReason" Label="Block reason" Variant="Variant.Outlined" Lines="3" Required="true" Immediate="true" Disabled="_busy" Class="mt-4" /> }
                         else if (!string.IsNullOrWhiteSpace(item.BlockReason)) { <section class="task-blocker"><h3><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />Needs attention</h3><p>@item.BlockReason</p></section> }
                         @if (!string.IsNullOrWhiteSpace(item.ResultSummary)) { <section class="task-result"><h3>Result</h3><p class="full-description">@item.ResultSummary</p></section> }
+                        @if (item.AcceptanceCriteria.Count > 0)
+                        {
+                            <section class="task-result"><h3>Acceptance criteria</h3><ul>@foreach (var criterion in item.AcceptanceCriteria) { <li>@criterion</li> }</ul></section>
+                        }
+                        <PersonalWorkHierarchy Item="item" Items="Board.Items" OnOpen="OpenDetails" />
                         @if (item.Wait is { } wait) { <section class="task-result"><h3>Waiting</h3><p>@wait.Reason</p><small>Next review @wait.NextReviewAt.ToLocalTime().ToString("g")</small></section> }
                         @if (item.WorkContext?.BoardId.HasValue == true) { <a class="board-button context-link" href="@BoardHref(item)"><MudIcon Icon="@Icons.Material.Outlined.OpenInNew" Size="Size.Small" />Open team board</a> }
                         <details class="technical-details"><summary>Technical details &amp; source data</summary><pre>@TechnicalDetails(item)</pre></details>

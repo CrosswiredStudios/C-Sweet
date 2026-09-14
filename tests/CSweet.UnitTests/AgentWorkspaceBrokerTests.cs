@@ -210,7 +210,7 @@ public sealed class AgentWorkspaceBrokerTests
         Assert.Equal("csweet/safe-work", host.Operation.Branch);
         Assert.Equal(new string('a', 40), host.Operation.BaseSha);
         if (operation == "cleanup") { Assert.Equal("Retained", result.Status); Assert.False(volumes.Removed); }
-        if (operation == "publish") Assert.Contains("source-control?repository=", result.ReviewUrl);
+        if (operation == "publish") Assert.Contains($"source-control/{request.RepositoryId:D}?reference=", result.ReviewUrl);
     }
 
     [Theory]

@@ -25,6 +25,56 @@ public sealed class PlatformLlmCapabilityHandlerTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    [Theory]
+    [InlineData(128000, 128000, true)]
+    [InlineData(128000, 128001, false)]
+    [InlineData(4096, 4097, false)]
+    [InlineData(null, 32768, true)]
+    [InlineData(null, 32769, false)]
+    [InlineData(128000, 0, false)]
+    [InlineData(128000, null, true)]
+    public async Task StreamAsync_UsesConfiguredProviderOutputLimit(int? configured, int? requested, bool accepted)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var providerId = await AddProviderAsync(db);
+        (await db.LlmProviderProfiles.SingleAsync()).MaxOutputTokens = configured;
+        await db.SaveChangesAsync();
+        var client = new StreamingChatClient();
+        var handler = new PlatformLlmCapabilityHandler(db, new StreamingProviderFactory(client),
+            new AgentEmployeeIdentityResolver(db), new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+            [], new TestMediaAssetService(), NullLogger<PlatformLlmCapabilityHandler>.Instance);
+        var session = new AgentSession(Guid.NewGuid().ToString("N"), "test-agent", Guid.NewGuid().ToString("D"),
+            Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(),
+                new HashSet<string>([PlatformCapabilities.LlmChatStream], StringComparer.Ordinal), 1));
+        var request = new RequestCapability
+        {
+            RequestId = Guid.NewGuid().ToString("N"), Capability = PlatformCapabilities.LlmChatStream,
+            Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                providerProfileId = providerId, messages = new[] { new { role = "user", text = "Hello" } },
+                maxOutputTokens = requested
+            }, JsonOptions))
+        };
+        var results = new List<CapabilityResult>();
+        await foreach (var result in handler.StreamAsync(session, request, CancellationToken.None)) results.Add(result);
+        if (accepted)
+        {
+            Assert.NotEmpty(results);
+            Assert.All(results, result => Assert.True(result.Succeeded, result.Error));
+            Assert.NotNull(client.ReceivedOptions);
+            Assert.Equal(requested, client.ReceivedOptions.MaxOutputTokens);
+        }
+        else
+        {
+            var failure = Assert.Single(results);
+            Assert.False(failure.Succeeded);
+            Assert.Contains("output-token budget", failure.Error);
+            Assert.Null(client.ReceivedOptions);
+        }
+    }
+
     [Fact]
     public async Task StreamAsync_ResolvesVerifiedOpaqueAttachmentAndDeniesForgedDigest()
     {
