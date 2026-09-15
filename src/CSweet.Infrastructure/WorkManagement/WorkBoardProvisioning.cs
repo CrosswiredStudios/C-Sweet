@@ -9,6 +9,20 @@ namespace CSweet.Infrastructure.WorkManagement;
 
 internal static class WorkBoardProvisioning
 {
+    /// <summary>
+    /// Item actions every active member receives by default. Members who can read a board can also
+    /// discuss its work items; comment updates and deletions stay author-scoped in the service, so
+    /// these grants only ever let a member change comments they wrote themselves.
+    /// </summary>
+    private static readonly IReadOnlyList<string> MemberItemActions =
+    [
+        WorkItemActions.Read,
+        WorkItemActions.Comment,
+        WorkItemActions.ReadComments,
+        WorkItemActions.UpdateComment,
+        WorkItemActions.DeleteComment
+    ];
+
     public static async Task<WorkBoard> EnsureDefaultBoardAsync(
         CSweetDbContext db,
         Guid organizationId,
@@ -107,7 +121,7 @@ internal static class WorkBoardProvisioning
             var itemActions = member.PermissionLevel switch
             {
                 OrganizationPermissionLevel.Owner or OrganizationPermissionLevel.Manager => WorkItemActions.All,
-                _ => [WorkItemActions.Read]
+                _ => MemberItemActions
             };
             var sprintActions = member.PermissionLevel switch
             {

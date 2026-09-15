@@ -28,18 +28,27 @@ public sealed class WorkItemCollaborationService(
         CancellationToken cancellationToken = default)
     {
         var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
-        await RequireAsync(organizationId, boardId, member, WorkItemActions.Read, cancellationToken);
+        var board = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == boardId && x.OrganizationId == organizationId, cancellationToken);
+        if (board is null) return null;
+        // Personal boards authorize with the personal-todo family; team boards use item read.
+        await RequireAsync(
+            organizationId, boardId, member, ReadActionFor(board), cancellationToken);
         if (!await db.CoreWorkTasks.AnyAsync(x =>
                 x.Id == itemId && x.OrganizationId == organizationId && x.BoardId == boardId,
                 cancellationToken))
             return null;
+        var permissions = await ResolveCommentPermissionsAsync(
+            organizationId, boardId, member.Id, cancellationToken);
+        // Archived boards stay readable but accept no new discussion.
+        var canComment = permissions.CanComment && board.ArchivedAt is null;
         var comments = await db.WorkItemComments.AsNoTracking()
             .Where(x => x.WorkItemId == itemId && x.DeletedAt == null)
             .OrderBy(x => x.CreatedAt)
-            .Select(x => new WorkItemCommentResponse(
-                x.Id, x.WorkItemId, x.AuthorKind.ToString(), x.AuthorSubjectId,
-                x.AuthorDisplayName, x.Body, x.Revision, x.CreatedAt, x.EditedAt))
             .ToListAsync(cancellationToken);
+        var commentResponses = comments
+            .Select(x => ToComment(x, member.Id, permissions))
+            .ToList();
         var activity = await db.WorkItemActivities.AsNoTracking()
             .Where(x => x.WorkItemId == itemId)
             .OrderByDescending(x => x.OccurredAt)
@@ -49,7 +58,8 @@ public sealed class WorkItemCollaborationService(
                 x.ActorKind.ToString(), x.ActorSubjectId, x.ActorDisplayName,
                 x.DataJson, x.OccurredAt))
             .ToListAsync(cancellationToken);
-        return new WorkItemCollaborationResponse(comments, activity);
+        return new WorkItemCollaborationResponse(
+            commentResponses, activity, canComment, member.Id);
     }
 
     public async Task<WorkItemCommentResponse?> AddCommentAsync(
@@ -76,7 +86,9 @@ public sealed class WorkItemCollaborationService(
             x.AuthorKind == GrantSubjectKind.OrganizationUser &&
             x.AuthorSubjectId == member.Id &&
             x.IdempotencyKey == request.IdempotencyKey, cancellationToken);
-        if (existing is not null) return ToComment(existing);
+        if (existing is not null)
+            return await ToCommentResponseAsync(
+                existing, organizationId, boardId, member.Id, cancellationToken);
 
         var now = DateTimeOffset.UtcNow;
         var comment = new WorkItemComment
@@ -102,7 +114,122 @@ public sealed class WorkItemCollaborationService(
         await WriteAuditAsync(
             organizationId, boardId, itemId, member, WorkItemActions.Comment,
             decision, new { commentId = comment.Id }, cancellationToken);
-        return ToComment(comment);
+        return await ToCommentResponseAsync(
+            comment, organizationId, boardId, member.Id, cancellationToken);
+    }
+
+    public async Task<WorkItemCommentResponse?> UpdateCommentAsync(
+        Guid organizationId,
+        Guid boardId,
+        Guid itemId,
+        Guid commentId,
+        Guid applicationUserId,
+        UpdateWorkItemCommentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
+        var decision = await RequireAsync(
+            organizationId, boardId, member, WorkItemActions.UpdateComment, cancellationToken);
+        if (!await db.CoreWorkTasks.AnyAsync(x =>
+                x.Id == itemId && x.OrganizationId == organizationId && x.BoardId == boardId,
+                cancellationToken))
+            return null;
+        var body = request.Body?.Trim();
+        ValidateMutation(body, request.IdempotencyKey, "Comment body");
+        if (body!.Length > 8192)
+            throw new ArgumentException("Comment body cannot exceed 8192 characters.");
+        var comment = await db.WorkItemComments.SingleOrDefaultAsync(x =>
+            x.Id == commentId && x.WorkItemId == itemId, cancellationToken);
+        if (comment is null) return null;
+        RequireCommentAuthor(comment, member);
+        var replay = await db.WorkItemActivities.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.ActorKind == GrantSubjectKind.OrganizationUser &&
+            x.ActorSubjectId == member.Id &&
+            x.Action == WorkItemActions.UpdateComment &&
+            x.IdempotencyKey == request.IdempotencyKey, cancellationToken);
+        if (replay is not null && replay.WorkItemId != itemId)
+            throw new InvalidOperationException(
+                "The idempotency key was already used for a different work item comment update.");
+        if (replay is not null)
+            return await ToCommentResponseAsync(
+                comment, organizationId, boardId, member.Id, cancellationToken);
+        if (comment.DeletedAt is not null)
+            throw new InvalidOperationException("A deleted comment cannot be edited.");
+        RequireExpectedRevision(comment.Revision, request.ExpectedRevision, "comment");
+
+        var now = DateTimeOffset.UtcNow;
+        comment.Body = body!;
+        comment.EditedAt = now;
+        comment.Revision++;
+        AddActivity(
+            organizationId, boardId, itemId, member, WorkItemActions.UpdateComment,
+            "comment.updated", decision,
+            new { commentId = comment.Id, comment.Revision }, now,
+            request.IdempotencyKey.Trim());
+        await QueueRealtimeAsync(
+            organizationId, boardId, itemId, "comment.updated", comment.Revision,
+            cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await WriteAuditAsync(
+            organizationId, boardId, itemId, member, WorkItemActions.UpdateComment,
+            decision, new { commentId = comment.Id }, cancellationToken);
+        return await ToCommentResponseAsync(
+            comment, organizationId, boardId, member.Id, cancellationToken);
+    }
+
+    public async Task<WorkItemCommentResponse?> DeleteCommentAsync(
+        Guid organizationId,
+        Guid boardId,
+        Guid itemId,
+        Guid commentId,
+        Guid applicationUserId,
+        DeleteWorkItemCommentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var member = await ResolveMemberAsync(organizationId, applicationUserId, cancellationToken);
+        var decision = await RequireAsync(
+            organizationId, boardId, member, WorkItemActions.DeleteComment, cancellationToken);
+        ValidateMutation("delete-comment", request.IdempotencyKey, "Delete comment");
+        if (!await db.CoreWorkTasks.AnyAsync(x =>
+                x.Id == itemId && x.OrganizationId == organizationId && x.BoardId == boardId,
+                cancellationToken))
+            return null;
+        var comment = await db.WorkItemComments.SingleOrDefaultAsync(x =>
+            x.Id == commentId && x.WorkItemId == itemId, cancellationToken);
+        if (comment is null) return null;
+        RequireCommentAuthor(comment, member);
+        var replay = await db.WorkItemActivities.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.ActorKind == GrantSubjectKind.OrganizationUser &&
+            x.ActorSubjectId == member.Id &&
+            x.Action == WorkItemActions.DeleteComment &&
+            x.IdempotencyKey == request.IdempotencyKey, cancellationToken);
+        if (replay is not null && replay.WorkItemId != itemId)
+            throw new InvalidOperationException(
+                "The idempotency key was already used for a different work item comment deletion.");
+        if (replay is not null)
+            return await ToCommentResponseAsync(
+                comment, organizationId, boardId, member.Id, cancellationToken);
+        if (comment.DeletedAt is not null)
+            throw new InvalidOperationException("The comment is already deleted.");
+        RequireExpectedRevision(comment.Revision, request.ExpectedRevision, "comment");
+
+        var now = DateTimeOffset.UtcNow;
+        comment.DeletedAt = now;
+        comment.Revision++;
+        AddActivity(
+            organizationId, boardId, itemId, member, WorkItemActions.DeleteComment,
+            "comment.deleted", decision,
+            new { commentId = comment.Id, comment.Revision }, now,
+            request.IdempotencyKey.Trim());
+        await QueueRealtimeAsync(
+            organizationId, boardId, itemId, "comment.deleted", comment.Revision,
+            cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await WriteAuditAsync(
+            organizationId, boardId, itemId, member, WorkItemActions.DeleteComment,
+            decision, new { commentId = comment.Id }, cancellationToken);
+        return await ToCommentResponseAsync(
+            comment, organizationId, boardId, member.Id, cancellationToken);
     }
 
     public async Task<WorkBoardItemResponse?> TransferAsync(
@@ -388,10 +515,72 @@ public sealed class WorkItemCollaborationService(
             throw new ArgumentException("A non-empty idempotency key of at most 160 characters is required.");
     }
 
-    private static WorkItemCommentResponse ToComment(WorkItemComment comment) => new(
+    private async Task<WorkItemCommentResponse> ToCommentResponseAsync(
+        WorkItemComment comment,
+        Guid organizationId,
+        Guid boardId,
+        Guid memberId,
+        CancellationToken cancellationToken)
+    {
+        var permissions = await ResolveCommentPermissionsAsync(
+            organizationId, boardId, memberId, cancellationToken);
+        return ToComment(comment, memberId, permissions);
+    }
+
+    /// <summary>
+    /// Resolves the caller's board-scoped comment authority once per response, so a collaboration
+    /// payload costs three grant reads rather than one per comment.
+    /// </summary>
+    private async Task<CommentPermissions> ResolveCommentPermissionsAsync(
+        Guid organizationId,
+        Guid boardId,
+        Guid memberId,
+        CancellationToken cancellationToken)
+    {
+        var comment = await authorization.AuthorizeAsync(
+            organizationId, GrantSubjectKind.OrganizationUser, memberId,
+            WorkItemActions.Comment, GrantScopeKind.Board, boardId, cancellationToken);
+        var update = await authorization.AuthorizeAsync(
+            organizationId, GrantSubjectKind.OrganizationUser, memberId,
+            WorkItemActions.UpdateComment, GrantScopeKind.Board, boardId, cancellationToken);
+        var delete = await authorization.AuthorizeAsync(
+            organizationId, GrantSubjectKind.OrganizationUser, memberId,
+            WorkItemActions.DeleteComment, GrantScopeKind.Board, boardId, cancellationToken);
+        return new CommentPermissions(comment.Allowed, update.Allowed, delete.Allowed);
+    }
+
+    private static string ReadActionFor(WorkBoard board) =>
+        board.Kind == WorkBoardKind.Personal ? PersonalTodoActions.Read : WorkItemActions.Read;
+
+    private static bool IsAuthor(WorkItemComment comment, Guid memberId) =>
+        comment.AuthorKind == GrantSubjectKind.OrganizationUser &&
+        comment.AuthorSubjectId == memberId;
+
+    private static void RequireCommentAuthor(WorkItemComment comment, OrganizationUser member)
+    {
+        if (!IsAuthor(comment, member.Id))
+            throw new UnauthorizedAccessException(
+                "Only the comment author can change this comment.");
+    }
+
+    private static void RequireExpectedRevision(long current, long expected, string label)
+    {
+        if (current != expected)
+            throw new DbUpdateConcurrencyException(
+                $"Expected {label} revision {expected}, current revision is {current}.");
+    }
+
+    private static WorkItemCommentResponse ToComment(
+        WorkItemComment comment,
+        Guid memberId,
+        CommentPermissions permissions) => new(
         comment.Id, comment.WorkItemId, comment.AuthorKind.ToString(),
         comment.AuthorSubjectId, comment.AuthorDisplayName, comment.Body,
-        comment.Revision, comment.CreatedAt, comment.EditedAt);
+        comment.Revision, comment.CreatedAt, comment.EditedAt,
+        permissions.CanUpdate && IsAuthor(comment, memberId),
+        permissions.CanDelete && IsAuthor(comment, memberId));
+
+    private sealed record CommentPermissions(bool CanComment, bool CanUpdate, bool CanDelete);
 
     private static WorkBoardItemResponse ToItem(WorkTask item) => new(
         item.Id, item.BoardId!.Value, item.BoardColumnId!.Value,

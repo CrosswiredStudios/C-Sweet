@@ -336,6 +336,8 @@ public sealed class OfficeGatewayService(
 
     private static void ValidateHeartbeat(OfficeHeartbeat heartbeat)
     {
+        if (heartbeat.OfficeVersion.Length > 64 || (heartbeat.OfficeVersion.Length > 0 && !Version.TryParse(heartbeat.OfficeVersion, out _)))
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "The Office version is invalid."));
         if (heartbeat.AllocatableCpuCount < 0 || heartbeat.AllocatableCpuCount > 4096 ||
             heartbeat.AllocatableMemoryMb < 0 || heartbeat.AllocatableMemoryMb > 16 * 1024 * 1024 ||
             heartbeat.AllocatableDiskMb < 0 || heartbeat.AllocatableDiskMb > 1024 * 1024 * 1024 ||
@@ -348,6 +350,7 @@ public sealed class OfficeGatewayService(
         OfficeHeartbeat heartbeat,
         LocalOfficeSetupSession? assistedSession)
     {
+        if (!string.IsNullOrWhiteSpace(heartbeat.OfficeVersion)) node.NodeVersion = heartbeat.OfficeVersion;
         node.AllocatableCpuCount = assistedSession?.AllocatableCpuCount ?? heartbeat.AllocatableCpuCount;
         node.AllocatableMemoryMb = assistedSession?.AllocatableMemoryMb ?? heartbeat.AllocatableMemoryMb;
         node.AllocatableDiskMb = assistedSession?.AllocatableDiskMb ?? heartbeat.AllocatableDiskMb;

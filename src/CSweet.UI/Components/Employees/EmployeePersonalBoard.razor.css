@@ -96,6 +96,7 @@ select { width: 100%; max-width: 100%; min-width: 0; border: 1px solid var(--pb-
 .task-blocker { padding: 14px 16px; background: var(--pb-warning); border: 1px solid color-mix(in srgb, var(--mud-palette-warning) 32%, var(--mud-palette-surface)); border-radius: 10px; margin-top: 23px; }
 .task-blocker p, .task-result p { margin: 8px 0 0; font-size: 12px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .task-result { margin-top: 24px; }
+.task-comments { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--pb-line); }
 .task-result small { color: var(--pb-muted); }
 .technical-details { border-top: 1px solid var(--pb-line); padding-top: 16px; margin-top: 23px; color: var(--pb-muted); font-size: 11px; }
 .technical-details summary { cursor: pointer; }

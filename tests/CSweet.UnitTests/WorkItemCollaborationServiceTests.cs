@@ -105,6 +105,195 @@ public sealed class WorkItemCollaborationServiceTests
         Assert.Empty(db.WorkItemActivities);
     }
 
+    [Fact]
+    public async Task CommentUpdateRewritesTheBodyAndIsReplaySafe()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOwner(db);
+        var board = Board(setup.OrganizationId, "Delivery");
+        var item = Item(setup.OrganizationId, board);
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        await db.SaveChangesAsync();
+        var audit = new TestAuditEventWriter();
+        var service = CreateService(db, audit);
+        var comment = await service.AddCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId,
+            new AddWorkItemCommentRequest("First wording.", "comment-1"));
+        Assert.NotNull(comment);
+        var request = new UpdateWorkItemCommentRequest(
+            "Corrected wording.", comment.Revision, "update-1");
+
+        var updated = await service.UpdateCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, comment.Id, setup.ApplicationUserId, request);
+        var replay = await service.UpdateCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, comment.Id, setup.ApplicationUserId, request);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Corrected wording.", updated!.Body);
+        Assert.Equal(comment.Revision + 1, updated.Revision);
+        Assert.NotNull(updated.EditedAt);
+        Assert.True(updated.CanEdit);
+        Assert.True(updated.CanDelete);
+        Assert.Equal(updated, replay);
+        Assert.Single(await db.WorkItemActivities.Where(x => x.EventType == "comment.updated").ToListAsync());
+        Assert.Single(await db.WorkItemActivities.Where(x => x.EventType == "comment.created").ToListAsync());
+        Assert.Contains(audit.Events, x => x.EventType == WorkItemActions.UpdateComment);
+        Assert.Contains(await db.ApplicationRealtimeOutbox.ToListAsync(),
+            x => x.DataJson.Contains("comment.updated", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CommentDeleteSoftDeletesTheRowAndKeepsTheTrail()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOwner(db);
+        var board = Board(setup.OrganizationId, "Delivery");
+        var item = Item(setup.OrganizationId, board);
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        await db.SaveChangesAsync();
+        var audit = new TestAuditEventWriter();
+        var service = CreateService(db, audit);
+        var comment = await service.AddCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId,
+            new AddWorkItemCommentRequest("Withdrawn guidance.", "comment-1"));
+        Assert.NotNull(comment);
+
+        var deleted = await service.DeleteCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, comment.Id, setup.ApplicationUserId,
+            new DeleteWorkItemCommentRequest(comment.Revision, "delete-1"));
+
+        Assert.NotNull(deleted);
+        var persisted = await db.WorkItemComments.SingleAsync();
+        Assert.NotNull(persisted.DeletedAt);
+        Assert.Equal(comment.Revision + 1, persisted.Revision);
+        var collaboration = await service.GetAsync(
+            setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId);
+        Assert.Empty(collaboration!.Comments);
+        Assert.Contains(collaboration.Activity, x => x.EventType == "comment.deleted");
+        Assert.Contains(audit.Events, x => x.EventType == WorkItemActions.DeleteComment);
+    }
+
+    [Fact]
+    public async Task OnlyTheAuthorCanChangeAComment()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOwner(db);
+        var member = SeedMember(db, setup);
+        var board = Board(setup.OrganizationId, "Delivery");
+        var item = Item(setup.OrganizationId, board);
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+        // The owner's pass provisions the member, so the denial below is authorship, not a missing grant.
+        var comment = await service.AddCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId,
+            new AddWorkItemCommentRequest("Owner guidance.", "comment-1"));
+        Assert.NotNull(comment);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.UpdateCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, comment.Id, member.ApplicationUserId,
+            new UpdateWorkItemCommentRequest("Hijacked.", comment.Revision, "update-2")));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.DeleteCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, comment.Id, member.ApplicationUserId,
+            new DeleteWorkItemCommentRequest(comment.Revision, "delete-2")));
+
+        var collaboration = await service.GetAsync(
+            setup.OrganizationId, board.Id, item.Id, member.ApplicationUserId);
+        var other = Assert.Single(collaboration!.Comments);
+        Assert.False(other.CanEdit);
+        Assert.False(other.CanDelete);
+        Assert.True(collaboration.CanComment);
+        Assert.Equal("Owner guidance.", (await db.WorkItemComments.SingleAsync()).Body);
+    }
+
+    [Fact]
+    public async Task CommentMutationRejectsAStaleRevisionAndDeletedRows()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOwner(db);
+        var board = Board(setup.OrganizationId, "Delivery");
+        var item = Item(setup.OrganizationId, board);
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+        var comment = await service.AddCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId,
+            new AddWorkItemCommentRequest("Original.", "comment-1"));
+        Assert.NotNull(comment);
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => service.UpdateCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, comment.Id, setup.ApplicationUserId,
+            new UpdateWorkItemCommentRequest("Stale.", comment.Revision + 5, "update-2")));
+
+        await service.DeleteCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, comment.Id, setup.ApplicationUserId,
+            new DeleteWorkItemCommentRequest(comment.Revision, "delete-1"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, comment.Id, setup.ApplicationUserId,
+            new UpdateWorkItemCommentRequest("After delete.", comment.Revision + 1, "update-3")));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, comment.Id, setup.ApplicationUserId,
+            new DeleteWorkItemCommentRequest(comment.Revision + 1, "delete-3")));
+    }
+
+    [Fact]
+    public async Task MemberGetsCommentAuthorityOnATeamBoardByDefault()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOwner(db);
+        var member = SeedMember(db, setup);
+        var board = Board(setup.OrganizationId, "Delivery");
+        var item = Item(setup.OrganizationId, board);
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+        await service.GetAsync(setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId);
+
+        var collaboration = await service.GetAsync(
+            setup.OrganizationId, board.Id, item.Id, member.ApplicationUserId);
+        var posted = await service.AddCommentAsync(
+            setup.OrganizationId, board.Id, item.Id, member.ApplicationUserId,
+            new AddWorkItemCommentRequest("Member view.", "member-1"));
+
+        Assert.True(collaboration!.CanComment);
+        Assert.NotNull(posted);
+        Assert.True(posted!.CanEdit);
+        Assert.True(posted.CanDelete);
+    }
+
+    [Fact]
+    public async Task PersonalBoardThreadAuthorizesWithThePersonalTodoReadGrant()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOwner(db);
+        var member = SeedMember(db, setup);
+        var board = Board(setup.OrganizationId, "Personal board", WorkBoardKind.Personal);
+        var item = Item(setup.OrganizationId, board);
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        // PersonalTodoService provisions this board-scoped read grant for the board owner.
+        db.ScopedActionGrants.Add(Grant(
+            setup.OrganizationId, setup.OrganizationUserId, PersonalTodoActions.Read, board.Id));
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+
+        var collaboration = await service.GetAsync(
+            setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId);
+
+        Assert.NotNull(collaboration);
+        Assert.Equal(setup.OrganizationUserId, collaboration!.CurrentOrganizationUserId);
+        // Ordinary item read does not open a personal board, and the owner would need an
+        // explicit comment grant to post one.
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.GetAsync(
+            setup.OrganizationId, board.Id, item.Id, member.ApplicationUserId));
+        Assert.Empty(await db.WorkItemComments.ToListAsync());
+    }
+
     private static WorkItemCollaborationService CreateService(
         CSweetDbContext db,
         TestAuditEventWriter audit)
@@ -138,7 +327,46 @@ public sealed class WorkItemCollaborationServiceTests
         return setup;
     }
 
-    private static WorkBoard Board(Guid organizationId, string name)
+    private static Setup SeedMember(CSweetDbContext db, Setup setup)
+    {
+        var applicationUserId = Guid.NewGuid();
+        var organizationUserId = Guid.NewGuid();
+        db.CoreOrganizationUsers.Add(new OrganizationUser
+        {
+            Id = organizationUserId,
+            OrganizationId = setup.OrganizationId,
+            ApplicationUserId = applicationUserId,
+            DisplayName = "Member",
+            EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Contributor,
+            IsActive = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        return setup with
+        {
+            OrganizationUserId = organizationUserId,
+            ApplicationUserId = applicationUserId
+        };
+    }
+
+    private static ScopedActionGrant Grant(
+        Guid organizationId,
+        Guid subjectId,
+        string action,
+        Guid? boardId = null) => new()
+    {
+        Id = Guid.NewGuid(),
+        OrganizationId = organizationId,
+        SubjectKind = GrantSubjectKind.OrganizationUser,
+        SubjectId = subjectId,
+        Action = action,
+        ScopeKind = boardId.HasValue ? GrantScopeKind.Board : GrantScopeKind.Organization,
+        ScopeId = boardId,
+        GrantedBySubjectKind = GrantSubjectKind.OrganizationUser,
+        GrantedAt = DateTimeOffset.UtcNow
+    };
+
+    private static WorkBoard Board(Guid organizationId, string name, WorkBoardKind kind = WorkBoardKind.Standard)
     {
         var board = new WorkBoard
         {
@@ -146,6 +374,7 @@ public sealed class WorkItemCollaborationServiceTests
             OrganizationId = organizationId,
             Name = name,
             Description = "",
+            Kind = kind,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         };

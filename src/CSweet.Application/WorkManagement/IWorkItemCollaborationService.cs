@@ -19,6 +19,24 @@ public interface IWorkItemCollaborationService
         AddWorkItemCommentRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<WorkItemCommentResponse?> UpdateCommentAsync(
+        Guid organizationId,
+        Guid boardId,
+        Guid itemId,
+        Guid commentId,
+        Guid applicationUserId,
+        UpdateWorkItemCommentRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<WorkItemCommentResponse?> DeleteCommentAsync(
+        Guid organizationId,
+        Guid boardId,
+        Guid itemId,
+        Guid commentId,
+        Guid applicationUserId,
+        DeleteWorkItemCommentRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<WorkBoardItemResponse?> TransferAsync(
         Guid organizationId,
         Guid sourceBoardId,

@@ -34,12 +34,14 @@ public static class WorkItemActions
     public const string Transfer = WorkManagementCapabilityNames.ItemTransfer;
     public const string Comment = WorkManagementCapabilityNames.ItemComment;
     public const string ReadComments = WorkManagementCapabilityNames.ItemCommentsRead;
+    public const string UpdateComment = WorkManagementCapabilityNames.ItemCommentUpdateV1;
+    public const string DeleteComment = WorkManagementCapabilityNames.ItemCommentDeleteV1;
     public const string Estimate = WorkManagementCapabilityNames.ItemEstimate;
     public const string QualitySubmit = WorkManagementCapabilityNames.ItemQualitySubmit;
 
     public static readonly IReadOnlyList<string> All =
         [Read, Create, ReadTypes, RevisePlanning, DecideApproval, FinalizeDelivery,
-         Update, Move, Transfer, Comment, ReadComments, Estimate];
+         Update, Move, Transfer, Comment, ReadComments, UpdateComment, DeleteComment, Estimate];
 }
 
 public static class WorkSprintActions
@@ -299,7 +301,9 @@ public sealed record WorkItemCommentResponse(
     string Body,
     long Revision,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? EditedAt);
+    DateTimeOffset? EditedAt,
+    bool CanEdit = false,
+    bool CanDelete = false);
 
 public sealed record WorkItemActivityResponse(
     Guid Id,
@@ -315,10 +319,21 @@ public sealed record WorkItemActivityResponse(
 
 public sealed record WorkItemCollaborationResponse(
     IReadOnlyList<WorkItemCommentResponse> Comments,
-    IReadOnlyList<WorkItemActivityResponse> Activity);
+    IReadOnlyList<WorkItemActivityResponse> Activity,
+    bool CanComment = false,
+    Guid? CurrentOrganizationUserId = null);
 
 public sealed record AddWorkItemCommentRequest(
     [property: Required, MaxLength(8192)] string Body,
+    [property: Required, MaxLength(160)] string IdempotencyKey);
+
+public sealed record UpdateWorkItemCommentRequest(
+    [property: Required, MaxLength(8192)] string Body,
+    [property: Range(1, long.MaxValue)] long ExpectedRevision,
+    [property: Required, MaxLength(160)] string IdempotencyKey);
+
+public sealed record DeleteWorkItemCommentRequest(
+    [property: Range(1, long.MaxValue)] long ExpectedRevision,
     [property: Required, MaxLength(160)] string IdempotencyKey);
 
 public sealed record TransferWorkItemRequest(

@@ -1175,6 +1175,8 @@ public sealed class ExecutionFleetService(
         if (node.Status == ExecutionNodeStatus.Revoked || request.SessionEpoch < node.SessionEpoch)
             return false;
 
+        if (request.OfficeVersion is { } reportedVersion && (reportedVersion.Length > 64 || !Version.TryParse(reportedVersion, out _))) return false;
+        if (request.OfficeVersion is { } officeVersion) node.NodeVersion = officeVersion;
         node.SessionEpoch = request.SessionEpoch;
         node.AllocatableCpuCount = request.AllocatableCpuCount;
         node.AllocatableMemoryMb = request.AllocatableMemoryMb;
@@ -1882,7 +1884,7 @@ public sealed class ExecutionFleetService(
                 effectiveErrorCode = progress.ErrorCode ?? effectiveErrorCode;
                 effectiveErrorMessage = progress.ErrorMessage ?? effectiveErrorMessage;
                 if (effectiveErrorCode is "existing_office_detected" or "existing_office_active" or
-                    "reconnect_unsafe" or "office_removal_failed" or "office_setup_failed")
+                    "reconnect_unsafe" or "office_removal_failed")
                     effectiveErrorMessage = RecoveryMessage(effectiveErrorCode);
                 if (session.RecoveryAction is not ("upgrade" or "repair") && effectiveErrorCode is ("existing_office_detected" or "existing_office_active" or
                     "reconnect_unsafe" or "office_removal_failed"))
@@ -1996,6 +1998,11 @@ public sealed class ExecutionFleetService(
 
     private string LocalSetupLaunchMethod(LocalOfficeSetupSession session)
     {
+        // Rebuild from the same source as first install on the configured development host.
+        // The installed configurator only carries its existing payload.
+        if (session.RecoveryAction == "upgrade" && DevelopmentLauncherConfigured &&
+            MachineMatches(session, Environment.MachineName, "windows",
+                System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString())) return "server";
         if (session.RecoveryAction is "repair" or "upgrade" && session.UpgradeOfficeId is { } officeId)
         {
             var version = dbContext.ExecutionNodes.AsNoTracking().Where(x => x.Id == officeId).Select(x => x.NodeVersion).FirstOrDefault();

@@ -72,7 +72,7 @@ else
         {
             <MudButton Disabled="@CannotStart" OnClick="BeginUpdate">Update Office</MudButton>
         }
-        <MudText Typo="Typo.caption" Class="mt-2 d-block">Your Office settings and identity will be kept. Work must finish before repair can continue.</MudText>
+        <MudText Typo="Typo.caption" Class="mt-2 d-block">Your Office settings and identity will be kept. Work must finish before @(_operation == "upgrade" ? "the update" : "repair") can continue.</MudText>
         @if (_session?.ErrorCode == "recovery_app_update_required")
         {
             <MudAlert Severity="Severity.Info" Class="mt-3">Get the current recovery app on @Office.MachineName, then try repair again.</MudAlert>
@@ -94,7 +94,7 @@ else
         else if (_session.LaunchMethod == "server")
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="LaunchAsync">Continue</MudButton>
-            <MudText Typo="Typo.caption" Class="mt-2 d-block">Windows will ask you to allow the repair on @Office.MachineName.</MudText>
+            <MudText Typo="Typo.caption" Class="mt-2 d-block">Windows will ask you to allow the @(_operation == "upgrade" ? "update" : "repair") on @Office.MachineName.</MudText>
         }
         else
         {
@@ -162,6 +162,7 @@ else
     private void BeginUpdate() { _session = null; _ignoreCompleted = true; _operation = "upgrade"; _error = null; }
     private string SummaryTitle => OperationInProgress ? "Office maintenance is in progress" : Office.Status == "pendingapproval" ? "Waiting for approval" : Office.Status == "revoked" ? "Access removed" : OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow) ? "Your Office is connected" : "Your Office needs attention";
     private string SummaryDescription => OperationInProgress ? "Open Office care to check progress or complete the next step." : "Manage this Office's connection and software in one guided dialog.";
+    public Task OpenUpdateAsync() { if (!OperationInProgress) BeginUpdate(); return OpenAsync(); }
     public Task OpenAsync() { _open = true; StateHasChanged(); return Task.CompletedTask; }
     private LocalOfficeSetupSessionResponse? _session;
     private readonly CancellationTokenSource _lifetime = new();
@@ -184,7 +185,7 @@ else
         "redeemed" => _operation == "upgrade" ? "Updating your Office" : "Repairing your Office",
         "connected" => "Checking the connection",
         "ready" => "Your Office is connected",
-        _ => "Repair needs attention"
+        _ => _operation == "upgrade" ? "Update needs attention" : "Repair needs attention"
     };
     private string Description => _session?.State switch
     {
@@ -232,7 +233,7 @@ else
             if (session.RecoveryAction == "upgrade") _operation = "upgrade";
             _diagnostic = session.ErrorMessage;
             if (session.State == "failed") _error = session.RecoveryAction is "repair" or "upgrade"
-                ? "We couldn't finish the repair. Try again or review reinstall."
+                ? _operation == "upgrade" ? "We couldn't finish the update. Review the details below and try again." : "We couldn't finish the repair. Try again or review reinstall."
                 : "Setup needs attention. Review the details before continuing.";
         }
     }

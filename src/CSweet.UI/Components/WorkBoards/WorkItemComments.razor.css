@@ -1,0 +1,360 @@
+.work-comments {
+    --wc-ink: var(--mud-palette-text-primary);
+    --wc-muted: var(--mud-palette-text-secondary);
+    --wc-line: color-mix(in srgb, var(--mud-palette-text-secondary) 20%, var(--mud-palette-surface));
+    --wc-soft: color-mix(in srgb, var(--mud-palette-primary) 4%, var(--mud-palette-surface));
+    --wc-accent: var(--mud-palette-primary);
+    --wc-accent-ink: var(--mud-palette-primary-text);
+    --wc-mine: color-mix(in srgb, var(--mud-palette-secondary) 14%, var(--mud-palette-surface));
+    --wc-agent: color-mix(in srgb, var(--mud-palette-primary) 10%, var(--mud-palette-surface));
+    --wc-danger: var(--mud-palette-error);
+    display: grid;
+    gap: 14px;
+    color: var(--wc-ink);
+    font-family: var(--mud-typography-default-family);
+    min-width: 0;
+}
+
+.work-comments.is-compact {
+    gap: 10px;
+}
+
+/* Heading ------------------------------------------------------------------ */
+
+.comments-heading {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    justify-content: space-between;
+}
+
+.comments-heading h3 {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.comments-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 22px;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--wc-soft);
+    color: var(--wc-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.comments-heading-actions {
+    display: inline-flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.comments-status {
+    color: var(--wc-muted);
+    font-size: 0.72rem;
+}
+
+.comments-status:empty {
+    display: none;
+}
+
+/* States ------------------------------------------------------------------- */
+
+.comments-loading,
+.comments-empty {
+    margin: 0;
+    padding: 14px 16px;
+    border: 1px dashed var(--wc-line);
+    border-radius: 12px;
+    color: var(--wc-muted);
+    font-size: 0.84rem;
+    background: var(--wc-soft);
+}
+
+.comments-error {
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--wc-danger) 45%, var(--wc-line));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--wc-danger) 8%, var(--mud-palette-surface));
+    color: var(--wc-danger);
+    font-size: 0.82rem;
+}
+
+/* Thread ------------------------------------------------------------------- */
+
+.comments-list {
+    display: grid;
+    gap: 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.comment {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 11px;
+    align-items: start;
+}
+
+.comment-avatar {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--wc-soft);
+    border: 1px solid var(--wc-line);
+    color: var(--wc-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.comment.is-mine .comment-avatar {
+    background: var(--wc-mine);
+    color: var(--wc-ink);
+}
+
+.comment.is-agent .comment-avatar {
+    background: var(--wc-agent);
+    color: var(--wc-accent);
+    border-color: color-mix(in srgb, var(--wc-accent) 30%, var(--wc-line));
+}
+
+.comment-body {
+    min-width: 0;
+    padding: 11px 14px;
+    border: 1px solid var(--wc-line);
+    border-radius: 14px;
+    background: var(--mud-palette-surface);
+}
+
+.comment.is-mine .comment-body {
+    background: var(--wc-mine);
+}
+
+.comment.is-agent .comment-body {
+    background: var(--wc-agent);
+}
+
+.comment-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: baseline;
+    margin-bottom: 6px;
+}
+
+.comment-author {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.comment-meta time {
+    color: var(--wc-muted);
+    font-size: 0.7rem;
+}
+
+.comment-age,
+.comment-edited {
+    color: var(--wc-muted);
+    font-size: 0.68rem;
+}
+
+.comment-edited {
+    font-style: italic;
+}
+
+.comment-chip {
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--wc-accent) 14%, var(--mud-palette-surface));
+    color: var(--wc-accent);
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.comment-text {
+    margin: 0;
+    font-size: 0.86rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* Composer and inline edit ------------------------------------------------- */
+
+.comment-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border: 1px solid var(--wc-line);
+    border-radius: 10px;
+    background: var(--mud-palette-surface);
+    color: var(--wc-ink);
+    font-family: inherit;
+    font-size: 0.86rem;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.comment-input::placeholder {
+    color: var(--wc-muted);
+}
+
+.comment-input:disabled {
+    opacity: 0.6;
+}
+
+.comment-composer {
+    display: grid;
+    gap: 8px;
+    padding-top: 4px;
+}
+
+.comment-composer .comment-actions {
+    justify-content: flex-end;
+}
+
+.comment-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.comment-hint {
+    margin-right: auto;
+    color: var(--wc-muted);
+    font-size: 0.7rem;
+}
+
+.comment-confirm {
+    margin-top: 8px;
+    padding: 11px 13px;
+    border: 1px solid color-mix(in srgb, var(--wc-danger) 40%, var(--wc-line));
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--wc-danger) 7%, var(--mud-palette-surface));
+}
+
+.comment-confirm p {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--wc-ink);
+}
+
+.comment-confirm .comment-actions {
+    justify-content: flex-end;
+}
+
+/* Buttons ------------------------------------------------------------------ */
+
+.action-button {
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    color: var(--wc-muted);
+    font-family: inherit;
+    font-size: 0.74rem;
+    cursor: pointer;
+}
+
+.action-button:hover:not(:disabled) {
+    color: var(--wc-accent);
+    text-decoration: underline;
+}
+
+.action-button.is-danger:hover:not(:disabled) {
+    color: var(--wc-danger);
+}
+
+.ghost-button,
+.submit-button,
+.danger-button {
+    padding: 7px 15px;
+    border-radius: 9px;
+    border: 1px solid var(--wc-line);
+    background: var(--mud-palette-surface);
+    color: var(--wc-ink);
+    font-family: inherit;
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.submit-button {
+    border-color: var(--wc-accent);
+    background: var(--wc-accent);
+    color: var(--wc-accent-ink);
+}
+
+.danger-button {
+    border-color: var(--wc-danger);
+    background: var(--wc-danger);
+    color: var(--wc-accent-ink);
+}
+
+.ghost-button:hover:not(:disabled) {
+    background: var(--wc-soft);
+}
+
+.action-button:disabled,
+.ghost-button:disabled,
+.submit-button:disabled,
+.danger-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.action-button:focus-visible,
+.ghost-button:focus-visible,
+.submit-button:focus-visible,
+.danger-button:focus-visible,
+.comment-input:focus-visible {
+    outline: 2px solid var(--wc-accent);
+    outline-offset: 2px;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@media (max-width: 600px) {
+    .comment {
+        grid-template-columns: 1fr;
+    }
+
+    .comment-avatar {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .action-button,
+    .ghost-button,
+    .submit-button,
+    .danger-button {
+        transition: none;
+    }
+}

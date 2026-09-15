@@ -39,6 +39,8 @@ public sealed class WorkManagementCapabilityHandler(
         WorkItemActions.FinalizeDelivery,
         WorkItemActions.Comment,
         WorkItemActions.ReadComments,
+        WorkItemActions.UpdateComment,
+        WorkItemActions.DeleteComment,
         WorkItemActions.Estimate,
         WorkItemActions.Move,
         WorkItemActions.Transfer,
@@ -160,6 +162,16 @@ public sealed class WorkManagementCapabilityHandler(
                     await ReadCommentsAsync(
                         organizationId, installation,
                         Read<Wire.ReadWorkItemCommentsRequest>(request), cancellationToken)),
+                WorkItemActions.UpdateComment => Success(
+                    request.RequestId,
+                    await UpdateCommentAsync(
+                        session, organizationId, installation,
+                        Read<Wire.UpdateWorkItemCommentRequest>(request), cancellationToken)),
+                WorkItemActions.DeleteComment => Success(
+                    request.RequestId,
+                    await DeleteCommentAsync(
+                        session, organizationId, installation,
+                        Read<Wire.DeleteWorkItemCommentRequest>(request), cancellationToken)),
                 WorkItemActions.Estimate => Success(
                     request.RequestId,
                     await EstimateItemAsync(
@@ -2364,13 +2376,163 @@ public sealed class WorkManagementCapabilityHandler(
         return result;
     }
 
+    private async Task<Wire.WorkItemComment> UpdateCommentAsync(
+        AgentSession session,
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.UpdateWorkItemCommentRequest input,
+        CancellationToken cancellationToken)
+    {
+        var grant = await RequireForItemAsync(
+            organizationId, installation.Id, WorkItemActions.UpdateComment,
+            input.BoardId, input.ItemId, cancellationToken);
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        if (string.IsNullOrWhiteSpace(input.Body))
+            throw new ArgumentException("Comment body is required.");
+        if (input.Body.Trim().Length > 8192)
+            throw new ArgumentException("Comment body cannot exceed 8192 characters.");
+        var replay = await ReplayAsync<Wire.WorkItemComment>(
+            installation.Id, WorkItemActions.UpdateComment, input.IdempotencyKey, cancellationToken);
+        if (replay is not null)
+        {
+            if (replay.Id != input.CommentId)
+                throw new InvalidOperationException(
+                    "The idempotency key was already used for a different work item comment.");
+            return replay;
+        }
+
+        var comment = await RequireOwnCommentAsync(
+            organizationId, input.BoardId, input.ItemId, input.CommentId, installation.Id, cancellationToken);
+        if (comment.DeletedAt is not null)
+            throw new InvalidOperationException("A deleted comment cannot be edited.");
+        RequireCommentRevision(comment.Revision, input.ExpectedRevision);
+
+        var now = DateTimeOffset.UtcNow;
+        comment.Body = input.Body.Trim();
+        comment.EditedAt = now;
+        comment.Revision++;
+        var result = ToAgentComment(comment);
+        AddActivity(
+            organizationId, input.BoardId, input.ItemId, installation.Id,
+            comment.AuthorDisplayName, WorkItemActions.UpdateComment, "comment.updated",
+            grant, new { commentId = comment.Id, comment.Revision }, now, input.IdempotencyKey);
+        AddReceipt(
+            organizationId, installation.Id, WorkItemActions.UpdateComment,
+            input.IdempotencyKey, comment.Id, result);
+        await QueueRealtimeAsync(
+            organizationId, input.BoardId, input.ItemId, "comment.updated",
+            comment.Revision, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await WriteAuditAsync(
+            organizationId, installation.Id, input.BoardId, WorkItemActions.UpdateComment,
+            grant, new { itemId = input.ItemId, commentId = comment.Id, input.IdempotencyKey },
+            cancellationToken, session);
+        return result;
+    }
+
+    private async Task<Wire.DeleteWorkItemCommentResult> DeleteCommentAsync(
+        AgentSession session,
+        Guid organizationId,
+        AgentInstallation installation,
+        Wire.DeleteWorkItemCommentRequest input,
+        CancellationToken cancellationToken)
+    {
+        var grant = await RequireForItemAsync(
+            organizationId, installation.Id, WorkItemActions.DeleteComment,
+            input.BoardId, input.ItemId, cancellationToken);
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        var replay = await ReplayAsync<Wire.DeleteWorkItemCommentResult>(
+            installation.Id, WorkItemActions.DeleteComment, input.IdempotencyKey, cancellationToken);
+        if (replay is not null)
+        {
+            if (replay.CommentId != input.CommentId)
+                throw new InvalidOperationException(
+                    "The idempotency key was already used for a different work item comment.");
+            return replay;
+        }
+
+        var comment = await RequireOwnCommentAsync(
+            organizationId, input.BoardId, input.ItemId, input.CommentId, installation.Id, cancellationToken);
+        if (comment.DeletedAt is not null)
+            throw new InvalidOperationException("The comment is already deleted.");
+        RequireCommentRevision(comment.Revision, input.ExpectedRevision);
+
+        var now = DateTimeOffset.UtcNow;
+        comment.DeletedAt = now;
+        comment.Revision++;
+        var result = new Wire.DeleteWorkItemCommentResult(
+            comment.Id, comment.WorkItemId, comment.Revision, now);
+        AddActivity(
+            organizationId, input.BoardId, input.ItemId, installation.Id,
+            comment.AuthorDisplayName, WorkItemActions.DeleteComment, "comment.deleted",
+            grant, new { commentId = comment.Id, comment.Revision }, now, input.IdempotencyKey);
+        AddReceipt(
+            organizationId, installation.Id, WorkItemActions.DeleteComment,
+            input.IdempotencyKey, comment.Id, result);
+        await QueueRealtimeAsync(
+            organizationId, input.BoardId, input.ItemId, "comment.deleted",
+            comment.Revision, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await WriteAuditAsync(
+            organizationId, installation.Id, input.BoardId, WorkItemActions.DeleteComment,
+            grant, new { itemId = input.ItemId, commentId = comment.Id, input.IdempotencyKey },
+            cancellationToken, session);
+        return result;
+    }
+
+    /// <summary>
+    /// Loads the exact comment on the granted work item and refuses any comment this installation
+    /// did not author, so comment mutation authority can never reach another subject's words.
+    /// </summary>
+    private async Task<WorkItemComment> RequireOwnCommentAsync(
+        Guid organizationId,
+        Guid boardId,
+        Guid itemId,
+        Guid commentId,
+        Guid installationId,
+        CancellationToken cancellationToken)
+    {
+        if (!await db.CoreWorkTasks.AsNoTracking().AnyAsync(x =>
+                x.Id == itemId && x.OrganizationId == organizationId && x.BoardId == boardId,
+                cancellationToken))
+            throw new KeyNotFoundException("Work item was not found.");
+        var comment = await db.WorkItemComments.SingleOrDefaultAsync(x =>
+            x.Id == commentId && x.OrganizationId == organizationId && x.WorkItemId == itemId,
+            cancellationToken)
+            ?? throw new KeyNotFoundException("Work item comment was not found.");
+        if (comment.AuthorKind != GrantSubjectKind.AgentInstallation ||
+            comment.AuthorSubjectId != installationId)
+            throw new UnauthorizedAccessException(
+                "An agent may only change comments its own installation created.");
+        return comment;
+    }
+
+    private static void RequireCommentRevision(long current, long expected)
+    {
+        if (current != expected)
+            throw new DbUpdateConcurrencyException(
+                $"Expected comment revision {expected}, current revision is {current}.");
+    }
+
+    private static Wire.WorkItemComment ToAgentComment(WorkItemComment comment) => new(
+        comment.Id, comment.WorkItemId, comment.AuthorKind.ToString(),
+        comment.AuthorSubjectId, comment.AuthorDisplayName, comment.Body,
+        comment.Revision, comment.CreatedAt, comment.EditedAt)
+    {
+        Kind = comment.Kind,
+        CoordinationSessionId = comment.CoordinationSessionId,
+        CausationId = comment.CausationId,
+        ArtifactDigest = comment.ArtifactDigest,
+        CanEdit = true,
+        CanDelete = true
+    };
+
     private async Task<Wire.WorkItemCommentPage> ReadCommentsAsync(
         Guid organizationId,
         AgentInstallation installation,
         Wire.ReadWorkItemCommentsRequest input,
         CancellationToken cancellationToken)
-    {
-        await RequireForItemAsync(
+    {        await RequireForItemAsync(
             organizationId, installation.Id, WorkItemActions.ReadComments,
             input.BoardId, input.ItemId, cancellationToken);
         if (input.Page < 1 || input.PageSize is < 1 or > 200)
@@ -2389,7 +2551,11 @@ public sealed class WorkManagementCapabilityHandler(
                 Kind = x.Kind,
                 CoordinationSessionId = x.CoordinationSessionId,
                 CausationId = x.CausationId,
-                ArtifactDigest = x.ArtifactDigest
+                ArtifactDigest = x.ArtifactDigest,
+                CanEdit = x.AuthorKind == GrantSubjectKind.AgentInstallation &&
+                    x.AuthorSubjectId == installation.Id,
+                CanDelete = x.AuthorKind == GrantSubjectKind.AgentInstallation &&
+                    x.AuthorSubjectId == installation.Id
             }).ToListAsync(cancellationToken);
         return new Wire.WorkItemCommentPage(
             comments, input.Page, input.PageSize,

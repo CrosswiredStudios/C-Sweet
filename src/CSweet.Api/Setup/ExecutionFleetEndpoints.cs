@@ -42,6 +42,7 @@ public static class ExecutionFleetEndpoints
             .RequireAuthorization("HostAdministration");
 
         group.MapGet("/", GetAsync);
+        group.MapGet("/updates", OfficeUpdateEndpoints.CheckAsync);
         group.MapPut("/nodes/{nodeId:guid}/settings", UpdateOfficeSettingsAsync);
         group.MapGet("/nodes/{nodeId:guid}/recovery-package", async (
             Guid nodeId, CSweetDbContext db, IHttpClientFactory clients,

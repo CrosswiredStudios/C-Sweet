@@ -29,6 +29,7 @@
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => _showSetup = !_showSetup">@(_showSetup ? "Close setup" : "Add Office")</MudButton>
             }
+            <MudButton Variant="Variant.Outlined" Disabled="@(_checkingUpdates || _loading)" OnClick="CheckUpdatesAsync">@(_checkingUpdates ? "Checking for updates…" : "Check for updates")</MudButton>
             <MudButton Variant="Variant.Outlined" Disabled="@(_busy || _refreshing)" OnClick="LoadAsync">Refresh</MudButton>
         </div>
     </MudPaper>
@@ -36,6 +37,18 @@
     @if (!string.IsNullOrWhiteSpace(_message))
     {
         <MudAlert Severity="@(_messageSucceeded ? Severity.Success : Severity.Warning)" role="status">@_message</MudAlert>
+    }
+    @if (_updateError is not null)
+    {
+        <MudAlert Severity="Severity.Warning" role="status">@_updateError</MudAlert>
+    }
+    @if (_updates is not null)
+    {
+        <MudText Typo="Typo.caption" role="status">@(_updates.Source == "local-setup" ? "Local setup version" : "Latest published release"): @_updates.LatestVersion · Checked @Heartbeat(_updates.CheckedAt). Versions below are last reported by each Office.</MudText>
+    }
+    @if (_updates?.Warning is { } updateWarning)
+    {
+        <MudAlert Severity="Severity.Info">@updateWarning</MudAlert>
     }
     @if (_loadError is not null)
     {
@@ -90,12 +103,18 @@
                                 <tr @key="node.Id">
                                     <td><a class="office-name" href="@OfficeUrl(node.Id)">@node.Name</a><span class="office-meta">@node.MachineName · @node.OperatingSystem</span><span class="office-meta">@PoolName(node.ExecutionPoolId)</span></td>
                                     <td><MudChip T="string" Size="Size.Small" Color="@StatusColor(node)">@Status(node)</MudChip></td>
-                                    <td>@node.NodeVersion</td>
+                                    <td><span title="Last version reported by this Office">@(string.IsNullOrWhiteSpace(node.NodeVersion) ? "Unknown" : node.NodeVersion)</span>
+                                    @if (_updates is not null && node.Status != "revoked") { <span class="office-meta">@OfficeUpdatePresentation.Status(node, _updates)</span> }
+                                    </td>
                                     <td>@ActiveWorkLabel(node.Id)</td>
                                     <td>@Heartbeat(node.LastHeartbeatAt)</td>
                                     <td><div class="office-actions"><MudButton Href="@OfficeUrl(node.Id)" Size="Size.Small">Details</MudButton>
                                     @if (node.Status != "revoked" && node.Status != "pendingapproval")
                                     {
+                                        @if (HasUpdate(node))
+                                        {
+                                            <MudButton Href="@(OfficeUrl(node.Id) + "#update")" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="@ActionsDisabled">Update</MudButton>
+                                        }
                                         <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">Repair</MudButton>
                                     }
                                     @if (node.Status == "ready")
@@ -202,9 +221,9 @@
     }
     else if (_fleet is not null && SelectedOffice is { } node)
     {
-        <LocalOfficeUpgrade @key="node.Id" @ref="_officeCare" Office="node" Disabled="ActionsDisabled" PackageUrl="PackageUrl(node)"
+        <LocalOfficeUpgrade @key="node.Id" @ref="_officeCare" Office="node" Disabled="ActionsDisabled" PackageUrl="@PackageUrl(node)"
             ShowSummary="false" ActiveWork="ActiveWork(node.Id)" InProgressChanged="CareProgressChanged"
-            OnSessionChanged="session => _careSession = session" ActionMessage="_message" ActionSucceeded="_messageSucceeded"
+            OnSessionChanged="session => _careSession = session" ActionMessage="@_message" ActionSucceeded="_messageSucceeded"
             OnChanged="LoadAsync" OnResume='@(() => NodeActionAsync(node.Id, "resume"))' OnPause='@(() => NodeActionAsync(node.Id, "drain"))' />
         <MudTabs @bind-ActivePanelIndex="_activeTab" KeepPanelsAlive="true" Elevation="0" Rounded="true" Class="office-tabs">
         <MudTabPanel Text="Overview">
@@ -226,7 +245,9 @@
                 </div>
             </div>
             <div class="office-facts">
-                <div><span>Installed version</span><strong>@node.NodeVersion</strong></div>
+                <div><span>Last reported version</span><strong>@(string.IsNullOrWhiteSpace(node.NodeVersion) ? "Unknown" : node.NodeVersion)</strong>
+                @if (_updates is not null) { <span>@OfficeUpdatePresentation.Status(node, _updates)</span> }
+                </div>
                 <div><span>Workload pool</span><strong>@PoolName(node.ExecutionPoolId)</strong></div>
                 <div><span>Active work</span><strong>@ActiveWorkLabel(node.Id)</strong></div>
                 <div><span>Last seen</span><strong>@Heartbeat(node.LastHeartbeatAt)</strong></div>
@@ -246,6 +267,11 @@
         </MudPaper>
         <MudPaper Elevation="1" Class="surface-panel command-section-wide" id="upgrade">
             <MudText Typo="Typo.h5">@(_careInProgress ? "Maintenance in progress" : "Office care")</MudText>
+            @if (HasUpdate(node) && !_careInProgress)
+            {
+                <MudAlert Severity="Severity.Info" Class="mt-2">Office @OfficeUpdatePresentation.TargetVersion(node, _updates!) is available.</MudAlert>
+                <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="OpenUpdateAsync">Update Office</MudButton>
+            }
             <MudText Class="mt-2">@(_careInProgress ? "You can check progress at any time." : "Repair the connection or update the Office software with step-by-step help.")</MudText>
             @if (node.Status is "revoked" or "pendingapproval")
             {
@@ -353,17 +379,19 @@
     private bool _confirmRevocation;
     private LocalOfficeUpgrade? _officeCare;
     private LocalOfficeSetupSessionResponse? _careSession;
-    private bool _careInProgress, _openCareOnRender;
+    private bool _careInProgress, _openCareOnRender, _openUpdateOnRender;
     private int _activeTab;
     private Guid? _settingsOffice;
     private string _officeName = "";
     private Guid _officePool;
+    private Task OpenUpdateAsync() => _officeCare?.OpenUpdateAsync() ?? Task.CompletedTask;
     private Task OpenCareAsync() => _officeCare?.OpenAsync() ?? Task.CompletedTask;
     private static string WorkName(string kind) => kind.ToLowerInvariant() switch { "builder" => "Agent build", "runtime" => "Agent run", "toolchainbuild" => "Application build", _ => kind };
     private void CareProgressChanged(bool inProgress) => _careInProgress = inProgress;
     private Task SaveOfficeAsync() => MutateAsync(HttpMethod.Put, $"api/execution-fleet/nodes/{OfficeId:D}/settings", new UpdateOfficeSettingsRequest(_officeName, _officePool));
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_openUpdateOnRender && _officeCare is not null) { _openUpdateOnRender = false; await OpenUpdateAsync(); }
         if (_openCareOnRender && _officeCare is not null) { _openCareOnRender = false; await OpenCareAsync(); }
     }
     private string _search = "";
@@ -393,9 +421,45 @@
     private IEnumerable<ExecutionNodeSummaryResponse> VisibleOffices => (_fleet?.Nodes ?? [])
         .Where(x => string.IsNullOrWhiteSpace(_search) || $"{x.Name} {x.MachineName} {PoolName(x.ExecutionPoolId)}".Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase))
         .Where(x => _statusFilter == "all" || (_statusFilter == "attention" ? Status(x) is "Offline" or "Awaiting approval" or "Needs attention" : Status(x) == _statusFilter));
+    private sealed record OfficeUpdateProblem(string? Detail);
+    private OfficeUpdateCheckResponse? _updates;
+    private bool _checkingUpdates;
+    private string? _updateError;
+    private bool HasUpdate(ExecutionNodeSummaryResponse node) =>
+        node.Status is not ("revoked" or "pendingapproval") && _updates is not null &&
+        OfficeUpdatePresentation.NeedsUpdate(node.NodeVersion, OfficeUpdatePresentation.TargetVersion(node, _updates)) &&
+        _updates.Packages.Any(x => x.OfficeId == node.Id);
+
+    private async Task CheckUpdatesAsync()
+    {
+        if (_checkingUpdates) return;
+        _checkingUpdates = true;
+        _updateError = null;
+        _updates = null;
+        try
+        {
+            using var response = await Http.GetAsync("api/execution-fleet/updates", _lifetime.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                var problem = await response.Content.ReadFromJsonAsync<OfficeUpdateProblem>(cancellationToken: _lifetime.Token);
+                _updateError = problem?.Detail ?? "Could not check for Office updates. Try again shortly.";
+                return;
+            }
+            _updates = await response.Content.ReadFromJsonAsync<OfficeUpdateCheckResponse>(cancellationToken: _lifetime.Token)
+                ?? throw new InvalidDataException("No release information was returned.");
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException or InvalidDataException)
+        {
+            _updateError = "Could not check for Office updates. Try again shortly.";
+        }
+        finally { _checkingUpdates = false; }
+    }
+
     private string? PackageUrl(ExecutionNodeSummaryResponse node)
     {
-        var url = node.OperatingSystem switch { "windows" => _packages?.WindowsPackageOverrideUrl, "linux" => _packages?.LinuxPackageOverrideUrl, "macos" => _packages?.MacOsPackageOverrideUrl, _ => null };
+        var url = _updates?.Packages.FirstOrDefault(x => x.OfficeId == node.Id)?.Url ?? (node.OperatingSystem switch { "windows" => _packages?.WindowsPackageOverrideUrl, "linux" => _packages?.LinuxPackageOverrideUrl, "macos" => _packages?.MacOsPackageOverrideUrl, _ => null });
         return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == "https" ? uri.AbsoluteUri : null;
     }
     private sealed record RecoveryPackageLink(string? Url);
@@ -431,6 +495,7 @@
             _officeCare = null;
             _careSession = null;
             _settingsOffice = null;
+            _openUpdateOnRender = Navigation.Uri.EndsWith("#update", StringComparison.Ordinal);
             _openCareOnRender = Navigation.Uri.EndsWith("#upgrade", StringComparison.Ordinal);
             _loadedOfficeId = OfficeId;
         }

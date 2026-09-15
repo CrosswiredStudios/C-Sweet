@@ -59,9 +59,10 @@ board/detail views refresh from those events. A transfer requires authority on
 both boards, preserves the item's single canonical state, checks the target WIP
 policy, and rejects partial movement of an existing hierarchy. Agent writes
 require durable idempotency keys and the platform enforces both the installation
-capability grant and the scoped board/action grant. Relations, comment
-editing/deletion, mentions, and hierarchy-aware batch transfer remain in this
-phase.
+capability grant and the scoped board/action grant. Relations, mentions, and
+hierarchy-aware batch transfer remain in this phase. Comment editing and deletion
+now ship as their own feature: see [work item comments](../work-item-comments.md),
+which also extends comments to personal boards.
 
 The companion `CSweet.Agent.SDK` 1.1 surface now registers the supported
 `work.*` capabilities for manifest validation and exposes a typed

@@ -1441,6 +1441,25 @@ public sealed class ExecutionFleetServiceTests
         Assert.Single(db.ExecutionNodeEnrollments);
     }
 
+    [Fact]
+    public async Task LocalUpgradeRebuildsThroughInitialSetupInsteadOfInstalledConfigurator()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        await using var db = CreateDb();
+        var fleet = UpgradeFleet(db, new MutableTimeProvider(Now));
+        await new SetupService(db).EnsureSeededAsync();
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        node.NodeVersion = "0.5.0";
+        db.ExecutionNodes.Add(node);
+        await db.SaveChangesAsync();
+        var created = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id), Guid.NewGuid());
+        Assert.True(created.Succeeded, created.Message);
+        Assert.Equal("server", created.Session!.LaunchMethod);
+        Assert.Equal("upgrade", created.Session.RecoveryAction);
+        Assert.Equal(node.Id, created.Session.UpgradeOfficeId);
+        Assert.Null(node.RevokedAt);
+    }
     private static ExecutionNode UpgradeNode(Guid poolId) => new()
     {
         Id = Guid.NewGuid(), ExecutionPoolId = poolId, Name = "Local Office", MachineName = Environment.MachineName,

@@ -466,6 +466,11 @@
                     </MudStack>
                 </aside>
             </div>
+            <MudDivider Class="my-4" />
+            <div class="ticket-detail-comments">
+                <WorkItemComments @ref="_drawerComments" OrganizationId="OrganizationId"
+                                  BoardId="detailItem.BoardId" ItemId="detailItem.Id" Compact="true" />
+            </div>
         }
     </div>
     <footer class="work-item-drawer-footer"><MudButton OnClick="@(() => _itemDetailsOpen = false)">Close</MudButton></footer>
@@ -913,39 +918,10 @@
                     @_collaborationError
                 </MudAlert>
             }
-            <MudText Typo="Typo.subtitle1">Comments</MudText>
-            @if (_collaboration?.Comments.Count is null or 0)
+            @if (_selectedItem is not null)
             {
-                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
-                    No comments yet.
-                </MudText>
-            }
-            else
-            {
-                @foreach (var comment in _collaboration!.Comments.OrderByDescending(x => x.CreatedAt))
-                {
-                    <MudPaper Outlined="true" Class="pa-3 mt-2">
-                        <MudStack Row="true" Justify="Justify.SpaceBetween">
-                            <MudText Typo="Typo.subtitle2">@comment.AuthorDisplayName</MudText>
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                @RelativeTime(comment.CreatedAt)
-                            </MudText>
-                        </MudStack>
-                        <MudText Typo="Typo.body2" Class="mt-1">@comment.Body</MudText>
-                    </MudPaper>
-                }
-            }
-            @if (_detail?.Board.AllowedActions.Contains(WorkItemActions.Comment) == true &&
-                 !_detail.Board.IsArchived)
-            {
-                <MudTextField T="string" Label="Add a comment" @bind-Value="_commentBody"
-                              Variant="Variant.Outlined" Lines="3" Class="mt-4" />
-                <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                           StartIcon="@Icons.Material.Outlined.Send"
-                           Disabled="@(_saving || string.IsNullOrWhiteSpace(_commentBody))"
-                           OnClick="AddCommentAsync" Class="mt-2">
-                    Comment
-                </MudButton>
+                <WorkItemComments @ref="_dialogComments" OrganizationId="OrganizationId"
+                                  BoardId="@(_selectedItem.BoardId)" ItemId="@(_selectedItem.Id)" />
             }
 
             <MudDivider Class="my-4" />
@@ -1443,10 +1419,11 @@
     private string? _detailError;
     private string? _moveError;
     private WorkBoardWorkspace? _boardWorkspace;
+    private WorkItemComments? _drawerComments;
+    private WorkItemComments? _dialogComments;
     private bool _movePending;
     private string? _agentAccessError;
     private string? _collaborationError;
-    private string _commentBody = "";
     private string _sprintName = "";
     private string _sprintGoal = "";
     private string? _sprintError;
@@ -2821,7 +2798,6 @@
     private async Task OpenCollaborationAsync(WorkBoardItemResponse item)
     {
         _selectedItem = item;
-        _commentBody = "";
         _transferBoardId = null;
         _collaboration = null;
         _collaborationError = null;
@@ -2849,31 +2825,6 @@
         finally
         {
             _collaborationLoading = false;
-        }
-    }
-
-    private async Task AddCommentAsync()
-    {
-        if (_detail is null || _selectedItem is null ||
-            string.IsNullOrWhiteSpace(_commentBody)) return;
-        _saving = true;
-        _collaborationError = null;
-        try
-        {
-            var response = await Http.PostAsJsonAsync(
-                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{_selectedItem.Id:D}/comments",
-                new AddWorkItemCommentRequest(_commentBody, Guid.NewGuid().ToString("N")));
-            if (!response.IsSuccessStatusCode)
-            {
-                _collaborationError = await response.Content.ReadAsStringAsync();
-                return;
-            }
-            _commentBody = "";
-            await LoadCollaborationAsync();
-        }
-        finally
-        {
-            _saving = false;
         }
     }
 
@@ -3181,6 +3132,8 @@
                     if (_personalBoardOpen && _personalBoardIncludeArchived) await RefreshPersonalBoardDialogAsync();
                     if (_collaborationOpen && _selectedItem is not null)
                         await LoadCollaborationAsync();
+                    if (_drawerComments is not null) await _drawerComments.ReloadAsync();
+                    if (_dialogComments is not null) await _dialogComments.ReloadAsync();
                     if (_sprintReport is not null)
                         await LoadSprintReportAsync();
                     if (_automationsOpen)

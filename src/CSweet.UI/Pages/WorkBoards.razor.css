@@ -8,4 +8,5 @@
 .work-item-drawer-footer { padding: 12px 22px; border-top: 1px solid var(--mud-palette-lines-default); }
 .ticket-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
 .ticket-full-description { white-space: pre-wrap; }
+.ticket-detail-comments { min-width: 0; }
 @media(max-width: 600px) { .work-item-drawer-host ::deep .work-item-drawer { width: 100vw !important; } }

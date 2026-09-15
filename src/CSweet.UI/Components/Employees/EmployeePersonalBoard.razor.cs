@@ -38,6 +38,7 @@ public partial class EmployeePersonalBoard
     private string _notice = "";
     private bool _busy, _creating, _dialogOpen, _editingDetails, _transferring;
     private Wire.PersonalTodoItem? _selectedItem, _draggedItem;
+    private WorkBoards.WorkItemComments? _commentsPanel;
     private string? _dropTarget;
     private string _editTitle = "", _editDescription = "", _editPriority = "Medium", _editStatus = Wire.PersonalTodoStatuses.Ready;
     private string? _blockReason;
@@ -312,6 +313,7 @@ public partial class EmployeePersonalBoard
         try { await RefreshRequested.InvokeAsync(); }
         catch (Exception exception) { _error = $"{_error} Could not refresh the board: {exception.Message}".Trim(); success = false; }
         finally { _busy = false; }
+        if (_commentsPanel is not null) await _commentsPanel.ReloadAsync();
         return success;
     }
     private static async Task<Wire.PersonalTodoItem> ReadItemAsync(HttpResponseMessage response)

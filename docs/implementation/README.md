@@ -55,6 +55,8 @@ Cross-cutting features are documented as a phased series in their own folder:
   generated effective assignment contracts, curated playbooks, and safe proactive programs.
 - [Collaborative documents](./features/collaborative-documents.md) - keep document creation,
   revisions, access, review, chat links, and agent capabilities on one canonical artifact model.
+- [Work item comments](./features/work-item-comments.md) - make ticket discussion author-scoped,
+  editable, and retractable on both team boards and personal boards.
 
 ## Recommended implementation order
 

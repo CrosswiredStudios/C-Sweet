@@ -33,16 +33,35 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
          PersonalTodoActions.Claim, PersonalTodoActions.Complete, PersonalTodoActions.Block,
          PersonalTodoActions.Release, PersonalTodoActions.Defer, PersonalTodoActions.Update,
          PersonalTodoActions.Archive, PersonalTodoActions.Restore, PersonalTodoActions.Cancel], StringComparer.Ordinal);
+    // Comment authority is granted to human owners only. The agent protocol routes personal boards
+    // exclusively through personal-todo actions, so an agent-subject work.item.* grant here would
+    // never be exercisable.
     private static readonly IReadOnlySet<string> HumanOwnerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
          PersonalTodoActions.Activate,
          PersonalTodoActions.Requeue, PersonalTodoActions.Complete, PersonalTodoActions.Block,
          PersonalTodoActions.Release, PersonalTodoActions.Defer, PersonalTodoActions.Update,
-         PersonalTodoActions.Archive, PersonalTodoActions.Restore, PersonalTodoActions.Cancel], StringComparer.Ordinal);
+         PersonalTodoActions.Archive, PersonalTodoActions.Restore, PersonalTodoActions.Cancel,
+         WorkItemActions.Comment, WorkItemActions.ReadComments,
+         WorkItemActions.UpdateComment, WorkItemActions.DeleteComment], StringComparer.Ordinal);
+    // Managers keep their existing reporting access. They deliberately do not receive comment
+    // authority, so a manager cannot post on another person's or an agent's personal tickets.
     private static readonly IReadOnlySet<string> ManagerActions = new HashSet<string>(
         [PersonalTodoActions.Read, PersonalTodoActions.Add, PersonalTodoActions.Reorder,
          PersonalTodoActions.Activate,
          PersonalTodoActions.Requeue], StringComparer.Ordinal);
+    /// <summary>
+    /// Every action a personal board may carry. Grant reconciliation is scoped by this set, so a new
+    /// personal-board action must be added here or the next reconcile pass will revoke it.
+    /// </summary>
+    private static readonly IReadOnlySet<string> PersonalBoardActions = new HashSet<string>(
+        PersonalTodoActions.All
+            .Append(WorkItemActions.Transfer)
+            .Append(WorkItemActions.Comment)
+            .Append(WorkItemActions.ReadComments)
+            .Append(WorkItemActions.UpdateComment)
+            .Append(WorkItemActions.DeleteComment),
+        StringComparer.Ordinal);
 
     public async Task ReconcileAsync(CancellationToken cancellationToken = default)
     {
@@ -98,7 +117,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             var inactiveGrants = await db.ScopedActionGrants.Where(x =>
                 x.ScopeKind == GrantScopeKind.Board && x.ScopeId.HasValue &&
                 inactiveBoardIds.Contains(x.ScopeId.Value) && x.RevokedAt == null &&
-                (PersonalTodoActions.All.Contains(x.Action) || x.Action == WorkItemActions.Transfer))
+                PersonalBoardActions.Contains(x.Action))
                 .ToListAsync(cancellationToken);
             foreach (var grant in inactiveGrants)
             {
@@ -1001,7 +1020,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         }
         var active = await db.ScopedActionGrants.Where(x => x.OrganizationId == board.OrganizationId &&
             x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id && x.RevokedAt == null &&
-            (PersonalTodoActions.All.Contains(x.Action) || x.Action == WorkItemActions.Transfer)).ToListAsync(token);
+            PersonalBoardActions.Contains(x.Action)).ToListAsync(token);
         var now = clock.GetUtcNow();
         foreach (var grant in active.Where(x => !desired.Contains((x.SubjectKind, x.SubjectId, x.Action))))
         {

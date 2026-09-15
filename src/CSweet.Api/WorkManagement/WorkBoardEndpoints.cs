@@ -721,6 +721,64 @@ public static class WorkBoardEndpoints
             }
         });
 
+        group.MapPut("/{boardId:guid}/items/{itemId:guid}/comments/{commentId:guid}", async (
+            Guid organizationId, Guid boardId, Guid itemId, Guid commentId,
+            UpdateWorkItemCommentRequest request,
+            HttpContext http, IWorkItemCollaborationService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                var result = await service.UpdateCommentAsync(
+                    organizationId, boardId, itemId, commentId, userId.Value, request, cancellationToken);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_comment", message = exception.Message });
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "comment_conflict", message = exception.Message });
+            }
+            catch (DbUpdateConcurrencyException exception)
+            {
+                return Results.Conflict(new { error = "revision_conflict", message = exception.Message });
+            }
+        });
+
+        group.MapPost("/{boardId:guid}/items/{itemId:guid}/comments/{commentId:guid}/delete", async (
+            Guid organizationId, Guid boardId, Guid itemId, Guid commentId,
+            DeleteWorkItemCommentRequest request,
+            HttpContext http, IWorkItemCollaborationService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                var result = await service.DeleteCommentAsync(
+                    organizationId, boardId, itemId, commentId, userId.Value, request, cancellationToken);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_comment", message = exception.Message });
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "comment_conflict", message = exception.Message });
+            }
+            catch (DbUpdateConcurrencyException exception)
+            {
+                return Results.Conflict(new { error = "revision_conflict", message = exception.Message });
+            }
+        });
+
         group.MapPost("/{boardId:guid}/items/{itemId:guid}/transfer", async (
             Guid organizationId, Guid boardId, Guid itemId, TransferWorkItemRequest request,
             HttpContext http, IWorkItemCollaborationService service,

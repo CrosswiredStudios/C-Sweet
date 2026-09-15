@@ -243,6 +243,10 @@ public sealed class McpToolCatalog(
             "Add a durable comment to a work item on a granted board."),
         Read(WorkItemActions.ReadComments, "read_work_item_comments",
             "Read correlated comments and architecture guidance linked to a granted work item."),
+        Write(WorkItemActions.UpdateComment, "update_work_item_comment",
+            "Replace the body of a comment this installation created, using optimistic concurrency."),
+        Write(WorkItemActions.DeleteComment, "delete_work_item_comment",
+            "Soft-delete a comment this installation created, retaining its activity and audit history."),
         Write(WorkItemActions.Estimate, "estimate_work_item",
             "Set or clear a work item's story-point estimate."),
         Write(WorkItemActions.Move, "move_work_item",
@@ -773,6 +777,12 @@ public sealed class McpToolCatalog(
             """),
         WorkItemActions.ReadComments => Schema("""
             {"type":"object","required":["boardId","itemId"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"kind":{"type":["string","null"],"maxLength":80},"page":{"type":"integer","minimum":1},"pageSize":{"type":"integer","minimum":1,"maximum":200}},"additionalProperties":false}
+            """),
+        WorkItemActions.UpdateComment => Schema("""
+            {"type":"object","required":["boardId","itemId","commentId","body","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"commentId":{"type":"string","format":"uuid"},"body":{"type":"string","minLength":1,"maxLength":8192},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        WorkItemActions.DeleteComment => Schema("""
+            {"type":"object","required":["boardId","itemId","commentId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"commentId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkItemActions.Estimate => Schema("""
             {"type":"object","required":["boardId","itemId","expectedItemRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"estimatePoints":{"type":["number","null"],"minimum":0,"maximum":999999.99},"expectedItemRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

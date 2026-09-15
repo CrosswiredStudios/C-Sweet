@@ -77,6 +77,20 @@ function Invoke-CSweetPinnedRestMethod {
     catch {
         $responseProperty = $_.Exception.PSObject.Properties['Response']
         $script:controlPlaneRequestFailed = $null -eq $responseProperty -or $null -eq $responseProperty.Value
+        if (-not $script:controlPlaneRequestFailed) {
+            $problem = $null
+            try {
+                $bodyText = $_.ErrorDetails.Message
+                if ([string]::IsNullOrWhiteSpace($bodyText)) {
+                    $reader = [IO.StreamReader]::new($responseProperty.Value.GetResponseStream())
+                    try { $bodyText = $reader.ReadToEnd() } finally { $reader.Dispose() }
+                }
+                $problem = $bodyText | ConvertFrom-Json
+            } catch { }
+            if ($null -ne $problem -and $null -ne $problem.PSObject.Properties['message']) {
+                throw ("Office request {0} was rejected: {1}" -f $Uri.AbsolutePath, [string]$problem.message)
+            }
+        }
         throw
     }
     finally {
@@ -163,7 +177,7 @@ try {
 
     $recoveryProbe = Join-Path $officeScriptRoot 'Get-CSweetOfficeRecoveryState.ps1'
     $existingInstallationState = if (Test-Path -LiteralPath $recoveryProbe -PathType Leaf) {
-        [string](& $recoveryProbe)
+        [string](& $recoveryProbe -ForUpgrade:($isUpgrade -and $operation -eq 'upgrade'))
     } else { 'unsafe' }
     if ($existingInstallationState -notin @('none', 'clean', 'active', 'unsafe')) {
         $existingInstallationState = 'unsafe'
@@ -186,6 +200,11 @@ try {
             try { $preflight = $_.ErrorDetails.Message | ConvertFrom-Json } catch { }
         }
         if ($null -eq $preflight) { throw }
+    }
+    if (-not [bool]$preflight.succeeded) {
+        $preflightMessage = [string]$preflight.message
+        Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' -State failed -PhaseKey preflight -PhaseDisplayName 'Office update could not start' -Message $preflightMessage -PercentComplete 0 -ErrorCode ([string]$preflight.errorCode) -ErrorMessage $preflightMessage
+        throw $preflightMessage
     }
     if ([guid]$preflight.assistedSetupSessionId -ne $sessionId) {
         throw 'C-Sweet returned a mismatched Office setup session.'
@@ -320,7 +339,7 @@ try {
         & $maintenanceScript -OfficeId $expectedOfficeId | Out-Null
     }
 
-    $installerAction = if ($isUpgrade) { 'none' } else { [string]$redemption.existingInstallationAction }
+    $installerAction = if ($isUpgrade) { 'upgrade' } else { [string]$redemption.existingInstallationAction }
 
     Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
         -State running -PhaseKey start-bootstrap -PhaseDisplayName 'Starting secure runtime preparation' `

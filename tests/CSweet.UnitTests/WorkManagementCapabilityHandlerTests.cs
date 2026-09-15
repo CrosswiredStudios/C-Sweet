@@ -518,6 +518,148 @@ public sealed partial class WorkManagementCapabilityHandlerTests
             x => x.EventType == AppRealtimeEvents.WorkBoardChanged));
     }
 
+    [Fact]
+    public async Task AgentCanOnlyUpdateAndDeleteCommentsItAuthored()
+    {
+        await using var db = CreateDb();
+        var setup = SeedInstallation(db);
+        var board = new WorkBoard
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            Name = "Delivery",
+            Description = "",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Columns = [Column("To Do", WorkBoardColumnCategory.ToDo, 0)]
+        };
+        var item = new WorkTask
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId,
+            BoardId = board.Id,
+            BoardColumnId = board.Columns.Single().Id,
+            Kind = WorkItemKind.Story,
+            Title = "Comment on me",
+            Description = "",
+            Status = WorkTaskStatus.Ready,
+            Priority = WorkTaskPriority.Medium,
+            BoardRank = 1024,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var humanCommentId = Guid.NewGuid();
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        db.WorkItemComments.Add(new WorkItemComment
+        {
+            Id = humanCommentId,
+            OrganizationId = setup.OrganizationId,
+            WorkItemId = item.Id,
+            AuthorKind = GrantSubjectKind.OrganizationUser,
+            AuthorSubjectId = Guid.NewGuid(),
+            AuthorDisplayName = "Human reviewer",
+            Body = "Please rework the retry path.",
+            IdempotencyKey = "human-comment-1",
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        Grant(db, setup, WorkItemActions.Comment, GrantScopeKind.Board, board.Id);
+        Grant(db, setup, WorkItemActions.UpdateComment, GrantScopeKind.Board, board.Id);
+        Grant(db, setup, WorkItemActions.DeleteComment, GrantScopeKind.Board, board.Id);
+        await db.SaveChangesAsync();
+        var audit = new TestAuditEventWriter();
+        var handler = CreateHandler(db, audit);
+        var session = Session(
+            setup, WorkItemActions.Comment, WorkItemActions.UpdateComment, WorkItemActions.DeleteComment);
+
+        var comment = await InvokeAsync(
+            handler, session, WorkItemActions.Comment,
+            new
+            {
+                boardId = board.Id,
+                itemId = item.Id,
+                body = "Draft guidance.",
+                idempotencyKey = "comment-1"
+            });
+        Assert.True(comment.Succeeded, comment.Error);
+        using var commentJson = JsonDocument.Parse(comment.Payload.ToByteArray());
+        var commentId = commentJson.RootElement.GetProperty("id").GetGuid();
+
+        var updated = await InvokeAsync(
+            handler, session, WorkItemActions.UpdateComment,
+            new
+            {
+                boardId = board.Id,
+                itemId = item.Id,
+                commentId,
+                body = "Final guidance.",
+                expectedRevision = 1,
+                idempotencyKey = "update-1"
+            });
+        var replay = await InvokeAsync(
+            handler, session, WorkItemActions.UpdateComment,
+            new
+            {
+                boardId = board.Id,
+                itemId = item.Id,
+                commentId,
+                body = "Ignored on replay.",
+                expectedRevision = 1,
+                idempotencyKey = "update-1"
+            });
+        var foreignDelete = await InvokeAsync(
+            handler, session, WorkItemActions.DeleteComment,
+            new
+            {
+                boardId = board.Id,
+                itemId = item.Id,
+                commentId = humanCommentId,
+                expectedRevision = 1,
+                idempotencyKey = "delete-foreign"
+            });
+        var staleUpdate = await InvokeAsync(
+            handler, session, WorkItemActions.UpdateComment,
+            new
+            {
+                boardId = board.Id,
+                itemId = item.Id,
+                commentId,
+                body = "Stale.",
+                expectedRevision = 5,
+                idempotencyKey = "update-stale"
+            });
+        var deleted = await InvokeAsync(
+            handler, session, WorkItemActions.DeleteComment,
+            new
+            {
+                boardId = board.Id,
+                itemId = item.Id,
+                commentId,
+                expectedRevision = 2,
+                idempotencyKey = "delete-1"
+            });
+
+        Assert.True(updated.Succeeded, updated.Error);
+        Assert.True(replay.Succeeded, replay.Error);
+        Assert.True(deleted.Succeeded, deleted.Error);
+        using var updatedJson = JsonDocument.Parse(updated.Payload.ToByteArray());
+        Assert.Equal("Final guidance.", updatedJson.RootElement.GetProperty("body").GetString());
+        Assert.Equal(2, updatedJson.RootElement.GetProperty("revision").GetInt64());
+        Assert.True(updatedJson.RootElement.GetProperty("canEdit").GetBoolean());
+        Assert.False(foreignDelete.Succeeded);
+        Assert.Contains("own installation", foreignDelete.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(staleUpdate.Succeeded);
+        Assert.Contains("revision", staleUpdate.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Final guidance.", (await db.WorkItemComments.SingleAsync(x => x.Id == commentId)).Body);
+        Assert.NotNull((await db.WorkItemComments.SingleAsync(x => x.Id == commentId)).DeletedAt);
+        Assert.Null((await db.WorkItemComments.SingleAsync(x => x.Id == humanCommentId)).DeletedAt);
+        Assert.Contains(await db.WorkItemActivities.ToListAsync(),
+            x => x.EventType == "comment.updated" && x.Action == WorkItemActions.UpdateComment);
+        Assert.Contains(await db.WorkItemActivities.ToListAsync(),
+            x => x.EventType == "comment.deleted" && x.Action == WorkItemActions.DeleteComment);
+        Assert.Contains(audit.Events, x => x.EventType == WorkItemActions.DeleteComment);
+    }
+
     [Fact(Skip = "Direct sprint state transitions were removed in favor of manager orchestration.")]
     public async Task AgentCanPlanCompleteAndReportSprintWithSeparateGrants()
     {

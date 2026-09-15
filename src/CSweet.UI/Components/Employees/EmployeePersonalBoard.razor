@@ -97,6 +97,10 @@
                             <section class="task-result"><h3>Acceptance criteria</h3><ul>@foreach (var criterion in item.AcceptanceCriteria) { <li>@criterion</li> }</ul></section>
                         }
                         <PersonalWorkHierarchy Item="item" Items="Board.Items" OnOpen="OpenDetails" />
+                        <div class="task-comments">
+                            <CSweet.UI.Components.WorkBoards.WorkItemComments @ref="_commentsPanel"
+                                OrganizationId="OrganizationId" BoardId="item.BoardId" ItemId="item.Id" Compact="true" />
+                        </div>
                         @if (item.Wait is { } wait) { <section class="task-result"><h3>Waiting</h3><p>@wait.Reason</p><small>Next review @wait.NextReviewAt.ToLocalTime().ToString("g")</small></section> }
                         @if (item.WorkContext?.BoardId.HasValue == true) { <a class="board-button context-link" href="@BoardHref(item)"><MudIcon Icon="@Icons.Material.Outlined.OpenInNew" Size="Size.Small" />Open team board</a> }
                         <details class="technical-details"><summary>Technical details &amp; source data</summary><pre>@TechnicalDetails(item)</pre></details>
