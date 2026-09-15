@@ -9,12 +9,13 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace CSweet.Infrastructure.Compute;
 
 /// <summary>Application policy for the local, ephemeral Linux workspace. Agents cannot select provider settings.</summary>
 public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider clock,
-    ComputeGrantAdministration grants) : IComputeDefaults
+    ComputeGrantAdministration grants, IConfiguration? configuration = null) : IComputeDefaults
 {
     private static readonly string[] Actions = [InfrastructureActions.Provision, InfrastructureActions.Read,
         InfrastructureActions.List, InfrastructureActions.Execute, InfrastructureActions.Start, InfrastructureActions.Stop,
@@ -77,6 +78,7 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         var access = await db.Set<ComputeAgentAccess>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == installationId && x.OrganizationId == organizationId, token);
         if (access is null) return new("Pending", null, null, null);
         var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleAsync(x => x.Id == access.SetupId, token);
+        if (setup.State == "Ready") await ActivateAccessAsync(setup, token);
         if (setup.State == "Ready" && Approved(installation).Contains("source-control.personal-work.prepare.v1"))
         {
             var template = await db.ComputeTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.TemplateId == setup.TemplateId, token);
@@ -89,9 +91,12 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
     public async Task ActivateAccessAsync(ComputeLocalSetup setup, CancellationToken token)
     {
         if (setup.State != "Ready" || setup.TemplateId is null) throw new InvalidOperationException("Compute is not ready.");
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token) : null;
         var accesses = await db.Set<ComputeAgentAccess>().Where(x => x.SetupId == setup.Id).ToListAsync(token);
         foreach (var access in accesses)
         {
+            var policyChanged = false;
             // Retire only untouched grants from the previous automatic network defaults.
             foreach (var action in new[] { InfrastructureActions.Inbound, InfrastructureActions.PublishPort })
             {
@@ -107,12 +112,13 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
                             Actor: new("Application"), EventId: auditId, UseAmbientOrganization: false)) });
                 }
             }
-            if (access.GrantsCreatedAt is not null) continue;
             var installation = await db.AgentInstallations.Include(x => x.Grant).SingleAsync(x => x.Id == access.Id, token);
             if (!installation.IsEnabled || installation.RevisionStatus != PluginRevisionStatus.Active) continue;
             var approved = Approved(installation);
             var now = clock.GetUtcNow();
-            var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), 1, 3600, ["linux"], ["x64"],
+            var lifetime = configuration?.GetValue<int?>("CSweet:Compute:Defaults:MaximumLifetimeSeconds") ?? 0;
+            if (lifetime < 0) throw new InvalidOperationException("Compute maximum lifetime must be zero (until released) or positive.");
+            var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), 1, lifetime, ["linux"], ["x64"],
                 [setup.TemplateId], AllowedPublishedPorts: [8080]);
             foreach (var action in Actions.Where(approved.Contains))
             {
@@ -121,6 +127,23 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
                 var prior = await db.ScopedActionGrants.SingleOrDefaultAsync(x => x.Id == id, token);
                 if (prior is not null)
                 {
+                    // Upgrade only the known, unmodified legacy automatic policy. Never touch
+                    // network grants, revoked/expired grants, or administrator-customized terms.
+                    var legacy = JsonSerializer.Deserialize<ComputeGrantConstraints>(prior.ConstraintsJson, ComputeProtocol.Json);
+                    if (lifetime == 0 && prior.Revision <= 2 && prior.RevokedAt is null && prior.ExpiresAt > now &&
+                        Math.Abs((prior.ExpiresAt.Value - prior.GrantedAt).TotalDays - 30) < 0.001 &&
+                        legacy is { Version: 1, MaximumLifetimeSeconds: 3600, MaximumConcurrentEnvironments: 1,
+                            AllowPersistent: false, AllowOutbound: false, AllowPublicEndpoint: false, EnvironmentId: null } &&
+                        legacy.MaximumResources == constraints.MaximumResources &&
+                        legacy.OperatingSystems.SetEquals(constraints.OperatingSystems) && legacy.Architectures.SetEquals(constraints.Architectures) &&
+                        legacy.Templates.SetEquals(constraints.Templates) && legacy.AllowedPublishedPorts?.SetEquals([8080]) == true)
+                    {
+                        await grants.PutAsync(access.OrganizationId, id, new(prior.Revision, access.Id, access.WorkstreamId, action,
+                            constraints, DateTimeOffset.MaxValue), token);
+                        policyChanged = true;
+                        continue;
+                    }
+                    if (access.GrantsCreatedAt is not null) continue;
                     // Replace a template pin only for an untouched automatic default. Preserve
                     // administrator revisions, expiration and revocation across image upgrades.
                     if (prior.Revision == 1 && prior.RevokedAt is null && prior.ExpiresAt > now)
@@ -128,18 +151,21 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
                             constraints, prior.ExpiresAt.Value), token);
                     continue;
                 }
+                if (access.GrantsCreatedAt is not null) continue;
                 await grants.PutAsync(access.OrganizationId, id, new(0, access.Id, access.WorkstreamId, action,
-                    constraints, now.AddDays(30)), token);
+                    constraints, lifetime == 0 ? DateTimeOffset.MaxValue : now.AddDays(30)), token);
             }
+            if (access.GrantsCreatedAt is not null && !policyChanged) continue;
             access.GrantsCreatedAt = now;
             var eventId = Guid.NewGuid();
             db.AgentPlatformEventOutbox.Add(new() { Id = eventId, OrganizationId = access.OrganizationId,
                 TargetInstallationId = access.Id, EventType = "com.csweet.compute.available.v1",
                 DataJson = JsonSerializer.Serialize(new { revision = setup.Revision }),
-                IdempotencyKey = $"compute-available:{access.Id:D}:{setup.Revision}", Status = AgentPlatformEventOutboxStatus.Pending,
+                IdempotencyKey = $"compute-available:{access.Id:D}:{setup.Revision}:{(policyChanged ? "until-release" : "initial")}", Status = AgentPlatformEventOutboxStatus.Pending,
                 OccurredAt = now, NextAttemptAt = now });
         }
         await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
     }
 
     private static HashSet<string> Approved(AgentInstallation installation) =>

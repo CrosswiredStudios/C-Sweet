@@ -6,12 +6,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Compute;
 
-public sealed class ComputeFailedProvisionCleanup(CSweetDbContext db, ComputeBroker broker)
+public sealed class ComputeFailedProvisionCleanup(CSweetDbContext db, ComputeBroker broker, TimeProvider clock)
 {
     public async Task RunOnceAsync(CancellationToken token)
     {
+        var now = clock.GetUtcNow();
         var failed = await db.ComputeEnvironments.AsNoTracking().Where(x =>
-            x.Generation == 1 && x.State == ComputeLifecycleState.Failed &&
+            (x.Generation == 1 && x.State == ComputeLifecycleState.Failed || x.LeaseExpiresAt <= now) &&
             x.Persistence == ComputePersistence.Ephemeral && x.DesiredState != ComputeDesiredState.Destroyed &&
             x.TeardownConfirmedAt == null).OrderBy(x => x.UpdatedAt).ThenBy(x => x.Id).Take(100).ToListAsync(token);
         foreach (var environment in failed)

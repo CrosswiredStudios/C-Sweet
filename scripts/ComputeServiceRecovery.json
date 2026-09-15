@@ -1,0 +1,4 @@
+{
+  "resetSeconds": 86400,
+  "restartDelaysMilliseconds": [60000, 120000, 300000]
+}

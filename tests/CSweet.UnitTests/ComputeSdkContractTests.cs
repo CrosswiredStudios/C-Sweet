@@ -8,10 +8,22 @@ namespace CSweet.UnitTests;
 
 public sealed class ComputeSdkContractTests
 {
-    [Fact]
-    public async Task Typed_sdk_provisions_reads_lists_and_destroys_through_the_current_broker_and_MCP_schemas()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(600)]
+    public async Task Typed_sdk_provisions_reads_lists_and_destroys_through_the_current_broker_and_MCP_schemas(int lifetime)
     {
         await using var fixture = new ComputeBrokerTests.Fixture(); await fixture.SeedAsync();
+        if (lifetime == 0)
+        {
+            foreach (var grant in fixture.Db.ScopedActionGrants)
+            {
+                var limits = JsonSerializer.Deserialize<CSweet.Application.Compute.ComputeGrantConstraints>(grant.ConstraintsJson, ComputeProtocol.Json)!;
+                grant.ConstraintsJson = JsonSerializer.Serialize(limits with { MaximumLifetimeSeconds = 0 }, ComputeProtocol.Json);
+                grant.ExpiresAt = DateTimeOffset.MaxValue;
+            }
+            await fixture.Db.SaveChangesAsync();
+        }
         var handler = new ComputeCapabilityHandler(fixture.Broker);
         var capabilities = new HashSet<string> { Sdk.ComputeCapabilities.Provision, Sdk.ComputeCapabilities.Read,
             Sdk.ComputeCapabilities.List, Sdk.ComputeCapabilities.Destroy };
@@ -33,7 +45,7 @@ public sealed class ComputeSdkContractTests
         }
         var compute = runtime.CreateContext().Platform.Compute;
         var request = new Sdk.ProvisionComputeRequest(fixture.Workstream, "sdk-environment", "sdk-provision",
-            new("linux", "x64", "ubuntu-clean", new(2, 4096, 20480), 600));
+            new("linux", "x64", "ubuntu-clean", new(2, 4096, 20480), lifetime));
         var environment = await compute.ProvisionAsync(request);
         Assert.Equal(environment.Id, (await compute.ProvisionAsync(request)).Id);
         Assert.Equal(environment.Id, (await compute.ReadAsync(environment.Id)).Id);

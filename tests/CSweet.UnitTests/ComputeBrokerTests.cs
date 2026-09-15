@@ -14,6 +14,25 @@ namespace CSweet.UnitTests;
 
 public sealed class ComputeBrokerTests
 {
+    [Fact]
+    public async Task Until_release_admission_is_retained_and_explicit_destroy_still_works()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        foreach (var grant in f.Db.ScopedActionGrants)
+        {
+            var limits = JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson, ComputeBroker.Json)!;
+            grant.ConstraintsJson = JsonSerializer.Serialize(limits with { MaximumLifetimeSeconds = 0 }, ComputeBroker.Json);
+            grant.ExpiresAt = DateTimeOffset.MaxValue;
+        }
+        await f.Db.SaveChangesAsync();
+        var request = f.Request with { Specification = f.Request.Specification with { LifetimeSeconds = 0 } };
+        var environment = await f.Broker.RequestAsync(f.Organization, f.Installation, request, default);
+        Assert.Equal(DateTimeOffset.MaxValue, environment.LeaseExpiresAt);
+        Assert.Equal(environment.Id, (await f.Broker.RequestAsync(f.Organization, f.Installation, request, default)).Id);
+        var released = await f.Broker.ChangeLifecycleAsync(f.Organization, f.Installation,
+            new(environment.Id, environment.Generation, InfrastructureActions.Destroy, "release"), default);
+        Assert.Equal(ComputeDesiredState.Destroyed, released.DesiredState);
+    }
     private static readonly DateTimeOffset Now = new(2026, 9, 11, 0, 0, 0, TimeSpan.Zero);
     internal sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => Now; }
     internal sealed class Catalog : IComputeTemplateCatalog

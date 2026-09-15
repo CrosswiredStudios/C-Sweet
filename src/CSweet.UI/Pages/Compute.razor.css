@@ -5,3 +5,9 @@
 .compute-count { font-size: .85rem; padding: 3px 9px; border-radius: 16px; background: var(--mud-palette-background-grey); }
 .compute-id { font-family: monospace; color: var(--mud-palette-text-secondary); }
 .compute-failure { color: var(--mud-palette-error); max-width: 240px; overflow-wrap: anywhere; }
+.compute-access { display: flex; flex-direction: column; gap: 10px; min-width: 230px; max-width: 320px; padding: 8px 0; text-align: left; }
+.compute-access-status { display: flex; align-items: center; gap: 8px; }
+.compute-access p { margin: 0; line-height: 1.5; font-size: .875rem; }
+.compute-access-action { display: flex; padding: 2px 0; }
+.compute-access .compute-access-scope { color: var(--mud-palette-text-secondary); font-size: .75rem; }
+@media (max-width: 959px) { .compute-access { min-width: 0; max-width: 100%; } }

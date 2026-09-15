@@ -48,8 +48,12 @@ public sealed record ComputeSpecification(
     public ComputeNetworkPolicy NetworkPolicy => Network ?? new();
 
     public bool IsValid => Identifier(OperatingSystem) && Identifier(Architecture) && Identifier(TemplateId) &&
-        Resources is { IsValid: true } && LifetimeSeconds > 0 &&
+        Resources is { IsValid: true } && LifetimeSeconds >= 0 &&
         Enum.IsDefined(Persistence) && NetworkPolicy.IsValid;
+
+    /// <summary>Zero requests retention until an authorized caller explicitly destroys the resource.</summary>
+    public DateTimeOffset ExpiresAt(DateTimeOffset requestedAt) => LifetimeSeconds == 0
+        ? DateTimeOffset.MaxValue : requestedAt.AddSeconds(LifetimeSeconds);
 
     public static bool Identifier(string? value) => value is { Length: > 0 and <= 64 } &&
         value[0] is >= 'a' and <= 'z' && value.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-');

@@ -15,6 +15,8 @@ builder.WebHost.ConfigureKestrel(kestrel => kestrel.ConfigureHttpsDefaults(https
 }));
 builder.AddServiceDefaults();
 builder.AddCSweetInfrastructure();
+builder.Services.AddOptions<CSweet.Infrastructure.SourceControl.WorkspaceSyncTransferOptions>()
+    .ValidateOnStart();
 builder.Services.AddComputeProviderIngress();
 builder.Services.AddHostedService<ComputeProviderWakeWorker>();
 builder.Services.AddGrpc(options =>

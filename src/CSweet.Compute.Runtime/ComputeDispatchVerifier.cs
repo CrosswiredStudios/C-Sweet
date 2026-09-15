@@ -68,7 +68,8 @@ public sealed class ComputeDispatchVerifier(ComputeProviderEnrollment enrollment
             if (energizing)
             {
                 if (claim.EnvironmentLeaseExpiresAt <= now || claim.ExpiresAt > claim.EnvironmentLeaseExpiresAt ||
-                    claim.EnvironmentLeaseExpiresAt - claim.IssuedAt > TimeSpan.FromSeconds(spec.LifetimeSeconds) ||
+                    (spec.LifetimeSeconds == 0 ? claim.EnvironmentLeaseExpiresAt != DateTimeOffset.MaxValue :
+                        claim.EnvironmentLeaseExpiresAt - claim.IssuedAt > TimeSpan.FromSeconds(spec.LifetimeSeconds)) ||
                     !spec.Resources.Fits(maximumResources) || spec.Resources.GpuCount > 0 && !capabilities.SupportsGpu ||
                     spec.Persistence == ComputePersistence.Persistent && !capabilities.SupportsPersistentEnvironments ||
                     !capabilities.NetworkModes.Contains(spec.NetworkPolicy.Mode) || !capabilities.TemplateIds.Contains(spec.TemplateId)) throw Denied();
@@ -81,6 +82,7 @@ public sealed class ComputeDispatchVerifier(ComputeProviderEnrollment enrollment
             }
             if (!capabilities.Actions.Contains(claim.Action) || claim.Grants.Count != required.Count ||
                 claim.Grants.Any(x => x is null || x.GrantId == Guid.Empty || x.Revision < 1 || x.ExpiresAt < claim.ExpiresAt) ||
+                energizing && spec.LifetimeSeconds == 0 && claim.Grants.Any(x => x.ExpiresAt != DateTimeOffset.MaxValue) ||
                 !required.SetEquals(claim.Grants.Select(x => x.Action))) throw Denied();
             if (claim.Action == InfrastructureActions.Provision)
             {

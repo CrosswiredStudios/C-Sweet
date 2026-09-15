@@ -22,10 +22,11 @@ public sealed class ComputeGrantAdministration(CSweetDbContext db, TimeProvider 
                 InfrastructureActions.Execute or InfrastructureActions.Start or InfrastructureActions.Stop or InfrastructureActions.Restart or
                 InfrastructureActions.Destroy or InfrastructureActions.Inbound or InfrastructureActions.PublishPort or
                 InfrastructureActions.Outbound or InfrastructureActions.PrivateNetwork or InfrastructureActions.PublicEndpoint) ||
-            request.Constraints is not { Version: 1, MaximumResources.IsValid: true, MaximumConcurrentEnvironments: > 0, MaximumLifetimeSeconds: > 0 } ||
+            request.Constraints is not { Version: 1, MaximumResources.IsValid: true, MaximumConcurrentEnvironments: > 0, MaximumLifetimeSeconds: >= 0 } ||
             request.Constraints.OperatingSystems is not { Count: > 0 } || request.Constraints.Architectures is not { Count: > 0 } ||
-            request.Constraints.Templates is not { Count: > 0 } || request.ExpiresAt <= now || request.ExpiresAt > now.AddDays(30))
-            throw new ArgumentException("A supported action, bounded constraints and grant expiry within 30 days are required.");
+            request.Constraints.Templates is not { Count: > 0 } || request.ExpiresAt <= now ||
+            (request.ExpiresAt > now.AddDays(30) && !(request.Constraints.MaximumLifetimeSeconds == 0 && request.ExpiresAt == DateTimeOffset.MaxValue)))
+            throw new ArgumentException("A supported action and valid resource constraints are required. Use explicit until-release constraints for a non-expiring grant.");
         var business = organizationId.ToString("D");
         if (!await db.AgentInstallations.AnyAsync(x => x.Id == request.InstallationId && x.BusinessId == business, token) ||
             !await db.Workstreams.AnyAsync(x => x.Id == request.WorkstreamId && x.OrganizationId == organizationId, token))

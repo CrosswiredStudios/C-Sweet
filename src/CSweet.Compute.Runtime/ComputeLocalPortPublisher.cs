@@ -13,7 +13,7 @@ public sealed class ComputeLocalPortPublisher : IDisposable
     public async Task<ComputeWorkloadResult> PublishAsync(Guid environmentId, int guestPort, DateTimeOffset expiresAt,
         Func<CancellationToken, Task<Stream>> connectOwnedGuest, CancellationToken token)
     {
-        if (guestPort is < 1024 or > 65535 || expiresAt <= DateTimeOffset.UtcNow || expiresAt > DateTimeOffset.UtcNow.AddHours(24))
+        if (guestPort is < 1024 or > 65535 || expiresAt <= DateTimeOffset.UtcNow)
             throw new ArgumentException("Invalid publication lease.");
         // Verify that the app actually answers before returning a test URL.
         using (var probe = CancellationTokenSource.CreateLinkedTokenSource(token))
@@ -31,11 +31,24 @@ public sealed class ComputeLocalPortPublisher : IDisposable
         Remove(environmentId);
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start(8);
-        var lifetime = new CancellationTokenSource(expiresAt - DateTimeOffset.UtcNow);
+        var lifetime = new CancellationTokenSource();
         var publication = new Publication(listener, lifetime);
         if (!publications.TryAdd(environmentId, publication)) { publication.Dispose(); throw new IOException("Publication conflict."); }
         publication.Running = RunAsync(publication, connectOwnedGuest, guestPort);
+        if (expiresAt != DateTimeOffset.MaxValue) _ = ExpireAsync(publication, expiresAt);
         return new(Url: $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/", UrlExpiresAt: expiresAt);
+    }
+
+    private static async Task ExpireAsync(Publication publication, DateTimeOffset expiresAt)
+    {
+        try
+        {
+            // Timers have a finite range; retain a long lease without overflowing it.
+            while (expiresAt > DateTimeOffset.UtcNow)
+                await Task.Delay(TimeSpan.FromSeconds(Math.Clamp((expiresAt - DateTimeOffset.UtcNow).TotalSeconds, 0, 86400)), publication.Lifetime.Token);
+            publication.Dispose();
+        }
+        catch (OperationCanceledException) { }
     }
 
     public void Remove(Guid environmentId)

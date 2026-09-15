@@ -14,6 +14,8 @@ internal static class LlmProviderFailureMessage
     internal static string From(Exception exception)
     {
         var text = exception.Message;
+        if (text.Contains("No user query found in messages", StringComparison.OrdinalIgnoreCase))
+            return "The model requires a user message in this request. Enable the provider's EnsureUserMessage compatibility setting before retrying.";
         if (text.Contains("No model loaded", StringComparison.OrdinalIgnoreCase))
             return "The inference provider has no model loaded. Load the configured model in the provider, or enable its automatic model loading, then retry.";
         if (text.Contains("context length", StringComparison.OrdinalIgnoreCase) ||

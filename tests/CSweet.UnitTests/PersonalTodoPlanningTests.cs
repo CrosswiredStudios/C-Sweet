@@ -200,8 +200,10 @@ public sealed partial class PersonalTodoServiceTests
             x.IdempotencyKey.StartsWith($"personal-todo-available:{root.Id:N}:"));
     }
 
-    [Fact]
-    public async Task AgentUpdateAutomaticallyReopensItsOlderDevelopmentBlockAndPlanChildren()
+    [Theory]
+    [InlineData("Development is blocked: Application tests failed.")]
+    [InlineData("Development is blocked: The configured compute replacement limit was reached. Source and test results are saved; increase Maximum compute replacements after resolving the provider failure.")]
+    public async Task AgentUpdateAutomaticallyReopensItsOlderDevelopmentBlockAndPlanChildren(string blocker)
     {
         await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
         var now = new DateTimeOffset(2026, 9, 14, 1, 54, 0, TimeSpan.Zero);
@@ -220,7 +222,7 @@ public sealed partial class PersonalTodoServiceTests
             new(root.Id, task.Id, task.Revision, "Running", null, "start"));
         await service.BlockAsync(setup.Organization.Id, actor,
             new(root.Id, eventId, plan.RootRevision,
-                "Development is blocked: Application tests failed.", "block"));
+                blocker, "block"));
 
         await service.ReconcileAsync();
         Assert.Equal(WorkTaskStatus.Blocked,
@@ -327,6 +329,43 @@ public sealed partial class PersonalTodoServiceTests
         Assert.Contains(await db.AgentPlatformEventOutbox.ToListAsync(), x =>
             x.Status == AgentPlatformEventOutboxStatus.Pending &&
             x.IdempotencyKey.StartsWith($"personal-todo-available:{root.Id:N}:"));
+    }
+
+    [Theory]
+    [InlineData(AgentWorkStatus.Completed)]
+    [InlineData(AgentWorkStatus.Pending)]
+    [InlineData(AgentWorkStatus.Leased)]
+    public async Task HistoricalDeadLetterDoesNotReopenANewerDevelopmentBlock(AgentWorkStatus newerStatus)
+    {
+        await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 9, 15, 2, 0, 0, TimeSpan.Zero);
+        db.AgentInstallations.Add(Installation(setup, now.AddHours(-1))); await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, new FixedTimeProvider(now));
+        var actor = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+        var root = await service.AddAsync(setup.Organization.Id, actor, Add("Tetris", "historical-failure", null));
+        var item = await db.CoreWorkTasks.SingleAsync();
+        item.Status = WorkTaskStatus.Blocked;
+        item.BlockReason = "Development is blocked: The requested instance is unavailable or expired.";
+        item.UpdatedAt = now;
+        foreach (var (status, created) in new[] { (AgentWorkStatus.DeadLetter, now.AddMinutes(-10)), (newerStatus, now.AddMinutes(-1)) })
+            db.AgentWorkItems.Add(new AgentWorkItem
+            {
+                Id = Guid.NewGuid(), OrganizationId = setup.Organization.Id.ToString("D"),
+                AgentInstallationId = setup.Agent.AgentInstallationId!.Value,
+                Kind = AgentWorkKind.Event, Name = Wire.PersonalTodoEvents.Available,
+                PayloadHash = "test", CorrelationId = "test",
+                IdempotencyKey = $"personal-todo-available:{root.Id:N}:{status}",
+                Status = status, CreatedAt = created, CompletedAt = created,
+                AvailableAt = created, DeadlineAt = now.AddHours(1), MaximumAttempts = 3,
+                LastError = status == AgentWorkStatus.DeadLetter ? "agent-failure:v1;code=runtime.transport;retryable=true" : null
+            });
+        await db.SaveChangesAsync();
+        var wakes = await db.AgentPlatformEventOutbox.CountAsync();
+        for (var pass = 0; pass < 3; pass++) await service.ReconcileAsync();
+        Assert.Equal(WorkTaskStatus.Blocked, item.Status);
+        Assert.Contains("instance", item.BlockReason);
+        Assert.Null(item.NextReviewAt);
+        Assert.Equal(wakes, await db.AgentPlatformEventOutbox.CountAsync());
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider

@@ -13,10 +13,32 @@ namespace CSweet.UnitTests;
 public sealed class ComputeExplicitNetworkGrantTests
 {
     [Fact]
-    public async Task Only_owner_can_grant_exact_instance_local_access_and_revocation_emits_a_wake()
+    public async Task Owner_can_release_compute_idempotently_but_other_callers_cannot()
+    {
+        await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync(); var view = await f.Send();
+        var user = Guid.NewGuid();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ComputeNetworkGrantEndpoints.ReleaseAsync(f.Db, f.Broker, f.Organization, user, view.Id, default));
+        f.Db.CoreOrganizationUsers.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization, ApplicationUserId = user,
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true });
+        await f.Db.SaveChangesAsync();
+        await ComputeNetworkGrantEndpoints.ReleaseAsync(f.Db, f.Broker, f.Organization, user, view.Id, default);
+        await ComputeNetworkGrantEndpoints.ReleaseAsync(f.Db, f.Broker, f.Organization, user, view.Id, default);
+        Assert.Single(await f.Db.ComputeOperations.Where(x => x.Action == InfrastructureActions.Destroy).ToListAsync());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ComputeNetworkGrantEndpoints.ReleaseAsync(f.Db, f.Broker, Guid.NewGuid(), user, view.Id, default));
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Only_owner_can_grant_exact_instance_local_access_and_revocation_emits_a_wake(bool untilReleased)
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync(); var view = await f.Send();
         var resource = await f.Db.ComputeEnvironments.SingleAsync(); resource.LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10);
+        if (untilReleased)
+        {
+            resource.LeaseExpiresAt = DateTimeOffset.MaxValue;
+            var spec = JsonSerializer.Deserialize<CSweet.Domain.Compute.ComputeSpecification>(resource.SpecificationJson, ComputeProtocol.Json)!;
+            resource.SpecificationJson = JsonSerializer.Serialize(spec with { LifetimeSeconds = 0 }, ComputeProtocol.Json);
+        }
         var approval = await f.Db.AgentInstallationGrants.SingleAsync();
         approval.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { InfrastructureActions.Inbound, InfrastructureActions.PublishPort });
         var user = Guid.NewGuid(); var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = f.Organization, ApplicationUserId = user,

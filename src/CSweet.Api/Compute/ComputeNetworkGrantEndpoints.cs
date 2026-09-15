@@ -21,6 +21,14 @@ public static class ComputeNetworkGrantEndpoints
 
     public static IEndpointRouteBuilder MapComputeNetworkGrantEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapPost("/api/organizations/{organizationId:guid}/compute/{environmentId:guid}/release", async
+            (Guid organizationId, Guid environmentId, HttpContext http, CSweetDbContext db, IComputeBroker broker, CancellationToken ct) =>
+        {
+            if (http.User.GetApplicationUserId() is not { } user) return Results.Unauthorized();
+            try { await ReleaseAsync(db, broker, organizationId, user, environmentId, ct); return Results.NoContent(); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (InvalidOperationException) { return Results.Conflict(new { error = "The resource changed. Refresh Compute before releasing it." }); }
+        }).RequireAuthorization();
         endpoints.MapPut("/api/organizations/{organizationId:guid}/compute/{environmentId:guid}/local-link", async
             (Guid organizationId, Guid environmentId, LocalLinkRequest request, HttpContext http, CSweetDbContext db,
                 ComputeGrantAdministration grants, CancellationToken ct) =>
@@ -31,6 +39,18 @@ public static class ComputeNetworkGrantEndpoints
             catch (InvalidOperationException) { return Results.Conflict(new { error = "The resource or its permissions changed. Refresh Compute." }); }
         }).RequireAuthorization();
         return endpoints;
+    }
+
+    internal static async Task ReleaseAsync(CSweetDbContext db, IComputeBroker broker, Guid business, Guid user, Guid environmentId, CancellationToken ct)
+    {
+        if (!await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == business && x.ApplicationUserId == user &&
+            x.EmployeeType == EmployeeType.Human && x.PermissionLevel == OrganizationPermissionLevel.Owner && x.IsActive && x.ArchivedAt == null, ct))
+            throw new UnauthorizedAccessException();
+        var environment = await db.ComputeEnvironments.AsNoTracking().SingleOrDefaultAsync(x => x.Id == environmentId && x.OrganizationId == business, ct)
+            ?? throw new UnauthorizedAccessException();
+        if (environment.DesiredState == ComputeDesiredState.Destroyed || environment.TeardownConfirmedAt is not null) return;
+        await broker.ChangeLifecycleAsync(business, environment.InstallationId,
+            new(environment.Id, environment.Generation, InfrastructureActions.Destroy, $"owner-release:{environment.Id:N}:{environment.Generation}"), ct);
     }
 
     internal static async Task SetLocalLinkAsync(CSweetDbContext db, ComputeGrantAdministration grants, Guid business,

@@ -322,11 +322,13 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             var prefix = $"personal-todo-available:{item.Id:N}:";
             var failedDelivery = await db.AgentWorkItems.AsNoTracking()
                 .Where(x => x.AgentInstallationId == installationId &&
-                    x.IdempotencyKey.StartsWith(prefix) && x.Status == AgentWorkStatus.DeadLetter)
+                    x.IdempotencyKey.StartsWith(prefix))
                 .OrderByDescending(x => x.CreatedAt)
-                .Select(x => new { x.LastError, x.CompletedAt, x.CreatedAt })
+                .Select(x => new { x.Status, x.LastError, x.CompletedAt, x.CreatedAt })
                 .FirstOrDefaultAsync(cancellationToken);
-            if (failedDelivery is null ||
+            // A newer completed callback may deliberately block on a different cause.
+            // Historical dead letters must not reopen that decision on every heartbeat.
+            if (failedDelivery is null || failedDelivery.Status != AgentWorkStatus.DeadLetter ||
                 !AgentWorkFailure.IsRecoverableAtAttentionReview(failedDelivery.LastError))
                 continue;
 

@@ -92,7 +92,7 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
             foreach (var action in ComputePolicy.RequiredProvisionActions(spec))
             {
                 ScopedActionGrant? selected = null;
-                foreach (var grant in currentGrants.Where(x => x.Action == action && x.Id != Guid.Empty && x.Revision > 0 && x.ExpiresAt >= now.AddSeconds(spec.LifetimeSeconds)))
+                foreach (var grant in currentGrants.Where(x => x.Action == action && x.Id != Guid.Empty && x.Revision > 0 && x.ExpiresAt >= spec.ExpiresAt(now)))
                 {
                     ComputeGrantConstraints? constraints;
                     try { constraints = JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson, Json); }
@@ -111,7 +111,7 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
                 WorkstreamId = request.WorkstreamId, DesiredEnvironmentKey = request.DesiredEnvironmentKey,
                 IdempotencyKey = request.IdempotencyKey, RequestDigest = digest, SpecificationJson = specJson,
                 Persistence = spec.Persistence, ProviderId = registered.ProviderId, ProviderNodeId = registered.NodeId,
-                CreatedAt = now, UpdatedAt = now, LeaseExpiresAt = now.AddSeconds(spec.LifetimeSeconds), NextAttemptAt = now
+                CreatedAt = now, UpdatedAt = now, LeaseExpiresAt = spec.ExpiresAt(now), NextAttemptAt = now
             };
             db.ComputeEnvironments.Add(environment);
             db.ComputeOperations.Add(new()

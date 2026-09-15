@@ -2,6 +2,13 @@ using CSweet.AgentHost.Broker;
 namespace CSweet.UnitTests;
 public sealed class LlmProviderFailureMessageTests
 {
+    [Fact]
+    public void Missing_user_query_reports_the_compatibility_setting_without_raw_provider_details()
+    {
+        var message = LlmProviderFailureMessage.From(new InvalidOperationException("No user query found in messages. secret=private-value"));
+        Assert.Contains("EnsureUserMessage", message);
+        Assert.DoesNotContain("private-value", message);
+    }
     [Theory]
     [InlineData(0, true)]
     [InlineData(401, false)]

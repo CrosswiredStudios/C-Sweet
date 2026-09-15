@@ -7,11 +7,38 @@ using CSweet.Compute.Contracts;
 using CSweet.Domain.Compute;
 using CSweet.Infrastructure.Compute;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace CSweet.UnitTests;
 
 public sealed class ComputeAutomaticSetupTests
 {
+    [Fact]
+    public async Task Legacy_default_lifetime_upgrades_once_without_overwriting_customized_grants()
+    {
+        await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            { ["CSweet:Compute:Defaults:MaximumLifetimeSeconds"] = "3600" }).Build();
+        var legacy = new ComputeDefaultsService(f.Db, TimeProvider.System,
+            new(f.Db, TimeProvider.System, new CSweet.Infrastructure.Setup.AuditExecutionContextAccessor()), configuration);
+        await legacy.EnsureRequestedAsync(f.Installation, default);
+        var setup = await f.Db.Set<ComputeLocalSetup>().SingleAsync(); setup.State = "Ready"; setup.TemplateId = "linux-local-test";
+        await legacy.ActivateAccessAsync(setup, default);
+        var access = await f.Db.Set<ComputeAgentAccess>().SingleAsync();
+        var grant = await f.Db.ScopedActionGrants.SingleAsync(x => x.ScopeId == access.WorkstreamId && x.Action == InfrastructureActions.Provision);
+        grant.Revision = 2;
+        var custom = await f.Db.ScopedActionGrants.SingleAsync(x => x.ScopeId == access.WorkstreamId && x.Action == InfrastructureActions.Read);
+        custom.ConstraintsJson = custom.ConstraintsJson.Replace("\"cpuCount\":2", "\"cpuCount\":1");
+        var original = custom.ConstraintsJson;
+        await f.Db.SaveChangesAsync();
+        await Create(f).ActivateAccessAsync(setup, default);
+        await Create(f).ActivateAccessAsync(setup, default);
+        Assert.Equal(3, grant.Revision);
+        Assert.Equal(DateTimeOffset.MaxValue, grant.ExpiresAt);
+        Assert.Equal(original, custom.ConstraintsJson);
+        Assert.Equal(2, await f.Db.AgentPlatformEventOutbox.CountAsync(x => x.EventType == "com.csweet.compute.available.v1"));
+        Assert.DoesNotContain(await f.Db.ScopedActionGrants.Where(x => x.ScopeId == access.WorkstreamId).Select(x => x.Action).ToListAsync(), x => x.StartsWith("network."));
+    }
     [Fact]
     public async Task Approved_agent_gets_one_durable_setup_and_platform_selected_scope()
     {

@@ -65,7 +65,7 @@ public sealed class ComputeHyperVExecutorTests
         public string Payloads => Path.Combine(Journal.Root, "payloads");
         public string Image => Path.Combine(Payloads, "clean.vhdx");
         public int PayloadOpens { get; private set; }
-        public async Task InitializeAsync(bool persistent = false)
+        public async Task InitializeAsync(bool persistent = false, bool untilReleased = false)
         {
             await Journal.InitializeAsync();
             Directory.CreateDirectory(Workloads); Directory.CreateDirectory(Payloads);
@@ -74,11 +74,14 @@ public sealed class ComputeHyperVExecutorTests
             await File.WriteAllTextAsync(runtime, "certified test runtime");
             static string Hash(string path) => "sha256:" + Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
             var template = Journal.Packet.Template! with { ImageDigest = Hash(Image) };
-            var specification = Journal.Packet.Specification with { Persistence = persistent ? ComputePersistence.Persistent : ComputePersistence.Ephemeral };
+            var specification = Journal.Packet.Specification with { Persistence = persistent ? ComputePersistence.Persistent : ComputePersistence.Ephemeral,
+                LifetimeSeconds = untilReleased ? 0 : Journal.Packet.Specification.LifetimeSeconds };
             Claim = Journal.Core.Signing.Claims[0] with
             { TemplateDigest = ComputeProtocol.Digest(JsonSerializer.Serialize(template, ComputeProtocol.Json)),
                 SpecificationDigest = ComputeProtocol.Digest(JsonSerializer.Serialize(specification, ComputeProtocol.Json)) };
             if (persistent) Claim = Claim with { Grants = [.. Claim.Grants, new(Guid.NewGuid(), 1, InfrastructureActions.Persist, Claim.ExpiresAt)] };
+            if (untilReleased) Claim = Claim with { EnvironmentLeaseExpiresAt = DateTimeOffset.MaxValue,
+                Grants = Claim.Grants.Select(x => x with { ExpiresAt = DateTimeOffset.MaxValue }).ToArray() };
             Packet = Journal.Packet with { Specification = specification, Template = template, Authorization = await Journal.Core.Signing.SignAsync(Claim, default) };
             Verifier = new(Journal.Enrollment, new(Claim.ProviderId, [template.Id],
                 [InfrastructureActions.Provision, InfrastructureActions.Start, InfrastructureActions.Stop, InfrastructureActions.Restart, InfrastructureActions.Destroy, InfrastructureActions.Execute, InfrastructureActions.PublishPort],

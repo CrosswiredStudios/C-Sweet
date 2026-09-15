@@ -4,11 +4,52 @@ using CSweet.Domain.Setup;
 using CSweet.Office.Contracts.Workloads;
 using Grpc.Core;
 using System.Text.Json;
+using CSweet.Infrastructure.Persistence;
+using CSweet.Office.Contracts.ControlPlane;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CSweet.UnitTests;
 
 public sealed class OfficeGatewayDeliveryTests
 {
+    [Fact]
+    public async Task GuestImageUpgradePersistsReplacementInventoryAndRepeatedHeartbeat()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var node = new ExecutionNode { Id = Guid.NewGuid() };
+        node.Providers.Add(new ExecutionNodeProvider
+        {
+            Id = Guid.NewGuid(), ExecutionNodeId = node.Id, ProviderId = "hyperv",
+            GuestImageDigest = "sha256:" + new string('a', 64)
+        });
+        db.ExecutionNodes.Add(node);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        node = await db.ExecutionNodes.Include(x => x.Providers).SingleAsync();
+        var gateway = new OfficeGatewayService(db, null!, null!, null!, null!, null!,
+            TimeProvider.System, NullLogger<OfficeGatewayService>.Instance);
+        var report = new OfficeProviderInventory
+        {
+            ProviderId = "hyperv", ProviderVersion = "0.5.1", BrokerProtocolVersion = "1.0",
+            GuestImageDigest = "sha256:" + new string('b', 64),
+            CertificationEvidenceDigest = "sha256:" + new string('c', 64),
+            CertificationSuiteVersion = "test", CertifiedAtUnixSeconds = 1,
+            IsAvailable = true, SupportsRuntimeWorkloads = true
+        };
+        gateway.ReplaceProviderInventory(node, [report], DateTimeOffset.UtcNow);
+        await db.SaveChangesAsync();
+        var replacementId = Assert.Single(node.Providers).Id;
+        gateway.ReplaceProviderInventory(node, [report], DateTimeOffset.UtcNow);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        var saved = await db.ExecutionNodeProviders.SingleAsync();
+        Assert.Equal(replacementId, saved.Id);
+        Assert.Equal(report.GuestImageDigest, saved.GuestImageDigest);
+        Assert.True(saved.IsAvailable);
+    }
+
     [Fact]
     public void AssistedOfficeHeartbeatKeepsTheOnboardingAllocationAuthoritative()
     {

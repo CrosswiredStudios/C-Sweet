@@ -74,6 +74,38 @@ public sealed class ComputeReplayJournalTests
     }
 
     [Fact]
+    public async Task Background_read_waits_through_long_effect_and_remains_cancellable()
+    {
+        await using var f = new Fixture(); await f.InitializeAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var effect = f.Journal().RunAsync(f.Verifier.Verify(f.Packet), async (decision, token) =>
+        {
+            entered.SetResult(); await release.Task.WaitAsync(token); return decision;
+        }, timeout.Token);
+        await entered.Task.WaitAsync(timeout.Token);
+        var read = f.Journal().ListReservationsAsync(null, 100, timeout.Token);
+        try
+        {
+            // Exceeds the former five-second lock timeout which killed the service.
+            await Task.Delay(TimeSpan.FromSeconds(5.5), timeout.Token);
+            Assert.False(read.IsCompleted);
+            using var cancelled = new CancellationTokenSource();
+            var cancelledRead = f.Journal().ListReservationsAsync(null, 100, cancelled.Token);
+            cancelled.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledRead);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await effect;
+            await read;
+        }
+        Assert.Single(await read);
+    }
+
+    [Fact]
     public async Task Destroy_fences_old_generation_and_prevents_later_resurrection()
     {
         await using var f = new Fixture(); await f.InitializeAsync();

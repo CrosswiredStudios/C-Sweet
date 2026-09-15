@@ -6,6 +6,19 @@ namespace CSweet.UnitTests;
 
 public sealed class ComputePolicyTests
 {
+    [Fact]
+    public void Until_released_requires_both_explicit_lifetime_permission_and_nonexpiring_authority()
+    {
+        var spec = Clean with { LifetimeSeconds = 0 };
+        var authority = Grant(InfrastructureActions.Provision) with { ExpiresAt = DateTimeOffset.MaxValue };
+        Assert.True(spec.IsValid);
+        Assert.Equal(DateTimeOffset.MaxValue, spec.ExpiresAt(Now));
+        Assert.False(ComputePolicy.Evaluate(spec, Template, Limits, [authority], 0, Now).Allowed);
+        var limits = Limits with { MaximumLifetimeSeconds = 0 };
+        Assert.False(ComputePolicy.Evaluate(spec, Template, limits, [Grant(InfrastructureActions.Provision)], 0, Now).Allowed);
+        Assert.True(ComputePolicy.Evaluate(spec, Template, limits, [authority], 0, Now).Allowed);
+        Assert.False((spec with { LifetimeSeconds = -1 }).IsValid);
+    }
     private static readonly DateTimeOffset Now = new(2026, 9, 11, 0, 0, 0, TimeSpan.Zero);
     private static ComputeSpecification Clean => new("windows", "x64", "windows-clean", new(2, 4096, 20480), 600);
     private static ComputeTemplate Template => new("windows-clean", "windows", "x64", "sha256:" + new string('a', 64), new HashSet<string>());

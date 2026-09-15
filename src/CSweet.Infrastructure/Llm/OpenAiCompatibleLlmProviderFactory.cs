@@ -19,6 +19,7 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
     private readonly ILlmProviderSecretStore _secretStore;
     private readonly ILogger<OpenAiCompatibleLlmProviderFactory> _logger;
     private readonly TimeSpan _networkTimeout;
+    private readonly IConfiguration? _configuration;
 
     public OpenAiCompatibleLlmProviderFactory(
         CSweetDbContext dbContext,
@@ -29,6 +30,7 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
         _dbContext = dbContext;
         _secretStore = secretStore;
         _logger = logger;
+        _configuration = configuration;
         _networkTimeout = TimeSpan.FromSeconds(Math.Clamp(
             configuration?.GetValue<int?>("CSweet:Llm:Queue:GenerationTimeoutSeconds") ?? 900, 1, 86400));
     }
@@ -102,7 +104,13 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
         var options = new OpenAIClientOptions { Endpoint = endpoint, NetworkTimeout = _networkTimeout };
         var chatClient = new ChatClient(selectedModel, new ApiKeyCredential(apiKey), options);
 
-        return ApplyProviderDefaults(chatClient.AsIChatClient(), profile.MaxOutputTokens);
+        IChatClient adapted = chatClient.AsIChatClient();
+        var ensureUserQuery = _configuration?.GetValue<bool?>(
+            $"CSweet:Llm:Compatibility:Providers:{profile.Id:D}:EnsureUserMessage") ??
+            _configuration?.GetValue<bool?>("CSweet:Llm:Compatibility:EnsureUserMessage") ??
+            (profile.ProviderType.IsLocalRuntime() || profile.ProviderType is LlmProviderType.OpenAiCompatible or LlmProviderType.Custom);
+        if (ensureUserQuery) adapted = new UserQueryChatClient(adapted);
+        return ApplyProviderDefaults(adapted, profile.MaxOutputTokens);
     }
 
     internal static IChatClient ApplyProviderDefaults(IChatClient client, int? maxOutputTokens) =>

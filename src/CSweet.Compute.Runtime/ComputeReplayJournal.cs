@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using CSweet.Compute.Contracts;
 using CSweet.Domain.Compute;
@@ -248,15 +247,21 @@ public sealed partial class ComputeReplayJournal
     {
         verifyProtectedPath(directory);
         var path = Path.Combine(directory, "journal.lock");
-        var elapsed = Stopwatch.StartNew();
         while (true)
         {
             token.ThrowIfCancellationRequested();
             if (File.Exists(path)) verifyProtectedPath(path);
             try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
-            catch (IOException) when (elapsed.Elapsed < TimeSpan.FromSeconds(5)) { await Task.Delay(25, token); }
+            // The owner holds this lock across provisioning/guest execution. Contention is
+            // expected for the entire effect, not evidence of damaged history. The caller's
+            // cancellation bounds the wait; actual filesystem failures still fail closed.
+            catch (IOException error) when (IsLockContention(error)) { await Task.Delay(25, token); }
         }
     }
+
+    private static bool IsLockContention(IOException error) =>
+        (error.HResult & 0xffff) is 32 or 33 ||
+        !OperatingSystem.IsWindows() && (error.HResult & 0xffff) == 11;
 
     private async Task<JournalState> ReadAsync(CancellationToken token)
     {

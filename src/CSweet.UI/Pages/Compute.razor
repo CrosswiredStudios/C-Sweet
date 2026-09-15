@@ -108,7 +108,7 @@
         {
             <MudTable Items="dashboard.Resources" Hover="true" Elevation="0" Breakpoint="Breakpoint.Md" Class="compute-table">
                 <HeaderContent>
-                    <MudTh>Instance</MudTh><MudTh>Agent / project</MudTh><MudTh>State</MudTh><MudTh>Resources</MudTh><MudTh>Lease expires</MudTh><MudTh>Last change</MudTh><MudTh>Network grants</MudTh>
+                    <MudTh>Instance</MudTh><MudTh>Agent / project</MudTh><MudTh>State</MudTh><MudTh>Resources</MudTh><MudTh>Lease expires</MudTh><MudTh>Last change</MudTh><MudTh>Browser access</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Instance"><strong>@context.OperatingSystem</strong><br /><span class="compute-id">@context.Id.ToString("N")[..8]</span></MudTd>
@@ -124,16 +124,56 @@
                         @if (context.LeaseExpiresAt <= dashboard.CheckedAt && context.State != "Destroyed") { <div>Lease expired</div> }
                     </MudTd>
                     <MudTd DataLabel="Resources">@context.CpuCount CPU · @(context.MemoryMiB / 1024d) GiB RAM<br />@(context.DiskMiB / 1024d) GiB disk</MudTd>
-                    <MudTd DataLabel="Lease expires">@context.LeaseExpiresAt.ToLocalTime().ToString("g")</MudTd>
-                    <MudTd DataLabel="Last change">@context.UpdatedAt.ToLocalTime().ToString("g")</MudTd>
-                    <MudTd DataLabel="Network grants">
-                        <div>@(context.LocalLinkAllowed ? "Local test link allowed" : "Local test link not granted")</div>
-                        <MudText Typo="Typo.caption">Guest port 8080 · This instance only · Expires with its lease</MudText>
-                        @if (dashboard.CanManageNetwork && context.LeaseExpiresAt > dashboard.CheckedAt && context.State is not ("Destroyed" or "Destroying"))
+                    <MudTd DataLabel="Lease expires">
+                        @(context.LeaseExpiresAt == DateTimeOffset.MaxValue ? "Until released" : context.LeaseExpiresAt.ToLocalTime().ToString("g"))
+                        @if (dashboard.CanManageNetwork && context.State is not ("Destroyed" or "Destroying"))
                         {
-                            <MudButton Size="Size.Small" Disabled="_grantBusy" OnClick="@(() => SetLocalLinkAsync(context))">@(context.LocalLinkAllowed ? "Revoke local link" : "Grant local link access")</MudButton>
+                            @if (_releaseConfirm == context.Id)
+                            {
+                                <p>Release this instance and delete its compute files? Its saved repository remains available.</p>
+                                <MudButton Color="Color.Error" Disabled="_grantBusy.HasValue" OnClick="@(() => ReleaseAsync(context))">Confirm release</MudButton>
+                                <MudButton OnClick="@(() => _releaseConfirm = null)">Cancel</MudButton>
+                            }
+                            else
+                            {
+                                <MudButton Size="Size.Small" Disabled="_grantBusy.HasValue" OnClick="@(() => _releaseConfirm = context.Id)">Release instance</MudButton>
+                            }
                         }
-                        <MudText Typo="Typo.caption">Outbound, private-network and public internet access are not granted by this action.</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Last change">@context.UpdatedAt.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Browser access">
+                        <div class="compute-access">
+                            @if (context.LeaseExpiresAt <= dashboard.CheckedAt || context.State is "Destroyed" or "Destroying")
+                            {
+                                <strong>Test link unavailable</strong>
+                                <p>This instance has expired or is being removed.</p>
+                            }
+                            else
+                            {
+                                <div class="compute-access-status">
+                                    <MudIcon Icon="@(context.LocalLinkAllowed ? Icons.Material.Outlined.CheckCircle : Icons.Material.Outlined.Lock)"
+                                             Color="@(context.LocalLinkAllowed ? Color.Success : Color.Warning)" Size="Size.Small" />
+                                    <strong>@(context.LocalLinkAllowed ? "Local test link allowed" : "Your permission is needed")</strong>
+                                </div>
+                                <p>@(context.LocalLinkAllowed ? "The agent can share a browser link once the app is ready." : "Allow the agent to share a browser link so you can test the app on this computer.")</p>
+                                @if (dashboard.CanManageNetwork)
+                                {
+                                    <div class="compute-access-action">
+                                        <MudButton Variant="@(context.LocalLinkAllowed ? Variant.Outlined : Variant.Filled)"
+                                                   Color="Color.Primary" Size="Size.Small" Disabled="_grantBusy.HasValue"
+                                                   StartIcon="@(context.LocalLinkAllowed ? Icons.Material.Outlined.LinkOff : Icons.Material.Outlined.Link)"
+                                                   OnClick="@(() => SetLocalLinkAsync(context))">
+                                            @(_grantBusy == context.Id ? "Saving…" : context.LocalLinkAllowed ? "Revoke access" : "Allow local test link")
+                                        </MudButton>
+                                    </div>
+                                }
+                                else if (!context.LocalLinkAllowed)
+                                {
+                                    <p>A business owner can allow access.</p>
+                                }
+                                <p class="compute-access-scope">This computer only · This instance only · Expires with the instance. No public or outbound internet access.</p>
+                            }
+                        </div>
                     </MudTd>
                 </RowTemplate>
             </MudTable>
@@ -149,10 +189,26 @@
     private Guid _loadedOrganization;
     private bool _loading;
     private string? _error;
-    private bool _grantBusy;
+    private Guid? _grantBusy;
+    private Guid? _releaseConfirm;
+    private async Task ReleaseAsync(ComputeResourceStatus resource)
+    {
+        if (_grantBusy.HasValue) return;
+        _grantBusy = resource.Id;
+        try
+        {
+            using var response = await Http.PostAsync($"api/organizations/{OrganizationId}/compute/{resource.Id}/release", null, _stop.Token);
+            response.EnsureSuccessStatusCode();
+            _releaseConfirm = null;
+            await LoadAsync();
+        }
+        catch (Exception) { _error = "Could not release the instance. Refresh Compute and try again."; }
+        finally { _grantBusy = null; }
+    }
     private async Task SetLocalLinkAsync(ComputeResourceStatus resource)
     {
-        _grantBusy = true;
+        if (_grantBusy.HasValue) return;
+        _grantBusy = resource.Id;
         try
         {
             using var response = await Http.PutAsJsonAsync($"api/organizations/{OrganizationId}/compute/{resource.Id}/local-link", new { enabled = !resource.LocalLinkAllowed }, _stop.Token);
@@ -160,7 +216,7 @@
             await LoadAsync();
         }
         catch (Exception) { _error = "Could not change the network grant. Refresh Compute and try again."; }
-        finally { _grantBusy = false; }
+        finally { _grantBusy = null; }
     }
     protected override void OnInitialized() => _ = RefreshLoopAsync();
     protected override async Task OnParametersSetAsync()

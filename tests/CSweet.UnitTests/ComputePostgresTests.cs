@@ -19,6 +19,34 @@ namespace CSweet.UnitTests;
 // and removes its own database; no existing database is migrated or cleared.
 public sealed class ComputePostgresTests
 {
+    [PostgresTheory]
+    [InlineData(0)]
+    [InlineData(600)]
+    public async Task Lifetime_roundtrips_without_until_release_becoming_due_for_cleanup(int lifetime)
+    {
+        await using var database = new Database(); await database.CreateAsync();
+        await using var f = new ComputeBrokerTests.Fixture(database.Options()); await f.SeedAsync();
+        if (lifetime == 0)
+        {
+            foreach (var grant in f.Db.ScopedActionGrants)
+            {
+                var constraints = JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson, ComputeProtocol.Json)!;
+                grant.ConstraintsJson = JsonSerializer.Serialize(constraints with { MaximumLifetimeSeconds = 0 }, ComputeProtocol.Json);
+                grant.ExpiresAt = DateTimeOffset.MaxValue;
+            }
+            await f.Db.SaveChangesAsync();
+        }
+        var request = f.Request with { Specification = f.Request.Specification with { LifetimeSeconds = lifetime } };
+        var result = await f.Broker.RequestAsync(f.Organization, f.Installation, request, default);
+        f.Db.ChangeTracker.Clear();
+        var stored = await f.Db.ComputeEnvironments.SingleAsync();
+        Assert.Equal(result.LeaseExpiresAt, stored.LeaseExpiresAt);
+        var future = new ComputeBrokerTests.Clock().GetUtcNow().AddYears(1);
+        Assert.Equal(lifetime == 0 ? 0 : 1, await f.Db.ComputeEnvironments.CountAsync(x => x.LeaseExpiresAt <= future));
+        var released = await f.Broker.ChangeLifecycleAsync(f.Organization, f.Installation,
+            new(stored.Id, stored.Generation, InfrastructureActions.Destroy, "release"), default);
+        Assert.Equal(CSweet.Domain.Compute.ComputeDesiredState.Destroyed, released.DesiredState);
+    }
     private sealed class PostgresTheoryAttribute : TheoryAttribute
     {
         public PostgresTheoryAttribute()

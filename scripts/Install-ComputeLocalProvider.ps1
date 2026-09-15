@@ -29,6 +29,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'The existing compute service did not pass validation.' }
         $installedCatalog = Get-Content -LiteralPath (Join-Path $env:ProgramData 'CSweet\Compute\catalog.json') -Raw | ConvertFrom-Json
         if (@($installedCatalog.templates | Where-Object { $_.template.features -contains 'docker-apps-v1' }).Count -gt 0) {
+            & (Join-Path $repositoryRoot 'scripts\Set-ComputeServiceRecovery.ps1')
             if ($existingService.Status -ne 'Running') { Start-Service -Name 'CSweet.Compute.HyperV' }
             (Get-Service -Name 'CSweet.Compute.HyperV').WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
             # Completion validates the organization and enrollment ID; it cannot adopt another installation.
@@ -116,6 +117,7 @@ try {
     if ($null -eq $service) {
         New-Service -Name 'CSweet.Compute.HyperV' -DisplayName 'C-Sweet Compute' -BinaryPathName ('"' + $providerExecutable + '" service') -StartupType Automatic | Out-Null
     }
+    & (Join-Path $repositoryRoot 'scripts\Set-ComputeServiceRecovery.ps1')
     Start-Service -Name 'CSweet.Compute.HyperV'
     (Get-Service -Name 'CSweet.Compute.HyperV').WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
     & $providerExecutable complete-local $HandoffPath

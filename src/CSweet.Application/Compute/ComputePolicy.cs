@@ -20,9 +20,10 @@ public sealed record ComputeGrantConstraints(
 {
     public bool Allows(ComputeSpecification specification, int activeEnvironments) =>
         Version == 1 && MaximumResources is { IsValid: true } &&
-        MaximumConcurrentEnvironments > 0 && MaximumLifetimeSeconds > 0 &&
+        MaximumConcurrentEnvironments > 0 && MaximumLifetimeSeconds >= 0 && specification.IsValid &&
         activeEnvironments >= 0 && activeEnvironments < MaximumConcurrentEnvironments &&
-        specification.Resources.Fits(MaximumResources) && specification.LifetimeSeconds <= MaximumLifetimeSeconds &&
+        specification.Resources.Fits(MaximumResources) &&
+        (MaximumLifetimeSeconds == 0 || specification.LifetimeSeconds > 0 && specification.LifetimeSeconds <= MaximumLifetimeSeconds) &&
         OperatingSystems?.Contains(specification.OperatingSystem) == true &&
         Architectures?.Contains(specification.Architecture) == true && Templates?.Contains(specification.TemplateId) == true &&
         (specification.Persistence != ComputePersistence.Persistent || AllowPersistent) &&
@@ -56,7 +57,7 @@ public static class ComputePolicy
         if (!template.Matches(specification)) return Denied("TemplateUnavailable");
         if (constraints.EnvironmentId is not null || !constraints.Allows(specification, activeEnvironments)) return Denied("ConstraintExceeded");
         DateTimeOffset expiry;
-        try { expiry = now.AddSeconds(specification.LifetimeSeconds); }
+        try { expiry = specification.ExpiresAt(now); }
         catch (ArgumentOutOfRangeException) { return Denied("InvalidLifetime"); }
         var required = RequiredProvisionActions(specification);
         var selected = new List<ComputeActionAuthorization>();

@@ -5,6 +5,17 @@ namespace CSweet.UnitTests;
 
 public sealed class ComputeLeaseEnforcementTests
 {
+    [Fact]
+    public async Task Until_released_reservation_survives_idle_time_and_provider_reopen()
+    {
+        await using var f = new Fixture(); await f.InitializeAsync(untilReleased: true);
+        await f.Executor().ExecuteAsync(f.Packet, default);
+        f.Journal.Core.Time.Now = f.Journal.Core.Time.Now.AddYears(1);
+        Assert.False(await f.Executor().EnforceExpiredLeaseAsync(f.Claim.EnvironmentId, default));
+        Assert.True(f.Runner.Exists);
+        Assert.Single(f.Runner.Actions);
+        Assert.Equal(DateTimeOffset.MaxValue, Assert.Single(await f.Journal.Journal().ListReservationsAsync(null, 100, default)).LeaseExpiresAt);
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

@@ -66,10 +66,6 @@ if ($LASTEXITCODE -ne 0) { throw 'Compute preflight failed; no service was regis
 # Do not delete or silently reconfigure it on a retry.
 $binaryPath = '"' + $resolvedExecutable + '" service'
 New-Service -Name $serviceName -BinaryPathName $binaryPath -DisplayName 'C-Sweet Compute Maintenance' -StartupType Manual | Out-Null
-$serviceControl = Join-Path ([Environment]::GetFolderPath('System')) 'sc.exe'
-& $serviceControl failure $serviceName 'reset=' '86400' 'actions=' 'restart/60000/restart/120000/restart/300000'
-if ($LASTEXITCODE -ne 0) { throw 'Failed to configure service recovery; the service remains stopped and Manual.' }
-& $serviceControl failureflag $serviceName '1'
-if ($LASTEXITCODE -ne 0) { throw 'Failed to enable non-crash recovery; the service remains stopped and Manual.' }
+& (Join-Path $PSScriptRoot 'Set-ComputeServiceRecovery.ps1')
 Set-Service -Name $serviceName -StartupType Automatic
 Write-Output 'Compute maintenance service registered with recovery and automatic startup; it has not been started.'

@@ -20,7 +20,7 @@ internal static class ComputeMcpTools
           "specification":{"type":"object","additionalProperties":false,"required":["operatingSystem","architecture","templateId","resources","lifetimeSeconds"],"properties":{
             "operatingSystem":{"type":"string","minLength":1,"maxLength":64},"architecture":{"type":"string","minLength":1,"maxLength":64},"templateId":{"type":"string","minLength":1,"maxLength":64},
             "resources":{"type":"object","additionalProperties":false,"required":["cpuCount","memoryMiB","diskMiB"],"properties":{"cpuCount":{"type":"integer","minimum":1},"memoryMiB":{"type":"integer","minimum":1},"diskMiB":{"type":"integer","minimum":1},"gpuCount":{"type":"integer","minimum":0}}},
-            "lifetimeSeconds":{"type":"integer","minimum":1},"persistence":{"type":"string","enum":["ephemeral","persistent"]},
+            "lifetimeSeconds":{"type":"integer","minimum":0,"description":"Zero retains compute until explicitly released; positive seconds request a timed lease. Subject to grants."},"persistence":{"type":"string","enum":["ephemeral","persistent"]},
             "network":{"type":"object","additionalProperties":false,"properties":{"mode":{"type":"string","enum":["none","private","outboundOnly","inbound"]},"allowOutbound":{"type":"boolean"},"publicEndpoint":{"type":"boolean"},"publishedPorts":{"type":"array","maxItems":64,"items":{"type":"integer","minimum":1,"maximum":65535}}}}
           }}
         }}

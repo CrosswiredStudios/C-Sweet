@@ -38,6 +38,10 @@ public sealed class OfficeGatewayService(
         long sessionEpoch = 0;
         await foreach (var message in requestStream.ReadAllAsync(context.CancellationToken))
         {
+            // A connection can outlive administrator changes and assignment retries.
+            // Previous messages have saved their changes; reload authoritative state
+            // instead of reusing tracked entities from an earlier heartbeat.
+            db.ChangeTracker.Clear();
             if (!Guid.TryParse(message.OfficeId, out var nodeId) || message.ProtocolVersion != "1.0")
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "The node envelope is invalid."));
             if (authenticatedOfficeId is null)
@@ -243,7 +247,7 @@ public sealed class OfficeGatewayService(
         long fencingEpoch) =>
         !delivered.TryGetValue(assignmentId, out var deliveredEpoch) || deliveredEpoch != fencingEpoch;
 
-    private void ReplaceProviderInventory(
+    internal void ReplaceProviderInventory(
         ExecutionNode node,
         IEnumerable<OfficeProviderInventory> inventory,
         DateTimeOffset now)
@@ -284,6 +288,7 @@ public sealed class OfficeGatewayService(
                     GuestImageDigest = reported.GuestImageDigest
                 };
                 node.Providers.Add(existing);
+                db.ExecutionNodeProviders.Add(existing);
             }
             existing.ProviderVersion = reported.ProviderVersion;
             existing.BrokerProtocolVersion = reported.BrokerProtocolVersion;

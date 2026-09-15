@@ -9,8 +9,10 @@ namespace CSweet.UnitTests;
 
 public sealed class ComputePortPublishingTests
 {
-    [Fact]
-    public async Task Published_link_serves_the_live_guest_app_and_closes_on_removal()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Published_link_serves_the_live_guest_app_and_closes_on_removal(bool untilReleased)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var app = new TcpListener(IPAddress.Loopback, 0);
@@ -47,7 +49,7 @@ public sealed class ComputePortPublishingTests
         }
         using var publisher = new ComputeLocalPortPublisher();
         var environment = Guid.NewGuid();
-        var publication = await publisher.PublishAsync(environment, guestPort, DateTimeOffset.UtcNow.AddMinutes(1), Connect, deadline.Token);
+        var publication = await publisher.PublishAsync(environment, guestPort, untilReleased ? DateTimeOffset.MaxValue : DateTimeOffset.UtcNow.AddMinutes(1), Connect, deadline.Token);
         Assert.StartsWith("http://127.0.0.1:", publication.Url);
         using var http = new HttpClient(new SocketsHttpHandler { UseProxy = false });
         Assert.Equal("Hello World!", await http.GetStringAsync(publication.Url, deadline.Token));
