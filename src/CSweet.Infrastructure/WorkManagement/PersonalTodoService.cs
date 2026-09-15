@@ -23,8 +23,6 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
     private static readonly TimeSpan MaximumAgentFailureRecoveryDelay = TimeSpan.FromMinutes(15);
     private const int SoftOpenItemLimit = 100;
     private const int HardOpenItemLimit = 250;
-    private const int BlockedNotificationTitleExcerptLength = 96;
-    private const int BlockedNotificationReasonExcerptLength = 120;
     private static readonly Meter Meter = new("CSweet.Application.PersonalWork");
     private static readonly Counter<long> SoftLimitWarnings = Meter.CreateCounter<long>("csweet.personal_work.soft_limit_warnings");
     private static readonly Counter<long> HardLimitRejections = Meter.CreateCounter<long>("csweet.personal_work.hard_limit_rejections");
@@ -178,7 +176,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                     var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == ready.BoardId, cancellationToken);
                     task.Status = WorkTaskStatus.Blocked;
                     task.BoardColumnId = ColumnForStatus(board, WorkTaskStatus.Blocked).Id;
-                    task.BlockReason = AgentWorkFailure.DescribeBlocker(lastDelivery.LastError);
+                    task.BlockReason = await DescribeDeliveryFailureAsync(lastDelivery.Id, lastDelivery.LastError, cancellationToken);
                     if (AgentWorkFailure.IsRecoverableAtAttentionReview(lastDelivery.LastError))
                     {
                         var recentFailureCount = await CountRecentRecoverableDeliveryFailuresAsync(
@@ -324,7 +322,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 .Where(x => x.AgentInstallationId == installationId &&
                     x.IdempotencyKey.StartsWith(prefix))
                 .OrderByDescending(x => x.CreatedAt)
-                .Select(x => new { x.Status, x.LastError, x.CompletedAt, x.CreatedAt })
+                .Select(x => new { x.Id, x.Status, x.LastError, x.CompletedAt, x.CreatedAt })
                 .FirstOrDefaultAsync(cancellationToken);
             // A newer completed callback may deliberately block on a different cause.
             // Historical dead letters must not reopen that decision on every heartbeat.
@@ -336,7 +334,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 installationId, prefix, now, cancellationToken);
             var retryAt = AgentFailureRetryAt(
                 failedDelivery.CompletedAt ?? failedDelivery.CreatedAt, recentFailureCount);
-            item.BlockReason = AgentWorkFailure.DescribeBlocker(failedDelivery.LastError);
+            item.BlockReason = await DescribeDeliveryFailureAsync(failedDelivery.Id, failedDelivery.LastError, cancellationToken);
             item.NextReviewAt = retryAt;
             item.WaitingReason = "Waiting for automatic agent-run recovery.";
             if (retryAt > now)
@@ -1229,6 +1227,21 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         }
     }
 
+    private async Task<string> DescribeDeliveryFailureAsync(Guid workId, string? error, CancellationToken token)
+    {
+        var runtime = await db.AgentWorkItems.AsNoTracking().Where(x => x.Id == workId)
+            .SelectMany(x => x.Attempts).OrderByDescending(x => x.ClaimedAt)
+            .Select(x => x.RuntimeInstance).FirstOrDefaultAsync(token);
+        var log = runtime?.LogExcerpt;
+        if (runtime?.IsolationProviderId == "execution-fleet" && Guid.TryParse(runtime.ProviderInstanceId, out var assignmentId))
+        {
+            var executionLog = await db.ExecutionWorkloadAssignments.AsNoTracking()
+                .Where(x => x.Id == assignmentId).Select(x => x.ResultLogExcerpt).SingleOrDefaultAsync(token);
+            if (!string.IsNullOrWhiteSpace(executionLog)) log = executionLog;
+        }
+        return AgentWorkFailure.DescribeBlocker(error, log);
+    }
+
     private async Task AddBlockedNotificationsAsync(WorkTask item, WorkBoard board, string reason,
         DateTimeOffset now, CancellationToken token)
     {
@@ -1244,20 +1257,12 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 Id = Guid.NewGuid(), OrganizationId = item.OrganizationId,
                 RecipientOrganizationUserId = recipient, Severity = NotificationSeverity.Important,
                 Category = "PersonalTodoBlocked", Title = "Personal task blocked",
-                Body = $"{NotificationExcerpt(item.Title, BlockedNotificationTitleExcerptLength)} — " +
-                    NotificationExcerpt(reason, BlockedNotificationReasonExcerptLength),
+                OriginatingAgentOrganizationUserId = board.OwnerOrganizationUserId,
+                Body = $"{item.Title}\n\n{reason}",
                 ActionUri = $"/organizations/{item.OrganizationId:D}/employees/{board.OwnerOrganizationUserId!.Value:D}",
                 DeduplicationKey = $"personal-todo-blocked:{item.Id:N}:{item.Revision + 1}", CreatedAt = now
             });
         }
-    }
-
-    private static string NotificationExcerpt(string value, int maximumLength)
-    {
-        var normalized = string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return normalized.Length <= maximumLength
-            ? normalized
-            : $"{normalized[..(maximumLength - 1)].TrimEnd()}…";
     }
 
     private async Task<Wire.PersonalTodoBoard> MapBoardAsync(WorkBoard board, bool includeArchived,

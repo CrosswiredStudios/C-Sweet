@@ -121,7 +121,8 @@ public sealed class ExecutionBrokerSessionRunner(
         start.Environment.Add("CSWEET_WORKSPACE_MAXIMUM_FILE_COUNT",
             workspaceSyncOptions.Value.MaximumFileCount.ToString(CultureInfo.InvariantCulture));
         var diagnostics = new RuntimeDiagnosticBrokerStreamHandler(
-            workload.WorkloadId, workload.Identity.InstallationId);
+            workload.WorkloadId, workload.Identity.InstallationId,
+            excerpt => PersistRuntimeDiagnosticsAsync(assignment, workload.WorkloadId, excerpt));
         var session = new GuestBrokerHostSession(
             grant, runtimeOperations, timeProvider, diagnostics, boot, start);
         logger.LogInformation(

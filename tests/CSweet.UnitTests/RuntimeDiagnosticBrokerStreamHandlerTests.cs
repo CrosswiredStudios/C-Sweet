@@ -7,6 +7,34 @@ namespace CSweet.UnitTests;
 public sealed class RuntimeDiagnosticBrokerStreamHandlerTests
 {
     [Fact]
+    public async Task PersistsFailureWhileRunningAndRetainsMatchingDetailAcrossSummaryAndIdleSnapshots()
+    {
+        var workloadId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var diagnosticId = Guid.NewGuid();
+        var saved = new List<string>();
+        var handler = new RuntimeDiagnosticBrokerStreamHandler(workloadId, installationId,
+            excerpt => { saved.Add(excerpt); return Task.CompletedTask; });
+        var detail = $"fail: AgentRuntimeWorker failed work. Diagnostic {diagnosticId:D}. " +
+            "HttpRequestException: Error while copying content to a stream. ---> IOException: Broken pipe";
+        var summary = $"fail: Work failure summary {diagnosticId:D}: HttpRequestException: Error while copying content to a stream.";
+        async Task Send(long sequence, string text) => await handler.HandleAsync(new(
+            workloadId, installationId, "runtime.logs", sequence, Encoding.UTF8.GetBytes(text), false, null), default);
+
+        await Send(0, detail + summary);
+        Assert.Contains("Broken pipe", Assert.Single(saved));
+        await Send(1, summary + "info: renewed lease");
+        await Send(2, "info: idle");
+        Assert.Single(saved);
+        Assert.Contains("Broken pipe", handler.Latest);
+
+        await Send(3, $"fail: Work failure summary {Guid.NewGuid():D}: InvalidOperationException: Different failure");
+        Assert.Equal(2, saved.Count);
+        Assert.DoesNotContain("Broken pipe", saved[1]);
+        Assert.Contains("Different failure", saved[1]);
+    }
+
+    [Fact]
     public async Task PreservesFailureHeaderAfterIdleLoggingAndGuestExitReplaceTheRollingTail()
     {
         var workloadId = Guid.NewGuid();

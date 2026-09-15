@@ -4,6 +4,30 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentWorkFailureTests
 {
+    [Theory]
+    [InlineData("runtime.transport")]
+    [InlineData("agent.unhandled")]
+    [InlineData("agent.invalid_operation")]
+    [InlineData("agent.payload_invalid")]
+    public void NonRetryableFailureDoesNotPromiseRecovery(string code)
+    {
+        var message = AgentWorkFailure.DescribeBlocker($"agent-failure:v1;code={code};retryable=false");
+        Assert.Contains("not eligible for automatic retry", message);
+        Assert.DoesNotContain("will retry", message);
+    }
+
+    [Theory]
+    [InlineData("91bcb8ee-7176-4f82-a196-40e4c0463fbd", true)]
+    [InlineData("11111111-2222-3333-4444-555555555555", false)]
+    public void StreamFailureRequiresMatchingDiagnosticEvidence(string logId, bool matched)
+    {
+        var message = AgentWorkFailure.DescribeBlocker(
+            "agent-failure:v1;code=runtime.transport;retryable=true;diagnosticId=91bcb8ee-7176-4f82-a196-40e4c0463fbd",
+            $"Work failure summary {logId}: HttpRequestException: Error while copying content to a stream.");
+        Assert.Equal(matched, message.Contains("Error while copying content to a stream."));
+        Assert.Contains("cause was not captured", message);
+    }
+
     [Fact]
     public void PersistedInferenceFailureExplainsReadinessWithoutExposingDiagnosticBody()
     {
@@ -41,4 +65,27 @@ public sealed class AgentWorkFailureTests
     [InlineData("agent-failure:v1;code=runtime.transport;retryable=true;diagnosticId=test", "retry this task automatically")]
     public void RecoverableFailuresExplainAutomaticAttentionRecovery(string error, string expected) =>
         Assert.Contains(expected, AgentWorkFailure.DescribeBlocker(error));
+
+    [Fact]
+    public void RecoverableRuntimeFailureNamesTheSafeFailureTypeAndDiagnostic()
+    {
+        var message = AgentWorkFailure.DescribeBlocker(
+            "agent-failure:v1;code=runtime.transport;retryable=true;exceptionType=HttpRequestException;httpStatus=502;diagnosticId=11111111-2222-3333-4444-555555555555");
+
+        Assert.Contains("**Failure type:** `HttpRequestException`", message);
+        Assert.Contains("**HTTP status:** `502`", message);
+        Assert.Contains("**Diagnostic ID:** `11111111-2222-3333-4444-555555555555`", message);
+        Assert.Contains("retry this task automatically", message);
+    }
+
+    [Fact]
+    public void RecoverableFailureDoesNotRenderUntrustedFailureFields()
+    {
+        var message = AgentWorkFailure.DescribeBlocker(
+            "agent-failure:v1;code=runtime.transport;retryable=true;exceptionType=HttpRequestException**spoof;httpStatus=999;diagnosticId=not-a-guid");
+
+        Assert.DoesNotContain("spoof", message);
+        Assert.DoesNotContain("999", message);
+        Assert.DoesNotContain("not-a-guid", message);
+    }
 }

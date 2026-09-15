@@ -131,7 +131,8 @@ public sealed partial class PersonalTodoServiceTests
         claimed.Revision++;
         await db.SaveChangesAsync();
 
-        var fullBlockReason = "The requested authority is not granted.\n\n" + new string('R', 300);
+        var fullBlockReason = "The requested authority is not granted.\n\n" + new string('R', 300) +
+            "\n\n**Diagnostic ID:** `91bcb8ee-7176-4f82-a196-40e4c0463fbd`";
         var blocked = await service.BlockAsync(setup.Organization.Id, owner,
             new Wire.BlockPersonalTodoItemRequest(second.Id, claimEventId, claimed.Revision,
                 fullBlockReason, "block"));
@@ -147,9 +148,8 @@ public sealed partial class PersonalTodoServiceTests
             x.RecipientOrganizationUserId == setup.FirstManager.Id &&
             x.Category == "PersonalTodoBlocked").ToListAsync());
         Assert.Equal("Personal task blocked", notification.Title);
-        Assert.True(notification.Body.Length <= 219);
-        Assert.StartsWith(new string('T', 40), notification.Body, StringComparison.Ordinal);
-        Assert.DoesNotContain('\n', notification.Body);
+        Assert.Equal($"{longTitle}\n\n{fullBlockReason}", notification.Body);
+        Assert.Equal(setup.Agent.Id, notification.OriginatingAgentOrganizationUserId);
         Assert.Equal(
             $"/organizations/{setup.Organization.Id:D}/employees/{setup.Agent.Id:D}",
             notification.ActionUri);
