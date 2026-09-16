@@ -612,9 +612,6 @@ public sealed class CommunicationHubService(
                     Attachments = ToAttachmentResponses(persistedAttachments)
                 },
                 started.Turn);
-            await WriteMessageAuditAsync(
-                organizationId, actor, chat, response.Message,
-                started.UserMessage.CorrelationId, cancellationToken);
             return response;
         }
 
@@ -643,8 +640,6 @@ public sealed class CommunicationHubService(
                 Mentions = ToMentionResponses(mentions),
                 Attachments = ToAttachmentResponses(message.Attachments)
             });
-        await WriteMessageAuditAsync(
-            organizationId, actor, chat, sent.Message, message.CorrelationId, cancellationToken);
         return sent;
     }
 
@@ -704,75 +699,6 @@ public sealed class CommunicationHubService(
         var normalized = content.Trim().TrimEnd('.', '!', '?').ToLowerInvariant();
         return normalized is "approve" or "approved" or "accept" or "accepted" or
             "i approve" or "i accept" or "looks good, approve" or "looks good, approved";
-    }
-
-    private async Task WriteMessageAuditAsync(
-        Guid organizationId,
-        OrganizationUser actor,
-        Conversation chat,
-        CommunicationHubMessageResponse message,
-        Guid correlationId,
-        CancellationToken cancellationToken)
-    {
-        var recipientIds = chat.Participants
-            .Where(x => x.LeftAt == null && x.OrganizationUserId != actor.Id)
-            .Select(x => x.OrganizationUserId)
-            .Distinct()
-            .ToList();
-        var recipients = await db.CoreOrganizationUsers.AsNoTracking()
-            .Where(x => recipientIds.Contains(x.Id))
-            .Select(x => new
-            {
-                x.Id,
-                x.DisplayName,
-                EmployeeType = x.EmployeeType.ToString(),
-                x.AgentInstallationId
-            })
-            .OrderBy(x => x.DisplayName)
-            .ToListAsync(cancellationToken);
-        var directRecipient = recipients.Count == 1 ? recipients[0] : null;
-        var targetName = directRecipient?.DisplayName ??
-            (!string.IsNullOrWhiteSpace(chat.Title) ? $"#{chat.Title}" : $"{recipients.Count} recipients");
-        var contentBytes = Encoding.UTF8.GetBytes(message.Content);
-
-        await audit.AppendAsync(new AuditEventWriteRequest(
-            "communication.message.sent",
-            "Communication",
-            "Outbound",
-            "Delivered",
-            organizationId,
-            "ConversationMessage",
-            message.Id,
-            $"{actor.DisplayName} sent a message to {targetName}.",
-            JsonSerializer.Serialize(new
-            {
-                chatId = chat.Id,
-                chatKind = chat.Kind.ToString(),
-                message.Sequence,
-                message.ChatTurnId,
-                recipients,
-                contentBytes = contentBytes.Length,
-                contentSha256 = Convert.ToHexString(SHA256.HashData(contentBytes))
-            }),
-            ExternalMessageId: message.Id.ToString("D"),
-            CorrelationId: correlationId.ToString("D"),
-            Actor: new AuditActor(
-                actor.EmployeeType == EmployeeType.Agent ? "Agent" : "Human",
-                true,
-                actor.ApplicationUserId,
-                actor.Id,
-                actor.DisplayName,
-                actor.EmployeeType == EmployeeType.Agent ? actor.DisplayName : null,
-                actor.AgentInstallationId),
-            Target: new AuditTarget(
-                directRecipient?.EmployeeType ?? "Conversation",
-                targetName,
-                directRecipient?.EmployeeType == EmployeeType.Agent.ToString()
-                    ? directRecipient.DisplayName
-                    : null,
-                directRecipient?.AgentInstallationId),
-            ContentType: "text/plain"),
-            cancellationToken);
     }
 
     private Task<OrganizationUser?> ActiveUserAsync(Guid organizationId, Guid userId, CancellationToken token) =>

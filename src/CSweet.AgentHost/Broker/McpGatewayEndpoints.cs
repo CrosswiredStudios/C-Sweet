@@ -325,6 +325,14 @@ public static class McpGatewayEndpoints
             Capability = tool.Capability,
             Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(arguments, JsonOptions))
         };
+        var startedEventId = await audit.AppendAsync(new AuditEventWriteRequest(
+            "agent.capability.started", "AgentCapability", Outcome: "Running",
+            OrganizationId: RuntimeAuditIdentity.OrganizationId(session), EntityType: "Capability",
+            Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
+            CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
+            Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
+        try
+        {
         CapabilityResult? terminal;
         if (tool.ProviderInstallationId is { } connectorId && await db.AgentInstallations.AnyAsync(x =>
                 x.Id == connectorId && x.PackageVersion!.PluginKind == PluginKind.Connector, cancellationToken))
@@ -422,7 +430,7 @@ public static class McpGatewayEndpoints
                     JsonSerializer.SerializeToElement(structured, JsonOptions), outputSchema);
         }
         await WriteCapabilityAuditAsync(
-            audit, session, tool, request, terminal, cancellationToken);
+            audit, session, tool, request, terminal, cancellationToken, startedEventId);
         return Results.Json(Success(id, new
         {
             content = new[] { new { type = "text", text = GetToolResponseText(terminal, maximumInlineTextBytes) } },
@@ -437,6 +445,15 @@ public static class McpGatewayEndpoints
                 }
             }
         }));
+        }
+        catch (Exception error)
+        {
+            await WriteCapabilityAuditAsync(audit, session, tool, request,
+                new CapabilityResult { RequestId = request.RequestId, Succeeded = false, Error = error.Message,
+                    FailureCode = error is OperationCanceledException ? "cancelled" : "capability_failed" },
+                CancellationToken.None, startedEventId);
+            throw;
+        }
     }
 
     private static async Task<IResult> StreamToolAsync(
@@ -470,6 +487,14 @@ public static class McpGatewayEndpoints
             Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(arguments, JsonOptions))
         };
 
+        var startedEventId = await audit.AppendAsync(new AuditEventWriteRequest(
+            "agent.capability.started", "AgentCapability", Outcome: "Running",
+            OrganizationId: RuntimeAuditIdentity.OrganizationId(session), EntityType: "Capability",
+            Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
+            CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
+            Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
+        try
+        {
         http.Response.ContentType = "text/event-stream";
         http.Response.Headers.CacheControl = "no-cache, no-transform";
         http.Response.Headers["X-Accel-Buffering"] = "no";
@@ -498,8 +523,17 @@ public static class McpGatewayEndpoints
                 tool.Capability, tool.Name, session.AgentId, session.InstallationId, request.RequestId,
                 terminal.Error ?? "No failure reason was supplied by the capability handler.");
         }
-        await WriteCapabilityAuditAsync(audit, session, tool, request, terminal, cancellationToken);
+        await WriteCapabilityAuditAsync(audit, session, tool, request, terminal, cancellationToken, startedEventId);
         return Results.Empty;
+        }
+        catch (Exception error)
+        {
+            await WriteCapabilityAuditAsync(audit, session, tool, request,
+                new CapabilityResult { RequestId = request.RequestId, Succeeded = false, Error = error.Message,
+                    FailureCode = error is OperationCanceledException ? "cancelled" : "capability_failed" },
+                CancellationToken.None, startedEventId);
+            throw;
+        }
     }
 
     private static async Task WriteStreamFrameAsync(
@@ -891,7 +925,8 @@ public static class McpGatewayEndpoints
         McpToolDescriptor tool,
         RequestCapability request,
         CapabilityResult result,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? parentEventId = null)
     {
         var input = request.Payload.Span;
         var output = result.Payload.Span;
@@ -918,13 +953,22 @@ public static class McpGatewayEndpoints
             }, JsonOptions),
             ExternalRequestId: request.RequestId,
             CorrelationId: request.RequestId,
+            ParentEventId: parentEventId,
             Actor: RuntimeAuditIdentity.Actor(session),
             Target: new AuditTarget(
                 tool.ProviderInstallationId.HasValue ? "AgentInstallation" : "PlatformService",
                 tool.OwningService,
                 InstallationId: tool.ProviderInstallationId),
             ErrorCode: result.Succeeded ? null : "capability_failed",
-            ErrorMessage: result.Error),
+            ErrorMessage: result.Error,
+            ContentType: "application/json",
+            Payload: JsonSerializer.SerializeToUtf8Bytes(new { arguments = AuditBody(input), result = AuditBody(output) })),
             cancellationToken);
     }
+    private static object AuditBody(ReadOnlySpan<byte> bytes)
+    {
+        try { return JsonSerializer.Deserialize<JsonElement>(bytes); }
+        catch (JsonException) { return Encoding.UTF8.GetString(bytes); }
+    }
+
 }

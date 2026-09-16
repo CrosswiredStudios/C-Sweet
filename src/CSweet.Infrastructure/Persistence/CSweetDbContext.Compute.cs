@@ -15,7 +15,8 @@ public sealed partial class CSweetDbContext
     public DbSet<ComputeAdmission> ComputeAdmissions => Set<ComputeAdmission>();
     public DbSet<ComputeRequestReceipt> ComputeRequestReceipts => Set<ComputeRequestReceipt>();
 
-    public DbSet<ComputeAuditOutbox> ComputeAuditOutbox => Set<ComputeAuditOutbox>();
+    // Physical table retained for compatibility; this is the shared audit delivery queue.
+    public DbSet<ComputeAuditOutbox> AuditOutbox => Set<ComputeAuditOutbox>();
 
     public DbSet<ComputeNodeRegistration> ComputeNodes => Set<ComputeNodeRegistration>();
     public DbSet<ComputeTemplateRegistration> ComputeTemplates => Set<ComputeTemplateRegistration>();

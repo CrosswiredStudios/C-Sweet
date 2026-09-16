@@ -93,12 +93,13 @@ public sealed class CommunicationHubServiceTests
         Assert.NotNull(messages);
         Assert.Single(messages);
         Assert.Equal("Drew", messages[0].SenderDisplayName);
-        var messageAudit = Assert.Single(
-            audit.Events, x => x.EventType == "communication.message.sent");
+        var messageAudit = Assert.Single((await db.AuditOutbox.ToListAsync())
+            .Select(x => System.Text.Json.JsonSerializer.Deserialize<CSweet.Application.Setup.AuditEventWriteRequest>(x.RequestJson)!),
+            x => x.EventType == "communication.message.sent");
         Assert.Equal(sent.Message.Id, messageAudit.EntityId);
         Assert.Equal(designer.Id, messageAudit.Actor?.OrganizationUserId);
-        Assert.Contains(engineer.DisplayName, messageAudit.MetadataJson);
-        Assert.DoesNotContain("Design review is ready.", messageAudit.MetadataJson);
+        Assert.Contains(messageAudit.Employees!, x => x.EmployeeId == engineer.Id && x.Role == "Recipient");
+        Assert.Contains("Design review is ready.", System.Text.Encoding.UTF8.GetString(messageAudit.Payload!.Value.Span));
     }
 
     [Theory]

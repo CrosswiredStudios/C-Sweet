@@ -232,3 +232,23 @@ that exact result instead of selecting the newest directory.
 Verification: scripts/tests/Test-DevelopmentBuildCoordination.ps1 in CSweet.Office covers competing
 processes, a legacy progress owner, completed records, and waiting peers. ExecutionFleetServiceTests
 covers repeated launch requests preserving the original approval timestamp and session.
+
+## Blocked personal epic fails to requeue
+
+If moving a personal epic from Blocked to To Do reports
+"Collection was modified; enumeration operation may not execute", inspect
+`AuditPayloadSanitizer.Redact`. Redacting string values replaces children in their parent
+JSON array; traversal must snapshot the array before those replacements. A serialized
+`WorkTask.PlanningSpecificationJson` contains acceptance-criteria arrays and triggers the
+same path during automatic recovery.
+
+`WorkItemMutationEngine.RequeueAsync` and `RecoverAgentUpdatedBlockedWorkAsync` save the
+ticket transition, reopened plan children, and wake records together. A failure during
+audit capture prevents that save. Updating the agent package alone cannot fix server-side
+audit capture. Rebuild/restart C-Sweet (API and AgentHost) after applying the server fix.
+`PersonalTodoReconciliationWorker` runs at startup and every 30 seconds; it retries eligible
+development blockers whose active installation was updated after the failure.
+
+Regression coverage: `AuditPayloadArrayTests` exercises nested arrays and serialized
+planning specifications while verifying redaction; `PersonalTodoServiceTests` covers
+manual epic requeue and automatic agent-update recovery in fresh tracking contexts.

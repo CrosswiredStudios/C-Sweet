@@ -190,6 +190,10 @@
                     }
                 </MudGrid>
             </MudTabPanel>
+            @if (_details.Permissions.CanViewTimeline)
+            {
+                <MudTabPanel Text="Timeline" Icon="@Icons.Material.Outlined.Timeline"><EmployeeTimeline OrganizationId="OrganizationId" EmployeeId="EmployeeId" CanViewAuditLog="_details.Permissions.CanViewAuditLog" /></MudTabPanel>
+            }
         </MudTabs>
     }
 </div>

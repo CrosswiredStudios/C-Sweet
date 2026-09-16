@@ -1,4 +1,7 @@
 using CSweet.Api.Auth;
+using CSweet.Application.Security;
+using CSweet.Contracts.Security;
+using CSweet.Infrastructure.Security;
 using CSweet.Application.Core;
 using CSweet.Application.Analytics;
 using CSweet.Application.Setup;
@@ -16,6 +19,34 @@ public static class EmployeeEndpoints
     {
         var group = endpoints.MapGroup(
             "/api/core/organizations/{organizationId:guid}/employees/{employeeId:guid}");
+
+        group.MapGet("/timeline", async (Guid organizationId, Guid employeeId, HttpContext http,
+            CSweetDbContext db, ISecurityAuditService audit, string? cursor, DateTimeOffset? from, DateTimeOffset? to,
+            string? category, string? outcome, string? search, string? correlationId, int? limit, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (!user.HasValue) return Results.Unauthorized();
+            if (!await EmployeeAuditAccess.CanReadAsync(db, organizationId, employeeId, user.Value, token)) return Results.Forbid();
+            if (from > to) return Results.BadRequest(new { error = "invalid_date_range" });
+            try { return Results.Ok(await audit.BrowseAsync(organizationId, new SecurityEventQuery(cursor, limit ?? 50,
+                from, to, category, Outcome: outcome, Search: search, EmployeeId: employeeId, OrderByOccurrence: true, CorrelationId: correlationId, GroupModelResponses: true), token)); }
+            catch (ArgumentException) { return Results.BadRequest(new { error = "invalid_cursor" }); }
+        });
+        group.MapGet("/timeline/{eventId:guid}", async (Guid organizationId, Guid employeeId, Guid eventId, HttpContext http,
+            CSweetDbContext db, ISecurityAuditService audit, IAuditEventWriter writer, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (!user.HasValue) return Results.Unauthorized();
+            if (!await EmployeeAuditAccess.CanReadAsync(db, organizationId, employeeId, user.Value, token)) return Results.Forbid();
+            var associated = await db.AuditEvents.AnyAsync(x => x.Id == eventId && x.OrganizationId == organizationId &&
+                (x.ActorOrganizationUserId == employeeId || db.AuditEventEmployees.Any(a => a.AuditEventId == x.Id && a.EmployeeId == employeeId && a.OrganizationId == organizationId)), token);
+            if (!associated) return Results.NotFound();
+            var detail = await audit.GetAsync(organizationId, eventId, token, groupModelResponse: true, employeeId: employeeId);
+            await writer.AppendAsync(new AuditEventWriteRequest("security.employee-diagnostics.read", "SecurityAccess",
+                OrganizationId: organizationId, EntityType: "AuditEvent", EntityId: eventId,
+                Actor: new AuditActor("Human", ApplicationUserId: user), Summary: "Employee diagnostic evidence inspected."), token);
+            return detail is null ? Results.NotFound() : Results.Ok(detail);
+        });
 
         group.MapGet("/details", async (Guid organizationId, Guid employeeId, HttpContext http,
             IEmployeeDetailsService service, CancellationToken cancellationToken) =>

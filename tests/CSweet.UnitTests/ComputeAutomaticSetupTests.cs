@@ -51,7 +51,7 @@ public sealed class ComputeAutomaticSetupTests
         Assert.Equal(setup.Id, access.SetupId);
         Assert.Equal("Pending", (await service.ReadAsync(f.Organization, f.Installation, default)).State);
         Assert.NotEqual(f.Workstream, access.WorkstreamId);
-        Assert.Single(await f.Db.ComputeAuditOutbox.Where(x => x.RequestJson.Contains("preparation-requested")).ToListAsync());
+        Assert.Single(await f.Db.AuditOutbox.Where(x => x.SourceEntityType == null).Where(x => x.RequestJson.Contains("preparation-requested")).ToListAsync());
     }
 
     [Fact]
@@ -157,6 +157,6 @@ public sealed class ComputeAutomaticSetupTests
         await f.Db.SaveChangesAsync(); await service.ActivateAccessAsync(setup, default); await service.ActivateAccessAsync(setup, default);
         Assert.NotNull((await f.Db.ScopedActionGrants.SingleAsync(x => x.Action == InfrastructureActions.Inbound)).RevokedAt);
         Assert.Null((await f.Db.ScopedActionGrants.SingleAsync(x => x.Action == InfrastructureActions.PublishPort)).RevokedAt);
-        Assert.Single(await f.Db.ComputeAuditOutbox.Where(x => x.RequestJson.Contains("automatic-network-grant.retired")).ToListAsync());
+        Assert.Single(await f.Db.AuditOutbox.Where(x => x.SourceEntityType == null).Where(x => x.RequestJson.Contains("automatic-network-grant.retired")).ToListAsync());
     }
 }

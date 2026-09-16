@@ -263,6 +263,9 @@ public sealed class PlatformLlmCapabilityHandler
                 : null
         };
         runLog.PromptInstructionCharacters = options.Instructions?.Length ?? 0;
+        runLog.RequestEvidenceJson = JsonSerializer.Serialize(new { request = input, effectiveInstructions = options.Instructions,
+            effectiveMaxOutputTokens, model = selectedModel }, JsonOptions);
+        await TryPersistRunLogAsync(runLog, requestToken);
         var responseText = new StringBuilder();
         long? inputTokenCount = null;
         long? outputTokenCount = null;
@@ -425,6 +428,18 @@ public sealed class PlatformLlmCapabilityHandler
                     .ToList();
                 if (contents.Count > 0 || usage is not null || update.Role is not null)
                 {
+                    _dbContext.QueueAudit(new AuditEventWriteRequest("model.response.chunk", "Model", Outcome: "Running",
+                        OrganizationId: organizationId, EntityType: "AgentRunLog", EntityId: runLog.Id,
+                        OccurredAt: DateTimeOffset.UtcNow, CorrelationId: runLog.ChatTurnId?.ToString("D") ?? runLog.Id.ToString("D"),
+                        Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json",
+                        Payload: JsonSerializer.SerializeToUtf8Bytes(new { sequence = streamSequence, update.Text, contents,
+                            inputTokens = usage?.InputTokenCount, outputTokens = usage?.OutputTokenCount,
+                            role = update.Role?.ToString(), finishReason = update.FinishReason?.ToString(),
+                            additionalUsage = usage is null ? null : ToAdditionalUsage(usage.AdditionalCounts) }, JsonOptions),
+                        EventId: CSweetDbContext.AuditSourceId($"model:{runLog.Id:D}:chunk:{streamSequence}"),
+                        Employees: hasEmployeeIdentity ? [new(employeeId, "Actor")] : []));
+                    try { await _dbContext.SaveChangesAsync(CancellationToken.None); }
+                    catch (Exception error) { _logger.LogWarning(error, "Could not persist model stream audit evidence for {RunId}.", runLog.Id); }
                     yield return Success(
                         request.RequestId,
                         new PlatformChatChunk(
@@ -527,7 +542,7 @@ public sealed class PlatformLlmCapabilityHandler
     {
         try
         {
-            _dbContext.AgentRunLogs.Add(runLog);
+            if (_dbContext.Entry(runLog).State == EntityState.Detached) _dbContext.AgentRunLogs.Add(runLog);
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

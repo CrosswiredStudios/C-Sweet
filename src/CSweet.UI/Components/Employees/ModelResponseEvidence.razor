@@ -1,0 +1,40 @@
+@using CSweet.Contracts.Security
+@using System.Text.Json
+<div class="model-response-evidence">
+    <p>@Response.ChunkCount.ToString("N0") chunks combined · @Response.EmptyChunkCount.ToString("N0") metadata-only or empty</p>
+    @if (Response.Incomplete)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true">This response is incomplete. Some evidence is unavailable or exceeds the inspection limit. Original records remain in the audit ledger.</MudAlert>
+    }
+    @if (Response.ChunkCount > 0) { <p class="mud-typography-caption">Chunk integrity: @Response.IntegrityStatus</p> }
+    @if (!string.IsNullOrEmpty(Response.Text)) { <h4>Response</h4><pre>@Response.Text</pre> }
+    else { <p>No readable response text was recorded in these chunks.</p> }
+    @if (Response.Contents.Count > 0)
+    {
+        <h4>Tool and reasoning content</h4>
+        <pre>@JsonSerializer.Serialize(Response.Contents, new JsonSerializerOptions { WriteIndented = true })</pre>
+    }
+    @if (Response.InputTokens.HasValue || Response.OutputTokens.HasValue)
+    { <p>Tokens · input @(Response.InputTokens?.ToString("N0") ?? "—") · output @(Response.OutputTokens?.ToString("N0") ?? "—")</p> }
+    @if (Response.Sources.Count > 0)
+    {
+        <details>
+            <summary>Inspect individual chunks (@Response.Sources.Count of @Response.ChunkCount)</summary>
+            <p>Original audit records, in capture order.</p>
+            <ul>
+                @foreach (var source in Response.Sources)
+                {
+                    <li>
+                        @if (ShowAuditLink) { <a href="@($"/organizations/{OrganizationId}/security?eventId={source.Id}")">@source.OccurredAt.ToLocalTime().ToString("HH:mm:ss.fff") · @source.Id</a> }
+                        else { <span>@source.OccurredAt.ToLocalTime().ToString("HH:mm:ss.fff") · @source.Id</span> }
+                    </li>
+                }
+            </ul>
+        </details>
+    }
+</div>
+@code {
+    [Parameter, EditorRequired] public ModelResponseAuditResponse Response { get; set; } = default!;
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public bool ShowAuditLink { get; set; }
+}

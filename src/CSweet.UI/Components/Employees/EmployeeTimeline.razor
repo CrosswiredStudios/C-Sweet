@@ -1,0 +1,128 @@
+@using CSweet.Contracts.Security
+@using CSweet.Contracts.Realtime
+@using System.Text.Json
+@implements IDisposable
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+<section class="employee-timeline" aria-label="Employee timeline">
+    <header class="timeline-heading"><div><h2>Timeline</h2><p>Activity from the audit ledger</p></div><MudButton StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_loading" OnClick="ReloadAsync">Refresh</MudButton></header>
+    <div class="timeline-filters">
+        <label>Period<select value="@_days" @onchange="ChangeRangeAsync"><option value="90">Last 90 days</option><option value="7">Last 7 days</option><option value="1">Last 24 hours</option><option value="0">All history</option></select></label>
+        <label>Event type<select value="@_category" @onchange="ChangeCategoryAsync"><option value="">All events</option>@foreach (var category in Categories) { <option value="@category">@category</option> }</select></label>
+        <label>Outcome<select value="@_outcome" @onchange="ChangeOutcomeAsync"><option value="">All outcomes</option>@foreach (var outcome in Outcomes) { <option value="@outcome">@outcome</option> }</select></label>
+        <label class="timeline-search">Search<input value="@_search" @oninput="@(e => _search = e.Value?.ToString() ?? "")" @onkeydown="SearchKeyAsync" placeholder="Event, actor or correlation ID" /></label>
+        <MudButton OnClick="ReloadAsync" Disabled="_loading">Search</MudButton>
+    </div>
+    @if (_correlation is not null) { <MudChip T="string" OnClose="ClearCorrelationAsync">Interaction: @_correlation</MudChip> }
+    @if (_newEvents) { <MudButton FullWidth="true" Color="Color.Primary" OnClick="ReloadAsync">New activity available · Refresh timeline</MudButton> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <MudButton OnClick="ReloadAsync">Retry</MudButton></MudAlert> }
+    @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
+    <div class="timeline-split">
+        <div class="timeline-feed" aria-live="polite">
+            <div class="feed-heading">@(_days == 0 ? "All recorded history" : $"Last {_days} days")<span>Newest first</span></div>
+            @if (!_loading && _items.Count == 0) { <p class="timeline-empty">No recorded events match these filters.</p> }
+            @foreach (var day in _items.GroupBy(x => x.OccurredAt.ToLocalTime().Date))
+            {
+                <div class="timeline-date">@day.Key.ToString("dddd, MMMM d")</div>
+                @foreach (var item in day)
+                {
+                    <button type="button" class="timeline-row @(_selectedId == item.Id ? "selected" : "")" @onclick="@(() => SelectAsync(item.Id))" aria-pressed="@(_selectedId == item.Id)">
+                        <time title="@item.OccurredAt.UtcDateTime.ToString("O")">@item.OccurredAt.ToLocalTime().ToString("HH:mm:ss")</time>
+                        <span class="timeline-symbol"><MudIcon Icon="@Icon(item.Category)" Size="Size.Small" /></span>
+                        <span class="timeline-row-text"><strong>@RowLabel(item)</strong>@if (item.ModelResponseChunkCount is int chunks) { <span>@chunks.ToString("N0") chunks · combined response</span> }<span>@(item.Summary is not null && item.Summary != item.EventType ? item.Summary : item.ActorDisplayName) @(!string.IsNullOrWhiteSpace(item.TargetDisplayName) ? $"→ {item.TargetDisplayName}" : "")</span></span>
+                        <span class="timeline-status @(IsFailure(item.Outcome) ? "failure" : "")">@item.Outcome</span>
+                    </button>
+                    @if (_selectedId == item.Id) { <div class="timeline-mobile-detail">@Inspector()</div> }
+                }
+            }
+            @if (_cursor is not null) { <MudButton FullWidth="true" Disabled="_loading" OnClick="LoadMoreAsync">Load older events</MudButton> }
+            <p class="timeline-footnote">Historical records may contain previews or incomplete evidence. All retained audit history remains available.</p>
+        </div>
+        <aside class="timeline-desktop-detail">@Inspector()</aside>
+    </div>
+</section>
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public bool CanViewAuditLog { get; set; }
+    private static readonly string[] Categories = ["Communication", "WorkItem", "AgentWork", "ChatTurn", "ChatTrace", "AgentCapability", "Model", "AgentRuntime", "PlatformEvent", "Mcp"];
+    private static readonly string[] Outcomes = ["Completed", "Running", "Failed", "Cancelled", "Pending", "Leased", "DeadLetter", "Delivered", "Denied"];
+    private readonly List<SecurityEventSummaryResponse> _items = [];
+    private SecurityEventDetailResponse? _detail;
+    private Guid? _selectedId;
+    private (Guid, Guid) _scope;
+    private CancellationTokenSource _requests = new();
+    private string? _cursor, _error, _detailError, _correlation;
+    private string _category = "", _outcome = "", _search = "";
+    private int _days = 90, _detailVersion;
+    private bool _loading, _detailLoading, _newEvents, _disposed;
+    private DateTimeOffset? _from;
+    protected override void OnInitialized() { Realtime.EventReceived += OnEvent; Realtime.Reconnected += OnReconnect; }
+    protected override async Task OnParametersSetAsync() { if (_scope == (OrganizationId, EmployeeId)) return; _scope = (OrganizationId, EmployeeId); _correlation = null; await ReloadAsync(); }
+    private RenderFragment Inspector() => @<div>
+        @if (_detailLoading) { <MudProgressLinear Indeterminate="true" /> }
+        else if (_detailError is not null) { <MudAlert Severity="Severity.Error">@_detailError</MudAlert> }
+        else if (_detail is not null) { <AuditEventInspector Event="_detail" OrganizationId="OrganizationId" ShowAuditLink="CanViewAuditLog" CorrelationSelected="FilterCorrelationAsync" /> }
+        else { <p class="timeline-empty">Select an event to inspect its recorded evidence.</p> }
+    </div>;
+    private string Url(string? cursor)
+    {
+        var values = new Dictionary<string,string?> { ["cursor"] = cursor, ["from"] = _from?.ToString("O"), ["category"] = _category, ["outcome"] = _outcome, ["search"] = _search, ["correlationId"] = _correlation };
+        return $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/timeline?" + string.Join("&", values.Where(x => !string.IsNullOrWhiteSpace(x.Value)).Select(x => $"{x.Key}={Uri.EscapeDataString(x.Value!)}"));
+    }
+    private async Task ReloadAsync()
+    {
+        _requests.Cancel(); _requests.Dispose(); _requests = new(); _detailError = null; _from = _days == 0 ? null : DateTimeOffset.UtcNow.AddDays(-_days);
+        _items.Clear(); _cursor = null; _detail = null; _selectedId = null; _detailVersion++; _detailLoading = false; _newEvents = false; await LoadAsync(null);
+        if (_items.Count > 0 && !_disposed) await SelectAsync(_items[0].Id);
+    }
+    private Task LoadMoreAsync() => LoadAsync(_cursor);
+    private async Task LoadAsync(string? cursor)
+    {
+        var cancellation = _requests.Token; _loading = true; _error = null;
+        try { var page = await Http.GetFromJsonAsync<SecurityEventPageResponse>(Url(cursor), cancellation); if (cancellation.IsCancellationRequested) return; if (page is not null) { foreach (var item in page.Items) if (_items.All(x => x.Id != item.Id)) _items.Add(item); _cursor = page.NextCursor; } }
+        catch (OperationCanceledException) { }
+        catch (HttpRequestException ex) { if (!cancellation.IsCancellationRequested) { _error = ex.StatusCode == System.Net.HttpStatusCode.Forbidden ? "You no longer have access to this employee’s diagnostics." : "The audit history could not be loaded."; if (ex.StatusCode == System.Net.HttpStatusCode.Forbidden) { _items.Clear(); _detail = null; } } }
+        finally { if (!cancellation.IsCancellationRequested) _loading = false; }
+    }
+    private async Task SelectAsync(Guid id)
+    {
+        _selectedId = id; _detail = null; _detailError = null; _detailLoading = true; var version = ++_detailVersion;
+        try { var value = await Http.GetFromJsonAsync<SecurityEventDetailResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/timeline/{id}", _requests.Token); if (version == _detailVersion) _detail = value; }
+        catch (OperationCanceledException) { }
+        catch (HttpRequestException) { if (version == _detailVersion) _detailError = "This event is unavailable or access has changed."; }
+        finally { if (version == _detailVersion) _detailLoading = false; }
+    }
+    private async Task ChangeRangeAsync(ChangeEventArgs e) { _days = int.Parse(e.Value!.ToString()!); await ReloadAsync(); }
+    private async Task ChangeCategoryAsync(ChangeEventArgs e) { _category = e.Value?.ToString() ?? ""; await ReloadAsync(); }
+    private async Task ChangeOutcomeAsync(ChangeEventArgs e) { _outcome = e.Value?.ToString() ?? ""; await ReloadAsync(); }
+    private async Task SearchKeyAsync(KeyboardEventArgs e) { if (e.Key == "Enter") await ReloadAsync(); }
+    private async Task FilterCorrelationAsync(string value) { _correlation = value; await ReloadAsync(); }
+    private async Task ClearCorrelationAsync(MudChip<string> _) { _correlation = null; await ReloadAsync(); }
+    private void OnEvent(AppRealtimeEventEnvelope e) { if (e.OrganizationId != OrganizationId || e.EventType != AppRealtimeEvents.AuditChanged) return; if (e.Data.TryGetProperty("employeeIds", out var ids) && ids.EnumerateArray().Any(x => x.GetGuid() == EmployeeId)) OnReconnect(); }
+    private bool _checking;
+    private void OnReconnect() { if (!_disposed) _ = InvokeAsync(CheckForChangesAsync); }
+    private async Task CheckForChangesAsync()
+    {
+        if (_checking || _loading || _disposed) return;
+        _checking = true;
+        var cancellation = _requests.Token;
+        try
+        {
+            var page = await Http.GetFromJsonAsync<SecurityEventPageResponse>(Url(null) + "&limit=1", cancellation);
+            if (!cancellation.IsCancellationRequested && page is not null) _newEvents = true;
+        }
+        catch (OperationCanceledException) { }
+        catch (HttpRequestException ex)
+        {
+            if (ex.StatusCode == System.Net.HttpStatusCode.Forbidden) { _items.Clear(); _detail = null; _error = "You no longer have access to this employee’s diagnostics."; }
+        }
+        finally { _checking = false; if (!_disposed) StateHasChanged(); }
+    }
+    private static string RowLabel(SecurityEventSummaryResponse item) => item.EventType == "communication.message.sent"
+        ? item.EmployeeRole == "Recipient" ? "Message received" : "Message sent"
+        : AuditEventInspector.Label(item.EventType);
+    private static bool IsFailure(string status) => status.Contains("fail", StringComparison.OrdinalIgnoreCase) || status is "DeadLetter" or "Denied";
+    private static string Icon(string category) => category switch { "Communication" => Icons.Material.Outlined.ChatBubbleOutline, "Model" => Icons.Material.Outlined.Memory, "AgentCapability" => Icons.Material.Outlined.Build, "AgentRuntime" => Icons.Material.Outlined.PowerSettingsNew, _ => Icons.Material.Outlined.PlayCircleOutline };
+    public void Dispose() { _disposed = true; _requests.Cancel(); _requests.Dispose(); Realtime.EventReceived -= OnEvent; Realtime.Reconnected -= OnReconnect; }
+}

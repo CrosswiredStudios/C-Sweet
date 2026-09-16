@@ -39,7 +39,10 @@ public sealed record AuditEventWriteRequest(
     string? ErrorCode = null,
     string? ErrorMessage = null,
     bool UseAmbientOrganization = true,
-    Guid? EventId = null);
+    Guid? EventId = null,
+    IReadOnlyList<AuditEmployeeAssociation>? Employees = null);
+
+public sealed record AuditEmployeeAssociation(Guid EmployeeId, string Role = "Affected");
 
 public sealed record AuditActor(
     string Kind,

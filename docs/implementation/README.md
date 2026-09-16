@@ -60,6 +60,7 @@ Cross-cutting features are documented as a phased series in their own folder:
 - [Hiring suggestion lifecycle](./features/hiring-suggestion-lifecycle.md) - one actionable hiring
   suggestion per conversation, with created/completed/cancelled/superseded states, withdraw cascade,
   and owner-directed replacement semantics.
+- [Employee audit timeline](./features/employee-audit-timeline.md) - employee-scoped replay of the shared audit ledger, full diagnostic evidence, permissions, and historical coverage.
 - [Chat turn diagnostics](./chat-turn-diagnostics.md) - use the persisted error code, turn trace,
   agent work-item error, and console locations to diagnose a failed Communications answer.
 

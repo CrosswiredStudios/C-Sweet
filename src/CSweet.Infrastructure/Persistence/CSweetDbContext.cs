@@ -8,6 +8,7 @@ using CSweet.Domain.Notifications;
 using CSweet.Domain.Security;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Auth;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -20,10 +21,13 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 {
     private static readonly JsonSerializerOptions EventJsonOptions = new(JsonSerializerDefaults.Web);
 
-    public CSweetDbContext(DbContextOptions<CSweetDbContext> options)
+    public CSweetDbContext(DbContextOptions<CSweetDbContext> options, IDataProtectionProvider? auditProtection = null)
         : base(options)
     {
+        AuditProtection = auditProtection;
     }
+
+    internal IDataProtectionProvider? AuditProtection { get; }
 
     public DbSet<SourceControlBusinessSettings> SourceControlBusinessSettings => Set<SourceControlBusinessSettings>();
 
@@ -40,6 +44,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<MediaUploadSession> MediaUploadSessions => Set<MediaUploadSession>();
     public DbSet<OnboardingStep> OnboardingSteps => Set<OnboardingStep>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<AuditEventEmployee> AuditEventEmployees => Set<AuditEventEmployee>();
+    public DbSet<AuditEventPayload> AuditEventPayloads => Set<AuditEventPayload>();
     public DbSet<AgentRunLog> AgentRunLogs => Set<AgentRunLog>();
     public DbSet<AgentRuntimeGlobalSettings> AgentRuntimeGlobalSettings => Set<AgentRuntimeGlobalSettings>();
     public DbSet<ExecutionPool> ExecutionPools => Set<ExecutionPool>();
@@ -228,6 +234,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureApprovalEvents();
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
+        CaptureAgentAuditEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -243,6 +250,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureApprovalEvents();
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
+        CaptureAgentAuditEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -260,7 +268,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     private void EnforceAppendOnlyAuditLedger()
     {
         ChangeTracker.DetectChanges();
-        if (ChangeTracker.Entries<AuditEvent>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+        if (ChangeTracker.Entries().Any(x => x.Entity is AuditEvent or AuditEventEmployee or AuditEventPayload &&
+            x.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Security audit ledger records are append-only.");
     }
 
@@ -862,9 +871,24 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.HasIndex(x => x.Sequence).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Sequence });
             entity.HasIndex(x => new { x.OrganizationId, x.Category, x.Sequence });
+            entity.HasIndex(x => new { x.OrganizationId, x.OccurredAt, x.Sequence });
             entity.HasIndex(x => x.TraceId);
             entity.HasIndex(x => x.ParentEventId);
             entity.HasIndex(x => x.CorrelationId);
+            entity.HasIndex(x => new { x.EntityType, x.EntityId });
+        });
+
+        modelBuilder.Entity<AuditEventEmployee>(entity =>
+        {
+            entity.HasKey(x => new { x.AuditEventId, x.EmployeeId, x.Role });
+            entity.Property(x => x.Role).HasMaxLength(32);
+            entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.AuditEventId });
+            entity.HasOne<AuditEvent>().WithMany().HasForeignKey(x => x.AuditEventId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<AuditEventPayload>(entity =>
+        {
+            entity.HasKey(x => x.AuditEventId);
+            entity.HasOne<AuditEvent>().WithOne().HasForeignKey<AuditEventPayload>(x => x.AuditEventId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<AgentRunLog>(entity =>

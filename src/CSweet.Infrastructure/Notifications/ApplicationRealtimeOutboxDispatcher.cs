@@ -51,6 +51,13 @@ public sealed class ApplicationRealtimeOutboxDispatcher(CSweetDbContext db) : IA
     private async Task<IReadOnlyList<Guid>> ResolveRecipientsAsync(ApplicationRealtimeOutboxItem item,
         CancellationToken cancellationToken)
     {
+        if (item.EventType == AppRealtimeEvents.AuditChanged && item.OrganizationId is Guid org)
+        {
+            using var payload = JsonDocument.Parse(item.DataJson);
+            var employees = payload.RootElement.GetProperty("employeeIds").EnumerateArray().Select(x => x.GetGuid()).ToArray();
+            var people = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == org && x.IsActive).ToListAsync(cancellationToken);
+            return people.Where(x => employees.Any(e => Security.EmployeeAuditAccess.CanRead(people, e, x.Id))).Select(x => x.Id).ToArray();
+        }
         if (item.RecipientOrganizationUserId.HasValue) return [item.RecipientOrganizationUserId.Value];
         var snapshot = DeserializeRecipients(item.RecipientOrganizationUserIdsJson);
         if (snapshot.Count > 0) return snapshot;

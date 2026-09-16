@@ -27,7 +27,7 @@ public sealed class ComputeLifecycleTests
         Assert.Equal(destroyed, await broker.ChangeLifecycleAsync(f.Organization, f.Installation, request, default));
         Assert.Equal(2, await restarted.ComputeOperations.CountAsync());
         Assert.Equal(2, await restarted.ComputeProviderWakes.CountAsync());
-        Assert.Equal(2, await restarted.ComputeAuditOutbox.CountAsync());
+        Assert.Equal(2, await restarted.AuditOutbox.Where(x => x.SourceEntityType == null).CountAsync());
         Assert.Equal(2, await restarted.AgentPlatformEventOutbox.CountAsync(x => x.EventType == "com.csweet.compute.changed.v1"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => broker.ChangeLifecycleAsync(f.Organization, f.Installation,
             request with { Action = InfrastructureActions.Start }, default));

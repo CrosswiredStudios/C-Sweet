@@ -16,7 +16,7 @@ public sealed class ComputeAuditTests
     {
         await using var fixture = new ComputeBrokerTests.Fixture(); await fixture.SeedAsync();
         var environment = await fixture.Send(fixture.Request with { IdempotencyKey = "sensitive-caller-key" });
-        var row = await fixture.Db.ComputeAuditOutbox.SingleAsync();
+        var row = await fixture.Db.AuditOutbox.Where(x => x.SourceEntityType == null).SingleAsync(x => x.SourceEntityType == null);
         var request = JsonSerializer.Deserialize<AuditEventWriteRequest>(row.RequestJson)!;
         Assert.Equal(row.Id, request.EventId);
         Assert.Equal(environment.Id, request.EntityId);
@@ -27,7 +27,7 @@ public sealed class ComputeAuditTests
         Assert.Contains("Revision", request.MetadataJson);
         Assert.DoesNotContain("sensitive-caller-key", row.RequestJson);
         await fixture.Send(fixture.Request with { IdempotencyKey = "sensitive-caller-key" });
-        Assert.Equal(1, await fixture.Db.ComputeAuditOutbox.CountAsync());
+        Assert.Equal(1, await fixture.Db.AuditOutbox.Where(x => x.SourceEntityType == null).CountAsync(x => x.SourceEntityType == null));
     }
 
     [Fact]
@@ -42,29 +42,35 @@ public sealed class ComputeAuditTests
         Assert.False(rejected.Actor.IdentityVerified);
         Assert.Null(rejected.MetadataJson);
         Assert.Null(rejected.ErrorMessage);
-        Assert.Empty(await fixture.Db.ComputeAuditOutbox.ToListAsync());
+        Assert.Empty(await fixture.Db.AuditOutbox.Where(x => x.SourceEntityType == null).ToListAsync());
     }
 
     [Fact]
     public async Task Retry_after_ledger_commit_preserves_one_sealed_record_and_rejects_changed_evidence()
     {
         await using var fixture = new ComputeBrokerTests.Fixture(); await fixture.SeedAsync(); await fixture.Send();
+        // This test isolates the compute receipt from other platform events in the shared queue.
+        fixture.Db.AuditOutbox.RemoveRange(await fixture.Db.AuditOutbox.Where(x => x.SourceEntityType != null).ToListAsync());
+        await fixture.Db.SaveChangesAsync();
         var services = new ServiceCollection();
         services.AddScoped(_ => new CSweetDbContext(fixture.Options));
         await using var provider = services.BuildServiceProvider();
         var protection = new EphemeralDataProtectionProvider();
         var writer = new AuditEventWriter(provider.GetRequiredService<IServiceScopeFactory>(), new AuditExecutionContextAccessor(), protection);
         var interrupted = new FailAfterCommit(writer);
-        await Assert.ThrowsAsync<IOException>(() => new ComputeAuditDispatcher(fixture.Db, interrupted, new ComputeBrokerTests.Clock()).DispatchAsync(default));
-        Assert.Null((await fixture.Db.ComputeAuditOutbox.SingleAsync()).DeliveredAt);
+        Assert.Equal(1, await new AuditOutboxDispatcher(fixture.Db, interrupted, new ComputeBrokerTests.Clock()).DispatchAsync(default));
+        Assert.Equal(1, (await fixture.Db.AuditOutbox.SingleAsync()).Attempts);
+        Assert.Null((await fixture.Db.AuditOutbox.Where(x => x.SourceEntityType == null).SingleAsync(x => x.SourceEntityType == null)).DeliveredAt);
         Assert.Equal(1, await fixture.Db.AuditEvents.CountAsync());
         await using var restarted = new CSweetDbContext(fixture.Options);
-        Assert.Equal(1, await new ComputeAuditDispatcher(restarted, writer, new ComputeBrokerTests.Clock()).DispatchAsync(default));
-        Assert.Equal(0, await new ComputeAuditDispatcher(restarted, writer, new ComputeBrokerTests.Clock()).DispatchAsync(default));
+        (await restarted.AuditOutbox.SingleAsync()).NextAttemptAt = null;
+        await restarted.SaveChangesAsync();
+        Assert.Equal(1, await new AuditOutboxDispatcher(restarted, writer, new ComputeBrokerTests.Clock()).DispatchAsync(default));
+        Assert.Equal(0, await new AuditOutboxDispatcher(restarted, writer, new ComputeBrokerTests.Clock()).DispatchAsync(default));
         var entry = await restarted.AuditEvents.SingleAsync();
         Assert.Equal(entry.RecordHash, AuditIntegrity.ComputeRecordHash(entry));
         Assert.Equal(entry.RecordHash, protection.CreateProtector("CSweet.SecurityAuditLedger.v1").Unprotect(entry.IntegritySeal!));
-        var original = JsonSerializer.Deserialize<AuditEventWriteRequest>((await restarted.ComputeAuditOutbox.SingleAsync()).RequestJson)!;
+        var original = JsonSerializer.Deserialize<AuditEventWriteRequest>((await restarted.AuditOutbox.Where(x => x.SourceEntityType == null).SingleAsync()).RequestJson)!;
         await Assert.ThrowsAsync<InvalidOperationException>(() => writer.AppendAsync(original with { Summary = "different evidence" }));
         await Assert.ThrowsAsync<InvalidOperationException>(() => writer.AppendAsync(original with { Actor = original.Actor! with { InstallationId = Guid.NewGuid() } }));
         Assert.Equal(1, await restarted.AuditEvents.CountAsync());

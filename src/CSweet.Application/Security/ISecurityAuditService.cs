@@ -12,5 +12,7 @@ public interface ISecurityAuditService
     Task<SecurityEventDetailResponse?> GetAsync(
         Guid organizationId,
         Guid eventId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool groupModelResponse = false,
+        Guid? employeeId = null);
 }

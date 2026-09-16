@@ -139,8 +139,9 @@ public static class DependencyInjection
         builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeResultReconciler>();
         builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeMaintenanceVerifier>();
         builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeMaintenanceIngestor>();
-        builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeAuditDispatcher>();
-        builder.Services.AddHostedService<CSweet.Infrastructure.Compute.ComputeAuditWorker>();
+        builder.Services.AddScoped<CSweet.Infrastructure.Setup.AuditOutboxDispatcher>();
+        builder.Services.AddScoped<AuditHistoryImporter>();
+        builder.Services.AddHostedService<CSweet.Infrastructure.Setup.AuditOutboxWorker>();
         builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
         builder.Services.AddScoped<IScopedActionAuthorizationService, ScopedActionAuthorizationService>();
         builder.Services.AddScoped<IAgentRuntimeSettingsService, AgentRuntimeSettingsService>();

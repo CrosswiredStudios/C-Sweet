@@ -59,7 +59,7 @@ public sealed class ComputeResultTests
         Assert.True(environment.HoldsReservation);
         Assert.Equal("vm-1", environment.ProviderResourceId);
         Assert.Equal("Completed", (await f.Broker.Db.ComputeOperations.SingleAsync()).Status);
-        Assert.Equal(2, await f.Broker.Db.ComputeAuditOutbox.CountAsync());
+        Assert.Equal(2, await f.Broker.Db.AuditOutbox.Where(x => x.SourceEntityType == null).CountAsync());
         Assert.Equal(2, await f.Broker.Db.AgentPlatformEventOutbox.CountAsync(x => x.EventType == "com.csweet.compute.changed.v1"));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Reconciler.ApplyAsync(f.Sign(f.Result with { ResourceId = "different-vm" }), default));
     }
@@ -115,7 +115,7 @@ public sealed class ComputeResultTests
             scenario == "purpose" ? "CSweet.WebHost.Assignment.v1\n" : null), default));
         Assert.Equal(ComputeLifecycleState.Requested, (await f.Broker.Db.ComputeEnvironments.SingleAsync()).State);
         Assert.True((await f.Broker.Db.ComputeEnvironments.SingleAsync()).HoldsReservation);
-        Assert.Equal(1, await f.Broker.Db.ComputeAuditOutbox.CountAsync());
+        Assert.Equal(1, await f.Broker.Db.AuditOutbox.Where(x => x.SourceEntityType == null).CountAsync());
         Assert.Equal("Rejected", Assert.Single(f.Broker.Ledger.Events).Outcome);
     }
 }

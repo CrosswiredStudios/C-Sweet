@@ -7,6 +7,11 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using System.Data;
+using System.Text;
+using System.Text.Json;
+using System.Security.Cryptography;
+using CSweet.Domain.Notifications;
+using CSweet.Contracts.Realtime;
 
 namespace CSweet.Infrastructure.Setup;
 
@@ -15,6 +20,7 @@ public sealed class AuditEventWriter : IAuditEventWriter
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IAuditExecutionContextAccessor _executionContext;
     private readonly IDataProtector _protector;
+    private readonly IDataProtector _payloadProtector;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _streamLocks = new(StringComparer.Ordinal);
 
     public AuditEventWriter(
@@ -25,6 +31,7 @@ public sealed class AuditEventWriter : IAuditEventWriter
         _scopeFactory = scopeFactory;
         _executionContext = executionContext;
         _protector = dataProtectionProvider.CreateProtector("CSweet.SecurityAuditLedger.v1");
+        _payloadProtector = dataProtectionProvider.CreateProtector("CSweet.AuditPayload.v1");
     }
 
     public async Task WriteAsync(
@@ -78,7 +85,7 @@ public sealed class AuditEventWriter : IAuditEventWriter
                     : null;
 
                 var previousHash = await db.AuditEvents.AsNoTracking()
-                    .Where(x => x.OrganizationId == organizationId && x.IntegrityVersion == 1)
+                    .Where(x => x.OrganizationId == organizationId && x.IntegrityVersion >= 1)
                     .OrderByDescending(x => x.Sequence)
                     .Select(x => x.RecordHash)
                     .FirstOrDefaultAsync(cancellationToken);
@@ -89,6 +96,20 @@ public sealed class AuditEventWriter : IAuditEventWriter
                 var payload = request.Payload is { } body
                     ? AuditPayloadSanitizer.Capture(body, request.ContentType)
                     : null;
+                var associations = request.Employees?.ToList() ?? [];
+                if (actor.OrganizationUserId is Guid actorEmployee) associations.Add(new(actorEmployee, "Actor"));
+                // Explicit capture-time associations take precedence over current installation links.
+                if (request.Employees is null && existing is null)
+                {
+                    var installations = new[] { actor.InstallationId, request.Target?.InstallationId }.OfType<Guid>().ToArray();
+                    if (installations.Length > 0)
+                        foreach (var employee in await db.CoreOrganizationUsers.AsNoTracking()
+                            .Where(x => x.OrganizationId == organizationId && x.AgentInstallationId.HasValue && installations.Contains(x.AgentInstallationId.Value))
+                            .Select(x => new { x.Id, x.AgentInstallationId }).ToListAsync(cancellationToken))
+                            associations.Add(new(employee.Id, employee.AgentInstallationId == actor.InstallationId ? "Actor" : "Target"));
+                }
+                var employeeJson = existing is not null && request.Employees is null ? existing.EmployeesJson :
+                    JsonSerializer.Serialize(associations.Distinct().OrderBy(x => x.EmployeeId).ThenBy(x => x.Role, StringComparer.Ordinal));
                 var item = new AuditEvent
                 {
                     Id = request.EventId ?? Guid.NewGuid(),
@@ -135,7 +156,9 @@ public sealed class AuditEventWriter : IAuditEventWriter
                     PayloadTruncated = payload?.Truncated ?? false,
                     ErrorCode = CleanOptional(request.ErrorCode, 160),
                     ErrorMessage = CleanOptional(request.ErrorMessage, 2048),
-                    IntegrityVersion = 1,
+                    IntegrityVersion = existing?.IntegrityVersion ?? 2,
+                    EmployeesJson = employeeJson,
+                    EvidenceSha256 = payload?.FullContent is string full ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(full))) : null,
                     PreviousRecordHash = previousHash
                 };
                 // Stable producer identity makes delivery safe across a crash after ledger
@@ -150,9 +173,24 @@ public sealed class AuditEventWriter : IAuditEventWriter
                         throw new InvalidOperationException("Audit event identity already has different evidence.");
                     return existing.Id;
                 }
+                if (!db.Database.IsRelational()) item.Sequence = (await db.AuditEvents.Select(x => (long?)x.Sequence).MaxAsync(cancellationToken) ?? 0) + 1;
                 item.RecordHash = AuditIntegrity.ComputeRecordHash(item);
                 item.IntegritySeal = _protector.Protect(item.RecordHash);
                 db.AuditEvents.Add(item);
+                if (payload?.FullContent is string content)
+                    db.AuditEventPayloads.Add(new() { AuditEventId = item.Id, ProtectedContent = _payloadProtector.Protect(Encoding.UTF8.GetBytes(content)) });
+                if (organizationId is Guid org)
+                {
+                    foreach (var association in JsonSerializer.Deserialize<List<AuditEmployeeAssociation>>(employeeJson ?? "[]") ?? [])
+                        db.AuditEventEmployees.Add(new() { AuditEventId = item.Id, OrganizationId = org, EmployeeId = association.EmployeeId, Role = association.Role });
+                    if (associations.Count > 0 && item.Category != "SecurityAccess")
+                        db.ApplicationRealtimeOutbox.Add(new()
+                        {
+                            Id = Guid.NewGuid(), OrganizationId = org, EventType = AppRealtimeEvents.AuditChanged,
+                            Subject = $"audit/{item.Id:D}", DataJson = JsonSerializer.Serialize(new { employeeIds = associations.Select(x => x.EmployeeId).Distinct().ToArray() }),
+                            OccurredAt = now, NextAttemptAt = now
+                        });
+                }
                 await db.SaveChangesAsync(cancellationToken);
                 if (transaction is not null) await transaction.CommitAsync(cancellationToken);
                 return item.Id;
@@ -168,7 +206,7 @@ public sealed class AuditEventWriter : IAuditEventWriter
         string.IsNullOrWhiteSpace(value) ? fallback : value.Trim()[..Math.Min(value.Trim().Length, maximum)];
 
     private static string? CleanOptional(string? value, int maximum) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim()[..Math.Min(value.Trim().Length, maximum)];
+        string.IsNullOrWhiteSpace(value) ? null : AuditPayloadSanitizer.RedactText(value.Trim()[..Math.Min(value.Trim().Length, maximum)]);
 
     public static DateTimeOffset NormalizeTimestamp(DateTimeOffset value)
     {

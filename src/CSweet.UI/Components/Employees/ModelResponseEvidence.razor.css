@@ -1,0 +1,5 @@
+.model-response-evidence { min-width: 0; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 32rem; overflow: auto; padding: 1rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; font-size: .8rem; }
+p, h4, details { margin: .8rem 0; }
+summary { cursor: pointer; }
+ul { max-height: 18rem; overflow: auto; padding-left: 1.25rem; font-size: .75rem; overflow-wrap: anywhere; }

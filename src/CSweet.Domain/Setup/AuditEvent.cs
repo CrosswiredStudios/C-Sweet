@@ -47,6 +47,8 @@ public sealed class AuditEvent
     public string? PayloadSha256 { get; set; }
     public long? PayloadSize { get; set; }
     public bool PayloadTruncated { get; set; }
+    public string? EvidenceSha256 { get; set; }
+    public string? EmployeesJson { get; set; }
     public string? ErrorCode { get; set; }
     public string? ErrorMessage { get; set; }
 

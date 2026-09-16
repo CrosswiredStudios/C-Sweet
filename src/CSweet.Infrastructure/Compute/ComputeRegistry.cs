@@ -143,6 +143,6 @@ public sealed class ComputeRegistry(CSweetDbContext db, TimeProvider clock, IAud
             EntityType: "ComputeRegistry", EntityId: entityId, Actor: context.Current?.Actor ?? new("Platform"),
             OccurredAt: now, EventId: id, UseAmbientOrganization: false,
             MetadataJson: JsonSerializer.Serialize(new { revision, enabled, details }));
-        db.ComputeAuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(request) });
+        db.AuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(request) });
     }
 }

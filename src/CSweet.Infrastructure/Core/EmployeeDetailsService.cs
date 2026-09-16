@@ -43,7 +43,10 @@ public sealed class EmployeeDetailsService(
             employee.Worker?.ToResponse(), manager?.ToResponse(), reports.Select(x => x.ToResponse()).ToList(),
             employeeTeams, new EmployeeDetailsPermissions(sensitive, self || ownerOverride || sensitive,
                 ownerOverride || (!self && descendants.Contains(employee.Id)), sensitive,
-                self, self && employee.EmployeeType == EmployeeType.Human));
+                self, self && employee.EmployeeType == EmployeeType.Human,
+                actor.EmployeeType == EmployeeType.Human && employee.EmployeeType == EmployeeType.Agent &&
+                (ownerOverride || (!self && sensitive)),
+                actor.EmployeeType == EmployeeType.Human && actor.PermissionLevel is OrganizationPermissionLevel.Owner or OrganizationPermissionLevel.Manager));
     }
 
     public async Task<EmployeeDetailsResponse> UpdateProfileAsync(Guid organizationId, Guid employeeId,

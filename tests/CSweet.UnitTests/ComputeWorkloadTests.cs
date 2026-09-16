@@ -23,7 +23,7 @@ public sealed class ComputeWorkloadTests
         Assert.Equal(accepted.Id, (await f.Broker.SubmitWorkloadAsync(f.Organization, f.Installation, input, default)).Id);
         Assert.Equal(2, await f.Db.ComputeOperations.CountAsync());
         Assert.Single(await f.Db.ComputeProviderWakes.Where(x => x.OperationId == accepted.Id).ToListAsync());
-        Assert.Single(await f.Db.ComputeAuditOutbox.Where(x => x.RequestJson.Contains("compute.execute.v1")).ToListAsync());
+        Assert.Single(await f.Db.AuditOutbox.Where(x => x.SourceEntityType == null).Where(x => x.RequestJson.Contains("compute.execute.v1")).ToListAsync());
         await Assert.ThrowsAsync<InvalidOperationException>(() => f.Broker.SubmitWorkloadAsync(f.Organization, f.Installation,
             input with { Workload = new(input.Workload.Command! with { Arguments = ["Changed"] }) }, default));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Broker.ReadOperationAsync(f.Organization, Guid.NewGuid(), accepted.Id, default));

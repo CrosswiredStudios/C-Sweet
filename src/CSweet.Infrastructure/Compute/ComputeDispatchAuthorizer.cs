@@ -141,7 +141,7 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                     Actor: new("Platform"), OccurredAt: now, UseAmbientOrganization: false, EventId: id, ErrorCode: code,
                     MetadataJson: JsonSerializer.Serialize(new { operation.Id, operation.Action, operation.Generation, operation.DispatchLeaseId,
                         environment.InstallationId, environment.ProviderNodeId, dispatchMode, operation.AuthorityJson }));
-                db.ComputeAuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(evidence) });
+                db.AuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(evidence) });
             }
         }
         catch { db.ChangeTracker.Clear(); throw; }

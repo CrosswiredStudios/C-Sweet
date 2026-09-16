@@ -1,0 +1,71 @@
+@using CSweet.Contracts.Security
+@using System.Text.Json
+@inject IJSRuntime JS
+@if (Event is not null)
+{
+<section class="audit-inspector" aria-label="Event details">
+    <div class="inspector-heading"><h3>@(Event.ModelResponse is null ? Label(Event.EventType) : "Model response")</h3><span class="audit-outcome">@Event.Outcome</span></div>
+    <div class="audit-secondary">@Event.OccurredAt.ToLocalTime().ToString("MMM d, yyyy · HH:mm:ss.fff zzz")</div>
+    <div class="audit-integrity @(Event.IntegrityStatus == "Verified" ? "verified" : "unverified")">@Event.IntegrityStatus integrity</div>
+    @if (!string.IsNullOrWhiteSpace(Event.ErrorMessage)) { <MudAlert Severity="Severity.Error" Dense="true">@Event.ErrorCode: @Event.ErrorMessage</MudAlert> }
+    <MudTabs Elevation="0" Rounded="true">
+        <MudTabPanel Text="Payload">
+            @if (Event.ModelResponse is { } response)
+            {
+                <ModelResponseEvidence Response="response" OrganizationId="OrganizationId" ShowAuditLink="ShowAuditLink" />
+                <details><summary>Selected audit record</summary>
+            <p class="audit-secondary">Recorded evidence · @Event.PayloadAvailability</p>
+            @if (Event.PayloadAvailability is "PreviewOnly" or "NotRecorded") { <MudAlert Severity="Severity.Info" Dense="true">Full evidence was not recorded. Historical gaps cannot be reconstructed.</MudAlert> }
+            @if (Event.PayloadContent is not null || Event.PayloadPreview is not null) { <pre class="audit-evidence">@Pretty(Event.PayloadContent ?? Event.PayloadPreview)</pre> }
+            @if (Event.PayloadContent is null && Event.PayloadTruncated) { <p class="audit-secondary">The retained preview is truncated.</p> }
+            @if (!string.IsNullOrWhiteSpace(Event.MetadataJson)) { <h4>Metadata</h4><pre class="audit-evidence">@Pretty(Event.MetadataJson)</pre> }
+                </details>
+            }
+            else
+            {
+            <p class="audit-secondary">Recorded evidence · @Event.PayloadAvailability</p>
+            @if (Event.PayloadAvailability is "PreviewOnly" or "NotRecorded") { <MudAlert Severity="Severity.Info" Dense="true">Full evidence was not recorded. Historical gaps cannot be reconstructed.</MudAlert> }
+            @if (Event.PayloadContent is not null || Event.PayloadPreview is not null) { <pre class="audit-evidence">@Pretty(Event.PayloadContent ?? Event.PayloadPreview)</pre> }
+            @if (Event.PayloadContent is null && Event.PayloadTruncated) { <p class="audit-secondary">The retained preview is truncated.</p> }
+            @if (!string.IsNullOrWhiteSpace(Event.MetadataJson)) { <h4>Metadata</h4><pre class="audit-evidence">@Pretty(Event.MetadataJson)</pre> }
+            }
+        </MudTabPanel>
+        <MudTabPanel Text="Context">
+            <dl>
+                <dt>Event</dt><dd>@Event.EventType</dd>
+                <dt>Actor</dt><dd>@(Event.ActorDisplayName ?? Event.ActorAgentId ?? Event.ActorKind)</dd>
+                <dt>Target</dt><dd>@(Event.TargetDisplayName ?? Event.TargetAgentId ?? "—")</dd>
+                <dt>Entity</dt><dd>@Event.EntityType · @Event.EntityId</dd>
+                <dt>Occurred (UTC)</dt><dd>@Event.OccurredAt.UtcDateTime.ToString("O")</dd>
+                <dt>Recorded (UTC)</dt><dd>@Event.RecordedAt.UtcDateTime.ToString("O")</dd>
+                <dt>Installation</dt><dd>@Event.ActorInstallationId</dd><dt>Runtime</dt><dd>@Event.ActorRuntimeInstanceId</dd>
+                <dt>Audit event</dt><dd>@Event.Id</dd><dt>Trace</dt><dd>@Event.TraceId</dd><dt>Correlation</dt><dd>@Event.CorrelationId</dd>
+                <dt>Payload bytes</dt><dd>@Event.PayloadSize</dd><dt>SHA-256</dt><dd>@Event.PayloadSha256</dd>
+                <dt>Employees</dt><dd>@Event.EmployeesJson</dd>
+            </dl>
+        </MudTabPanel>
+        <MudTabPanel Text="Related">
+            @if (!string.IsNullOrWhiteSpace(Event.CorrelationId) && CorrelationSelected.HasDelegate) { <MudButton OnClick="@(() => CorrelationSelected.InvokeAsync(Event.CorrelationId))">Show this interaction</MudButton> }
+            @if (Event.ParentEventId is Guid parent) { <p>Parent event: @parent</p> }
+            @foreach (var child in Event.ChildEventIds) { <p>Related event: @child</p> }
+            @if (Event.ParentEventId is null && Event.ChildEventIds.Count == 0 && string.IsNullOrWhiteSpace(Event.CorrelationId)) { <p class="audit-secondary">No related events were recorded.</p> }
+        </MudTabPanel>
+    </MudTabs>
+    <footer>
+        @if (ShowAuditLink) { <MudLink Href="@($"/organizations/{OrganizationId}/security?eventId={Event.Id}")">View in audit log ↗</MudLink> }
+        <MudButton Size="Size.Small" OnClick="CopyAsync">@(_copied ? "Copied" : "Copy event ID")</MudButton>
+    </footer>
+</section>
+}
+@code {
+    [Parameter] public SecurityEventDetailResponse? Event { get; set; }
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public bool ShowAuditLink { get; set; }
+    [Parameter] public EventCallback<string> CorrelationSelected { get; set; }
+    private bool _copied;
+    private Guid? _lastId;
+    protected override void OnParametersSet() { if (_lastId != Event?.Id) { _copied = false; _lastId = Event?.Id; } }
+    private async Task CopyAsync() { try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", Event!.Id.ToString()); _copied = true; } catch (JSException) { _copied = false; } }
+    public static string Label(string type) => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(type.Replace('.', ' ').Replace('_', ' '));
+    private static string? Pretty(string? value) { if (string.IsNullOrWhiteSpace(value)) return value; try { return JsonSerializer.Serialize(JsonSerializer.Deserialize<JsonElement>(value), new JsonSerializerOptions { WriteIndented = true }); } catch (JsonException) { return value; } }
+}

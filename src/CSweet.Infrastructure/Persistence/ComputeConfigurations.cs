@@ -31,6 +31,7 @@ internal static class ComputeConfigurations
         {
             entity.ToTable("ComputeAuditOutbox"); entity.HasKey(x => x.Id);
             entity.Property(x => x.RequestJson).HasColumnType("text").IsRequired();
+            entity.HasIndex(x => new { x.SourceEntityType, x.SourceEntityId });
             entity.HasIndex(x => new { x.DeliveredAt, x.CreatedAt, x.Id });
         });
         model.Entity<ComputeNodeRegistration>(entity =>

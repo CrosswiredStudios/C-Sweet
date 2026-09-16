@@ -177,7 +177,7 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
             MetadataJson: JsonSerializer.Serialize(new { action,
                 workstreamId = environment.WorkstreamId, environment.Generation, environment.RequestDigest, grants = authority }),
             UseAmbientOrganization: false, EventId: id);
-        db.ComputeAuditOutbox.Add(new() { Id = id, CreatedAt = clock.GetUtcNow(), RequestJson = JsonSerializer.Serialize(request) });
+        db.AuditOutbox.Add(new() { Id = id, CreatedAt = clock.GetUtcNow(), RequestJson = JsonSerializer.Serialize(request) });
     }
 
     private void AddReceipt(ComputeEnvironment environment, string key, string digest) => db.ComputeRequestReceipts.Add(new()

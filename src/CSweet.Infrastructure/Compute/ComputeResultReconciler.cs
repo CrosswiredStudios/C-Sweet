@@ -106,7 +106,7 @@ public sealed class ComputeResultReconciler(CSweetDbContext db, ComputeProviderR
                 MetadataJson: JsonSerializer.Serialize(new { operation.Id, operation.Action, operation.Generation,
                     environment.InstallationId, environment.ProviderId, environment.ProviderNodeId,
                     result.Sequence, result.State, result.TeardownConfirmed, operation.AuthorityJson }));
-            db.ComputeAuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(evidence) });
+            db.AuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(evidence) });
             await db.SaveChangesAsync(token);
             if (transaction is not null) await transaction.CommitAsync(token);
             return true;

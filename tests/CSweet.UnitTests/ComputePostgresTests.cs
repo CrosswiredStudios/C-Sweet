@@ -145,7 +145,7 @@ public sealed class ComputePostgresTests
     {
         await using var database = new Database(); await database.CreateAsync();
         await using var fixture = new ComputeBrokerTests.Fixture(database.Options()); await fixture.SeedAsync(); await fixture.Send();
-        var row = await fixture.Db.ComputeAuditOutbox.SingleAsync();
+        var row = await fixture.Db.AuditOutbox.Where(x => x.SourceEntityType == null).SingleAsync();
         var request = JsonSerializer.Deserialize<AuditEventWriteRequest>(row.RequestJson)!;
         var services = new ServiceCollection();
         services.AddScoped(_ => new CSweetDbContext(database.Options()));
@@ -159,8 +159,8 @@ public sealed class ComputePostgresTests
         Assert.Equal(row.Id, entry.Id);
         Assert.Equal(entry.RecordHash, AuditIntegrity.ComputeRecordHash(entry));
         Assert.Equal(entry.RecordHash, protection.CreateProtector("CSweet.SecurityAuditLedger.v1").Unprotect(entry.IntegritySeal!));
-        Assert.Equal(1, await new ComputeAuditDispatcher(verify, Writer(), new ComputeBrokerTests.Clock()).DispatchAsync(default));
-        Assert.Equal(1, await verify.AuditEvents.CountAsync());
+        Assert.True(await new AuditOutboxDispatcher(verify, Writer(), new ComputeBrokerTests.Clock()).DispatchAsync(default) >= 1);
+        Assert.Equal(1, await verify.AuditEvents.CountAsync(x => x.Id == row.Id));
     }
 
     private sealed class SaveGate : SaveChangesInterceptor
@@ -206,7 +206,7 @@ public sealed class ComputePostgresTests
         Assert.Equal(2, results[0].Generation);
         await using var verify = new CSweetDbContext(database.Options());
         Assert.Equal(1, await verify.ComputeOperations.CountAsync(x => x.Action == InfrastructureActions.Destroy));
-        Assert.Equal(2, await verify.ComputeAuditOutbox.CountAsync());
+        Assert.Equal(2, await verify.AuditOutbox.Where(x => x.SourceEntityType == null).CountAsync());
         Assert.Equal(2, await verify.AgentPlatformEventOutbox.CountAsync(x => x.EventType == "com.csweet.compute.changed.v1"));
         Assert.Null((await verify.ComputeEnvironments.SingleAsync()).TeardownConfirmedAt);
     }
@@ -227,7 +227,7 @@ public sealed class ComputePostgresTests
         await using var verify = new CSweetDbContext(database.Options());
         Assert.Equal(CSweet.Domain.Compute.ComputeLifecycleState.Requested, (await verify.ComputeEnvironments.SingleAsync()).State);
         Assert.Equal(0, (await verify.ComputeOperations.SingleAsync()).LastResultSequence);
-        Assert.Equal(1, await verify.ComputeAuditOutbox.CountAsync());
+        Assert.Equal(1, await verify.AuditOutbox.Where(x => x.SourceEntityType == null).CountAsync());
         Assert.Equal(1, await verify.AgentPlatformEventOutbox.CountAsync(x => x.EventType == "com.csweet.compute.changed.v1"));
         Assert.True(await fixture.Reconciler.ApplyAsync(envelope, default));
         Assert.False(await fixture.Reconciler.ApplyAsync(envelope, default));
@@ -289,7 +289,7 @@ public sealed class ComputePostgresTests
         var operation = await verify.ComputeOperations.SingleAsync();
         Assert.Equal(claim.DispatchId, operation.DispatchLeaseId);
         Assert.Equal(1, operation.Attempts);
-        Assert.Equal(5, await verify.ComputeAuditOutbox.CountAsync());
+        Assert.Equal(5, await verify.AuditOutbox.Where(x => x.SourceEntityType == null).CountAsync());
     }
 
     [PostgresTheory]
@@ -402,7 +402,7 @@ public sealed class ComputePostgresTests
         await using var verify = new CSweetDbContext(database.Options());
         Assert.Equal(0, await verify.ComputeEnvironments.CountAsync());
         Assert.Equal(0, await verify.ComputeAdmissions.CountAsync());
-        Assert.Equal(0, await verify.ComputeAuditOutbox.CountAsync());
+        Assert.Equal(0, await verify.AuditOutbox.Where(x => x.SourceEntityType == null).CountAsync());
         Assert.Equal(0, await verify.ComputeOperations.CountAsync());
         Assert.Equal(0, await verify.ComputeProviderWakes.CountAsync());
         Assert.Equal(0, await verify.ComputeRequestReceipts.CountAsync());

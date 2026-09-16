@@ -50,7 +50,7 @@ public sealed class ComputeGrantAdministration(CSweetDbContext db, TimeProvider 
         grant.ConstraintsJson = JsonSerializer.Serialize(request.Constraints, ComputeProtocol.Json);
         grant.ExpiresAt = request.ExpiresAt; grant.RevokedAt = request.Enabled ? null : now;
         var id = Guid.NewGuid();
-        db.ComputeAuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(new AuditEventWriteRequest(
+        db.AuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(new AuditEventWriteRequest(
             "compute.grant.changed.v1", Category: "Infrastructure", Outcome: request.Enabled ? "Granted" : "Revoked", OrganizationId: organizationId,
             EntityType: "ScopedActionGrant", EntityId: grantId, Actor: context.Current?.Actor ?? new("HostAdministrator"), OccurredAt: now, EventId: id,
             UseAmbientOrganization: false, MetadataJson: JsonSerializer.Serialize(new { request.InstallationId, request.WorkstreamId, request.Action, grant.Revision, request.ExpiresAt }))) });

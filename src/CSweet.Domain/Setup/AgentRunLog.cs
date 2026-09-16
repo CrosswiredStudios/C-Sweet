@@ -3,6 +3,8 @@ namespace CSweet.Domain.Setup;
 public sealed class AgentRunLog
 {
     public Guid Id { get; set; }
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? RequestEvidenceJson { get; set; }
     public Guid? TaskRunId { get; set; }
     public Guid? OrganizationId { get; set; }
     public Guid? EmployeeId { get; set; }

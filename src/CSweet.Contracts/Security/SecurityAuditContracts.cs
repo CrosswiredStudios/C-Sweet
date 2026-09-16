@@ -9,7 +9,11 @@ public sealed record SecurityEventQuery(
     string? Direction = null,
     string? Outcome = null,
     string? ActorKind = null,
-    string? Search = null);
+    string? Search = null,
+    Guid? EmployeeId = null,
+    bool OrderByOccurrence = false,
+    string? CorrelationId = null,
+    bool GroupModelResponses = false);
 
 public sealed record SecurityEventPageResponse(
     IReadOnlyList<SecurityEventSummaryResponse> Items,
@@ -30,10 +34,13 @@ public sealed record SecurityEventSummaryResponse(
     string? CorrelationId,
     string IntegrityStatus,
     string EntityType,
-    Guid? EntityId);
+    Guid? EntityId,
+    string? EmployeeRole = null,
+    int? ModelResponseChunkCount = null);
 
 public sealed class SecurityEventDetailResponse
 {
+    public ModelResponseAuditResponse? ModelResponse { get; init; }
     public Guid Id { get; init; }
     public long Sequence { get; init; }
     public Guid OrganizationId { get; init; }
@@ -76,9 +83,26 @@ public sealed class SecurityEventDetailResponse
     public string? PayloadSha256 { get; init; }
     public long? PayloadSize { get; init; }
     public bool PayloadTruncated { get; init; }
+    public string? PayloadContent { get; init; }
+    public string PayloadAvailability { get; init; } = "NotRecorded";
+    public string? EmployeesJson { get; init; }
     public string? ErrorCode { get; init; }
     public string? ErrorMessage { get; init; }
     public string? PreviousRecordHash { get; init; }
     public string? RecordHash { get; init; }
     public string IntegrityStatus { get; init; } = string.Empty;
 }
+
+public sealed record ModelResponseAuditSource(Guid Id, DateTimeOffset OccurredAt, string EventType);
+
+public sealed record ModelResponseAuditResponse(
+    int ChunkCount,
+    int InspectedChunkCount,
+    int EmptyChunkCount,
+    string Text,
+    IReadOnlyList<System.Text.Json.JsonElement> Contents,
+    long? InputTokens,
+    long? OutputTokens,
+    string IntegrityStatus,
+    bool Incomplete,
+    IReadOnlyList<ModelResponseAuditSource> Sources);

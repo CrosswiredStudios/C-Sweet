@@ -60,7 +60,7 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         db.Add(new ComputeAgentAccess { Id = installationId, OrganizationId = organizationId, SetupId = setup.Id,
             WorkstreamId = workstreamId, CreatedAt = now });
         var auditId = Guid.NewGuid();
-        db.ComputeAuditOutbox.Add(new() { Id = auditId, CreatedAt = now, RequestJson = JsonSerializer.Serialize(
+        db.AuditOutbox.Add(new() { Id = auditId, CreatedAt = now, RequestJson = JsonSerializer.Serialize(
             new AuditEventWriteRequest("compute.workspace.preparation-requested.v1", Category: "Infrastructure",
                 Outcome: "Accepted", OrganizationId: organizationId, EntityType: "AgentInstallation", EntityId: installationId,
                 Actor: new("Application", InstallationId: installationId), EventId: auditId, OccurredAt: now,
@@ -106,7 +106,7 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
                 {
                     legacy.RevokedAt = clock.GetUtcNow(); legacy.Revision++;
                     var auditId = Guid.NewGuid();
-                    db.ComputeAuditOutbox.Add(new() { Id = auditId, CreatedAt = clock.GetUtcNow(), RequestJson = JsonSerializer.Serialize(
+                    db.AuditOutbox.Add(new() { Id = auditId, CreatedAt = clock.GetUtcNow(), RequestJson = JsonSerializer.Serialize(
                         new AuditEventWriteRequest("compute.automatic-network-grant.retired.v1", Category: "Infrastructure", Outcome: "Revoked",
                             OrganizationId: access.OrganizationId, EntityType: "ScopedActionGrant", EntityId: oldId,
                             Actor: new("Application"), EventId: auditId, UseAmbientOrganization: false)) });

@@ -56,6 +56,8 @@ public static class AuditIntegrity
             item.ErrorMessage,
             item.PreviousRecordHash
         };
-        return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(canonical, JsonOptions)));
+        var legacyHash = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(canonical, JsonOptions)));
+        return item.IntegrityVersion < 2 ? legacyHash : Convert.ToHexString(SHA256.HashData(
+            JsonSerializer.SerializeToUtf8Bytes(new { item.IntegrityVersion, legacyHash, item.EmployeesJson, item.EvidenceSha256 }, JsonOptions)));
     }
 }

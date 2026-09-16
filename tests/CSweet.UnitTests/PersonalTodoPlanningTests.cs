@@ -126,8 +126,12 @@ public sealed partial class PersonalTodoServiceTests
         Assert.Equal(WorkTaskStatus.Blocked, (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.Id)).Status);
         Assert.Equal(WorkTaskStatus.Blocked, (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.ParentItemId)).Status);
         var blockedRoot = await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id);
+        // A board move arrives in a fresh request context, with audit capture enabled.
+        db.ChangeTracker.Clear();
         await service.RequeueAsync(setup.Organization.Id, actor,
             new(root.Id, blockedRoot.Revision, "resume-plan"));
+        db.ChangeTracker.Clear();
+        Assert.Equal(WorkTaskStatus.Ready, (await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id)).Status);
         Assert.Equal(WorkTaskStatus.Backlog, (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.Id)).Status);
         Assert.Equal(WorkTaskStatus.Backlog,
             (await db.CoreWorkTasks.SingleAsync(x => x.Id == task.ParentItemId)).Status);
@@ -202,6 +206,8 @@ public sealed partial class PersonalTodoServiceTests
 
     [Theory]
     [InlineData("Development is blocked: Application tests failed.")]
+    [InlineData("Development is blocked: The development run needs attention.")]
+    [InlineData("Development is blocked: The completion report could not be accepted.")]
     [InlineData("Development is blocked: The configured compute replacement limit was reached. Source and test results are saved; increase Maximum compute replacements after resolving the provider failure.")]
     public async Task AgentUpdateAutomaticallyReopensItsOlderDevelopmentBlockAndPlanChildren(string blocker)
     {
@@ -232,7 +238,9 @@ public sealed partial class PersonalTodoServiceTests
         (await db.AgentInstallations.SingleAsync(x => x.Id == setup.Agent.AgentInstallationId)).UpdatedAt = clock.GetUtcNow();
         await db.SaveChangesAsync();
         clock.Advance(TimeSpan.FromMinutes(1));
+        db.ChangeTracker.Clear();
         await service.ReconcileAsync();
+        db.ChangeTracker.Clear();
 
         var reopenedRoot = await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id);
         Assert.Equal(WorkTaskStatus.Ready, reopenedRoot.Status);

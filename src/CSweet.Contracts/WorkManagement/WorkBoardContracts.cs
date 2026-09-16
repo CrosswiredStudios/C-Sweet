@@ -97,7 +97,9 @@ public sealed record EmployeeDetailsPermissions(
     bool CanManageStructure,
     bool CanManagePersonalBoard,
     bool IsSelf,
-    bool CanExecutePersonalWork);
+    bool CanExecutePersonalWork,
+    bool CanViewTimeline = false,
+    bool CanViewAuditLog = false);
 
 public sealed record EmployeeDetailsResponse(
     CSweet.Contracts.Core.OrganizationUserResponse Employee,

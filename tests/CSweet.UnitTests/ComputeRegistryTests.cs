@@ -33,7 +33,7 @@ public sealed class ComputeRegistryTests
         Assert.NotNull(await registry.ResolveAsync(f.Organization, node.Id, "key-two", default));
         await registry.PutNodeAsync(f.Organization, node.Id, 2, node.Name, node.ProviderId, node.KeyId, node.VerificationPublicKeyBase64, false, default);
         Assert.Null(await registry.ResolveAsync(f.Organization, node.Id, "key-two", default));
-        Assert.Equal(3, await f.Db.ComputeAuditOutbox.CountAsync());
+        Assert.Equal(3, await f.Db.AuditOutbox.Where(x => x.SourceEntityType == null).CountAsync());
     }
 
     [Fact]

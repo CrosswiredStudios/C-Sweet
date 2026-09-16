@@ -49,3 +49,7 @@ Endpoint equivalents: `GET /communications/hub/chats/{chatId}/turns[/{turnId}[/t
 - Agent-side failures (`platform.capability.denied`, `unavailable`, `validation_failed`) usually mean
   the installation grant is missing or stale, or the agent called a capability it was not approved
   for; compare `AgentWorkItems.Error` with the installation's approved grant set.
+
+## Employee timeline
+
+The employee details **Timeline** tab correlates chat traces with messages, work attempts, tool/model calls, and runtime events using the shared audit ledger. See [Employee audit timeline](features/employee-audit-timeline.md) for capture coverage, privileged diagnostic access, and historical limitations.
