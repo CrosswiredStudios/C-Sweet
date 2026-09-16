@@ -28,6 +28,8 @@ Create and modify payloads accept explicit `participantOrganizationUserIds` plus
 
 Modify, archive, and send payloads include `chatId`. Send also includes `content`. Read accepts an empty payload to list the hub or `{ "chatId": "..." }` to list messages.
 
+Agents may also attach a platform-resolved workflow action with `platform.user-action.suggest.v1`. Hiring actions (`hiring.marketplace.browse.v1`) render as the suggestion carousel described in [Hiring suggestion lifecycle](./features/hiring-suggestion-lifecycle.md).
+
 ## Human authority
 
 - Active organization members can create direct messages and participate in chats to which they belong.
@@ -62,5 +64,7 @@ Plugins can declare and receive these subscriptions:
 - `com.csweet.communication.message.updated.v1`
 - `com.csweet.communication.message.deleted.v1`
 - `com.csweet.communication.read.updated.v1`
+
+Suggested-action state changes (`com.csweet.communication.user-action.created.v1`, `...superseded.v1`, `...cancelled.v1`) are published through the application realtime outbox to conversation participants rather than the plugin event subscriptions above.
 
 Dispatch is installation-targeted rather than broadcast. An organization-scoped plugin must belong to the event's organization. A system plugin must have a server-owned `PluginOrganizationGrant` for that organization. In both cases, its active installation grant must contain the exact subscription. This prevents one Discord installation from observing another organization's conversation data.

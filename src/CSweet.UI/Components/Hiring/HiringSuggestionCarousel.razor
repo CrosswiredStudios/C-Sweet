@@ -2,7 +2,7 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<section class="hiring-suggestion-carousel @(AllCompleted ? "completed" : null)"
+<section class="hiring-suggestion-carousel @(AllResolved ? "completed" : null)"
          aria-labelledby="@_titleId">
     <header class="hiring-suggestion-carousel-header">
         <div class="hiring-suggestion-carousel-title">
@@ -37,11 +37,14 @@
          aria-label="@($"Hiring suggestions, {Actions.Count} {(Actions.Count == 1 ? "role" : "roles")}")">
         @foreach (var action in Actions)
         {
-            var completed = string.Equals(action.Status, "Completed", StringComparison.Ordinal);
-            <article class="hiring-suggestion-tile @(completed ? "completed" : null)" @key="action.Id">
+            var completed = string.Equals(action.Status, SuggestedUserActionStatuses.Completed, StringComparison.Ordinal);
+            var cancelled = string.Equals(action.Status, SuggestedUserActionStatuses.Cancelled, StringComparison.Ordinal);
+            var superseded = string.Equals(action.Status, SuggestedUserActionStatuses.Superseded, StringComparison.Ordinal);
+            <article class="hiring-suggestion-tile @(completed ? "completed" : null) @(cancelled ? "cancelled" : null) @(superseded ? "superseded" : null)"
+                     @key="action.Id">
                 <span class="hiring-suggestion-status">
-                    <MudIcon Icon="@(completed ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.RocketLaunch)" />
-                    @(completed ? "Completed" : "Suggested")
+                    <MudIcon Icon="@StatusIcon(completed, cancelled, superseded)" />
+                    @StatusLabel(completed, cancelled, superseded)
                 </span>
                 <strong>@RoleName(action)</strong>
                 <div class="hiring-suggestion-tile-action">
@@ -58,6 +61,14 @@
                         {
                             <span>Hiring action completed</span>
                         }
+                    }
+                    else if (superseded)
+                    {
+                        <span>Replaced by @ReplacementRole(action)</span>
+                    }
+                    else if (cancelled)
+                    {
+                        <span>This suggestion was cancelled</span>
                     }
                     else if (!ReadOnly)
                     {
@@ -86,8 +97,19 @@
     private readonly string _titleId = $"hiring-suggestions-{Guid.NewGuid():N}";
     private ElementReference _rail;
     private IJSObjectReference? _module;
-    private bool AllCompleted => Actions.Count > 0 && Actions.All(action =>
-        string.Equals(action.Status, "Completed", StringComparison.Ordinal));
+    private bool AllResolved => Actions.Count > 0 && Actions.All(action =>
+        SuggestedUserActionStatuses.IsResolved(action.Status));
+
+    private static string StatusLabel(bool completed, bool cancelled, bool superseded) =>
+        completed ? "Completed" : cancelled || superseded ? "Cancelled" : "Suggested";
+
+    private static string StatusIcon(bool completed, bool cancelled, bool superseded) =>
+        completed ? Icons.Material.Filled.CheckCircle :
+        cancelled || superseded ? Icons.Material.Outlined.Block :
+        Icons.Material.Outlined.RocketLaunch;
+
+    private static string ReplacementRole(SuggestedUserActionResponse action) =>
+        string.IsNullOrWhiteSpace(action.SupersededByRole) ? "another role" : action.SupersededByRole;
 
     private static string RoleName(SuggestedUserActionResponse action) =>
         !string.IsNullOrWhiteSpace(action.HiringRole)

@@ -234,8 +234,10 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
     private async Task CancelPendingActionsAsync(Guid turnId, CancellationToken cancellationToken)
     {
         var pending = await db.SuggestedUserActions.Where(x => x.ChatTurnId == turnId &&
-            x.ConversationMessageId == null && x.Status == "Pending").ToListAsync(cancellationToken);
-        foreach (var action in pending) action.Status = "Cancelled";
+            x.ConversationMessageId == null &&
+            x.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending).ToListAsync(cancellationToken);
+        foreach (var action in pending)
+            action.Status = CSweet.Contracts.Communications.SuggestedUserActionStatuses.Cancelled;
     }
 
     public async Task AppendOutputAsync(Guid turnId, string delta, CancellationToken cancellationToken = default)
@@ -276,7 +278,8 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         turn.ResponseReadyAt = turn.CompletedAt = turn.UpdatedAt = now;
         turn.LeaseOwner = null; turn.LeaseUntil = null;
         var pendingActions = await db.SuggestedUserActions
-            .Where(x => x.ChatTurnId == turnId && x.ConversationMessageId == null && x.Status == "Pending")
+            .Where(x => x.ChatTurnId == turnId && x.ConversationMessageId == null &&
+                        x.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending)
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         foreach (var action in pendingActions)

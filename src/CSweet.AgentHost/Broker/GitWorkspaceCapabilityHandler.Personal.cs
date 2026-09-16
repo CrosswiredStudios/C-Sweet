@@ -13,9 +13,95 @@ namespace CSweet.AgentHost.Broker;
 
 public sealed partial class GitWorkspaceCapabilityHandler
 {
+    internal const string PersonalReserveCapability = "source-control.personal-work.reserve.v1";
     internal const string PersonalPrepareCapability = "source-control.personal-work.prepare.v1";
     private sealed record PersonalPrepareInput(Guid ItemId, string IdempotencyKey);
 
+    private async Task<PersonalRepositoryReservation> ReservePersonalAsync(Guid business, Guid installation,
+        ReservePersonalRepositoryRequest input, CancellationToken ct)
+    {
+        ValidateIdempotencyKey(input.IdempotencyKey);
+        if (input.ExpectedRevision < 1 || string.IsNullOrWhiteSpace(input.SuggestedName))
+            throw new ArgumentException("A repository reservation requires a suggested name and expected ticket revision.");
+        var item = await db.CoreWorkTasks.Include(x => x.Board).SingleOrDefaultAsync(x =>
+            x.Id == input.ItemId && x.OrganizationId == business, ct)
+            ?? throw new KeyNotFoundException("Personal ticket not found.");
+        await RequirePersonalReservationOwnerAsync(business, installation, item, input.ExpectedRevision, ct);
+        var repositoryId = PersonalRepositoryId(item.Id);
+        var repository = await db.SourceControlRepositories.Include(x => x.Connection).SingleOrDefaultAsync(x => x.Id == repositoryId, ct);
+        var created = repository is null;
+        if (repository is null)
+        {
+            var connection = await InternalGitProvisioningDefaults.EnsureAsync(db, business, ct);
+            var policy = await db.RepositoryProvisioningPolicies.SingleAsync(x => x.OrganizationId == business && x.ConnectionId == connection.Id, ct);
+            if (!policy.IsEnabled || policy.RequiresManagerApproval || connection.Status != SourceControlConnectionStatus.Connected)
+                throw new InvalidOperationException("The business repository policy requires approval or has disabled automatic creation.");
+            var approvedTemplates = JsonSerializer.Deserialize<Guid[]>(policy.ApprovedTemplatesJson, JsonOptions) ?? [];
+            var template = await db.SourceControlRepositoryTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.OrganizationId == business &&
+                x.ConnectionId == connection.Id && x.IsEnabled && approvedTemplates.Contains(x.Id) && x.Name == "empty", ct)
+                ?? throw new UnauthorizedAccessException("An empty internal repository template must be approved by the business.");
+            var reserved = await db.RepositoryProvisioningRequests.CountAsync(x => x.OrganizationId == business && x.ConnectionId == connection.Id &&
+                x.RepositoryId == null && (x.Status == RepositoryProvisioningStatus.Pending || x.Status == RepositoryProvisioningStatus.Provisioning ||
+                    x.Status == RepositoryProvisioningStatus.AwaitingApproval), ct);
+            if (reserved + await db.SourceControlRepositories.CountAsync(x => x.OrganizationId == business && x.ConnectionId == connection.Id && x.ArchivedAt == null, ct) >= policy.MaximumRepositories)
+                throw new InvalidOperationException("The business repository quota has been reached.");
+            var name = NormalizePersonalRepositoryName(input.SuggestedName);
+            if (await db.SourceControlRepositories.AnyAsync(x => x.OrganizationId == business && x.ConnectionId == connection.Id && x.Name == name && x.Id != repositoryId, ct))
+                name = name[..Math.Min(name.Length, 41)].TrimEnd('-') + "-" + item.Id.ToString("N")[..8];
+            var now = DateTimeOffset.UtcNow;
+            repository = new SourceControlRepository { Id = repositoryId, OrganizationId = business, ConnectionId = connection.Id,
+                Name = name, Owner = business.ToString("N"), CanonicalPath = $"internal/{business:N}/{name}",
+                ExternalRepositoryId = repositoryId.ToString("N"), ProviderRepositoryKey = $"internal:{repositoryId:N}",
+                DefaultBranch = template.DefaultBranch, IsPrivate = true, IsManaged = true, Status = SourceControlRepositoryStatus.Provisioning,
+                CreatedAt = now, UpdatedAt = now, Connection = connection };
+            db.SourceControlRepositories.Add(repository);
+            connection.Revision++;
+            await db.SaveChangesAsync(ct);
+        }
+        if (repository.OrganizationId != business || repository.Connection?.Provider != SourceControlProvider.InternalGit || repository.ArchivedAt is not null)
+            throw new UnauthorizedAccessException("The personal repository is unavailable.");
+        if (repository.Status == SourceControlRepositoryStatus.Provisioning)
+        {
+            await gitHost.CreatePersonalRepositoryAsync(new(business, installation, item.Id, input.IdempotencyKey), ct);
+            repository.Status = SourceControlRepositoryStatus.Ready;
+            repository.LastVerifiedAt = DateTimeOffset.UtcNow;
+            repository.Revision++;
+            await db.SaveChangesAsync(ct);
+        }
+        return new PersonalRepositoryReservation(repository.Id, repository.Name, repository.Status.ToString(), created);
+    }
+
+    private async Task RequirePersonalReservationOwnerAsync(Guid business, Guid installation, WorkTask item, long expectedRevision, CancellationToken ct)
+    {
+        var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == business &&
+            x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null, ct);
+        var approved = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == installation &&
+            x.BusinessId == business.ToString("D") && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, ct);
+        var capabilities = JsonSerializer.Deserialize<HashSet<string>>(approved?.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];
+        if (actor is null || !capabilities.Contains(PersonalReserveCapability) || item.Board is not { Kind: WorkBoardKind.Personal, ArchivedAt: null } board ||
+            board.OwnerOrganizationUserId != actor.Id || item.AssignedEmployeeId != actor.Id || item.AssignedAgentInstallationId != installation ||
+            item.ArchivedAt is not null || item.Status != WorkTaskStatus.Ready || !item.IsExecutable || item.Revision != expectedRevision ||
+            item.SourceConversationId is null || item.SourceMessageId is null)
+            throw new UnauthorizedAccessException("An owned Ready personal ticket at its expected revision is required.");
+    }
+
+    private static string NormalizePersonalRepositoryName(string value)
+    {
+        var builder = new StringBuilder(50);
+        var separator = false;
+        foreach (var character in value.Trim().ToLowerInvariant())
+        {
+            if (character is >= 'a' and <= 'z' or >= '0' and <= '9')
+            {
+                if (separator && builder.Length > 0 && builder.Length < 50) builder.Append('-');
+                if (builder.Length < 50) builder.Append(character);
+                separator = false;
+            }
+            else separator = true;
+        }
+        var name = builder.ToString().Trim('-');
+        return name.Length >= 3 ? name : "app";
+    }
     // A personal ticket is already a WorkTask. Bind a private repository to that ticket;
     // never allow the caller to choose a repository, provider credential, ref or another owner.
     private async Task<GitWorkspaceResult> PreparePersonalAsync(Guid business, Guid installation,

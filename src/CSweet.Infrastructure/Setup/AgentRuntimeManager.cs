@@ -33,7 +33,7 @@ public sealed class AgentRuntimeManager(
         bool interactive = false,
         CancellationToken cancellationToken = default)
     {
-        if (computeDefaults is not null) await computeDefaults.EnsureRequestedAsync(installationId, cancellationToken, interactive);
+        await EnsureComputeRequestedBestEffortAsync(installationId, cancellationToken);
         var activeRuntime = await dbContext.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .OrderByDescending(x => x.QueuedAt)
@@ -143,7 +143,7 @@ public sealed class AgentRuntimeManager(
         if (!runtimeEligibility.IsEligible)
             throw new AgentInstallationException(runtimeEligibility.Reason ?? "The installation is not eligible to restart.");
 
-        if (computeDefaults is not null) await computeDefaults.EnsureRequestedAsync(installationId, cancellationToken, interactive);
+        await EnsureComputeRequestedBestEffortAsync(installationId, cancellationToken);
         var activeRuntime = await dbContext.AgentRuntimeInstances
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .OrderByDescending(x => x.QueuedAt)
@@ -168,6 +168,26 @@ public sealed class AgentRuntimeManager(
             cancellationToken);
     }
 
+    private async Task EnsureComputeRequestedBestEffortAsync(Guid installationId, CancellationToken cancellationToken)
+    {
+        if (computeDefaults is null) return;
+        try
+        {
+            // Starting an agent is not an implicit retry grant for a failed host installation.
+            await computeDefaults.EnsureRequestedAsync(installationId, cancellationToken, retryFailed: false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception,
+                "Compute setup is unavailable for installation {InstallationId}; queuing the agent runtime in degraded mode.",
+                installationId);
+            dbContext.ChangeTracker.Clear();
+        }
+    }
     public async Task<int> EnsureAlwaysOnRuntimesAsync(CancellationToken cancellationToken = default)
     {
         var installationIds = await dbContext.AgentInstallations

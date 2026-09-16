@@ -23,6 +23,28 @@ public static class ComputeDashboardEndpoints
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), token, downloads);
             return result is null ? Results.Forbid() : Results.Ok(result);
         }).RequireAuthorization();
+        endpoints.MapPost("/api/organizations/{organizationId:guid}/compute/setup/repair", async (Guid organizationId,
+            HttpContext http, CSweetDbContext db, CancellationToken token) =>
+        {
+            if (http.User.GetApplicationUserId() is not { } userId) return Results.Unauthorized();
+            if (!await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == organizationId &&
+                x.ApplicationUserId == userId && x.EmployeeType == EmployeeType.Human && x.IsActive &&
+                x.ArchivedAt == null && x.PermissionLevel == OrganizationPermissionLevel.Owner, token))
+                return Results.Forbid();
+            var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
+            if (setup is null) return Results.NotFound();
+            var stalled = setup.State == "Running" && setup.HandoffExpiresAt <= DateTimeOffset.UtcNow;
+            if (setup.State != "Failed" && !stalled)
+                return Results.Conflict(new { error = "Compute preparation is not failed or stalled." });
+            setup.State = "Pending";
+            setup.ErrorCode = null;
+            setup.HandoffHash = null;
+            setup.HandoffExpiresAt = null;
+            setup.Revision++;
+            setup.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(token);
+            return Results.Accepted();
+        }).RequireAuthorization();
         return endpoints;
     }
 

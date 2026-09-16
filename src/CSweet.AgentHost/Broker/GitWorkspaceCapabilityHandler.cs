@@ -32,6 +32,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly HashSet<string> Handled =
     [
+        PersonalReserveCapability,
         PersonalPrepareCapability,
         GitWorkspaceCapabilities.Sync,
         GitWorkspaceCapabilities.Prepare,
@@ -75,6 +76,8 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         {
             object value = request.Capability switch
             {
+                PersonalReserveCapability => await ReservePersonalAsync(organizationId, installationId,
+                    Read<ReservePersonalRepositoryRequest>(request), cancellationToken),
                 PersonalPrepareCapability => await PreparePersonalAsync(organizationId, installationId,
                     Read<PersonalPrepareInput>(request), cancellationToken),
                 GitWorkspaceCapabilities.Sync => await SyncWorkspaceAsync(organizationId, installationId, Read<GitWorkspaceSyncRequest>(request), cancellationToken),

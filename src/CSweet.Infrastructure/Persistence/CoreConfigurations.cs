@@ -1087,6 +1087,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.NavigationUri).HasMaxLength(2048).IsRequired();
         entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
         entity.Property(x => x.Status).HasMaxLength(24).IsRequired();
+        entity.Property(x => x.SupersededByRole).HasMaxLength(160);
         entity.HasIndex(x => new { x.OriginatingInstallationId, x.IdempotencyKey }).IsUnique();
         entity.HasIndex(x => x.ConversationMessageId);
         entity.HasIndex(x => x.ChatTurnId);

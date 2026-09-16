@@ -16,6 +16,8 @@ The Chief of Staff is a required leadership position, not a privileged agent imp
 
 The platform exposes an optional, installation-scoped hiring backlog rather than prescribing how an agent must use it. An authorized agent can read its own role recommendations, create candidate-free role to-dos, assign explicit priorities, attach ranked candidates later, and stage a selected candidate for owner approval. The platform persists and enforces the records; the plugin decides how to assess the organization, rank roles, and conduct the hiring conversation.
 
+Withdrawing a recommendation retires its pending Marketplace suggestions immediately, and creating a replacement suggestion supersedes the old widget with "replaced by" lineage. One actionable hiring suggestion is kept per conversation; multi-role batches created together stay grouped. See [Hiring suggestion lifecycle](./features/hiring-suggestion-lifecycle.md).
+
 ## Extension points
 
 The public Agent SDK exposes typed platform clients, structured failures, Agent Framework tool adapters, activation hooks, `IBusinessPatternProvider`, `IWorkforceRouter`, and `IWorkforceCatalogProvider`. Catalog providers declare whether they supply suggested agents, digital marketplace offerings, hybrid offerings, or verified humans. The router searches current staff and installed agents first, then digital catalogs, and only uses human catalogs as a fallback unless a human is mandatory.

@@ -199,14 +199,51 @@ public sealed class HiringService(
             cancellationToken) ?? throw new ArgumentException("The hiring recommendation was not found.");
         if (plan.Status == ProposalStatus.Pending)
         {
+            var now = DateTimeOffset.UtcNow;
             plan.Status = ProposalStatus.Cancelled;
-            plan.DecidedAt = DateTimeOffset.UtcNow;
-            plan.UpdatedAt = plan.DecidedAt.Value;
+            plan.DecidedAt = now;
+            plan.UpdatedAt = now;
+            await CancelSuggestedHiringActionsAsync(plan, request.Reason, now, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("hiring.recommendation.withdrawn", nameof(WorkforcePlan), plan.Id,
                 request.Reason, cancellationToken: cancellationToken);
         }
         return ToRecommendation(plan, []);
+    }
+
+    // Retires the actionable Marketplace suggestions for a withdrawn recommendation so no stale
+    // "Browse candidates" widget remains. Actions become Cancelled; a replacement suggestion created in
+    // the same conversation afterwards upgrades them to Superseded with replacement lineage.
+    private async Task CancelSuggestedHiringActionsAsync(
+        WorkforcePlan plan,
+        string? reason,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var pending = await db.SuggestedUserActions
+            .Where(action =>
+                action.OrganizationId == plan.OrganizationId &&
+                action.WorkflowType == CSweet.Contracts.Communications.SuggestedUserActionWorkflows.BrowseHiringMarketplace &&
+                action.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending)
+            .ToListAsync(cancellationToken);
+        foreach (var action in pending.Where(action =>
+                     ReadSuggestedActionRecommendationId(action.ParametersJson) == plan.Id))
+        {
+            action.Status = CSweet.Contracts.Communications.SuggestedUserActionStatuses.Cancelled;
+            await Communications.SuggestedUserActionMaterializer.QueueStatusChangedEventAsync(
+                db,
+                action,
+                CSweet.Contracts.Communications.SuggestedUserActionEvents.Cancelled,
+                now,
+                new
+                {
+                    actionId = action.Id,
+                    recommendationId = plan.Id,
+                    messageId = action.ConversationMessageId,
+                    reason
+                },
+                cancellationToken);
+        }
     }
 
     public async Task<HiringWorkflowResponse> StageWorkflowAsync(
@@ -1589,12 +1626,12 @@ CompleteWorkflow:
             .Where(action =>
                 action.OrganizationId == organizationId &&
                 action.WorkflowType == CSweet.Contracts.Communications.SuggestedUserActionWorkflows.BrowseHiringMarketplace &&
-                action.Status == "Pending")
+                action.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending)
             .ToListAsync(cancellationToken);
         foreach (var action in pendingActions.Where(action =>
                      ReadSuggestedActionRecommendationId(action.ParametersJson) == recommendationId))
         {
-            action.Status = "Completed";
+            action.Status = CSweet.Contracts.Communications.SuggestedUserActionStatuses.Completed;
             action.ResultOrganizationUserId = resultOrganizationUserId;
             action.CompletedAt = completedAt;
         }

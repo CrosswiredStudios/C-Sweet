@@ -349,6 +349,206 @@ public sealed class UserActionServiceTests
         Assert.Equal(suggested.Id, Assert.Single(messages.Single(x => x.Id == systemMessage.Id).Actions!).Id);
     }
 
+    [Fact]
+    public async Task ReplacementSuggestion_SupersedesEarlierSuggestionWithLineage()
+    {
+        await using var db = CreateDb();
+        var organization = new Organization { Id = Guid.NewGuid(), Name = "Example", CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var now = DateTimeOffset.UtcNow;
+        var installationId = Guid.NewGuid();
+        var agent = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentInstallationId = installationId,
+            DisplayName = "Chief", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Manager, CreatedAt = now
+        };
+        var owner = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, DisplayName = "Owner",
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner, CreatedAt = now
+        };
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentOrganizationUserId = agent.Id,
+            InitiatedByOrganizationUserId = owner.Id, Kind = ConversationKind.DirectHumanAgent,
+            CreatedAt = now, UpdatedAt = now
+        };
+        conversation.Participants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), OrganizationUserId = agent.Id, Role = ConversationParticipantRole.Member, JoinedAt = now
+        });
+        conversation.Participants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), OrganizationUserId = owner.Id, Role = ConversationParticipantRole.Member, JoinedAt = now
+        });
+        var firstMessage = Message(conversation.Id, agent.Id, "Creative Director suggestion", now, 1);
+        var replacementMessage = Message(conversation.Id, agent.Id, "Software Developer suggestion", now.AddMinutes(5), 2);
+        db.AddRange(organization, agent, owner, conversation, firstMessage, replacementMessage);
+        await db.SaveChangesAsync();
+        var service = new UserActionService(
+            db,
+            new IUserActionWorkflowResolver[] { new HiringMarketplaceUserActionWorkflowResolver() });
+        var creativeDirectorId = Guid.NewGuid();
+        var softwareDeveloperId = Guid.NewGuid();
+
+        var first = await service.SuggestAsync(
+            organization.Id, installationId,
+            new SuggestUserActionRequest(
+                firstMessage.Id, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+                "Browse candidates", "Review Marketplace candidates for the Creative Director role.",
+                JsonSerializer.SerializeToElement(new { role = "Creative Director", recommendationId = creativeDirectorId }),
+                "creative-director-action"));
+        var replacement = await service.SuggestAsync(
+            organization.Id, installationId,
+            new SuggestUserActionRequest(
+                replacementMessage.Id, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+                "Browse candidates", "Review Marketplace candidates for the Software Developer role.",
+                JsonSerializer.SerializeToElement(new { role = "Software Developer", recommendationId = softwareDeveloperId }),
+                "software-developer-action"));
+
+        var persistedFirst = await db.SuggestedUserActions.SingleAsync(x => x.Id == first.Id);
+        Assert.Equal("Superseded", persistedFirst.Status);
+        Assert.Equal(replacement.Id, persistedFirst.SupersededByActionId);
+        Assert.Equal("Software Developer", persistedFirst.SupersededByRole);
+        Assert.NotNull(persistedFirst.SupersededAt);
+        var persistedReplacement = await db.SuggestedUserActions.SingleAsync(x => x.Id == replacement.Id);
+        Assert.Equal("Pending", persistedReplacement.Status);
+        Assert.Contains(
+            await db.ApplicationRealtimeOutbox.ToListAsync(),
+            x => x.EventType == "com.csweet.communication.user-action.superseded.v1" &&
+                 x.Subject.Contains(first.Id.ToString("D"), StringComparison.Ordinal));
+
+        var hub = new CommunicationHubService(
+            db,
+            new TestAuditEventWriter(),
+            new CSweet.Infrastructure.Core.ChatTurnService(db));
+        var responses = (await hub.ListMessagesAsync(organization.Id, conversation.Id, owner.Id))!.ToList();
+        var supersededCard = responses.Single(x => x.Actions!.Any(action => action.Id == first.Id));
+        Assert.Equal("Superseded", supersededCard.Actions![0].Status);
+        Assert.Equal("Software Developer", supersededCard.Actions[0].SupersededByRole);
+        Assert.Equal(replacement.Id, supersededCard.Actions[0].SupersededByActionId);
+        var replacementCard = responses.Single(x => x.Actions!.Any(action => action.Id == replacement.Id));
+        Assert.Equal("Pending", replacementCard.Actions![0].Status);
+    }
+
+    [Fact]
+    public async Task ReplacementSuggestion_ForTheSameRecommendation_ReturnsTheExistingWidget()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organization = new Organization { Id = Guid.NewGuid(), Name = "Example", CreatedAt = now, UpdatedAt = now };
+        var installationId = Guid.NewGuid();
+        var agent = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentInstallationId = installationId,
+            DisplayName = "Chief", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Manager, CreatedAt = now
+        };
+        var owner = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, DisplayName = "Owner",
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner, CreatedAt = now
+        };
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentOrganizationUserId = agent.Id,
+            InitiatedByOrganizationUserId = owner.Id, Kind = ConversationKind.DirectHumanAgent,
+            CreatedAt = now, UpdatedAt = now
+        };
+        conversation.Participants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), OrganizationUserId = agent.Id, Role = ConversationParticipantRole.Member, JoinedAt = now
+        });
+        conversation.Participants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), OrganizationUserId = owner.Id, Role = ConversationParticipantRole.Member, JoinedAt = now
+        });
+        var message = Message(conversation.Id, agent.Id, "Hiring suggestions", now, 1);
+        db.AddRange(organization, agent, owner, conversation, message);
+        await db.SaveChangesAsync();
+        var service = new UserActionService(
+            db,
+            new IUserActionWorkflowResolver[] { new HiringMarketplaceUserActionWorkflowResolver() });
+        var recommendationId = Guid.NewGuid();
+
+        var first = await service.SuggestAsync(
+            organization.Id, installationId,
+            new SuggestUserActionRequest(
+                message.Id, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+                "Browse candidates", "Review Marketplace candidates for the Creative Director role.",
+                JsonSerializer.SerializeToElement(new { role = "Creative Director", recommendationId }),
+                "creative-director-action"));
+        var duplicate = await service.SuggestAsync(
+            organization.Id, installationId,
+            new SuggestUserActionRequest(
+                message.Id, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+                "Browse candidates", "Review Marketplace candidates for the Creative Director role.",
+                JsonSerializer.SerializeToElement(new { role = "Creative Director", recommendationId }),
+                "creative-director-action-retry"));
+
+        Assert.Equal(first.Id, duplicate.Id);
+        Assert.Single(await db.SuggestedUserActions.ToListAsync());
+        Assert.DoesNotContain(
+            await db.ApplicationRealtimeOutbox.ToListAsync(),
+            x => x.EventType == "com.csweet.communication.user-action.superseded.v1");
+    }
+
+    [Fact]
+    public async Task CancelledSuggestion_IsUpgradedToSupersededWhenAReplacementArrives()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organization = new Organization { Id = Guid.NewGuid(), Name = "Example", CreatedAt = now, UpdatedAt = now };
+        var installationId = Guid.NewGuid();
+        var agent = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentInstallationId = installationId,
+            DisplayName = "Chief", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Manager, CreatedAt = now
+        };
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentOrganizationUserId = agent.Id,
+            Kind = ConversationKind.DirectHumanAgent, CreatedAt = now, UpdatedAt = now
+        };
+        conversation.Participants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), OrganizationUserId = agent.Id, Role = ConversationParticipantRole.Member, JoinedAt = now
+        });
+        var firstMessage = Message(conversation.Id, agent.Id, "Creative Director suggestion", now, 1);
+        var replacementMessage = Message(conversation.Id, agent.Id, "Software Developer suggestion", now.AddMinutes(5), 2);
+        db.AddRange(organization, agent, conversation, firstMessage, replacementMessage);
+        await db.SaveChangesAsync();
+        var service = new UserActionService(
+            db,
+            new IUserActionWorkflowResolver[] { new HiringMarketplaceUserActionWorkflowResolver() });
+
+        var first = await service.SuggestAsync(
+            organization.Id, installationId,
+            new SuggestUserActionRequest(
+                firstMessage.Id, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+                "Browse candidates", "Review Marketplace candidates for the Creative Director role.",
+                JsonSerializer.SerializeToElement(new { role = "Creative Director", recommendationId = Guid.NewGuid() }),
+                "creative-director-action"));
+        // Simulates the withdraw cascade that runs before the replacement suggestion is attached.
+        var cancelled = await db.SuggestedUserActions.SingleAsync(x => x.Id == first.Id);
+        cancelled.Status = "Cancelled";
+        await db.SaveChangesAsync();
+
+        await service.SuggestAsync(
+            organization.Id, installationId,
+            new SuggestUserActionRequest(
+                replacementMessage.Id, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+                "Browse candidates", "Review Marketplace candidates for the Software Developer role.",
+                JsonSerializer.SerializeToElement(new { role = "Software Developer", recommendationId = Guid.NewGuid() }),
+                "software-developer-action"));
+
+        await db.Entry(cancelled).ReloadAsync();
+        Assert.Equal("Superseded", cancelled.Status);
+        Assert.Equal("Software Developer", cancelled.SupersededByRole);
+        Assert.NotNull(cancelled.SupersededAt);
+    }
+
     private static CSweetDbContext CreateDb() => new(
         new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())

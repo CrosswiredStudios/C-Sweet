@@ -78,6 +78,9 @@ public sealed class SuggestedUserAction
     public string Status { get; set; } = "Pending";
     public Guid? ResultOrganizationUserId { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
+    public DateTimeOffset? SupersededAt { get; set; }
+    public Guid? SupersededByActionId { get; set; }
+    public string? SupersededByRole { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 }
 

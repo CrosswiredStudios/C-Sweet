@@ -54,14 +54,16 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
     /// Every action a personal board may carry. Grant reconciliation is scoped by this set, so a new
     /// personal-board action must be added here or the next reconcile pass will revoke it.
     /// </summary>
-    private static readonly IReadOnlySet<string> PersonalBoardActions = new HashSet<string>(
+    // Use an array so membership queries translate to SQL; IReadOnlySet.Contains does not.
+    private static readonly string[] PersonalBoardActions =
         PersonalTodoActions.All
             .Append(WorkItemActions.Transfer)
             .Append(WorkItemActions.Comment)
             .Append(WorkItemActions.ReadComments)
             .Append(WorkItemActions.UpdateComment)
-            .Append(WorkItemActions.DeleteComment),
-        StringComparer.Ordinal);
+            .Append(WorkItemActions.DeleteComment)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
     public async Task ReconcileAsync(CancellationToken cancellationToken = default)
     {
@@ -822,6 +824,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
     {
         if (!actor.AgentInstallationId.HasValue)
             throw new UnauthorizedAccessException("Personal work may only be claimed by an agent installation.");
+        if (request.ItemId.HasValue != request.ExpectedRevision.HasValue || request.ExpectedRevision is < 1)
+            throw new ArgumentException("An exact personal-work claim requires both an item and its positive expected revision.");
         var owner = await EnsureActorAsync(organizationId, actor, cancellationToken);
         if (owner.EmployeeType != EmployeeType.Agent || owner.AgentInstallationId != actor.AgentInstallationId)
             throw new UnauthorizedAccessException("An installation may claim only its own personal work.");
@@ -847,13 +851,16 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 db.Entry(stale).State = EntityState.Detached;
         }
         var item = await db.CoreWorkTasks.FirstOrDefaultAsync(x => x.BoardId == board.Id &&
-            x.Status == WorkTaskStatus.Running && x.ClaimEventId == request.EventId,
+            x.Status == WorkTaskStatus.Running && x.ClaimEventId == request.EventId &&
+            (!request.ItemId.HasValue || x.Id == request.ItemId.Value),
             cancellationToken);
         while (item is null)
         {
             var candidate = await db.CoreWorkTasks.AsNoTracking()
                 .Where(x => x.BoardId == board.Id && x.ArchivedAt == null &&
-                    x.Status == WorkTaskStatus.Ready && x.IsExecutable)
+                    x.Status == WorkTaskStatus.Ready && x.IsExecutable &&
+                    (!request.ItemId.HasValue || x.Id == request.ItemId.Value) &&
+                    (!request.ExpectedRevision.HasValue || x.Revision == request.ExpectedRevision.Value))
                 .OrderBy(x => x.BoardRank).ThenBy(x => x.CreatedAt)
                 .Select(x => new { x.Id, x.Revision })
                 .FirstOrDefaultAsync(cancellationToken);
@@ -1328,6 +1335,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             item.Revision, item.DueDate, item.SourceConversationId, item.SourceMessageId, mentions,
             item.ResultSummary, item.BlockReason, item.CreatedAt, item.UpdatedAt, item.ArchivedAt)
         {
+            IsExecutable = item.IsExecutable,
             Kind = item.Kind.ToString(),
             ParentItemId = item.ParentWorkTaskId,
             PlanRootId = ReadPlanSpecification(item)?.PersonalPlan?.RootItemId,

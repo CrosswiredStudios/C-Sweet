@@ -13,7 +13,7 @@ namespace CSweet.Api.Compute;
 
 public static class ComputeLocalSetupEndpoints
 {
-    public sealed record Enrollment(string Secret, string PublicKey, ComputeTemplate Template);
+    public sealed record Enrollment(string Secret, string PublicKey, ComputeTemplate Template, Guid? NodeId = null);
     public sealed record Completion(string Secret, bool Succeeded);
 
     public static IEndpointRouteBuilder MapComputeLocalSetupEndpoints(this IEndpointRouteBuilder endpoints)
@@ -29,15 +29,18 @@ public static class ComputeLocalSetupEndpoints
             if (setup is null) return Results.Unauthorized();
             if (request.Template is not { OperatingSystem: "linux", Architecture: "x64", Enabled: true } ||
                 !request.Template.Id.StartsWith("linux-local-", StringComparison.Ordinal)) return Results.BadRequest();
-            var node = await db.ComputeNodes.SingleOrDefaultAsync(x => x.Id == id, token);
-            if (node is not null && node.VerificationPublicKeyBase64 != request.PublicKey) return Results.Conflict();
-            if (node is null) await registry.PutNodeAsync(setup.OrganizationId, id, 0, "Local Linux compute", "hyperv",
+            var nodeId = request.NodeId ?? id;
+            if (nodeId == Guid.Empty) return Results.BadRequest();
+            var node = await db.ComputeNodes.SingleOrDefaultAsync(x => x.Id == nodeId, token);
+            if (node is not null && (node.OrganizationId != setup.OrganizationId ||
+                node.VerificationPublicKeyBase64 != request.PublicKey)) return Results.Conflict();
+            if (node is null) await registry.PutNodeAsync(setup.OrganizationId, nodeId, 0, "Local Linux compute", "hyperv",
                 "local-node", request.PublicKey, true, token);
             var existing = await db.ComputeTemplates.SingleOrDefaultAsync(x => x.OrganizationId == setup.OrganizationId &&
                 x.TemplateId == request.Template.Id, token);
             var template = existing ?? await registry.PutTemplateAsync(setup.OrganizationId, request.Template, 0, token);
-            if (!await db.ComputeTemplatePlacements.AnyAsync(x => x.TemplateRegistrationId == template.Id && x.NodeId == id, token))
-                await registry.PutPlacementAsync(setup.OrganizationId, template.Id, id, 0, true, token);
+            if (!await db.ComputeTemplatePlacements.AnyAsync(x => x.TemplateRegistrationId == template.Id && x.NodeId == nodeId, token))
+                await registry.PutPlacementAsync(setup.OrganizationId, template.Id, nodeId, 0, true, token);
             setup.TemplateId = template.TemplateId; setup.Revision++; setup.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(token); await transaction.CommitAsync(token);
             return Results.Ok(new { registered = true });

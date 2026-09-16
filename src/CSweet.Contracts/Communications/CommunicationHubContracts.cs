@@ -199,6 +199,28 @@ public static class SuggestedUserActionCapabilities
     public const string Suggest = "platform.user-action.suggest.v1";
 }
 
+public static class SuggestedUserActionStatuses
+{
+    public const string Pending = "Pending";
+    public const string Completed = "Completed";
+    public const string Cancelled = "Cancelled";
+    public const string Superseded = "Superseded";
+
+    public static readonly IReadOnlyList<string> All = [Pending, Completed, Cancelled, Superseded];
+
+    public static bool IsResolved(string status) =>
+        string.Equals(status, Completed, StringComparison.Ordinal) ||
+        string.Equals(status, Cancelled, StringComparison.Ordinal) ||
+        string.Equals(status, Superseded, StringComparison.Ordinal);
+}
+
+public static class SuggestedUserActionEvents
+{
+    public const string Created = "com.csweet.communication.user-action.created.v1";
+    public const string Superseded = "com.csweet.communication.user-action.superseded.v1";
+    public const string Cancelled = "com.csweet.communication.user-action.cancelled.v1";
+}
+
 public static class SuggestedUserActionWorkflows
 {
     public const string BrowseHiringMarketplace = "hiring.marketplace.browse.v1";
@@ -228,6 +250,9 @@ public sealed record SuggestedUserActionResponse(
     public Guid? ResultOrganizationUserId { get; init; }
     public string? ResultOrganizationUserDisplayName { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
+    public DateTimeOffset? SupersededAt { get; init; }
+    public Guid? SupersededByActionId { get; init; }
+    public string? SupersededByRole { get; init; }
 }
 
 public sealed record ExecutiveDecisionOptionResponse(

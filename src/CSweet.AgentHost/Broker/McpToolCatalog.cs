@@ -206,7 +206,7 @@ public sealed class McpToolCatalog(
         Write(HiringCapabilities.ResolveRecommendation, "resolve_hiring_recommendation",
             "Resolve one hiring recommendation owned by this installation after an unambiguous matching employee hire."),
         Write(HiringCapabilities.WithdrawRecommendation, "withdraw_hiring_recommendation",
-            "Withdraw a role suggestion owned by this installation when an approved resource plan no longer needs it."),
+            "Withdraw a role suggestion owned by this installation when an approved resource plan no longer needs it, or when the owner explicitly replaces the suggested role."),
         Approval(ResourceChangeCapabilities.Propose, "propose_resource_change",
             "Propose one atomic desired-team change for approval by the requesting employee's current manager."),
         Read(ResourceChangeCapabilities.Read, "read_resource_changes",

@@ -1344,7 +1344,10 @@ public sealed class CommunicationHubService(
                                                 users.TryGetValue(action.ResultOrganizationUserId.Value, out var result)
                 ? result.DisplayName
                 : null,
-            CompletedAt = action.CompletedAt
+            CompletedAt = action.CompletedAt,
+            SupersededAt = action.SupersededAt,
+            SupersededByActionId = action.SupersededByActionId,
+            SupersededByRole = action.SupersededByRole
         };
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -124,6 +124,12 @@ For a complete debug experience, create `.vscode/launch.json`:
 
 ## Troubleshooting
 
+### A Chat Turn Failed With a Generic Message
+
+Communications shows "The agent couldn't complete that request. Please try again." when a durable chat
+turn fails. The cause is persisted on the turn row, its trace events, and (for agent-side failures)
+the agent work item. Follow [Chat turn diagnostics](./chat-turn-diagnostics.md) before retrying.
+
 ### Docker Engine Is Unavailable
 
 Run:

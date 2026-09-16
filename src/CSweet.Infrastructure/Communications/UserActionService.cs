@@ -69,6 +69,33 @@ public sealed class UserActionService(
             string.Equals(x.WorkflowType, workflowType, StringComparison.Ordinal))
             ?? throw new ArgumentException("The requested workflow type is not registered.");
         var resolution = resolver.Resolve(organizationId, originatingInstallationId, request.Parameters);
+
+        var isHiringWorkflow = string.Equals(
+            workflowType,
+            SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+            StringComparison.Ordinal);
+        var hiringRecommendationId = isHiringWorkflow
+            ? SuggestedUserActionParameters.ReadHiringRecommendationId(resolution.NormalizedParametersJson)
+            : null;
+        var hiringRole = isHiringWorkflow
+            ? SuggestedUserActionParameters.ReadHiringRole(resolution.NormalizedParametersJson)
+            : null;
+
+        // Only one actionable hiring suggestion per conversation: a request for a recommendation that
+        // is already surfaced returns the pending action instead of stacking duplicate widgets.
+        if (isHiringWorkflow)
+        {
+            var pending = await db.SuggestedUserActions.AsNoTracking()
+                .Where(x => x.ConversationId == conversationId &&
+                            x.WorkflowType == workflowType &&
+                            x.Status == SuggestedUserActionStatuses.Pending)
+                .OrderBy(x => x.CreatedAt)
+                .ToListAsync(cancellationToken);
+            var duplicate = pending.FirstOrDefault(x => SuggestedUserActionParameters.MatchesHiringTarget(
+                x.ParametersJson, hiringRecommendationId, hiringRole));
+            if (duplicate is not null) return ToResponse(duplicate);
+        }
+
         var now = DateTimeOffset.UtcNow;
         var label = Required(request.Label, 120, nameof(request.Label));
         var description = Clean(request.Description, 500, nameof(request.Description));
@@ -86,7 +113,7 @@ public sealed class UserActionService(
             ParametersJson = resolution.NormalizedParametersJson,
             NavigationUri = resolution.NavigationUri,
             IdempotencyKey = key,
-            Status = "Pending",
+            Status = SuggestedUserActionStatuses.Pending,
             CreatedAt = now
         };
         db.SuggestedUserActions.Add(action);
@@ -100,8 +127,56 @@ public sealed class UserActionService(
                 now,
                 cancellationToken);
         }
+        if (isHiringWorkflow)
+            await SupersedeEarlierSuggestionsAsync(action, hiringRole, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return ToResponse(action);
+    }
+
+    /// <summary>
+    /// Keeps one actionable hiring suggestion per conversation: earlier pending (or already cancelled)
+    /// suggestions become Superseded with lineage to the replacement. Rows created by the same source
+    /// (same chat turn or same message) belong to one multi-role carousel and are preserved.
+    /// </summary>
+    private async Task SupersedeEarlierSuggestionsAsync(
+        SuggestedUserAction replacement,
+        string? replacementRole,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var earlier = await db.SuggestedUserActions
+            .Where(x => x.ConversationId == replacement.ConversationId &&
+                        x.WorkflowType == replacement.WorkflowType &&
+                        x.Id != replacement.Id &&
+                        (x.Status == SuggestedUserActionStatuses.Pending ||
+                         x.Status == SuggestedUserActionStatuses.Cancelled))
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+        foreach (var candidate in earlier)
+        {
+            if ((replacement.ChatTurnId.HasValue && candidate.ChatTurnId == replacement.ChatTurnId) ||
+                (replacement.ConversationMessageId.HasValue &&
+                 candidate.ConversationMessageId == replacement.ConversationMessageId))
+                continue;
+            candidate.Status = SuggestedUserActionStatuses.Superseded;
+            candidate.SupersededAt = now;
+            candidate.SupersededByActionId = replacement.Id;
+            candidate.SupersededByRole = replacementRole;
+            await SuggestedUserActionMaterializer.QueueStatusChangedEventAsync(
+                db,
+                candidate,
+                SuggestedUserActionEvents.Superseded,
+                now,
+                new
+                {
+                    actionId = candidate.Id,
+                    supersedingActionId = replacement.Id,
+                    messageId = candidate.ConversationMessageId,
+                    workflowType = replacement.WorkflowType,
+                    role = replacementRole
+                },
+                cancellationToken);
+        }
     }
 
     private static SuggestedUserActionResponse ToResponse(SuggestedUserAction action) =>
@@ -111,7 +186,10 @@ public sealed class UserActionService(
             HiringRecommendationId = SuggestedUserActionParameters.ReadHiringRecommendationId(action.ParametersJson),
             HiringRole = SuggestedUserActionParameters.ReadHiringRole(action.ParametersJson),
             ResultOrganizationUserId = action.ResultOrganizationUserId,
-            CompletedAt = action.CompletedAt
+            CompletedAt = action.CompletedAt,
+            SupersededAt = action.SupersededAt,
+            SupersededByActionId = action.SupersededByActionId,
+            SupersededByRole = action.SupersededByRole
         };
 
     private static string Required(string? value, int maximum, string name)
@@ -165,6 +243,20 @@ internal static class SuggestedUserActionParameters
             return null;
         }
     }
+
+    /// <summary>
+    /// Matches an existing suggestion against the incoming request: by recommendation when either side
+    /// carries one, otherwise by case-insensitive role text.
+    /// </summary>
+    public static bool MatchesHiringTarget(string parametersJson, Guid? recommendationId, string? role)
+    {
+        var existingRecommendationId = ReadHiringRecommendationId(parametersJson);
+        if (recommendationId.HasValue || existingRecommendationId.HasValue)
+            return recommendationId.HasValue && existingRecommendationId == recommendationId;
+        var existingRole = ReadHiringRole(parametersJson);
+        return !string.IsNullOrWhiteSpace(existingRole) &&
+               string.Equals(existingRole, role, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 internal static class SuggestedUserActionMaterializer
@@ -203,6 +295,32 @@ internal static class SuggestedUserActionMaterializer
             x => x.Id == action.ConversationId,
             cancellationToken);
         conversation.UpdatedAt = now;
+        await QueueStatusChangedEventAsync(
+            db,
+            action,
+            SuggestedUserActionEvents.Created,
+            now,
+            new
+            {
+                action.Id,
+                action.WorkflowType,
+                MessageId = systemMessage.Id
+            },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Queues the versioned realtime envelope that tells connected clients a suggestion changed state
+    /// (created, superseded, or cancelled). Communications pages refresh on any com.csweet.communication.* event.
+    /// </summary>
+    public static async Task QueueStatusChangedEventAsync(
+        CSweetDbContext db,
+        SuggestedUserAction action,
+        string eventType,
+        DateTimeOffset now,
+        object payload,
+        CancellationToken cancellationToken)
+    {
         var recipients = await db.ConversationParticipants.AsNoTracking()
             .Where(x => x.ConversationId == action.ConversationId && x.LeftAt == null)
             .Select(x => x.OrganizationUserId)
@@ -213,14 +331,9 @@ internal static class SuggestedUserActionMaterializer
             OrganizationId = action.OrganizationId,
             RecipientOrganizationUserIdsJson = JsonSerializer.Serialize(recipients, JsonOptions),
             ChatId = action.ConversationId,
-            EventType = "com.csweet.communication.user-action.created.v1",
+            EventType = eventType,
             Subject = $"organizations/{action.OrganizationId:D}/communications/chats/{action.ConversationId:D}/actions/{action.Id:D}",
-            DataJson = JsonSerializer.Serialize(new
-            {
-                action.Id,
-                action.WorkflowType,
-                MessageId = systemMessage.Id
-            }, JsonOptions),
+            DataJson = JsonSerializer.Serialize(payload, JsonOptions),
             Status = ApplicationRealtimeOutboxStatus.Pending,
             NextAttemptAt = now,
             OccurredAt = now

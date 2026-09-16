@@ -284,6 +284,24 @@ The Chief may present a broader staffing sequence when the CEO explicitly asks f
 when several roles form one inseparable approval package, or when a material dependency cannot be
 understood one role at a time. Even then, it should identify a single recommended next action.
 
+### Replacing a suggested role on owner direction
+
+When the CEO explicitly replaces a surfaced suggestion (for example, "actually just hire a software
+developer instead"), the Chief treats it as an owner override and completes the replacement in the
+same turn:
+
+- It withdraws the superseded hiring recommendation, records the replacement role at priority 1 and
+  marks it provisional, and replies with one short sentence naming the new role.
+- The platform retires the superseded Marketplace suggestion: its widget becomes a muted
+  "Cancelled — replaced by <role>" tile with no action button, and the new role receives its own
+  suggestion widget. Withdrawing a recommendation without a replacement cancels its widget outright.
+- Only one actionable hiring suggestion is kept per conversation. Creating a replacement retires
+  earlier pending suggestions in that conversation; suggestions created together as one multi-role
+  batch remain grouped in a single carousel.
+- The runtime attaches the replacement's Marketplace action even when the short confirmation does not
+  repeat the role title verbatim. The full state machine, events, and code map live in
+  [Hiring suggestion lifecycle](implementation/features/hiring-suggestion-lifecycle.md).
+
 ### Work-priority policy
 
 The proactive company-completeness agenda is the Chief's lowest-priority continuing responsibility.

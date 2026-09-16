@@ -276,7 +276,14 @@ public sealed class ChatTurnWorker(
                         return;
                     if (string.Equals(chunk.Error, "agent_no_response", StringComparison.Ordinal))
                         throw new AgentNoResponseException(chunk.Delta);
-                    if (!string.IsNullOrWhiteSpace(chunk.Error)) throw new InvalidOperationException(chunk.Delta);
+                    if (!string.IsNullOrWhiteSpace(chunk.Error))
+                    {
+                        await PublishTraceAsync(turns, turnId, "model", "agent.error", "failed", "Agent reported an error",
+                            chunk.Delta,
+                            new { kind = chunk.Kind, code = chunk.Error },
+                            cancellationToken: hardTimeout.Token);
+                        throw new InvalidOperationException(chunk.Delta);
+                    }
                     if (TryGetTerminalResourceChangeRequestId(chunk, out var resourceChangeRequestId))
                     {
                         terminalResourceChangeRequestId = resourceChangeRequestId;
@@ -453,22 +460,25 @@ public sealed class ChatTurnWorker(
         {
             return;
         }
-        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!stoppingToken.IsCancellationRequested)
         {
             await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId, "timeout",
-                $"I couldn't complete that request because it exceeded the {options.Value.HardTimeout.TotalMinutes:g}-minute safety limit. Please try again.", CancellationToken.None);
+                $"I couldn't complete that request because it exceeded the {options.Value.HardTimeout.TotalMinutes:g}-minute safety limit. Please try again.", CancellationToken.None,
+                $"{exception.GetType().Name}: {exception.Message}");
         }
         catch (AgentNoResponseException exception)
         {
             logger.LogWarning(exception, "Agent produced no response for chat turn {TurnId}.", turnId);
             await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId, "agent_no_response",
-                "The agent completed its work without providing a response. Please try again.", CancellationToken.None);
+                "The agent completed its work without providing a response. Please try again.", CancellationToken.None,
+                $"{exception.GetType().Name}: {exception.Message}");
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Chat turn {TurnId} failed.", turnId);
             await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId, "turn_failed",
-                "The agent couldn't complete that request. Please try again.", CancellationToken.None);
+                "The agent couldn't complete that request. Please try again.", CancellationToken.None,
+                $"{exception.GetType().Name}: {exception.Message}");
         }
         finally
         {
@@ -669,17 +679,22 @@ public sealed class ChatTurnWorker(
         Guid turnId,
         string code,
         string message,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? detail = null)
     {
         var current = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
         if (current.Status is ChatTurnStatus.Cancelled or ChatTurnStatus.Completed or
             ChatTurnStatus.CompletedWithWarnings or ChatTurnStatus.Failed)
             return;
+        // Failure diagnostics stay durable on the turn (and its trace) while the user only sees the
+        // deterministic fallback text. ErrorCode/ErrorMessage are what the turn dialog and support look at first.
+        current.ErrorCode = code;
+        current.ErrorMessage = Truncate(SanitizeTraceText(detail ?? message), 2_048);
         var separator = string.IsNullOrWhiteSpace(current.PartialResponse) ? string.Empty : "\n\n";
         var delta = separator + message;
         await turns.AppendOutputAsync(turnId, delta, cancellationToken);
         await PublishTraceAsync(turns, turnId, "output", "output.delta", "warning", "Assistant fallback message",
-            delta, new { source = "deterministic_failure_fallback", memoryUsed = false, code }, cancellationToken: cancellationToken);
+            delta, new { source = "deterministic_failure_fallback", memoryUsed = false, code, detail = current.ErrorMessage }, cancellationToken: cancellationToken);
 
         var conversations = services.GetRequiredService<IConversationService>();
         var assistantContent = current.PartialResponse;
@@ -701,7 +716,7 @@ public sealed class ChatTurnWorker(
         await PublishTraceAsync(turns, turnId, "memory", "capture.bypassed", "warning", "Memory capture bypassed",
             "The deterministic failure response was intentionally excluded from memory.", new { code }, cancellationToken: cancellationToken);
         await PublishTraceAsync(turns, turnId, "system", "turn.completed", "warning", "Turn completed with a fallback message",
-            "The normal agent and memory-aware response path did not complete.", new { code }, cancellationToken: cancellationToken);
+            "The normal agent and memory-aware response path did not complete.", new { code, detail = current.ErrorMessage }, cancellationToken: cancellationToken);
         await turns.CompleteAsync(turnId, assistant.Id, memoryWarning: true, cancellationToken);
         TurnFailures.Add(1, new KeyValuePair<string, object?>("code", code));
     }

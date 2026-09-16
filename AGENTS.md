@@ -28,3 +28,15 @@
 - Prefer durable events over agent polling loops for asynchronous platform operations.
 - Persist state changes and their notification outbox records atomically. Treat events as wake hints, not authoritative snapshots or execution grants.
 - Agents may be offline, miss notifications, or receive duplicates/out-of-order delivery. Provide authorized current-state reads and bounded discovery for wake/reconnect recovery; make resulting effects idempotent.
+
+## Documentation map
+
+Start with these before re-discovering behavior from source:
+
+- [implementation plan index](docs/implementation/README.md) - the feature-plan map and reading order.
+- [hiring suggestion lifecycle](docs/implementation/features/hiring-suggestion-lifecycle.md) - suggested-action states, dedupe/supersede rules, withdraw cascade, realtime events, and code map.
+- [chat turn diagnostics](docs/implementation/chat-turn-diagnostics.md) - failure branches, persisted error codes, trace/agent records, and console locations for a failed Communications answer.
+- [Chief of Staff refinement](docs/16-chief-of-staff-agent-refinement.md) - executive behavior spec for the Chief agent.
+- [native communications hub](docs/implementation/native-communications-hub.md) - conversations, turns, unread state, realtime events.
+- [debug guide](docs/implementation/debug-guide.md) - local setup and troubleshooting entry points.
+- Keep new and updated docs symbol-first (files and type/member names) over line numbers, which rot quickly.

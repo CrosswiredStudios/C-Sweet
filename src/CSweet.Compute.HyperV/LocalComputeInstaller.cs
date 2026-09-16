@@ -103,7 +103,7 @@ internal static class LocalComputeInstaller
     {
         var handoff = await ReadHandoffAsync(handoffPath, token);
         var configuration = await ComputeProviderConfigurationLoader.ReadAsync(ComputeWindowsService.ConfigurationPath, token);
-        if (configuration.Enrollment.NodeId != handoff.SetupId || configuration.Enrollment.OrganizationId != handoff.OrganizationId)
+        if (configuration.Enrollment.OrganizationId != handoff.OrganizationId)
             throw new UnauthorizedAccessException("The compute service belongs to another setup.");
         using var client = CreateClient(handoff);
         using var response = await client.PostAsJsonAsync($"api/compute/local-setup/{handoff.SetupId:D}/complete",
@@ -111,6 +111,32 @@ internal static class LocalComputeInstaller
         response.EnsureSuccessStatusCode();
     }
 
+    /// <summary>Restores Core enrollment after its database is recreated without rotating the
+    /// already protected provider identity, catalog, journal, or workload storage.</summary>
+    public static async Task ReenrollAsync(string handoffPath, CancellationToken token)
+    {
+        var handoff = await ReadHandoffAsync(handoffPath, token);
+        var configuration = await ComputeProviderConfigurationLoader.ReadAsync(
+            ComputeWindowsService.ConfigurationPath, token);
+        if (configuration.Enrollment.OrganizationId != handoff.OrganizationId)
+            throw new UnauthorizedAccessException("The compute service belongs to another setup.");
+
+        using var certificate = ComputeProviderConfigurationLoader.OpenSigningCertificate(
+            configuration, TimeProvider.System);
+        var catalog = await ComputeProvisioningSettingsLoader.ReadCatalogAsync(
+            configuration.ProvisioningSettingsPath!, configuration, TimeProvider.System, token);
+        var template = catalog.Templates
+            .Select(entry => entry.Value)
+            .SingleOrDefault(candidate => candidate.Features.Contains("docker-apps-v1", StringComparer.Ordinal))
+            ?? throw new InvalidOperationException("The installed provider has no approved Docker-capable Linux template.");
+
+        using var client = CreateClient(handoff);
+        using var response = await client.PostAsJsonAsync(
+            $"api/compute/local-setup/{handoff.SetupId:D}/enroll",
+            new { secret = handoff.Secret, publicKey = configuration.NodeSigningIdentity.PublicKeyBase64, template, nodeId = configuration.Enrollment.NodeId },
+            ComputeProtocol.Json, token);
+        response.EnsureSuccessStatusCode();
+    }
     private static HttpClient CreateClient(Handoff handoff)
     {
         var expected = Convert.FromHexString(handoff.CoreCertificateSha256);

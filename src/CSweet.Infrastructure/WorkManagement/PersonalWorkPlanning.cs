@@ -58,7 +58,7 @@ public sealed partial class WorkItemMutationEngine
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var root = await RequirePlanClaimAsync(organizationId, actor, request.RootItemId,
-            PersonalTodoActions.CreatePlan, cancellationToken);
+            PersonalTodoActions.CreatePlan, allowReady: true, request.ExpectedRevision, cancellationToken);
         var digest = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
             new { request.EpicTitle, request.Stories }, JsonOptions)));
         var prior = ReadPlanSpecification(root)?.PersonalPlan;
@@ -138,7 +138,7 @@ public sealed partial class WorkItemMutationEngine
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var root = await RequirePlanClaimAsync(organizationId, actor, request.RootItemId,
-            PersonalTodoActions.ReportPlanTask, cancellationToken);
+            PersonalTodoActions.ReportPlanTask, allowReady: false, expectedRevision: null, cancellationToken);
         var all = await db.CoreWorkTasks.Where(x => x.OrganizationId == organizationId && x.BoardId == root.BoardId).ToListAsync(cancellationToken);
         var tasks = all.Where(x => x.Kind == WorkItemKind.Task && ReadPlanSpecification(x)?.PersonalPlan?.RootItemId == root.Id)
             .OrderBy(x => ReadPlanSpecification(x)!.PersonalPlan!.Order).ToList();
@@ -174,14 +174,19 @@ public sealed partial class WorkItemMutationEngine
         }
     }
 
-    private async Task<WorkTask> RequirePlanClaimAsync(Guid organizationId, PersonalTodoActor actor, Guid rootId, string action, CancellationToken ct)
+    private async Task<WorkTask> RequirePlanClaimAsync(Guid organizationId, PersonalTodoActor actor, Guid rootId,
+        string action, bool allowReady, long? expectedRevision, CancellationToken ct)
     {
         var root = await LoadPersonalItemAsync(organizationId, rootId, ct);
         await RequireGrantAsync(organizationId, root.BoardId!.Value, actor, action, ct);
-        if (actor.AgentInstallationId is null || root.AssignedAgentInstallationId != actor.AgentInstallationId ||
-            root.AssignedEmployeeId != actor.OrganizationUserId || root.ArchivedAt is not null ||
-            root.Status != WorkTaskStatus.Running || root.ClaimEventId is null || root.ClaimExpiresAt <= clock.GetUtcNow() || root.ClaimExpiresAt is null)
-            throw new UnauthorizedAccessException("Planning and task execution require the owning request's live claim.");
+        var ownsItem = actor.AgentInstallationId is not null && root.AssignedAgentInstallationId == actor.AgentInstallationId &&
+            root.AssignedEmployeeId == actor.OrganizationUserId && root.ArchivedAt is null;
+        var hasLiveClaim = root.Status == WorkTaskStatus.Running && root.ClaimEventId is not null &&
+            root.ClaimExpiresAt > clock.GetUtcNow();
+        var mayPlanReady = allowReady && root.Status == WorkTaskStatus.Ready && root.IsExecutable &&
+            (expectedRevision.HasValue && root.Revision == expectedRevision.Value || ReadPlanSpecification(root)?.PersonalPlan is not null);
+        if (!ownsItem || (!hasLiveClaim && !mayPlanReady))
+            throw new UnauthorizedAccessException("Planning requires the owned Ready request at its expected revision or a live claim; task execution requires the live claim.");
         return root;
     }
 

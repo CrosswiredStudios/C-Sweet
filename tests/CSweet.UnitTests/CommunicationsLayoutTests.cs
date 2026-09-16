@@ -56,17 +56,17 @@ public sealed class CommunicationsLayoutTests
     }
 
     [Fact]
-    public void DirectReportsAreShownBeforeTheCompanyDirectory()
+    public void DirectReportsAreShownBeforeOtherAgents()
     {
         var razor = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(), "src", "CSweet.UI", "Pages", "Communications.razor"));
 
         var reportsHeading = razor.IndexOf("<span>Direct Reports</span>", StringComparison.Ordinal);
-        var directMessagesHeading = razor.IndexOf("<span>Direct messages</span>", StringComparison.Ordinal);
+        var agentsHeading = razor.IndexOf("<span>Agents</span>", StringComparison.Ordinal);
         Assert.True(reportsHeading >= 0);
-        Assert.True(directMessagesHeading > reportsHeading);
-        Assert.Contains("x.Person.EmployeeType == \"Agent\"", razor, StringComparison.Ordinal);
-        Assert.Contains("x.Person.ReportsToOrganizationUserId == _hub?.CurrentOrganizationUserId", razor, StringComparison.Ordinal);
+        Assert.True(agentsHeading > reportsHeading);
+        Assert.Contains("person.EmployeeType == \"Agent\"", razor, StringComparison.Ordinal);
+        Assert.Contains("person.ReportsToOrganizationUserId == _hub?.CurrentOrganizationUserId", razor, StringComparison.Ordinal);
         Assert.Contains("@foreach (var entry in DirectReports)", razor, StringComparison.Ordinal);
     }
 
@@ -90,6 +90,39 @@ public sealed class CommunicationsLayoutTests
         Assert.Contains("scroll-snap-type: x mandatory", css, StringComparison.Ordinal);
         Assert.Contains("@media (prefers-reduced-motion: reduce)", css, StringComparison.Ordinal);
         Assert.Contains("scrollHiringCarousel", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HiringSuggestionCarouselRendersCancelledAndSupersededStates()
+    {
+        var root = FindRepositoryRoot();
+        var component = File.ReadAllText(Path.Combine(
+            root, "src", "CSweet.UI", "Components", "Hiring", "HiringSuggestionCarousel.razor"));
+        var css = File.ReadAllText(Path.Combine(
+            root, "src", "CSweet.UI", "Components", "Hiring", "HiringSuggestionCarousel.razor.css"));
+
+        Assert.Contains("SuggestedUserActionStatuses.Cancelled", component, StringComparison.Ordinal);
+        Assert.Contains("SuggestedUserActionStatuses.Superseded", component, StringComparison.Ordinal);
+        Assert.Contains("Replaced by @ReplacementRole(action)", component, StringComparison.Ordinal);
+        Assert.Contains("This suggestion was cancelled", component, StringComparison.Ordinal);
+        Assert.Contains("AllResolved", component, StringComparison.Ordinal);
+        Assert.Contains(".hiring-suggestion-tile.superseded", css, StringComparison.Ordinal);
+        Assert.Contains(".hiring-suggestion-tile.cancelled", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CommunicationsShowsCancelledSuggestedActionCardWithoutButtons()
+    {
+        var root = FindRepositoryRoot();
+        var razor = File.ReadAllText(Path.Combine(
+            root, "src", "CSweet.UI", "Pages", "Communications.razor"));
+        var css = File.ReadAllText(Path.Combine(
+            root, "src", "CSweet.UI", "Pages", "Communications.razor.css"));
+
+        Assert.Contains("SUGGESTED ACTION · CANCELLED", razor, StringComparison.Ordinal);
+        Assert.Contains("hub-system-action-cancelled", razor, StringComparison.Ordinal);
+        Assert.Contains("SuggestedUserActionStatuses.Superseded", razor, StringComparison.Ordinal);
+        Assert.Contains(".hub-system-action-cancelled", css, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot([CallerFilePath] string sourceFile = "") =>

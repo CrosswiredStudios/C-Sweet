@@ -92,6 +92,12 @@
                 @if (setup.FailureCode is not null)
                 {
                     <MudAlert Severity="Severity.Error" Class="mt-3">Preparation could not complete. Reference: @setup.FailureCode</MudAlert>
+                    @if (dashboard.CanManageNetwork)
+                    {
+                        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="_repairingSetup" OnClick="RepairSetupAsync">
+                            @(_repairingSetup ? "Requesting repair…" : "Repair Linux preparation")
+                        </MudButton>
+                    }
                 }
             </MudPaper>
         }
@@ -191,6 +197,20 @@
     private string? _error;
     private Guid? _grantBusy;
     private Guid? _releaseConfirm;
+    private bool _repairingSetup;
+    private async Task RepairSetupAsync()
+    {
+        if (_repairingSetup) return;
+        _repairingSetup = true;
+        try
+        {
+            using var response = await Http.PostAsync($"api/organizations/{OrganizationId}/compute/setup/repair", null, _stop.Token);
+            response.EnsureSuccessStatusCode();
+            await LoadAsync();
+        }
+        catch (Exception) { _error = "Could not request Linux preparation repair. Refresh Compute and try again."; }
+        finally { _repairingSetup = false; }
+    }
     private async Task ReleaseAsync(ComputeResourceStatus resource)
     {
         if (_grantBusy.HasValue) return;

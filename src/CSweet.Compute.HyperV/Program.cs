@@ -21,6 +21,11 @@ internal static class Program
             try { await LocalComputeInstaller.CompleteAsync(args[1], true, default); return 0; }
             catch (Exception) { Console.Error.WriteLine("compute-local-completion-failed"); return 1; }
         }
+        if (args.Length == 2 && args[0] == "reenroll-local")
+        {
+            try { await LocalComputeInstaller.ReenrollAsync(args[1], default); Console.WriteLine("compute-local-reenrollment-succeeded"); return 0; }
+            catch (Exception error) { Console.Error.WriteLine("compute-local-reenrollment-failed: " + error.GetType().Name); return 1; }
+        }
         if (args.Length == 1 && args[0] == "validate-service")
         {
             if (!OperatingSystem.IsWindows()) return 2;

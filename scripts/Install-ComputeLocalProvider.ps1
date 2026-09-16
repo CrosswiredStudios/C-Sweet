@@ -32,7 +32,10 @@ try {
             & (Join-Path $repositoryRoot 'scripts\Set-ComputeServiceRecovery.ps1')
             if ($existingService.Status -ne 'Running') { Start-Service -Name 'CSweet.Compute.HyperV' }
             (Get-Service -Name 'CSweet.Compute.HyperV').WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
-            # Completion validates the organization and enrollment ID; it cannot adopt another installation.
+            # A retained provider can outlive a recreated C-Sweet database. Restore only its
+            # existing public identity and signed catalog before reporting completion.
+            & $existingExecutable reenroll-local $HandoffPath
+            if ($LASTEXITCODE -ne 0) { throw 'The existing compute service could not restore its enrollment.' }
             & $existingExecutable complete-local $HandoffPath
             if ($LASTEXITCODE -ne 0) { throw 'The existing compute service could not complete this setup.' }
             $installerState = 'Completed'

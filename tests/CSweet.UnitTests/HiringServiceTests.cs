@@ -393,6 +393,76 @@ public sealed class HiringServiceTests
     }
 
     [Fact]
+    public async Task WithdrawRecommendation_CancelsPendingMarketplaceSuggestion()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var owner = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, DisplayName = "Owner",
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner, CreatedAt = now
+        };
+        db.CoreOrganizations.Add(new Organization { Id = organizationId, Name = "Example", CreatedAt = now, UpdatedAt = now });
+        db.CoreOrganizationUsers.Add(owner);
+        await db.SaveChangesAsync();
+        var service = new HiringService(db, new OrganizationUserService(db, new TestAuditEventWriter()), new TestAuditEventWriter());
+        var recommendation = await service.UpsertRecommendationAsync(organizationId, installationId,
+            new("Creative Director", "Own the game vision", null, [], null, "creative-director"));
+        var other = await service.UpsertRecommendationAsync(organizationId, installationId,
+            new("Software Developer", "Build the demo", null, [], null, "software-developer"));
+        var origin = await AddHiringOriginAsync(db, organizationId, owner, installationId);
+        var pending = new SuggestedUserAction
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            OriginatingInstallationId = installationId,
+            ConversationId = origin.ConversationId,
+            ChatTurnId = origin.ChatTurnId,
+            WorkflowType = CSweet.Contracts.Communications.SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+            Label = "Browse candidates",
+            ParametersJson = JsonSerializer.Serialize(new { role = "Creative Director", recommendationId = recommendation.Id }),
+            NavigationUri = $"/organizations/{organizationId:D}/marketplace?role=Creative%20Director&recommendationId={recommendation.Id:D}",
+            IdempotencyKey = "creative-director-action",
+            Status = CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending,
+            CreatedAt = now
+        };
+        var untouched = new SuggestedUserAction
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            OriginatingInstallationId = installationId,
+            ConversationId = origin.ConversationId,
+            ChatTurnId = origin.ChatTurnId,
+            WorkflowType = CSweet.Contracts.Communications.SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+            Label = "Browse candidates",
+            ParametersJson = JsonSerializer.Serialize(new { role = "Software Developer", recommendationId = other.Id }),
+            NavigationUri = $"/organizations/{organizationId:D}/marketplace?role=Software%20Developer&recommendationId={other.Id:D}",
+            IdempotencyKey = "software-developer-action",
+            Status = CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending,
+            CreatedAt = now.AddSeconds(1)
+        };
+        db.SuggestedUserActions.AddRange(pending, untouched);
+        await db.SaveChangesAsync();
+
+        await service.WithdrawRecommendationAsync(organizationId, installationId,
+            new(recommendation.Id, "The demo needs a software developer instead.", "withdraw-creative-director"));
+
+        await db.Entry(pending).ReloadAsync();
+        await db.Entry(untouched).ReloadAsync();
+        Assert.Equal(CSweet.Contracts.Communications.SuggestedUserActionStatuses.Cancelled, pending.Status);
+        Assert.Null(pending.SupersededAt);
+        Assert.Equal(CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending, untouched.Status);
+        var cancelledEvent = Assert.Single(
+            await db.ApplicationRealtimeOutbox.ToListAsync(),
+            x => x.EventType == CSweet.Contracts.Communications.SuggestedUserActionEvents.Cancelled);
+        Assert.Contains(pending.Id.ToString("D"), cancelledEvent.Subject, StringComparison.Ordinal);
+        Assert.Equal(CSweet.Domain.Core.ProposalStatus.Cancelled,
+            (await db.WorkforcePlans.SingleAsync(x => x.Id == recommendation.Id)).Status);
+    }
+
+    [Fact]
     public async Task EmbeddedAgentWorkflow_PreviewsPinsInstallsAndHiresConfiguredRepository()
     {
         await using var db = CreateDb();

@@ -8,7 +8,7 @@
 > for the current architecture. Docker is still required for trusted development infrastructure;
 > it is no longer an untrusted-agent isolation mechanism.
 
-Last updated: 2026-07-13
+Last updated: 2026-09-15
 
 ## Purpose
 
@@ -57,6 +57,11 @@ Cross-cutting features are documented as a phased series in their own folder:
   revisions, access, review, chat links, and agent capabilities on one canonical artifact model.
 - [Work item comments](./features/work-item-comments.md) - make ticket discussion author-scoped,
   editable, and retractable on both team boards and personal boards.
+- [Hiring suggestion lifecycle](./features/hiring-suggestion-lifecycle.md) - one actionable hiring
+  suggestion per conversation, with created/completed/cancelled/superseded states, withdraw cascade,
+  and owner-directed replacement semantics.
+- [Chat turn diagnostics](./chat-turn-diagnostics.md) - use the persisted error code, turn trace,
+  agent work-item error, and console locations to diagnose a failed Communications answer.
 
 ## Recommended implementation order
 
