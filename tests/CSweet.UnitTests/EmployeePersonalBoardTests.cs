@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
+using System.Text.Json;
+using CSweet.Contracts.Realtime;
 using CSweet.UI.Components.Employees;
+using CSweet.UI.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
@@ -70,6 +73,7 @@ public sealed partial class EmployeePersonalBoardTests
         var item = Item() with { Description = new string('a', 150) + "HIDDEN_END" };
         var services = new ServiceCollection().AddLogging(); services.AddMudServices();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddScoped<AppRealtimeState>();
         services.AddSingleton(new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) }))
             { BaseAddress = new Uri("http://localhost") });
         await using var provider = services.BuildServiceProvider();
@@ -142,6 +146,24 @@ public sealed partial class EmployeePersonalBoardTests
         Assert.Contains("Close and reopen", Get<string>(component, "_error"));
         Assert.Equal("Ready", Get<Wire.PersonalTodoItem>(component, "_selectedItem").Status);
     }
+
+    [Fact]
+    public void RealtimeFilterMatchesOnlyTheBoardsOwnWorkBoardEvents()
+    {
+        var organizationId = Guid.NewGuid();
+        var boardId = Guid.NewGuid();
+        Assert.True(PersonalBoardRealtime.Matches(Envelope(organizationId, boardId), organizationId, boardId));
+        Assert.False(PersonalBoardRealtime.Matches(Envelope(Guid.NewGuid(), boardId), organizationId, boardId));
+        Assert.False(PersonalBoardRealtime.Matches(Envelope(organizationId, Guid.NewGuid()), organizationId, boardId));
+        Assert.False(PersonalBoardRealtime.Matches(Envelope(organizationId, boardId, AppRealtimeEvents.ApprovalChanged), organizationId, boardId));
+        Assert.False(PersonalBoardRealtime.Matches(Envelope(organizationId, boardId, data: "{}"), organizationId, boardId));
+        Assert.False(PersonalBoardRealtime.Matches(Envelope(organizationId, boardId, data: "{\"boardId\":\"not-a-guid\"}"), organizationId, boardId));
+    }
+
+    private static AppRealtimeEventEnvelope Envelope(Guid organizationId, Guid boardId,
+        string eventType = AppRealtimeEvents.WorkBoardChanged, string? data = null) =>
+        new(Guid.NewGuid(), 1, eventType, organizationId, "subject", DateTimeOffset.UtcNow,
+            JsonSerializer.Deserialize<JsonElement>(data ?? $"{{\"boardId\":\"{boardId:D}\"}}"));
 
     private static EmployeePersonalBoard Component(Wire.PersonalTodoItem item, HttpClient http)
     {

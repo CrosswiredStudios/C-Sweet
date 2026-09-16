@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Realtime;
 using CSweet.Contracts.WorkManagement;
+using CSweet.UI.Services;
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
 using Present = CSweet.UI.Components.Employees.PersonalBoardPresentation;
@@ -21,7 +23,9 @@ public partial class EmployeePersonalBoard
     [Parameter] public bool IncludeArchived { get; set; }
     [Parameter] public EventCallback<bool> IncludeArchivedChanged { get; set; }
     [Parameter] public EventCallback RefreshRequested { get; set; }
-    [Parameter] public EventCallback CloseRequested { get; set; }
+    [Inject] public AppRealtimeState Realtime { get; set; } = default!;
+    private bool _realtimeRefreshPending;
+    private bool _realtimeRefreshRunning;
 
     private static readonly string[] Priorities = ["Low", "Medium", "High", "Critical"];
     private static readonly JsonSerializerOptions DetailJson = new(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -60,6 +64,12 @@ public partial class EmployeePersonalBoard
         (_editStatus != Wire.PersonalTodoStatuses.Blocked || !CanExecute || !string.IsNullOrWhiteSpace(_blockReason)) &&
         (_creating || HasDetailsChanges || HasStatusChanges);
 
+    protected override void OnInitialized()
+    {
+        Realtime.EventReceived += OnRealtimeEvent;
+        Realtime.Reconnected += OnRealtimeReconnected;
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         if (_loadedBoardId != Board.BoardId)
@@ -80,6 +90,41 @@ public partial class EmployeePersonalBoard
         }
         catch (HttpRequestException) { _people = []; }
         catch (JsonException) { _people = []; }
+    }
+
+    public void Dispose()
+    {
+        Realtime.EventReceived -= OnRealtimeEvent;
+        Realtime.Reconnected -= OnRealtimeReconnected;
+    }
+
+    private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
+    {
+        if (!PersonalBoardRealtime.Matches(envelope, OrganizationId, Board.BoardId)) return;
+        _realtimeRefreshPending = true;
+        if (!_realtimeRefreshRunning) _ = InvokeAsync(RefreshFromRealtimeAsync);
+    }
+
+    private void OnRealtimeReconnected()
+    {
+        _realtimeRefreshPending = true;
+        if (!_realtimeRefreshRunning) _ = InvokeAsync(RefreshFromRealtimeAsync);
+    }
+
+    private async Task RefreshFromRealtimeAsync()
+    {
+        if (_realtimeRefreshRunning) return;
+        _realtimeRefreshRunning = true;
+        try
+        {
+            while (_realtimeRefreshPending)
+            {
+                _realtimeRefreshPending = false;
+                try { await RefreshRequested.InvokeAsync(); }
+                catch (Exception exception) { _error = exception.Message; }
+            }
+        }
+        finally { _realtimeRefreshRunning = false; }
     }
 
     private void PrepareFilters()

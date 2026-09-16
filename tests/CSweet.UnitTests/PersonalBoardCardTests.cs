@@ -38,10 +38,21 @@ public sealed class PersonalBoardCardTests
         Assert.DoesNotContain("is-blocked", html);
     }
 
+    [Fact]
+    public async Task CardLinksDirectlyToTheEmployeePersonalBoardTab()
+    {
+        var html = await Render([Item(PersonalTodoStatuses.Ready)]);
+        Assert.Contains($"<a class=\"personal-board-card\" href=\"{Href}\"", html);
+        Assert.DoesNotContain("<button", html);
+    }
+
     private static PersonalTodoItem Item(string status, DateTimeOffset? archived = null) =>
         new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "Manager", "Task", "",
             status, "Normal", 0, 1, null, null, null, [], null, null,
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, archived);
+
+    private const string Href =
+        "/organizations/3fa632b6-b054-45d5-aec7-997387869c0b/employees/10ed04a2-2449-4041-964e-c6eef4b94d57?tab=personal-board";
 
     private static async Task<string> Render(IReadOnlyList<PersonalTodoItem> items)
     {
@@ -51,7 +62,11 @@ public sealed class PersonalBoardCardTests
         {
             var board = new PersonalTodoBoard(Guid.NewGuid(), Guid.NewGuid(), "Evelyn Brooks", null, null, 1, items);
             var output = await renderer.RenderComponentAsync<PersonalBoardCard>(ParameterView.FromDictionary(
-                new Dictionary<string, object?> { [nameof(PersonalBoardCard.Board)] = board }));
+                new Dictionary<string, object?>
+                {
+                    [nameof(PersonalBoardCard.Board)] = board,
+                    [nameof(PersonalBoardCard.Href)] = Href
+                }));
             return output.ToHtmlString();
         });
     }

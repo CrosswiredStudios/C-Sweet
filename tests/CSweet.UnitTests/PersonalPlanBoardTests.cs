@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
 using CSweet.UI.Components.Employees;
+using CSweet.UI.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +26,7 @@ public sealed partial class EmployeePersonalBoardTests
         var board = Board(epic) with { Items = [epic, story, task] };
         var services = new ServiceCollection().AddLogging(); services.AddMudServices();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddScoped<AppRealtimeState>();
         services.AddSingleton(new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) })) { BaseAddress = new Uri("http://localhost") });
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());

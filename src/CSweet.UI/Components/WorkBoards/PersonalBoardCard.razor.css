@@ -12,6 +12,7 @@
     background: var(--mud-palette-surface);
     font: inherit;
     text-align: left;
+    text-decoration: none;
     cursor: pointer;
     transition: border-color .15s ease, box-shadow .15s ease;
 }

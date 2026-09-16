@@ -186,7 +186,7 @@
                     @foreach (var board in _personalTodos.Boards)
                     {
                         <PersonalBoardCard @key="board.OwnerOrganizationUserId" Board="board"
-                                           OpenRequested="@(() => OpenPersonalBoard(board))" />
+                                           Href="@($"/organizations/{OrganizationId:D}/employees/{board.OwnerOrganizationUserId:D}?tab=personal-board")" />
                     }
                 </div>
             </EmployeePortraitScope>
@@ -201,37 +201,6 @@
 }
 </MudContainer>
 }
-
-<MudDialog @bind-Visible="_personalBoardOpen" Class="personal-board-dialog" ContentClass="personal-board-dialog-content" Options="@(new DialogOptions { FullScreen = true, FullWidth = true, NoHeader = true, CloseOnEscapeKey = true })">
-    <DialogContent>
-        @if (_personalBoardLoading)
-        {
-            <MudProgressLinear Indeterminate="true" />
-        }
-        @if (!string.IsNullOrWhiteSpace(_personalBoardDialogError))
-        {
-            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
-                @_personalBoardDialogError
-            </MudAlert>
-        }
-        @if (_selectedPersonalBoard is not null && string.IsNullOrWhiteSpace(_personalBoardDialogError))
-        {
-            <EmployeePersonalBoard @key="_selectedPersonalBoard.BoardId" OrganizationId="OrganizationId"
-                EmployeeId="_selectedPersonalBoard.OwnerOrganizationUserId"
-                Board="_selectedPersonalBoard"
-                CanAdd="true"
-                CanExecute="@(_personalTodos?.CurrentOrganizationUserId == _selectedPersonalBoard.OwnerOrganizationUserId)"
-                IncludeArchived="_personalBoardIncludeArchived"
-                IncludeArchivedChanged="SetPersonalBoardIncludeArchivedAsync"
-                CloseRequested="ClosePersonalBoard" RefreshRequested="RefreshPersonalBoardDialogAsync" />
-        }
-
-        @if (_selectedPersonalBoard is null || !string.IsNullOrWhiteSpace(_personalBoardDialogError))
-        {
-            <button type="button" class="mud-button-root mud-button-text pa-3" @onclick="ClosePersonalBoard">Close personal board</button>
-        }
-    </DialogContent>
-</MudDialog>
 
 <MudDialog @bind-Visible="_editorOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
@@ -1362,10 +1331,7 @@
 
     private WorkBoardDirectoryResponse? _directory;
     private PersonalTodoDirectory? _personalTodos;
-    private PersonalTodoBoard? _selectedPersonalBoard;
-    private Guid? _selectedPersonalBoardOwnerId;
     private string? _personalTodoError;
-    private string? _personalBoardDialogError;
     private WorkBoardSummaryResponse? _editingBoard;
     private WorkBoardSummaryResponse? _detailBoard;
     private WorkBoardDetailResponse? _detail;
@@ -1382,9 +1348,6 @@
     private bool _saving;
     private bool _forbidden;
     private bool _editorOpen;
-    private bool _personalBoardOpen;
-    private bool _personalBoardLoading;
-    private bool _personalBoardIncludeArchived;
     private bool _editorDefault;
     private bool _detailLoading;
     private bool _itemCreatorOpen;
@@ -1581,78 +1544,12 @@
             }
             response.EnsureSuccessStatusCode();
             _personalTodos = await response.Content.ReadFromJsonAsync<PersonalTodoDirectory>();
-            if (_selectedPersonalBoardOwnerId.HasValue && !_personalBoardIncludeArchived)
-            {
-                _selectedPersonalBoard = _personalTodos?.Boards.SingleOrDefault(x =>
-                    x.OwnerOrganizationUserId == _selectedPersonalBoardOwnerId.Value);
-            }
             _personalTodoError = null;
         }
         catch (Exception exception)
         {
             _personalTodos = null;
             _personalTodoError = $"Personal boards could not be loaded. {exception.Message}";
-        }
-    }
-
-    private void OpenPersonalBoard(PersonalTodoBoard board)
-    {
-        _selectedPersonalBoardOwnerId = board.OwnerOrganizationUserId;
-        _selectedPersonalBoard = board;
-        _personalBoardIncludeArchived = false;
-        _personalBoardDialogError = null;
-        _personalBoardOpen = true;
-    }
-
-    private void ClosePersonalBoard()
-    {
-        _personalBoardOpen = false;
-        _personalBoardIncludeArchived = false;
-        _personalBoardDialogError = null;
-    }
-
-    private async Task SetPersonalBoardIncludeArchivedAsync(bool value)
-    {
-        _personalBoardIncludeArchived = value;
-        if (value)
-        {
-            await LoadSelectedPersonalBoardAsync(includeArchived: true);
-            return;
-        }
-
-        await LoadPersonalTodosAsync();
-    }
-
-    private async Task RefreshPersonalBoardDialogAsync()
-    {
-        await LoadPersonalTodosAsync();
-        if (_personalBoardIncludeArchived)
-            await LoadSelectedPersonalBoardAsync(includeArchived: true);
-    }
-
-    private async Task LoadSelectedPersonalBoardAsync(bool includeArchived)
-    {
-        if (!_selectedPersonalBoardOwnerId.HasValue) return;
-
-        _personalBoardLoading = true;
-        _personalBoardDialogError = null;
-        try
-        {
-            var response = await Http.GetAsync(
-                $"api/organizations/{OrganizationId:D}/work/personal-todos?includeArchived={includeArchived.ToString().ToLowerInvariant()}");
-            response.EnsureSuccessStatusCode();
-            var directory = await response.Content.ReadFromJsonAsync<PersonalTodoDirectory>();
-            _selectedPersonalBoard = directory?.Boards.SingleOrDefault(x =>
-                x.OwnerOrganizationUserId == _selectedPersonalBoardOwnerId.Value)
-                ?? throw new InvalidOperationException("The personal board is no longer available.");
-        }
-        catch (Exception exception)
-        {
-            _personalBoardDialogError = exception.Message;
-        }
-        finally
-        {
-            _personalBoardLoading = false;
         }
     }
 
@@ -3129,7 +3026,6 @@
                 {
                     if (_detail is not null) await RefreshDetailAsync();
                     await LoadPersonalTodosAsync();
-                    if (_personalBoardOpen && _personalBoardIncludeArchived) await RefreshPersonalBoardDialogAsync();
                     if (_collaborationOpen && _selectedItem is not null)
                         await LoadCollaborationAsync();
                     if (_drawerComments is not null) await _drawerComments.ReloadAsync();

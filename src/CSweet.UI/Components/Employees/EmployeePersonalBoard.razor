@@ -1,12 +1,11 @@
 @using Wire = CSweet.WorkManagement.Contracts
 @using Present = CSweet.UI.Components.Employees.PersonalBoardPresentation
+@implements IDisposable
 
 <section class="personal-board" aria-label="@($"{Board.OwnerDisplayName}'s personal board")" aria-busy="@_busy">
     <header class="personal-board-header">
         <div><div class="board-eyebrow"><MudIcon Icon="@Icons.Material.Outlined.Shield" Size="Size.Small" />Protected work</div><h2>@Board.OwnerDisplayName</h2><p>Personal workspace</p></div>
-        <div class="board-owner"><span class="owner-avatar">@Present.Initials(Board.OwnerDisplayName)</span><div><strong>@Board.OwnerDisplayName</strong><small>Board owner</small></div>
-            @if (CloseRequested.HasDelegate) { <button type="button" class="icon-action" aria-label="Close personal board" @onclick="CloseRequested"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button> }
-        </div>
+        <div class="board-owner"><span class="owner-avatar">@Present.Initials(Board.OwnerDisplayName)</span><div><strong>@Board.OwnerDisplayName</strong><small>Board owner</small></div></div>
     </header>
     <div class="board-toolbar">
         <div class="toolbar-group"><strong class="board-view"><MudIcon Icon="@Icons.Material.Outlined.ViewKanban" Size="Size.Small" />Board <span class="board-count">@FilteredItems.Count</span></strong>

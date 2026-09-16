@@ -6,6 +6,7 @@
 @using CSweet.Contracts.WorkManagement
 @using Wire = CSweet.WorkManagement.Contracts
 @inject HttpClient Http
+@inject NavigationManager Navigation
 
 <EmployeePortraitScope OrganizationId="OrganizationId">
 <PageTitle>@(_details?.Employee.DisplayName ?? "Employee") - C-Sweet</PageTitle>
@@ -35,7 +36,9 @@
             </MudStack>
         </MudPaper>
 
-        <MudTabs Rounded="true" Elevation="0" Class="mt-4">
+        <MudTabs Rounded="true" Elevation="0" Class="mt-4"
+                 ActivePanelIndex="_activeTab" ActivePanelIndexChanged="SelectTab"
+                 KeepPanelsAlive="true" LazyLoadPanels="true">
             <MudTabPanel Text="Overview" Icon="@Icons.Material.Outlined.Badge">
                 <MudGrid Class="mt-2">
                     <MudItem xs="12" md="6">
@@ -203,6 +206,12 @@
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid EmployeeId { get; set; }
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+    private static readonly string[] TabSlugs =
+        ["overview", "personal-board", "assigned-work", "agent-operations", "memory", "usage", "timeline"];
+    private int _activeTab;
+    private Guid? _loadedOrganizationId;
+    private Guid? _loadedEmployeeId;
     private EmployeeDetailsResponse? _details;
     private Wire.PersonalTodoBoard? _personalBoard;
     private EmployeeAssignedWorkResponse? _assigned;
@@ -231,6 +240,12 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        if (_loadedOrganizationId == OrganizationId && _loadedEmployeeId == EmployeeId)
+        {
+            ApplyTabSelection();
+            return;
+        }
+        _loadedOrganizationId = OrganizationId; _loadedEmployeeId = EmployeeId;
         _loading = true; _error = null; _breadcrumbs.Clear();
         _breadcrumbs.Add(new("Employees", $"/organizations/{OrganizationId}/employees"));
         try
@@ -263,7 +278,35 @@
         }
         catch (Exception exception) { _error = exception.Message; }
         finally { _loading = false; }
+        ApplyTabSelection();
     }
+
+    private void ApplyTabSelection() => _activeTab = ReachableTabIndex(IndexForSlug(Tab));
+
+    private void SelectTab(int index)
+    {
+        _activeTab = index;
+        if (IndexForSlug(Tab) == index) return;
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("tab", index == 0 ? null : TabSlugs[index]));
+    }
+
+    private static int IndexForSlug(string? slug)
+    {
+        if (string.IsNullOrWhiteSpace(slug)) return 0;
+        for (var index = 0; index < TabSlugs.Length; index++)
+        {
+            if (string.Equals(TabSlugs[index], slug.Trim(), StringComparison.OrdinalIgnoreCase)) return index;
+        }
+        return 0;
+    }
+
+    private int ReachableTabIndex(int index)
+    {
+        if (index is 3 or 4 && _details?.Employee.AgentInstallationId is null) return 0;
+        if (index == 6 && _details?.Permissions.CanViewTimeline != true) return 0;
+        return index;
+    }
+
     private async Task LoadPersonalBoardAsync() => _personalBoard = await Http.GetFromJsonAsync<Wire.PersonalTodoBoard>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/personal-board?includeArchived={_includeArchived.ToString().ToLowerInvariant()}");
     private async Task SetIncludeArchivedAsync(bool value) { _includeArchived = value; await LoadPersonalBoardAsync(); }
     private async Task LoadAssignmentsAsync() => _assigned = await Http.GetFromJsonAsync<EmployeeAssignedWorkResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/assignments");

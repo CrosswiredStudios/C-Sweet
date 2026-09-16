@@ -1,7 +1,7 @@
 @using CSweet.WorkManagement.Contracts
 
-<button type="button" class="personal-board-card" @onclick="OpenRequested"
-        aria-label="@($"Open {Board.OwnerDisplayName}'s Kanban board, {_activeCount} active tickets, {_blockedCount} blocked")">
+<a class="personal-board-card" href="@Href"
+   aria-label="@($"Open {Board.OwnerDisplayName}'s Kanban board, {_activeCount} active tickets, {_blockedCount} blocked")">
     <span class="personal-board-portrait" aria-hidden="true">
         @if (!_imageFailed && _imageUrl is not null)
         {
@@ -34,11 +34,11 @@
             }
         </span>
     </span>
-</button>
+</a>
 
 @code {
     [Parameter, EditorRequired] public PersonalTodoBoard Board { get; set; } = default!;
-    [Parameter] public EventCallback OpenRequested { get; set; }
+    [Parameter, EditorRequired] public string Href { get; set; } = string.Empty;
     [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
 
     private string? _imageUrl;
