@@ -236,7 +236,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 x.Board.OwnerOrganizationUserId.HasValue && x.ArchivedAt == null &&
                 x.IsExecutable && x.Status == WorkTaskStatus.Blocked)
             .ToListAsync(cancellationToken);
-        foreach (var item in blocked.Where(x => AgentWorkFailure.IsLlmProviderBlocker(x.BlockReason)))
+        foreach (var item in blocked.Where(x => x.BlockReason?.StartsWith(AgentTicketFeedback.RepeatedIssuePrefix, StringComparison.Ordinal) != true && AgentWorkFailure.IsLlmProviderBlocker(x.BlockReason)))
         {
             var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
                 x.Id == item.Board!.OwnerOrganizationUserId && x.IsActive &&
@@ -330,6 +330,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             .ToListAsync(cancellationToken);
         foreach (var item in blocked)
         {
+            if (item.BlockReason?.StartsWith(AgentTicketFeedback.RepeatedIssuePrefix, StringComparison.Ordinal) == true) continue;
             var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
                 x.Id == item.Board!.OwnerOrganizationUserId && x.IsActive &&
                 x.EmployeeType == EmployeeType.Agent && x.AgentInstallationId != null,
@@ -883,6 +884,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             {
                 item = await db.CoreWorkTasks.SingleAsync(x => x.Id == candidate.Id,
                     cancellationToken);
+                AgentTicketFeedback.RecordClaim(db, item, actor.AgentInstallationId!.Value, request.EventId, now);
                 await QueuePersonalRealtimeAsync(item, cancellationToken);
                 await db.SaveChangesAsync(cancellationToken);
             }
@@ -972,8 +974,11 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         item.BoardColumnId = ColumnForStatus(board, status).Id;
         if (status == WorkTaskStatus.Blocked)
         {
-            await BlockRunningPlanChildrenAsync(item, reason!, cancellationToken);
-            await AddBlockedNotificationsAsync(item, board, reason!, now, cancellationToken);
+            var repeated = actor.AgentInstallationId is { } installationId &&
+                await AgentTicketFeedback.RecordFailureAsync(db, item, installationId,
+                    $"reported:{eventId:N}:{item.Revision}", "reported:" + reason!, false, now, cancellationToken, queueRealtime: false);
+            await BlockRunningPlanChildrenAsync(item, item.BlockReason!, cancellationToken);
+            if (!repeated) await AddBlockedNotificationsAsync(item, board, reason!, now, cancellationToken);
         }
         if (status == WorkTaskStatus.Ready)
             await QueueAvailableAsync(organizationId, await OwnerAsync(board, cancellationToken),

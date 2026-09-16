@@ -159,6 +159,10 @@ public static class McpGatewayEndpoints
             {
                 return RpcError(id, -32003, exception.Message, StatusCodes.Status403Forbidden);
             }
+            catch (ArgumentException exception)
+            {
+                return RpcError(id, -32602, exception.Message, StatusCodes.Status400BadRequest);
+            }
             catch (InvalidOperationException exception)
             {
                 return RpcError(id, -32602, exception.Message, StatusCodes.Status400BadRequest);

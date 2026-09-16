@@ -33,6 +33,39 @@ no moderation grant, so no human or agent can rewrite or erase another subject's
   a grant-filtered realtime board event, and an audit event carrying the authorizing grant revision.
 - Archived boards stay readable but accept no new comments.
 
+## Automatic execution feedback
+
+`AgentTicketFeedback` records concise, platform-owned `agent.failure` comments when a ticket's
+authenticated execution fails, reports a blocker, or loses its runtime lease. Structured diagnostics
+remain in execution logs; comments describe the problem in ordinary language. Personal plan failures
+attach to the running task, with the coordinator and running story blocked together on recurrence.
+
+Two consecutive failures with the same fingerprint block the ticket and stop automatic retries.
+The fingerprint uses the structured failure code, capability, exception type, and HTTP status,
+excluding per-attempt diagnostic IDs; reported blockers use their reported reason.
+A private Communications message and notification go to the active reporting manager (or board
+manager). Agent managers receive the existing durable message-mention event as well. If no active
+manager is configured, the comment and blocked state still persist. The manager can explicitly
+requeue after resolving the cause; provider recovery and attention reconciliation do not silently
+reopen a repeated-issue block.
+
+`AgentWorkInbox` commits the feedback, blocked state, manager message, and notification outboxes
+with the failed attempt. A durable claim activity identifies the personal ticket even when the SDK
+releases its claim before reporting the exception. Work-stage attempts identify team tickets.
+Per-attempt keys deduplicate feedback; an already-blocked incident does not create another escalation.
+
+`PlatformLlmJobService.RunAsync` adds all current, nondeleted comments to the provider request for
+the authenticated execution before generation. It includes the personal coordinator and running plan
+items, preserves chronology and edited text, and labels discussion as untrusted user context.
+Comments are not silently truncated; the existing provider request limits still apply.
+This uses the queued platform LLM path and requires no agent package upgrade.
+
+These are platform-derived execution effects, not new comment grants. Personal agents still cannot
+arbitrarily write or edit comments through the general board API.
+
+Validation: `AgentTicketFeedbackTests`, `AgentWorkInboxTests.RepeatedTicketFailureAfterClaimReleaseStopsInboxRetries`,
+and `PlatformLlmQueueTests.ClaimedTicketDiscussionIsAddedToProviderContext`.
+
 ## Default authority
 
 Commenting is part of ordinary membership rather than a manager-only power. Organization provisioning

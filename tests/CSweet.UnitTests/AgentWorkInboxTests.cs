@@ -11,6 +11,48 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentWorkInboxTests
 {
+    [Fact]
+    public async Task RepeatedTicketFailureAfterClaimReleaseStopsInboxRetries()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var installation = Installation(clock.GetUtcNow());
+        var organizationId = Guid.NewGuid();
+        installation.BusinessId = organizationId.ToString();
+        var runtime = Runtime(installation, clock.GetUtcNow());
+        var eventId = Guid.NewGuid();
+        var board = new CSweet.Domain.WorkManagement.WorkBoard
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId,
+            Kind = CSweet.Domain.WorkManagement.WorkBoardKind.Personal
+        };
+        var ticket = new CSweet.Domain.Core.WorkTask
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, Board = board, BoardId = board.Id,
+            Kind = CSweet.Domain.Core.WorkItemKind.Task,
+            AssignedAgentInstallationId = installation.Id, Status = CSweet.Domain.Core.WorkTaskStatus.Running
+        };
+        db.AddRange(installation, runtime, ticket);
+        CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RecordClaim(db, ticket, installation.Id, eventId, clock.GetUtcNow());
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Event,
+            CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available, Json("{}"), "ticket-failure",
+            clock.GetUtcNow().AddHours(1), maximumAttempts: 5, sourceId: eventId.ToString());
+        var session = Session(installation, runtime);
+        var first = (await inbox.ClaimAsync(session, default))!;
+        const string error = "agent-failure:v1;code=runtime.transport;retryable=true";
+        await inbox.FailAsync(session, first.WorkId, first.Attempt, first.LeaseToken, error, default);
+        Assert.Equal(AgentWorkStatus.Pending, (await inbox.ReadStateAsync(first.WorkId, default)).Status);
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var second = (await inbox.ClaimAsync(session, default))!;
+        await inbox.FailAsync(session, second.WorkId, second.Attempt, second.LeaseToken, error, default);
+        Assert.Equal(AgentWorkStatus.DeadLetter, (await inbox.ReadStateAsync(first.WorkId, default)).Status);
+        Assert.Equal(CSweet.Domain.Core.WorkTaskStatus.Blocked, ticket.Status);
+        Assert.Equal(2, await db.WorkItemComments.CountAsync());
+        Assert.Null(await inbox.ClaimAsync(session, default));
+    }
+
     [Theory]
     [InlineData("active")]
     [InlineData("expired")]

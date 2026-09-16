@@ -208,6 +208,7 @@ public sealed class AgentWorkInbox(
         {
             expiredItem.Status = AgentWorkStatus.DeadLetter;
             expiredItem.LastError = "The work deadline elapsed before the item could be claimed.";
+            await RecordTicketFailureAsync(expiredItem, expiredItem.AttemptCount, expiredItem.LastError, now, cancellationToken);
             await FailCoordinationForWorkAsync(expiredItem, expiredItem.LastError, now, cancellationToken);
             AgentRuntimeMetrics.Work("dead_lettered", expiredItem.Kind);
         }
@@ -230,6 +231,7 @@ public sealed class AgentWorkInbox(
                 : AgentWorkStatus.Pending;
             work.AvailableAt = now;
             work.LastError = "The prior runtime lease expired.";
+            await RecordTicketFailureAsync(work, expiredAttempt.Attempt, work.LastError, now, cancellationToken);
             if (work.Status == AgentWorkStatus.DeadLetter)
                 await FailCoordinationForWorkAsync(work, work.LastError, now, cancellationToken);
             AgentRuntimeMetrics.Work(
@@ -420,6 +422,8 @@ public sealed class AgentWorkInbox(
         item.Status = AgentWorkStatus.Completed;
         item.CompletedAt = now;
         item.LastError = completion.Succeeded ? null : completion.Error;
+        if (!completion.Succeeded)
+            await RecordTicketFailureAsync(item, attemptNumber, completion.Error ?? "Agent returned no result.", now, cancellationToken);
         if (item.Kind == AgentWorkKind.ConfigurationUpdate)
             ApplyConfigurationAcknowledgement(item, completion, now);
         await db.SaveChangesAsync(cancellationToken);
@@ -452,6 +456,7 @@ public sealed class AgentWorkInbox(
             ? AgentWorkStatus.DeadLetter
             : AgentWorkStatus.Pending;
         item.AvailableAt = now.AddSeconds(Math.Min(60, Math.Pow(2, attemptNumber)));
+        await RecordTicketFailureAsync(item, attemptNumber, error, now, cancellationToken);
         if (item.Kind == AgentWorkKind.ConfigurationUpdate)
         {
             var installation = await db.AgentInstallations.SingleAsync(x => x.Id == item.AgentInstallationId,
@@ -466,6 +471,23 @@ public sealed class AgentWorkInbox(
         AgentRuntimeMetrics.Work(
             item.Status == AgentWorkStatus.DeadLetter ? "dead_lettered" : "failed",
             item.Kind);
+    }
+
+    private async Task RecordTicketFailureAsync(AgentWorkItem work, int attemptNumber, string error,
+        DateTimeOffset now, CancellationToken token)
+    {
+        var ticket = await CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.ResolveAsync(db, work, token);
+        if (ticket is null || ticket.Status is CSweet.Domain.Core.WorkTaskStatus.Completed or CSweet.Domain.Core.WorkTaskStatus.Cancelled ||
+            (ticket.Board?.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal &&
+             ticket.AssignedAgentInstallationId != work.AgentInstallationId)) return;
+        if (await CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RecordFailureAsync(db, ticket,
+            work.AgentInstallationId, $"{work.Id:N}:{attemptNumber}", error,
+            work.Status == AgentWorkStatus.Pending, now, token))
+        {
+            work.Status = AgentWorkStatus.DeadLetter;
+            work.LastError = CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RepeatedIssueError;
+            work.CompletedAt = now;
+        }
     }
 
     private void ApplyConfigurationAcknowledgement(

@@ -60,6 +60,37 @@ dotnet run --project src/CSweet.WorkerHost
 | AI features | OpenAI-compatible model endpoint | LM Studio, Ollama, vLLM, or a compatible hosted provider |
 | Local untrusted agents on Windows | Hyper-V, RuntimeHost, signed guest image, and current certification | Prepared through the guided Agent Isolation onboarding flow; never replaced by Docker |
 
+## Inference request size configuration
+
+`CSweet.AgentHost` reads `CSweet:Llm:Queue:MaximumRequestBytes` and
+`CSweet:Llm:Queue:MaximumMessageCharacters`. Both default to **0**, meaning no
+application-level inference byte or text-size limit. Set a positive integer to enforce a cap;
+negative values fail startup validation. For example:
+
+```json
+{
+  "CSweet": {
+    "Llm": {
+      "Queue": {
+        "MaximumRequestBytes": 0,
+        "MaximumMessageCharacters": 0
+      }
+    }
+  }
+}
+```
+
+Environment variable equivalents are `CSweet__Llm__Queue__MaximumRequestBytes` and
+`CSweet__Llm__Queue__MaximumMessageCharacters`. Restart AgentHost after changing them.
+`PlatformLlmJobService.StartAsync` and `PlatformLlmCapabilityHandler.StreamAsync` both
+honor the optional byte cap, including the provider request after ticket context is added.
+Configured validation failures return an MCP invalid-parameters response instead of HTTP 500.
+
+Zero disables these inference checks; it does not change the selected model's context capacity,
+message/tool-count controls, concurrency controls, or the separate MCP/Office transport bounds.
+The MCP envelope still defaults to 16 MiB, with Office framing imposing its own bound.
+Requests larger than those transport bounds require a separate transport configuration/design change.
+
 ## Verifying Your Setup
 
 ### Health Endpoints

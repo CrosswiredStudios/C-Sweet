@@ -193,7 +193,7 @@ public sealed partial class WorkOrchestrator(
             attempt.ErrorMessage = $"Invalid execution result: {exception.Message}";
             attempt.CompletedAt = now;
             await RevokeAttemptGrantsAsync(execution, stage, now, cancellationToken);
-            FailStage(stage, attempt.ErrorMessage, now); return;
+            await RecordInvalidResultAsync(stage, attempt, attempt.ErrorMessage, now, cancellationToken); return;
         }
         var error = ValidateOutcome(policy, stage, attempt, outcome);
         if (error is null)
@@ -206,12 +206,20 @@ public sealed partial class WorkOrchestrator(
             attempt.ErrorMessage = error;
             attempt.CompletedAt = now;
             await RevokeAttemptGrantsAsync(execution, stage, now, cancellationToken);
-            FailStage(stage, error, now); return;
+            await RecordInvalidResultAsync(stage, attempt, error, now, cancellationToken); return;
         }
         attempt.Status = WorkExecutionAttemptStatus.Completed; attempt.CompletedAt = now;
         attempt.ResultJson = JsonSerializer.Serialize(outcome, JsonOptions);
         await RevokeAttemptGrantsAsync(execution, stage, now, cancellationToken);
         stage.LastOutcomeCode = outcome!.OutcomeCode; stage.LastSummary = outcome.Summary; stage.UpdatedAt = now;
+        if (outcome.Disposition is Shared.WorkExecutionDispositions.Blocked or Shared.WorkExecutionDispositions.Failed &&
+            stage.AgentInstallationId is { } installationId &&
+            await AgentTicketFeedback.RecordFailureAsync(db, stage.ItemExecution!.WorkItem!, installationId,
+                $"outcome:{attempt.Id:N}", "reported:" + outcome.Summary, false, now, cancellationToken))
+        {
+            ScheduleRetryOrFail(execution, policy, stage, AgentTicketFeedback.RepeatedIssueError, now);
+            return;
+        }
         switch (outcome.Disposition)
         {
             case Shared.WorkExecutionDispositions.Blocked:
@@ -228,6 +236,22 @@ public sealed partial class WorkOrchestrator(
         }
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.result.accepted", new { outcome.Disposition, outcome.OutcomeCode, outcome.Summary });
+    }
+
+    private async Task RecordInvalidResultAsync(WorkStageExecution stage, WorkExecutionAttempt attempt,
+        string error, DateTimeOffset now, CancellationToken token)
+    {
+        var repeated = stage.AgentInstallationId is { } installationId &&
+            await AgentTicketFeedback.RecordFailureAsync(db, stage.ItemExecution!.WorkItem!, installationId,
+                $"validation:{attempt.Id:N}", "reported:" + error, false, now, token);
+        if (repeated)
+        {
+            stage.Status = WorkStageExecutionStatus.Blocked; stage.RetryAt = null;
+            stage.ItemExecution!.Status = WorkItemExecutionStatus.Blocked;
+            stage.ItemExecution.BlockedReason = stage.ItemExecution.WorkItem!.BlockReason;
+            stage.LastError = AgentTicketFeedback.RepeatedIssueError; stage.UpdatedAt = now;
+        }
+        else FailStage(stage, error, now);
     }
 
     internal async Task<string?> RecordQualityValidationAsync(
@@ -571,6 +595,15 @@ public sealed partial class WorkOrchestrator(
         WorkSprintExecution execution, WorkOrchestrationPolicyRevision policy,
         WorkStageExecution stage, string error, DateTimeOffset now)
     {
+        if (error == AgentTicketFeedback.RepeatedIssueError)
+        {
+            stage.Status = WorkStageExecutionStatus.Blocked; stage.RetryAt = null;
+            stage.LastError = error; stage.UpdatedAt = now;
+            stage.ItemExecution!.Status = WorkItemExecutionStatus.Blocked;
+            stage.ItemExecution.BlockedReason = stage.ItemExecution.WorkItem!.BlockReason;
+            execution.UpdatedAt = now; execution.Revision++;
+            return;
+        }
         var definition = policy.Stages.Single(x => x.Key == stage.StageKey);
         if (stage.Attempts.Count >= definition.MaximumAttempts)
         {

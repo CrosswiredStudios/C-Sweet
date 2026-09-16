@@ -25,6 +25,51 @@ public sealed class PlatformLlmCapabilityHandlerTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    [Theory]
+    [InlineData(0, 0, true)]
+    [InlineData(1024, 0, false)]
+    [InlineData(0, 1024, false)]
+    public async Task StreamAsync_SizeLimitsAreOptional(int byteLimit, int characterLimit, bool accepted)
+    {
+        Assert.Equal(0, new PlatformLlmJobOptions().MaximumMessageCharacters);
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var providerId = await AddProviderAsync(db);
+        var client = new StreamingChatClient();
+        var handler = new PlatformLlmCapabilityHandler(db, new StreamingProviderFactory(client),
+            new AgentEmployeeIdentityResolver(db), new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+            [], new TestMediaAssetService(), NullLogger<PlatformLlmCapabilityHandler>.Instance,
+            new() { MaximumRequestBytes = byteLimit, MaximumMessageCharacters = characterLimit });
+        var session = new AgentSession(Guid.NewGuid().ToString("N"), "test-agent", Guid.NewGuid().ToString("D"),
+            Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(),
+                new HashSet<string>([PlatformCapabilities.LlmChatStream], StringComparer.Ordinal), 1));
+        var request = new RequestCapability
+        {
+            RequestId = "large-request", Capability = PlatformCapabilities.LlmChatStream,
+            Payload = JsonPayload.From(new
+            {
+                providerProfileId = providerId,
+                messages = new[] { new { role = "user", text = new string('x', 5 * 1024 * 1024) } }
+            })
+        };
+        var results = new List<CapabilityResult>();
+        await foreach (var result in handler.StreamAsync(session, request, default)) results.Add(result);
+        if (accepted)
+        {
+            Assert.NotEmpty(results);
+            Assert.All(results, result => Assert.True(result.Succeeded, result.Error));
+            Assert.NotNull(client.ReceivedOptions);
+        }
+        else
+        {
+            var failure = Assert.Single(results);
+            Assert.False(failure.Succeeded);
+            Assert.Contains(byteLimit > 0 ? "1024-byte payload limit" : "message characters: 5242880/1024", failure.Error);
+            Assert.Null(client.ReceivedOptions);
+        }
+    }
+
     [Fact]
     public async Task StreamAsync_Reports_which_broker_context_limit_was_exceeded()
     {

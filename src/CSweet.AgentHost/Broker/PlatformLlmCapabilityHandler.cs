@@ -58,7 +58,7 @@ public sealed class PlatformLlmCapabilityHandler
         [EnumeratorCancellation] CancellationToken cancellationToken,
         bool providerSlotAcquired = false)
     {
-        if (request.Payload.Length > _options.MaximumRequestBytes)
+        if (_options.MaximumRequestBytes > 0 && request.Payload.Length > _options.MaximumRequestBytes)
         {
             yield return Failure(request.RequestId,
                 $"The LLM request exceeds the configured {_options.MaximumRequestBytes}-byte payload limit.");
@@ -95,10 +95,10 @@ public sealed class PlatformLlmCapabilityHandler
             yield break;
         }
 
-        var messageCharacters = input.Messages.Sum(MessageSize);
+        var messageCharacters = input.Messages.Sum(message => (long)MessageSize(message));
         var toolCount = input.Tools?.Count ?? 0;
         if (input.Messages.Count > _options.MaximumMessageCount ||
-            messageCharacters > _options.MaximumMessageCharacters ||
+            (_options.MaximumMessageCharacters > 0 && messageCharacters > _options.MaximumMessageCharacters) ||
             toolCount > _options.MaximumToolCount)
         {
             yield return Failure(request.RequestId,

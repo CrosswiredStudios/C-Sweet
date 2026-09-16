@@ -163,6 +163,16 @@ public sealed partial class WorkItemMutationEngine
         Set(story, storyTasks.All(x => x.Status == WorkTaskStatus.Completed && x.ArchivedAt == null)
             ? WorkTaskStatus.Completed : target == WorkTaskStatus.Blocked ? WorkTaskStatus.Blocked : WorkTaskStatus.Running);
         story.BlockReason = target == WorkTaskStatus.Blocked ? evidence : null;
+        if (target == WorkTaskStatus.Blocked &&
+            await AgentTicketFeedback.RecordFailureAsync(db, item, actor.AgentInstallationId!.Value,
+                $"plan:{root.ClaimEventId:N}:{item.Id:N}:{item.Revision}", "reported:" + evidence,
+                false, clock.GetUtcNow(), cancellationToken, queueRealtime: false))
+        {
+            Set(root, WorkTaskStatus.Blocked); Set(story, WorkTaskStatus.Blocked);
+            root.BlockReason = story.BlockReason = item.BlockReason;
+            root.ClaimEventId = null; root.ClaimExpiresAt = null; root.NextReviewAt = null;
+            root.WaitingReason = null; root.WaitingOnOrganizationUserId = null;
+        }
         await SaveChangesWithRealtimeAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);

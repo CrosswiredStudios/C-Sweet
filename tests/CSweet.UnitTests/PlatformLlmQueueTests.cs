@@ -16,6 +16,35 @@ namespace CSweet.UnitTests;
 
 public sealed class PlatformLlmQueueTests
 {
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1024, true)]
+    public async Task RequestByteLimitIsOptional(int limit, bool rejected)
+    {
+        Assert.Equal(0, new PlatformLlmJobOptions().MaximumRequestBytes);
+        await using var fixture = await Fixture.CreateAsync(new() { MaximumRequestBytes = limit });
+        var arguments = JsonSerializer.SerializeToElement(new
+        {
+            providerProfileId = Guid.NewGuid(),
+            messages = new[] { new { role = "user", text = new string('x', 5 * 1024 * 1024) } }
+        });
+        var start = fixture.Service.StartAsync(fixture.First.Session, fixture.First.WorkId,
+            1, "lease", "large-request", arguments, default);
+        if (rejected)
+        {
+            var error = await Assert.ThrowsAsync<ArgumentException>(() => start);
+            Assert.Contains("1024-byte limit", error.Message);
+            Assert.Equal(0, fixture.Executor.Started);
+        }
+        else
+        {
+            var jobId = await start;
+            await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            fixture.Executor.ReleaseFirst.TrySetResult();
+            Assert.Equal("Completed", (await fixture.WaitCompletedAsync(fixture.First, jobId)).GetProperty("state").GetString());
+        }
+    }
+
     [Fact]
     public async Task GenerationTimeoutPersistsFailureAndReleasesProviderForQueuedWork()
     {
@@ -36,6 +65,45 @@ public sealed class PlatformLlmQueueTests
         await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
         Assert.Equal("Completed", (await fixture.WaitCompletedAsync(fixture.Second, second)).GetProperty("state").GetString());
         Assert.Equal(1, fixture.Executor.MaximumActive);
+    }
+
+    [Fact]
+    public async Task ClaimedTicketDiscussionIsAddedToProviderContext()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var work = await db.AgentWorkItems.SingleAsync(x => x.Id == fixture.First.WorkId);
+            var org = Guid.Parse(work.OrganizationId);
+            var eventId = Guid.NewGuid();
+            work.Kind = CSweet.Domain.Setup.AgentWorkKind.Event; work.SourceId = eventId.ToString();
+            var board = new CSweet.Domain.WorkManagement.WorkBoard
+            {
+                Id = Guid.NewGuid(), OrganizationId = org, Kind = CSweet.Domain.WorkManagement.WorkBoardKind.Personal
+            };
+            var ticket = new CSweet.Domain.Core.WorkTask
+            {
+                Id = Guid.NewGuid(), OrganizationId = org, Board = board,
+                Status = CSweet.Domain.Core.WorkTaskStatus.Running,
+                AssignedAgentInstallationId = work.AgentInstallationId, ClaimEventId = eventId
+            };
+            db.CoreWorkTasks.Add(ticket);
+            db.WorkItemComments.Add(new()
+            {
+                Id = Guid.NewGuid(), OrganizationId = org, WorkItemId = ticket.Id,
+                AuthorDisplayName = "Manager", Body = "Use the existing deployment. The previous attempt timed out.",
+                IdempotencyKey = "discussion"
+            });
+            await db.SaveChangesAsync();
+        }
+        var job = await fixture.StartAsync(fixture.First);
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Contains("Use the existing deployment.", fixture.Executor.LastRequestJson);
+        Assert.Contains("untrusted discussion", fixture.Executor.LastRequestJson);
+        Assert.DoesNotContain("Use the existing deployment.", fixture.Arguments.GetRawText());
+        fixture.Executor.ReleaseFirst.TrySetResult();
+        Assert.Equal("Completed", (await fixture.WaitCompletedAsync(fixture.First, job)).GetProperty("state").GetString());
     }
 
     [Fact]
@@ -125,12 +193,14 @@ public sealed class PlatformLlmQueueTests
         public TaskCompletionSource FirstStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource SecondStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseFirst { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string? LastRequestJson;
         public int Started;
         private int active;
         public int MaximumActive;
         public async IAsyncEnumerable<CapabilityResult> ExecuteAsync(AgentSession session, RequestCapability request,
             [EnumeratorCancellation] CancellationToken token)
         {
+            LastRequestJson = request.Payload.ToStringUtf8();
             var count = Interlocked.Increment(ref Started);
             MaximumActive = Math.Max(MaximumActive, Interlocked.Increment(ref active));
             try

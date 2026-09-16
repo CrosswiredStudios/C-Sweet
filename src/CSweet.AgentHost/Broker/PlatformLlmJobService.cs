@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using CSweet.Infrastructure.WorkManagement;
 using System.Threading.RateLimiting;
 using CSweet.Agent.SDK;
 using CSweet.Domain.Setup;
@@ -16,9 +18,11 @@ public sealed class PlatformLlmJobOptions
     public int MaximumConcurrentRequests { get; set; } = 1;
     public int MaximumQueuedRequests { get; set; } = 256;
     public int GenerationTimeoutSeconds { get; set; } = 900;
-    public int MaximumRequestBytes { get; set; } = 4 * 1024 * 1024;
+    /// <summary>Maximum serialized inference bytes; zero disables this limit.</summary>
+    public int MaximumRequestBytes { get; set; }
     public int MaximumMessageCount { get; set; } = 512;
-    public int MaximumMessageCharacters { get; set; } = 1_048_576;
+    /// <summary>Maximum message characters; zero disables this limit.</summary>
+    public int MaximumMessageCharacters { get; set; }
     public int MaximumToolCount { get; set; } = 256;
     public int DefaultMaximumOutputTokens { get; set; } = 32_768;
 }
@@ -87,7 +91,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         if (string.IsNullOrWhiteSpace(key) || key.Length > 128)
             throw new ArgumentException("An inference request key is required.");
         var bytes = JsonSerializer.SerializeToUtf8Bytes(arguments);
-        if (bytes.Length > options.MaximumRequestBytes)
+        if (options.MaximumRequestBytes > 0 && bytes.Length > options.MaximumRequestBytes)
             throw new ArgumentException($"The inference payload exceeds the configured {options.MaximumRequestBytes}-byte limit.");
         var provider = arguments.GetProperty("providerProfileId").GetGuid();
         var hash = Convert.ToHexString(SHA256.HashData(bytes));
@@ -181,7 +185,25 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
             cancellation.CancelAfter(TimeSpan.FromSeconds(options.GenerationTimeoutSeconds));
             await using var scope = scopes.CreateAsyncScope();
             var handler = scope.ServiceProvider.GetRequiredService<IPlatformLlmJobExecutor>();
-            await foreach (var result in handler.ExecuteAsync(job.Session, job.Request, token))
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var work = await db.AgentWorkItems.SingleAsync(x => x.Id == job.WorkId, token);
+            var context = await AgentTicketFeedback.ReadContextAsync(db, work, token);
+            var request = job.Request;
+            if (context is not null)
+            {
+                var payload = JsonNode.Parse(request.Payload.ToStringUtf8())!.AsObject();
+                var messages = payload["messages"]!.AsArray();
+                // A user message keeps ticket discussion below system/developer instructions.
+                // Prepend rather than splitting a tool-call / tool-result exchange.
+                messages.Insert(0, new JsonObject { ["role"] = "user", ["text"] = context });
+                request = new RequestCapability
+                {
+                    RequestId = request.RequestId, RequestingAgentId = request.RequestingAgentId,
+                    Capability = request.Capability, ContentType = request.ContentType,
+                    Payload = JsonPayload.FromUtf8(payload.ToJsonString())
+                };
+            }
+            await foreach (var result in handler.ExecuteAsync(job.Session, request, token))
             {
                 lock (job.Sync)
                 {
