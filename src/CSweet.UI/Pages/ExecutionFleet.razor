@@ -111,9 +111,9 @@
                                     <td><div class="office-actions"><MudButton Href="@OfficeUrl(node.Id)" Size="Size.Small">Details</MudButton>
                                     @if (node.Status != "revoked" && node.Status != "pendingapproval")
                                     {
-                                        @if (HasUpdate(node))
+                                        @if (HasUpdate(node) || CanBuildLocally(node))
                                         {
-                                            <MudButton Href="@(OfficeUrl(node.Id) + "#update")" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="@ActionsDisabled">Update</MudButton>
+                                            <MudButton Href="@(OfficeUrl(node.Id) + "#update")" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="@ActionsDisabled">@(CanBuildLocally(node) ? "Build and update (debug)" : "Update")</MudButton>
                                         }
                                         <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">Repair</MudButton>
                                     }
@@ -222,7 +222,7 @@
     else if (_fleet is not null && SelectedOffice is { } node)
     {
         <LocalOfficeUpgrade @key="node.Id" @ref="_officeCare" Office="node" Disabled="ActionsDisabled" PackageUrl="@PackageUrl(node)"
-            ShowSummary="false" ActiveWork="ActiveWork(node.Id)" InProgressChanged="CareProgressChanged"
+            ShowSummary="false" DevelopmentBuild="@CanBuildLocally(node)" ActiveWork="ActiveWork(node.Id)" InProgressChanged="CareProgressChanged"
             OnSessionChanged="session => _careSession = session" ActionMessage="@_message" ActionSucceeded="_messageSucceeded"
             OnChanged="LoadAsync" OnResume='@(() => NodeActionAsync(node.Id, "resume"))' OnPause='@(() => NodeActionAsync(node.Id, "drain"))' />
         <MudTabs @bind-ActivePanelIndex="_activeTab" KeepPanelsAlive="true" Elevation="0" Rounded="true" Class="office-tabs">
@@ -267,10 +267,10 @@
         </MudPaper>
         <MudPaper Elevation="1" Class="surface-panel command-section-wide" id="upgrade">
             <MudText Typo="Typo.h5">@(_careInProgress ? "Maintenance in progress" : "Office care")</MudText>
-            @if (HasUpdate(node) && !_careInProgress)
+            @if ((HasUpdate(node) || CanBuildLocally(node)) && !_careInProgress)
             {
-                <MudAlert Severity="Severity.Info" Class="mt-2">Office @OfficeUpdatePresentation.TargetVersion(node, _updates!) is available.</MudAlert>
-                <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="OpenUpdateAsync">Update Office</MudButton>
+                <MudAlert Severity="Severity.Info" Class="mt-2">@(CanBuildLocally(node) ? "Local development source is available, including changes that keep the same version." : $"Office {OfficeUpdatePresentation.TargetVersion(node, _updates!)} is available.")</MudAlert>
+                <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="OpenUpdateAsync">@(CanBuildLocally(node) ? "Build and update (debug)" : "Update Office")</MudButton>
             }
             <MudText Class="mt-2">@(_careInProgress ? "You can check progress at any time." : "Repair the connection or update the Office software with step-by-step help.")</MudText>
             @if (node.Status is "revoked" or "pendingapproval")
@@ -425,6 +425,9 @@
     private OfficeUpdateCheckResponse? _updates;
     private bool _checkingUpdates;
     private string? _updateError;
+    private bool CanBuildLocally(ExecutionNodeSummaryResponse node) =>
+        node.Status is not ("revoked" or "pendingapproval") &&
+        _updates?.Packages.Any(x => x.OfficeId == node.Id && x.Source == "local-setup") == true;
     private bool HasUpdate(ExecutionNodeSummaryResponse node) =>
         node.Status is not ("revoked" or "pendingapproval") && _updates is not null &&
         OfficeUpdatePresentation.NeedsUpdate(node.NodeVersion, OfficeUpdatePresentation.TargetVersion(node, _updates)) &&
@@ -500,6 +503,7 @@
             _loadedOfficeId = OfficeId;
         }
         await LoadAsync();
+        if (_updates is null && !_checkingUpdates) await CheckUpdatesAsync();
         _pollTask ??= PollAsync();
     }
 

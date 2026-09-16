@@ -115,12 +115,10 @@ internal static class LocalComputeInstaller
     /// already protected provider identity, catalog, journal, or workload storage.</summary>
     public static async Task ReenrollAsync(string handoffPath, CancellationToken token)
     {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Local provider recovery requires Windows.");
         var handoff = await ReadHandoffAsync(handoffPath, token);
         var configuration = await ComputeProviderConfigurationLoader.ReadAsync(
             ComputeWindowsService.ConfigurationPath, token);
-        if (configuration.Enrollment.OrganizationId != handoff.OrganizationId)
-            throw new UnauthorizedAccessException("The compute service belongs to another setup.");
-
         using var certificate = ComputeProviderConfigurationLoader.OpenSigningCertificate(
             configuration, TimeProvider.System);
         var catalog = await ComputeProvisioningSettingsLoader.ReadCatalogAsync(
@@ -136,6 +134,92 @@ internal static class LocalComputeInstaller
             new { secret = handoff.Secret, publicKey = configuration.NodeSigningIdentity.PublicKeyBase64, template, nodeId = configuration.Enrollment.NodeId },
             ComputeProtocol.Json, token);
         response.EnsureSuccessStatusCode();
+
+        var replacementEnrollment = configuration.Enrollment with
+        {
+            OrganizationId = handoff.OrganizationId,
+            ControlPlaneKey = handoff.ControlPlaneKey
+        };
+        var rebound = replacementEnrollment.OrganizationId != configuration.Enrollment.OrganizationId;
+        if (rebound)
+            await new ComputeReplayJournal(configuration.JournalDirectory, configuration.Enrollment,
+                configuration.Capacity, TimeProvider.System).RebindRetiredEnrollmentAsync(replacementEnrollment,
+                    (reservation, cancellation) => RetireAsync(configuration, reservation, cancellation), token);
+        try
+        {
+            await WriteAtomicAsync(ComputeWindowsService.ConfigurationPath, configuration with
+            {
+                Enrollment = replacementEnrollment,
+                CoreOrigin = handoff.CoreOrigin,
+                CoreCertificateSha256 = handoff.CoreCertificateSha256
+            }, token);
+        }
+        catch
+        {
+            if (rebound)
+                await new ComputeReplayJournal(configuration.JournalDirectory, replacementEnrollment,
+                    configuration.Capacity, TimeProvider.System).RebindEmptyEnrollmentAsync(configuration.Enrollment, CancellationToken.None);
+            throw;
+        }
+    }
+
+    private static async Task<bool> RetireAsync(ComputeProviderConfiguration configuration,
+        ComputePhysicalReservation reservation, CancellationToken token)
+    {
+        if (reservation.Persistence != ComputePersistence.Ephemeral)
+            throw new InvalidOperationException("Only ephemeral compute can be retired during provider recovery.");
+        var identity = new HyperVMachineIdentity(configuration.Enrollment.NodeId,
+            configuration.Enrollment.OrganizationId, reservation.InstallationId, reservation.EnvironmentId);
+        var driver = new HyperVComputeDriver(new HyperVCommandRunner());
+        Guid? resourceId = null;
+        HyperVMachineObservation observation;
+        if (reservation.ResourceId is { } value)
+        {
+            if (!Guid.TryParseExact(value, "D", out var parsed) || parsed == Guid.Empty)
+                throw new InvalidDataException("The protected Hyper-V identity is invalid.");
+            resourceId = parsed;
+            observation = await driver.ObserveAsync(identity, parsed, token);
+        }
+        else observation = await driver.DiscoverAsync(identity, token);
+        if (observation.State != "Missing")
+        {
+            resourceId = observation.Id ?? throw new InvalidDataException("Hyper-V returned no owned machine identity.");
+            observation = await driver.ApplyAsync(identity, resourceId.Value, InfrastructureActions.Destroy, token);
+        }
+        if (observation.State != "Missing") return false;
+        RetireWorkloadDirectory(configuration.WorkloadDirectory, reservation.EnvironmentId, resourceId);
+        return true;
+    }
+
+    private static void RetireWorkloadDirectory(string workloadRoot, Guid environmentId, Guid? resourceId)
+    {
+        var root = Path.GetFullPath(workloadRoot).TrimEnd(Path.DirectorySeparatorChar);
+        var path = Path.GetFullPath(Path.Combine(root, environmentId.ToString("N")));
+        if (environmentId == Guid.Empty || Path.GetDirectoryName(path) != root)
+            throw new IOException("Invalid recovery cleanup root.");
+        WindowsComputeProtectedPaths.Verify(root);
+        if (!Directory.Exists(path)) return;
+        if (resourceId is null)
+            throw new IOException("An exact retired VM identity is required to remove its workload.");
+        VerifyTree(path);
+        Directory.Delete(path, recursive: true);
+        if (Directory.Exists(path)) throw new IOException("Retired workload cleanup was not confirmed.");
+
+        void VerifyTree(string directory)
+        {
+            VerifyEntry(directory);
+            if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Linked workload path.");
+            foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+            {
+                VerifyEntry(entry);
+                var attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Linked workload entry.");
+                if ((attributes & FileAttributes.Directory) != 0) VerifyTree(entry);
+            }
+        }
+        void VerifyEntry(string entry) => HyperVWorkloadProtection.Verify(entry, root, resourceId.Value);
     }
     private static HttpClient CreateClient(Handoff handoff)
     {
@@ -168,6 +252,20 @@ internal static class LocalComputeInstaller
     {
         await File.WriteAllBytesAsync(path, JsonSerializer.SerializeToUtf8Bytes(value, ComputeProtocol.Json), token);
         ProtectFile(path);
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static async Task WriteAtomicAsync<T>(string path, T value, CancellationToken token)
+    {
+        var temporary = Path.Combine(Path.GetDirectoryName(path)!, Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            await File.WriteAllBytesAsync(temporary, JsonSerializer.SerializeToUtf8Bytes(value, ComputeProtocol.Json), token);
+            ProtectFile(temporary);
+            File.Move(temporary, path, overwrite: true);
+            ProtectFile(path);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]

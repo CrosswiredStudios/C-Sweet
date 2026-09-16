@@ -665,6 +665,13 @@ public sealed class ExecutionFleetServiceTests
         Assert.True((await fleet.LaunchLocalSetupSessionAsync(
             created.Session.Id, userId, new(created.Session.LaunchUri!))).Succeeded);
 
+        var firstLaunchAt = (await db.LocalOfficeSetupSessions.SingleAsync()).AdministratorApprovalRequestedAt;
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var repeatedLaunch = await fleet.LaunchLocalSetupSessionAsync(
+            created.Session.Id, userId, new(created.Session.LaunchUri!));
+        Assert.True(repeatedLaunch.Succeeded);
+        Assert.Equal(firstLaunchAt, repeatedLaunch.Session!.AdministratorApprovalRequestedAt);
+        Assert.Single(await db.LocalOfficeSetupSessions.ToListAsync());
         var refreshed = await fleet.RefreshLocalSetupSessionHandoffAsync(created.Session.Id, userId);
 
         Assert.True(refreshed.Succeeded);

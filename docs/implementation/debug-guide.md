@@ -176,3 +176,28 @@ Now listening on: https://localhost:15887
 
 ### "Unable to Connect" in Blazor App
 When running `CSweet.App` standalone (without AppHost), the app tries to call `/api/health` relative to its own base URI. Since no API is running there, it shows "Disconnected". This is expected — run via AppHost for full connectivity.
+
+## Local debug build and update
+
+With the Windows development launcher and Office bootstrap configured for the current host,
+ExecutionFleet offers **Build and update (debug)** even when the installed version matches the
+source version. Remote Offices continue to use published updates. The action opens the existing
+LocalOfficeUpgrade workflow, preserving drain, zero-active-work, UAC, certification, and
+identity-preserving installation checks.
+
+ExecutionFleetService.LaunchLocalSetupSessionAsync claims the launch in the database before starting
+an elevated process. Repeated requests for that session return its current state; a failed process
+start releases the launch claim. An interrupted server cannot launch the same handoff again merely
+because the browser retries.
+
+Initialize-CSweetWindowsIsolationTest.ps1 uses CSweet.DevelopmentBuild.ps1 to serialize local builds
+across PowerShell and the guided launcher. It waits for live developer-bootstrap progress owners
+from older, already-running scripts as well as the shared mutex. It never stops another build.
+If an older build completes, its fingerprint-ready image can be reused; certification may run
+again for the new operation. Unreadable progress fails closed, and waiting is bounded at two hours.
+Only completed builds return PayloadResultPath; Start-CSweetDevelopmentOfficeSetup.ps1 consumes
+that exact result instead of selecting the newest directory.
+
+Verification: scripts/tests/Test-DevelopmentBuildCoordination.ps1 in CSweet.Office covers competing
+processes, a legacy progress owner, completed records, and waiting peers. ExecutionFleetServiceTests
+covers repeated launch requests preserving the original approval timestamp and session.

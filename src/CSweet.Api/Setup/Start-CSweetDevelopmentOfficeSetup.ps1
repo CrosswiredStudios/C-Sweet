@@ -348,20 +348,22 @@ try {
     try {
         $officeRepositoryRoot = [IO.Path]::GetFullPath((Join-Path $officeScriptRoot '..\..'))
         $certificationRoot = Join-Path $officeRepositoryRoot 'artifacts\windows-test'
-        $bootstrapStartedAt = Get-Date
+        $payloadResultPath = Join-Path $setupRoot "office-payload-$($sessionId.ToString('N')).txt"
+        Remove-TransientFile $payloadResultPath
         & $OfficeBootstrapScript -ControlPlaneUserSid $identity.User.Value `
             -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) `
-            -ProgressPath $progressPath -ProgressJobId $sessionId -NoElevation -SkipInstall
+            -ProgressPath $progressPath -ProgressJobId $sessionId -NoElevation -SkipInstall -PayloadResultPath $payloadResultPath
         if ($LASTEXITCODE -ne 0) { throw "Secure VM runtime setup exited with code $LASTEXITCODE." }
 
-        $payloadRoot = Get-ChildItem -LiteralPath $certificationRoot -Directory -ErrorAction Stop |
-            Where-Object { $_.LastWriteTime -ge $bootstrapStartedAt.AddMinutes(-1) } |
-            Sort-Object LastWriteTime -Descending |
-            ForEach-Object { Join-Path $_.FullName 'payload' } |
-            Where-Object { Test-Path -LiteralPath $_ -PathType Container } |
-            Select-Object -First 1
-        if ([String]::IsNullOrWhiteSpace([string]$payloadRoot)) {
-            throw 'The certified Office payload was not created.'
+        if (-not (Test-Path -LiteralPath $payloadResultPath -PathType Leaf)) {
+            throw 'The Office build did not return a completed payload.'
+        }
+        $payloadRoot = [IO.Path]::GetFullPath([IO.File]::ReadAllText($payloadResultPath).Trim())
+        Remove-TransientFile $payloadResultPath
+        $allowedRoot = [IO.Path]::GetFullPath($certificationRoot).TrimEnd('\') + '\'
+        if (-not $payloadRoot.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-Path -LiteralPath (Join-Path $payloadRoot 'runtime-manifest.json') -PathType Leaf)) {
+            throw 'The Office build returned an invalid completed payload.'
         }
         # Reuse this setup session's UAC approval and progress channel. Image preparation
         # is an application step, never a command the user has to run.

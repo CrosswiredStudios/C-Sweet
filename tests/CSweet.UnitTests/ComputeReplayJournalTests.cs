@@ -136,6 +136,66 @@ public sealed class ComputeReplayJournalTests
     }
 
     [Fact]
+    public async Task Only_empty_history_can_rebind_organization_while_node_identity_remains_fixed()
+    {
+        await using (var empty = new Fixture())
+        {
+            await empty.InitializeAsync();
+            var replacement = empty.Enrollment with { OrganizationId = Guid.NewGuid() };
+            await empty.Journal().RebindEmptyEnrollmentAsync(replacement, default);
+            await new ComputeReplayJournal(empty.Root, replacement, new(10, new(40, 81920, 409600)),
+                empty.Core.Time, _ => { }).InitializeAsync(default);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                new ComputeReplayJournal(empty.Root, replacement, new(10, new(40, 81920, 409600)),
+                    empty.Core.Time, _ => { }).RebindEmptyEnrollmentAsync(
+                        replacement with { NodeId = Guid.NewGuid() }, default));
+        }
+
+        await using var used = new Fixture();
+        await used.InitializeAsync();
+        await used.Journal().RunAsync(used.Verifier.Verify(used.Packet), (_, _) => Task.FromResult(true), default);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => used.Journal().RebindEmptyEnrollmentAsync(
+            used.Enrollment with { OrganizationId = Guid.NewGuid() }, default));
+    }
+
+    [Fact]
+    public async Task Recovery_retires_ephemeral_history_archives_it_and_starts_an_empty_enrollment()
+    {
+        await using var f = new Fixture(); await f.InitializeAsync();
+        var verified = f.Verifier.Verify(f.Packet);
+        await f.Journal().RunPhysicalAsync(verified, (_, _, _) =>
+            Task.FromResult(new ComputePhysicalOutcome<bool>(true, "3f25839d-3834-44cc-98b4-b80b43da33c1")), default);
+        var replacement = f.Enrollment with { OrganizationId = Guid.NewGuid() };
+        var retired = new List<ComputePhysicalReservation>();
+
+        await f.Journal().RebindRetiredEnrollmentAsync(replacement, (reservation, _) =>
+        {
+            retired.Add(reservation);
+            return Task.FromResult(true);
+        }, default);
+
+        Assert.Single(retired);
+        Assert.Single(Directory.GetFiles(f.Root, $"retired-{f.Enrollment.OrganizationId:N}.json"));
+        var rebound = new ComputeReplayJournal(f.Root, replacement, new(10, new(40, 81920, 409600)),
+            f.Core.Time, _ => { });
+        Assert.Empty(await rebound.ListReservationsAsync(null, 100, default));
+    }
+
+    [Fact]
+    public async Task Recovery_does_not_rebind_when_physical_retirement_is_unconfirmed()
+    {
+        await using var f = new Fixture(); await f.InitializeAsync();
+        await f.Journal().RunAsync(f.Verifier.Verify(f.Packet), (_, _) => Task.FromResult(true), default);
+        var replacement = f.Enrollment with { OrganizationId = Guid.NewGuid() };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Journal().RebindRetiredEnrollmentAsync(
+            replacement, (_, _) => Task.FromResult(false), default));
+
+        Assert.Single(await f.Journal().ListReservationsAsync(null, 100, default));
+        Assert.Empty(Directory.GetFiles(f.Root, "retired-*.json"));
+    }
+
+    [Fact]
     public void Windows_acl_guard_rejects_unprivileged_writers()
     {
         if (!OperatingSystem.IsWindows()) return;

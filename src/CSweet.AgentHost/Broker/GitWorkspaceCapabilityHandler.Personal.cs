@@ -45,9 +45,8 @@ public sealed partial class GitWorkspaceCapabilityHandler
                     x.Status == RepositoryProvisioningStatus.AwaitingApproval), ct);
             if (reserved + await db.SourceControlRepositories.CountAsync(x => x.OrganizationId == business && x.ConnectionId == connection.Id && x.ArchivedAt == null, ct) >= policy.MaximumRepositories)
                 throw new InvalidOperationException("The business repository quota has been reached.");
-            var name = NormalizePersonalRepositoryName(input.SuggestedName);
-            if (await db.SourceControlRepositories.AnyAsync(x => x.OrganizationId == business && x.ConnectionId == connection.Id && x.Name == name && x.Id != repositoryId, ct))
-                name = name[..Math.Min(name.Length, 41)].TrimEnd('-') + "-" + item.Id.ToString("N")[..8];
+            var name = await ResolvePersonalRepositoryNameAsync(
+                business, connection.Id, repositoryId, item, input.SuggestedName, ct);
             var now = DateTimeOffset.UtcNow;
             repository = new SourceControlRepository { Id = repositoryId, OrganizationId = business, ConnectionId = connection.Id,
                 Name = name, Owner = business.ToString("N"), CanonicalPath = $"internal/{business:N}/{name}",
@@ -130,7 +129,11 @@ public sealed partial class GitWorkspaceCapabilityHandler
                     x.Status == RepositoryProvisioningStatus.AwaitingApproval), ct);
             if (reserved + await db.SourceControlRepositories.CountAsync(x => x.OrganizationId == business && x.ConnectionId == connection.Id && x.ArchivedAt == null, ct) >= policy.MaximumRepositories)
                 throw new InvalidOperationException("The business repository quota has been reached.");
-            var name = $"app-{item.Id:N}";
+            // Older/direct execution paths can reach preparation without a separate reservation.
+            // Preserve the same product-title naming policy instead of leaking an opaque ticket ID
+            // into the repository list.
+            var name = await ResolvePersonalRepositoryNameAsync(
+                business, connection.Id, repositoryId, item, suggestedName: null, ct);
             repository = new SourceControlRepository { Id = repositoryId, OrganizationId = business, ConnectionId = connection.Id,
                 Name = name, Owner = business.ToString("N"), CanonicalPath = $"internal/{business:N}/{name}",
                 ExternalRepositoryId = repositoryId.ToString("N"), ProviderRepositoryKey = $"internal:{repositoryId:N}",
@@ -223,4 +226,33 @@ public sealed partial class GitWorkspaceCapabilityHandler
         return new(item, team, repository, policy, null);
     }
     private static Guid PersonalRepositoryId(Guid item) => new(SHA256.HashData(Encoding.UTF8.GetBytes($"personal-repository:{item:N}")).AsSpan(0, 16));
+
+    private async Task<string> ResolvePersonalRepositoryNameAsync(
+        Guid business,
+        Guid connectionId,
+        Guid repositoryId,
+        WorkTask item,
+        string? suggestedName,
+        CancellationToken ct)
+    {
+        var productTitle = suggestedName;
+        if (string.IsNullOrWhiteSpace(productTitle))
+        {
+            productTitle = await db.CoreWorkTasks.AsNoTracking()
+                .Where(x => x.OrganizationId == business && x.ParentWorkTaskId == item.Id &&
+                    x.Kind == WorkItemKind.Epic && x.ArchivedAt == null)
+                .OrderBy(x => x.CreatedAt)
+                .Select(x => x.Title)
+                .FirstOrDefaultAsync(ct);
+        }
+        if (string.IsNullOrWhiteSpace(productTitle)) productTitle = item.Title;
+
+        var name = NormalizePersonalRepositoryName(productTitle);
+        var collision = await db.SourceControlRepositories.AsNoTracking().AnyAsync(x =>
+            x.OrganizationId == business && x.ConnectionId == connectionId && x.Id != repositoryId &&
+            x.ArchivedAt == null && x.Name == name, ct);
+        if (!collision) return name;
+
+        return name[..Math.Min(name.Length, 41)].TrimEnd('-') + "-" + item.Id.ToString("N")[..8];
+    }
 }

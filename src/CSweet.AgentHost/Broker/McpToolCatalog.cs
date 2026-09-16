@@ -288,7 +288,7 @@ public sealed class McpToolCatalog(
         HiddenWrite(PersonalTodoActions.Defer, "defer_personal_todo",
             "Defer SDK-managed personal work until a platform-scheduled review."),
         HiddenWrite(PersonalTodoActions.CreatePlan, "create_personal_work_plan",
-            "Atomically create an MVP epic with testable stories and ordered tasks for a live owned request."),
+            "Atomically create an MVP epic with testable stories and ordered tasks for an owned executable Ready request at its exact revision, or a live claimed request."),
         HiddenWrite(PersonalTodoActions.ReportPlanTask, "report_personal_plan_task",
             "Record execution and evidence for one task in the currently claimed request's plan."),
         Write(ArtifactPlatformCapabilities.Create, "create_artifact",
@@ -798,7 +798,7 @@ public sealed class McpToolCatalog(
             """),
         PersonalTodoActions.Read => EmptyInput,
         PersonalTodoActions.CreatePlan => Schema("""
-            {"type":"object","required":["rootItemId","epicTitle","stories","idempotencyKey"],"properties":{"rootItemId":{"type":"string","format":"uuid"},"epicTitle":{"type":"string","minLength":1,"maxLength":160},"stories":{"type":"array","minItems":2,"maxItems":12,"items":{"type":"object"}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["rootItemId","epicTitle","stories","idempotencyKey"],"properties":{"rootItemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":["integer","null"],"minimum":1},"epicTitle":{"type":"string","minLength":1,"maxLength":160},"stories":{"type":"array","minItems":2,"maxItems":12,"items":{"type":"object"}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         PersonalTodoActions.ReportPlanTask => Schema("""
             {"type":"object","required":["rootItemId","taskItemId","expectedRevision","status","idempotencyKey"],"properties":{"rootItemId":{"type":"string","format":"uuid"},"taskItemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"status":{"type":"string","enum":["Running","Completed","Blocked"]},"evidence":{"type":["string","null"],"maxLength":4096},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
@@ -822,7 +822,7 @@ public sealed class McpToolCatalog(
             {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         PersonalTodoActions.Claim => Schema("""
-            {"type":"object","required":["eventId","idempotencyKey"],"properties":{"eventId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["eventId","idempotencyKey"],"properties":{"eventId":{"type":"string","format":"uuid"},"itemId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":["integer","null"],"minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         PersonalTodoActions.Complete => Schema("""
             {"type":"object","required":["itemId","eventId","expectedRevision","summary","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"eventId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"summary":{"type":"string","minLength":1,"maxLength":4096},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

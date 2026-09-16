@@ -336,6 +336,65 @@ public sealed class McpCapabilityRegistryTests
     }
 
     [Fact]
+    public void CreatePersonalWorkPlanSchema_AcceptsTypedPreClaimRevisionAndLegacyRequests()
+    {
+        var registry = new McpToolCatalog([]);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([PersonalWorkPlanCapabilities.Create], StringComparer.Ordinal)));
+        var request = new CreatePersonalWorkPlanRequest(
+            Guid.NewGuid(),
+            "Tetris MVP",
+            [
+                new("gameplay", "Gameplay", "Implement gameplay", ["Gameplay works"],
+                    [new("rules", "Rules", "Implement rules", ["Rules pass"])]),
+                new("delivery", "Delivery", "Validate delivery", ["Delivery works"],
+                    [new("deploy", "Deploy", "Deploy release", ["Release responds"], "Deployment")])
+            ],
+            "personal-plan-schema-test")
+        {
+            ExpectedRevision = 7
+        };
+
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            tool.InputSchema);
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(new
+            {
+                rootItemId = Guid.NewGuid(),
+                epicTitle = "Legacy plan",
+                stories = new[] { new { }, new { } },
+                idempotencyKey = "legacy-personal-plan-schema-test"
+            }),
+            tool.InputSchema);
+    }
+
+    [Fact]
+    public void ClaimPersonalTodoSchema_AcceptsExactPreClaimTargetAndClaimNextRequests()
+    {
+        var registry = new McpToolCatalog([]);
+        var tool = Assert.Single(registry.List(
+            new HashSet<string>([PersonalTodoCapabilities.Claim], StringComparer.Ordinal)));
+        var eventId = Guid.NewGuid();
+        var exactRequest = new ClaimPersonalTodoItemRequest(
+            eventId,
+            "personal-todo-claim-schema-test")
+        {
+            ItemId = Guid.NewGuid(),
+            ExpectedRevision = 7
+        };
+
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(exactRequest, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            tool.InputSchema);
+        JsonSchemaValidator.Validate(
+            JsonSerializer.SerializeToElement(
+                new ClaimPersonalTodoItemRequest(eventId, "personal-todo-claim-next-schema-test"),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            tool.InputSchema);
+    }
+
+    [Fact]
     public void ReleasePersonalTodoSchema_AcceptsTypedSdkKeepInProgressRequest()
     {
         var registry = new McpToolCatalog([]);

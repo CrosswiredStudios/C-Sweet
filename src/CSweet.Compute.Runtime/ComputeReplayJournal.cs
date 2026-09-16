@@ -47,6 +47,64 @@ public sealed partial class ComputeReplayJournal
         await stream.WriteAsync(new byte[] { 1 }, token); stream.Flush(true);
     }
 
+    /// <summary>Rebinds an unused provider journal after an owner-authorized control-plane reset.
+    /// Existing physical authority or pending evidence is never carried across organizations.</summary>
+    public async Task RebindEmptyEnrollmentAsync(ComputeProviderEnrollment replacement, CancellationToken token)
+    {
+        if (replacement.NodeId != enrollment.NodeId || replacement.ProviderId != enrollment.ProviderId)
+            throw new UnauthorizedAccessException("Provider recovery cannot change the protected node identity.");
+        await using var held = await LockAsync(token);
+        var state = await ReadAsync(token);
+        if (state.Environments.Count != 0 || state.ResultOutbox.Count != 0 || state.MaintenanceOutbox.Count != 0)
+            throw new InvalidOperationException("Provider recovery cannot rebind non-empty compute history.");
+        state.OrganizationId = replacement.OrganizationId;
+        await WriteAsync(state, token);
+    }
+
+    /// <summary>Retires an obsolete organization's ephemeral physical resources, archives its
+    /// final journal, and starts an empty journal for an owner-authorized enrollment recovery.</summary>
+    public async Task RebindRetiredEnrollmentAsync(ComputeProviderEnrollment replacement,
+        Func<ComputePhysicalReservation, CancellationToken, Task<bool>> retire, CancellationToken token)
+    {
+        if (replacement.NodeId != enrollment.NodeId || replacement.ProviderId != enrollment.ProviderId)
+            throw new UnauthorizedAccessException("Provider recovery cannot change the protected node identity.");
+        ArgumentNullException.ThrowIfNull(retire);
+        await using var held = await LockAsync(token);
+        var state = await ReadAsync(token);
+        if (state.ResultOutbox.Count != 0 || state.MaintenanceOutbox.Count != 0)
+            throw new InvalidOperationException("Provider recovery cannot discard pending compute evidence.");
+
+        var pending = state.Environments.Where(x => !x.Value.TeardownConfirmed).ToArray();
+        if (pending.Any(x => x.Value.Reservation is null ||
+                x.Value.Reservation.Persistence != ComputePersistence.Ephemeral))
+            throw new InvalidOperationException("Provider recovery cannot retire unconfirmed persistent or unreserved compute history.");
+        foreach (var row in pending)
+        {
+            var environment = row.Value;
+            var lease = environment.Reservation!;
+            var reservation = new ComputePhysicalReservation(row.Key, environment.InstallationId,
+                environment.SpecificationDigest, lease.Resources, lease.Persistence, lease.LeaseExpiresAt,
+                environment.Generation, environment.CurrentOperationId, environment.DestroyRequested,
+                environment.ResourceId, lease.LeaseExpired);
+            if (!await retire(reservation, token))
+                throw new InvalidOperationException("Provider recovery could not confirm retired compute teardown.");
+            environment.DestroyRequested = true;
+            environment.TeardownConfirmed = true;
+            lease.LeaseExpired = true;
+            lease.LastConfirmedAt = clock.GetUtcNow();
+            // Physical mutation may already have completed even if caller cancellation arrives.
+            await WriteAsync(state, CancellationToken.None);
+        }
+
+        await ArchiveAsync(state, CancellationToken.None);
+        await WriteAsync(new JournalState
+        {
+            NodeId = replacement.NodeId,
+            OrganizationId = replacement.OrganizationId,
+            ProviderId = replacement.ProviderId
+        }, CancellationToken.None);
+    }
+
     public Task<T> RunAsync<T>(VerifiedComputeDispatch dispatch,
         Func<ComputeJournalDecision, CancellationToken, Task<T>> effect, CancellationToken token) =>
         RunPhysicalAsync(dispatch, async (decision, resourceId, cancellation) =>
@@ -310,6 +368,31 @@ public sealed partial class ComputeReplayJournal
                 await stream.FlushAsync(token); stream.Flush(true);
             }
             File.Move(temporary, StatePath, overwrite: true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    private async Task ArchiveAsync(JournalState state, CancellationToken token)
+    {
+        var json = JsonSerializer.Serialize(state, ComputeProtocol.Json);
+        var envelope = new JournalEnvelope(4, json, ComputeProtocol.Digest(json));
+        var archive = Path.Combine(directory, $"retired-{state.OrganizationId:N}.json");
+        if (File.Exists(archive))
+        {
+            verifyProtectedPath(archive);
+            return;
+        }
+        var temporary = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, 4096, FileOptions.WriteThrough))
+            {
+                await JsonSerializer.SerializeAsync(stream, envelope, ComputeProtocol.Json, token);
+                if (stream.Length > MaximumBytes) throw new InvalidDataException("The compute journal archive exceeds its storage budget.");
+                await stream.FlushAsync(token); stream.Flush(true);
+            }
+            File.Move(temporary, archive);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }

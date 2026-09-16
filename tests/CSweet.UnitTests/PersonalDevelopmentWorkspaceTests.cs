@@ -31,7 +31,10 @@ public sealed class PersonalDevelopmentWorkspaceTests
             Title = "Build a puzzle", Description = "Create a puzzle application and test it.", Status = WorkTaskStatus.Running,
             ClaimEventId = Guid.NewGuid(), ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5),
             SourceConversationId = Guid.NewGuid(), SourceMessageId = Guid.NewGuid() };
-        f.Db.WorkBoards.Add(board); f.Db.CoreWorkTasks.Add(item); await f.Db.SaveChangesAsync();
+        var epic = new WorkTask { Id = Guid.NewGuid(), OrganizationId = f.Organization, BoardId = board.Id,
+            ParentWorkTaskId = item.Id, Title = "Puzzle Quest MVP", Kind = WorkItemKind.Epic,
+            Status = WorkTaskStatus.Backlog, IsExecutable = false, CreatedAt = DateTimeOffset.UtcNow };
+        f.Db.WorkBoards.Add(board); f.Db.CoreWorkTasks.AddRange(item, epic); await f.Db.SaveChangesAsync();
         var internalHost = DispatchProxy.Create<ITrustedSourceControlHostClient, SourceHost>();
         var source = (SourceHost)internalHost;
         source.LoseNextResponse = loseFirstResponse;
@@ -58,7 +61,8 @@ public sealed class PersonalDevelopmentWorkspaceTests
         var first = await Send(); Assert.True(first.Succeeded, first.Error);
         var second = await Send(); Assert.True(second.Succeeded, second.Error);
         var repository = Assert.Single(await f.Db.SourceControlRepositories.ToListAsync());
-        Assert.True(repository.IsPrivate); Assert.Single(await f.Db.SourceControlWorkspaces.ToListAsync()); Assert.Equal(1, host.Prepares);
+        Assert.True(repository.IsPrivate); Assert.Equal("puzzle-quest-mvp", repository.Name);
+        Assert.Single(await f.Db.SourceControlWorkspaces.ToListAsync()); Assert.Equal(1, host.Prepares);
         Assert.Equal(1, item.AssignmentRevision); Assert.Equal(f.Installation, item.AssignedAgentInstallationId);
         Assert.Equal(1, item.Revision); // Source binding must not invalidate the SDK-owned queue claim.
         Assert.Single(source.RepositoryIds.Distinct());

@@ -33,8 +33,9 @@ public static class ComputeDashboardEndpoints
                 return Results.Forbid();
             var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
             if (setup is null) return Results.NotFound();
-            var stalled = setup.State == "Running" && setup.HandoffExpiresAt <= DateTimeOffset.UtcNow;
-            if (setup.State != "Failed" && !stalled)
+            var setupDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "CSweet", "ComputeSetup", setup.Id.ToString("N"));
+            if (!IsRepairable(setup, setupDirectory, DateTimeOffset.UtcNow))
                 return Results.Conflict(new { error = "Compute preparation is not failed or stalled." });
             setup.State = "Pending";
             setup.ErrorCode = null;
@@ -46,6 +47,13 @@ public static class ComputeDashboardEndpoints
             return Results.Accepted();
         }).RequireAuthorization();
         return endpoints;
+    }
+
+    internal static bool IsRepairable(ComputeLocalSetup setup, string setupDirectory, DateTimeOffset now)
+    {
+        if (setup.State == "Failed") return true;
+        if (setup.State != "Running") return false;
+        return setup.HandoffExpiresAt <= now || ComputeSetupObservation.Read(setup, setupDirectory).FailureCode is not null;
     }
 
     internal static async Task<ComputeDashboard?> ReadAsync(CSweetDbContext db, Guid organizationId, Guid userId,

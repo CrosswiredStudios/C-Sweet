@@ -438,6 +438,11 @@ public sealed class ExecutionFleetService(
             x.Id == sessionId && x.CreatedByUserId == createdByUserId, cancellationToken);
         if (session is null)
             return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
+        if (session.AdministratorApprovalRequestedAt is not null &&
+            session.Status is LocalOfficeSetupSessionStatus.Created or LocalOfficeSetupSessionStatus.Redeemed or LocalOfficeSetupSessionStatus.Connected or LocalOfficeSetupSessionStatus.Ready)
+            return new LocalOfficeSetupActionResponse(true, null, "This Office operation is already in progress.",
+                Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null, LocalSetupLaunchMethod(session)),
+                await GetOnboardingStatusAsync(cancellationToken));
         if (session.Status != LocalOfficeSetupSessionStatus.Created || session.ExpiresAt <= now)
             return await LocalFailureAsync("session_not_launchable",
                 "This setup session can no longer request administrator approval.", cancellationToken);
@@ -451,14 +456,39 @@ public sealed class ExecutionFleetService(
             : $"&certificate={session.ControlPlaneCertificateSha256}";
         var launchUri = LocalSetupLaunchUri(session, handoff);
         var launchMethod = LocalSetupLaunchMethod(session);
+        // Claim the launch durably before starting an elevated process. Concurrent clicks
+        // (including requests to another API instance) cannot launch the handoff twice.
+        if (dbContext.Database.IsRelational())
+        {
+            var claimed = await dbContext.LocalOfficeSetupSessions
+                .Where(x => x.Id == session.Id && x.Status == LocalOfficeSetupSessionStatus.Created &&
+                    x.AdministratorApprovalRequestedAt == null && x.ExpiresAt > now)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.AdministratorApprovalRequestedAt, now)
+                    .SetProperty(x => x.UpdatedAt, now), cancellationToken);
+            if (claimed == 0)
+            {
+                await dbContext.Entry(session).ReloadAsync(cancellationToken);
+                return new LocalOfficeSetupActionResponse(true, null, "This Office operation has already been launched.",
+                    Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null, LocalSetupLaunchMethod(session)),
+                    await GetOnboardingStatusAsync(cancellationToken));
+            }
+        }
+        session.AdministratorApprovalRequestedAt = now;
+        session.UpdatedAt = now;
+        await dbContext.SaveChangesAsync(cancellationToken);
         if (launchMethod == "server")
         {
             var launch = TryStartWindowsDevelopmentSetup(session.Id, launchUri);
             if (!launch.Started)
+            {
+                session.AdministratorApprovalRequestedAt = null;
+                await dbContext.SaveChangesAsync(cancellationToken);
                 return new LocalOfficeSetupActionResponse(false, launch.ErrorCode,
                     launch.ErrorMessage ?? "Windows setup could not be started.",
                     Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, launchUri, launchMethod),
                     await GetOnboardingStatusAsync(cancellationToken));
+            }
         }
         session.AdministratorApprovalRequestedAt = now;
         session.UpdatedAt = now;

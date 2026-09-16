@@ -40,4 +40,31 @@ public sealed class ComputeSetupObservationTests
         }
         finally { Directory.Delete(directory, true); }
     }
+
+    [Fact]
+    public void ObservedTerminalFailureCanBeRepairedBeforeDatabaseWorkerCatchesUp()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "compute-observation-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var setup = new ComputeLocalSetup
+            {
+                State = "Running",
+                HandoffHash = "current",
+                HandoffExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
+                UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+            };
+            Assert.False(ComputeDashboardEndpoints.IsRepairable(setup, directory, DateTimeOffset.UtcNow));
+            File.WriteAllText(Path.Combine(directory, "result.json"),
+                JsonSerializer.Serialize(new { attemptHash = "current", state = "Failed" }));
+            Assert.True(ComputeDashboardEndpoints.IsRepairable(setup, directory, DateTimeOffset.UtcNow));
+
+            setup.State = "Pending";
+            Assert.False(ComputeDashboardEndpoints.IsRepairable(setup, directory, DateTimeOffset.UtcNow));
+            setup.State = "Failed";
+            Assert.True(ComputeDashboardEndpoints.IsRepairable(setup, directory, DateTimeOffset.UtcNow));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
 }

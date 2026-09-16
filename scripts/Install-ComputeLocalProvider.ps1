@@ -17,6 +17,7 @@ $installerState = 'Failed'
 Write-ComputeInstallerReceipt -Directory $logRoot -AttemptHash $attemptHash -State 'Running'
 $providerExecutable = $null
 $backupReady = $false
+$recoveryStoppedService = $false
 try {
     $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Administrator approval was not received.' }
@@ -32,11 +33,25 @@ try {
             & (Join-Path $repositoryRoot 'scripts\Set-ComputeServiceRecovery.ps1')
             if ($existingService.Status -ne 'Running') { Start-Service -Name 'CSweet.Compute.HyperV' }
             (Get-Service -Name 'CSweet.Compute.HyperV').WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
-            # A retained provider can outlive a recreated C-Sweet database. Restore only its
-            # existing public identity and signed catalog before reporting completion.
-            & $existingExecutable reenroll-local $HandoffPath
+            # A retained provider can outlive a recreated C-Sweet database. The installed service
+            # may predate the recovery command, so publish the current control utility beside this
+            # one-time handoff. Do not replace the running service, its protected identity, journal,
+            # catalog, images, or workloads.
+            Write-ComputeSetupProgress -Path $setupProgress -Message 'Restoring the compute connection.'
+            $recoveryRoot = Join-Path $logRoot 'recovery-provider'
+            dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Compute.HyperV\CSweet.Compute.HyperV.csproj') `
+                -c Release -r win-x64 --self-contained true --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false -o $recoveryRoot --verbosity quiet
+            if ($LASTEXITCODE -ne 0) { throw 'The compute recovery utility could not be prepared.' }
+            $recoveryExecutable = Join-Path $recoveryRoot 'CSweet.Compute.HyperV.exe'
+            Stop-Service -Name 'CSweet.Compute.HyperV' -ErrorAction Stop
+            (Get-Service -Name 'CSweet.Compute.HyperV').WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+            $recoveryStoppedService = $true
+            & $recoveryExecutable reenroll-local $HandoffPath
             if ($LASTEXITCODE -ne 0) { throw 'The existing compute service could not restore its enrollment.' }
-            & $existingExecutable complete-local $HandoffPath
+            Start-Service -Name 'CSweet.Compute.HyperV' -ErrorAction Stop
+            (Get-Service -Name 'CSweet.Compute.HyperV').WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+            $recoveryStoppedService = $false
+            & $recoveryExecutable complete-local $HandoffPath
             if ($LASTEXITCODE -ne 0) { throw 'The existing compute service could not complete this setup.' }
             $installerState = 'Completed'
             return
@@ -127,6 +142,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Compute readiness could not be reported.' }
     $installerState = 'Completed'
 } catch {
+    if ($recoveryStoppedService) {
+        try { Start-Service -Name 'CSweet.Compute.HyperV' -ErrorAction Stop }
+        catch { Write-Warning 'The existing compute service could not be restarted automatically.' }
+    }
     if ($backupReady) {
         try {
             # Restore the last working service payload without touching enrollment keys,
