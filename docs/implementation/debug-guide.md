@@ -269,3 +269,58 @@ Developer installation to use both halves of this fix. Historical comments are n
 Regression coverage: `DeploymentDiagnosticTests`, the exhausted-budget case in
 `ComputeDeploymentRecoveryTests.CompleteBacklogPrecedesCodingAndRestartAdvancesOnlyOneTaskWithFreshEvidence`,
 and `AgentTicketFeedbackTests.ReportedBlockerPreservesEvidenceAndRecoveryStepsInPersistedComment`.
+
+## Local compute fails for a second business
+
+`ComputeLocalInstallation` and `scripts/Get-ComputeLocalInstallation.ps1` select the
+installation by business. An existing first business retains `CSweet.Compute.HyperV`
+and `%ProgramData%\CSweet\Compute`. Additional businesses use
+`CSweet.Compute.HyperV.<organization-id-N>` and a sibling
+`%ProgramData%\CSweet\ComputeBusinesses\<organization-id-N>` directory. The sibling
+location prevents legacy installation upgrades from traversing another business's files.
+Each business has its own node, signing certificate, catalog, journal, workload directory,
+service recovery policy, and per-provider capacity. Host capacity must accommodate the
+combined allocations; these limits are not a shared machine-wide resource budget.
+
+Previously `Install-ComputeLocalProvider.ps1` reused the first service's node during
+second-business enrollment. `ComputeLocalSetupEndpoints` correctly rejected that node
+with a conflict, surfaced as `local_setup_failed`. Preserve this ownership check.
+`LocalComputeInstaller.ReenrollAsync` now restores only the selected business and never
+reassigns another business's enrollment or retires its workloads. Recreated businesses
+with new IDs receive new installations; old installations require explicit retirement.
+
+Use **Repair Linux preparation** on the affected business's Compute page after updating
+the source checkout. The development installer builds the current provider and registers
+only that business's service; the first business does not need a restart. Approve the
+normal Windows administrator prompt. Setup completion creates the existing scoped grants
+and durable `com.csweet.compute.available.v1` wake event so waiting agents can resume.
+
+Regression coverage: `ComputeLocalInstallationTests`, `ComputeWindowsServiceTests`,
+`ComputeRuntimeVerifierTests`, and `tests/ComputeLocalInstallation.Tests.ps1` cover
+installation selection, retry stability, independent journals, signed cross-business
+rejection, service lifecycle, and the PowerShell service arguments.
+
+## DeepSeek rejects a tool continuation with missing reasoning content
+
+An HTTP 400 containing `reasoning_content` and "must be passed back" is a request
+compatibility failure, not a provider outage. `Microsoft.Extensions.AI.OpenAI` 10.10.0
+reads the field into `TextReasoningContent` but omits it when rebuilding assistant history.
+DeepSeek requires that field on subsequent tool-enabled requests, including earlier final
+answers. See the [DeepSeek thinking-mode contract](https://api-docs.deepseek.com/guides/thinking_mode/).
+
+`OpenAiCompatibleLlmProviderFactory.AdaptChatClient` uses `ReasoningContentChatClient` to
+restore the exact supplied reasoning text on the serialized assistant messages. The policy
+is local to each request, leaves native reasoning fields intact, and preserves the SDK's
+serialization of tools, media, roles, and options. It does not invent missing reasoning or
+disable thinking. The broker and `PlatformChatClient` already carry `TextReasoningContent`.
+`LlmProviderFailureMessage.From` now names this compatibility failure without exposing raw
+provider bodies or credentials.
+
+Rebuild/restart AgentHost after applying the fix. Requeue the affected personal plan's root
+epic through the normal board action to reopen its blocked running story/task and emit the
+durable wake. No provider credential change or agent package update is needed.
+
+Regression coverage: `ReasoningContentChatClientTests` inspects real SDK HTTP payloads for
+streaming and non-streaming tool continuations, final-answer reasoning, empty reasoning,
+unchanged caller history, and concurrent conversations; `LlmProviderFailureMessageTests`
+checks the safe recovery message.

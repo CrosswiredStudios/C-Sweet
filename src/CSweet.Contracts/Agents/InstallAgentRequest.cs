@@ -24,4 +24,6 @@ public sealed record InstallAgentRequest(
     public IReadOnlyDictionary<string, JsonElement> ConfigurationSettings { get; init; } =
         new Dictionary<string, JsonElement>(StringComparer.Ordinal);
     public bool AllPublicWebAccessAcknowledged { get; init; }
+    /// <summary>Hiring reuses an approved definition without changing its enterprise defaults.</summary>
+    public bool ReuseExistingDefinition { get; init; }
 }

@@ -78,3 +78,31 @@ withdraws the old recommendation and upserts the replacement. The platform cance
 the new suggestion supersedes it with "Cancelled — replaced by <role>" lineage, while the replacement
 gets its own widget. Covered by `UserActionServiceTests`, `HiringServiceTests`
 (`WithdrawRecommendation_CancelsPendingMarketplaceSuggestion`) and `CommunicationsLayoutTests`.
+
+## Configuration isolation during hiring
+
+`HiringService.ConfirmWorkflowCoreAsync` requests
+`InstallAgentRequest.ReuseExistingDefinition` when importing a catalog hire.
+`AgentDefinitionService.ImportAsync` reuses the existing definition for the same
+package without changing its configuration, grants, schedule, or revision. A different
+package requires an explicit definition update; hiring does not silently upgrade other employees.
+The first import still initializes the new definition's defaults.
+
+Submitted employee settings are persisted in `EmbeddedAgentInstallSnapshot.ConfigurationSettings`
+so `HiringService.ProcessNextAsync` retains them after a build wait.
+`OrganizationUserService.CreateAsync` validates `CreateOrganizationUserRequest.ConfigurationOverrides`
+against the approved manifest and provider catalog, then saves them on the new
+`AgentInstallationConfiguration` alongside the employee before runtime activation.
+Explicit values are retained even when equal to current shared defaults.
+
+`AgentDefinitionLifecycleTests.HiringWithCustomProvider_DoesNotChangeAnotherCompanyOrSharedDefaults`
+covers two companies, inherited and explicit existing settings, and invalid-provider rejection.
+`HiringServiceTests.EmbeddedAgentWorkflow_PreviewsPinsInstallsAndHiresConfiguredRepository`
+covers configuration retention through deferred build completion.
+
+
+`BusinessOnboardingService.ProcessNextAsync` uses the same definition reuse rule.
+`CreateChiefAssignmentAsync` applies the persisted onboarding settings through
+`OrganizationUserService.ConfigureHiredInstallationAsync` before saving the Chief's
+installation. `BusinessOnboardingServiceTests.DurableOperation_ContinuesAfterHandoffAndCreatesOneBusiness`
+also verifies that onboarding another company preserves the first Chief's settings.

@@ -22,7 +22,10 @@ internal static class LocalComputeInstaller
         if (!OperatingSystem.IsWindows() || !new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
             throw new UnauthorizedAccessException("Administrator approval is required.");
         var handoff = handoffPath is null ? null : await ReadHandoffAsync(handoffPath, token);
-        var root = Path.GetDirectoryName(ComputeWindowsService.ConfigurationPath)!;
+        var installation = handoff is null ? new ComputeLocalInstallation(BusinessId: null)
+            : await ComputeLocalInstallation.ResolveAsync(handoff.OrganizationId, token);
+        var configurationPath = installation.ConfigurationPath;
+        var root = installation.Root;
         WindowsComputeProtectedPaths.Verify(root);
         var runtime = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         WindowsComputeProtectedPaths.Verify(runtime); WindowsComputeProtectedPaths.Verify(imagePath);
@@ -36,9 +39,9 @@ internal static class LocalComputeInstaller
         var template = new ComputeTemplate("linux-local-" + digest[7..31], "linux", "x64", digest,
             handoff is null ? ["guest-execution", "python"] : ["guest-execution", "python", "docker", "node", "docker-apps-v1"]);
         ComputeProviderConfiguration configuration;
-        if (File.Exists(ComputeWindowsService.ConfigurationPath))
+        if (File.Exists(configurationPath))
         {
-            configuration = await ComputeProviderConfigurationLoader.ReadAsync(ComputeWindowsService.ConfigurationPath, token);
+            configuration = await ComputeProviderConfigurationLoader.ReadAsync(configurationPath, token);
             if (handoff is not null && (configuration.Enrollment.NodeId != handoff.SetupId || configuration.Enrollment.OrganizationId != handoff.OrganizationId))
                 throw new InvalidOperationException("This machine already belongs to another compute installation.");
             using var existingCertificate = ComputeProviderConfigurationLoader.OpenSigningCertificate(configuration, TimeProvider.System);
@@ -88,7 +91,7 @@ internal static class LocalComputeInstaller
         await WriteAsync(catalogPath, new ComputeTemplateCatalogDocument(1, [new(template, imagePath, signed)]), token);
         await WriteAsync(configuration.ProvisioningSettingsPath!, new ComputeProvisioningSettings(1, catalogPath,
             Convert.ToBase64String(releaseKey.ExportSubjectPublicKeyInfo()), "1", runtime, files.Keys.ToHashSet()), token);
-        await WriteAsync(ComputeWindowsService.ConfigurationPath, configuration, token);
+        await WriteAsync(configurationPath, configuration, token);
         var catalog = await ComputeProvisioningSettingsLoader.ReadCatalogAsync(configuration.ProvisioningSettingsPath!, configuration, TimeProvider.System, token);
         await catalog.ValidateInstallationAsync(runtime, token);
         await new ComputeReplayJournal(configuration.JournalDirectory, configuration.Enrollment, configuration.Capacity, TimeProvider.System).InitializeAsync(token);
@@ -102,7 +105,8 @@ internal static class LocalComputeInstaller
     public static async Task CompleteAsync(string handoffPath, bool succeeded, CancellationToken token)
     {
         var handoff = await ReadHandoffAsync(handoffPath, token);
-        var configuration = await ComputeProviderConfigurationLoader.ReadAsync(ComputeWindowsService.ConfigurationPath, token);
+        var installation = await ComputeLocalInstallation.ResolveAsync(handoff.OrganizationId, token);
+        var configuration = await ComputeProviderConfigurationLoader.ReadAsync(installation.ConfigurationPath, token);
         if (configuration.Enrollment.OrganizationId != handoff.OrganizationId)
             throw new UnauthorizedAccessException("The compute service belongs to another setup.");
         using var client = CreateClient(handoff);
@@ -111,14 +115,15 @@ internal static class LocalComputeInstaller
         response.EnsureSuccessStatusCode();
     }
 
-    /// <summary>Restores Core enrollment after its database is recreated without rotating the
-    /// already protected provider identity, catalog, journal, or workload storage.</summary>
+    /// <summary>Restores this business enrollment without modifying another business or retiring workloads.</summary>
     public static async Task ReenrollAsync(string handoffPath, CancellationToken token)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Local provider recovery requires Windows.");
         var handoff = await ReadHandoffAsync(handoffPath, token);
-        var configuration = await ComputeProviderConfigurationLoader.ReadAsync(
-            ComputeWindowsService.ConfigurationPath, token);
+        var installation = await ComputeLocalInstallation.ResolveAsync(handoff.OrganizationId, token);
+        var configuration = await ComputeProviderConfigurationLoader.ReadAsync(installation.ConfigurationPath, token);
+        if (configuration.Enrollment.OrganizationId != handoff.OrganizationId)
+            throw new UnauthorizedAccessException("The compute service belongs to another business.");
         using var certificate = ComputeProviderConfigurationLoader.OpenSigningCertificate(
             configuration, TimeProvider.System);
         var catalog = await ComputeProvisioningSettingsLoader.ReadCatalogAsync(
@@ -135,91 +140,12 @@ internal static class LocalComputeInstaller
             ComputeProtocol.Json, token);
         response.EnsureSuccessStatusCode();
 
-        var replacementEnrollment = configuration.Enrollment with
+        await WriteAtomicAsync(installation.ConfigurationPath, configuration with
         {
-            OrganizationId = handoff.OrganizationId,
-            ControlPlaneKey = handoff.ControlPlaneKey
-        };
-        var rebound = replacementEnrollment.OrganizationId != configuration.Enrollment.OrganizationId;
-        if (rebound)
-            await new ComputeReplayJournal(configuration.JournalDirectory, configuration.Enrollment,
-                configuration.Capacity, TimeProvider.System).RebindRetiredEnrollmentAsync(replacementEnrollment,
-                    (reservation, cancellation) => RetireAsync(configuration, reservation, cancellation), token);
-        try
-        {
-            await WriteAtomicAsync(ComputeWindowsService.ConfigurationPath, configuration with
-            {
-                Enrollment = replacementEnrollment,
-                CoreOrigin = handoff.CoreOrigin,
-                CoreCertificateSha256 = handoff.CoreCertificateSha256
-            }, token);
-        }
-        catch
-        {
-            if (rebound)
-                await new ComputeReplayJournal(configuration.JournalDirectory, replacementEnrollment,
-                    configuration.Capacity, TimeProvider.System).RebindEmptyEnrollmentAsync(configuration.Enrollment, CancellationToken.None);
-            throw;
-        }
-    }
-
-    private static async Task<bool> RetireAsync(ComputeProviderConfiguration configuration,
-        ComputePhysicalReservation reservation, CancellationToken token)
-    {
-        if (reservation.Persistence != ComputePersistence.Ephemeral)
-            throw new InvalidOperationException("Only ephemeral compute can be retired during provider recovery.");
-        var identity = new HyperVMachineIdentity(configuration.Enrollment.NodeId,
-            configuration.Enrollment.OrganizationId, reservation.InstallationId, reservation.EnvironmentId);
-        var driver = new HyperVComputeDriver(new HyperVCommandRunner());
-        Guid? resourceId = null;
-        HyperVMachineObservation observation;
-        if (reservation.ResourceId is { } value)
-        {
-            if (!Guid.TryParseExact(value, "D", out var parsed) || parsed == Guid.Empty)
-                throw new InvalidDataException("The protected Hyper-V identity is invalid.");
-            resourceId = parsed;
-            observation = await driver.ObserveAsync(identity, parsed, token);
-        }
-        else observation = await driver.DiscoverAsync(identity, token);
-        if (observation.State != "Missing")
-        {
-            resourceId = observation.Id ?? throw new InvalidDataException("Hyper-V returned no owned machine identity.");
-            observation = await driver.ApplyAsync(identity, resourceId.Value, InfrastructureActions.Destroy, token);
-        }
-        if (observation.State != "Missing") return false;
-        RetireWorkloadDirectory(configuration.WorkloadDirectory, reservation.EnvironmentId, resourceId);
-        return true;
-    }
-
-    private static void RetireWorkloadDirectory(string workloadRoot, Guid environmentId, Guid? resourceId)
-    {
-        var root = Path.GetFullPath(workloadRoot).TrimEnd(Path.DirectorySeparatorChar);
-        var path = Path.GetFullPath(Path.Combine(root, environmentId.ToString("N")));
-        if (environmentId == Guid.Empty || Path.GetDirectoryName(path) != root)
-            throw new IOException("Invalid recovery cleanup root.");
-        WindowsComputeProtectedPaths.Verify(root);
-        if (!Directory.Exists(path)) return;
-        if (resourceId is null)
-            throw new IOException("An exact retired VM identity is required to remove its workload.");
-        VerifyTree(path);
-        Directory.Delete(path, recursive: true);
-        if (Directory.Exists(path)) throw new IOException("Retired workload cleanup was not confirmed.");
-
-        void VerifyTree(string directory)
-        {
-            VerifyEntry(directory);
-            if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
-                throw new IOException("Linked workload path.");
-            foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
-            {
-                VerifyEntry(entry);
-                var attributes = File.GetAttributes(entry);
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException("Linked workload entry.");
-                if ((attributes & FileAttributes.Directory) != 0) VerifyTree(entry);
-            }
-        }
-        void VerifyEntry(string entry) => HyperVWorkloadProtection.Verify(entry, root, resourceId.Value);
+            Enrollment = configuration.Enrollment with { ControlPlaneKey = handoff.ControlPlaneKey },
+            CoreOrigin = handoff.CoreOrigin,
+            CoreCertificateSha256 = handoff.CoreCertificateSha256
+        }, token);
     }
     private static HttpClient CreateClient(Handoff handoff)
     {

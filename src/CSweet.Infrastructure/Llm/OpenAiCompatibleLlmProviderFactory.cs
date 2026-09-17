@@ -104,7 +104,7 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
         var options = new OpenAIClientOptions { Endpoint = endpoint, NetworkTimeout = _networkTimeout };
         var chatClient = new ChatClient(selectedModel, new ApiKeyCredential(apiKey), options);
 
-        IChatClient adapted = chatClient.AsIChatClient();
+        IChatClient adapted = AdaptChatClient(chatClient);
         var ensureUserQuery = _configuration?.GetValue<bool?>(
             $"CSweet:Llm:Compatibility:Providers:{profile.Id:D}:EnsureUserMessage") ??
             _configuration?.GetValue<bool?>("CSweet:Llm:Compatibility:EnsureUserMessage") ??
@@ -112,6 +112,8 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
         if (ensureUserQuery) adapted = new UserQueryChatClient(adapted);
         return ApplyProviderDefaults(adapted, profile.MaxOutputTokens);
     }
+
+    internal static IChatClient AdaptChatClient(ChatClient client) => new ReasoningContentChatClient(client);
 
     internal static IChatClient ApplyProviderDefaults(IChatClient client, int? maxOutputTokens) =>
         new ConfigureOptionsChatClient(client, options =>

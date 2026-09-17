@@ -14,6 +14,8 @@ internal static class LlmProviderFailureMessage
     internal static string From(Exception exception)
     {
         var text = exception.Message;
+        if (text.Contains("reasoning_content", StringComparison.OrdinalIgnoreCase))
+            return "The model requires reasoning content to be preserved between tool calls. Update the platform's OpenAI-compatible adapter to retain reasoning history, then retry the blocked ticket.";
         if (text.Contains("No user query found in messages", StringComparison.OrdinalIgnoreCase))
             return "The model requires a user message in this request. Enable the provider's EnsureUserMessage compatibility setting before retrying.";
         if (text.Contains("No model loaded", StringComparison.OrdinalIgnoreCase))

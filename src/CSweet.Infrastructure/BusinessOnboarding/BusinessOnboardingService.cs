@@ -33,6 +33,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
     private readonly IAgentCommunicationOnboardingService _agentOnboarding;
     private readonly IAgentRuntimeManager? _agentRuntimeManager;
     private readonly IAgentDefinitionService? _agentDefinitions;
+    private readonly CSweet.AI.Providers.IModelCatalogClient? _modelCatalog;
 
     public BusinessOnboardingService(
         ICoreOrganizationService organizationService,
@@ -44,7 +45,8 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         CSweetDbContext dbContext,
         IAgentCommunicationOnboardingService? agentOnboarding = null,
         IAgentRuntimeManager? agentRuntimeManager = null,
-        IAgentDefinitionService? agentDefinitions = null)
+        IAgentDefinitionService? agentDefinitions = null,
+        CSweet.AI.Providers.IModelCatalogClient? modelCatalog = null)
     {
         _organizationService = organizationService;
         _roleService = roleService;
@@ -56,6 +58,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         _agentOnboarding = agentOnboarding ?? new AgentCommunicationOnboardingService(dbContext);
         _agentRuntimeManager = agentRuntimeManager;
         _agentDefinitions = agentDefinitions;
+        _modelCatalog = modelCatalog;
     }
 
     public Task<BusinessOnboardingActionResponse> CompleteAsync(
@@ -211,6 +214,10 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             organizationId,
             request.ChiefAgentDefinitionId,
             chiefDisplayName,
+            durableOperation is null
+                ? new Dictionary<string, JsonElement>()
+                : (JsonSerializer.Deserialize<InstallAgentRequest>(durableOperation.ChiefAgentInstallRequestJson, JsonOptions)
+                    ?? throw new InvalidOperationException("The saved Chief of Staff configuration is invalid.")).ConfigurationSettings,
             cancellationToken);
         if (!assignment.Succeeded)
         {
@@ -487,7 +494,8 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
                     operation.ChiefAgentInstallRequestJson, JsonOptions)
                     ?? throw new InvalidOperationException("The saved Chief of Staff configuration is invalid.");
                 var imported = await _agentDefinitions.ImportAsync(
-                    operation.ChiefAgentPackageVersionId, installRequest, cancellationToken);
+                    operation.ChiefAgentPackageVersionId,
+                    installRequest with { ReuseExistingDefinition = true }, cancellationToken);
                 operation.ChiefAgentDefinitionId = imported.Id;
             }
 
@@ -568,7 +576,8 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         await using var transaction = _dbContext.Database.IsRelational()
             ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
             : null;
-        var assignment = await CreateChiefAssignmentAsync(organizationId, request.AgentDefinitionId, null, cancellationToken);
+        var assignment = await CreateChiefAssignmentAsync(organizationId, request.AgentDefinitionId, null,
+            new Dictionary<string, JsonElement>(), cancellationToken);
         if (!assignment.Succeeded)
             return new(false, assignment.ErrorCode, assignment.Message);
 
@@ -613,6 +622,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         Guid organizationId,
         Guid definitionId,
         string? displayName,
+        IReadOnlyDictionary<string, JsonElement> configurationOverrides,
         CancellationToken cancellationToken)
     {
         var definition = await _dbContext.AgentDefinitions
@@ -634,6 +644,8 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         await AgentWorkstreamProfileActivation.ActivateAsync(_dbContext,
             AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson), cancellationToken);
         var installation = OrganizationUserService.CreateHiredInstallation(definition, organizationId, now);
+        await OrganizationUserService.ConfigureHiredInstallationAsync(_dbContext, definition, installation,
+            configurationOverrides, _modelCatalog, cancellationToken);
         _dbContext.AgentInstallations.Add(installation);
         var chiefRole = await _dbContext.CoreRoles.SingleOrDefaultAsync(
             x => x.OrganizationId == organizationId && x.Name == "Chief of Staff", cancellationToken);

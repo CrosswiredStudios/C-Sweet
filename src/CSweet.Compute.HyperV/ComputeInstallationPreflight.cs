@@ -11,9 +11,11 @@ internal static class ComputeInstallationPreflight
             throw new InvalidDataException("The LocalSystem service requires its enrolled certificate in LocalMachine My.");
     }
 
-    public static async Task ValidateServiceAsync(CancellationToken token)
+    public static async Task ValidateServiceAsync(CancellationToken token, Guid? businessId = null)
     {
-        var configuration = await ComputeProviderConfigurationLoader.ReadAsync(ComputeWindowsService.ConfigurationPath, token);
+        var configuration = await ComputeProviderConfigurationLoader.ReadAsync(new ComputeLocalInstallation(businessId).ConfigurationPath, token);
+        if (businessId is { } id && configuration.Enrollment.OrganizationId != id)
+            throw new InvalidDataException("The compute service business does not match its enrollment.");
         ValidateServiceConfiguration(configuration);
         // Validate every installed runtime entry before service registration. This does not certify a guest image.
         var pending = new Stack<string>(); pending.Push(AppContext.BaseDirectory);

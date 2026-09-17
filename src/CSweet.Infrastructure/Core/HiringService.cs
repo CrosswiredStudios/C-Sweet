@@ -1059,6 +1059,8 @@ public sealed class HiringService(
         {
             var embedded = snapshot.EmbeddedAgent
                 ?? throw new InvalidOperationException("The catalog agent definition snapshot is missing.");
+            // Keep the approved employee settings durable while an imported package builds.
+            embedded = embedded with { ConfigurationSettings = embedded.ConfigurationSettings ?? request.ConfigurationSettings };
             var definitionService = agentDefinitions
                 ?? throw new InvalidOperationException("The agent definition service is unavailable.");
             AgentDefinitionResponse definition;
@@ -1087,7 +1089,8 @@ public sealed class HiringService(
                     {
                         GrantedRequestedCapabilities = embedded.RequestedCapabilities,
                         PluginScope = "Organization",
-                        ConfigurationSettings = request.ConfigurationSettings
+                        ConfigurationSettings = embedded.ConfigurationSettings,
+                        ReuseExistingDefinition = true
                     },
                     cancellationToken);
                 embedded = embedded with { DefinitionId = definition.Id };
@@ -1127,7 +1130,10 @@ public sealed class HiringService(
                     null,
                     snapshot.ReportsToOrganizationUserId,
                     AgentDefinitionId: definition.Id)
-                { RoleCategoryKey = snapshot.RoleCategoryKey },
+                {
+                    RoleCategoryKey = snapshot.RoleCategoryKey,
+                    ConfigurationOverrides = embedded.ConfigurationSettings
+                },
                 cancellationToken,
                 applicationUserId,
                 workflow.ActionType == "marketplace-install-and-hire" ? "Marketplace" : "HiringWorkflow");
@@ -2032,7 +2038,8 @@ CompleteWorkflow:
         bool NeedsSetup = false,
         bool IsLocalArchive = false,
         Guid? InstallationId = null,
-        Guid? DefinitionId = null);
+        Guid? DefinitionId = null,
+        IReadOnlyDictionary<string, JsonElement>? ConfigurationSettings = null);
     private sealed record CandidateMetadata
     {
         public string? ResourceType { get; init; }

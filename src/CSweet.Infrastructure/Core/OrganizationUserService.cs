@@ -26,13 +26,15 @@ public sealed class OrganizationUserService : IOrganizationUserService
     private readonly ILogger<OrganizationUserService>? _logger;
     private readonly IPersonalTodoService _personalTodo;
     private readonly IAgentAttentionInvalidationService? _attention;
+    private readonly CSweet.AI.Providers.IModelCatalogClient? _modelCatalog;
 
     public OrganizationUserService(CSweetDbContext dbContext, IAuditEventWriter auditEventWriter,
         IAgentCommunicationOnboardingService? agentOnboarding = null,
         IAgentRuntimeManager? agentRuntimeManager = null,
         ILogger<OrganizationUserService>? logger = null,
         IPersonalTodoService? personalTodo = null,
-        IAgentAttentionInvalidationService? attention = null)
+        IAgentAttentionInvalidationService? attention = null,
+        CSweet.AI.Providers.IModelCatalogClient? modelCatalog = null)
     {
         _dbContext = dbContext;
         _auditEventWriter = auditEventWriter;
@@ -41,6 +43,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
         _logger = logger;
         _personalTodo = personalTodo ?? new PersonalTodoService(dbContext, TimeProvider.System);
         _attention = attention;
+        _modelCatalog = modelCatalog;
     }
 
     public async Task<IReadOnlyList<OrganizationUserResponse>> ListByOrganizationAsync(Guid organizationId, CancellationToken cancellationToken = default)
@@ -119,6 +122,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
             await AgentWorkstreamProfileActivation.ActivateAsync(_dbContext,
                 AgentConfigurationRules.DeserializeManifest(definition.PackageVersion.ManifestJson), cancellationToken);
             hiredInstallation = CreateHiredInstallation(definition, organizationId, DateTimeOffset.UtcNow);
+            await ConfigureHiredInstallationAsync(_dbContext, definition, hiredInstallation,
+                request.ConfigurationOverrides, _modelCatalog, cancellationToken);
             hiredManifestJson = definition.PackageVersion.ManifestJson;
             _dbContext.AgentInstallations.Add(hiredInstallation);
             request = request with { AgentInstallationId = hiredInstallation.Id };
@@ -685,6 +690,27 @@ public sealed class OrganizationUserService : IOrganizationUserService
             cancellationToken: cancellationToken);
 
         return new CoreActionResponse(true, null, "Role updated successfully.", OrganizationUser: user.ToResponse());
+    }
+
+    internal static async Task ConfigureHiredInstallationAsync(
+        CSweetDbContext db,
+        AgentDefinition definition,
+        AgentInstallation installation,
+        IReadOnlyDictionary<string, JsonElement> overrides,
+        CSweet.AI.Providers.IModelCatalogClient? modelCatalog,
+        CancellationToken cancellationToken)
+    {
+        if (overrides.Count == 0) return;
+        var effective = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            definition.Configuration?.SettingsJson ?? "{}") ?? [];
+        foreach (var pair in overrides)
+            effective[pair.Key] = pair.Value.Clone();
+        await AgentConfigurationRules.ValidateAsync(db,
+            AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson),
+            effective, requireRequired: true, cancellationToken, modelCatalog, validateSupportedModels: true);
+        // Preserve explicit choices even when they currently equal a shared default.
+        installation.Configuration!.SettingsJson = JsonSerializer.Serialize(overrides);
+        installation.Configuration.Revision = 1;
     }
 
     internal static AgentInstallation CreateHiredInstallation(

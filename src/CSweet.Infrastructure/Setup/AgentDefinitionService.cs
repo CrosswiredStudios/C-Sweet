@@ -51,6 +51,13 @@ public sealed class AgentDefinitionService(
         var definition = await db.AgentDefinitions.Include(x => x.Configuration)
             .SingleOrDefaultAsync(x => x.PackageSourceId == package.PackageSourceId && x.AgentId == package.AgentId,
                 cancellationToken);
+        if (definition is not null && request.ReuseExistingDefinition)
+        {
+            if (definition.PackageVersionId != package.Id)
+                throw new AgentInstallationException(
+                    "This agent already has a different approved version. Update the agent definition before hiring this version.");
+            return ToResponse(definition, package);
+        }
         var now = DateTimeOffset.UtcNow;
         if (definition is null)
         {

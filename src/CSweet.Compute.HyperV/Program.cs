@@ -6,6 +6,13 @@ internal static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        Guid? businessId = null;
+        if (args.Length == 2 && args[0] is "service" or "validate-service")
+        {
+            if (!Guid.TryParseExact(args[1], "N", out var id) || id == Guid.Empty) return 2;
+            businessId = id;
+            args = [args[0]];
+        }
         if (args.Length == 3 && args[0] == "repair-local")
         {
             try { await LocalComputeInstaller.ConfigureAsync(null, args[1], args[2], default); return 0; }
@@ -29,7 +36,7 @@ internal static class Program
         if (args.Length == 1 && args[0] == "validate-service")
         {
             if (!OperatingSystem.IsWindows()) return 2;
-            try { await ComputeInstallationPreflight.ValidateServiceAsync(default); return 0; }
+            try { await ComputeInstallationPreflight.ValidateServiceAsync(default, businessId); return 0; }
             catch (Exception) { Console.Error.WriteLine("compute-service-preflight-failed"); return 1; }
         }
         if (args.Length == 2 && args[0] == "initialize-journal" && Path.IsPathFullyQualified(args[1]))
@@ -48,7 +55,7 @@ internal static class Program
         {
             if (!OperatingSystem.IsWindows() || !Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService())
             { Console.Error.WriteLine("windows-service-manager-required"); return 2; }
-            try { return await ComputeWindowsService.RunAsync(); }
+            try { return await ComputeWindowsService.RunAsync(businessId: businessId); }
             catch (Exception) { Console.Error.WriteLine("compute-maintenance-service-failed"); return 1; }
         }
         if (args.Length != 2 || args[0] != "maintenance" || !Path.IsPathFullyQualified(args[1]))

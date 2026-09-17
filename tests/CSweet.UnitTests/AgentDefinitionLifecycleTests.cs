@@ -558,6 +558,124 @@ public sealed class AgentDefinitionLifecycleTests
         Assert.Empty(await db.AgentRuntimeInstances.ToListAsync());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HiringWithCustomProvider_DoesNotChangeAnotherCompanyOrSharedDefaults(bool existingOverride)
+    {
+        await using var db = CreateDb();
+        var package = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        package.PackageDigest = $"sha256:{new string('b', 64)}";
+        package.ArtifactSignature = "test-signature";
+        var manifest = JsonSerializer.Deserialize<Dictionary<string, object?>>(package.ManifestJson)!;
+        manifest["configuration"] = new[]
+        {
+            new { key = "llmProviderId", type = "llmProvider", label = "Provider", required = true },
+            new { key = "llmModel", type = "llmModel", label = "Model", required = true }
+        };
+        package.ManifestJson = JsonSerializer.Serialize(manifest);
+        var firstProvider = new LlmProviderProfile { Id = Guid.NewGuid(), Name = "First", IsEnabled = true, DefaultChatModel = "model-a" };
+        var secondProvider = new LlmProviderProfile { Id = Guid.NewGuid(), Name = "Second", IsEnabled = true, DefaultChatModel = "model-b" };
+        db.AddRange(firstProvider, secondProvider);
+        var firstSettings = new Dictionary<string, JsonElement>
+        {
+            ["llmProviderId"] = JsonSerializer.SerializeToElement(firstProvider.Id.ToString("D")),
+            ["llmModel"] = JsonSerializer.SerializeToElement("model-a")
+        };
+        var secondSettings = new Dictionary<string, JsonElement>
+        {
+            ["llmProviderId"] = JsonSerializer.SerializeToElement(secondProvider.Id.ToString("D")),
+            ["llmModel"] = JsonSerializer.SerializeToElement("model-b")
+        };
+        var definition = SeedDefinition(db, package, ActivationMode.OnDemand);
+        definition.Configuration!.SettingsJson = JsonSerializer.Serialize(firstSettings);
+        var originalDefaults = definition.Configuration.SettingsJson;
+        var originalRevision = definition.Configuration.Revision;
+        var firstCompany = new Organization { Id = Guid.NewGuid(), Name = "Super Awesome Games" };
+        var secondCompany = new Organization { Id = Guid.NewGuid(), Name = "Deep Sought Games" };
+        var firstManager = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = firstCompany.Id, DisplayName = "Owner",
+            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true
+        };
+        var secondManager = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = secondCompany.Id, DisplayName = "Owner",
+            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true
+        };
+        db.AddRange(firstCompany, secondCompany, firstManager, secondManager);
+        await db.SaveChangesAsync();
+        var users = new OrganizationUserService(db, new TestAuditEventWriter());
+        var firstHire = await users.CreateAsync(firstCompany.Id, new CreateOrganizationUserRequest(
+            "Daniel Kim", null, (int)OrganizationPermissionLevel.Contributor, (int)EmployeeType.Agent,
+            ReportsToOrganizationUserId: firstManager.Id, AgentDefinitionId: definition.Id)
+        {
+            ConfigurationOverrides = existingOverride ? firstSettings : new Dictionary<string, JsonElement>()
+        });
+        Assert.True(firstHire.Succeeded, firstHire.Message);
+        var definitions = new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db));
+        var reused = await definitions.ImportAsync(package.Id, Request("AlwaysOn") with
+        {
+            ReuseExistingDefinition = true, ConfigurationSettings = secondSettings
+        });
+        var secondRequest = new CreateOrganizationUserRequest(
+            "Daniel Kim", null, (int)OrganizationPermissionLevel.Contributor, (int)EmployeeType.Agent,
+            ReportsToOrganizationUserId: secondManager.Id, AgentDefinitionId: reused.Id)
+        {
+            ConfigurationOverrides = secondSettings
+        };
+        await Assert.ThrowsAsync<AgentInstallationException>(() => users.CreateAsync(secondCompany.Id, secondRequest with
+        {
+            ConfigurationOverrides = new Dictionary<string, JsonElement>(secondSettings)
+            {
+                ["llmProviderId"] = JsonSerializer.SerializeToElement(Guid.NewGuid().ToString("D"))
+            }
+        }));
+        Assert.Single(await db.AgentInstallations.ToListAsync());
+        var secondHire = await users.CreateAsync(secondCompany.Id, secondRequest);
+        Assert.True(secondHire.Succeeded, secondHire.Message);
+        db.ChangeTracker.Clear();
+        var configurations = new AgentInstallationConfigurationService(db, new TestAuditEventWriter());
+        var firstEffective = await configurations.ResolveInstallationAsync(firstHire.OrganizationUser!.AgentInstallationId!.Value);
+        var secondEffective = await configurations.ResolveInstallationAsync(secondHire.OrganizationUser!.AgentInstallationId!.Value);
+        Assert.Equal(firstProvider.Id.ToString("D"), firstEffective.Settings["llmProviderId"].GetString());
+        Assert.Equal("model-a", firstEffective.Settings["llmModel"].GetString());
+        Assert.Equal(secondProvider.Id.ToString("D"), secondEffective.Settings["llmProviderId"].GetString());
+        Assert.Equal("model-b", secondEffective.Settings["llmModel"].GetString());
+        var savedDefinition = await db.AgentDefinitions.Include(x => x.Configuration).SingleAsync();
+        Assert.Equal(originalDefaults, savedDefinition.Configuration!.SettingsJson);
+        Assert.Equal(originalRevision, savedDefinition.Configuration.Revision);
+        Assert.Equal(ActivationMode.OnDemand, savedDefinition.DefaultActivationMode);
+        Assert.Equal(2, await db.AgentInstallations.CountAsync());
+        if (existingOverride)
+        {
+            var firstConfiguration = await db.AgentInstallationConfigurations.SingleAsync(x =>
+                x.AgentInstallationId == firstHire.OrganizationUser.AgentInstallationId);
+            Assert.Equal(firstProvider.Id.ToString("D"),
+                JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(firstConfiguration.SettingsJson)!["llmProviderId"].GetString());
+        }
+    }
+
+    [Fact]
+    public async Task HireImport_CannotReplaceAnExistingApprovedPackage()
+    {
+        await using var db = CreateDb();
+        var package = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        var definition = SeedDefinition(db, package, ActivationMode.OnDemand);
+        var update = CreateUpdatePackage(package, "1.1.0");
+        db.AgentPackageVersions.Add(update);
+        await db.SaveChangesAsync();
+        var service = new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db));
+
+        await Assert.ThrowsAsync<AgentInstallationException>(() => service.ImportAsync(
+            update.Id, Request("AlwaysOn") with { ReuseExistingDefinition = true }));
+
+        Assert.Equal(package.Id, definition.PackageVersionId);
+        Assert.Equal(ActivationMode.OnDemand, definition.DefaultActivationMode);
+        Assert.Equal(1, definition.Configuration!.Revision);
+        Assert.Empty(await db.AgentBuildJobs.ToListAsync());
+    }
+
     [Fact]
     public async Task RuntimeEligibility_RejectsUnassignedAgents_ButAllowsSystemServices()
     {

@@ -12,25 +12,28 @@ internal static class ComputeWindowsService
     public static string ConfigurationPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "CSweet", "Compute", "provider.json");
 
-    public static async Task<int> RunAsync(CancellationToken token = default)
+    public static async Task<int> RunAsync(CancellationToken token = default, Guid? businessId = null)
     {
+        var installation = new ComputeLocalInstallation(businessId);
         var state = new MaintenanceServiceState();
         using var host = CreateHost(async (report, cancellation) =>
         {
-            var configuration = await ComputeProviderConfigurationLoader.ReadAsync(ConfigurationPath, cancellation);
+            var configuration = await ComputeProviderConfigurationLoader.ReadAsync(installation.ConfigurationPath, cancellation);
+            if (businessId is { } id && configuration.Enrollment.OrganizationId != id)
+                throw new InvalidDataException("The compute service business does not match its enrollment.");
             ComputeInstallationPreflight.ValidateServiceConfiguration(configuration);
             await HyperVMaintenanceHost.RunAsync(configuration, report, cancellation);
-        }, state);
+        }, state, installation.ServiceName);
         await host.RunAsync(token);
         return state.Failed ? 1 : 0;
     }
 
-    internal static IHost CreateHost(Func<Action<string>, CancellationToken, Task> run, MaintenanceServiceState state)
+    internal static IHost CreateHost(Func<Action<string>, CancellationToken, Task> run, MaintenanceServiceState state, string serviceName = ServiceName)
     {
         // Trust configuration comes only from the fixed protected file, never environment/appsettings/SCM arguments.
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [], DisableDefaults = true });
         builder.Services.AddLogging();
-        builder.Services.AddWindowsService(options => options.ServiceName = ServiceName);
+        builder.Services.AddWindowsService(options => options.ServiceName = serviceName);
         builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromMinutes(3));
         builder.Services.AddHostedService(services => new MaintenanceService(run, state,
             services.GetRequiredService<IHostApplicationLifetime>(), services.GetRequiredService<IHostLifetime>(),

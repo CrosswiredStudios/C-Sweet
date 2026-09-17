@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.BusinessOnboarding;
@@ -51,7 +52,7 @@ public class BusinessOnboardingServiceTests
             AgentName = "Durable Chief",
             Version = "1.0.0",
             PluginKind = PluginKind.Agent,
-            ManifestJson = """{"kind":"agent","provides":[{"name":"assistant.converse.v1"},{"name":"assistant.plan-work.v1"},{"name":"management.check-in.v1"}]}""",
+            ManifestJson = """{"kind":"agent","provides":[{"name":"assistant.converse.v1"},{"name":"assistant.plan-work.v1"},{"name":"management.check-in.v1"}],"configuration":[{"key":"responseTone","type":"text","label":"Tone"}]}""",
             Status = AgentPackageVersionStatus.Built,
             PackageDigest = new string('f', 64),
             ArtifactSignature = "test-signature",
@@ -63,7 +64,13 @@ public class BusinessOnboardingServiceTests
         var installRequest = new CSweet.Contracts.Agents.InstallAgentRequest(
             "default", "OnDemand", 3600, "Skip",
             ["assistant.converse.v1", "assistant.plan-work.v1", "management.check-in.v1"],
-            [], [], [], [], 600, 512, 50);
+            [], [], [], [], 600, 512, 50)
+        {
+            ConfigurationSettings = new Dictionary<string, JsonElement>
+            {
+                ["responseTone"] = JsonSerializer.SerializeToElement("concise")
+            }
+        };
         var request = new StartBusinessOnboardingRequest(
             "Async Example Co", "Software", "Build asynchronously.", package.Id, "Avery",
             "durable-business-onboarding", installRequest);
@@ -93,6 +100,34 @@ public class BusinessOnboardingServiceTests
 
         await service.DismissAsync(started.Id, applicationUser.Id);
         Assert.Empty(await service.ListForUserAsync(applicationUser.Id));
+
+        var originalDefinition = await dbContext.AgentDefinitions.Include(x => x.Configuration).SingleAsync();
+        var originalDefaults = originalDefinition.Configuration!.SettingsJson;
+        var originalRevision = originalDefinition.Configuration.Revision;
+        var firstInstallationId = (await dbContext.AgentInstallations.SingleAsync()).Id;
+        var secondStarted = await service.StartAsync(request with
+        {
+            BusinessName = "Second Company",
+            IdempotencyKey = "second-company",
+            ChiefAgentInstallRequest = installRequest with
+            {
+                ConfigurationSettings = new Dictionary<string, JsonElement>
+                {
+                    ["responseTone"] = JsonSerializer.SerializeToElement("detailed")
+                }
+            }
+        }, applicationUser.Id);
+        Assert.True(await service.ProcessNextAsync("test-worker"));
+        var secondCompleted = await service.GetForUserAsync(secondStarted.Id, applicationUser.Id);
+        Assert.Equal(BusinessOnboardingOperationStatuses.Succeeded, secondCompleted!.Status);
+        dbContext.ChangeTracker.Clear();
+        var configurations = new AgentInstallationConfigurationService(dbContext, auditWriter);
+        var secondInstallation = await dbContext.AgentInstallations.SingleAsync(x => x.Id != firstInstallationId);
+        Assert.Equal("concise", (await configurations.ResolveInstallationAsync(firstInstallationId)).Settings["responseTone"].GetString());
+        Assert.Equal("detailed", (await configurations.ResolveInstallationAsync(secondInstallation.Id)).Settings["responseTone"].GetString());
+        var unchangedDefinition = await dbContext.AgentDefinitions.Include(x => x.Configuration).SingleAsync();
+        Assert.Equal(originalDefaults, unchangedDefinition.Configuration!.SettingsJson);
+        Assert.Equal(originalRevision, unchangedDefinition.Configuration.Revision);
     }
 
     [Fact]

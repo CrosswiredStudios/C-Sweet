@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 
 namespace CSweet.Contracts.Core;
 
@@ -16,4 +17,7 @@ public sealed record CreateOrganizationUserRequest(
 {
     /// <summary>Canonical high-level role category expected by a governed hiring workflow.</summary>
     public string? RoleCategoryKey { get; init; }
+    /// <summary>Explicit settings for this new employee, persisted before runtime activation.</summary>
+    public IReadOnlyDictionary<string, JsonElement> ConfigurationOverrides { get; init; } =
+        new Dictionary<string, JsonElement>(StringComparer.Ordinal);
 }

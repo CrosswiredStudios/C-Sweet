@@ -562,7 +562,13 @@ public sealed class HiringServiceTests
             organizationId,
             workflow.Id,
             applicationUserId,
-            new("approve-product-manager"));
+            new("approve-product-manager")
+            {
+                ConfigurationSettings = new Dictionary<string, JsonElement>
+                {
+                    ["llmModel"] = JsonSerializer.SerializeToElement("retained-after-build")
+                }
+            });
         Assert.Equal(AgentHireOperationStatuses.Building, pending?.Status);
         Assert.Equal(definitions.DefinitionId, pending?.AgentDefinitionId);
         Assert.Equal(0, organizationUsers.CreateCount);
@@ -592,6 +598,7 @@ public sealed class HiringServiceTests
         Assert.Equal(definitions.DefinitionId, organizationUsers.CreatedRequest?.AgentDefinitionId);
         Assert.Equal(0, installations.InstallCount);
         Assert.Equal("C-Sweet Product Manager", organizationUsers.CreatedRequest?.DisplayName);
+        Assert.Equal("retained-after-build", organizationUsers.CreatedRequest!.ConfigurationOverrides["llmModel"].GetString());
         Assert.Equal(1, organizationUsers.CreateCount);
         await service.DismissAsync(approved!.Id, applicationUserId);
         Assert.Empty(await service.ListForUserAsync(applicationUserId));
@@ -890,7 +897,9 @@ public sealed class HiringServiceTests
         Assert.Equal(0, installations.InstallCount);
         Assert.Equal(1, definitions.ImportCount);
         Assert.Equal(1024, definitions.Request!.MemoryMb);
-        Assert.Equal("test-model", definitions.Request.ConfigurationSettings["llmModel"].GetString());
+        Assert.True(definitions.Request.ReuseExistingDefinition);
+        Assert.Equal("test-model", organizationUsers.CreatedRequest!.ConfigurationOverrides["llmModel"].GetString());
+        Assert.Equal("concise", organizationUsers.CreatedRequest.ConfigurationOverrides["responseTone"].GetString());
         Assert.Equal("Avery", organizationUsers.CreatedRequest?.DisplayName);
         Assert.Equal(definitions.DefinitionId, organizationUsers.CreatedRequest?.AgentDefinitionId);
         Assert.Equal(1, organizationUsers.CreateCount);

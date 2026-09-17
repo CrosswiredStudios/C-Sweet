@@ -3,6 +3,14 @@ namespace CSweet.UnitTests;
 public sealed class LlmProviderFailureMessageTests
 {
     [Fact]
+    public void MissingReasoningExplainsCompatibilityFixWithoutProviderDetails()
+    {
+        var message = LlmProviderFailureMessage.From(new InvalidOperationException(
+            "The `reasoning_content` in the thinking mode must be passed back to the API. secret=private-value"));
+        Assert.Contains("reasoning history", message);
+        Assert.DoesNotContain("private-value", message);
+    }
+    [Fact]
     public void Missing_user_query_reports_the_compatibility_setting_without_raw_provider_details()
     {
         var message = LlmProviderFailureMessage.From(new InvalidOperationException("No user query found in messages. secret=private-value"));
