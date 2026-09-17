@@ -129,6 +129,17 @@ public sealed partial class CSweetDbContext
                 eventType = attempt.FinishedAt.HasValue ? "agent.work.attempt.stopped" : "agent.work.attempt.started";
                 when = attempt.FinishedAt ?? attempt.ClaimedAt; outcome = attempt.Error is null ? (attempt.FinishedAt.HasValue ? "Completed" : "Running") : "Failed";
                 break;
+            case CSweet.Domain.Analytics.WorkLifecycleEvent lifecycle:
+                if (entry.State != EntityState.Added) return null;
+                id = lifecycle.Id; organization = lifecycle.OrganizationId; category = "WorkItem";
+                eventType = "work.lifecycle.recorded"; when = lifecycle.OccurredAt; outcome = lifecycle.Status;
+                break;
+            case CSweet.Domain.Analytics.WorkExecutionInterval interval:
+                if (!Changed(nameof(interval.EndedAt))) return null;
+                id = interval.Id; organization = interval.OrganizationId; category = "AgentWork";
+                eventType = interval.EndedAt.HasValue ? "work.execution.paused" : "work.execution.started";
+                when = interval.EndedAt ?? interval.StartedAt; outcome = interval.EndReason ?? "Running";
+                break;
             case AgentWorkProgress progress:
                 if (entry.State != EntityState.Added && !historical) return null;
                 id = progress.Id; ResolveWork(Find<AgentWorkItem>(progress.AgentWorkItemId)); category = "AgentWork";

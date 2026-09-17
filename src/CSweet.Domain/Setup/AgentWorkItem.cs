@@ -49,6 +49,7 @@ public sealed class AgentWorkItem
 
 public sealed class AgentWorkAttempt
 {
+    public DateTimeOffset? LastConfirmedAt { get; set; }
     public Guid Id { get; set; }
     public Guid AgentWorkItemId { get; set; }
     public Guid RuntimeInstanceId { get; set; }

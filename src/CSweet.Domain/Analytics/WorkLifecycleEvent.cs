@@ -11,4 +11,5 @@ public sealed class WorkLifecycleEvent
     public string Status { get; set; } = "";
     public long SourceRevision { get; set; }
     public DateTimeOffset OccurredAt { get; set; }
+    public string Provenance { get; set; } = "ExecutionTiming";
 }

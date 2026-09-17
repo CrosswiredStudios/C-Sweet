@@ -203,7 +203,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                     Payload = JsonPayload.FromUtf8(payload.ToJsonString())
                 };
             }
-            using var attribution = new InferenceExecutionAttribution(job.WorkId, job.Id).Enter();
+            using var attribution = new InferenceExecutionAttribution(job.WorkId, job.Id, job.Attempt).Enter();
             await foreach (var result in handler.ExecuteAsync(job.Session, request, token))
             {
                 lock (job.Sync)

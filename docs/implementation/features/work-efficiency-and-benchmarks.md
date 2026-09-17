@@ -43,6 +43,71 @@ and separate human/judge scores. Partial rubric scores are not presented as fina
   if its telemetry store fails. Benchmark broker requests require the initial durable
   receipt before provider dispatch. A crash can leave a started call with unknown usage.
 
+## Task focus and execution timing
+
+- `CSweetDbContext.CaptureWorkExecutionAsync` maintains `WorkExecutionContext` for
+  each `AgentWorkAttempt`. The epic keeps its execution lease. Personal-plan focus
+  selects the single running task whose plan root, ancestry, board, installation,
+  and live claim agree. With no running child, coordination remains direct epic work.
+  Ambiguous focus is unallocated. Team-stage work retains its own ticket resolution.
+- `PersonalTodoService.ClaimAsync` reloads the SQL-updated task and explicitly appends
+  its Running lifecycle event. `ReportPlanTaskAsync` uses the existing authenticated
+  contract; no agent SDK or package update is required. Focus, intervals, source
+  mutations, lifecycle evidence, and audit/realtime outbox entries share the save
+  transaction. Context revision and interval confirmation concurrency tokens reject
+  competing stale writes; callers must retry the operation in a fresh request.
+- `WorkExecutionInterval` snapshots the task, project and ancestor IDs. Task focus or
+  ancestry changes split intervals. Completion, blocking, deferral, release,
+  cancellation and lease loss close them. Queue receipts pause effort while an LLM
+  request waits for a provider slot. Model generation and tool execution are already
+  inside the interval and are never added a second time.
+- `AgentWorkInbox` records `LastConfirmedAt` on claim, renewal, progress and authenticated
+  completion/failure. Active effort counts only through confirmed server evidence.
+  Lease expiry closes at the last evidence, never at the later recovery timestamp.
+  `WorkExecutionRecoveryWorker` discovers and closes up to 256 abandoned intervals per
+  pass, even when no replacement agent connects. Reports also flag expired open intervals
+  while recovery is pending. This deliberately
+  omits the unconfirmed tail after a crash rather than estimating offline activity.
+- `InferenceAttribution.CaptureAsync` runs immediately before provider dispatch, after
+  queue admission. It checks the exact authenticated attempt and current personal claim,
+  then copies its execution interval's ownership snapshot onto `AgentRunLog` including
+  `AgentWorkAttemptId`. Subsequent receipt updates preserve ownership. Changing focus
+  or reparenting a ticket does not relocate existing tokens or effort.
+- `WorkEfficiencyService.Effort` clips intervals to the reporting window, unions overlaps
+  within one attempt, and sums independent attempts. Two parallel ten-minute attempts
+  produce twenty agent-minutes. The business header reports aggregate effort; elapsed
+  time belongs to a project or work item.
+- `EfficiencyLifecycle.ElapsedTimeMs` spans first recorded start through final completion
+  (or the report timestamp while open). Cancelled/failed work freezes at its recorded stop
+  without declaring completion. Reopening retains the original start. Parent elapsed
+  spans its own and descendant lifecycle, never the sum of child durations. Existing
+  `CycleTimeMs` and `LeadTimeMs` remain compatible final-completion fields; lead time
+  starts at creation. Lifecycle ordering uses time and source revision.
+- Historical claim receipts may recover a start with `HistoricalClaim` provenance;
+  execution intervals can supply missing start evidence. These are read-time projections,
+  not invented mutations. Missing completion/effort remains incomplete. `UpdatedAt` is
+  never used as historical completion evidence, and historical epic tokens are never
+  divided among children.
+- `WorkEfficiencyRow` exposes direct and total `ActiveAgentTimeMs` on its usage records,
+  plus independent `TimingCoverage` and `AttributionCoverage`. An empty amount with
+  incomplete coverage does not prove zero work. `WorkEfficiencyPanel` renders the same
+  expandable Project/Epic/Story/Task hierarchy in Analytics, projects and item details.
+  Elapsed timers advance locally; confirmed effort refreshes every 30 seconds. Selection
+  and expansion survive refresh. Details reconcile direct/descendant tokens, calls and
+  effort, and the activity selector uses captured ancestry. CSV includes lifetime
+  durations, windowed effort, coverage, and window bounds.
+
+`TaskExecutionTiming` is an additive migration. Existing lifecycle receipts keep
+`StatusTransition` provenance; new transitions carry `ExecutionTiming` provenance.
+Existing attempts have unknown confirmation coverage.
+New interval capture starts from deployment/observation, without fabricating old effort.
+
+Verification entry points: `WorkExecutionTests`, `WorkEfficiencyTests`,
+`WorkExecutionPostgresTests.SqlClaimPlanReportsConcurrencyAndRollbackCommitTimingAtomically`,
+`AnalyticsEndpointTests`, `PersonalTodoServiceTests`, and `AgentWorkInboxTests`.
+The PostgreSQL test requires `CSWEET_EFFICIENCY_TEST_POSTGRES` with an isolated
+`efficiency_validation` database prefix; it creates and deletes its own unique database.
+
 ## Campaign execution
 
 `BenchmarkDefinition` is immutable and versioned. Its manifest records the blueprint,

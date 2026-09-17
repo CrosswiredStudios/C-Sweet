@@ -1,5 +1,6 @@
 @using CSweet.Contracts.Analytics
 @inject HttpClient Http
+@implements IAsyncDisposable
 
 <section class="efficiency-panel" aria-label="Work efficiency">
     <div class="efficiency-toolbar">
@@ -26,23 +27,30 @@
     {
         var total = SelectedScope?.Total ?? _report.BusinessTotal;
         <div class="efficiency-stats">
-            @Metric("Reported tokens", total.TotalTokens.ToString("N0"), $"{total.InputTokens:N0} input · {total.OutputTokens:N0} output")
-            @Metric("Model calls", total.ModelCalls.ToString("N0"), $"{total.FailedCalls:N0} failed · {total.CancelledCalls:N0} cancelled")
-            @Metric("Usage coverage", $"{total.FullyReportedCalls:N0} / {total.ModelCalls:N0}", "Calls reporting both input and output")
-            @Metric("Time to completion", Duration(SelectedScope?.Lifecycle.CycleTimeMs), "First start → declared completion")
+            <div class="efficiency-stat"><small>Reported tokens</small><strong>@total.TotalTokens.ToString("N0")</strong><small>@total.InputTokens.ToString("N0") input · @total.OutputTokens.ToString("N0") output</small></div>
+            <div class="efficiency-stat"><small>Model calls</small><strong>@total.ModelCalls.ToString("N0")</strong><small>@total.FailedCalls failed · @total.CancelledCalls cancelled</small></div>
+            <div class="efficiency-stat"><small>Usage coverage</small><strong>@total.FullyReportedCalls / @total.ModelCalls</strong><small>Calls reporting both input and output</small></div>
+            <div class="efficiency-stat"><small>Active agent time</small><strong>@Duration(total.ActiveAgentTimeMs)</strong><small>Confirmed effort · selected period · parallel agents add together</small></div>
         </div>
         @if (_report.Truncated) { <MudAlert Severity="Severity.Warning">Partial report. Narrow the date range before using totals for comparison.</MudAlert> }
         <MudText Typo="Typo.caption">@_report.CoverageNote</MudText>
         <div class="efficiency-table">
             <table>
-                <thead><tr><th>Work</th><th>Status</th><th>Direct tokens</th><th>Total tokens</th><th>Calls</th><th>Completion time</th></tr></thead>
+                <thead><tr><th>Work</th><th>Status</th><th>Total tokens</th><th>Model calls</th><th>Elapsed time <small>(lifetime)</small></th><th>Active agent time</th></tr></thead>
                 <tbody>
-                @foreach (var row in Rows)
+                @foreach (var node in TreeRows)
                 {
+                    var row = node.Row;
                     <tr>
-                        <td><button class="efficiency-work-link" @onclick="() => SelectAsync(row)">@row.Kind · @row.Title</button></td>
-                        <td>@row.Status</td><td>@row.Direct.TotalTokens.ToString("N0")</td><td>@row.Total.TotalTokens.ToString("N0")</td>
-                        <td>@row.Total.ModelCalls.ToString("N0")</td><td>@Duration(row.Lifecycle.CycleTimeMs)</td>
+                        <td><div class="efficiency-tree-node" style="padding-left: @(node.Depth * 20)px">
+                            @if (HasChildren(row))
+                            { <button class="efficiency-expand" aria-label="@($"{(_collapsed.Contains(row.Id) ? "Expand" : "Collapse")} {row.Title}")" aria-expanded="@(!_collapsed.Contains(row.Id))" @onclick="() => Toggle(row.Id)">@(_collapsed.Contains(row.Id) ? "+" : "-")</button> }
+                            else { <span class="efficiency-expand-spacer"></span> }
+                            <button class="efficiency-work-link" @onclick="() => SelectAsync(row)"><small>@row.Kind</small> @row.Title</button>
+                        </div></td>
+                        <td>@row.Status</td><td>@row.Total.TotalTokens.ToString("N0")</td>
+                        <td>@row.Total.ModelCalls.ToString("N0")</td><td>@Elapsed(row)@if (row.Lifecycle.ElapsedTimeMs.HasValue) { <br /><small>@row.Lifecycle.TimingState</small> }</td>
+                        <td>@Duration(row.Total.ActiveAgentTimeMs)<br /><small>@row.TimingCoverage</small></td>
                     </tr>
                 }
                 </tbody>
@@ -53,12 +61,20 @@
         {
             <MudPaper Outlined="true" Class="pa-4 mt-4">
                 <div class="efficiency-toolbar"><MudText Typo="Typo.h6">@_selected.Title</MudText><MudButton OnClick="ClearSelection">Close</MudButton></div>
-                <MudText>Direct: @_selected.Direct.TotalTokens.ToString("N0") tokens. Including descendants: @_selected.Total.TotalTokens.ToString("N0") tokens.</MudText>
-                <MudText Typo="Typo.body2">Lead time: @Duration(_selected.Lifecycle.LeadTimeMs) · Waiting: @Duration(_selected.Lifecycle.WaitingTimeMs) · Reopens: @_selected.Lifecycle.ReopenCount</MudText>
+                <MudText>Elapsed time (lifetime): @Elapsed(_selected) · @_selected.Lifecycle.TimingState</MudText>
+                <MudText>Active agent time: @Duration(_selected.Direct.ActiveAgentTimeMs) direct + @Duration(_selected.Total.ActiveAgentTimeMs - _selected.Direct.ActiveAgentTimeMs) descendants = @Duration(_selected.Total.ActiveAgentTimeMs) total.</MudText>
+                <MudText>Model calls: @_selected.Direct.ModelCalls direct + @(_selected.Total.ModelCalls - _selected.Direct.ModelCalls) descendants = @_selected.Total.ModelCalls total.</MudText>
+                <MudText>Timing: @_selected.TimingCoverage · Attribution: @_selected.AttributionCoverage</MudText>
+                <MudText>Tokens: @_selected.Direct.TotalTokens.ToString("N0") direct + @((_selected.Total.TotalTokens - _selected.Direct.TotalTokens).ToString("N0")) descendants = @_selected.Total.TotalTokens.ToString("N0") total.</MudText>
+                <MudText Typo="Typo.body2">Lead time (lifetime): @(_selected.Lifecycle.IsOpen ? "In progress" : Duration(_selected.Lifecycle.LeadTimeMs)) · Waiting: @Duration(_selected.Lifecycle.WaitingTimeMs) · Reopens: @_selected.Lifecycle.ReopenCount</MudText>
                 @if (!_selected.Lifecycle.CompleteHistory) { <MudAlert Severity="Severity.Info" Class="my-2">Lifecycle recording began after this item was created, or evidence is incomplete.</MudAlert> }
+                <MudSelect T="bool" Label="Activity scope" Value="_subtree" ValueChanged="ChangeActivityScope">
+                    <MudSelectItem Value="false">Direct work only</MudSelectItem>
+                    <MudSelectItem Value="true">Include descendants</MudSelectItem>
+                </MudSelect>
                 @if (_activity is not null)
                 {
-                    <MudText Typo="Typo.subtitle2" Class="mt-3">Model call history · lifetime · @(_selected.Kind == "Project" ? "project and its work" : "direct calls")</MudText>
+                    <MudText Typo="Typo.subtitle2" Class="mt-3">Model call history - selected reporting period</MudText>
                     <div class="efficiency-table"><table><thead><tr><th>When</th><th>Model / purpose</th><th>Input</th><th>Output</th><th>Outcome</th></tr></thead><tbody>
                     @foreach (var call in _activity.Calls)
                     { <tr><td>@call.StartedAt.ToLocalTime().ToString("g")</td><td>@call.Model<br /><small>@call.Purpose · @call.AttributionKind</small></td><td>@(call.InputTokens?.ToString("N0") ?? "Unknown")</td><td>@(call.OutputTokens?.ToString("N0") ?? "Unknown")</td><td>@call.Status</td></tr> }
@@ -70,7 +86,7 @@
         }
         <MudText Typo="Typo.caption" Class="mt-4">Business overhead: @_report.BusinessOverhead.TotalTokens.ToString("N0") tokens · Unattributed: @_report.Unattributed.TotalTokens.ToString("N0") · Historical calls with partial instrumentation: @_report.BusinessTotal.LegacyCalls.ToString("N0")</MudText>
         <div class="efficiency-toolbar mt-3">
-            <MudLink Href="@($"api/organizations/{OrganizationId}/analytics/efficiency/export{Query()}")" Target="_blank">Export CSV</MudLink>
+            <MudLink Href="@($"api/organizations/{OrganizationId}/analytics/efficiency/export{ReportQuery()}")" download="work-efficiency.csv">Export CSV</MudLink>
             <MudLink Href="benchmarks">Compare businesses</MudLink>
             <MudText Typo="Typo.caption">Generated @_report.GeneratedAt.ToLocalTime().ToString("g")</MudText>
         </div>
@@ -90,10 +106,54 @@
     private DateTime? _from, _to;
     private WorkEfficiencyRow? SelectedScope => WorkItemId.HasValue ? _report?.WorkItems.FirstOrDefault(x => x.Id == WorkItemId)
         : WorkstreamId.HasValue ? _report?.Projects.FirstOrDefault(x => x.Id == WorkstreamId) : null;
-    private IEnumerable<WorkEfficiencyRow> Rows => _report is null ? [] : WorkItemId.HasValue
-        ? _report.WorkItems.Where(x => x.Id == WorkItemId || x.ParentId == WorkItemId)
-        : WorkstreamId.HasValue ? _report.WorkItems.Where(x => x.WorkstreamId == WorkstreamId)
-        : _report.Projects.Concat(_report.WorkItems.OrderBy(x => x.ParentId).ThenBy(x => x.Title));
+    private readonly HashSet<Guid> _collapsed = [];
+    private bool _subtree = true;
+    private readonly CancellationTokenSource _dispose = new();
+    private Task? _timer;
+    private DateTimeOffset _receivedAt;
+    private IEnumerable<WorkEfficiencyRow> Children(WorkEfficiencyRow row) => _report is null ? [] :
+        _report.WorkItems.Where(x => row.Kind == "Project" ? x.WorkstreamId == row.Id &&
+            (!x.ParentId.HasValue || !_report.WorkItems.Any(p => p.Id == x.ParentId && p.WorkstreamId == row.Id)) : x.ParentId == row.Id)
+            .OrderBy(x => x.Kind == "Epic" ? 0 : x.Kind == "Story" ? 1 : 2).ThenBy(x => x.Title);
+    private bool HasChildren(WorkEfficiencyRow row) => Children(row).Any();
+    private void Toggle(Guid id) { if (!_collapsed.Add(id)) _collapsed.Remove(id); }
+    private IEnumerable<(WorkEfficiencyRow Row, int Depth)> TreeRows
+    {
+        get
+        {
+            if (_report is null) yield break;
+            var visited = new HashSet<Guid>();
+            var roots = SelectedScope is { } scope ? new[] { scope } : _report.Projects.Concat(_report.WorkItems.Where(x =>
+                (!x.ParentId.HasValue || !_report.WorkItems.Any(p => p.Id == x.ParentId)) &&
+                (!x.WorkstreamId.HasValue || !_report.Projects.Any(p => p.Id == x.WorkstreamId))));
+            foreach (var root in roots)
+                foreach (var node in Walk(root, 0)) yield return node;
+            IEnumerable<(WorkEfficiencyRow, int)> Walk(WorkEfficiencyRow row, int depth)
+            {
+                if (!visited.Add(row.Id)) yield break;
+                yield return (row, depth);
+                if (!_collapsed.Contains(row.Id))
+                    foreach (var child in Children(row))
+                        foreach (var node in Walk(child, depth + 1)) yield return node;
+            }
+        }
+    }
+    protected override void OnInitialized() => _timer = TickAsync();
+    private async Task TickAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1)); var ticks = 0;
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_dispose.Token))
+                await InvokeAsync(async () => { if (++ticks % 30 == 0 && !_loading) await LoadAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) { }
+    }
+    public async ValueTask DisposeAsync() { await _dispose.CancelAsync(); if (_timer is not null) await _timer; _dispose.Dispose(); }
+    private string Elapsed(WorkEfficiencyRow row) => row.Lifecycle.ElapsedTimeMs is { } value
+        ? Duration(value + (row.Lifecycle.IsOpen ? Math.Max(0, (long)(DateTimeOffset.UtcNow - _receivedAt).TotalMilliseconds) : 0))
+        : row.Lifecycle.TimingState;
+    private async Task ChangeActivityScope(bool value) { _subtree = value; await LoadActivityAsync(0); }
     protected override Task OnParametersSetAsync() => LoadAsync();
     private async Task ChangeWindow(string value) { _window = value; if (value != "custom") await LoadAsync(); }
     private string Query()
@@ -106,14 +166,25 @@
         if (to.HasValue) parts.Add("to=" + Uri.EscapeDataString(to.Value.ToString("O")));
         return parts.Count == 0 ? "" : "?" + string.Join("&", parts);
     }
+    private string ReportQuery()
+    {
+        if (_report is null) return Query();
+        var parts = new List<string>();
+        if (_report.From.HasValue) parts.Add("from=" + Uri.EscapeDataString(_report.From.Value.ToString("O")));
+        parts.Add("to=" + Uri.EscapeDataString((_report.To ?? _report.GeneratedAt).ToString("O")));
+        return "?" + string.Join("&", parts);
+    }
     private async Task LoadAsync()
     {
-        _loading = true; _error = null; _selected = null; _activity = null; _report = null;
+        _loading = true; _error = null; var selectedId = _selected?.Id;
         try
         {
             using var response = await Http.GetAsync($"api/organizations/{OrganizationId}/analytics/efficiency{Query()}");
             if (response.StatusCode == System.Net.HttpStatusCode.Forbidden) { _error = "Efficiency reporting is available to business Owners and Managers."; return; }
             response.EnsureSuccessStatusCode(); _report = await response.Content.ReadFromJsonAsync<WorkEfficiencyResponse>();
+            _receivedAt = DateTimeOffset.UtcNow;
+            _selected = _report?.Projects.Concat(_report.WorkItems).FirstOrDefault(x => x.Id == selectedId);
+            if (_selected is not null) await LoadActivityAsync(_activity?.Offset ?? 0);
         }
         catch (Exception) { _error = "The efficiency report could not be loaded. Check the date range and try again."; }
         finally { _loading = false; }
@@ -125,17 +196,11 @@
     private async Task LoadActivityAsync(int offset)
     {
         if (_selected is null) return;
-        try { _activity = await Http.GetFromJsonAsync<EfficiencyActivityResponse>($"api/organizations/{OrganizationId}/analytics/efficiency/activity?{(_selected.Kind == "Project" ? "workstreamId" : "workItemId")}={_selected.Id}&offset={offset}&limit=25"); }
+        try { _activity = await Http.GetFromJsonAsync<EfficiencyActivityResponse>($"api/organizations/{OrganizationId}/analytics/efficiency/activity?{(_selected.Kind == "Project" ? "workstreamId" : "workItemId")}={_selected.Id}&offset={offset}&limit=25&subtree={_subtree.ToString().ToLowerInvariant()}{ReportQuery().Replace("?", "&")}"); }
         catch { _error = "Call history could not be loaded."; }
     }
-    private static string Duration(long? milliseconds) => milliseconds.HasValue ? TimeSpan.FromMilliseconds(milliseconds.Value).TotalHours >= 24
-        ? $"{TimeSpan.FromMilliseconds(milliseconds.Value).TotalDays:N1} days"
-        : $"{(int)TimeSpan.FromMilliseconds(milliseconds.Value).TotalHours}h {TimeSpan.FromMilliseconds(milliseconds.Value).Minutes}m" : "Not recorded";
-    private RenderFragment Metric(string label, string value, string note) => builder =>
-    {
-        builder.OpenElement(0, "div"); builder.AddAttribute(1, "class", "efficiency-stat");
-        builder.OpenElement(2, "small"); builder.AddContent(3, label); builder.CloseElement();
-        builder.OpenElement(4, "strong"); builder.AddContent(5, value); builder.CloseElement();
-        builder.OpenElement(6, "small"); builder.AddContent(7, note); builder.CloseElement(); builder.CloseElement();
-    };
+    private static string Duration(long? milliseconds) => !milliseconds.HasValue ? "History incomplete"
+        : milliseconds < 60_000 ? $"{milliseconds / 1000:N0}s"
+        : milliseconds < 3_600_000 ? $"{milliseconds / 60_000:N0}m {TimeSpan.FromMilliseconds(milliseconds.Value).Seconds}s"
+        : $"{(int)TimeSpan.FromMilliseconds(milliseconds.Value).TotalHours}h {TimeSpan.FromMilliseconds(milliseconds.Value).Minutes}m";
 }

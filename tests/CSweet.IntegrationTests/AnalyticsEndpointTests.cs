@@ -33,6 +33,12 @@ public sealed class AnalyticsEndpointTests
             client.DefaultRequestHeaders.Add("X-Analytics-Test-UserId", user.ToString());
             Assert.Equal(expected, (await client.GetAsync($"/api/organizations/{org}/analytics/efficiency")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/benchmarks")).StatusCode);
+            if (expected == HttpStatusCode.OK)
+            {
+                var csv = await client.GetStringAsync($"/api/organizations/{org}/analytics/efficiency/export");
+                Assert.Contains("Lifetime elapsed time ms,Direct active agent ms,Total active agent ms,Timing coverage,Attribution coverage", csv);
+                Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/organizations/{org}/analytics/efficiency/activity?from=2026-09-17&to=2026-09-16")).StatusCode);
+            }
         }
         using var anonymous = factory.CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/benchmarks")).StatusCode);

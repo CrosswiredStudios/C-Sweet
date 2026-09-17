@@ -28,15 +28,15 @@ public static class WorkEfficiencyEndpoints
         group.MapGet("", async (Guid organizationId, DateTimeOffset? from, DateTimeOffset? to,
             IWorkEfficiencyService service, CancellationToken ct) => Results.Ok(await service.GetAsync(organizationId, from, to, ct)));
         group.MapGet("/activity", async (Guid organizationId, Guid? workItemId, Guid? workstreamId, int? offset,
-            int? limit, IWorkEfficiencyService service, CancellationToken ct) =>
-            Results.Ok(await service.GetActivityAsync(organizationId, workItemId, workstreamId, offset ?? 0, limit ?? 50, ct)));
+            int? limit, bool? subtree, DateTimeOffset? from, DateTimeOffset? to, IWorkEfficiencyService service, CancellationToken ct) =>
+            Results.Ok(await service.GetActivityAsync(organizationId, workItemId, workstreamId, offset ?? 0, limit ?? 50, ct, subtree, from, to)));
         group.MapGet("/export", async (Guid organizationId, DateTimeOffset? from, DateTimeOffset? to,
             IWorkEfficiencyService service, CancellationToken ct) =>
         {
             var report = await service.GetAsync(organizationId, from, to, ct);
-            var csv = new StringBuilder("Kind,Title,Status,Direct tokens,Total tokens,Model calls,Reported calls,Legacy calls,Lead time ms,Cycle time ms,Partial\r\n");
+            var csv = new StringBuilder("Kind,Title,Status,Direct tokens,Total tokens,Model calls,Reported calls,Legacy calls,Lifetime lead time ms,Lifetime cycle time ms,Lifetime elapsed time ms,Direct active agent ms,Total active agent ms,Timing coverage,Attribution coverage,Timing state,Window from UTC,Window to UTC,Partial\r\n");
             foreach (var r in report.Projects.Concat(report.WorkItems))
-                csv.AppendLine($"{r.Kind},{Csv(r.Title)},{r.Status},{r.Direct.TotalTokens},{r.Total.TotalTokens},{r.Total.ModelCalls},{r.Total.FullyReportedCalls},{r.Total.LegacyCalls},{r.Lifecycle.LeadTimeMs},{r.Lifecycle.CycleTimeMs},{report.Truncated}");
+                csv.AppendLine($"{r.Kind},{Csv(r.Title)},{r.Status},{r.Direct.TotalTokens},{r.Total.TotalTokens},{r.Total.ModelCalls},{r.Total.FullyReportedCalls},{r.Total.LegacyCalls},{r.Lifecycle.LeadTimeMs},{r.Lifecycle.CycleTimeMs},{r.Lifecycle.ElapsedTimeMs},{r.Direct.ActiveAgentTimeMs},{r.Total.ActiveAgentTimeMs},{r.TimingCoverage},{r.AttributionCoverage},{r.Lifecycle.TimingState},{report.From:O},{report.To:O},{report.Truncated}");
             return Results.File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv", "work-efficiency.csv");
         });
         return routes;

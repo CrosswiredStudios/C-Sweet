@@ -6,15 +6,26 @@ public sealed record EfficiencyUsage(
     long LegacyCalls, long ProviderDurationMs)
 {
     public long TotalTokens => InputTokens + OutputTokens;
+    public long ActiveAgentTimeMs { get; init; }
     public long FullyReportedCalls { get; init; }
 }
 
 public sealed record EfficiencyLifecycle(DateTimeOffset? CreatedAt, DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt, long? LeadTimeMs, long? CycleTimeMs, long WaitingTimeMs,
-    int ReopenCount, bool CompleteHistory);
+    int ReopenCount, bool CompleteHistory)
+{
+    public long? ElapsedTimeMs { get; init; }
+    public DateTimeOffset? StoppedAt { get; init; }
+    public bool IsOpen { get; init; }
+    public string TimingState { get; init; } = "History incomplete";
+}
 
 public sealed record WorkEfficiencyRow(Guid Id, Guid? ParentId, Guid? WorkstreamId, string Kind,
-    string Title, string Status, EfficiencyUsage Direct, EfficiencyUsage Total, EfficiencyLifecycle Lifecycle);
+    string Title, string Status, EfficiencyUsage Direct, EfficiencyUsage Total, EfficiencyLifecycle Lifecycle)
+{
+    public string TimingCoverage { get; init; } = "History incomplete";
+    public string AttributionCoverage { get; init; } = "History incomplete";
+}
 
 public sealed record WorkEfficiencyResponse(Guid OrganizationId, DateTimeOffset GeneratedAt,
     DateTimeOffset? From, DateTimeOffset? To, EfficiencyUsage BusinessTotal,

@@ -21,11 +21,14 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 {
     private static readonly JsonSerializerOptions EventJsonOptions = new(JsonSerializerDefaults.Web);
 
-    public CSweetDbContext(DbContextOptions<CSweetDbContext> options, IDataProtectionProvider? auditProtection = null)
+    public CSweetDbContext(DbContextOptions<CSweetDbContext> options, IDataProtectionProvider? auditProtection = null, TimeProvider? executionClock = null)
         : base(options)
     {
         AuditProtection = auditProtection;
+        ExecutionClock = executionClock ?? TimeProvider.System;
     }
+
+    private TimeProvider ExecutionClock { get; }
 
     internal IDataProtectionProvider? AuditProtection { get; }
 
@@ -225,6 +228,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         CaptureWorkLifecycle();
+        CaptureWorkExecutionAsync().GetAwaiter().GetResult();
         CaptureBenchmarkWakes();
         EnforceAppendOnlyAuditLedger();
         AssignDirectParticipantKeys();
@@ -240,9 +244,10 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
-    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         CaptureWorkLifecycle();
+        await CaptureWorkExecutionAsync(cancellationToken);
         CaptureBenchmarkWakes();
         EnforceAppendOnlyAuditLedger();
         AssignDirectParticipantKeys();
@@ -255,7 +260,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
         CaptureAgentAuditEvents();
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
     private void AssignDirectParticipantKeys()

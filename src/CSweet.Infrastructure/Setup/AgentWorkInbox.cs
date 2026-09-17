@@ -299,6 +299,7 @@ public sealed class AgentWorkInbox(
             Attempt = item.AttemptCount,
             LeaseTokenHash = Hash(leaseToken),
             ClaimedAt = now,
+            LastConfirmedAt = now,
             LeaseExpiresAt = now.Add(LeaseDuration)
         };
         db.AgentWorkAttempts.Add(attempt);
@@ -335,6 +336,7 @@ public sealed class AgentWorkInbox(
         var attempt = await GetActiveAttemptAsync(
             session, workId, attemptNumber, leaseToken, cancellationToken);
         var now = timeProvider.GetUtcNow();
+        attempt.LastConfirmedAt = now;
         attempt.LeaseExpiresAt = now.Add(LeaseDuration);
         await RenewPersonalTaskClaimAsync(attempt.AgentWorkItem!, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
@@ -384,7 +386,8 @@ public sealed class AgentWorkInbox(
             throw new InvalidOperationException(
                 $"Work items may not emit more than {MaximumProgressRecordsPerWork} progress records.");
         attempt.LastProgressSequence = sequence;
-        attempt.LeaseExpiresAt = timeProvider.GetUtcNow().Add(LeaseDuration);
+        attempt.LastConfirmedAt = timeProvider.GetUtcNow();
+        attempt.LeaseExpiresAt = attempt.LastConfirmedAt.Value.Add(LeaseDuration);
         db.AgentWorkProgress.Add(new AgentWorkProgress
         {
             Id = Guid.NewGuid(),
@@ -423,6 +426,7 @@ public sealed class AgentWorkInbox(
         }
         ValidateLease(session, item, attempt, leaseToken);
         var now = timeProvider.GetUtcNow();
+        attempt.LastConfirmedAt = now;
         attempt.FinishedAt = now;
         attempt.CompletionHash = completionHash;
         item.ProtectedResult = _protector.Protect(bytes);
@@ -457,6 +461,7 @@ public sealed class AgentWorkInbox(
             session, workId, attemptNumber, leaseToken, cancellationToken);
         var item = attempt.AgentWorkItem!;
         var now = timeProvider.GetUtcNow();
+        attempt.LastConfirmedAt = now;
         attempt.FinishedAt = now;
         attempt.Error = Truncate(error, 2048);
         item.LastError = attempt.Error;
@@ -644,6 +649,7 @@ public sealed class AgentWorkInbox(
             item.LastError = Truncate(reason, 2048);
             foreach (var attempt in item.Attempts.Where(x => x.FinishedAt == null))
             {
+                attempt.LastConfirmedAt = now;
                 attempt.FinishedAt = now;
                 attempt.Error = "cancelled";
             }

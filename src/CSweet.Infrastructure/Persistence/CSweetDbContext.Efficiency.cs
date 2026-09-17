@@ -8,8 +8,25 @@ public sealed partial class CSweetDbContext
 {
     public DbSet<WorkLifecycleEvent> WorkLifecycleEvents => Set<WorkLifecycleEvent>();
 
+    public DbSet<WorkExecutionContext> WorkExecutionContexts => Set<WorkExecutionContext>();
+    public DbSet<WorkExecutionInterval> WorkExecutionIntervals => Set<WorkExecutionInterval>();
+
     private void ConfigureEfficiency(ModelBuilder model)
     {
+        model.Entity<WorkExecutionContext>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Revision).IsConcurrencyToken();
+            e.HasIndex(x => new { x.OrganizationId, x.RootWorkItemId });
+            e.HasIndex(x => x.AgentWorkItemId);
+        });
+        model.Entity<WorkExecutionInterval>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.AgentWorkAttemptId);
+            e.HasIndex(x => new { x.OrganizationId, x.StartedAt });
+            e.Property(x => x.ConfirmedThrough).IsConcurrencyToken();
+        });
         model.Entity<WorkLifecycleEvent>(e =>
         {
             e.HasKey(x => x.Id);
@@ -57,7 +74,7 @@ public sealed partial class CSweetDbContext
         }
     }
 
-    private void AddLifecycle(Guid organization, Guid resource, string kind, string? before, string status,
+    public void AddLifecycle(Guid organization, Guid resource, string kind, string? before, string status,
         long revision, DateTimeOffset occurredAt)
     {
         // Retry the pending receipt, but preserve repeated transitions even when callers reuse timestamps.

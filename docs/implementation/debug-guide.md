@@ -324,3 +324,21 @@ Regression coverage: `ReasoningContentChatClientTests` inspects real SDK HTTP pa
 streaming and non-streaming tool continuations, final-answer reasoning, empty reasoning,
 unchanged caller history, and concurrent conversations; `LlmProviderFailureMessageTests`
 checks the safe recovery message.
+
+## Completed development epic has an unclear review handoff
+
+`SoftwareDeveloperAgent.ReviewDeliveryMessage` (agent 1.9.2+) puts the visible review URL
+first and separates the handoff from the retained coding report. `CompletedAsync` requires
+message delivery before the final deployment task is marked complete; restart retries retain
+the same message key. `EmployeePersonalBoard` renders result summaries through `ChatMarkdown`
+so review links are clickable from the completed ticket as well as Communications.
+
+`NodeDeploymentValidationScript` executes the source snapshot's package.json test script in
+the cached Node runtime before building the application image. Tests fail closed when the
+script is missing or fails. A successful HTTP check alone proves serving, not product
+completeness: review the actual entry point and feature wiring if a completed epic still
+serves a scaffold. Historical completed deployments are not automatically rerun by this update.
+
+Verification: `ReviewDeliveryTests` covers delivery ordering, interrupted delivery/reporting,
+expired or unverified URLs, and retained technical evidence; deployment recovery tests cover
+Node-suite failures entering bounded repair without issuing a review link.

@@ -275,8 +275,6 @@ public sealed class PlatformLlmCapabilityHandler
         runLog.QueueJobId = InferenceExecutionAttribution.Current?.QueueJobId;
         runLog.InferenceSettingsJson = JsonSerializer.Serialize(new
         { input.Temperature, MaxOutputTokens = effectiveMaxOutputTokens, input.ReasoningEffort, input.ReasoningOutput });
-        await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(_dbContext, runLog,
-            InferenceExecutionAttribution.Current?.WorkId, requestToken);
         runLog.RequestEvidenceJson = JsonSerializer.Serialize(new { request = input, effectiveInstructions = options.Instructions,
             effectiveMaxOutputTokens, model = selectedModel }, JsonOptions);
         await TryPersistRunLogAsync(runLog, requestToken);
@@ -309,6 +307,8 @@ public sealed class PlatformLlmCapabilityHandler
                 input.ProviderProfileId,
                 selectedModel,
                 requestToken);
+            await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(_dbContext, runLog,
+                InferenceExecutionAttribution.Current?.WorkId, requestToken, InferenceExecutionAttribution.Current?.Attempt);
             updates = chatClient.GetStreamingResponseAsync(
                 messages,
                 options,

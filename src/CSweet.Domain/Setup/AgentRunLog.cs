@@ -7,6 +7,7 @@ public sealed class AgentRunLog
     public string? RequestEvidenceJson { get; set; }
     public Guid? TaskRunId { get; set; }
     public Guid? AgentWorkItemId { get; set; }
+    public Guid? AgentWorkAttemptId { get; set; }
     public Guid? WorkItemId { get; set; }
     public Guid? WorkstreamId { get; set; }
     public Guid? BenchmarkTrialId { get; set; }

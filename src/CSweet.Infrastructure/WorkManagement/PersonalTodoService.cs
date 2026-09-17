@@ -884,6 +884,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             {
                 item = await db.CoreWorkTasks.SingleAsync(x => x.Id == candidate.Id,
                     cancellationToken);
+                await db.Entry(item).ReloadAsync(cancellationToken);
+                db.AddLifecycle(organizationId, item.Id, "WorkItem", "Ready", "Running", item.Revision, now);
                 AgentTicketFeedback.RecordClaim(db, item, actor.AgentInstallationId!.Value, request.EventId, now);
                 await QueuePersonalRealtimeAsync(item, cancellationToken);
                 await db.SaveChangesAsync(cancellationToken);
