@@ -112,6 +112,10 @@ Local operation depends on local models, available agent artifacts, and local de
 
 The current source-development path is **Windows + .NET + Docker Desktop**, with a separately installed Office for agent execution.
 
+**Windows builds:** the [Windows build workflow](docs/deployment/windows-build.md)
+produces a ZIP of self-contained backend executables and browser assets. Deployment
+configuration is still required; this is the first step toward a Windows installer.
+
 ### What you need
 
 - **.NET 10 SDK**, following the version and roll-forward policy in [`global.json`](global.json).

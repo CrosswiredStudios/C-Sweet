@@ -1,0 +1,16 @@
+[
+  {
+    "repository": "https://github.com/CrosswiredStudios/CSweet.Isolation.git",
+    "commit": "e1843e298cb5a2ada4afeb4cb45074153e0dc94e",
+    "project": "src/CSweet.Isolation.Security/CSweet.Isolation.Security.csproj",
+    "package": "CSweet.Isolation.Security",
+    "version": "0.1.0"
+  },
+  {
+    "repository": "https://github.com/CrosswiredStudios/CSweet.Office.Contracts.git",
+    "commit": "d5cdbd9abfb53bd79ff99246082ebee264ef8888",
+    "project": "src/CSweet.Office.Contracts/CSweet.Office.Contracts.csproj",
+    "package": "CSweet.Office.Contracts",
+    "version": "0.7.0"
+  }
+]
