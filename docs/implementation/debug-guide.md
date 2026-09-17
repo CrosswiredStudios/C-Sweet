@@ -252,3 +252,20 @@ development blockers whose active installation was updated after the failure.
 Regression coverage: `AuditPayloadArrayTests` exercises nested arrays and serialized
 planning specifications while verifying redaction; `PersonalTodoServiceTests` covers
 manual epic requeue and automatic agent-update recovery in fresh tracking contexts.
+
+## Development blockers lack actionable detail
+
+`SoftwareDeveloperAgent.DevelopmentBlockerMessage` in the Software Developer repository
+(version 1.8.5+) includes the failed step, a bounded diagnostic, and a recovery action.
+Platform failures include the capability and failure code; exhausted task validation includes
+the failed command. An unknown compute outcome requires checking the existing operation before
+replay, and is not automatically described as a Docker build failure.
+
+`AgentTicketFeedback.ReportedReason` preserves the multiline owner-facing blocker when creating
+an `agent.failure` comment. `EmployeePersonalBoard` and agent comments in `WorkItemComments`
+render those reports through `ChatMarkdown`. Rebuild/restart C-Sweet and update the Software
+Developer installation to use both halves of this fix. Historical comments are not rewritten.
+
+Regression coverage: `DeploymentDiagnosticTests`, the exhausted-budget case in
+`ComputeDeploymentRecoveryTests.CompleteBacklogPrecedesCodingAndRestartAdvancesOnlyOneTaskWithFreshEvidence`,
+and `AgentTicketFeedbackTests.ReportedBlockerPreservesEvidenceAndRecoveryStepsInPersistedComment`.

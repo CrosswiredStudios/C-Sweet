@@ -20,6 +20,26 @@ namespace CSweet.IntegrationTests;
 public sealed class AnalyticsEndpointTests
 {
     [Fact]
+    public async Task EfficiencyAndBenchmarks_EnforceOrganizationAndHostBoundaries()
+    {
+        await using var factory = CreateFactory();
+        var org = Guid.NewGuid(); var owner = Guid.NewGuid(); var manager = Guid.NewGuid();
+        var contributor = Guid.NewGuid(); var agent = Guid.NewGuid();
+        await SeedAsync(factory, org, owner, manager, contributor, agent);
+        foreach (var (user, expected) in new[] { (owner, HttpStatusCode.OK), (manager, HttpStatusCode.OK),
+            (contributor, HttpStatusCode.Forbidden), (agent, HttpStatusCode.Forbidden), (Guid.NewGuid(), HttpStatusCode.Forbidden) })
+        {
+            using var client = factory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-Analytics-Test-UserId", user.ToString());
+            Assert.Equal(expected, (await client.GetAsync($"/api/organizations/{org}/analytics/efficiency")).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/benchmarks")).StatusCode);
+        }
+        using var anonymous = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/benchmarks")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync($"/api/organizations/{org}/analytics/efficiency/export")).StatusCode);
+    }
+
+    [Fact]
     public async Task Inference_EnforcesManagementMembershipAndValidatesWindow()
     {
         await using var factory = CreateFactory();
@@ -112,6 +132,8 @@ public sealed class AnalyticsEndpointTests
                 services.RemoveAll<DbContextOptions<CSweetDbContext>>();
                 services.RemoveAll<IDbContextOptionsConfiguration<CSweetDbContext>>();
                 services.AddDbContext<CSweetDbContext>(options => options.UseInMemoryDatabase(databaseName));
+                services.AddAuthorization(options => options.AddPolicy("HostAdministration", policy =>
+                    policy.RequireAuthenticatedUser().RequireRole(CSweet.Infrastructure.Auth.AuthenticationService.AdministratorRole)));
                 services.AddAuthentication(options =>
                 {
                     options.DefaultAuthenticateScheme = AnalyticsAuthenticationHandler.SchemeName;

@@ -178,6 +178,7 @@ public class AgentRunnerIntegrationTests
 
         public Task WriteAsync(AgentRunLog log, CancellationToken cancellationToken = default)
         {
+            _logs.RemoveAll(x => x.Id == log.Id);
             _logs.Add(log);
             return Task.CompletedTask;
         }

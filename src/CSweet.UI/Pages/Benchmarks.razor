@@ -1,0 +1,310 @@
+@page "/benchmarks"
+@using CSweet.Contracts.Analytics
+@using System.Text.Json
+@inject HttpClient Http
+
+<PageTitle>Benchmarks - C-Sweet</PageTitle>
+<div class="benchmark-page">
+    <div class="benchmark-heading">
+        <div><MudText Typo="Typo.overline">Enterprise · host administration</MudText><MudText Typo="Typo.h3">Benchmarks</MudText>
+            <MudText Color="Color.Secondary">Measure complete businesses from the same goal and initial hiring plan.</MudText></div>
+        <div><MudButton Href="/" Variant="Variant.Text">Enterprise</MudButton><MudButton OnClick="LoadAsync" Disabled="_busy" Variant="Variant.Outlined">Refresh</MudButton>
+        <MudButton OnClick="NewDefinition" Disabled="@(_busy || _forbidden)" Variant="Variant.Filled" Color="Color.Primary">New benchmark</MudButton></div>
+    </div>
+    @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    @if (_forbidden) { <MudAlert Severity="Severity.Info">Benchmark administration is available to host administrators.</MudAlert> }
+    else if (_creating)
+    {
+        <MudPaper Outlined="true" Class="pa-5">
+            <MudText Typo="Typo.h5">New benchmark · @_step of 3</MudText>
+            <MudText Typo="Typo.caption">@(_step == 1 ? "Business and initial workforce" : _step == 2 ? "Model variants and evaluations" : "Review and launch")</MudText>
+            @if (_step == 1)
+            {
+                <MudTextField Label="Name" @bind-Value="_name" MaxLength="256" Class="mt-3" />
+                <MudTextField Label="Shared goal" @bind-Value="_goal" Lines="4" MaxLength="16000" />
+                <MudText Typo="Typo.subtitle1" Class="mt-4">Initial hiring plan</MudText>
+                <MudText Typo="Typo.caption">The first agent leads delivery. All subsequent agents report to it. Adaptive hiring remains allowed.</MudText>
+                <div class="benchmark-toolbar">
+                    <MudSelect T="Guid" Label="Available agent" @bind-Value="_agentToAdd">
+                        @foreach (var agent in _options.Agents) { <MudSelectItem Value="agent.Id">@agent.Name · @agent.Version</MudSelectItem> }
+                    </MudSelect>
+                    <MudButton OnClick="AddHire" Disabled="@(_agentToAdd == Guid.Empty)">Add to hiring plan</MudButton>
+                </div>
+                @foreach (var hire in _hires)
+                {
+                    <div class="benchmark-toolbar" @key="hire">
+                        <MudTextField Label="Role key" @bind-Value="hire.Role" />
+                        <MudTextField Label="Employee name" @bind-Value="hire.Name" />
+                        <MudText Typo="Typo.caption">@hire.Agent.Name · @hire.Agent.Version</MudText>
+                        <MudButton OnClick="() => _hires.Remove(hire)">Remove</MudButton>
+                    </div>
+                }
+                <MudSelect T="string" Label="Human assistance" @bind-Value="_assistance" Class="mt-3">
+                    <MudSelectItem Value="@("Assisted")">Assisted</MudSelectItem><MudSelectItem Value="@("Unattended")">Unattended</MudSelectItem>
+                </MudSelect>
+                @if (_assistance == "Assisted") { <MudCheckBox @bind-Value="_approvalsOnly" Label="Approvals only" /> }
+                <MudTextField Label="Shared starting brief (optional)" @bind-Value="_seed" Lines="3" />
+                <MudText Typo="Typo.caption">Each trial gets a separate business, workforce, document copy and empty memory. No benchmark-imposed time or usage limits.</MudText>
+            }
+            else if (_step == 2)
+            {
+                <div class="benchmark-variants">
+                @foreach (var v in _variants)
+                {
+                    <MudPaper Outlined="true" Class="pa-4" @key="v">
+                        <MudTextField Label="Variant name" @bind-Value="v.Name" />
+                        <MudSelect T="Guid" Label="Provider" @bind-Value="v.Provider">
+                            @foreach (var p in _options.Providers) { <MudSelectItem Value="p.Id">@p.Name</MudSelectItem> }
+                        </MudSelect>
+                        <MudTextField Label="Default model identifier" @bind-Value="v.Model" />
+                        <MudCheckBox @bind-Value="v.OverrideRoles" Label="Override model by role" />
+                        @if (v.OverrideRoles)
+                        {
+                            @foreach (var h in _hires)
+                            {
+                                var key = h.Role;
+                                <MudTextField T="string" Label="@($"{key} model (blank inherits default)")" Value="v.Overrides.GetValueOrDefault(key, string.Empty)" ValueChanged="@((string value) => { v.Overrides[key] = value; })" />
+                            }
+                        }
+                    </MudPaper>
+                }
+                </div>
+                <MudText Typo="Typo.subtitle1" Class="mt-4">Acceptance evidence</MudText>
+                <MudTextField Label="Required deliverable title (blank accepts any output document)" @bind-Value="_artifactTitle" />
+                <MudTextField Label="Required literal content (optional)" @bind-Value="_requiredContent" />
+                <MudText Typo="Typo.caption">These deterministic checks inspect frozen output documents. They are not executable software tests.</MudText>
+                <MudCheckBox @bind-Value="_sourceValidation" Label="Require recorded source-control validations to pass" />
+                <MudCheckBox @bind-Value="_useJudge" Label="Add an independent LLM judge" />
+                @if (_useJudge)
+                {
+                    <MudSelect T="Guid" Label="Judge provider" @bind-Value="_judgeProvider">
+                        @foreach (var p in _options.Providers) { <MudSelectItem Value="p.Id">@p.Name</MudSelectItem> }
+                    </MudSelect>
+                    <MudTextField Label="Judge model identifier" @bind-Value="_judgeModel" />
+                }
+                <MudText Typo="Typo.body2">Human review rubric: usability, completeness, and product polish; each scored 0–5 with equal weight. Judge results remain separate.</MudText>
+                <div class="benchmark-toolbar">
+                    <MudNumericField T="int" Label="Trials per variant" @bind-Value="_repetitions" Min="1" Max="100" />
+                    <MudSelect T="string" Label="Scheduling" @bind-Value="_scheduling"><MudSelectItem Value="@("Sequential")">Sequential</MudSelectItem><MudSelectItem Value="@("Parallel")">Parallel</MudSelectItem></MudSelect>
+                </div>
+            }
+            else
+            {
+                <MudText Typo="Typo.h6" Class="mt-4">@_name</MudText><MudText>@_goal</MudText>
+                <MudText Class="mt-3">@_hires.Count initial agents · @_variants.Count variants · @_repetitions trials per variant · @_scheduling</MudText>
+                <MudText>@_assistance @(_approvalsOnly && _assistance == "Assisted" ? "· approvals only" : "") · no benchmark limits</MudText>
+                <MudAlert Severity="Severity.Info" Class="mt-4">Launching creates real businesses and runs agents using the selected providers. Delivery timing stops when the business declares its project complete. Quality is assessed afterward.</MudAlert>
+                @if (_definitionId.HasValue) { <MudText Typo="Typo.caption">Definition saved. Retry launch safely using the same launch key.</MudText> }
+            }
+            <div class="benchmark-toolbar mt-5">
+                <MudButton OnClick="() => _creating = false" Disabled="_busy">Cancel</MudButton>
+                @if (_step > 1) { <MudButton OnClick="() => _step--" Disabled="@(_busy || _definitionId.HasValue)">Back</MudButton> }
+                @if (_step < 3) { <MudButton OnClick="NextStep" Variant="Variant.Filled" Color="Color.Primary">Continue</MudButton> }
+                else { <MudButton OnClick="LaunchAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">Launch benchmark</MudButton> }
+            </div>
+        </MudPaper>
+    }
+    else if (_catalog is not null)
+    {
+        @if (_catalog.Campaigns.Count == 0)
+        { <MudPaper Outlined="true" Class="pa-6"><MudText Typo="Typo.h6">No benchmark campaigns yet</MudText><MudText>Define one goal and hiring plan, then select the models to compare.</MudText></MudPaper> }
+        else
+        {
+            <MudSelect T="Guid" Label="Campaign" Value="_campaignId" ValueChanged="SelectCampaign">
+                @foreach (var c in _catalog.Campaigns) { <MudSelectItem Value="c.Id">@c.Name · @c.CreatedAt.ToLocalTime().ToString("g")</MudSelectItem> }
+            </MudSelect>
+            @if (Campaign is { } campaign)
+            {
+                <MudTabs Rounded="true" Class="mt-3">
+                    <MudTabPanel Text="Comparison">
+                        <MudText Typo="Typo.h6">@campaign.Name</MudText>
+                        <MudText Typo="Typo.caption">@campaign.Status · @campaign.Scheduling · @campaign.Repetitions trials per variant</MudText>
+                        <div class="benchmark-table"><table><thead><tr><th>Variant / trial</th><th>Delivery / evaluation</th><th>Reported tokens</th><th>Model calls</th><th>Delivery time</th><th>Checks</th><th>Quality</th><th></th></tr></thead><tbody>
+                        @foreach (var t in campaign.Trials)
+                        {
+                            <tr><td><button class="benchmark-link" @onclick="() => _trialId = t.Id">@t.VariantName · @t.Repetition</button></td>
+                                <td>@t.Status<br /><small>@t.EvaluationStatus</small></td><td>@t.DeliveryUsage.TotalTokens.ToString("N0")</td><td>@t.DeliveryUsage.ModelCalls.ToString("N0")</td>
+                                <td>@Duration(t.DeliveryTimeMs)</td><td>@Checks(t)</td><td>Human @Score(t, "Human")<br />Judge @Score(t, "Judge")</td>
+                                <td>@if (t.Status is "Pending" or "Running" or "Blocked") { <MudButton Size="Size.Small" OnClick="() => CancelAsync(t.Id)" Disabled="_busy">Cancel run</MudButton> }</td>
+                            </tr>
+                        }
+                        </tbody></table></div>
+                        @foreach (var g in campaign.Trials.GroupBy(x => x.VariantName))
+                        {
+                            var completed = g.Where(x => x.DeliveryTimeMs.HasValue).Select(x => x.DeliveryTimeMs!.Value).Order().ToArray();
+                            <MudText Typo="Typo.body2" Class="mt-3">@g.Key: @completed.Length / @g.Count() declared complete. Median delivery @Median(completed); range @(completed.Length == 0 ? "not available" : $"{Duration(completed.First())}–{Duration(completed.Last())}").</MudText>
+                        }
+                        @if (Trial is { } trial)
+                        {
+                            <MudPaper Outlined="true" Class="pa-4 mt-4"><MudText Typo="Typo.h6">@trial.VariantName · trial @trial.Repetition</MudText><MudText>@trial.Detail</MudText>
+                                <MudText Typo="Typo.caption">Usage coverage: @trial.DeliveryUsage.FullyReportedCalls / @trial.DeliveryUsage.ModelCalls calls. Setup usage: @trial.SetupUsage.TotalTokens.ToString("N0") tokens. Judge usage: @trial.EvaluationUsage.TotalTokens.ToString("N0") tokens. After-declaration usage: @trial.TrailingUsage.TotalTokens.ToString("N0") tokens.</MudText>
+                                <MudText Class="mt-2">Current workforce: @trial.FinalWorkforce · Human messages: @trial.HumanInterventions � Agent requests: @trial.AgentHandoffs � Tool attempts: @trial.ToolOperations</MudText>
+                                <MudText Typo="Typo.caption">@trial.InteractionCoverage</MudText>
+                                @foreach (var d in trial.Deviations) { <MudAlert Severity="Severity.Info" Class="mt-2">@d</MudAlert> }
+                                @if (trial.OrganizationId.HasValue && trial.WorkstreamId.HasValue)
+                                { <MudButton Href="@($"organizations/{trial.OrganizationId}/projects/{trial.WorkstreamId}")" Class="mt-2">Inspect project</MudButton> }
+                            </MudPaper>
+                        }
+                        <MudAlert Severity="Severity.Info" Class="mt-4">Adaptive staffing and human assistance affect results. Compare outcomes alongside consumption; a completed declaration is not a quality pass.</MudAlert>
+                    </MudTabPanel>
+                    <MudTabPanel Text="Quality review">
+                        <MudSelect T="Guid" Label="Submission" @bind-Value="_trialId">
+                            @foreach (var t in campaign.Trials.Where(x => x.DeclaredCompletedAt.HasValue)) { <MudSelectItem Value="t.Id">Submission @t.Id.ToString("N")[..8]</MudSelectItem> }
+                        </MudSelect>
+                        @if (Trial is { DeclaredCompletedAt: not null } selected)
+                        {
+                            <MudText Typo="Typo.caption">Frozen at @selected.DeclaredCompletedAt.Value.ToLocalTime().ToString("g"). Model identity is omitted in this review view.</MudText>
+                            <MudExpansionPanels Class="my-3"><MudExpansionPanel Text="Inspect frozen submission"><pre class="benchmark-evidence">@Pretty(selected.SubmissionJson)</pre></MudExpansionPanel></MudExpansionPanels>
+                            @foreach (var a in selected.Assessments)
+                            { <MudPaper Outlined="true" Class="pa-3 my-2"><MudText>@a.Kind · @a.CriterionKey: @(a.Score.HasValue ? $"{a.Score:N1} / 5" : a.Passed == true ? "Passed" : "Failed")</MudText><MudText Typo="Typo.body2">@a.Rationale</MudText><MudText Typo="Typo.caption">@string.Join(", ", a.EvidenceReferences)</MudText></MudPaper> }
+                            <MudText Typo="Typo.h6" Class="mt-4">Add human assessment</MudText>
+                            <MudSelect T="string" Label="Criterion" @bind-Value="_reviewCriterion">
+                                @foreach (var criterion in Definition?.Blueprint.Criteria.Where(x => x.Kind == "Rubric") ?? []) { <MudSelectItem Value="criterion.Key">@criterion.Title</MudSelectItem> }
+                            </MudSelect>
+                            <MudNumericField T="decimal" Label="Score (0–5)" @bind-Value="_reviewScore" Min="0" Max="5" Step="0.5M" />
+                            <MudTextField Label="Evidence-grounded rationale" @bind-Value="_rationale" Lines="3" />
+                            <MudTextField Label="Evidence references (one per line)" @bind-Value="_evidence" Lines="2" />
+                            <MudButton OnClick="SaveReviewAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary" Class="mt-3">Save assessment</MudButton>
+                        }
+                        else { <MudText Class="pa-4">Quality review becomes available after a business declares completion.</MudText> }
+                    </MudTabPanel>
+                    <MudTabPanel Text="Starting definition">
+                        @if (Definition is { } definition)
+                        {
+                            <MudText Typo="Typo.h6">@definition.Blueprint.Name · version @definition.Version</MudText><MudText>@definition.Blueprint.Goal</MudText>
+                            <MudText Typo="Typo.caption">Digest: @definition.Digest</MudText>
+                            <MudExpansionPanels Class="mt-3"><MudExpansionPanel Text="Hiring, models, criteria, and shared inputs"><pre class="benchmark-evidence">@JsonSerializer.Serialize(definition.Blueprint, new JsonSerializerOptions { WriteIndented = true })</pre></MudExpansionPanel></MudExpansionPanels>
+                        }
+                    </MudTabPanel>
+                </MudTabs>
+                <div class="benchmark-toolbar mt-4"><MudLink Href="@($"api/benchmarks/campaigns/{campaign.Id}/export?format=csv")" Target="_blank">Export metrics CSV</MudLink><MudLink Href="@($"api/benchmarks/campaigns/{campaign.Id}/export")" Target="_blank">Export manifest and results JSON</MudLink></div>
+            }
+        }
+    }
+</div>
+
+@code {
+    private BenchmarkCatalogResponse? _catalog;
+    private Options _options = new();
+    private bool _busy, _forbidden, _creating, _approvalsOnly, _useJudge, _sourceValidation;
+    private string? _error;
+    private Guid _campaignId, _trialId, _agentToAdd, _judgeProvider;
+    private Guid? _definitionId;
+    private string _name = "", _goal = "", _seed = "", _assistance = "Assisted", _scheduling = "Sequential", _artifactTitle = "", _requiredContent = "", _judgeModel = "";
+    private string _launchKey = Guid.NewGuid().ToString("N"), _reviewKey = Guid.NewGuid().ToString("N");
+    private int _step = 1, _repetitions = 1;
+    private readonly List<HireInput> _hires = [];
+    private readonly List<VariantInput> _variants = [new() { Name = "Variant A" }, new() { Name = "Variant B" }];
+    private string _reviewCriterion = "", _rationale = "", _evidence = "";
+    private decimal _reviewScore = 3;
+    private BenchmarkCampaignResponse? Campaign => _catalog?.Campaigns.FirstOrDefault(x => x.Id == _campaignId);
+    private BenchmarkTrialResponse? Trial => Campaign?.Trials.FirstOrDefault(x => x.Id == _trialId);
+    private BenchmarkDefinitionResponse? Definition => _catalog?.Definitions.FirstOrDefault(x => x.Id == Campaign?.DefinitionId);
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.GetAsync("api/benchmarks");
+            _forbidden = response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized;
+            if (_forbidden) return;
+            response.EnsureSuccessStatusCode(); _catalog = await response.Content.ReadFromJsonAsync<BenchmarkCatalogResponse>();
+            _options = await Http.GetFromJsonAsync<Options>("api/benchmarks/options") ?? new();
+            if (Campaign is null) _campaignId = _catalog?.Campaigns.FirstOrDefault()?.Id ?? Guid.Empty;
+            if (Trial is null) _trialId = Campaign?.Trials.FirstOrDefault()?.Id ?? Guid.Empty;
+        }
+        catch { _error = "Benchmarks could not be loaded. Try refreshing."; }
+        finally { _busy = false; }
+    }
+    private void NewDefinition() { _creating = true; _step = 1; _definitionId = null; _launchKey = Guid.NewGuid().ToString("N"); }
+    private void AddHire()
+    {
+        var agent = _options.Agents.FirstOrDefault(x => x.Id == _agentToAdd);
+        if (agent is null) return;
+        _hires.Add(new() { Agent = agent, Role = agent.AgentId + (_hires.Any(x => x.Agent.Id == agent.Id) ? $"-{_hires.Count + 1}" : ""), Name = agent.Name });
+    }
+    private void NextStep()
+    {
+        _error = null;
+        if (_step == 1 && (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_goal) || _hires.Count == 0)) { _error = "Enter the business goal and choose at least one initial agent."; return; }
+        if (_step == 2 && _variants.Any(x => x.Provider == Guid.Empty || string.IsNullOrWhiteSpace(x.Model))) { _error = "Select a provider and model for each variant."; return; }
+        _step++;
+    }
+    private BenchmarkBlueprint BuildBlueprint()
+    {
+        var criteria = new List<BenchmarkCriterion> { new("deliverable", "Required output document exists", "ArtifactExists", _artifactTitle),
+            new("usability", "Usability", "Rubric"), new("completeness", "Completeness", "Rubric"), new("polish", "Product polish", "Rubric") };
+        if (!string.IsNullOrWhiteSpace(_requiredContent)) criteria.Insert(1, new("required-content", "Required content is present", "ArtifactContains", _requiredContent));
+        if (_sourceValidation) criteria.Add(new("source-validation", "Recorded source-control validations pass", "SourceValidation"));
+        return new(_name, _goal,
+            _hires.Select((h, i) => new BenchmarkHire(h.Role, h.Name, h.Agent.Id, h.Agent.PackageVersionId, i == 0 ? null : _hires[0].Role)).ToList(),
+            _variants.Select(v => new BenchmarkVariant(v.Name, new(v.Provider, v.Model), v.OverrideRoles
+                ? v.Overrides.Where(x => !string.IsNullOrWhiteSpace(x.Value)).ToDictionary(x => x.Key, x => new BenchmarkModel(v.Provider, x.Value)) : new Dictionary<string, BenchmarkModel>())).ToList(),
+            criteria, string.IsNullOrWhiteSpace(_seed) ? [] : [new BenchmarkSeed("Starting brief", _seed)], _assistance,
+            _assistance == "Assisted" && _approvalsOnly, _useJudge ? new(_judgeProvider, _judgeModel) : null);
+    }
+    private async Task LaunchAsync()
+    {
+        _busy = true; _error = null;
+        try
+        {
+            if (!_definitionId.HasValue)
+            {
+                using var created = await Http.PostAsJsonAsync("api/benchmarks/definitions", new CreateBenchmarkDefinitionRequest(BuildBlueprint()));
+                await EnsureAsync(created); _definitionId = (await created.Content.ReadFromJsonAsync<BenchmarkDefinitionResponse>())!.Id;
+            }
+            using var launch = await Http.PostAsJsonAsync("api/benchmarks/campaigns", new LaunchBenchmarkRequest(_definitionId.Value, _launchKey, _repetitions, _scheduling));
+            await EnsureAsync(launch); _campaignId = (await launch.Content.ReadFromJsonAsync<BenchmarkCampaignResponse>())!.Id;
+            _creating = false; await LoadAsync();
+        }
+        catch (Exception e) { _error = e.Message; }
+        finally { _busy = false; }
+    }
+    private Task SelectCampaign(Guid id) { _campaignId = id; _trialId = Campaign?.Trials.FirstOrDefault()?.Id ?? Guid.Empty; return Task.CompletedTask; }
+    private async Task CancelAsync(Guid id)
+    {
+        _busy = true;
+        try { using var r = await Http.PostAsync($"api/benchmarks/trials/{id}/cancel", null); await EnsureAsync(r); await LoadAsync(); }
+        catch (Exception e) { _error = e.Message; } finally { _busy = false; }
+    }
+    private async Task SaveReviewAsync()
+    {
+        _busy = true;
+        try
+        {
+            using var r = await Http.PostAsJsonAsync($"api/benchmarks/trials/{_trialId}/assessments", new BenchmarkAssessmentRequest("Human", _reviewCriterion, _reviewScore,
+                null, _rationale, _evidence.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), _reviewKey));
+            await EnsureAsync(r); _reviewKey = Guid.NewGuid().ToString("N"); _rationale = ""; await LoadAsync();
+        }
+        catch (Exception e) { _error = e.Message; } finally { _busy = false; }
+    }
+    private static async Task EnsureAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var text = await response.Content.ReadAsStringAsync();
+        try { using var json = JsonDocument.Parse(text); if (json.RootElement.TryGetProperty("error", out var error)) throw new InvalidOperationException(error.GetString()); }
+        catch (JsonException) { }
+        throw new InvalidOperationException($"Request failed ({(int)response.StatusCode}). Refresh and try again.");
+    }
+    private static string Checks(BenchmarkTrialResponse t) { var checks = t.Assessments.Where(x => x.Kind == "Check").ToList(); return checks.Count == 0 ? "Not evaluated" : $"{checks.Count(x => x.Passed == true)} / {checks.Count}"; }
+    private string Score(BenchmarkTrialResponse t, string kind)
+    {
+        var rubric = Definition?.Blueprint.Criteria.Where(x => x.Kind == "Rubric").ToList() ?? [];
+        var scores = t.Assessments.Where(x => x.Kind == kind && x.Score.HasValue).GroupBy(x => x.CriterionKey)
+            .ToDictionary(x => x.Key, x => x.OrderByDescending(r => r.CreatedAt).ThenBy(r => r.Id).First().Score!.Value);
+        if (rubric.Count == 0 || scores.Count == 0) return "Unscored";
+        if (rubric.Any(x => !scores.ContainsKey(x.Key))) return $"Partial ({scores.Count}/{rubric.Count})";
+        return $"{rubric.Sum(x => scores[x.Key] * x.Weight) / rubric.Sum(x => x.Weight):N1} / 5";
+    }
+
+    private static string Duration(long? ms) => !ms.HasValue ? "—" : $"{(int)TimeSpan.FromMilliseconds(ms.Value).TotalHours}h {TimeSpan.FromMilliseconds(ms.Value).Minutes}m";
+    private static string Median(long[] values) => values.Length == 0 ? "—" : Duration(values.Length % 2 == 1 ? values[values.Length / 2] : (values[values.Length / 2 - 1] + values[values.Length / 2]) / 2);
+    private static string Pretty(string json) { try { return JsonSerializer.Serialize(JsonSerializer.Deserialize<JsonElement>(json), new JsonSerializerOptions { WriteIndented = true }); } catch { return json; } }
+    private sealed class Options { public List<AgentOption> Agents { get; set; } = []; public List<ProviderOption> Providers { get; set; } = []; }
+    private sealed class AgentOption { public Guid Id { get; set; } public string AgentId { get; set; } = ""; public Guid PackageVersionId { get; set; } public string Name { get; set; } = ""; public string Version { get; set; } = ""; }
+    private sealed class ProviderOption { public Guid Id { get; set; } public string Name { get; set; } = ""; public string? Model { get; set; } }
+    private sealed class HireInput { public AgentOption Agent { get; set; } = new(); public string Role { get; set; } = ""; public string Name { get; set; } = ""; }
+    private sealed class VariantInput { public string Name { get; set; } = ""; public Guid Provider { get; set; } public string Model { get; set; } = ""; public bool OverrideRoles { get; set; } public Dictionary<string, string> Overrides { get; } = []; }
+}

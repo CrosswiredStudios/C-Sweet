@@ -22,6 +22,289 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("CSweet.Domain.Analytics.BenchmarkAssessment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CriterionKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("EvaluatorVersion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EvidenceReferencesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<bool?>("Passed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Rationale")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ReviewerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("Score")
+                        .HasPrecision(6, 3)
+                        .HasColumnType("numeric(6,3)");
+
+                    b.Property<Guid>("TrialId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrialId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("BenchmarkAssessments");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Analytics.BenchmarkCampaign", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<int>("Repetitions")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Scheduling")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DefinitionId");
+
+                    b.HasIndex("CreatedBy", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("BenchmarkCampaigns");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Analytics.BenchmarkDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BlueprintJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Digest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("FamilyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ManifestJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FamilyId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("BenchmarkDefinitions");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Analytics.BenchmarkTrial", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeclaredCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("EvaluationStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("ExecutionOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("NextRecoveryAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Repetition")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("SubmissionJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("VariantIndex")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("WorkstreamId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "NextRecoveryAt");
+
+                    b.HasIndex("CampaignId", "VariantIndex", "Repetition")
+                        .IsUnique();
+
+                    b.ToTable("BenchmarkTrials");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Analytics.BenchmarkWake", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("TrialId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessedAt", "CreatedAt");
+
+                    b.ToTable("BenchmarkWakes");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Analytics.WorkLifecycleEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PreviousStatus")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResourceKind")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<long>("SourceRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "ResourceId", "OccurredAt");
+
+                    b.ToTable("WorkLifecycleEvents");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Communications.AgentCoordinationSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7527,11 +7810,38 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
+                    b.Property<string>("AgentPackageVersion")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid?>("AgentWorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AncestorWorkItemIdsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("[]");
+
+                    b.Property<string>("AttributionKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("Unknown");
+
+                    b.Property<Guid?>("BenchmarkTrialId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("ChatTurnId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ConfigurationDigest")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
 
                     b.Property<Guid?>("ConversationId")
                         .HasColumnType("uuid");
@@ -7546,6 +7856,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
+                    b.Property<string>("InferenceSettingsJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("InvocationKind")
                         .IsRequired()
                         .HasMaxLength(80)
@@ -7553,6 +7866,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<int?>("InvocationSequence")
                         .HasColumnType("integer");
+
+                    b.Property<string>("MeasurementKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasDefaultValue("Legacy");
 
                     b.Property<string>("Model")
                         .HasMaxLength(512)
@@ -7587,6 +7907,18 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ProviderProfileId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ProviderStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("QueueJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("ReportedInputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ReportedOutputTokens")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTimeOffset>("StartedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -7613,13 +7945,25 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<string>("UsageAdditionalCountsJson")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("WorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("WorkstreamId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("BenchmarkTrialId", "StartedAt");
 
                     b.HasIndex("ChatTurnId", "InvocationSequence");
 
                     b.HasIndex("OrganizationId", "StartedAt");
 
                     b.HasIndex("OrganizationId", "EmployeeId", "StartedAt");
+
+                    b.HasIndex("OrganizationId", "WorkItemId", "StartedAt");
+
+                    b.HasIndex("OrganizationId", "WorkstreamId", "StartedAt");
 
                     b.ToTable("AgentRunLogs");
                 });
@@ -12961,6 +13305,33 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Analytics.BenchmarkAssessment", b =>
+                {
+                    b.HasOne("CSweet.Domain.Analytics.BenchmarkTrial", null)
+                        .WithMany()
+                        .HasForeignKey("TrialId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Analytics.BenchmarkCampaign", b =>
+                {
+                    b.HasOne("CSweet.Domain.Analytics.BenchmarkDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Analytics.BenchmarkTrial", b =>
+                {
+                    b.HasOne("CSweet.Domain.Analytics.BenchmarkCampaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Domain.Communications.AgentCoordinationSession", b =>

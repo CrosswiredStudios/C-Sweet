@@ -38,6 +38,8 @@ Read these files in order:
 
 Cross-cutting features are documented as a phased series in their own folder:
 
+- [Work efficiency and business benchmarks](./features/work-efficiency-and-benchmarks.md) -
+  inference accounting, historical work rollups, isolated business trials, and quality evidence.
 - [Native Communications Hub](./native-communications-hub.md) - the authoritative in-app
   workspace for human and agent conversations, durable agent turns, unread state, realtime
   updates, and optional external-provider mirrors.

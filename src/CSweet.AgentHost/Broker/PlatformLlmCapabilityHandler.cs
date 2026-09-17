@@ -199,6 +199,14 @@ public sealed class PlatformLlmCapabilityHandler
             yield return Failure(request.RequestId, "The agent organization identity is unavailable.");
             yield break;
         }
+        var benchmarkModel = await CSweet.Infrastructure.Analytics.BenchmarkModelPolicy.ResolveAsync(
+            _dbContext, installationId, session.BusinessId, requestToken);
+        if (benchmarkModel is not null && (benchmarkModel.ProviderProfileId != input.ProviderProfileId ||
+                !string.Equals(benchmarkModel.Model, selectedModel, StringComparison.Ordinal)))
+        {
+            yield return Failure(request.RequestId, "This benchmark requires the variant's assigned provider and model.");
+            yield break;
+        }
         var hasMediaReferences = input.Messages.Any(message => message.Contents?.Any(content =>
             content.Kind is "media_reference" or "media_asset_reference") == true);
         var employeeId = Guid.Empty;
@@ -263,6 +271,12 @@ public sealed class PlatformLlmCapabilityHandler
                 : null
         };
         runLog.PromptInstructionCharacters = options.Instructions?.Length ?? 0;
+        runLog.MeasurementKind = "ProviderAttempt";
+        runLog.QueueJobId = InferenceExecutionAttribution.Current?.QueueJobId;
+        runLog.InferenceSettingsJson = JsonSerializer.Serialize(new
+        { input.Temperature, MaxOutputTokens = effectiveMaxOutputTokens, input.ReasoningEffort, input.ReasoningOutput });
+        await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(_dbContext, runLog,
+            InferenceExecutionAttribution.Current?.WorkId, requestToken);
         runLog.RequestEvidenceJson = JsonSerializer.Serialize(new { request = input, effectiveInstructions = options.Instructions,
             effectiveMaxOutputTokens, model = selectedModel }, JsonOptions);
         await TryPersistRunLogAsync(runLog, requestToken);
@@ -299,6 +313,8 @@ public sealed class PlatformLlmCapabilityHandler
                 messages,
                 options,
                 requestToken).GetAsyncEnumerator(requestToken);
+            runLog.ProviderStartedAt = DateTimeOffset.UtcNow;
+            await TryPersistRunLogAsync(runLog, CancellationToken.None);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -529,6 +545,8 @@ public sealed class PlatformLlmCapabilityHandler
         runLog.Status = status;
         runLog.TokenInputCount = ToNullableInt(inputTokenCount);
         runLog.TokenOutputCount = ToNullableInt(outputTokenCount);
+        runLog.ReportedInputTokens = inputTokenCount;
+        runLog.ReportedOutputTokens = outputTokenCount;
         runLog.OutputPreview = responseText.Length == 0
             ? null
             : Truncate(responseText.ToString(), 500);
@@ -542,7 +560,12 @@ public sealed class PlatformLlmCapabilityHandler
     {
         try
         {
-            if (_dbContext.Entry(runLog).State == EntityState.Detached) _dbContext.AgentRunLogs.Add(runLog);
+            if (_dbContext.Entry(runLog).State == EntityState.Detached)
+            {
+                var existing = await _dbContext.AgentRunLogs.FindAsync([runLog.Id], cancellationToken);
+                if (existing is null) _dbContext.AgentRunLogs.Add(runLog);
+                else _dbContext.Entry(existing).CurrentValues.SetValues(runLog);
+            }
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -555,6 +578,8 @@ public sealed class PlatformLlmCapabilityHandler
                 runLog.AgentInstallationId,
                 runLog.ProviderProfileId,
                 runLog.Model);
+            // Benchmarks require a durable receipt before dispatch. Preserve ordinary inference availability.
+            if (runLog.BenchmarkTrialId.HasValue) throw;
         }
     }
 

@@ -231,6 +231,8 @@ public sealed partial class AgentInstallationConfigurationService(
                 Deserialize(installation.Configuration?.SettingsJson));
         var schemaVersion = installation.AgentDefinition?.Configuration?.SchemaVersion
                             ?? installation.Configuration?.SchemaVersion ?? "1";
+        await CSweet.Infrastructure.Analytics.BenchmarkModelPolicy.ApplyAsync(db, installationId,
+            installation.BusinessId, settings, cancellationToken);
         return new EffectiveAgentConfiguration(installation.Id, schemaVersion, settings,
             installation.DesiredConfigurationRevision, AgentConfigurationRules.Digest(settings));
     }

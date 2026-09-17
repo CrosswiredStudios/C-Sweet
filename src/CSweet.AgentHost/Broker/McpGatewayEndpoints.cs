@@ -330,6 +330,7 @@ public static class McpGatewayEndpoints
             OrganizationId: RuntimeAuditIdentity.OrganizationId(session), EntityType: "Capability",
             Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
             CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
+            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability }),
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {
@@ -492,6 +493,7 @@ public static class McpGatewayEndpoints
             OrganizationId: RuntimeAuditIdentity.OrganizationId(session), EntityType: "Capability",
             Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
             CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
+            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability }),
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {

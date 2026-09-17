@@ -6,4 +6,9 @@ public sealed record AgentWorkflowRunRequest(
     string SystemPrompt,
     string UserPrompt,
     IReadOnlyDictionary<string, string> Context,
-    AgentRunOptions Options);
+    AgentRunOptions Options)
+{
+    public Guid? OrganizationId { get; init; }
+    public Guid? TaskRunId { get; init; }
+    public Guid? EmployeeId { get; init; }
+}

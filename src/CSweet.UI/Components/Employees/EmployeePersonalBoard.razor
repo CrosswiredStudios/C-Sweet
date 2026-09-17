@@ -89,7 +89,7 @@
                         }
                         else { <div class="full-description"><StructuredMentionText Text="@(string.IsNullOrWhiteSpace(item.Description) ? "No description provided." : Present.Description(item.Description))" Mentions="@(Present.Description(item.Description) == item.Description ? item.MentionSpans : [])" Field="@Wire.WorkItemMentionFields.Description" /></div> }
                         @if (_editStatus == Wire.PersonalTodoStatuses.Blocked && CanExecute && item.ArchivedAt is null) { <MudTextField T="string" @bind-Value="_blockReason" Label="Block reason" Variant="Variant.Outlined" Lines="3" Required="true" Immediate="true" Disabled="_busy" Class="mt-4" /> }
-                        else if (!string.IsNullOrWhiteSpace(item.BlockReason)) { <section class="task-blocker"><h3><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />Needs attention</h3><p>@item.BlockReason</p></section> }
+                        else if (!string.IsNullOrWhiteSpace(item.BlockReason)) { <section class="task-blocker"><h3><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />Needs attention</h3><ChatMarkdown Content="@item.BlockReason" /></section> }
                         @if (!string.IsNullOrWhiteSpace(item.ResultSummary)) { <section class="task-result"><h3>Result</h3><p class="full-description">@item.ResultSummary</p></section> }
                         @if (item.AcceptanceCriteria.Count > 0)
                         {

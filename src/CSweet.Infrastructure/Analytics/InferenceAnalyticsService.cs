@@ -24,6 +24,7 @@ public sealed class InferenceAnalyticsService(
 
         var logs = await dbContext.AgentRunLogs
             .AsNoTracking()
+            .ProviderCalls()
             .Where(x => x.OrganizationId == organizationId && x.StartedAt >= windowStart)
             .ToListAsync(cancellationToken);
 
@@ -98,8 +99,8 @@ public sealed class InferenceAnalyticsService(
             .ThenBy(x => x.Model, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var inputTokens = logs.Sum(x => (long)(x.TokenInputCount ?? 0));
-        var outputTokens = logs.Sum(x => (long)(x.TokenOutputCount ?? 0));
+        var inputTokens = logs.Sum(InferenceMeasurements.Input);
+        var outputTokens = logs.Sum(InferenceMeasurements.Output);
         return new InferenceAnalyticsResponse(
             WindowKey(window),
             windowStart,
@@ -127,8 +128,8 @@ public sealed class InferenceAnalyticsService(
         var current = employee is null
             ? CurrentAgentConfiguration.Empty
             : CurrentConfiguration(employee, installations, effectiveConfigurations);
-        var inputTokens = group.Sum(x => (long)(x.TokenInputCount ?? 0));
-        var outputTokens = group.Sum(x => (long)(x.TokenOutputCount ?? 0));
+        var inputTokens = group.Sum(InferenceMeasurements.Input);
+        var outputTokens = group.Sum(InferenceMeasurements.Output);
 
         return new EmployeeModelInferenceUsageResponse(
             first.EmployeeId,

@@ -12,6 +12,32 @@ public sealed class AgentTicketFeedbackTests
 {
     private const string Error = "agent-failure:v1;code=runtime.transport;exceptionType=IOException;diagnosticId=one";
 
+    [Fact]
+    public async Task ReportedBlockerPreservesEvidenceAndRecoveryStepsInPersistedComment()
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, _) = Seed(db, false);
+        const string report = "Development is blocked: Task validation failed.\n\n### What failed\n\nnode --test exited 1: expected three lives, got two.\n\n### Next step\n\nCorrect the initial lives and move the ticket to To Do.";
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "reported-one", "reported:" + report, false, DateTimeOffset.UtcNow, default);
+        await db.SaveChangesAsync();
+        var comment = Assert.Single(db.WorkItemComments);
+        Assert.Contains(report, comment.Body);
+        Assert.Contains("### Next step", comment.Body);
+        // Duplicate delivery must not post a second comment.
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId.Value,
+            "reported-one", "reported:" + report, false, DateTimeOffset.UtcNow, default);
+        await db.SaveChangesAsync();
+        Assert.Single(db.WorkItemComments);
+    }
+
+    [Fact]
+    public void OversizedReportedBlockerIsBoundedAndPointsToTicket()
+    {
+        var message = AgentTicketFeedback.FailureSentence("reported:" + new string('x', 7000));
+        Assert.True(message.Length < 6200);
+        Assert.Contains("See the ticket blocker", message);
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

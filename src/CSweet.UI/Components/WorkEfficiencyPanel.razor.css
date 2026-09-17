@@ -1,0 +1,12 @@
+.efficiency-panel { display: grid; gap: 1rem; }
+.efficiency-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+.efficiency-period { max-width: 12rem; }
+.efficiency-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; }
+.efficiency-stat { display: grid; gap: .5rem; padding: 1rem; background: var(--mud-palette-surface); border: 1px solid var(--mud-palette-lines-default); border-radius: 8px; }
+.efficiency-stat strong { font-size: 1.7rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.efficiency-stat small { color: var(--mud-palette-text-secondary); }
+.efficiency-table { overflow-x: auto; }
+.efficiency-table table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.efficiency-table td, .efficiency-table th { padding: .75rem; border-bottom: 1px solid var(--mud-palette-lines-default); text-align: left; }
+.efficiency-table th { color: var(--mud-palette-text-secondary); font-weight: 500; }
+.efficiency-work-link { color: var(--mud-palette-primary); border: 0; background: transparent; cursor: pointer; text-align: left; font: inherit; text-decoration: underline; }

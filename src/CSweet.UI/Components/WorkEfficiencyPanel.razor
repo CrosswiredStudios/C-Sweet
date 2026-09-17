@@ -1,0 +1,141 @@
+@using CSweet.Contracts.Analytics
+@inject HttpClient Http
+
+<section class="efficiency-panel" aria-label="Work efficiency">
+    <div class="efficiency-toolbar">
+        <div><MudText Typo="Typo.h6">Work efficiency</MudText><MudText Typo="Typo.caption">Provider attempts, lifetime delivery, and rework</MudText></div>
+        <MudSelect T="string" Label="Usage period" Value="_window" ValueChanged="ChangeWindow" Dense="true" Class="efficiency-period">
+            <MudSelectItem Value="@("lifetime")">Lifetime</MudSelectItem>
+            <MudSelectItem Value="@("7d")">Last 7 days</MudSelectItem>
+            <MudSelectItem Value="@("30d")">Last 30 days</MudSelectItem>
+            <MudSelectItem Value="@("custom")">Custom dates</MudSelectItem>
+        </MudSelect>
+        <MudButton OnClick="LoadAsync" Disabled="_loading" Variant="Variant.Outlined">Refresh</MudButton>
+    </div>
+    @if (_window == "custom")
+    {
+        <div class="efficiency-toolbar">
+            <MudDatePicker Label="From (UTC, inclusive)" @bind-Date="_from" />
+            <MudDatePicker Label="To (UTC, exclusive)" @bind-Date="_to" />
+            <MudButton OnClick="LoadAsync">Apply dates</MudButton>
+        </div>
+    }
+    @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    @if (_report is not null)
+    {
+        var total = SelectedScope?.Total ?? _report.BusinessTotal;
+        <div class="efficiency-stats">
+            @Metric("Reported tokens", total.TotalTokens.ToString("N0"), $"{total.InputTokens:N0} input · {total.OutputTokens:N0} output")
+            @Metric("Model calls", total.ModelCalls.ToString("N0"), $"{total.FailedCalls:N0} failed · {total.CancelledCalls:N0} cancelled")
+            @Metric("Usage coverage", $"{total.FullyReportedCalls:N0} / {total.ModelCalls:N0}", "Calls reporting both input and output")
+            @Metric("Time to completion", Duration(SelectedScope?.Lifecycle.CycleTimeMs), "First start → declared completion")
+        </div>
+        @if (_report.Truncated) { <MudAlert Severity="Severity.Warning">Partial report. Narrow the date range before using totals for comparison.</MudAlert> }
+        <MudText Typo="Typo.caption">@_report.CoverageNote</MudText>
+        <div class="efficiency-table">
+            <table>
+                <thead><tr><th>Work</th><th>Status</th><th>Direct tokens</th><th>Total tokens</th><th>Calls</th><th>Completion time</th></tr></thead>
+                <tbody>
+                @foreach (var row in Rows)
+                {
+                    <tr>
+                        <td><button class="efficiency-work-link" @onclick="() => SelectAsync(row)">@row.Kind · @row.Title</button></td>
+                        <td>@row.Status</td><td>@row.Direct.TotalTokens.ToString("N0")</td><td>@row.Total.TotalTokens.ToString("N0")</td>
+                        <td>@row.Total.ModelCalls.ToString("N0")</td><td>@Duration(row.Lifecycle.CycleTimeMs)</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        @if (!_report.WorkItems.Any() && !_report.Projects.Any()) { <MudText Class="pa-4">No work has been recorded for this business.</MudText> }
+        @if (_selected is not null)
+        {
+            <MudPaper Outlined="true" Class="pa-4 mt-4">
+                <div class="efficiency-toolbar"><MudText Typo="Typo.h6">@_selected.Title</MudText><MudButton OnClick="ClearSelection">Close</MudButton></div>
+                <MudText>Direct: @_selected.Direct.TotalTokens.ToString("N0") tokens. Including descendants: @_selected.Total.TotalTokens.ToString("N0") tokens.</MudText>
+                <MudText Typo="Typo.body2">Lead time: @Duration(_selected.Lifecycle.LeadTimeMs) · Waiting: @Duration(_selected.Lifecycle.WaitingTimeMs) · Reopens: @_selected.Lifecycle.ReopenCount</MudText>
+                @if (!_selected.Lifecycle.CompleteHistory) { <MudAlert Severity="Severity.Info" Class="my-2">Lifecycle recording began after this item was created, or evidence is incomplete.</MudAlert> }
+                @if (_activity is not null)
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mt-3">Model call history · lifetime · @(_selected.Kind == "Project" ? "project and its work" : "direct calls")</MudText>
+                    <div class="efficiency-table"><table><thead><tr><th>When</th><th>Model / purpose</th><th>Input</th><th>Output</th><th>Outcome</th></tr></thead><tbody>
+                    @foreach (var call in _activity.Calls)
+                    { <tr><td>@call.StartedAt.ToLocalTime().ToString("g")</td><td>@call.Model<br /><small>@call.Purpose · @call.AttributionKind</small></td><td>@(call.InputTokens?.ToString("N0") ?? "Unknown")</td><td>@(call.OutputTokens?.ToString("N0") ?? "Unknown")</td><td>@call.Status</td></tr> }
+                    </tbody></table></div>
+                    <MudButton Disabled="@(_activity.Offset == 0)" OnClick="PreviousAsync">Previous</MudButton>
+                    <MudButton Disabled="@(!_activity.HasMore)" OnClick="NextAsync">Next</MudButton>
+                }
+            </MudPaper>
+        }
+        <MudText Typo="Typo.caption" Class="mt-4">Business overhead: @_report.BusinessOverhead.TotalTokens.ToString("N0") tokens · Unattributed: @_report.Unattributed.TotalTokens.ToString("N0") · Historical calls with partial instrumentation: @_report.BusinessTotal.LegacyCalls.ToString("N0")</MudText>
+        <div class="efficiency-toolbar mt-3">
+            <MudLink Href="@($"api/organizations/{OrganizationId}/analytics/efficiency/export{Query()}")" Target="_blank">Export CSV</MudLink>
+            <MudLink Href="benchmarks">Compare businesses</MudLink>
+            <MudText Typo="Typo.caption">Generated @_report.GeneratedAt.ToLocalTime().ToString("g")</MudText>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid? WorkstreamId { get; set; }
+    [Parameter] public Guid? WorkItemId { get; set; }
+    private WorkEfficiencyResponse? _report;
+    private WorkEfficiencyRow? _selected;
+    private EfficiencyActivityResponse? _activity;
+    private bool _loading;
+    private string? _error;
+    private string _window = "lifetime";
+    private DateTime? _from, _to;
+    private WorkEfficiencyRow? SelectedScope => WorkItemId.HasValue ? _report?.WorkItems.FirstOrDefault(x => x.Id == WorkItemId)
+        : WorkstreamId.HasValue ? _report?.Projects.FirstOrDefault(x => x.Id == WorkstreamId) : null;
+    private IEnumerable<WorkEfficiencyRow> Rows => _report is null ? [] : WorkItemId.HasValue
+        ? _report.WorkItems.Where(x => x.Id == WorkItemId || x.ParentId == WorkItemId)
+        : WorkstreamId.HasValue ? _report.WorkItems.Where(x => x.WorkstreamId == WorkstreamId)
+        : _report.Projects.Concat(_report.WorkItems.OrderBy(x => x.ParentId).ThenBy(x => x.Title));
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private async Task ChangeWindow(string value) { _window = value; if (value != "custom") await LoadAsync(); }
+    private string Query()
+    {
+        DateTimeOffset? from = _window == "custom" ? _from.HasValue ? new DateTimeOffset(DateTime.SpecifyKind(_from.Value, DateTimeKind.Utc)) : null
+            : _window == "7d" ? DateTimeOffset.UtcNow.AddDays(-7) : _window == "30d" ? DateTimeOffset.UtcNow.AddDays(-30) : null;
+        DateTimeOffset? to = _window == "custom" && _to.HasValue ? new DateTimeOffset(DateTime.SpecifyKind(_to.Value, DateTimeKind.Utc)) : null;
+        var parts = new List<string>();
+        if (from.HasValue) parts.Add("from=" + Uri.EscapeDataString(from.Value.ToString("O")));
+        if (to.HasValue) parts.Add("to=" + Uri.EscapeDataString(to.Value.ToString("O")));
+        return parts.Count == 0 ? "" : "?" + string.Join("&", parts);
+    }
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; _selected = null; _activity = null; _report = null;
+        try
+        {
+            using var response = await Http.GetAsync($"api/organizations/{OrganizationId}/analytics/efficiency{Query()}");
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden) { _error = "Efficiency reporting is available to business Owners and Managers."; return; }
+            response.EnsureSuccessStatusCode(); _report = await response.Content.ReadFromJsonAsync<WorkEfficiencyResponse>();
+        }
+        catch (Exception) { _error = "The efficiency report could not be loaded. Check the date range and try again."; }
+        finally { _loading = false; }
+    }
+    private async Task SelectAsync(WorkEfficiencyRow row) { _selected = row; await LoadActivityAsync(0); }
+    private void ClearSelection() { _selected = null; _activity = null; }
+    private Task PreviousAsync() => LoadActivityAsync(Math.Max(0, (_activity?.Offset ?? 0) - 25));
+    private Task NextAsync() => LoadActivityAsync((_activity?.Offset ?? 0) + 25);
+    private async Task LoadActivityAsync(int offset)
+    {
+        if (_selected is null) return;
+        try { _activity = await Http.GetFromJsonAsync<EfficiencyActivityResponse>($"api/organizations/{OrganizationId}/analytics/efficiency/activity?{(_selected.Kind == "Project" ? "workstreamId" : "workItemId")}={_selected.Id}&offset={offset}&limit=25"); }
+        catch { _error = "Call history could not be loaded."; }
+    }
+    private static string Duration(long? milliseconds) => milliseconds.HasValue ? TimeSpan.FromMilliseconds(milliseconds.Value).TotalHours >= 24
+        ? $"{TimeSpan.FromMilliseconds(milliseconds.Value).TotalDays:N1} days"
+        : $"{(int)TimeSpan.FromMilliseconds(milliseconds.Value).TotalHours}h {TimeSpan.FromMilliseconds(milliseconds.Value).Minutes}m" : "Not recorded";
+    private RenderFragment Metric(string label, string value, string note) => builder =>
+    {
+        builder.OpenElement(0, "div"); builder.AddAttribute(1, "class", "efficiency-stat");
+        builder.OpenElement(2, "small"); builder.AddContent(3, label); builder.CloseElement();
+        builder.OpenElement(4, "strong"); builder.AddContent(5, value); builder.CloseElement();
+        builder.OpenElement(6, "small"); builder.AddContent(7, note); builder.CloseElement(); builder.CloseElement();
+    };
+}

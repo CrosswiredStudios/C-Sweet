@@ -182,6 +182,14 @@ public sealed class AgentWorkInbox(
             .SingleOrDefaultAsync(x => x.Id == session.AgentInstallationId && x.BusinessId == session.OrganizationId &&
                 x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, cancellationToken);
         if (installation is null) return null;
+        if (Guid.TryParse(session.OrganizationId, out var benchmarkOrganization))
+        {
+            var trial = await db.BenchmarkTrials.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == benchmarkOrganization, cancellationToken);
+            if (trial is not null && (trial.Status is not ("Running" or "Blocked") ||
+                await db.WorkLifecycleEvents.AnyAsync(x => x.OrganizationId == benchmarkOrganization &&
+                    x.ResourceId == trial.WorkstreamId && x.ResourceKind == "Project" && x.Status == "Completed" &&
+                    x.OccurredAt >= trial.StartedAt, cancellationToken))) return null;
+        }
         var isolationLevel = db.Database.IsNpgsql()
             ? IsolationLevel.ReadCommitted
             : IsolationLevel.Serializable;

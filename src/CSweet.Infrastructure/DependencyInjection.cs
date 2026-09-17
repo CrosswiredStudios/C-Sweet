@@ -293,6 +293,9 @@ public static class DependencyInjection
         builder.Services.AddScoped<ILocalLlmProviderDiscoveryService, LocalLlmProviderDiscoveryService>();
         builder.Services.AddScoped<ILlmTokenUsageService, LlmTokenUsageService>();
         builder.Services.AddScoped<IInferenceAnalyticsService, InferenceAnalyticsService>();
+        builder.Services.AddScoped<IWorkEfficiencyService, WorkEfficiencyService>();
+        builder.Services.AddScoped<IBenchmarkService, BenchmarkService>();
+        if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<BenchmarkWorker>();
         builder.Services.AddHttpClient("GenAi", client =>
         {
             client.Timeout = TimeSpan.FromMinutes(5);

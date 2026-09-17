@@ -522,6 +522,9 @@ public sealed class CommunicationHubService(
             .SingleOrDefaultAsync(x => x.Id == chatId && x.OrganizationId == organizationId && x.ArchivedAt == null &&
                 x.Participants.Any(p => p.OrganizationUserId == actorOrganizationUserId && p.LeftAt == null), cancellationToken);
         if (actor is null || chat is null) return null;
+        if (actor.EmployeeType == EmployeeType.Human &&
+            !await CSweet.Infrastructure.Analytics.BenchmarkHumanPolicy.AllowsAsync(db, organizationId, false, cancellationToken))
+            throw new InvalidOperationException("This benchmark does not allow human messages during delivery.");
         var attachmentAssetIds = (request.AttachmentMediaAssetIds ?? []).Distinct().ToList();
         if (string.IsNullOrWhiteSpace(request.Content) && attachmentAssetIds.Count == 0) return null;
         var attachmentAssets = await LoadAttachmentAssetsAsync(

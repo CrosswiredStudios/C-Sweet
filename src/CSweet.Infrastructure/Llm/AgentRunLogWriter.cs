@@ -1,4 +1,5 @@
 using CSweet.Application.Llm;
+using CSweet.Infrastructure.Analytics;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 
@@ -15,7 +16,13 @@ public sealed class AgentRunLogWriter : IAgentRunLogWriter
 
     public async Task WriteAsync(AgentRunLog log, CancellationToken cancellationToken = default)
     {
-        _context.AgentRunLogs.Add(log);
+        if (_context.Entry(log).State == Microsoft.EntityFrameworkCore.EntityState.Detached)
+        {
+            await InferenceAttribution.CaptureAsync(_context, log, log.AgentWorkItemId, cancellationToken);
+            var existing = await _context.AgentRunLogs.FindAsync([log.Id], cancellationToken);
+            if (existing is null) _context.AgentRunLogs.Add(log);
+            else _context.Entry(existing).CurrentValues.SetValues(log);
+        }
         await _context.SaveChangesAsync(cancellationToken);
     }
 }

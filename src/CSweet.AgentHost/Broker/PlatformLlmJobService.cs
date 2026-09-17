@@ -203,6 +203,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                     Payload = JsonPayload.FromUtf8(payload.ToJsonString())
                 };
             }
+            using var attribution = new InferenceExecutionAttribution(job.WorkId, job.Id).Enter();
             await foreach (var result in handler.ExecuteAsync(job.Session, request, token))
             {
                 lock (job.Sync)
@@ -297,7 +298,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                 row = new() { Id = job.Id, OrganizationId = Guid.Parse(job.Session.BusinessId),
                     AgentInstallationId = Guid.Parse(job.Session.InstallationId), AgentKey = job.Session.AgentId,
                     ProviderProfileId = job.Provider, StartedAt = job.CreatedAt, PromptHash = job.Hash,
-                    InvocationKind = "llm-queue" };
+                    InvocationKind = "llm-queue", MeasurementKind = "Queue", AgentWorkItemId = job.WorkId };
                 db.AgentRunLogs.Add(row);
             }
             row.Status = state;

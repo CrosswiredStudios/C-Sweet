@@ -475,75 +475,46 @@ public sealed class AgentMemoryService(
                 AgentKey = x.Conversation.AgentOrganizationUser.AgentInstallation!.PackageVersion!.AgentId
             })
             .SingleOrDefaultAsync(cancellationToken);
-        var startedAt = DateTimeOffset.UtcNow;
-        var stopwatch = Stopwatch.StartNew();
-        using var chatClient = await providerFactory.CreateChatClientAsync(
-            providerId, model, cancellationToken);
-        var capturingClient = new UsageCapturingChatClient(chatClient);
+        using var chatClient = await providerFactory.CreateChatClientAsync(providerId, model, cancellationToken);
+        var capturingClient = new UsageCapturingChatClient(chatClient, PersistCallAsync);
         var enricher = new MicrosoftExtensionsAIMemoryEnricher(capturingClient);
-        try
-        {
-            var enrichment = await enricher.EnrichAsync(episode, cancellationToken);
-            await PersistMemoryInferenceAsync("Completed", null);
-            return (enrichment, enricher.Version);
-        }
-        catch (OperationCanceledException)
-        {
-            await PersistMemoryInferenceAsync("Cancelled", "Memory enrichment was cancelled.");
-            throw;
-        }
-        catch (Exception exception)
-        {
-            await PersistMemoryInferenceAsync("Failed", exception.Message);
-            throw;
-        }
+        var enrichment = await enricher.EnrichAsync(episode, cancellationToken);
+        return (enrichment, enricher.Version);
 
-        async Task PersistMemoryInferenceAsync(string status, string? failure)
+        async Task PersistCallAsync(UsageCapturingChatClient.UsageCall call)
         {
-            stopwatch.Stop();
-            var additional = capturingClient.Usage.AdditionalCounts;
-            var runLog = new AgentRunLog
+            var runLog = await db.AgentRunLogs.FindAsync([call.Id], CancellationToken.None);
+            if (runLog is null)
             {
-                Id = Guid.NewGuid(),
-                OrganizationId = correlation?.OrganizationId,
-                EmployeeId = correlation?.EmployeeId,
-                AgentInstallationId = correlation?.InstallationId,
-                ConversationId = correlation?.ConversationId,
-                ChatTurnId = correlation?.ChatTurnId,
-                AgentKey = correlation?.AgentKey ?? "csweet.memory.enrichment",
-                ProviderProfileId = providerId,
-                Model = model,
-                StartedAt = startedAt,
-                CompletedAt = DateTimeOffset.UtcNow,
-                Status = status,
-                InvocationKind = "memory-enrichment",
-                InvocationSequence = 1,
-                PromptHash = Convert.ToBase64String(SHA256.HashData(
-                    Encoding.UTF8.GetBytes($"memory-enrichment:{episode.Id:D}"))),
-                FailureMessage = failure is { Length: > 2_048 } ? failure[..2_048] : failure,
-                TokenInputCount = ToTokenCount(capturingClient.Usage.InputTokenCount),
-                TokenOutputCount = ToTokenCount(capturingClient.Usage.OutputTokenCount),
-                TokenCachedInputCount = ToTokenCount(FindAdditionalCount(additional, "cached", "input")),
-                TokenReasoningCount = ToTokenCount(FindAdditionalCount(additional, "reasoning")),
-                PromptMessageCharacters = capturingClient.MessageCharacters,
-                PromptInstructionCharacters = capturingClient.InstructionCharacters,
-                PromptToolCharacters = capturingClient.ToolCharacters,
-                PromptMemoryCharacters = 0,
-                UsageAdditionalCountsJson = additional is { Count: > 0 }
-                    ? JsonSerializer.Serialize(additional)
-                    : null,
-                DurationMs = stopwatch.ElapsedMilliseconds
-            };
-            try
-            {
+                runLog = new AgentRunLog
+                {
+                    Id = call.Id, MeasurementKind = "ProviderAttempt", ProviderStartedAt = call.StartedAt,
+                    OrganizationId = correlation?.OrganizationId, EmployeeId = correlation?.EmployeeId,
+                    AgentInstallationId = correlation?.InstallationId, ConversationId = correlation?.ConversationId,
+                    ChatTurnId = correlation?.ChatTurnId, AgentKey = correlation?.AgentKey ?? "csweet.memory.enrichment",
+                    ProviderProfileId = providerId, Model = model, StartedAt = call.StartedAt,
+                    InvocationKind = "memory-enrichment",
+                    PromptHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes($"memory-enrichment:{episode.Id:D}")))
+                };
+                await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(db, runLog, null, CancellationToken.None);
                 db.AgentRunLogs.Add(runLog);
-                await db.SaveChangesAsync(CancellationToken.None);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                db.Entry(runLog).State = EntityState.Detached;
-                logger.LogWarning(exception, "Could not persist memory enrichment inference usage for episode {EpisodeId}.", episode.Id);
-            }
+            var additional = call.Usage?.AdditionalCounts;
+            runLog.CompletedAt = call.CompletedAt;
+            runLog.Status = call.Status;
+            runLog.ReportedInputTokens = call.Usage?.InputTokenCount;
+            runLog.ReportedOutputTokens = call.Usage?.OutputTokenCount;
+            runLog.TokenInputCount = ToTokenCount(call.Usage?.InputTokenCount);
+            runLog.TokenOutputCount = ToTokenCount(call.Usage?.OutputTokenCount);
+            runLog.TokenCachedInputCount = ToTokenCount(FindAdditionalCount(additional, "cached", "input"));
+            runLog.TokenReasoningCount = ToTokenCount(FindAdditionalCount(additional, "reasoning"));
+            runLog.PromptMessageCharacters = call.MessageCharacters;
+            runLog.PromptInstructionCharacters = call.InstructionCharacters;
+            runLog.PromptToolCharacters = call.ToolCharacters;
+            runLog.UsageAdditionalCountsJson = additional is { Count: > 0 } ? JsonSerializer.Serialize(additional) : null;
+            runLog.DurationMs = call.CompletedAt.HasValue ? (long)(call.CompletedAt.Value - call.StartedAt).TotalMilliseconds : 0;
+            // Persist before dispatch as well as after completion. A crash leaves visible missing usage.
+            await db.SaveChangesAsync(CancellationToken.None);
         }
     }
 

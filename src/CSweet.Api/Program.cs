@@ -177,6 +177,7 @@ app.UseAuthorization();
 app.UseMiddleware<AuditExecutionContextMiddleware>();
 app.UseMiddleware<ApiAntiforgeryMiddleware>();
 app.UseMiddleware<FirstRunSetupGuardMiddleware>();
+app.UseMiddleware<BenchmarkHumanPolicyMiddleware>();
 
 app.MapGet("/api/health", () => new { status = "ok", service = "CSweet.Api" }).AllowAnonymous();
 
@@ -229,6 +230,8 @@ app.MapSourceControlEndpoints();
 app.MapInternalGitHttpEndpoints();
 app.MapAgentWorkspaceBrokerEndpoints();
 app.MapAnalyticsEndpoints();
+app.MapWorkEfficiencyEndpoints();
+app.MapBenchmarkEndpoints();
 
 app.MapControllers();
 app.MapHub<AppEventsHub>("/hubs/app-events");

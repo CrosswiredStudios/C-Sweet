@@ -6,6 +6,20 @@ public sealed class AgentRunLog
     [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     public string? RequestEvidenceJson { get; set; }
     public Guid? TaskRunId { get; set; }
+    public Guid? AgentWorkItemId { get; set; }
+    public Guid? WorkItemId { get; set; }
+    public Guid? WorkstreamId { get; set; }
+    public Guid? BenchmarkTrialId { get; set; }
+    public Guid? QueueJobId { get; set; }
+    public DateTimeOffset? ProviderStartedAt { get; set; }
+    public string MeasurementKind { get; set; } = "Legacy";
+    public string AttributionKind { get; set; } = "Unknown";
+    public string AncestorWorkItemIdsJson { get; set; } = "[]";
+    public string? AgentPackageVersion { get; set; }
+    public string? ConfigurationDigest { get; set; }
+    public string? InferenceSettingsJson { get; set; }
+    public long? ReportedInputTokens { get; set; }
+    public long? ReportedOutputTokens { get; set; }
     public Guid? OrganizationId { get; set; }
     public Guid? EmployeeId { get; set; }
     public Guid? AgentInstallationId { get; set; }

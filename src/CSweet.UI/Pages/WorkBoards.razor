@@ -891,6 +891,9 @@
             {
                 <WorkItemComments @ref="_dialogComments" OrganizationId="OrganizationId"
                                   BoardId="@(_selectedItem.BoardId)" ItemId="@(_selectedItem.Id)" />
+                <MudExpansionPanels Class="mt-4">
+                    <MudExpansionPanel Text="Efficiency"><WorkEfficiencyPanel OrganizationId="OrganizationId" WorkItemId="_selectedItem.Id" /></MudExpansionPanel>
+                </MudExpansionPanels>
             }
 
             <MudDivider Class="my-4" />

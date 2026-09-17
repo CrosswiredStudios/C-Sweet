@@ -44,6 +44,10 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         CancellationToken cancellationToken)
     {
         var assetIds = (attachmentMediaAssetIds ?? []).Distinct().ToList();
+        if (sourceProvider != "Benchmark" && (senderOrganizationUserId is null ||
+                await db.CoreOrganizationUsers.AnyAsync(x => x.Id == senderOrganizationUserId && x.EmployeeType == EmployeeType.Human, cancellationToken)) &&
+            !await CSweet.Infrastructure.Analytics.BenchmarkHumanPolicy.AllowsAsync(db, organizationId, false, cancellationToken))
+            throw new InvalidOperationException("This benchmark does not allow human intervention during delivery.");
         if (string.IsNullOrWhiteSpace(message) && assetIds.Count == 0) return null;
         var assets = await LoadAttachmentAssetsAsync(organizationId, assetIds, cancellationToken);
         var conversation = await db.CoreConversations.SingleOrDefaultAsync(

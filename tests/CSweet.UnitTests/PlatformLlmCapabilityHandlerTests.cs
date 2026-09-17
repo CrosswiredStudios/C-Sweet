@@ -455,6 +455,28 @@ public sealed class PlatformLlmCapabilityHandlerTests
         Assert.Empty(await db.AgentRunLogs.AsNoTracking().ToListAsync());
     }
 
+    [Fact]
+    public async Task StreamAsync_BenchmarkCannotBypassAssignedModelUsingProviderDefault()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var provider = await AddProviderAsync(db); var org = Guid.NewGuid();
+        var definition = new CSweet.Domain.Analytics.BenchmarkDefinition { Id = Guid.NewGuid(),
+            BlueprintJson = JsonSerializer.Serialize(new CSweet.Contracts.Analytics.BenchmarkBlueprint("Pinned", "Goal", [],
+                [new("Variant", new(provider, "assigned-model"), new Dictionary<string, CSweet.Contracts.Analytics.BenchmarkModel>())], [], []), JsonOptions) };
+        var campaign = new CSweet.Domain.Analytics.BenchmarkCampaign { Id = Guid.NewGuid(), DefinitionId = definition.Id };
+        db.BenchmarkDefinitions.Add(definition); db.BenchmarkCampaigns.Add(campaign);
+        db.BenchmarkTrials.Add(new() { Id = Guid.NewGuid(), CampaignId = campaign.Id, OrganizationId = org, Status = "Running" });
+        await db.SaveChangesAsync();
+        var handler = new PlatformLlmCapabilityHandler(db, new StreamingProviderFactory(), new AgentEmployeeIdentityResolver(db),
+            new AgentInstallationConfigurationService(db, new TestAuditEventWriter()), [], new TestMediaAssetService(),
+            NullLogger<PlatformLlmCapabilityHandler>.Instance);
+        var result = Assert.Single(await ReadAsync(handler, provider, org));
+        Assert.False(result.Succeeded);
+        Assert.Contains("variant", result.Error);
+        Assert.Empty(await db.AgentRunLogs.ToListAsync());
+    }
+
     private static async Task<Guid> AddProviderAsync(CSweetDbContext db)
     {
         var providerId = Guid.NewGuid();
@@ -475,7 +497,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
 
     private static async Task<IReadOnlyList<CapabilityResult>> ReadAsync(
         PlatformLlmCapabilityHandler handler,
-        Guid providerId)
+        Guid providerId, Guid? organizationId = null)
     {
         var request = new RequestCapability
         {
@@ -492,7 +514,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             Guid.NewGuid().ToString("N"),
             "test-agent",
             Guid.NewGuid().ToString("D"),
-            Guid.NewGuid().ToString("D"),
+            (organizationId ?? Guid.NewGuid()).ToString("D"),
             Guid.NewGuid().ToString("D"),
             Guid.NewGuid().ToString("D"),
             new AuthorizedAgentGrant(

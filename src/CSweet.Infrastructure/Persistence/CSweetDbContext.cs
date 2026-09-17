@@ -224,6 +224,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        CaptureWorkLifecycle();
+        CaptureBenchmarkWakes();
         EnforceAppendOnlyAuditLedger();
         AssignDirectParticipantKeys();
         AssignInMemoryMessageSequences();
@@ -240,6 +242,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
+        CaptureWorkLifecycle();
+        CaptureBenchmarkWakes();
         EnforceAppendOnlyAuditLedger();
         AssignDirectParticipantKeys();
         AssignInMemoryMessageSequences();
@@ -652,6 +656,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        ConfigureEfficiency(modelBuilder);
+        ConfigureBenchmarks(modelBuilder);
         ComputeConfigurations.Apply(modelBuilder);
         BusinessCalendarConfiguration.Apply(modelBuilder);
         modelBuilder.ApplyConfiguration(new ConnectorExecutionConfiguration());

@@ -3,8 +3,20 @@ using Microsoft.Extensions.AI;
 
 namespace CSweet.Infrastructure.Core;
 
-internal sealed class UsageCapturingChatClient(IChatClient inner) : IChatClient
+internal sealed class UsageCapturingChatClient(IChatClient inner, Func<UsageCapturingChatClient.UsageCall, Task>? persist = null) : IChatClient
 {
+    public List<UsageCall> Calls { get; } = [];
+    public sealed class UsageCall
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
+        public DateTimeOffset? CompletedAt { get; set; }
+        public string Status { get; set; } = "Running";
+        public UsageDetails? Usage { get; set; }
+        public int MessageCharacters { get; init; }
+        public int InstructionCharacters { get; init; }
+        public int ToolCharacters { get; init; }
+    }
     public UsageDetails Usage { get; } = new();
     public int MessageCharacters { get; private set; }
     public int InstructionCharacters { get; private set; }
@@ -16,10 +28,18 @@ internal sealed class UsageCapturingChatClient(IChatClient inner) : IChatClient
         CancellationToken cancellationToken = default)
     {
         var messageList = messages.ToList();
-        CapturePrompt(messageList, options);
-        var response = await inner.GetResponseAsync(messageList, options, cancellationToken);
-        if (response.Usage is not null) Usage.Add(response.Usage);
-        return response;
+        var call = CapturePrompt(messageList, options); Calls.Add(call);
+        if (persist is not null) await persist(call);
+        try
+        {
+            var response = await inner.GetResponseAsync(messageList, options, cancellationToken);
+            call.Usage = response.Usage; call.Status = "Completed";
+            if (response.Usage is not null) Usage.Add(response.Usage);
+            return response;
+        }
+        catch (OperationCanceledException) { call.Status = "Cancelled"; throw; }
+        catch { call.Status = "Failed"; throw; }
+        finally { call.CompletedAt = DateTimeOffset.UtcNow; if (persist is not null) await persist(call); }
     }
 
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
@@ -28,11 +48,25 @@ internal sealed class UsageCapturingChatClient(IChatClient inner) : IChatClient
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var messageList = messages.ToList();
-        CapturePrompt(messageList, options);
-        await foreach (var update in inner.GetStreamingResponseAsync(messageList, options, cancellationToken))
+        var call = CapturePrompt(messageList, options); Calls.Add(call);
+        if (persist is not null) await persist(call);
+        try
         {
-            foreach (var usage in update.Contents.OfType<UsageContent>()) Usage.Add(usage.Details);
-            yield return update;
+            await foreach (var update in inner.GetStreamingResponseAsync(messageList, options, cancellationToken))
+            {
+                // Streaming usage updates are cumulative for one response, not new invocations.
+                foreach (var usage in update.Contents.OfType<UsageContent>()) call.Usage = usage.Details;
+                yield return update;
+            }
+            call.Status = "Completed";
+        }
+        finally
+        {
+            if (cancellationToken.IsCancellationRequested) call.Status = "Cancelled";
+            else if (call.Status == "Running") call.Status = "Failed";
+            call.CompletedAt = DateTimeOffset.UtcNow;
+            if (call.Usage is not null) Usage.Add(call.Usage);
+            if (persist is not null) await persist(call);
         }
     }
 
@@ -45,13 +79,15 @@ internal sealed class UsageCapturingChatClient(IChatClient inner) : IChatClient
     {
     }
 
-    private void CapturePrompt(IReadOnlyList<ChatMessage> messages, ChatOptions? options)
+    private UsageCall CapturePrompt(IReadOnlyList<ChatMessage> messages, ChatOptions? options)
     {
-        MessageCharacters += messages.Sum(message =>
+        var messageCharacters = messages.Sum(message =>
             message.Text?.Length ?? message.Contents.Sum(ContentCharacters));
-        InstructionCharacters += options?.Instructions?.Length ?? 0;
-        ToolCharacters += options?.Tools?.OfType<AIFunctionDeclaration>().Sum(tool =>
+        var instructionCharacters = options?.Instructions?.Length ?? 0;
+        var toolCharacters = options?.Tools?.OfType<AIFunctionDeclaration>().Sum(tool =>
             tool.Name.Length + tool.Description.Length + tool.JsonSchema.GetRawText().Length) ?? 0;
+        MessageCharacters += messageCharacters; InstructionCharacters += instructionCharacters; ToolCharacters += toolCharacters;
+        return new UsageCall { MessageCharacters = messageCharacters, InstructionCharacters = instructionCharacters, ToolCharacters = toolCharacters };
     }
 
     private static int ContentCharacters(AIContent content) => content switch

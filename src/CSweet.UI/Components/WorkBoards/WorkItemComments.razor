@@ -75,7 +75,14 @@
                         }
                         else
                         {
-                            <p class="comment-text">@comment.Body</p>
+                            @if (comment.AuthorKind == AgentAuthorKind)
+                            {
+                                <ChatMarkdown Content="@comment.Body" />
+                            }
+                            else
+                            {
+                                <p class="comment-text">@comment.Body</p>
+                            }
                             @if (comment.CanEdit || comment.CanDelete)
                             {
                                 <div class="comment-actions">

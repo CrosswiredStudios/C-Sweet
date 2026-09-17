@@ -159,7 +159,7 @@ public static class AgentTicketFeedback
     public static string FailureSentence(string error) => error switch
     {
         var x when x.StartsWith("reported:", StringComparison.Ordinal) =>
-            "I couldn't finish this ticket. " + ConciseReason(x["reported:".Length..]),
+            "I couldn't finish this ticket. " + ReportedReason(x["reported:".Length..]),
         var x when x.Contains("lease expired", StringComparison.OrdinalIgnoreCase) =>
             "I couldn't finish because my runtime stopped responding.",
         var x when x.Contains("code=runtime.transport", StringComparison.Ordinal) => "I couldn’t finish this attempt because the connection to the runtime failed.",
@@ -171,11 +171,12 @@ public static class AgentTicketFeedback
 
     private static string ShortTitle(string title) => title.Length <= 256 ? title : title[..253] + "...";
 
-    private static string ConciseReason(string reason)
+    private static string ReportedReason(string reason)
     {
-        var line = reason.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim();
-        if (string.IsNullOrWhiteSpace(line)) return "I need help resolving the blocker.";
-        return line.Length <= 300 ? line : line[..297] + "...";
+        // Keep owner-facing evidence and next steps instead of only the generic headline.
+        reason = reason.Trim();
+        if (reason.Length == 0) return "I need help resolving the blocker.";
+        return reason.Length <= 6000 ? reason : reason[..6000] + "\n\nSee the ticket blocker for the remaining details.";
     }
 
     public static async Task<bool> RecordFailureAsync(CSweetDbContext db, WorkTask root, Guid installationId,

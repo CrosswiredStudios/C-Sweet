@@ -34,10 +34,15 @@ public sealed class AgentFrameworkAgentRunner : IAgentRunner
             Id = Guid.NewGuid(),
             AgentKey = request.AgentKey,
             ProviderProfileId = request.ProviderProfileId,
+            OrganizationId = request.OrganizationId,
+            TaskRunId = request.TaskRunId,
+            EmployeeId = request.EmployeeId,
+            BenchmarkTrialId = request.BenchmarkTrialId,
+            MeasurementKind = "ProviderAttempt",
             StartedAt = startedAt,
             Status = "Running",
             PromptHash = ComputePromptHash(request.SystemPrompt + request.UserPrompt),
-            InvocationKind = "agent-runner",
+            InvocationKind = request.InvocationKind,
             InvocationSequence = 1,
             PromptInstructionCharacters = request.SystemPrompt?.Length ?? 0,
             PromptMessageCharacters = request.UserPrompt.Length +
@@ -59,6 +64,8 @@ public sealed class AgentFrameworkAgentRunner : IAgentRunner
 
             logs.Add(new AgentRunLogEntry("Info", "Sending request to LLM provider", DateTimeOffset.UtcNow));
 
+            domainLog.ProviderStartedAt = DateTimeOffset.UtcNow;
+            await _logWriter.WriteAsync(domainLog, CancellationToken.None);
             var response = await chatClient.GetResponseAsync(messages, options, cancellationToken);
 
             stopwatch.Stop();
@@ -69,6 +76,9 @@ public sealed class AgentFrameworkAgentRunner : IAgentRunner
             domainLog.OutputPreview = Truncate(content, 500);
             domainLog.TokenInputCount = ToNullableInt(response.Usage?.InputTokenCount);
             domainLog.TokenOutputCount = ToNullableInt(response.Usage?.OutputTokenCount);
+            domainLog.ReportedInputTokens = response.Usage?.InputTokenCount;
+            domainLog.ReportedOutputTokens = response.Usage?.OutputTokenCount;
+            domainLog.Model = response.ModelId;
             if (response.Usage?.AdditionalCounts is { Count: > 0 } additionalCounts)
             {
                 domainLog.UsageAdditionalCountsJson = System.Text.Json.JsonSerializer.Serialize(additionalCounts);
@@ -91,13 +101,13 @@ public sealed class AgentFrameworkAgentRunner : IAgentRunner
             stopwatch.Stop();
 
             domainLog.CompletedAt = DateTimeOffset.UtcNow;
-            domainLog.Status = "Failed";
+            domainLog.Status = ex is OperationCanceledException ? "Cancelled" : "Failed";
             domainLog.FailureMessage = ex.Message;
             domainLog.DurationMs = stopwatch.ElapsedMilliseconds;
 
             logs.Add(new AgentRunLogEntry("Error", $"Agent run failed: {ex.Message}", DateTimeOffset.UtcNow));
 
-            await _logWriter.WriteAsync(domainLog, cancellationToken);
+            await _logWriter.WriteAsync(domainLog, CancellationToken.None);
 
             return new AgentRunResult(
                 Succeeded: false,

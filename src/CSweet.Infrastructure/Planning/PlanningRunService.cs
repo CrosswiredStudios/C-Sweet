@@ -169,7 +169,7 @@ public sealed class PlanningRunService : IPlanningRunService
                     Temperature: 0.7,
                     MaxOutputTokens: 8192,
                     RequireStructuredOutput: false,
-                    OutputSchemaJson: null));
+                    OutputSchemaJson: null)) { OrganizationId = organizationId, InvocationKind = "planning" };
 
             var result = await _agentRunner.RunAsync(request, cancellationToken);
 

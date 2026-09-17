@@ -38,6 +38,7 @@ else if (WorkstreamId.HasValue && _project is not null)
     </MudGrid>
     <MudTabs @bind-ActivePanelIndex="_tab" Class="mt-4" Rounded="true" ApplyEffectsToContainer="true">
         <MudTabPanel Text="Overview and health"><ProjectResourceTable Resources="@(new[] { _project.Project })" /></MudTabPanel>
+        <MudTabPanel Text="Efficiency"><WorkEfficiencyPanel OrganizationId="OrganizationId" WorkstreamId="WorkstreamId" /></MudTabPanel>
         <MudTabPanel Text="Teams and supervision"><ProjectResourceTable Resources="_project.Teams" /></MudTabPanel>
         <MudTabPanel Text="Boards, work items, and sprints"><ProjectResourceTable Resources="_project.Work" /></MudTabPanel>
         <MudTabPanel Text="Documents and reviews"><ProjectResourceTable Resources="_project.Documents" /></MudTabPanel>

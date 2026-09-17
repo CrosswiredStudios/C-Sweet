@@ -22,7 +22,9 @@ public sealed class AgentFrameworkWorkflowRunner : IAgentWorkflowRunner
             SystemPrompt: request.SystemPrompt,
             UserPrompt: request.UserPrompt,
             Context: request.Context,
-            Options: request.Options);
+            Options: request.Options)
+        { OrganizationId = request.OrganizationId, TaskRunId = request.TaskRunId,
+            EmployeeId = request.EmployeeId, InvocationKind = "workflow" };
 
         var result = await _agentRunner.RunAsync(agentRequest, cancellationToken);
 

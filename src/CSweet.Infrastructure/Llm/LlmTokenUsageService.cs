@@ -1,4 +1,5 @@
 using CSweet.Application.Llm;
+using CSweet.Infrastructure.Analytics;
 using CSweet.Contracts.Llm;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -24,6 +25,7 @@ public sealed class LlmTokenUsageService : ILlmTokenUsageService
 
         var logs = await _dbContext.AgentRunLogs
             .AsNoTracking()
+            .ProviderCalls()
             .Where(log => log.StartedAt >= since30Days)
             .ToListAsync(cancellationToken);
 
@@ -73,8 +75,8 @@ public sealed class LlmTokenUsageService : ILlmTokenUsageService
     private static LlmTokenUsageWindowResponse BuildWindow(string label, IEnumerable<AgentRunLog> logs)
     {
         var items = logs.ToList();
-        var inputTokens = items.Sum(log => (long)(log.TokenInputCount ?? 0));
-        var outputTokens = items.Sum(log => (long)(log.TokenOutputCount ?? 0));
+        var inputTokens = items.Sum(InferenceMeasurements.Input);
+        var outputTokens = items.Sum(InferenceMeasurements.Output);
 
         return new LlmTokenUsageWindowResponse(
             label,
@@ -84,7 +86,7 @@ public sealed class LlmTokenUsageService : ILlmTokenUsageService
             inputTokens + outputTokens)
         {
             UsageReportedCallCount = items.Count(log =>
-                log.TokenInputCount.HasValue || log.TokenOutputCount.HasValue),
+                InferenceMeasurements.HasInput(log) || InferenceMeasurements.HasOutput(log)),
             CachedInputTokens = items.Sum(log => (long)(log.TokenCachedInputCount ?? 0)),
             ReasoningTokens = items.Sum(log => (long)(log.TokenReasoningCount ?? 0))
         };
@@ -100,10 +102,10 @@ public sealed class LlmTokenUsageService : ILlmTokenUsageService
             group.Min(log => log.StartedAt),
             group.Max(log => log.CompletedAt ?? log.StartedAt),
             group.Count(),
-            group.Count(log => log.TokenInputCount.HasValue || log.TokenOutputCount.HasValue),
-            group.Sum(log => (long)(log.TokenInputCount ?? 0)),
+            group.Count(log => InferenceMeasurements.HasInput(log) || InferenceMeasurements.HasOutput(log)),
+            group.Sum(InferenceMeasurements.Input),
             group.Sum(log => (long)(log.TokenCachedInputCount ?? 0)),
-            group.Sum(log => (long)(log.TokenOutputCount ?? 0)),
+            group.Sum(InferenceMeasurements.Output),
             group.Sum(log => (long)(log.TokenReasoningCount ?? 0)),
             group.Sum(log => (long)(log.PromptMessageCharacters ?? 0)),
             group.Sum(log => (long)(log.PromptInstructionCharacters ?? 0)),
