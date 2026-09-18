@@ -14,6 +14,7 @@ using CSweet.WorkManagement.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using CSweet.Infrastructure.SourceControl;
+using CSweet.TrustedServices;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -131,6 +132,18 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         catch (ArgumentException exception)
         {
             response = Failure(request.RequestId, PlatformCapabilityErrorCode.ValidationFailed, exception.Message);
+        }
+        catch (WorkspaceOperationException exception)
+        {
+            var code = exception.StatusCode switch
+            {
+                401 or 403 => PlatformCapabilityErrorCode.Denied,
+                404 => PlatformCapabilityErrorCode.NotFound,
+                400 or 422 => PlatformCapabilityErrorCode.ValidationFailed,
+                >= 500 => PlatformCapabilityErrorCode.Unavailable,
+                _ => PlatformCapabilityErrorCode.Conflict
+            };
+            response = Failure(request.RequestId, code, exception.Message);
         }
         catch (InvalidOperationException exception)
         {

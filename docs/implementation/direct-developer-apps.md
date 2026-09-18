@@ -126,3 +126,20 @@ exact-source checks, current authority, QA evidence, conflicts and uncertain mer
 Agent `PlanCompletionRecoveryTests`, `ComputeChatTests`, and QA event tests cover restart waits,
 conversation setting changes and stale QA wake hints. Package-only builds verify the release does not
 depend on sibling SDK project references. Live model/VM acceptance remains a separate deployment check.
+
+## Source publication diagnostics
+
+`WorkspaceOperationErrors` carries the original bounded error, a specific code, recovery action,
+HTTP status and stable diagnostic ID from GitHost's internal snapshot endpoint through
+`TrustedSourceControlHostClient`, `AgentWorkspaceBrokerEndpoints`, and `CoreWorkspaceBrokerClient`.
+Server logs retain the exception under the same diagnostic ID. Credentials, endpoint URLs and host
+paths are redacted from agent-visible messages. A legacy or proxy response reports its HTTP status
+and missing diagnostic instead of falsely asserting an assignment conflict.
+
+`SoftwareDeveloperAgent.ReadWorkspaceFailure` (Software Developer 1.10.1) unwraps the broker error
+and renders separate reported-error, failure-code, diagnostic-ID and recovery fields in ticket
+comments. A publication key reused with different content is reported as
+`workspace.publication_content_changed`; stale assignments, superseded publications and changed
+branches have different codes and actions. This requires the updated GitHost, Core and AgentHost
+alongside the agent. Existing historical comments are not rewritten. Regression coverage:
+`WorkspaceOperationDiagnosticsTests`, `InternalGitPublicationTests`, and agent `DeploymentDiagnosticTests`.

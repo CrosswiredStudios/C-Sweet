@@ -110,7 +110,9 @@ public sealed class InternalGitPublicationTests : IDisposable
         Assert.Empty(clean.ChangedFiles);
         Assert.Equal("Clean", clean.Status);
         var different = await RequestAsync(initial, "publish", "work/one", "publish-1", ("hello.txt", "different"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _store.ApplySnapshotAsync(different, _artifacts));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => _store.ApplySnapshotAsync(different, _artifacts));
+        Assert.Equal("The idempotency key was already used with different content.", error.Message);
+        Assert.Equal("workspace.publication_content_changed", WorkspaceOperationErrors.Describe(error).Failure.Code);
     }
 
     [Fact]
