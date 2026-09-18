@@ -100,11 +100,11 @@ public sealed partial class ExecutiveDecisionService(
             Id = Guid.NewGuid(), OrganizationId = command.OrganizationId, ConversationId = command.ConversationId,
             ChatTurnId = command.ChatTurnId, ConversationMessageId = command.ConversationMessageId,
             RequestingInstallationId = command.RequestingInstallationId,
-            Prompt = prompt, OptionsJson = JsonSerializer.Serialize(new StoredDecisionOptions(options, command.ConfigurationChange, linked?.Id, linked?.Revision), JsonOptions),
+            Prompt = prompt, OptionsJson = JsonSerializer.Serialize(new StoredDecisionOptions(options, command.ConfigurationChange, linked?.Id, linked?.Revision, command.TaskMerge), JsonOptions),
             RecommendedOptionId = recommendedOptionId, IdempotencyKey = idempotencyKey,
             Status = ExecutiveDecisionStatus.Pending, CreatedAt = now, UpdatedAt = now
         };
-        foreach (var previous in pending.Where(x => ReadDecisionOptions(x.OptionsJson).WorkstreamDecisionId == command.WorkstreamDecisionId))
+        foreach (var previous in pending.Where(x => ReadDecisionOptions(x.OptionsJson).WorkstreamDecisionId == command.WorkstreamDecisionId && ReadDecisionOptions(x.OptionsJson).TaskMerge?.ReviewId == command.TaskMerge?.ReviewId))
         {
             previous.Status = ExecutiveDecisionStatus.Superseded;
             previous.SupersededByDecisionId = decision.Id;
@@ -226,6 +226,12 @@ public sealed partial class ExecutiveDecisionService(
         await using var transaction = db.Database.IsRelational()
             ? await db.Database.BeginTransactionAsync(cancellationToken)
             : null;
+        if (storedOptions.TaskMerge is { } taskMerge)
+        {
+            var mergeFailure = await new CSweet.Infrastructure.SourceControl.TaskDeliveryService(db, TimeProvider.System)
+                .ApplyDecisionAsync(organizationId, decision.Id, taskMerge, actorOrganizationUserId, selected?.Id, cancellationToken);
+            if (mergeFailure is not null) return Failure("decision_not_pending", mergeFailure);
+        }
         var linkedFailure = await ApplyWorkstreamDecisionAsync(decision, storedOptions, actorOrganizationUserId,
             selected?.Id, freeText, cancellationToken);
         if (linkedFailure is not null) return Failure("decision_not_pending", linkedFailure);
@@ -332,7 +338,7 @@ public sealed partial class ExecutiveDecisionService(
                 ?? throw new InvalidOperationException("The stored decision is invalid.");
     }
 
-    private sealed record StoredDecisionOptions(List<StoredOption> Options, AgentConfigurationChoice? ConfigurationChange, Guid? WorkstreamDecisionId = null, long? WorkstreamDecisionRevision = null);
+    private sealed record StoredDecisionOptions(List<StoredOption> Options, AgentConfigurationChoice? ConfigurationChange, Guid? WorkstreamDecisionId = null, long? WorkstreamDecisionRevision = null, TaskMergeChoice? TaskMerge = null);
 
     private static string Required(string? value, int maximumLength, string name) =>
         Clean(value, maximumLength) ?? throw new ArgumentException($"{name} is required.");

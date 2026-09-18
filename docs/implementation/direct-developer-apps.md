@@ -33,4 +33,96 @@ Each workflow stage, command request and publication generation is retained befo
 
 One-hour ephemeral Linux instances; 16 MiB source bundles; 30-second guest commands with 8 KiB output; cached `csweet/python:3.12` and `csweet/node:22` bases; HTTP on port 8080. Source is published before deployment. Missing dependencies and incompatible existing images produce blockers. Long builds, guest outbound dependency installation and public deployments require further provider work.
 
-Regression coverage includes chat ticket ownership and restart recovery, personal repository ownership and claim checks, explicit network grants/revocation, automatic template upgrade gating, exact command/publication replay, build repair and links opening in a new tab. Package verification must use SDK 3.44.0 with sibling SDK references disabled. The Docker-ready image and complete live model-to-VM deployment still require hardware acceptance; the earlier live Hello World success does not verify this new path.
+Regression coverage includes chat ticket ownership and restart recovery, personal repository ownership and claim checks, explicit network grants/revocation, automatic template upgrade gating, exact command/publication replay, build repair and links opening in a new tab. Package verification must use SDK 3.50.0 with sibling SDK references disabled. The Docker-ready image and complete live model-to-VM deployment still require hardware acceptance; the earlier live Hello World success does not verify this new path.
+
+## Claimed planning and project source continuity
+
+`SoftwareDeveloperAgent.EvaluatePersonalTodoClaimAsync` checks assigned compute only. The SDK's
+`DrainPersonalTodoAsync` claims the ticket before invoking `HandlePersonalTodoAsync`, so the durable
+Running state and Doing column precede planning inference. `PrepareDevelopmentPlanAsync` requires
+Running, checkpoints the staged draft, then creates the backlog under the live claim. Repository
+preparation derives a new project's name from that saved plan; reservation is no longer a prerequisite
+to claiming work.
+
+`HandleDirectWorkMessageAsync` discovers recent completed development roots on the caller's own
+personal board and retains the chosen `SourceWorkItemId` in direct-work terms. The model must identify
+an existing project for bug fixes/enhancements or explicitly classify a new application. Unclear or
+unknown project references produce a clarification without scheduling work. Compute environment IDs
+are never source identity. Ownership-choice replies preserve the retained source task.
+
+`GitWorkspaceCapabilityHandler.PreparePersonalAsync` accepts the optional source task ID (SDK 3.50.0).
+`ResolvePersonalSourceAsync` verifies same organization, installation and personal board, a completed
+unarchived source task, and a valid server-written repository binding. It derives the stable original
+project root. Repositories with merged task publications continue from main. Legacy delivered apps
+whose main branch is still empty continue from the latest completed published source, retaining that
+exact baseline until their first reviewed task merge.
+`PersonalSourceBinding` is stored in `WorkTask.DevelopmentBriefJson` with the repository, root, selected
+source task and pinned source commit. The live task claim authorizes this write. Later attempts cannot
+change that binding. `RequirePersonalAssignmentAsync` checks the persisted root and repository policy
+before source access; `PrepareAsync` uses a separate deterministic task branch and requires GitHost to
+materialize the pinned commit. Missing source or revoked access fails rather than provisioning a blank
+replacement. A request with no source task still uses its own deterministic repository.
+
+Roll out the platform with Software Developer 1.10.0; old hosts ignore the additive source field.
+Existing prepared work keeps its original repository. This change intentionally does not merge or
+remove earlier duplicate repositories, rewrite history, or guess a source for already accepted requests.
+Regression coverage: `PersonalDevelopmentWorkspaceTests`, agent `ComputeChatTests`,
+`PlanningExecutionTests`, `StagedPlanningTests`, and SDK `PersonalGitWorkspaceTests`.
+
+## Task branches, testing, and merge preferences
+
+Implemented by `GitWorkspaceCapabilityHandler.PreparePersonalPlanTaskAsync`, `TaskDeliveryService`,
+`TaskDeliveryCapabilityHandler`, and the API's `TaskDeliveryWorker`. SDK 3.50.0 exposes typed
+`PlatformSourceControlClient` review and preference methods. Software Developer 1.10.0 and Software
+QA 1.1.0 consume them.
+
+The personal epic remains the coordinator. Each planned task gets its own deterministic branch and
+workspace in the bound project repository, including validation and deployment tasks. Once any task
+has merged, subsequent branches start from main, including tasks in later stories. Legacy root
+checkpoints are retained as a baseline where no reviewed merge exists. Reusing a repository does not
+merge or delete historical duplicate repositories.
+
+`SubmitAsync` binds `TaskDeliveryReview` to a task publication and exact commit, transitions the child
+task to `WaitingForApproval` (shown as Testing), and discovers active QA on the repository team. QA
+gets a durable `ReviewRequested` event; it reads current assignment state and prepares that exact
+commit. QA workspace authority permits inspection and snapshot transfer, never publication. A QA
+failure returns the same task to Doing with evidence. Repairs are bounded and refresh the task branch
+against the integration branch before retesting. Developer validation is not recorded as independent QA.
+
+Without QA, the review records `NotAssigned` and requires the manager's decision. After QA passes,
+merge permission is still checked. `PresentDecisionAsync` supplies source links, deployment review
+links when available, and four choices: this task, this story, this epic, or review first. Task-only
+approval is bound to the candidate commit. Story and epic approval are stored in
+`TaskMergePreference`; an explicit story value overrides the epic. Missing preferences mean Ask.
+
+`HandleDirectWorkMessageAsync` classifies preference inquiries and changes separately from development
+requests. It reads current scoped settings, supports Ask/Auto/Inherit, and uses the actual retained
+human message as authority. The platform checks the current manager, conversation participation,
+message freshness, scope ownership and expected preference revision. Ordinary dialogue can also
+approve a held task after reviewing it. Changes are audited in `WorkItemActivities`; pending approvals
+and obsolete cards are invalidated. Already started merges are reconciled with their original durable
+operation key, and completed merges are not undone.
+
+`AdvanceMergeAsync` serializes authorization and preference changes through an organization advisory
+lock, persists Merging before the provider call, and sends the exact candidate SHA with a stable
+idempotency key. Current task/epic status, active developer/team/repository access, manager authority,
+QA and merge policy are checked before starting. Provider uncertainty remains Merging for recovery;
+conflicts return actionable rework. A task can complete only after a confirmed merge. The final running
+review URL is retained and delivered before the deployment task and epic complete.
+
+Review state and agent/UI outbox notifications commit together. Events are wake hints; authorized
+current-state reads and bounded review discovery support duplicate/missed events. The platform worker
+rotates bounded discovery, while developer deferred-work recovery and QA attention reviews recover
+missed agent wakes without model polling loops.
+
+Rollout: apply `TaskDeliveryReviewsAndMergePreferences`, rebuild/restart the platform, and upgrade
+Software Developer/QA through the normal capability-grant review. The added review/preference grants
+and event subscriptions are required; existing installation grants are not silently expanded. The
+older team-board `WorkOrchestrator` continues to enforce its existing stage and repository policies.
+
+Verification: `TaskDeliveryTests` covers manager scopes, review holds, preference overrides/revocation,
+exact-source checks, current authority, QA evidence, conflicts and uncertain merge recovery.
+`PersonalDevelopmentWorkspaceTests` covers task branch separation, source continuity and ownership.
+Agent `PlanCompletionRecoveryTests`, `ComputeChatTests`, and QA event tests cover restart waits,
+conversation setting changes and stale QA wake hints. Package-only builds verify the release does not
+depend on sibling SDK project references. Live model/VM acceptance remains a separate deployment check.

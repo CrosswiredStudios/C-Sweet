@@ -51,7 +51,7 @@ public static class AgentWorkspaceBrokerEndpoints
             .AllowAnonymous();
         endpoints.MapPost("/agent-broker/v2/workspaces/operate", async (
             AgentBrokerWorkspaceOperationRequest request, IAgentWorkspaceBroker broker, HttpContext http,
-            IConfiguration configuration, CancellationToken ct) =>
+            IConfiguration configuration, ILogger<AgentWorkspaceBroker> logger, CancellationToken ct) =>
         {
             try
             {
@@ -59,10 +59,8 @@ public static class AgentWorkspaceBrokerEndpoints
                     ?? $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}";
                 return Results.Ok(await broker.ExecuteAsync(request, publicBase, ct));
             }
-            catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
-            catch (ArgumentException) { return Results.BadRequest(); }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException or HttpRequestException)
-            { return Results.Conflict(new { error = "workspace_operation_failed" }); }
+            catch (Exception error) when (WorkspaceOperationErrors.IsExpected(error))
+            { return WorkspaceOperationErrors.Result(error, logger); }
         }).AllowAnonymous();
         endpoints.MapPost("/agent-broker/v2/workspaces/locks", async (AgentBrokerWorkspaceLockRequest request, IAgentWorkspaceBroker broker, CancellationToken ct) =>
         {

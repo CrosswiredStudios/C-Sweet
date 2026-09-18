@@ -15,7 +15,11 @@ public sealed partial class GitWorkspaceCapabilityHandler
 {
     internal const string PersonalReserveCapability = "source-control.personal-work.reserve.v1";
     internal const string PersonalPrepareCapability = "source-control.personal-work.prepare.v1";
-    private sealed record PersonalPrepareInput(Guid ItemId, string IdempotencyKey);
+    private sealed record PersonalPrepareInput(Guid ItemId, string IdempotencyKey, Guid? SourceWorkItemId = null, Guid? TaskItemId = null);
+    // Server-written source binding. Never accept repository IDs or commits from the caller.
+    private sealed record PersonalSourceBinding(Guid RepositoryId, string EnvironmentProfile,
+        IReadOnlyList<string> Requirements, IReadOnlyList<string> AcceptanceCriteria,
+        Guid? PersonalProjectRootId = null, Guid? PersonalSourceWorkItemId = null, string? PersonalSourceCommitSha = null, Guid? PersonalPlanRootId = null);
 
     private async Task<PersonalRepositoryReservation> ReservePersonalAsync(Guid business, Guid installation,
         ReservePersonalRepositoryRequest input, CancellationToken ct)
@@ -107,15 +111,25 @@ public sealed partial class GitWorkspaceCapabilityHandler
         PersonalPrepareInput input, CancellationToken ct)
     {
         ValidateIdempotencyKey(input.IdempotencyKey);
+        if (input.TaskItemId is { } taskId)
+            return await PreparePersonalPlanTaskAsync(business, installation, input, taskId, ct);
         var item = await db.CoreWorkTasks.Include(x => x.Board).SingleOrDefaultAsync(x =>
             x.Id == input.ItemId && x.OrganizationId == business, ct) ?? throw new KeyNotFoundException("Personal ticket not found.");
         await RequirePersonalOwnerAsync(business, installation, item, item.Board, ct);
         var employee = await db.CoreOrganizationUsers.SingleAsync(x => x.OrganizationId == business && x.AgentInstallationId == installation && x.IsActive, ct);
-        var repositoryId = PersonalRepositoryId(item.Id);
+        var binding = item.AssignmentRevision > 0
+            ? JsonSerializer.Deserialize<PersonalSourceBinding>(item.DevelopmentBriefJson!, JsonOptions)
+                ?? throw new InvalidOperationException("The retained project source binding is missing.")
+            : await ResolvePersonalSourceAsync(business, installation, item, input.SourceWorkItemId, ct);
+        if (item.AssignmentRevision > 0 && binding.PersonalSourceWorkItemId != input.SourceWorkItemId)
+            throw new UnauthorizedAccessException("A prepared task cannot change projects. Resume it with its original source task.");
+        var repositoryId = binding.RepositoryId;
         var now = DateTimeOffset.UtcNow;
         var repository = await db.SourceControlRepositories.Include(x => x.Connection).SingleOrDefaultAsync(x => x.Id == repositoryId, ct);
         if (repository is null)
         {
+            if (input.SourceWorkItemId is not null)
+                throw new InvalidOperationException("The existing project repository is unavailable; restore its access before retrying.");
             var connection = await InternalGitProvisioningDefaults.EnsureAsync(db, business, ct);
             var policy = await db.RepositoryProvisioningPolicies.SingleAsync(x => x.OrganizationId == business && x.ConnectionId == connection.Id, ct);
             if (!policy.IsEnabled || policy.RequiresManagerApproval || connection.Status != SourceControlConnectionStatus.Connected)
@@ -185,8 +199,7 @@ public sealed partial class GitWorkspaceCapabilityHandler
         {
             item.AssignmentRevision = 1;
             item.AssignedAgentInstallationId = installation;
-            item.DevelopmentBriefJson = JsonSerializer.Serialize(new SoftwareDevelopmentBrief(repository.Id,
-                "software-development-polyglot-v1", [item.Description], ["Implement and test the requested application."]), JsonOptions);
+            item.DevelopmentBriefJson = JsonSerializer.Serialize(binding, JsonOptions);
         }
         // Queue revision and claim disposition remain owned by the personal-task SDK callback.
         await db.SaveChangesAsync(ct);
@@ -195,6 +208,19 @@ public sealed partial class GitWorkspaceCapabilityHandler
 
     private async Task RequirePersonalOwnerAsync(Guid business, Guid installation, WorkTask item, WorkBoard? board, CancellationToken ct)
     {
+        var planning = string.IsNullOrWhiteSpace(item.PlanningSpecificationJson) ? null
+            : JsonSerializer.Deserialize<WorkItemPlanningSpecification>(item.PlanningSpecificationJson, JsonOptions)?.PersonalPlan;
+        if (planning is not null && planning.RootItemId != item.Id)
+        {
+            var root = await db.CoreWorkTasks.AsNoTracking().Include(x => x.Board).SingleOrDefaultAsync(x =>
+                x.Id == planning.RootItemId && x.OrganizationId == business && x.BoardId == item.BoardId, ct)
+                ?? throw new UnauthorizedAccessException("The task coordinator is unavailable.");
+            if (item.Status != WorkTaskStatus.Running || item.ArchivedAt is not null ||
+                item.AssignedAgentInstallationId != installation)
+                throw new UnauthorizedAccessException("Only the current running task may use its development workspace.");
+            await RequirePersonalOwnerAsync(business, installation, root, root.Board, ct);
+            return;
+        }
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == business &&
             x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null, ct);
         var approved = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == installation &&
@@ -214,17 +240,119 @@ public sealed partial class GitWorkspaceCapabilityHandler
         if (revision != item.AssignmentRevision || item.AssignedAgentInstallationId != installation ||
             action is not (GitWorkspaceCapabilities.Prepare or GitWorkspaceCapabilities.Inspect or GitWorkspaceCapabilities.Publish or
                 GitWorkspaceCapabilities.Refresh or GitWorkspaceCapabilities.Cleanup)) throw new UnauthorizedAccessException("Personal assignment is stale or action is not allowed.");
-        var id = PersonalRepositoryId(item.Id);
-        if (ResolveDeliveryRepository(item.DevelopmentBriefJson, item.DeliverySpecificationJson) != id)
+        var binding = JsonSerializer.Deserialize<PersonalSourceBinding>(item.DevelopmentBriefJson!, JsonOptions)
+            ?? throw new UnauthorizedAccessException("The project source binding is missing.");
+        var id = PersonalRepositoryId(binding.PersonalProjectRootId ?? binding.PersonalPlanRootId ?? item.Id);
+        if (binding.PersonalPlanRootId is { } coordinatorId)
+        {
+            var coordinator = await db.CoreWorkTasks.AsNoTracking().SingleAsync(x => x.Id == coordinatorId && x.OrganizationId == business, ct);
+            var project = JsonSerializer.Deserialize<PersonalSourceBinding>(coordinator.DevelopmentBriefJson!, JsonOptions)!;
+            if (project.RepositoryId != binding.RepositoryId || coordinator.BoardId != item.BoardId)
+                throw new UnauthorizedAccessException("The task project binding changed.");
+        }
+        if (binding.RepositoryId != id)
             throw new UnauthorizedAccessException("Personal work cannot select another repository.");
+        if (binding.PersonalProjectRootId is { } rootId)
+            await RequirePersonalSourceTaskAsync(business, installation, item, rootId, ct);
         var repository = await db.SourceControlRepositories.AsNoTracking().Include(x => x.Connection).SingleAsync(x =>
             x.Id == id && x.OrganizationId == business && x.Status == SourceControlRepositoryStatus.Ready && x.ArchivedAt == null, ct);
         var team = board.TeamId ?? throw new InvalidOperationException("Personal workspace is not prepared.");
         await RequireActiveTeamMemberAsync(business, installation, team, ct);
         var policy = await db.TeamRepositoryPolicies.AsNoTracking().SingleAsync(x => x.OrganizationId == business && x.TeamId == team &&
             x.RepositoryId == id && x.DisabledAt == null, ct);
-        return new(item, team, repository, policy, null);
+        return new(item, team, repository, policy, binding.PersonalSourceCommitSha);
     }
+    private async Task<GitWorkspaceResult> PreparePersonalPlanTaskAsync(Guid business, Guid installation,
+        PersonalPrepareInput input, Guid taskId, CancellationToken ct)
+    {
+        if (taskId == input.ItemId) throw new ArgumentException("A task branch needs a child task.");
+        // Bind/provision the project once. The coordinator snapshot is never used for task publication.
+        var root = await db.CoreWorkTasks.Include(x => x.Board).SingleAsync(x => x.Id == input.ItemId && x.OrganizationId == business, ct);
+        if (root.AssignmentRevision == 0)
+            await PreparePersonalAsync(business, installation, input with { TaskItemId = null }, ct);
+        else
+        {
+            await RequirePersonalOwnerAsync(business, installation, root, root.Board, ct);
+            var retainedProject = JsonSerializer.Deserialize<PersonalSourceBinding>(root.DevelopmentBriefJson!, JsonOptions)!;
+            if (retainedProject.PersonalSourceWorkItemId != input.SourceWorkItemId)
+                throw new UnauthorizedAccessException("The project source binding cannot change during a retry.");
+        }
+        var task = await db.CoreWorkTasks.Include(x => x.Board).SingleOrDefaultAsync(x => x.Id == taskId && x.OrganizationId == business, ct)
+            ?? throw new KeyNotFoundException("The planned task was not found.");
+        var plan = string.IsNullOrWhiteSpace(task.PlanningSpecificationJson) ? null
+            : JsonSerializer.Deserialize<WorkItemPlanningSpecification>(task.PlanningSpecificationJson, JsonOptions)?.PersonalPlan;
+        if (plan?.RootItemId != root.Id || task.Kind != WorkItemKind.Task || task.BoardId != root.BoardId)
+            throw new UnauthorizedAccessException("The task is not part of this project plan.");
+        await RequirePersonalOwnerAsync(business, installation, task, task.Board, ct);
+        if (task.AssignmentRevision == 0)
+        {
+            var project = JsonSerializer.Deserialize<PersonalSourceBinding>(root.DevelopmentBriefJson!, JsonOptions)!;
+            var hasMergedTask = await db.SourceControlPublications.AnyAsync(x => x.OrganizationId == business &&
+                x.RepositoryId == project.RepositoryId && x.Status == SourceControlPublicationStatus.Merged, ct);
+            var hasTaskReview = await db.TaskDeliveryReviews.AnyAsync(x => x.OrganizationId == business && x.EpicId == root.Id, ct);
+            var legacyCheckpoint = hasTaskReview ? null : await (from publication in db.SourceControlPublications.AsNoTracking()
+                join workspace in db.SourceControlWorkspaces.AsNoTracking() on publication.WorkspaceId equals workspace.Id
+                where publication.OrganizationId == business && publication.RepositoryId == project.RepositoryId &&
+                    workspace.WorkItemId == root.Id && workspace.AgentInstallationId == installation &&
+                    publication.Status != SourceControlPublicationStatus.Failed && publication.Status != SourceControlPublicationStatus.Superseded
+                orderby publication.CreatedAt descending
+                select publication.CommitSha).FirstOrDefaultAsync(ct);
+            task.AssignmentRevision = 1;
+            task.DevelopmentBriefJson = JsonSerializer.Serialize(project with {
+                Requirements = [task.Description], PersonalPlanRootId = root.Id,
+                PersonalSourceCommitSha = legacyCheckpoint ?? (hasMergedTask ? null : project.PersonalSourceCommitSha) }, JsonOptions);
+            await db.SaveChangesAsync(ct);
+        }
+        return await PrepareAsync(business, installation, new(task.Id, task.AssignmentRevision, input.IdempotencyKey), ct);
+    }
+
+    private async Task<WorkTask> RequirePersonalSourceTaskAsync(Guid business, Guid installation,
+        WorkTask current, Guid sourceId, CancellationToken ct)
+    {
+        var source = await db.CoreWorkTasks.AsNoTracking().Include(x => x.Board).SingleOrDefaultAsync(x =>
+            x.Id == sourceId && x.OrganizationId == business, ct);
+        if (source is null || source.Id == current.Id || source.ArchivedAt is not null ||
+            source.Status != WorkTaskStatus.Completed || source.AssignedAgentInstallationId != installation ||
+            source.Board is not { Kind: WorkBoardKind.Personal, ArchivedAt: null } ||
+            source.BoardId != current.BoardId ||
+            source.SourceConversationId is null || source.SourceMessageId is null || source.AssignmentRevision < 1)
+            throw new UnauthorizedAccessException("Select a completed project from this developer's personal board before continuing its source.");
+        return source;
+    }
+
+    private async Task<PersonalSourceBinding> ResolvePersonalSourceAsync(Guid business, Guid installation,
+        WorkTask item, Guid? sourceId, CancellationToken ct)
+    {
+        if (sourceId is null)
+            return new(PersonalRepositoryId(item.Id), "software-development-polyglot-v1",
+                [item.Description], ["Implement and test the requested application."]);
+        var source = await RequirePersonalSourceTaskAsync(business, installation, item, sourceId.Value, ct);
+        var prior = JsonSerializer.Deserialize<PersonalSourceBinding>(source.DevelopmentBriefJson!, JsonOptions)
+            ?? throw new InvalidOperationException("The selected project has no retained source binding.");
+        var rootId = prior.PersonalProjectRootId ?? source.Id;
+        if (rootId != source.Id) await RequirePersonalSourceTaskAsync(business, installation, item, rootId, ct);
+        if (prior.RepositoryId != PersonalRepositoryId(rootId))
+            throw new UnauthorizedAccessException("The selected project's repository binding is invalid.");
+        // Personal delivery publishes task branches, so default-branch HEAD may still be empty.
+        // Start from the latest completed delivery in this project and retain that exact commit.
+        var commit = await (from publication in db.SourceControlPublications.AsNoTracking()
+            join workspace in db.SourceControlWorkspaces.AsNoTracking() on publication.WorkspaceId equals workspace.Id
+            join completed in db.CoreWorkTasks.AsNoTracking() on workspace.WorkItemId equals completed.Id
+            where publication.OrganizationId == business && publication.RepositoryId == prior.RepositoryId &&
+                publication.Status != SourceControlPublicationStatus.Failed && publication.Status != SourceControlPublicationStatus.Superseded &&
+                workspace.OrganizationId == business && workspace.RepositoryId == prior.RepositoryId &&
+                workspace.AgentInstallationId == installation && completed.OrganizationId == business &&
+                completed.BoardId == source.BoardId && completed.ArchivedAt == null && completed.Status == WorkTaskStatus.Completed
+            orderby publication.CreatedAt descending, publication.Id descending
+            select publication.CommitSha).FirstOrDefaultAsync(ct)
+            ?? throw new InvalidOperationException("The selected project has no published source. Finish its delivery before starting follow-up work.");
+        var hasMergedSource = await db.SourceControlPublications.AnyAsync(x => x.OrganizationId == business &&
+            x.RepositoryId == prior.RepositoryId && x.Status == SourceControlPublicationStatus.Merged, ct);
+        return new(prior.RepositoryId, "software-development-polyglot-v1", [item.Description],
+            ["Implement and test the requested change while preserving the existing application."], rootId, sourceId,
+            hasMergedSource ? null : ValidateCommitSha(commit));
+    }
+
     private static Guid PersonalRepositoryId(Guid item) => new(SHA256.HashData(Encoding.UTF8.GetBytes($"personal-repository:{item:N}")).AsSpan(0, 16));
 
     private async Task<string> ResolvePersonalRepositoryNameAsync(

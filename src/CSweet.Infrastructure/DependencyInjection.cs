@@ -373,6 +373,7 @@ public static class DependencyInjection
         builder.Services.AddSingleton<IWorkBoardBehavior, AgentPersonalBoardBehavior>();
         builder.Services.AddScoped<ISoftwareDevelopmentWorkService, SoftwareDevelopmentWorkService>();
         builder.Services.AddScoped<RepositoryProvisioningProcessor>();
+        builder.Services.AddScoped<TaskDeliveryService>();
         builder.Services.AddScoped<SourceControlPlatformSetupService>();
         builder.Services.AddScoped<ISourceControlPlatformSetupService>(services =>
             services.GetRequiredService<SourceControlPlatformSetupService>());

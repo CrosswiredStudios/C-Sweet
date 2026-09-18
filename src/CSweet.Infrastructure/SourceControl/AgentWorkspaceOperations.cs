@@ -108,8 +108,12 @@ public sealed partial class AgentWorkspaceBroker
         if (!repository.IsPrivate || repository.ArchivedAt is not null || repository.Status != SourceControlRepositoryStatus.Ready ||
             repository.Connection?.Provider is not (SourceControlProvider.InternalGit or SourceControlProvider.GitHub) || repository.Connection.Status != SourceControlConnectionStatus.Connected)
             throw new InvalidOperationException("An active supported repository is required for this operation.");
-        if (!await db.CoreWorkTasks.AsNoTracking().AnyAsync(w => w.Id == workspace.WorkItemId && w.OrganizationId == workspace.OrganizationId &&
-            w.AssignmentRevision == workspace.AssignmentRevision && w.AssignedAgentInstallationId == workspace.AgentInstallationId, cancellationToken) ||
+        var qaReview = await db.TaskDeliveryReviews.AsNoTracking().AnyAsync(x => x.OrganizationId == workspace.OrganizationId &&
+            x.TaskId == workspace.WorkItemId && x.QaInstallationId == workspace.AgentInstallationId && x.Status == "Testing" &&
+            x.CommitSha == workspace.BaseCommitSha && x.RepositoryId == workspace.RepositoryId, cancellationToken);
+        if (qaReview && request.Operation == "publish") throw new UnauthorizedAccessException("QA cannot publish source changes.");
+        if ((!qaReview && !await db.CoreWorkTasks.AsNoTracking().AnyAsync(w => w.Id == workspace.WorkItemId && w.OrganizationId == workspace.OrganizationId &&
+            w.AssignmentRevision == workspace.AssignmentRevision && w.AssignedAgentInstallationId == workspace.AgentInstallationId, cancellationToken)) ||
             !await db.AgentInstallations.AsNoTracking().AnyAsync(i => i.Id == workspace.AgentInstallationId && i.IsEnabled &&
                 i.BusinessId == workspace.OrganizationId.ToString("D"), cancellationToken))
             throw new UnauthorizedAccessException("Workspace assignment is stale.");

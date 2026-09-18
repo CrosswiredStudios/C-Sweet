@@ -76,7 +76,7 @@ public sealed partial class PersonalTodoServiceTests
         Assert.Equal(WorkBoardKind.Personal, board.Kind);
         Assert.Equal(setup.Agent.Id, board.OwnerOrganizationUserId);
         Assert.Equal(
-            [WorkBoardColumnCategory.ToDo, WorkBoardColumnCategory.InProgress,
+            [WorkBoardColumnCategory.ToDo, WorkBoardColumnCategory.InProgress, WorkBoardColumnCategory.Testing,
              WorkBoardColumnCategory.Blocked, WorkBoardColumnCategory.Done,
              WorkBoardColumnCategory.Cancelled],
             board.Columns.OrderBy(x => x.Position).Select(x => x.Category).ToArray());

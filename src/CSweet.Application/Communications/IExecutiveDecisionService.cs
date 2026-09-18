@@ -17,7 +17,10 @@ public sealed record CreateExecutiveDecisionCommand(
 {
     public AgentConfigurationChoice? ConfigurationChange { get; init; }
     public Guid? WorkstreamDecisionId { get; init; }
+    public TaskMergeChoice? TaskMerge { get; init; }
 }
+
+public sealed record TaskMergeChoice(Guid ReviewId, long Revision);
 
 /// <summary>A user-confirmed change to a preset field on the requesting employee.</summary>
 public sealed record AgentConfigurationChoice(string Key, string CurrentValue, string ProposedValue);

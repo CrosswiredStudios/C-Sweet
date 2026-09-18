@@ -14,7 +14,7 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
         using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/operate",
             new AgentBrokerWorkspaceOperationRequest(request.OrganizationId, request.RepositoryId, request.WorkspaceId,
                 request.WorkItemId, request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey, "snapshot-" + direction, Archive: archive), ct);
-        if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Core rejected the workspace transfer. Check the current assignment and snapshot limits.");
+        await WorkspaceOperationErrors.EnsureSuccessAsync(response, "Core", "snapshot-" + direction, ct);
         var result = await response.Content.ReadFromJsonAsync<AgentBrokerWorkspaceOperationResult>(ct)
             ?? throw new InvalidOperationException("Core returned no snapshot result.");
         return new(result.Archive);
@@ -120,7 +120,7 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
         using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/operate",
             new AgentBrokerWorkspaceOperationRequest(request.OrganizationId, request.RepositoryId, request.WorkspaceId,
                 request.WorkItemId, request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey, operation, message, retain, title, body), ct);
-        if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Core rejected the workspace operation. Check current assignment and repository state.");
+        await WorkspaceOperationErrors.EnsureSuccessAsync(response, "Core", operation, ct);
         return await response.Content.ReadFromJsonAsync<AgentBrokerWorkspaceOperationResult>(ct)
             ?? throw new InvalidOperationException("Core returned an empty workspace operation response.");
     }

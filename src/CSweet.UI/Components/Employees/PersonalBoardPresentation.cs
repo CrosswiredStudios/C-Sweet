@@ -9,7 +9,7 @@ public static class PersonalBoardPresentation
     public static readonly (string Label, string Status)[] Columns =
     [
         ("Backlog", Wire.PersonalTodoStatuses.Backlog), ("To Do", Wire.PersonalTodoStatuses.Ready),
-        ("Doing", Wire.PersonalTodoStatuses.Running), ("Blocked", Wire.PersonalTodoStatuses.Blocked),
+        ("Doing", Wire.PersonalTodoStatuses.Running), ("Testing", "WaitingForApproval"), ("Blocked", Wire.PersonalTodoStatuses.Blocked),
         ("Done", Wire.PersonalTodoStatuses.Completed), ("Cancelled", Wire.PersonalTodoStatuses.Cancelled)
     ];
 
@@ -52,7 +52,7 @@ public static class PersonalBoardPresentation
 
     public static bool CanMove(Wire.PersonalTodoItem item, string status, bool canExecute, bool canManage) =>
         (item.PlanRootId is null || item.PlanRootId == item.Id) &&
-        item.ArchivedAt is null && item.Status != status && Columns.Any(x => x.Status == status) &&
+        item.ArchivedAt is null && status != "WaitingForApproval" && item.Status != status && Columns.Any(x => x.Status == status) &&
         (canExecute || (canManage && status == Wire.PersonalTodoStatuses.Ready &&
             item.Status is Wire.PersonalTodoStatuses.Backlog or Wire.PersonalTodoStatuses.Blocked));
 }

@@ -78,6 +78,138 @@ public sealed class PersonalDevelopmentWorkspaceTests
         Assert.Equal(loseFirstResponse ? 2 : 1, source.RepositoryIds.Count);
     }
 
+    [Fact]
+    public async Task Plan_tasks_have_distinct_branches_in_one_repository_and_later_stories_start_from_main()
+    {
+        await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        var actions = new HashSet<string> { GitWorkspaceCapabilities.PreparePersonal, GitWorkspaceCapabilities.Prepare };
+        (await f.Db.AgentInstallationGrants.SingleAsync()).RequiredCapabilitiesJson = JsonSerializer.Serialize(actions);
+        var actor = await f.Db.CoreOrganizationUsers.SingleAsync();
+        var board = new WorkBoard { Id = Guid.NewGuid(), OrganizationId = f.Organization, Kind = WorkBoardKind.Personal, OwnerOrganizationUserId = actor.Id };
+        var root = new WorkTask { Id = Guid.NewGuid(), OrganizationId = f.Organization, BoardId = board.Id, Board = board,
+            Title = "Breakout", Status = WorkTaskStatus.Running, ClaimEventId = Guid.NewGuid(), ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10), SourceConversationId = Guid.NewGuid(), SourceMessageId = Guid.NewGuid() };
+        WorkTask Child(string title) => new() { Id = Guid.NewGuid(), OrganizationId = f.Organization, BoardId = board.Id, Board = board,
+            ParentWorkTaskId = Guid.NewGuid(), Title = title, Kind = WorkItemKind.Task, AssignedAgentInstallationId = f.Installation, Status = WorkTaskStatus.Running,
+            PlanningSpecificationJson = JsonSerializer.Serialize(new CSweet.WorkManagement.Contracts.WorkItemPlanningSpecification([], []) {
+                PersonalPlan = new(root.Id, 1, "Implementation") }, new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
+        var first = Child("Paddle"); var second = Child("Bricks");
+        f.Db.WorkBoards.Add(board); f.Db.CoreWorkTasks.AddRange(root, first, second); await f.Db.SaveChangesAsync();
+        var internalHost = DispatchProxy.Create<ITrustedSourceControlHostClient, SourceHost>();
+        using var http = new HttpClient(new CoreTransport(new PersonalRepositoryBroker(f.Db, internalHost))) { BaseAddress = new Uri("http://core/") };
+        var host = new Host(new CoreWorkspaceBrokerClient(http));
+        var handler = new GitWorkspaceCapabilityHandler(f.Db, host, null!, null!, WorkspaceSyncTestOptions.Value);
+        var session = new AgentSession("session", "developer", f.Installation.ToString(), f.Organization.ToString(), "runtime", "tick",
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), actions, 1));
+        async Task<GitWorkspaceResult> Prepare(WorkTask task)
+        {
+            var request = new RequestCapability { RequestId = "prepare", Capability = GitWorkspaceCapabilities.PreparePersonal, ContentType = "application/json",
+                Payload = JsonPayload.From(new { itemId = root.Id, taskItemId = task.Id, idempotencyKey = task.Id.ToString() }) };
+            await foreach (var result in handler.HandleAsync(session, request, default))
+            {
+                Assert.True(result.Succeeded, result.Error);
+                return JsonSerializer.Deserialize<GitWorkspaceResult>(result.Payload.Span, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            }
+            throw new InvalidOperationException("No response");
+        }
+        var one = await Prepare(first);
+        f.Db.SourceControlPublications.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization, RepositoryId = one.RepositoryId,
+            WorkspaceId = one.WorkspaceId, CommitSha = new string('b', 40), Status = SourceControlPublicationStatus.Merged });
+        await f.Db.SaveChangesAsync();
+        var two = await Prepare(second);
+        Assert.Equal(one.RepositoryId, two.RepositoryId); Assert.NotEqual(one.WorkspaceId, two.WorkspaceId);
+        Assert.Equal(first.Id, one.WorkItemId); Assert.Equal(second.Id, two.WorkItemId);
+        var taskWorkspaces = await f.Db.SourceControlWorkspaces.Where(x => x.WorkItemId == first.Id || x.WorkItemId == second.Id).ToListAsync();
+        Assert.Equal(2, taskWorkspaces.Select(x => x.BranchName).Distinct().Count());
+        Assert.Null(host.Requests.Last().ExpectedCommitSha);
+        Assert.Equal(one.WorkspaceId, (await Prepare(first)).WorkspaceId);
+        Assert.Single(await f.Db.SourceControlRepositories.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("valid")]
+    [InlineData("foreign-business")]
+    [InlineData("different-owner")]
+    [InlineData("different-installation")]
+    [InlineData("archived")]
+    [InlineData("unfinished")]
+    [InlineData("unpublished")]
+    public async Task Follow_up_reuses_authorized_project_and_pins_published_source(string scenario)
+    {
+        await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        const string capability = "source-control.personal-work.prepare.v1";
+        var actions = new HashSet<string> { capability, GitWorkspaceCapabilities.Prepare };
+        (await f.Db.AgentInstallationGrants.SingleAsync()).RequiredCapabilitiesJson = JsonSerializer.Serialize(actions);
+        var actor = await f.Db.CoreOrganizationUsers.SingleAsync();
+        var board = new WorkBoard { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            Kind = WorkBoardKind.Personal, OwnerOrganizationUserId = actor.Id };
+        WorkTask Ticket(string title) => new() { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            BoardId = board.Id, Board = board, Title = title, Status = WorkTaskStatus.Running,
+            ClaimEventId = Guid.NewGuid(), ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5),
+            SourceConversationId = Guid.NewGuid(), SourceMessageId = Guid.NewGuid() };
+        var original = Ticket("Breakout");
+        f.Db.WorkBoards.Add(board); f.Db.CoreWorkTasks.Add(original); await f.Db.SaveChangesAsync();
+        var internalHost = DispatchProxy.Create<ITrustedSourceControlHostClient, SourceHost>();
+        using var http = new HttpClient(new CoreTransport(new PersonalRepositoryBroker(f.Db, internalHost))) { BaseAddress = new Uri("http://core/") };
+        var host = new Host(new CoreWorkspaceBrokerClient(http));
+        var handler = new GitWorkspaceCapabilityHandler(f.Db, host, null!, null!, WorkspaceSyncTestOptions.Value);
+        var session = new AgentSession("session", "developer", f.Installation.ToString(), f.Organization.ToString(), "runtime", "tick",
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), actions, 1));
+        async Task<CapabilityResult> Prepare(WorkTask task, Guid? sourceId = null)
+        {
+            var request = new RequestCapability { RequestId = task.Id.ToString(), Capability = capability, ContentType = "application/json",
+                Payload = JsonPayload.From(new PreparePersonalGitWorkspaceRequest(task.Id, $"prepare:{task.Id:N}") { SourceWorkItemId = sourceId }) };
+            var results = new List<CapabilityResult>();
+            await foreach (var result in handler.HandleAsync(session, request, default)) results.Add(result);
+            return Assert.Single(results);
+        }
+        Assert.True((await Prepare(original)).Succeeded);
+        var repo = Assert.Single(await f.Db.SourceControlRepositories.ToListAsync());
+        var originalWorkspace = Assert.Single(await f.Db.SourceControlWorkspaces.ToListAsync());
+        original.Status = WorkTaskStatus.Completed;
+        if (scenario != "unpublished") f.Db.SourceControlPublications.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            RepositoryId = repo.Id, WorkspaceId = originalWorkspace.Id, CommitSha = new string('b', 40), CreatedAt = DateTimeOffset.UtcNow });
+        if (scenario == "foreign-business") original.OrganizationId = Guid.NewGuid();
+        if (scenario == "different-owner") original.BoardId = Guid.NewGuid();
+        if (scenario == "different-installation") original.AssignedAgentInstallationId = Guid.NewGuid();
+        if (scenario == "archived") original.ArchivedAt = DateTimeOffset.UtcNow;
+        if (scenario == "unfinished") original.Status = WorkTaskStatus.Running;
+        var fix = Ticket("Fix bricks"); f.Db.CoreWorkTasks.Add(fix); await f.Db.SaveChangesAsync();
+        var result = await Prepare(fix, original.Id);
+        if (scenario != "valid")
+        {
+            Assert.False(result.Succeeded);
+            Assert.Equal(0, fix.AssignmentRevision);
+            Assert.Single(await f.Db.SourceControlRepositories.ToListAsync());
+            Assert.Equal(1, host.Prepares);
+            return;
+        }
+        Assert.True(result.Succeeded, result.Error);
+        Assert.Equal(2, host.Prepares);
+        Assert.Equal(repo.Id, host.Requests[1].RepositoryId);
+        Assert.Equal(new string('b', 40), host.Requests[1].ExpectedCommitSha);
+        Assert.NotEqual(host.Requests[0].DeterministicBranch, host.Requests[1].DeterministicBranch);
+        Assert.Single(await f.Db.SourceControlRepositories.ToListAsync());
+        var binding = fix.DevelopmentBriefJson;
+        // Retry retains the project and source even when a newer publication appears.
+        f.Db.SourceControlPublications.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            RepositoryId = repo.Id, WorkspaceId = originalWorkspace.Id, CommitSha = new string('c', 40), CreatedAt = DateTimeOffset.UtcNow.AddSeconds(1) });
+        await f.Db.SaveChangesAsync();
+        Assert.True((await Prepare(fix, original.Id)).Succeeded);
+        Assert.Equal(binding, fix.DevelopmentBriefJson);
+        Assert.Equal(2, host.Prepares);
+        Assert.False((await Prepare(fix)).Succeeded); // A retry cannot silently turn into a new project.
+        // A further follow-up follows the stable project identity, not the intermediate ticket ID.
+        fix.Status = WorkTaskStatus.Completed;
+        var next = Ticket("Improve controls"); f.Db.CoreWorkTasks.Add(next); await f.Db.SaveChangesAsync();
+        Assert.True((await Prepare(next, fix.Id)).Succeeded);
+        Assert.Single(await f.Db.SourceControlRepositories.ToListAsync());
+        Assert.Equal(repo.Id, host.Requests[2].RepositoryId);
+        Assert.Equal(new string('c', 40), host.Requests[2].ExpectedCommitSha);
+        var unrelated = Ticket("New racing game"); f.Db.CoreWorkTasks.Add(unrelated); await f.Db.SaveChangesAsync();
+        Assert.True((await Prepare(unrelated)).Succeeded);
+        Assert.Equal(2, await f.Db.SourceControlRepositories.CountAsync());
+    }
+
     public class SourceHost : DispatchProxy
     {
         public bool LoseNextResponse;
@@ -110,9 +242,10 @@ public sealed class PersonalDevelopmentWorkspaceTests
     private sealed class Host(CoreWorkspaceBrokerClient core) : ITrustedGitHostClient
     {
         public int Prepares;
+        public List<TrustedWorkspacePrepareRequest> Requests { get; } = [];
         public Task CreatePersonalRepositoryAsync(AgentBrokerPersonalRepositoryRequest r, CancellationToken ct) => core.CreatePersonalRepositoryAsync(r, ct);
         public Task<TrustedWorkspaceMaterialization> PrepareAsync(TrustedWorkspacePrepareRequest r, CancellationToken ct)
-        { Prepares++; return Task.FromResult(new TrustedWorkspaceMaterialization("personal-workspace", $"/workspace/{r.WorkItemId:N}/1", new string('a', 40), false)); }
+        { Prepares++; Requests.Add(r); return Task.FromResult(new TrustedWorkspaceMaterialization("personal-" + r.WorkItemId.ToString("N"), $"/workspace/{r.WorkItemId:N}/1", r.ExpectedCommitSha ?? new string('a', 40), false)); }
         public Task<TrustedWorkspaceRefresh> RefreshAsync(TrustedWorkspaceOperationRequest r, CancellationToken ct) => throw new NotSupportedException();
         public Task<GitWorkspaceInspection> InspectAsync(TrustedWorkspaceOperationRequest r, CancellationToken ct) => throw new NotSupportedException();
         public Task<TrustedWorkspacePublication> PublishAsync(TrustedWorkspacePublishRequest r, CancellationToken ct) => throw new NotSupportedException();

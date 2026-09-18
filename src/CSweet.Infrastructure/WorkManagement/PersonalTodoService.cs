@@ -477,9 +477,10 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 [
                     NewColumn("To Do", WorkBoardColumnCategory.ToDo, 0),
                     NewColumn("Doing", WorkBoardColumnCategory.InProgress, 1),
-                    NewColumn("Blocked", WorkBoardColumnCategory.Blocked, 2),
-                    NewColumn("Done", WorkBoardColumnCategory.Done, 3),
-                    NewColumn("Cancelled", WorkBoardColumnCategory.Cancelled, 4)
+                    NewColumn("Testing", WorkBoardColumnCategory.Testing, 2),
+                    NewColumn("Blocked", WorkBoardColumnCategory.Blocked, 3),
+                    NewColumn("Done", WorkBoardColumnCategory.Done, 4),
+                    NewColumn("Cancelled", WorkBoardColumnCategory.Cancelled, 5)
                 ]
             };
             db.WorkBoards.Add(board);
@@ -487,6 +488,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         else
         {
             board.Kind = WorkBoardKind.Personal;
+            if (!board.Columns.Any(x => x.Category == WorkBoardColumnCategory.Testing))
+                AddMissingColumn("Testing", WorkBoardColumnCategory.Testing);
             if (!board.Columns.Any(x => x.Category == WorkBoardColumnCategory.Blocked))
                 AddMissingColumn("Blocked", WorkBoardColumnCategory.Blocked);
             if (!board.Columns.Any(x => x.Category == WorkBoardColumnCategory.Cancelled))
@@ -1413,6 +1416,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         WorkTaskStatus.Completed => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Done),
         WorkTaskStatus.Ready => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo),
         WorkTaskStatus.Blocked => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Blocked),
+        WorkTaskStatus.WaitingForApproval => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Testing),
         WorkTaskStatus.Running => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.InProgress),
         WorkTaskStatus.Cancelled => board.Columns.Single(x => x.Category == WorkBoardColumnCategory.Cancelled),
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unsupported personal task status.")

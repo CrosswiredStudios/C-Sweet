@@ -34,6 +34,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public DbSet<SourceControlBusinessSettings> SourceControlBusinessSettings => Set<SourceControlBusinessSettings>();
 
+    public DbSet<TaskDeliveryReview> TaskDeliveryReviews => Set<TaskDeliveryReview>();
+    public DbSet<TaskMergePreference> TaskMergePreferences => Set<TaskMergePreference>();
+
     // Setup entities
     public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
     public DbSet<LlmProviderProfile> LlmProviderProfiles => Set<LlmProviderProfile>();

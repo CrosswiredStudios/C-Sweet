@@ -9,7 +9,8 @@ public enum WorkBoardColumnCategory
     InProgress,
     Blocked,
     Done,
-    Cancelled
+    Cancelled,
+    Testing
 }
 
 public enum WorkBoardKind

@@ -390,7 +390,8 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             x.WorkItemId == input.WorkItemId &&
             x.AssignmentRevision == input.AssignmentRevision,
             cancellationToken);
-        if (existing is not null && existing.Status == SourceControlWorkspaceStatus.Ready)
+        if (existing is not null && existing.Status == SourceControlWorkspaceStatus.Ready &&
+            (context.ExpectedCommitSha is null || existing.BaseCommitSha == context.ExpectedCommitSha))
         {
             return ToWorkspaceResult(existing, context, AgentWorkspacePath(existing), true);
         }
@@ -788,6 +789,20 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.Id == workItemId,
             cancellationToken) ?? throw new KeyNotFoundException("The assigned work item was not found.");
+        var review = await db.TaskDeliveryReviews.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+            x.TaskId == workItemId && x.QaInstallationId == installationId && x.Status == "Testing", cancellationToken);
+        if (review is not null)
+        {
+            if (item.ArchivedAt is not null || item.AssignmentRevision != assignmentRevision ||
+                action is not (GitWorkspaceCapabilities.Prepare or GitWorkspaceCapabilities.Inspect or GitWorkspaceCapabilities.Sync or GitWorkspaceCapabilities.Cleanup))
+                throw new UnauthorizedAccessException("QA can only inspect its assigned task revision.");
+            var source = await db.SourceControlPublications.AsNoTracking().SingleAsync(x => x.Id == review.PublicationId && x.OrganizationId == organizationId, cancellationToken);
+            var origin = await db.SourceControlWorkspaces.AsNoTracking().SingleAsync(x => x.Id == source.WorkspaceId && x.OrganizationId == organizationId, cancellationToken);
+            var repo = await db.SourceControlRepositories.AsNoTracking().Include(x => x.Connection).SingleAsync(x => x.Id == review.RepositoryId && x.OrganizationId == organizationId && x.ArchivedAt == null && x.Status == SourceControlRepositoryStatus.Ready, cancellationToken);
+            var access = await db.TeamRepositoryPolicies.AsNoTracking().SingleAsync(x => x.OrganizationId == organizationId && x.TeamId == origin.TeamId && x.RepositoryId == repo.Id && x.DisabledAt == null, cancellationToken);
+            await RequireActiveTeamMemberAsync(organizationId, installationId, origin.TeamId, cancellationToken);
+            return new AssignmentContext(item, origin.TeamId, repo, access, review.CommitSha);
+        }
         var personalBoard = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Id == item.BoardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Personal, cancellationToken);
         if (personalBoard is not null)

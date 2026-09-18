@@ -49,7 +49,7 @@ public sealed class TrustedSourceControlHostClient(
     private async Task<TResponse> SendInternalAsync<TRequest, TResponse>(string path, TRequest request, CancellationToken ct)
     {
         using var response = await http.PostAsJsonAsync(path, request, ct);
-        if (!response.IsSuccessStatusCode) throw new InvalidOperationException("The trusted repository operation was rejected or conflicted. Refresh the workspace and retry.");
+        await WorkspaceOperationErrors.EnsureSuccessAsync(response, "GitHost", path, ct);
         return await response.Content.ReadFromJsonAsync<TResponse>(ct) ?? throw new InvalidOperationException("GitHost returned an empty response.");
     }
 

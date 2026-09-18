@@ -313,6 +313,13 @@ public sealed class McpToolCatalog(
             "Submit a document package for review when every member is explicitly granted."),
         Write(ArtifactPlatformCapabilities.PackageDecide, "decide_artifact_package",
             "Accept a complete package whose exact member documents are explicitly decidable."),
+        HiddenWrite(TaskDeliveryCapabilities.Submit, "submit_task_review", "Typed task delivery operation with current assignment and manager authorization."),
+        HiddenRead(TaskDeliveryCapabilities.List, "list_task_reviews", "Discover assigned pending task reviews for wake and reconnect recovery."),
+        HiddenRead(TaskDeliveryCapabilities.Read, "read_task_reviews", "Typed task delivery operation with current assignment and manager authorization."),
+        HiddenWrite(TaskDeliveryCapabilities.Quality, "report_task_quality", "Typed task delivery operation with current assignment and manager authorization."),
+        HiddenRead(TaskDeliveryCapabilities.Preferences, "read_merge_preference", "Typed task delivery operation with current assignment and manager authorization."),
+        HiddenWrite(TaskDeliveryCapabilities.ChangePreference, "change_merge_preference", "Typed task delivery operation with current assignment and manager authorization."),
+        HiddenWrite(TaskDeliveryCapabilities.Decide, "decide_task_merge", "Typed task delivery operation with current assignment and manager authorization."),
         Write("source-control.personal-work.prepare.v1", "prepare_personal_git_workspace",
             "Prepare a private C-Sweet repository for an owned, actively claimed personal ticket."),
         Write(GitWorkspaceCapabilities.Prepare, "prepare_git_workspace",
@@ -539,7 +546,7 @@ public sealed class McpToolCatalog(
         W.DeliveryEvidenceCapabilityNames.PreviewReadV2 or
         W.DeliveryEvidenceCapabilityNames.EvaluationReadV1 or
         W.DeliveryEvidenceCapabilityNames.ReleaseReadinessReadV1 or
-        SourceControlCapabilities.TeamRepositoryOptions => ArrayOutput,
+        SourceControlCapabilities.TeamRepositoryOptions or TaskDeliveryCapabilities.List => ArrayOutput,
         _ => ObjectOutput
     };
 
@@ -836,8 +843,27 @@ public sealed class McpToolCatalog(
         PersonalTodoActions.Defer => Schema("""
             {"type":"object","required":["itemId","eventId","expectedRevision","nextReviewAt","reason","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"eventId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"nextReviewAt":{"type":"string","format":"date-time"},"reason":{"type":"string","minLength":1,"maxLength":2048},"waitingOnOrganizationUserId":{"type":["string","null"],"format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
+        TaskDeliveryCapabilities.Submit => Schema("""
+            {"type":"object","required":["rootItemId","taskItemId","publicationId","summary","idempotencyKey"],"properties":{"rootItemId":{"type":"string","format":"uuid"},"taskItemId":{"type":"string","format":"uuid"},"publicationId":{"type":"string","format":"uuid"},"summary":{"type":"string","minLength":1,"maxLength":4096},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        TaskDeliveryCapabilities.List => EmptyInput,
+        TaskDeliveryCapabilities.Read => Schema("""
+            {"type":"object","required":["taskItemId"],"properties":{"taskItemId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        TaskDeliveryCapabilities.Quality => Schema("""
+            {"type":"object","required":["reviewId","commitSha","verdict","summary","validations","idempotencyKey"],"properties":{"reviewId":{"type":"string","format":"uuid"},"commitSha":{"type":"string"},"verdict":{"type":"string","enum":["Passed","Failed","Blocked"]},"summary":{"type":"string","minLength":1,"maxLength":4096},"validations":{"type":"array","maxItems":100,"items":{"type":"object"}},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        TaskDeliveryCapabilities.Preferences => Schema("""
+            {"type":"object","required":["scopeWorkItemId"],"properties":{"scopeWorkItemId":{"type":"string","format":"uuid"}},"additionalProperties":false}
+            """),
+        TaskDeliveryCapabilities.ChangePreference => Schema("""
+            {"type":"object","required":["scopeWorkItemId","mode","sourceMessageId","expectedRevision","idempotencyKey"],"properties":{"scopeWorkItemId":{"type":"string","format":"uuid"},"mode":{"type":"string","enum":["Ask","Auto","Inherit"]},"sourceMessageId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":0},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
+        TaskDeliveryCapabilities.Decide => Schema("""
+            {"type":"object","required":["reviewId","expectedRevision","sourceMessageId","choice","idempotencyKey"],"properties":{"reviewId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":0},"sourceMessageId":{"type":"string","format":"uuid"},"choice":{"type":"string","enum":["task","story","epic","review"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
         "source-control.personal-work.prepare.v1" => Schema("""
-            {"type":"object","required":["itemId","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["itemId","idempotencyKey"],"properties":{"taskItemId":{"type":["string","null"],"format":"uuid"},"sourceWorkItemId":{"type":["string","null"],"format":"uuid"},"itemId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Sync => Schema("""
             {"type":"object","required":["workspaceId","assignmentRevision","direction","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"direction":{"type":"string","enum":["pull","push"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"archive":{"type":["string","null"]}},"additionalProperties":false}

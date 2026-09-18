@@ -152,7 +152,15 @@ public sealed partial class WorkItemMutationEngine
         RequireRevision(item, request.ExpectedRevision);
         if (tasks.TakeWhile(x => x.Id != item.Id).Any(x => x.Status != WorkTaskStatus.Completed || x.ArchivedAt != null))
             throw new InvalidOperationException("Complete preceding plan tasks before starting this task.");
-        if (target == WorkTaskStatus.Completed && item.Status != WorkTaskStatus.Running || item.Status == WorkTaskStatus.Completed)
+        var review = await db.TaskDeliveryReviews.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.TaskId == item.Id && x.Status != "Superseded")
+            .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken);
+        if (target == WorkTaskStatus.Completed && item.AssignmentRevision > 0 && review is null &&
+            item.DevelopmentBriefJson?.Contains("personalPlanRootId", StringComparison.Ordinal) == true)
+            throw new InvalidOperationException("Publish this task for review and merge before completing it.");
+        if (review is not null && (target == WorkTaskStatus.Completed && review.Status != "Merged" ||
+            target == WorkTaskStatus.Running && review.Status is not ("ChangesRequested" or "Merged")))
+            throw new InvalidOperationException("This task is awaiting review or merge. It cannot resume or complete yet.");
+        if (target == WorkTaskStatus.Completed && item.Status != WorkTaskStatus.Running && !(item.Status == WorkTaskStatus.WaitingForApproval && review?.Status == "Merged") || item.Status == WorkTaskStatus.Completed)
             throw new InvalidOperationException("Only the current running task can be completed.");
         var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == root.BoardId, cancellationToken);
         Set(item, target);

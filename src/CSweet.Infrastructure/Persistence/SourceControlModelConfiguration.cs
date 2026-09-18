@@ -7,6 +7,23 @@ internal static class SourceControlModelConfiguration
 {
     public static void Configure(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TaskDeliveryReview>(e => {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Revision).IsConcurrencyToken();
+            e.HasIndex(x => new { x.OrganizationId, x.TaskId, x.PublicationId }).IsUnique();
+            e.HasIndex(x => new { x.Status, x.UpdatedAt });
+            e.Property(x => x.CommitSha).HasMaxLength(64);
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.QualityStatus).HasMaxLength(32);
+            e.Property(x => x.Summary).HasMaxLength(4096);
+            e.Property(x => x.Failure).HasMaxLength(4096);
+        });
+        modelBuilder.Entity<TaskMergePreference>(e => {
+            e.HasKey(x => new { x.OrganizationId, x.ScopeWorkItemId });
+            e.Property(x => x.Revision).IsConcurrencyToken();
+            e.Property(x => x.Mode).HasMaxLength(16);
+            e.Property(x => x.IdempotencyKey).HasMaxLength(160);
+        });
         modelBuilder.Entity<SourceControlBusinessSettings>(entity =>
         {
             entity.HasKey(x => x.OrganizationId);

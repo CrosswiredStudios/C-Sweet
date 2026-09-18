@@ -55,6 +55,7 @@ public sealed class PersonalTodoActivityReader(CSweetDbContext db, IDataProtecti
     internal static (string State, string Message) Describe(string status, bool hasAgent, string? waiting,
         AgentWorkStatus? workStatus, DateTimeOffset? lease, DateTimeOffset? progress, DateTimeOffset now)
     {
+        if (status == "WaitingForApproval") return ("Testing", "The task is awaiting QA, manager review, or a confirmed merge. It is not complete yet.");
         if (status == Wire.PersonalTodoStatuses.Completed) return ("Completed", "This ticket is complete.");
         if (status == Wire.PersonalTodoStatuses.Blocked) return ("Blocked", "This ticket needs attention. Review its blocker below.");
         if (waiting is not null) return ("Waiting", waiting);

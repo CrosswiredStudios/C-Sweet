@@ -52,6 +52,7 @@ builder.Services.AddHostedService<ChatTurnWorker>();
 builder.Services.AddHostedService<ArtifactReviewJobWorker>();
 builder.Services.AddHostedService<ArtifactAccessExpiryWorker>();
 builder.Services.AddHostedService<SourceControlPlatformReconciliationWorker>();
+builder.Services.AddHostedService<TaskDeliveryWorker>();
 builder.Services.AddHostedService<MediaUploadCleanupWorker>();
 builder.Services.AddSingleton<IChatTurnEventRouter, ChatTurnEventRouter>();
 builder.Services.Configure<ChatTurnOptions>(builder.Configuration.GetSection("ChatTurns"));

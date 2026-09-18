@@ -176,13 +176,11 @@ app.MapPost("/internal/v3/github/workspaces/apply", async (GitHubSnapshotOperati
 }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(850L * 1024 * 1024));
 
 app.MapPost("/internal/v3/workspaces/apply", async (InternalGitSnapshotOperation request,
-    InternalGitRepositoryStore store, WorkspaceArtifactValidator artifacts, CancellationToken ct) =>
+    InternalGitRepositoryStore store, WorkspaceArtifactValidator artifacts, ILogger<InternalGitRepositoryStore> logger, CancellationToken ct) =>
 {
     try { return Results.Ok(await store.ApplySnapshotAsync(request, artifacts, ct)); }
-    catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
-    catch (ArgumentException) { return Results.BadRequest(); }
-    catch (KeyNotFoundException) { return Results.NotFound(); }
-    catch (Exception ex) when (ex is IOException or InvalidOperationException) { return Results.Conflict(); }
+    catch (Exception error) when (WorkspaceOperationErrors.IsExpected(error))
+    { return WorkspaceOperationErrors.Result(error, logger); }
 }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(850L * 1024 * 1024));
 app.MapPost("/internal/v3/merge", async (InternalGitMergeRequest request, InternalGitRepositoryStore store, CancellationToken ct) =>
 {

@@ -117,6 +117,7 @@ else
     builder.Services.AddSingleton<ITrustedGitHostClient, UnavailableTrustedGitHostClient>();
 }
 builder.Services.AddScoped<IPlatformCapabilityHandler, GitWorkspaceCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, TaskDeliveryCapabilityHandler>();
 builder.Services.AddScoped<IAgentMemoryIdentityResolver, AgentMemoryIdentityResolver>();
 builder.Services.AddRateLimiter(options =>
 {
