@@ -55,7 +55,13 @@ and separate human/judge scores. Partial rubric scores are not presented as fina
   contract; no agent SDK or package update is required. Focus, intervals, source
   mutations, lifecycle evidence, and audit/realtime outbox entries share the save
   transaction. Context revision and interval confirmation concurrency tokens reject
-  competing stale writes; callers must retry the operation in a fresh request.
+  competing stale writes. `WorkExecutionConflictRetry` replays standalone inbox claim,
+  heartbeat, progress, completion/failure and model queue-status operations up to three
+  times after an execution-context/interval conflict. It clears failed-save tracking and
+  reruns database reads and lease validation; source changes and their outboxes remain
+  atomic. It never retries unrelated concurrency failures, caller-owned transactions,
+  or operations entered with pending changes. Those callers retain responsibility for
+  retrying their complete transaction.
 - `WorkExecutionInterval` snapshots the task, project and ancestor IDs. Task focus or
   ancestry changes split intervals. Completion, blocking, deferral, release,
   cancellation and lease loss close them. Queue receipts pause effort while an LLM
@@ -103,7 +109,7 @@ Existing attempts have unknown confirmation coverage.
 New interval capture starts from deployment/observation, without fabricating old effort.
 
 Verification entry points: `WorkExecutionTests`, `WorkEfficiencyTests`,
-`WorkExecutionPostgresTests.SqlClaimPlanReportsConcurrencyAndRollbackCommitTimingAtomically`,
+`WorkExecutionPostgresTests` (including conflict replay, cancellation and rollback cases),
 `AnalyticsEndpointTests`, `PersonalTodoServiceTests`, and `AgentWorkInboxTests`.
 The PostgreSQL test requires `CSWEET_EFFICIENCY_TEST_POSTGRES` with an isolated
 `efficiency_validation` database prefix; it creates and deletes its own unique database.

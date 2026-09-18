@@ -1,5 +1,54 @@
 # Universal work management
 
+## Code map
+
+- `src/CSweet.Domain/Core/WorkTask.cs` - canonical work-item entity. Named `WorkTask`
+  to avoid conflict with `System.Threading.Tasks.Task`; docs use "work item" for the
+  product concept. Carries `BoardId`, `BoardColumnId`, `SprintId`, `ParentWorkTaskId`,
+  `BoardRank`, `TypeKey`, `PlanningRevision`, `AssignmentRevision`, `Revision`,
+  `StructuredMentionsJson`, planning/delivery/estimate JSON, approvals, and
+  `Dependencies`/`Dependents` (`WorkItemDependency`).
+- `src/CSweet.Domain/WorkManagement/WorkBoard.cs` - `WorkBoard`, `WorkBoardColumn`,
+  `WorkBoardUserPreference`, `WorkSprint`, `WorkItemDependency`, `WorkQualityRun`,
+  `WorkSprintSnapshot`, `WorkSprintMetricPoint`, `WorkSprintMutationReceipt`,
+  `WorkItemMutationReceipt`, `WorkItemComment`, `WorkItemActivity`, `WorkItemApproval`.
+- `src/CSweet.Domain/WorkManagement/WorkOrchestration.cs` - policy-pinned sprint
+  execution: `WorkOrchestrationPolicy`, revisions, stages, transitions, sprint/item/stage
+  executions, attempts, and orchestration events. Normative lifecycle is
+  `Documentation/Architecture/CSWEET_BOARD_ORCHESTRATION_SPEC.md`.
+- `src/CSweet.Application/WorkManagement/` - `IWorkBoardService`,
+  `IWorkBoardGrantService`, `IWorkBoardBehavior`, `IWorkItemCollaborationService`
+  (comments, activity, transfer), `IWorkSprintService`, `IWorkOrchestrationService`,
+  `IPersonalTodoService`/`IWorkItemMutationEngine` (personal boards).
+- `src/CSweet.Infrastructure/WorkManagement/` - `WorkBoardService`,
+  `WorkBoardProvisioning` (default board, legacy-grant backfill, task placement),
+  `WorkBoardGrantService`, `WorkBoardBehaviors` (`StandardBoardBehavior`,
+  `HumanPersonalBoardBehavior`, `AgentPersonalBoardBehavior`),
+  `WorkItemCollaborationService`, `WorkItemMentionCodec`, `WorkSprintService`,
+  `WorkSprintReportBuilder`, `WorkSprintSnapshotFactory`, `WorkSprintMetricsRecorder`,
+  `WorkOrchestrationService`, `WorkOrchestrator`, `WorkItemMutationEngine`
+  (in `PersonalTodoService.cs`), `PersonalWorkPlanning`, `PersonalTodoActivityReader`.
+- `src/CSweet.Infrastructure/Persistence/WorkManagementConfigurations.cs` - EF mappings
+  and invariants: unique board key per organization, one default board per
+  organization, one active sprint per board, unique sprint sequence, revision
+  concurrency tokens, idempotency-key uniqueness, no-self-dependency check.
+- `src/CSweet.Api/WorkManagement/WorkBoardEndpoints.cs` - `MapWorkBoardEndpoints`:
+  board directory/detail CRUD, favorites, columns, items, moves, collaboration,
+  transfer, sprints, capacity, carryover, sprint reports, grants, orchestration,
+  delivery-pipeline assignment, and the `personal-todos` group.
+- `src/CSweet.AgentHost/Broker/WorkManagementCapabilityHandler.cs` - agent `work.*`
+  broker entrypoint. `PersonalTodoCapabilityHandler` covers personal-todo actions.
+- `src/CSweet.Contracts/WorkManagement/WorkBoardContracts.cs` - human-facing DTOs and
+  action constants: `WorkBoardActions`, `WorkItemActions`, `WorkSprintActions`,
+  `WorkAutomationActions` (contract/UI surface only), `PersonalTodoActions`.
+- `src/CSweet.UI/Pages/WorkBoards.razor` - board directory, detail workspace,
+  sprints, orchestration, delivery pipeline, grants, comments/activity, transfer,
+  and automation dialogs. Detail components live in
+  `src/CSweet.UI/Components/WorkBoards/`; personal boards use
+  `src/CSweet.UI/Components/Employees/EmployeePersonalBoard.razor`.
+- Wire contracts shared with agents live in the sibling
+  `CSweet.WorkManagement.Contracts` package (`work.*` capability names and DTOs).
+
 ## Product decision
 
 C-Sweet has one canonical application-wide work item. Every work item belongs to
@@ -42,25 +91,31 @@ grants, reports, and security evidence.
 
 ### Phase 2 - canonical work items and workflows
 
-- Generalize `WorkTask` to `WorkItem` while preserving IDs, task runs, artifacts,
-  strategic objectives, and compatibility routes.
+- Generalize `WorkTask` to the canonical `WorkItem` concept while preserving IDs, task runs, artifacts,
+  strategic objectives, and compatibility routes. The code entity remains `WorkTask`
+  (`src/CSweet.Domain/Core/WorkTask.cs`, named to avoid conflict with `System.Threading.Tasks.Task`).
 - Add configurable work types, workflows, transitions, WIP limits, ranking,
   hierarchy, relations, comments, transfers, realtime events, and MCP tools.
 
 Implemented foundation: the canonical record now supports typed work items,
 single-board column placement, parent hierarchy, stable ranking, revision-checked
 movement, configurable column categories, warning/hard WIP policies, and distinct
-move/complete/cancel/reopen grants. Agent MCP tools now support scoped board
+move/complete/cancel/reopen grants. Structured mentions are implemented through
+`WorkItemMentionCodec` (title/description spans persisted in
+`WorkTask.StructuredMentionsJson`); item dependencies are persisted as
+`WorkItemDependency` rows with a no-self-dependency invariant. Agent MCP tools now support scoped board
 discovery, board reads, board and typed-item creation, movement, completion,
 cancellation, reopening, comments, and cross-board transfer. Comments and
 workflow changes produce durable item activity. Human and agent mutations publish
 grant-filtered realtime board events through the application outbox, and open
 board/detail views refresh from those events. A transfer requires authority on
-both boards, preserves the item's single canonical state, checks the target WIP
-policy, and rejects partial movement of an existing hierarchy. Agent writes
+both boards, preserves the item's single canonical state, clears sprint
+membership, reissues the `{BoardKey}-{Sequence}` identifier on the target board,
+checks the target WIP policy, and rejects hierarchical items unless they are
+detached or moved with their hierarchy. Agent writes
 require durable idempotency keys and the platform enforces both the installation
-capability grant and the scoped board/action grant. Relations, mentions, and
-hierarchy-aware batch transfer remain in this phase. Comment editing and deletion
+capability grant and the scoped board/action grant. Hierarchy-aware batch transfer
+remains unimplemented. Comment editing and deletion
 now ship as their own feature: see [work item comments](../work-item-comments.md),
 which also extends comments to personal boards.
 
@@ -91,17 +146,35 @@ grants. Durable scope/status metric points now drive per-sprint burndown history
 and a conservative active-sprint forecast based on completed-sprint velocity;
 both are available through the human and agent report surfaces.
 
-Implemented automation foundation: humans and agents can create, inspect,
-update, enable, disable, and (before first execution) delete board event rules.
-Each rule has a dedicated automation identity that starts without authority and
-must hold the exact scoped item-action grant when it runs. Execution outcomes,
-including denials and WIP failures, are durable; successful moves carry the
-authorizing grant ID and revision into item activity and the security ledger.
-Automation-produced item events are not eligible as rule triggers, preventing
-recursive rule loops. The first action type is a grant-secured move, complete,
-cancel, or reopen into a configured column. Rich field conditions, notifications,
+Implemented automation status: the `AddBoardWorkOrchestration` migration dropped
+the `WorkAutomationRules` and `WorkAutomationExecutions` tables in favor of
+policy-pinned board orchestration (see `Documentation/Architecture/CSWEET_BOARD_ORCHESTRATION_SPEC.md`).
+The automation contract/UI surface still exists (`WorkAutomationActions`,
+`WorkAutomationRuleResponse`, `WorkAutomationDirectoryResponse`,
+`CreateWorkAutomationRuleRequest`, `UpdateWorkAutomationRuleRequest` in
+`src/CSweet.Contracts/WorkManagement/WorkBoardContracts.cs`, plus the automations
+dialog in `src/CSweet.UI/Pages/WorkBoards.razor`), but there is currently no
+API or infrastructure backend behind it. Do not document event rules as available
+until a backend is reintroduced. Rich field conditions, notifications,
 assignments, scheduled triggers, approvals, and bounded multi-step rule chains
 remain later automation extensions.
+
+## Personal boards
+
+Personal boards (`WorkBoardKind.Personal`) are per-owner boards managed by
+`IPersonalTodoService`/`IWorkItemMutationEngine` (`WorkItemMutationEngine` in
+`src/CSweet.Infrastructure/WorkManagement/PersonalTodoService.cs`) and exposed
+through the `personal-todos` route group in `WorkBoardEndpoints`. Board behavior
+is selected by `IWorkBoardBehavior`: `StandardBoardBehavior` for team boards,
+`HumanPersonalBoardBehavior` (owner can create and transition directly, no claim
+lease), and `AgentPersonalBoardBehavior` (owner can create, transitions require
+the claim lease). Personal boards authorize with the `personal-todo` action
+family, not `work.item.*`, except for human-owner comment actions and transfer.
+Managers keep read/reorder/requeue visibility over their reporting chain but
+receive no comment authority; agent-owned personal boards receive no comment
+grants. Reconciliation (`ReconcileAsync`, plus `PersonalTodoReconciliationWorker`)
+ensures boards for active owners, revokes grants for inactive owners, expires
+claims, retries eligible work, and enforces soft/hard open-item limits.
 
 ## Security invariants
 

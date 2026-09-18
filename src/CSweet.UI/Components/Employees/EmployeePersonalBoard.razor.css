@@ -13,15 +13,6 @@ button, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled, select:disabled { cursor: default; opacity: .6; }
 button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--pb-green); outline-offset: 3px; }
-.personal-board-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 28px 30px 24px; border-radius: 20px 20px 0 0; background: radial-gradient(ellipse at 100% 0%, var(--pb-mint), transparent 65%); }
-.board-eyebrow { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--pb-green); }
-.board-eyebrow ::deep .mud-icon-root { font-size: 16px; }
-.personal-board-header h2 { margin: 9px 0 8px; font-size: 34px; font-weight: 650; line-height: 1.15; letter-spacing: -1.3px; overflow-wrap: anywhere; }
-.personal-board-header p { margin: 0; color: var(--pb-muted); font-size: 12px; }
-.board-owner { display: flex; gap: 10px; align-items: center; min-width: 0; }
-.board-owner strong { display: block; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
-.board-owner small { display: block; font-size: 12px; color: var(--pb-muted); }
-.owner-avatar { display: grid; place-items: center; width: 39px; height: 39px; flex-shrink: 0; border-radius: 13px; background: var(--pb-mint); color: var(--pb-green); border: 1px solid color-mix(in srgb, var(--pb-green) 18%, var(--mud-palette-surface)); font-size: 12px; font-weight: 650; }
 .board-toolbar { margin: 0 26px; padding: 14px 0; display: flex; justify-content: space-between; gap: 12px; align-items: center; border-block: 1px solid var(--pb-line); flex-wrap: wrap; }
 .toolbar-group, .board-view { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
 .board-view { font-size: 12px; font-weight: 600; }
@@ -61,6 +52,7 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px
 .ticket-due { display: block; color: var(--pb-muted); font-size: 11px; margin-top: 23px; }
 .column-empty { min-height: 126px; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; font-size: 11px; color: var(--pb-muted); border: 1px dashed var(--pb-line); border-radius: 10px; padding: 10px; }
 .column-empty ::deep .mud-icon-root { opacity: .65; font-size: 20px; }
+.column-more { text-align: center; font-size: 11px; color: var(--pb-muted); background: var(--pb-soft); border: 1px dashed var(--pb-line); border-radius: 10px; padding: 8px 10px; }
 .drop-target { outline: 2px solid var(--pb-green); outline-offset: 3px; }
 .board-footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--pb-line); padding: 12px 25px; font-size: 11px; color: var(--pb-muted); }
 .board-filters { padding: 20px; width: min(330px, calc(100vw - 32px)); background: var(--mud-palette-surface); }
@@ -89,6 +81,7 @@ select { width: 100%; max-width: 100%; min-width: 0; border: 1px solid var(--pb-
 .full-description { white-space: pre-wrap; font-size: 13px; line-height: 1.85; color: var(--pb-muted); overflow-wrap: anywhere; }
 .task-properties { padding: 24px 20px; background: color-mix(in srgb, var(--pb-green) 3%, var(--mud-palette-surface)); border-left: 1px solid var(--pb-line); min-width: 0; }
 .property-owner { display: flex; gap: 8px; align-items: center; font-size: 12px; overflow-wrap: anywhere; }
+.owner-avatar { display: grid; place-items: center; flex-shrink: 0; border-radius: 13px; background: var(--pb-mint); color: var(--pb-green); border: 1px solid color-mix(in srgb, var(--pb-green) 18%, var(--mud-palette-surface)); font-size: 12px; font-weight: 650; }
 .property-owner .owner-avatar { width: 28px; height: 28px; border-radius: 9px; font-size: 10px; }
 .task-dates { font-size: 11px; overflow-wrap: anywhere; margin: 0; }
 .task-dates dt { color: var(--pb-muted); margin-top: 14px; }
@@ -114,15 +107,13 @@ select { width: 100%; max-width: 100%; min-width: 0; border: 1px solid var(--pb-
 .context-link { margin-top: 20px; text-decoration: none; }
 @media (max-width: 1100px) { .employee-personal-kanban { grid-template-columns: repeat(5, minmax(210px, 1fr)); overflow-x: auto; } }
 @media (max-width: 760px) {
-    .personal-board-header { padding: 22px; flex-wrap: wrap; }
-    .personal-board-header h2 { font-size: 28px; }
     .board-toolbar { margin: 0 20px; }
     .task-body { grid-template-columns: 1fr; }
     .task-properties { border-left: 0; border-top: 1px solid var(--pb-line); display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     .task-properties .property { margin: 0; }
     .task-header, .task-description { padding: 20px; }
 }
-@media (max-width: 450px) { .employee-personal-kanban { grid-template-columns: 1fr; overflow-x: visible; } .board-owner > div { display: none; } .task-header h2 { font-size: 24px; } .task-properties { grid-template-columns: 1fr; } }
+@media (max-width: 450px) { .employee-personal-kanban { grid-template-columns: 1fr; overflow-x: visible; } .task-header h2 { font-size: 24px; } .task-properties { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .personal-ticket { transition: none; } }
 @media (pointer: coarse) { button, select { min-height: 44px; } select { font-size: 16px; } }
 .toolbar-group ::deep .board-filter-menu .mud-button-root { border-color: var(--pb-line); border-radius: 9px; padding: 9px 13px; font-size: 12px; font-weight: 600; text-transform: none; background: var(--mud-palette-surface); }

@@ -46,6 +46,10 @@ public static class AgentWorkFailure
     }
     public static string DescribeBlocker(string? error, string? runtimeLog = null)
     {
+        if (error == "The prior runtime lease expired.")
+            return "C-Sweet stopped receiving the agent's work heartbeat, so this execution attempt expired. " +
+                "Check the agent runtime output and AgentHost logs for the failure immediately before the heartbeat stopped. " +
+                "Resolve that failure, then move this task back to To Do to retry.";
         var capability = FailureField(error, "capability");
         var code = FailureField(error, "code");
         var exceptionType = SafeExceptionType(FailureField(error, "exceptionType"));

@@ -59,6 +59,8 @@ Cross-cutting features are documented as a phased series in their own folder:
   revisions, access, review, chat links, and agent capabilities on one canonical artifact model.
 - [Work item comments](./features/work-item-comments.md) - make ticket discussion author-scoped,
   editable, and retractable on both team boards and personal boards.
+- [Universal work management](./features/work-management/README.md) - canonical work items,
+  board directory, sprints, personal boards, orchestration, and the symbol-first code map.
 - [Hiring suggestion lifecycle](./features/hiring-suggestion-lifecycle.md) - one actionable hiring
   suggestion per conversation, with created/completed/cancelled/superseded states, withdraw cascade,
   and owner-directed replacement semantics.

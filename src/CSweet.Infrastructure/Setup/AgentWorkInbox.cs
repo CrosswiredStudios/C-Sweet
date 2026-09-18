@@ -165,7 +165,8 @@ public sealed class AgentWorkInbox(
         await claimLock.WaitAsync(cancellationToken);
         try
         {
-            return await ClaimCoreAsync(session, cancellationToken);
+            return await WorkExecutionConflictRetry.RunAsync(db,
+                () => ClaimCoreAsync(session, cancellationToken), cancellationToken);
         }
         finally
         {
@@ -326,7 +327,16 @@ public sealed class AgentWorkInbox(
         int attempt, string leaseToken, CancellationToken token) =>
         (await GetActiveAttemptAsync(session, workId, attempt, leaseToken, token)).AgentWorkItem!.DeadlineAt;
 
-    public async Task<DateTimeOffset> RenewAsync(
+    public Task<DateTimeOffset> RenewAsync(
+        McpAgentSession session,
+        Guid workId,
+        int attemptNumber,
+        string leaseToken,
+        CancellationToken cancellationToken) =>
+        WorkExecutionConflictRetry.RunAsync(db,
+            () => RenewCoreAsync(session, workId, attemptNumber, leaseToken, cancellationToken), cancellationToken);
+
+    private async Task<DateTimeOffset> RenewCoreAsync(
         McpAgentSession session,
         Guid workId,
         int attemptNumber,
@@ -366,7 +376,18 @@ public sealed class AgentWorkInbox(
         // Lease bookkeeping does not change the task revision expected by the active callback.
     }
 
-    public async Task AppendProgressAsync(
+    public Task AppendProgressAsync(
+        McpAgentSession session,
+        Guid workId,
+        int attemptNumber,
+        string leaseToken,
+        long sequence,
+        JsonElement value,
+        CancellationToken cancellationToken) =>
+        WorkExecutionConflictRetry.RunAsync(db,
+            () => AppendProgressCoreAsync(session, workId, attemptNumber, leaseToken, sequence, value, cancellationToken), cancellationToken);
+
+    private async Task AppendProgressCoreAsync(
         McpAgentSession session,
         Guid workId,
         int attemptNumber,
@@ -402,7 +423,17 @@ public sealed class AgentWorkInbox(
         AgentRuntimeMetrics.Work("progressed", attempt.AgentWorkItem!.Kind);
     }
 
-    public async Task CompleteAsync(
+    public Task CompleteAsync(
+        McpAgentSession session,
+        Guid workId,
+        int attemptNumber,
+        string leaseToken,
+        AgentWorkCompletion completion,
+        CancellationToken cancellationToken) =>
+        WorkExecutionConflictRetry.RunAsync(db,
+            () => CompleteCoreAsync(session, workId, attemptNumber, leaseToken, completion, cancellationToken), cancellationToken);
+
+    private async Task CompleteCoreAsync(
         McpAgentSession session,
         Guid workId,
         int attemptNumber,
@@ -449,7 +480,17 @@ public sealed class AgentWorkInbox(
         AgentRuntimeMetrics.Work("completed", item.Kind);
     }
 
-    public async Task FailAsync(
+    public Task FailAsync(
+        McpAgentSession session,
+        Guid workId,
+        int attemptNumber,
+        string leaseToken,
+        string error,
+        CancellationToken cancellationToken) =>
+        WorkExecutionConflictRetry.RunAsync(db,
+            () => FailCoreAsync(session, workId, attemptNumber, leaseToken, error, cancellationToken), cancellationToken);
+
+    private async Task FailCoreAsync(
         McpAgentSession session,
         Guid workId,
         int attemptNumber,

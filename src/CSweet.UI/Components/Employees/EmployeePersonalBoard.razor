@@ -2,11 +2,7 @@
 @using Present = CSweet.UI.Components.Employees.PersonalBoardPresentation
 @implements IDisposable
 
-<section class="personal-board" aria-label="@($"{Board.OwnerDisplayName}'s personal board")" aria-busy="@_busy">
-    <header class="personal-board-header">
-        <div><div class="board-eyebrow"><MudIcon Icon="@Icons.Material.Outlined.Shield" Size="Size.Small" />Protected work</div><h2>@Board.OwnerDisplayName</h2><p>Personal workspace</p></div>
-        <div class="board-owner"><span class="owner-avatar">@Present.Initials(Board.OwnerDisplayName)</span><div><strong>@Board.OwnerDisplayName</strong><small>Board owner</small></div></div>
-    </header>
+<section class="personal-board" aria-label="Personal board" aria-busy="@_busy">
     <div class="board-toolbar">
         <div class="toolbar-group"><strong class="board-view"><MudIcon Icon="@Icons.Material.Outlined.ViewKanban" Size="Size.Small" />Board <span class="board-count">@FilteredItems.Count</span></strong>
             @if (FilterCount > 0) { <button type="button" class="filter-chip" disabled="@_busy" @onclick="ClearFiltersAsync">@FilterCount active @(FilterCount == 1 ? "filter" : "filters") <MudIcon Icon="@Icons.Material.Outlined.Close" Size="Size.Small" /></button> }
@@ -33,8 +29,9 @@
         @foreach (var column in Present.Columns)
         {
             var items = ItemsFor(column.Status);
+            var total = TotalFor(column.Status);
             <section class="personal-column @column.Status.ToLowerInvariant() @(_dropTarget == column.Status ? "drop-target" : "")" aria-label="@column.Label" @ondragover:preventDefault="true" @ondragenter="@(() => SetDropTarget(column.Status))" @ondrop="@(() => DropAsync(column.Status))">
-                <header class="column-heading"><span class="column-dot"></span><h3>@column.Label</h3><span>@items.Count</span></header>
+                <header class="column-heading"><span class="column-dot"></span><h3>@column.Label</h3><span>@total</span></header>
                 @foreach (var item in items)
                 {
                     <button @key="item.Id" type="button" class="personal-ticket" disabled="@_busy" draggable="@(CanDrag(item) ? "true" : "false")" @ondragstart="@(() => StartDrag(item))" @ondragend="EndDrag" @onclick="@(() => OpenDetails(item))">
@@ -48,6 +45,7 @@
                     </button>
                 }
                 @if (items.Count == 0) { <div class="column-empty"><MudIcon Icon="@(column.Status == Wire.PersonalTodoStatuses.Completed ? Icons.Material.Outlined.CheckCircle : Icons.Material.Outlined.Add)" /><span>@(FilterCount > 0 ? "No matching tickets" : column.Status == Wire.PersonalTodoStatuses.Completed ? "Completed work" : "No tickets yet")</span></div> }
+                else if (column.Status == Wire.PersonalTodoStatuses.Completed && HiddenCompletedCount > 0) { <div class="column-more" role="status">+@HiddenCompletedCount more</div> }
             </section>
         }
     </div>

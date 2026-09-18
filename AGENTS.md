@@ -38,5 +38,6 @@ Start with these before re-discovering behavior from source:
 - [chat turn diagnostics](docs/implementation/chat-turn-diagnostics.md) - failure branches, persisted error codes, trace/agent records, and console locations for a failed Communications answer.
 - [Chief of Staff refinement](docs/16-chief-of-staff-agent-refinement.md) - executive behavior spec for the Chief agent.
 - [native communications hub](docs/implementation/native-communications-hub.md) - conversations, turns, unread state, realtime events.
+- [universal work management](docs/implementation/features/work-management/README.md) - canonical work items, boards, sprints, personal boards, orchestration, and code map.
 - [debug guide](docs/implementation/debug-guide.md) - local setup and troubleshooting entry points.
 - Keep new and updated docs symbol-first (files and type/member names) over line numbers, which rot quickly.

@@ -4,6 +4,15 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentWorkFailureTests
 {
+    [Fact]
+    public void LeaseExpiryExplainsWhereToFindTheCauseAndHowToResume()
+    {
+        var message = AgentWorkFailure.DescribeBlocker("The prior runtime lease expired.");
+        Assert.Contains("heartbeat", message);
+        Assert.Contains("AgentHost logs", message);
+        Assert.Contains("To Do", message);
+    }
+
     [Theory]
     [InlineData("runtime.transport")]
     [InlineData("agent.unhandled")]

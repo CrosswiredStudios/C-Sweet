@@ -292,20 +292,23 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         {
             await using var scope = scopes.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
-            var row = await db.AgentRunLogs.SingleOrDefaultAsync(x => x.Id == job.Id, token);
-            if (row is null)
+            await WorkExecutionConflictRetry.RunAsync(db, async () =>
             {
-                row = new() { Id = job.Id, OrganizationId = Guid.Parse(job.Session.BusinessId),
-                    AgentInstallationId = Guid.Parse(job.Session.InstallationId), AgentKey = job.Session.AgentId,
-                    ProviderProfileId = job.Provider, StartedAt = job.CreatedAt, PromptHash = job.Hash,
-                    InvocationKind = "llm-queue", MeasurementKind = "Queue", AgentWorkItemId = job.WorkId };
-                db.AgentRunLogs.Add(row);
-            }
-            row.Status = state;
-            row.FailureMessage = job.Error;
-            row.DurationMs = (long)(clock.GetUtcNow() - job.CreatedAt).TotalMilliseconds;
-            if (state is "Completed" or "Failed" or "Cancelled") row.CompletedAt = clock.GetUtcNow();
-            await db.SaveChangesAsync(token);
+                var row = await db.AgentRunLogs.SingleOrDefaultAsync(x => x.Id == job.Id, token);
+                if (row is null)
+                {
+                    row = new() { Id = job.Id, OrganizationId = Guid.Parse(job.Session.BusinessId),
+                        AgentInstallationId = Guid.Parse(job.Session.InstallationId), AgentKey = job.Session.AgentId,
+                        ProviderProfileId = job.Provider, StartedAt = job.CreatedAt, PromptHash = job.Hash,
+                        InvocationKind = "llm-queue", MeasurementKind = "Queue", AgentWorkItemId = job.WorkId };
+                    db.AgentRunLogs.Add(row);
+                }
+                row.Status = state;
+                row.FailureMessage = job.Error;
+                row.DurationMs = (long)(clock.GetUtcNow() - job.CreatedAt).TotalMilliseconds;
+                if (state is "Completed" or "Failed" or "Cancelled") row.CompletedAt = clock.GetUtcNow();
+                await db.SaveChangesAsync(token);
+            }, token);
         }
         catch (Exception exception) { logger.LogWarning(exception, "Could not persist inference status for {JobId}.", job.Id); }
     }

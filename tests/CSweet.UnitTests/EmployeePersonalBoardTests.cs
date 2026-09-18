@@ -160,6 +160,43 @@ public sealed partial class EmployeePersonalBoardTests
         Assert.False(PersonalBoardRealtime.Matches(Envelope(organizationId, boardId, data: "{\"boardId\":\"not-a-guid\"}"), organizationId, boardId));
     }
 
+    [Fact]
+    public async Task RenderedBoardOmitsRedundantBannerAndCapsDoneAtTwentyNewest()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var boardId = Guid.NewGuid();
+        var ownerId = Guid.NewGuid();
+        var items = Enumerable.Range(0, 25).Select(i => Item() with
+        {
+            BoardId = boardId,
+            OwnerOrganizationUserId = ownerId,
+            Title = $"Done task {i}",
+            Status = Wire.PersonalTodoStatuses.Completed,
+            CreatedAt = now.AddDays(-30 + i),
+            UpdatedAt = now.AddHours(-25 + i)
+        }).ToList();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddScoped<AppRealtimeState>();
+        services.AddSingleton(new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) }))
+            { BaseAddress = new Uri("http://localhost") });
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var result = await renderer.RenderComponentAsync<EmployeePersonalBoard>(ParameterView.FromDictionary(new Dictionary<string, object?>
+            { [nameof(EmployeePersonalBoard.Board)] = Board(items), [nameof(EmployeePersonalBoard.CanAdd)] = true }));
+            return result.ToHtmlString();
+        });
+        Assert.DoesNotContain("Protected work", html);
+        Assert.DoesNotContain("Personal workspace", html);
+        Assert.DoesNotContain("Board owner", html);
+        Assert.Contains("Done task 24", html);
+        Assert.Contains("Done task 5", html);
+        Assert.DoesNotContain("Done task 4", html);
+        Assert.Contains("5 more", html);
+    }
+
     private static AppRealtimeEventEnvelope Envelope(Guid organizationId, Guid boardId,
         string eventType = AppRealtimeEvents.WorkBoardChanged, string? data = null) =>
         new(Guid.NewGuid(), 1, eventType, organizationId, "subject", DateTimeOffset.UtcNow,
@@ -183,6 +220,11 @@ public sealed partial class EmployeePersonalBoardTests
     private static void Set(object target, string field, object value) => target.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(target, value);
     private static T Get<T>(object target, string field) => (T)target.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target)!;
     private static Wire.PersonalTodoBoard Board(Wire.PersonalTodoItem item) => new(item.BoardId, item.OwnerOrganizationUserId, "Daniel Kim", null, null, 1, [item]);
+    private static Wire.PersonalTodoBoard Board(IReadOnlyList<Wire.PersonalTodoItem> items)
+    {
+        var first = items[0];
+        return new(first.BoardId, first.OwnerOrganizationUserId, "Daniel Kim", null, null, 1, items);
+    }
     private static Wire.PersonalTodoItem Item() => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "Manager", "Build Tetris", "Description", "Ready", "Medium", 0, 4, null, null, null, [], null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     private sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
     {

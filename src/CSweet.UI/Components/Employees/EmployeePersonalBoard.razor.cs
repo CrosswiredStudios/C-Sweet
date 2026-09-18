@@ -51,9 +51,18 @@ public partial class EmployeePersonalBoard
     private Guid? _loadedOrganizationId, _loadedBoardId, _transferBoardId;
     private IReadOnlyList<WorkBoardSummaryResponse> _transferTargets = [];
 
+    private const int CompletedColumnLimit = 20;
+
     private IReadOnlyList<Wire.PersonalTodoItem> FilteredItems => Board.Items
         .Where(x => Present.Matches(x, _statuses, _priority, _archive)).OrderBy(x => x.Rank).ToList();
-    private IReadOnlyList<Wire.PersonalTodoItem> ItemsFor(string status) => FilteredItems.Where(x => x.Status == status).ToList();
+    private IReadOnlyList<Wire.PersonalTodoItem> ItemsFor(string status)
+    {
+        var matches = FilteredItems.Where(x => x.Status == status);
+        if (status != Wire.PersonalTodoStatuses.Completed) return matches.ToList();
+        return matches.OrderByDescending(x => x.UpdatedAt).ThenByDescending(x => x.CreatedAt).Take(CompletedColumnLimit).ToList();
+    }
+    private int TotalFor(string status) => FilteredItems.Count(x => x.Status == status);
+    private int HiddenCompletedCount => TotalFor(Wire.PersonalTodoStatuses.Completed) - ItemsFor(Wire.PersonalTodoStatuses.Completed).Count;
     private int FilterCount => (_statuses.Count > 0 ? 1 : 0) + (_priority.Length > 0 ? 1 : 0) + (_archive != "current" ? 1 : 0);
     private bool HasEditableFields => _creating || (_selectedItem is { ArchivedAt: null } item && (CanExecute || CanMoveAny(item)));
     private bool HasDetailsChanges => _selectedItem is { } item &&
