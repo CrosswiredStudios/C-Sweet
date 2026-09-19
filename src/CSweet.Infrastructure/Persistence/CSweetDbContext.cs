@@ -37,6 +37,13 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<TaskDeliveryReview> TaskDeliveryReviews => Set<TaskDeliveryReview>();
     public DbSet<TaskMergePreference> TaskMergePreferences => Set<TaskMergePreference>();
 
+    public DbSet<ProjectIntake> ProjectIntakes => Set<ProjectIntake>();
+    public DbSet<ProjectParticipant> ProjectParticipants => Set<ProjectParticipant>();
+    public DbSet<ProjectDeliveryBinding> ProjectDeliveryBindings => Set<ProjectDeliveryBinding>();
+    public DbSet<ProjectManagerReservation> ProjectManagerReservations => Set<ProjectManagerReservation>();
+    public DbSet<LegacyProjectComputeAuthorization> LegacyProjectComputeAuthorizations => Set<LegacyProjectComputeAuthorization>();
+    public DbSet<LegacyDevelopmentAuthorization> LegacyDevelopmentAuthorizations => Set<LegacyDevelopmentAuthorization>();
+
     // Setup entities
     public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
     public DbSet<LlmProviderProfile> LlmProviderProfiles => Set<LlmProviderProfile>();
@@ -672,6 +679,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         modelBuilder.ApplyConfiguration(new ConnectorProfileApprovalConfiguration());
         modelBuilder.Entity<PluginSetupObligation>().HasIndex(x => x.InstallationId).IsUnique();
         SourceControlModelConfiguration.Configure(modelBuilder);
+        ProjectIntakeModelConfiguration.Configure(modelBuilder);
 
         modelBuilder.Entity<ApplicationUser>(entity =>
         {

@@ -71,7 +71,7 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                         x.InstallationId == environment.InstallationId && x.TeardownConfirmedAt == null, token);
                     foreach (var action in required)
                     {
-                        await broker.RequireActorAsync(environment.OrganizationId, environment.InstallationId, environment.WorkstreamId, action, token);
+                        await broker.RequireActorAsync(environment.OrganizationId, environment.InstallationId, environment.WorkstreamId, action, token, environment.Id);
                         var evidence = recorded.SingleOrDefault(x => x.Action == action) ?? throw new UnauthorizedAccessException();
                         var grant = current.SingleOrDefault(x => x.Id == evidence.GrantId && x.Revision == evidence.Revision &&
                             x.Action == action && x.ExpiresAt == evidence.ExpiresAt) ?? throw new UnauthorizedAccessException();

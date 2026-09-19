@@ -30,7 +30,7 @@ public sealed partial class ComputeBroker
             var authority = new List<ComputeActionAuthorization>();
             foreach (var required in actions)
             {
-                await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, required, token);
+                await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, required, token, environment.Id);
                 RequireAction(grants, required, now);
                 var grant = grants.FirstOrDefault(g => g.Action == required && g.ExpiresAt >= environment.LeaseExpiresAt &&
                     g.Id != Guid.Empty && g.Revision > 0 && Allows(g.ConstraintsJson))

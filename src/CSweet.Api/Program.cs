@@ -206,6 +206,7 @@ app.MapTeamEndpoints();
 app.MapHiringEndpoints();
 app.MapApprovalEndpoints();
 app.MapWorkstreamInspectionEndpoints();
+app.MapProjectSetupEndpoints();
 app.MapToolchainCertificationEndpoints();
 app.MapExecutiveBriefingEndpoints();
 app.MapCompanyDashboardEndpoints();

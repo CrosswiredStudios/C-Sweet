@@ -28,14 +28,18 @@ public sealed class PersonalRepositoryBroker(CSweetDbContext db, ITrustedSourceC
         var item = await db.CoreWorkTasks.AsNoTracking().Include(x => x.Board).SingleOrDefaultAsync(x =>
             x.Id == request.WorkItemId && x.OrganizationId == business, ct);
         if (actor is null || !(approved.Contains("source-control.personal-work.prepare.v1") || approved.Contains("source-control.personal-work.reserve.v1")) || item is null ||
-            item.Board is not { Kind: WorkBoardKind.Personal, ArchivedAt: null } board || board.OrganizationId != business ||
-            board.OwnerOrganizationUserId != actor.Id || item.ArchivedAt is not null ||
+            item.Board is not { ArchivedAt: null } board || board.OrganizationId != business ||
+            (board.Kind == WorkBoardKind.Personal ? board.OwnerOrganizationUserId != actor.Id : item.AssignedEmployeeId != actor.Id) || item.ArchivedAt is not null ||
             !((item.Status == WorkTaskStatus.Running && item.ClaimEventId is not null && item.ClaimExpiresAt > DateTimeOffset.UtcNow) ||
               (item.Status == WorkTaskStatus.Ready && item.IsExecutable)) ||
             item.SourceConversationId is null || item.SourceMessageId is null)
             throw new UnauthorizedAccessException("An approved installation and owned Ready ticket or live claim are required.");
 
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System).RequireIfConfiguredAsync(item, ct);
         var repositoryId = new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"personal-repository:{item.Id:N}")).AsSpan(0, 16));
+        if (board.WorkstreamId is { } projectId)
+            repositoryId = await db.ProjectDeliveryBindings.Where(x => x.OrganizationId == business && x.WorkstreamId == projectId).Select(x => x.RepositoryId).SingleAsync(ct)
+                ?? throw new InvalidOperationException("The project repository has not been reserved.");
         var repository = await db.SourceControlRepositories.AsNoTracking().Include(x => x.Connection).SingleOrDefaultAsync(x =>
             x.Id == repositoryId && x.OrganizationId == business, ct);
         if (repository is not { IsPrivate: true, IsManaged: true, ArchivedAt: null, Status: SourceControlRepositoryStatus.Provisioning } ||

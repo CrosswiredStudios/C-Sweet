@@ -118,6 +118,8 @@ else
 }
 builder.Services.AddScoped<IPlatformCapabilityHandler, GitWorkspaceCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, TaskDeliveryCapabilityHandler>();
+builder.Services.AddScoped<ProjectCapabilityPolicy>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, ProjectIntakeCapabilityHandler>();
 builder.Services.AddScoped<IAgentMemoryIdentityResolver, AgentMemoryIdentityResolver>();
 builder.Services.AddRateLimiter(options =>
 {

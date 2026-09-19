@@ -16,7 +16,8 @@ public interface IPlatformCapabilityDispatcher
 
 public sealed class PlatformCapabilityDispatcher(
     IEnumerable<IPlatformCapabilityHandler> handlers,
-    PluginSetupAssistancePolicy? setupPolicy = null) : IPlatformCapabilityDispatcher
+    PluginSetupAssistancePolicy? setupPolicy = null,
+    ProjectCapabilityPolicy? projectPolicy = null) : IPlatformCapabilityDispatcher
 {
     private readonly IReadOnlyList<IPlatformCapabilityHandler> _handlers = handlers.ToList();
 
@@ -38,6 +39,15 @@ public sealed class PlatformCapabilityDispatcher(
             }
             catch (Exception exception) when (exception is UnauthorizedAccessException or JsonException or InvalidOperationException)
             { denial = "The installation may not invoke this capability in its current setup context."; }
+        }
+        if (denial is null && projectPolicy is not null)
+        {
+            try
+            {
+                if (!Guid.TryParse(session.BusinessId, out var org) || !Guid.TryParse(session.InstallationId, out var agent)) throw new UnauthorizedAccessException("Invalid agent identity.");
+                await projectPolicy.ValidateAsync(org, agent, request.Capability, request.Payload.ToElement(), cancellationToken);
+            }
+            catch (Exception e) when (e is UnauthorizedAccessException or InvalidOperationException or JsonException) { denial = e.Message; }
         }
         if (denial is not null)
         {

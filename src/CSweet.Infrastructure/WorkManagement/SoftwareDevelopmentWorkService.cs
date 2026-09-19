@@ -122,6 +122,9 @@ public sealed class SoftwareDevelopmentWorkService(
             x.AgentInstallationId == installation.Id && x.IsActive,
             cancellationToken) ?? throw new InvalidOperationException(
             "The installation is not linked to an active organization employee.");
+        var projectPolicy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System);
+        if (await projectPolicy.RequiresProjectAsync(organizationId, installation.Id, cancellationToken))
+            await projectPolicy.RequireAsync(organizationId, employee.Id, boardId, cancellationToken);
         var teamId = await db.WorkBoards.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.Id == boardId)
             .Select(x => x.TeamId)

@@ -52,6 +52,14 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         var now = clock.GetUtcNow();
         if (setup is null)
             db.Add(setup = new ComputeLocalSetup { Id = Guid.NewGuid(), OrganizationId = organizationId, CreatedAt = now, UpdatedAt = now });
+        if (await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequiresProjectAsync(organizationId, installationId, token))
+        {
+            // Infrastructure preparation is not a delivery project. Project-bound access is resolved
+            // separately after authorized setup; do not create an agent-owned synthetic Workstream.
+            await db.SaveChangesAsync(token);
+            if (transaction is not null) await transaction.CommitAsync(token);
+            return;
+        }
         var workstreamId = StableId($"compute-workspace:{installationId:D}");
         db.Workstreams.Add(new Workstream { Id = workstreamId, OrganizationId = organizationId,
             AccountableManagerOrganizationUserId = actor.Id, Name = "Application testing",
@@ -86,6 +94,34 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
                 return new("Pending", access.WorkstreamId, null, "docker_preparation_pending");
         }
         return new(setup.State == "Ready" && access.GrantsCreatedAt is null ? "Pending" : setup.State, access.WorkstreamId, setup.State == "Ready" ? setup.TemplateId : null, setup.ErrorCode);
+    }
+
+    public async Task<ComputeDefaults> ReadProjectAsync(Guid organizationId, Guid installationId, Guid projectId, CancellationToken token)
+    {
+        var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive, token);
+        var board = await db.ProjectDeliveryBindings.Where(x => x.OrganizationId == organizationId && x.WorkstreamId == projectId).Select(x => x.BoardId).SingleAsync(token);
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequireAsync(organizationId, actor.Id, board, token);
+        var installation = await db.AgentInstallations.Include(x => x.Grant).SingleAsync(x => x.Id == installationId && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, token);
+        var approved = Approved(installation);
+        if (!approved.Contains(InfrastructureActions.Read)) throw new UnauthorizedAccessException();
+        var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
+        if (setup is not { State: "Ready", TemplateId: not null }) return new(setup?.State ?? "Pending", projectId, null, setup?.ErrorCode);
+        var template = await db.ComputeTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.TemplateId == setup.TemplateId, token);
+        if (template is null || JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json)?.Features.Contains("docker") != true)
+            return new("Pending", projectId, null, "docker_preparation_pending");
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).LockAsync(organizationId, token);
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequireAsync(organizationId, actor.Id, board, token);
+        var lifetime = configuration?.GetValue<int?>("CSweet:Compute:Defaults:MaximumLifetimeSeconds") ?? 0;
+        var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), 1, lifetime, ["linux"], ["x64"], [setup.TemplateId], AllowedPublishedPorts: [8080]);
+        foreach (var action in Actions.Where(approved.Contains))
+        {
+            var id = StableId($"project-compute:{projectId:D}:{installationId:D}:{action}");
+            if (!await db.ScopedActionGrants.AnyAsync(x => x.Id == id, token))
+                await grants.PutAsync(organizationId, id, new(0, installationId, projectId, action, constraints, lifetime == 0 ? DateTimeOffset.MaxValue : clock.GetUtcNow().AddDays(30)), token);
+        }
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return new("Ready", projectId, setup.TemplateId, null);
     }
 
     public async Task ActivateAccessAsync(ComputeLocalSetup setup, CancellationToken token)
@@ -163,6 +199,23 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
                 DataJson = JsonSerializer.Serialize(new { revision = setup.Revision }),
                 IdempotencyKey = $"compute-available:{access.Id:D}:{setup.Revision}:{(policyChanged ? "until-release" : "initial")}", Status = AgentPlatformEventOutboxStatus.Pending,
                 OccurredAt = now, NextAttemptAt = now });
+        }
+        // Project-bound agents do not have a synthetic ComputeAgentAccess row. Wake their
+        // current participants when host preparation becomes ready, using a stable event identity.
+        var projectAgents = await (from participant in db.ProjectParticipants
+            join person in db.CoreOrganizationUsers on participant.OrganizationUserId equals person.Id
+            join project in db.Workstreams on participant.WorkstreamId equals project.Id
+            where participant.OrganizationId == setup.OrganizationId && participant.RemovedAt == null &&
+                person.IsActive && person.ArchivedAt == null && person.AgentInstallationId != null &&
+                (project.Status == WorkstreamStatus.Active || project.Status == WorkstreamStatus.Approved)
+            select person.AgentInstallationId!.Value).Distinct().ToListAsync(token);
+        foreach (var agent in projectAgents)
+        {
+            var eventId = StableId($"project-compute-available:{agent:D}:{setup.Revision}");
+            if (await db.AgentPlatformEventOutbox.AnyAsync(x => x.Id == eventId, token)) continue;
+            db.AgentPlatformEventOutbox.Add(new() { Id = eventId, OrganizationId = setup.OrganizationId, TargetInstallationId = agent,
+                EventType = "com.csweet.compute.available.v1", DataJson = JsonSerializer.Serialize(new { revision = setup.Revision }),
+                IdempotencyKey = $"project-compute-available:{agent:D}:{setup.Revision}", NextAttemptAt = clock.GetUtcNow(), OccurredAt = clock.GetUtcNow() });
         }
         await db.SaveChangesAsync(token);
         if (transaction is not null) await transaction.CommitAsync(token);

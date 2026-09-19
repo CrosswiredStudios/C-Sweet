@@ -28,6 +28,27 @@ public sealed class TaskDeliveryTests
         Assert.Single(await f.Db.TaskDeliveryReviews.ToListAsync());
     }
 
+
+    [Fact]
+    public async Task Project_manager_approves_task_without_changing_developers_organizational_manager()
+    {
+        await using var f = await Fixture.Create();
+        var reportingManager = f.Manager.Id;
+        f.Manager = new() { Id = Guid.NewGuid(), OrganizationId = f.Org, DisplayName = "Prototype manager", IsActive = true,
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Manager };
+        f.Db.CoreOrganizationUsers.Add(f.Manager);
+        var project = new Workstream { Id = Guid.NewGuid(), OrganizationId = f.Org, AccountableManagerOrganizationUserId = f.Manager.Id, Status = WorkstreamStatus.Active };
+        f.Db.Workstreams.Add(project);
+        var board = await f.Db.WorkBoards.SingleAsync(); board.Kind = WorkBoardKind.Standard; board.OwnerOrganizationUserId = null;
+        board.WorkstreamId = project.Id; board.ManagerOrganizationUserId = f.Manager.Id;
+        f.Root.AssignedEmployeeId = f.Developer.Id; f.Story.AssignedEmployeeId = f.Developer.Id; f.Task.AssignedEmployeeId = f.Developer.Id;
+        f.Message.SenderOrganizationUserId = f.Manager.Id; await f.Db.SaveChangesAsync();
+        var review = await f.Submit(); Assert.Equal("AwaitingApproval", review.Status);
+        await f.Decide(review, "task"); await f.Merge();
+        Assert.Equal("Merged", (await f.Db.TaskDeliveryReviews.SingleAsync()).Status);
+        Assert.Equal(1, f.Host.Calls); Assert.Equal(reportingManager, f.Developer.ReportsToOrganizationUserId);
+    }
+
     [Theory]
     [InlineData("task", 0)]
     [InlineData("story", 1)]

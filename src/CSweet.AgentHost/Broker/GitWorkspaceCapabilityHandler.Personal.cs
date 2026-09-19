@@ -31,7 +31,7 @@ public sealed partial class GitWorkspaceCapabilityHandler
             x.Id == input.ItemId && x.OrganizationId == business, ct)
             ?? throw new KeyNotFoundException("Personal ticket not found.");
         await RequirePersonalReservationOwnerAsync(business, installation, item, input.ExpectedRevision, ct);
-        var repositoryId = PersonalRepositoryId(item.Id);
+        var repositoryId = item.Board?.WorkstreamId is { } projectId ? await ProjectRepositoryAsync(business, projectId, ct) : PersonalRepositoryId(item.Id);
         var repository = await db.SourceControlRepositories.Include(x => x.Connection).SingleOrDefaultAsync(x => x.Id == repositoryId, ct);
         var created = repository is null;
         if (repository is null)
@@ -61,7 +61,7 @@ public sealed partial class GitWorkspaceCapabilityHandler
             connection.Revision++;
             await db.SaveChangesAsync(ct);
         }
-        if (repository.OrganizationId != business || repository.Connection?.Provider != SourceControlProvider.InternalGit || repository.ArchivedAt is not null)
+        if (repository.OrganizationId != business || (item.Board?.WorkstreamId is null && repository.Connection?.Provider != SourceControlProvider.InternalGit) || repository.ArchivedAt is not null)
             throw new UnauthorizedAccessException("The personal repository is unavailable.");
         if (repository.Status == SourceControlRepositoryStatus.Provisioning)
         {
@@ -76,13 +76,14 @@ public sealed partial class GitWorkspaceCapabilityHandler
 
     private async Task RequirePersonalReservationOwnerAsync(Guid business, Guid installation, WorkTask item, long expectedRevision, CancellationToken ct)
     {
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System).RequireIfConfiguredAsync(item, ct);
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == business &&
             x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null, ct);
         var approved = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == installation &&
             x.BusinessId == business.ToString("D") && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, ct);
         var capabilities = JsonSerializer.Deserialize<HashSet<string>>(approved?.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];
-        if (actor is null || !capabilities.Contains(PersonalReserveCapability) || item.Board is not { Kind: WorkBoardKind.Personal, ArchivedAt: null } board ||
-            board.OwnerOrganizationUserId != actor.Id || item.AssignedEmployeeId != actor.Id || item.AssignedAgentInstallationId != installation ||
+        if (actor is null || !capabilities.Contains(PersonalReserveCapability) || item.Board is not { ArchivedAt: null } board ||
+            (board.Kind == WorkBoardKind.Personal ? board.OwnerOrganizationUserId != actor.Id : item.AssignedEmployeeId != actor.Id) || item.AssignedEmployeeId != actor.Id || item.AssignedAgentInstallationId != installation ||
             item.ArchivedAt is not null || item.Status != WorkTaskStatus.Ready || !item.IsExecutable || item.Revision != expectedRevision ||
             item.SourceConversationId is null || item.SourceMessageId is null)
             throw new UnauthorizedAccessException("An owned Ready personal ticket at its expected revision is required.");
@@ -157,13 +158,13 @@ public sealed partial class GitWorkspaceCapabilityHandler
             connection.Revision++; // Serialize quota reservation with other repository requests.
             await db.SaveChangesAsync(ct);
         }
-        if (repository.OrganizationId != business || repository.Connection?.Provider != SourceControlProvider.InternalGit || repository.ArchivedAt is not null)
+        if (repository.OrganizationId != business || (item.Board?.WorkstreamId is null && repository.Connection?.Provider != SourceControlProvider.InternalGit) || repository.ArchivedAt is not null)
             throw new UnauthorizedAccessException("The personal repository is unavailable.");
         if (repository.Status == SourceControlRepositoryStatus.Provisioning)
         {
             var currentPolicy = await db.RepositoryProvisioningPolicies.AsNoTracking().SingleAsync(x =>
                 x.OrganizationId == business && x.ConnectionId == repository.ConnectionId, ct);
-            if (!currentPolicy.IsEnabled || currentPolicy.RequiresManagerApproval || repository.Connection.Status != SourceControlConnectionStatus.Connected)
+            if (!currentPolicy.IsEnabled || currentPolicy.RequiresManagerApproval || repository.Connection?.Status != SourceControlConnectionStatus.Connected)
                 throw new UnauthorizedAccessException("Automatic repository creation is no longer approved.");
             await gitHost.CreatePersonalRepositoryAsync(new(business, installation, item.Id, input.IdempotencyKey), ct);
             repository.Status = SourceControlRepositoryStatus.Ready;
@@ -177,6 +178,7 @@ public sealed partial class GitWorkspaceCapabilityHandler
         if (membership is not null) teamId = membership.TeamId;
         else
         {
+            if (item.Board?.WorkstreamId is not null) throw new UnauthorizedAccessException("Project team membership must be granted by an authorized human.");
             // Respect the existing lifetime membership boundary: never resurrect a removed member.
             if (await db.TeamMemberships.AnyAsync(x => x.ExclusiveAgentEmployeeId == employee.Id, ct))
                 throw new UnauthorizedAccessException("The developer's team membership was removed.");
@@ -221,13 +223,14 @@ public sealed partial class GitWorkspaceCapabilityHandler
             await RequirePersonalOwnerAsync(business, installation, root, root.Board, ct);
             return;
         }
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System).RequireIfConfiguredAsync(item, ct);
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == business &&
             x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null, ct);
         var approved = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == installation &&
             x.BusinessId == business.ToString("D") && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, ct);
         var capabilities = JsonSerializer.Deserialize<HashSet<string>>(approved?.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];
-        if (actor is null || !capabilities.Contains(PersonalPrepareCapability) || board is not { Kind: WorkBoardKind.Personal, ArchivedAt: null } ||
-            board.OrganizationId != business || board.OwnerOrganizationUserId != actor.Id || item.ArchivedAt is not null ||
+        if (actor is null || !capabilities.Contains(PersonalPrepareCapability) || board is not { ArchivedAt: null } ||
+            board.OrganizationId != business || (board.Kind == WorkBoardKind.Personal ? board.OwnerOrganizationUserId != actor.Id : item.AssignedEmployeeId != actor.Id) || item.ArchivedAt is not null ||
             item.Status != WorkTaskStatus.Running || item.ClaimEventId is null || item.ClaimExpiresAt is null || item.ClaimExpiresAt <= DateTimeOffset.UtcNow ||
             item.SourceConversationId is null || item.SourceMessageId is null)
             throw new UnauthorizedAccessException("An active, owned personal ticket with a retained chat request and live claim is required.");
@@ -242,7 +245,7 @@ public sealed partial class GitWorkspaceCapabilityHandler
                 GitWorkspaceCapabilities.Refresh or GitWorkspaceCapabilities.Cleanup)) throw new UnauthorizedAccessException("Personal assignment is stale or action is not allowed.");
         var binding = JsonSerializer.Deserialize<PersonalSourceBinding>(item.DevelopmentBriefJson!, JsonOptions)
             ?? throw new UnauthorizedAccessException("The project source binding is missing.");
-        var id = PersonalRepositoryId(binding.PersonalProjectRootId ?? binding.PersonalPlanRootId ?? item.Id);
+        var id = board.WorkstreamId is { } projectId ? await ProjectRepositoryAsync(business, projectId, ct) : PersonalRepositoryId(binding.PersonalProjectRootId ?? binding.PersonalPlanRootId ?? item.Id);
         if (binding.PersonalPlanRootId is { } coordinatorId)
         {
             var coordinator = await db.CoreWorkTasks.AsNoTracking().SingleAsync(x => x.Id == coordinatorId && x.OrganizationId == business, ct);
@@ -320,9 +323,28 @@ public sealed partial class GitWorkspaceCapabilityHandler
         return source;
     }
 
+    private async Task<Guid> ProjectRepositoryAsync(Guid org, Guid project, CancellationToken ct)
+    {
+        var binding = await db.ProjectDeliveryBindings.SingleAsync(x => x.OrganizationId == org && x.WorkstreamId == project, ct);
+        if (binding.RepositoryId is null)
+        {
+            var repositories = await db.RepositoryProvisioningRequests.Where(x => x.OrganizationId == org && x.WorkstreamId == project && x.RepositoryId != null &&
+                    x.Repository != null && x.Repository.ArchivedAt == null && x.Repository.Status == SourceControlRepositoryStatus.Ready)
+                .Select(x => x.RepositoryId!.Value).Distinct().Take(2).ToListAsync(ct);
+            if (repositories.Count > 1)
+                throw new InvalidOperationException("This project has multiple repositories. Ask its manager to select the delivery repository before starting work.");
+            binding.RepositoryId = repositories.Count == 1 ? repositories[0] : PersonalRepositoryId(project); binding.Revision++;
+            await db.SaveChangesAsync(ct);
+        }
+        return binding.RepositoryId.Value;
+    }
+
     private async Task<PersonalSourceBinding> ResolvePersonalSourceAsync(Guid business, Guid installation,
         WorkTask item, Guid? sourceId, CancellationToken ct)
     {
+        if (item.Board?.WorkstreamId is { } projectId)
+            return new(await ProjectRepositoryAsync(business, projectId, ct), "software-development-polyglot-v1",
+                [item.Description], ["Implement and test the requested change in this project's existing repository."]);
         if (sourceId is null)
             return new(PersonalRepositoryId(item.Id), "software-development-polyglot-v1",
                 [item.Description], ["Implement and test the requested application."]);

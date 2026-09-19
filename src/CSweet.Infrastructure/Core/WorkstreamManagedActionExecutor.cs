@@ -167,6 +167,7 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
                 DueAt = milestone.TargetDate
             });
         }
+        await new ProjectSetupService(db, clock, new(db, clock)).ProvisionApprovedAsync(workstream, actor, request.InitialTeamId, request.ProfileData, token);
         return new(workstream.Id, workstream.Revision, $"Created Workstream '{workstream.Name}'.");
     }
 
@@ -204,6 +205,22 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
             workstream.ProfileDefinitionDigest = upgrade.DefinitionDigest;
         }
         else ApplyChanges(workstream, profile, request.Changes);
+        var projectSetup = new ProjectSetupService(db, clock, new(db, clock));
+        await new ProjectWorkPolicy(db, clock).LockAsync(proposal.OrganizationId, token);
+        if (workstream.LifecycleStage is "Completed" or "Cancelled")
+        {
+            if (workstream.LifecycleStage == "Completed" && await db.CoreWorkTasks.AnyAsync(x => x.Board != null && x.Board.WorkstreamId == workstream.Id &&
+                x.ArchivedAt == null && x.Status != WorkTaskStatus.Completed && x.Status != WorkTaskStatus.Cancelled, token))
+                throw new InvalidOperationException("Finish or cancel the project's open tickets before completing it.");
+            workstream.Status = workstream.LifecycleStage == "Completed" ? WorkstreamStatus.Completed : WorkstreamStatus.Cancelled;
+            foreach (var reservation in await db.ProjectManagerReservations.Where(x => x.WorkstreamId == workstream.Id).ToListAsync(token))
+                db.ProjectManagerReservations.Remove(reservation);
+        }
+        else if (workstream.Status is WorkstreamStatus.Completed or WorkstreamStatus.Cancelled && workstream.AccountableManagerOrganizationUserId is { } managerId)
+        {
+            await projectSetup.ReserveManagerAsync(proposal.OrganizationId, managerId, workstream.Id, null, token);
+            workstream.Status = WorkstreamStatus.Active;
+        }
         workstream.Revision++; workstream.UpdatedAt = clock.GetUtcNow();
         var now = clock.GetUtcNow();
         var context = new W.AgentWorkContext(proposal.OrganizationId, workstream.Id, null, null, null, null, null,

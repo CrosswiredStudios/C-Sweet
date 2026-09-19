@@ -20,7 +20,8 @@ public sealed partial class InternalRepositoryManagementService(CSweetDbContext 
         var repositories = await db.SourceControlRepositories.AsNoTracking().Include(r => r.Connection)
             .Where(r => r.OrganizationId == business && r.Connection!.Provider == SourceControlProvider.InternalGit)
             .OrderBy(r => r.Name).ToListAsync(ct);
-        return repositories.Select(Summary).ToList();
+        return await RepositoryDirectoryProjection.PopulateAsync(db, business,
+            repositories.Select(r => Summary(r)).ToList(), ct);
     }
 
     public async Task<SourceControlRepositorySummary> CreateAsync(Guid business, Guid user,
@@ -288,6 +289,8 @@ public sealed partial class InternalRepositoryManagementService(CSweetDbContext 
         return name;
     }
 
-    private static SourceControlRepositorySummary Summary(SourceControlRepository r) =>
-        new(r.Id, r.ConnectionId, r.Name, r.CanonicalPath, r.DefaultBranch, r.Status.ToString(), r.IsPrivate, r.IsManaged, r.LastVerifiedAt, r.LastHealthError);
+    private static SourceControlRepositorySummary Summary(SourceControlRepository r, SourceControlActivityEntry? latest = null) =>
+        new(r.Id, r.ConnectionId, r.Name, r.CanonicalPath, r.DefaultBranch, r.Status.ToString(), r.IsPrivate, r.IsManaged,
+            r.LastVerifiedAt, r.LastHealthError, r.CreatedAt, latest?.EventType, latest?.OccurredAt,
+            latest?.ActorDisplayName ?? latest?.ActorKind, latest?.Outcome);
 }

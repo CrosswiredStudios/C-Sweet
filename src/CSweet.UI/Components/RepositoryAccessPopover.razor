@@ -1,0 +1,55 @@
+@using CSweet.Contracts.SourceControl
+
+<MudMenu @ref="_menu" @bind-Open="_open" ActivationEvent="MouseEvent.LeftClick"
+         AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" PopoverClass="repository-access-popover"
+         AriaLabel="@($"C-Sweet access to {Repository.Name}")">
+    <ActivatorContent Context="menu">
+        <button @ref="_trigger" @onclick="@(args => menu.ToggleAsync(args))" @onclick:stopPropagation="true" @onkeydown="HandleKeyAsync" @onkeydown:stopPropagation="true" type="button" class="repository-access-trigger" aria-label="@($"{AgentCount} {(AgentCount == 1 ? "agent has" : "agents have")} team access to {Repository.Name}. Show everyone with access.")"
+                aria-expanded="@_open.ToString().ToLowerInvariant()" aria-controls="@PopupId" aria-haspopup="true">
+            <MudIcon Icon="@Icons.Material.Outlined.PeopleOutline" Size="Size.Small" /><span>@AgentCount</span>
+        </button>
+    </ActivatorContent>
+    <ChildContent>
+        <MudFocusTrap DefaultFocus="DefaultFocus.FirstChild">
+        <section @onkeydown="HandleKeyAsync" role="dialog" class="repository-access-card" id="@PopupId" aria-label="Who has access" @onclick:stopPropagation="true">
+            <header class="repository-access-header">
+                <div><h2>Who has access</h2><p>@Repository.Name · @AgentCount @(AgentCount == 1 ? "agent" : "agents"), @HumanCount @(HumanCount == 1 ? "person" : "people")</p></div>
+                <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="CloseAsync" Size="Size.Small" aria-label="Close access list" />
+            </header>
+            @if (Access.Count > 0)
+            {
+                <ul class="repository-access-people">
+                    @foreach (var person in Access)
+                    {
+                        <li @key="person.OrganizationUserId">
+                            <span class="repository-access-avatar @(person.EmployeeType == "Agent" ? "agent" : "human")" aria-hidden="true">@Initials(person.DisplayName)</span>
+                            <div class="repository-access-person"><strong>@person.DisplayName</strong><span>@person.EmployeeType@if (!string.IsNullOrWhiteSpace(person.Role)) {<span> · @person.Role</span>}</span><span class="repository-access-source">@person.AccessSource</span></div>
+                            <span class="repository-access-type">@person.AccessType</span>
+                        </li>
+                    }
+                </ul>
+            }
+            else { <p class="repository-access-empty">No C-Sweet access is configured.</p> }
+            <footer>Team access requires assigned work and approved capabilities. External provider permissions are managed separately.</footer>
+        </section>
+        </MudFocusTrap>
+    </ChildContent>
+</MudMenu>
+
+@code {
+    [Parameter, EditorRequired] public SourceControlRepositorySummary Repository { get; set; } = default!;
+    private MudMenu? _menu;
+    private ElementReference _trigger;
+    private bool _open;
+    private string PopupId => $"repository-access-{Repository.Id:N}";
+    private IReadOnlyList<RepositoryAccessSummary> Access => Repository.Access ?? [];
+    private int AgentCount => Access.Count(a => a.EmployeeType == "Agent");
+    private int HumanCount => Access.Count(a => a.EmployeeType == "Human");
+    private async Task CloseAsync()
+    {
+        if (_menu is not null) await _menu.CloseMenuAsync();
+        await _trigger.FocusAsync();
+    }
+    private Task HandleKeyAsync(KeyboardEventArgs args) => args.Key == "Escape" ? CloseAsync() : Task.CompletedTask;
+    private static string Initials(string name) => string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(p => p[..1])).ToUpperInvariant();
+}

@@ -93,6 +93,8 @@ public sealed class AgentWorkInbox(
             x => x.Id == installationId && x.IsEnabled && x.BusinessId == organizationId &&
                 x.RevisionStatus == PluginRevisionStatus.Active,
             cancellationToken);
+        if (kind == AgentWorkKind.Capability && Guid.TryParse(organizationId, out var projectOrganization))
+            await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, timeProvider).RequireCapabilityWorkAsync(projectOrganization, installationId, name, payload, cancellationToken);
         var existing = await db.AgentWorkItems.SingleOrDefaultAsync(
             x => x.AgentInstallationId == installationId &&
                  x.IdempotencyKey == idempotencyKey,
@@ -285,6 +287,18 @@ public sealed class AgentWorkInbox(
                 item.LastError = "Ordinary work is paused until setup is ready.";
                 await db.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
+                return null;
+            }
+        }
+
+        if (item.Kind == AgentWorkKind.Capability && Guid.TryParse(session.OrganizationId, out var projectOrganization))
+        {
+            try { await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, timeProvider).RequireCapabilityWorkAsync(projectOrganization, installation.Id, item.Name, payload, cancellationToken); }
+            catch (Exception error) when (error is InvalidOperationException or UnauthorizedAccessException)
+            {
+                item.Status = AgentWorkStatus.DeadLetter; item.LastError = error.Message;
+                await RecordTicketFailureAsync(item, item.AttemptCount, error.Message, now, cancellationToken);
+                await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken);
                 return null;
             }
         }

@@ -39,7 +39,7 @@ public sealed partial class ComputeBroker
             var environment = await db.ComputeEnvironments.SingleOrDefaultAsync(x => x.Id == request.EnvironmentId &&
                 x.OrganizationId == organizationId && x.InstallationId == installationId, token)
                 ?? throw new UnauthorizedAccessException("The compute environment is unavailable.");
-            await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, request.Action, token);
+            await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, request.Action, token, environment.Id);
             var grants = await GrantsAsync(organizationId, installationId, environment.WorkstreamId, token);
             var now = clock.GetUtcNow();
             RequireAction(grants, request.Action, now);
@@ -67,7 +67,7 @@ public sealed partial class ComputeBroker
                 // Starting also restores any attached network/persistence capabilities.
                 foreach (var action in ComputePolicy.RequiredProvisionActions(spec).Where(x => x != InfrastructureActions.Provision).Prepend(request.Action))
                 {
-                    await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, action, token);
+                    await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, action, token, environment.Id);
                     var eligible = grants.Where(x => x.Action == action && x.Id != Guid.Empty && x.Revision > 0 && x.ExpiresAt >= environment.LeaseExpiresAt);
                     var selected = eligible.FirstOrDefault(grant =>
                     {

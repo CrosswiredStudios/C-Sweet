@@ -92,7 +92,25 @@ public sealed record SourceControlRepositorySummary(
     bool IsPrivate,
     bool IsManaged,
     DateTimeOffset? LastVerifiedAt,
-    string? HealthMessage);
+    string? HealthMessage,
+    DateTimeOffset? CreatedAt = null,
+    string? LastEventType = null,
+    DateTimeOffset? LastEventOccurredAt = null,
+    string? LastEventActor = null,
+    string? LastEventOutcome = null,
+    IReadOnlyList<RepositoryProjectSummary>? Projects = null,
+    IReadOnlyList<RepositoryAccessSummary>? Access = null);
+
+public sealed record RepositoryProjectSummary(Guid Id, string Name);
+
+/// <summary>C-Sweet access, not a provider's independently managed collaborator list.</summary>
+public sealed record RepositoryAccessSummary(
+    Guid OrganizationUserId,
+    string DisplayName,
+    string EmployeeType,
+    string? Role,
+    string AccessType,
+    string AccessSource);
 
 public sealed record SourceControlOnboardingSummary(
     Guid SessionId,

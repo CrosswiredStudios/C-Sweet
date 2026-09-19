@@ -20,6 +20,7 @@ public sealed class AgentCoordinationSession
     public Guid? SourceConversationId { get; set; }
     public Guid? SourceChatTurnId { get; set; }
     public Guid? SourceMessageId { get; set; }
+    public Guid? SourceIntakeId { get; set; }
     public string SourceKind { get; set; } = "Chat";
     public Guid? SourceBoardId { get; set; }
     public Guid? SourceWorkItemId { get; set; }

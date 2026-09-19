@@ -83,6 +83,8 @@ public sealed partial class AgentWorkspaceBroker(
                 (connection.Provider != SourceControlProvider.GitHub || connection.SourceAccessInstallationId is not > 0)))
             throw new InvalidOperationException("The assigned private repository is not ready.");
 
+        var work = await db.CoreWorkTasks.AsNoTracking().SingleAsync(x => x.Id == workspace.WorkItemId && x.OrganizationId == workspace.OrganizationId, cancellationToken);
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System).RequireIfConfiguredAsync(work, cancellationToken);
         await AuthorizeWorkspaceTeamAsync(workspace, cancellationToken);
 
         long externalRepositoryId = 0;

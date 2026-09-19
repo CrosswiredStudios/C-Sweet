@@ -60,6 +60,16 @@ public sealed class AgentCoordinationService(
         var isOutboundTargetedSource =
             source.TargetAgentOrganizationUserId == request.TargetOrganizationUserId &&
             sourceMessage.SenderOrganizationUserId == initiatorOrganizationUserId;
+        if (request.SourceIntakeId is { } intakeId)
+        {
+            var intake = await db.ProjectIntakes.AsNoTracking().SingleOrDefaultAsync(x => x.Id == intakeId && x.OrganizationId == organizationId && x.Status == "AwaitingManagerAssistance", cancellationToken)
+                ?? throw new InvalidOperationException("The project intake is no longer awaiting manager assistance.");
+            if (intake.SourceMessageId != request.SourceMessageId || intake.SourceChatTurnId != request.SourceChatTurnId ||
+                !((intake.DeveloperId == initiatorOrganizationUserId && intake.ChiefId == request.TargetOrganizationUserId) ||
+                  (intake.ChiefId == initiatorOrganizationUserId && intake.ManagerId == request.TargetOrganizationUserId)))
+                throw new UnauthorizedAccessException("This project intake does not authorize this handoff.");
+            isInboundSource = true;
+        }
         if (!isInboundSource && !isOutboundTargetedSource)
             throw new InvalidOperationException(
                 "The source chat turn does not belong to the initiating agent or target the requested collaborator.");
@@ -84,7 +94,7 @@ public sealed class AgentCoordinationService(
             cancellationToken);
         var chat = chatAction.Chat ?? throw new InvalidOperationException(chatAction.Message);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null && db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var now = DateTimeOffset.UtcNow;
         var session = new DomainSession
         {
@@ -93,6 +103,8 @@ public sealed class AgentCoordinationService(
             WorkstreamId = request.WorkContext?.WorkstreamId,
             TeamId = request.WorkContext?.TeamId,
             ConversationId = chat.Id,
+            SourceKind = request.SourceIntakeId.HasValue ? "ProjectIntake" : "Chat",
+            SourceIntakeId = request.SourceIntakeId,
             SourceConversationId = request.SourceConversationId,
             SourceChatTurnId = request.SourceChatTurnId,
             SourceMessageId = request.SourceMessageId,
@@ -147,7 +159,7 @@ public sealed class AgentCoordinationService(
             request.TargetOrganizationUserId, cancellationToken);
         initialTurn.AgentWorkItemId = session.CurrentAgentWorkItemId;
         await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapAsync(session, cancellationToken);
     }
 
@@ -237,7 +249,7 @@ public sealed class AgentCoordinationService(
                 [request.TargetOrganizationUserId]), cancellationToken);
         var chat = chatAction.Chat ?? throw new InvalidOperationException(chatAction.Message);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null && db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var now = DateTimeOffset.UtcNow;
         var session = new DomainSession
         {
@@ -280,7 +292,7 @@ public sealed class AgentCoordinationService(
             session, targetInstallationId, request.TargetOrganizationUserId, cancellationToken);
         initialTurn.AgentWorkItemId = session.CurrentAgentWorkItemId;
         await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapAsync(session, cancellationToken);
     }
 
@@ -337,7 +349,7 @@ public sealed class AgentCoordinationService(
                 [request.TargetOrganizationUserId]), cancellationToken);
         var chat = chatAction.Chat ?? throw new InvalidOperationException(chatAction.Message);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null && db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var now = DateTimeOffset.UtcNow;
         var session = new DomainSession
         {
@@ -377,7 +389,7 @@ public sealed class AgentCoordinationService(
             session, targetInstallationId, request.TargetOrganizationUserId, cancellationToken);
         initialTurn.AgentWorkItemId = session.CurrentAgentWorkItemId;
         await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapAsync(session, cancellationToken);
     }
 
@@ -389,14 +401,14 @@ public sealed class AgentCoordinationService(
         CancellationToken cancellationToken = default)
     {
         ValidateResponse(request);
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null && db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var session = await QuerySession().SingleOrDefaultAsync(x =>
             x.Id == request.SessionId && x.OrganizationId == organizationId,
             cancellationToken) ?? throw new KeyNotFoundException("The coordination session was not found.");
         var duplicate = session.Turns.SingleOrDefault(x => x.IdempotencyKey == request.IdempotencyKey);
         if (duplicate is not null)
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null) await transaction.RollbackAsync(cancellationToken);
             return await MapAsync(session, cancellationToken);
         }
         if (session.Status is not (DomainStatus.Active or DomainStatus.Summarizing))
@@ -487,7 +499,7 @@ public sealed class AgentCoordinationService(
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapAsync(session, cancellationToken);
     }
 
@@ -605,13 +617,13 @@ public sealed class AgentCoordinationService(
         if (request.Reason.Length > 2048 || request.IdempotencyKey.Length > 160)
             throw new ArgumentException("The coordination recovery payload is too long.");
 
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null && db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var session = await QuerySession().SingleOrDefaultAsync(x =>
             x.Id == request.SessionId && x.OrganizationId == organizationId,
             cancellationToken) ?? throw new KeyNotFoundException("The coordination session was not found.");
         if (string.Equals(session.LastResumeIdempotencyKey, request.IdempotencyKey, StringComparison.Ordinal))
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null) await transaction.RollbackAsync(cancellationToken);
             return await MapAsync(session, cancellationToken);
         }
         if (session.InitiatorOrganizationUserId != actorOrganizationUserId ||
@@ -646,7 +658,7 @@ public sealed class AgentCoordinationService(
         session.CurrentAgentWorkItemId = await EnqueueTurnAsync(
             session, installationId, speakerId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapAsync(session, cancellationToken);
     }
 

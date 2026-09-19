@@ -70,6 +70,7 @@ public sealed partial class WorkItemMutationEngine
         }
         if (await db.CoreWorkTasks.AnyAsync(x => x.ParentWorkTaskId == root.Id, cancellationToken))
             throw new InvalidOperationException("This request already has child tickets. Continue its existing plan.");
+        var legacyRequest = await db.LegacyDevelopmentAuthorizations.AnyAsync(x => x.OrganizationId == organizationId && x.WorkItemId == root.Id, cancellationToken);
         var count = request.Stories.Count + request.Stories.Sum(x => x.Tasks.Count);
         if (await db.CoreWorkTasks.CountAsync(x => x.BoardId == root.BoardId && x.ArchivedAt == null &&
                 x.Status != WorkTaskStatus.Completed && x.Status != WorkTaskStatus.Cancelled, cancellationToken) + count > HardOpenItemLimit)
@@ -117,12 +118,14 @@ public sealed partial class WorkItemMutationEngine
                 AssignedEmployeeId = root.AssignedEmployeeId, AssignedAgentInstallationId = actor.AgentInstallationId,
                 CreatedByOrganizationUserId = actor.OrganizationUserId,
                 SourceConversationId = root.SourceConversationId, SourceMessageId = root.SourceMessageId,
+                PersonalWorkContextJson = root.PersonalWorkContextJson,
                 CreationIdempotencyKey = $"plan:{root.Id:N}:{key}", Status = WorkTaskStatus.Backlog,
                 Priority = root.Priority, BoardRank = rank += 1024, CreatedAt = now, UpdatedAt = now,
                 PlanningSpecificationJson = JsonSerializer.Serialize(new Wire.WorkItemPlanningSpecification([description], acceptance)
                 { PersonalPlan = new(root.Id, ++order, execution), DependencyItemIds = dependencies }, JsonOptions)
             };
             db.CoreWorkTasks.Add(item);
+            if (legacyRequest) db.LegacyDevelopmentAuthorizations.Add(new() { OrganizationId = organizationId, WorkItemId = item.Id });
             return item;
         }
     }
@@ -195,7 +198,7 @@ public sealed partial class WorkItemMutationEngine
     private async Task<WorkTask> RequirePlanClaimAsync(Guid organizationId, PersonalTodoActor actor, Guid rootId,
         string action, bool allowReady, long? expectedRevision, CancellationToken ct)
     {
-        var root = await LoadPersonalItemAsync(organizationId, rootId, ct);
+        var root = await LoadPersonalItemAsync(organizationId, rootId, actor, ct);
         await RequireGrantAsync(organizationId, root.BoardId!.Value, actor, action, ct);
         var ownsItem = actor.AgentInstallationId is not null && root.AssignedAgentInstallationId == actor.AgentInstallationId &&
             root.AssignedEmployeeId == actor.OrganizationUserId && root.ArchivedAt is null;
@@ -205,6 +208,7 @@ public sealed partial class WorkItemMutationEngine
             (expectedRevision.HasValue && root.Revision == expectedRevision.Value || ReadPlanSpecification(root)?.PersonalPlan is not null);
         if (!ownsItem || (!hasLiveClaim && !mayPlanReady))
             throw new UnauthorizedAccessException("Planning requires the owned Ready request at its expected revision or a live claim; task execution requires the live claim.");
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequireIfConfiguredAsync(root, ct);
         return root;
     }
 

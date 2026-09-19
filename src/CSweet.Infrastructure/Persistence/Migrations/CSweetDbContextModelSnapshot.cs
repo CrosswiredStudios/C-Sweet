@@ -464,6 +464,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("SourceConversationId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("SourceIntakeId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("SourceKind")
                         .IsRequired()
                         .HasMaxLength(24)
@@ -4350,6 +4353,37 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("LeadershipAssignments");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.LegacyDevelopmentAuthorization", b =>
+                {
+                    b.Property<Guid>("WorkItemId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("WorkItemId");
+
+                    b.ToTable("LegacyDevelopmentAuthorizations");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.LegacyProjectComputeAuthorization", b =>
+                {
+                    b.Property<Guid>("EnvironmentId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("EnvironmentId");
+
+                    b.ToTable("LegacyProjectComputeAuthorizations");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.ManagementCheckInRequestRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4903,6 +4937,217 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("PreviewSessions");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ProjectDeliveryBinding", b =>
+                {
+                    b.Property<Guid>("WorkstreamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CreationKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("WorkstreamId");
+
+                    b.HasIndex("BoardId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "CreationKey")
+                        .IsUnique();
+
+                    b.ToTable("ProjectDeliveryBindings");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ProjectIntake", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BoardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ChiefId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CoordinationSessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("DeveloperId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DeveloperInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("EnvironmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Goal")
+                        .IsRequired()
+                        .HasMaxLength(6000)
+                        .HasColumnType("character varying(6000)");
+
+                    b.Property<Guid?>("HiringRecommendationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Issue")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("LastChoiceKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("LastChoiceMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ManagerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OriginalRequest")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("PendingWorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequestingHumanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("RootItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SourceChatTurnId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SourceMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("TeamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TicketOwner")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeveloperInstallationId", "Status", "UpdatedAt");
+
+                    b.HasIndex("OrganizationId", "DeveloperInstallationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("ProjectIntakes");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ProjectManagerReservation", b =>
+                {
+                    b.Property<Guid>("OrganizationUserId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("IntakeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("WorkstreamId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("OrganizationUserId");
+
+                    b.ToTable("ProjectManagerReservations");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ProjectParticipant", b =>
+                {
+                    b.Property<Guid>("WorkstreamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AddedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("JoinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RemovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("WorkstreamId", "OrganizationUserId");
+
+                    b.HasIndex("OrganizationUserId");
+
+                    b.HasIndex("OrganizationId", "OrganizationUserId", "RemovedAt");
+
+                    b.ToTable("ProjectParticipants");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.ReleaseReadinessRecord", b =>
@@ -14378,6 +14623,30 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("Role");
 
                     b.Navigation("Worker");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ProjectDeliveryBinding", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Workstream", null)
+                        .WithMany()
+                        .HasForeignKey("WorkstreamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ProjectParticipant", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.OrganizationUser", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.Workstream", null)
+                        .WithMany()
+                        .HasForeignKey("WorkstreamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.ResourceChangeRequestRecord", b =>

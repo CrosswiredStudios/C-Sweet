@@ -381,6 +381,12 @@ public sealed partial class WorkOrchestrator(
             Status = WorkExecutionAttemptStatus.Pending, CreatedAt = now
         };
         var item = stage.ItemExecution!.WorkItem!;
+        var projectPolicy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, timeProvider);
+        if (await projectPolicy.RequiresProjectAsync(execution.OrganizationId, installationId, cancellationToken) && !await db.LegacyDevelopmentAuthorizations.AnyAsync(x => x.OrganizationId == execution.OrganizationId && x.WorkItemId == item.Id, cancellationToken))
+        {
+            var employeeId = await db.CoreOrganizationUsers.Where(x => x.OrganizationId == execution.OrganizationId && x.AgentInstallationId == installationId && x.IsActive).Select(x => x.Id).SingleAsync(cancellationToken);
+            await projectPolicy.RequireAsync(execution.OrganizationId, employeeId, execution.BoardId, cancellationToken);
+        }
         var board = await db.WorkBoards.AsNoTracking().SingleAsync(x =>
             x.Id == execution.BoardId && x.OrganizationId == execution.OrganizationId, cancellationToken);
         var planning = string.IsNullOrWhiteSpace(item.PlanningSpecificationJson)

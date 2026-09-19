@@ -58,17 +58,13 @@ public sealed class SourceControlOnboardingService(
             .Where(candidate => candidate.OrganizationId == organizationId && candidate.ArchivedAt == null)
             .OrderBy(candidate => candidate.Name)
             .Select(candidate => new SourceControlRepositorySummary(
-                candidate.Id,
-                candidate.ConnectionId,
-                candidate.Name,
-                candidate.CanonicalPath,
-                candidate.DefaultBranch,
-                candidate.Status.ToString(),
-                candidate.IsPrivate,
-                candidate.IsManaged,
-                candidate.LastVerifiedAt,
-                candidate.LastHealthError))
+                candidate.Id, candidate.ConnectionId, candidate.Name, candidate.CanonicalPath,
+                candidate.DefaultBranch, candidate.Status.ToString(), candidate.IsPrivate, candidate.IsManaged,
+                candidate.LastVerifiedAt, candidate.LastHealthError, candidate.CreatedAt,
+                null, null, null, null, null, null))
             .ToListAsync(cancellationToken);
+        var repositorySummaries = await RepositoryDirectoryProjection.PopulateAsync(
+            db, organizationId, repositories, cancellationToken);
         var active = await db.SourceControlOnboardingSessions.AsNoTracking()
             .Where(candidate => candidate.OrganizationId == organizationId &&
                                 candidate.Status != SourceControlOnboardingStatus.Completed &&
@@ -84,7 +80,7 @@ public sealed class SourceControlOnboardingService(
             .FirstOrDefaultAsync(cancellationToken);
         return new SourceControlDashboardResponse(
             connections,
-            repositories,
+            repositorySummaries,
             active,
             await platformSetup.GetReadinessAsync(cancellationToken),
             actor.PermissionLevel >= OrganizationPermissionLevel.Manager);
@@ -357,7 +353,7 @@ public sealed class SourceControlOnboardingService(
             .Select(candidate => new SourceControlRepositorySummary(
                 candidate.Id, candidate.ConnectionId, candidate.Name, candidate.CanonicalPath,
                 candidate.DefaultBranch, candidate.Status.ToString(), candidate.IsPrivate,
-                candidate.IsManaged, candidate.LastVerifiedAt, candidate.LastHealthError))
+                candidate.IsManaged, candidate.LastVerifiedAt, candidate.LastHealthError, candidate.CreatedAt))
             .ToListAsync(cancellationToken);
     }
 

@@ -67,12 +67,14 @@ public sealed partial class TaskDeliveryService(CSweetDbContext db, TimeProvider
         if (existing is not null) return Result(existing, task);
         if (task.Status != WorkTaskStatus.Running) throw new InvalidOperationException("Only a running task can enter testing.");
         var developer = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == org && x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null, ct);
-        var manager = await ManagerAsync(org, developer, ct);
+        var manager = await ManagerAsync(org, developer, ct, root.BoardId);
+        var projectId = await db.WorkBoards.Where(x => x.Id == root.BoardId).Select(x => x.WorkstreamId).SingleAsync(ct);
         var teamInstallations = await (from member in db.TeamMemberships.AsNoTracking()
             join person in db.CoreOrganizationUsers.AsNoTracking() on member.OrganizationUserId equals person.Id
             join agent in db.AgentInstallations.AsNoTracking().Include(x => x.Grant) on person.AgentInstallationId equals agent.Id
             where member.OrganizationId == org && member.TeamId == workspace.TeamId && member.EndedAt == null &&
-                person.OrganizationId == org && person.IsActive && person.ArchivedAt == null && agent.IsEnabled && agent.RevisionStatus == PluginRevisionStatus.Active
+                person.OrganizationId == org && person.IsActive && person.ArchivedAt == null && agent.IsEnabled && agent.RevisionStatus == PluginRevisionStatus.Active &&
+                (projectId == null || db.ProjectParticipants.Any(x => x.WorkstreamId == projectId && x.OrganizationUserId == person.Id && x.RemovedAt == null))
             select agent).ToListAsync(ct);
         var qa = teamInstallations.Where(x => x.Id != installation &&
             (JsonSerializer.Deserialize<string[]>(x.Grant?.ProvidedCapabilitiesJson ?? "[]", Json) ?? []).Contains("software-quality.validate.v1"))
@@ -133,6 +135,8 @@ public sealed partial class TaskDeliveryService(CSweetDbContext db, TimeProvider
         if (reviewer is null || !await db.TeamMemberships.AnyAsync(x => x.OrganizationId == org && x.TeamId == workspace.TeamId && x.OrganizationUserId == reviewer.Id && x.EndedAt == null, ct) ||
             !await db.TeamRepositoryPolicies.AnyAsync(x => x.OrganizationId == org && x.RepositoryId == review.RepositoryId && x.TeamId == workspace.TeamId && x.DisabledAt == null, ct))
             throw new UnauthorizedAccessException("QA project access is no longer active.");
+        if (await db.WorkBoards.AnyAsync(x => x.Id == review.BoardId && x.WorkstreamId != null, ct))
+            await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequireAsync(org, reviewer.Id, review.BoardId, ct);
         if (review.QaInstallationId != installation || review.CommitSha != request.CommitSha)
             throw new UnauthorizedAccessException("QA evidence does not match this assigned revision.");
         if (request.Verdict is not ("Passed" or "Failed" or "Blocked") || request.Summary is not { Length: > 0 and <= 4096 } ||
@@ -170,7 +174,7 @@ public sealed partial class TaskDeliveryService(CSweetDbContext db, TimeProvider
             ? await db.TaskMergePreferences.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == org && x.ScopeWorkItemId == id, ct) : null;
         var effective = own is { Mode: not "Inherit" } ? own : inherited;
         var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == org && x.AgentInstallationId == scope.AssignedAgentInstallationId && x.IsActive && x.ArchivedAt == null, ct);
-        var manager = await ManagerAsync(org, owner, ct);
+        var manager = await ManagerAsync(org, owner, ct, scope.BoardId);
         return new(scope.Id, scope.Title, scope.Kind.ToString(), own?.Mode ?? "Inherit", own?.Revision ?? 0,
             own is null || own.Mode == "Inherit" ? inherited?.ScopeWorkItemId : own.ScopeWorkItemId != scope.Id ? own.ScopeWorkItemId : null,
             effective is { Mode: "Auto" } && effective.ManagerOrganizationUserId == manager.Id ? "Auto" : "Ask");
@@ -183,9 +187,9 @@ public sealed partial class TaskDeliveryService(CSweetDbContext db, TimeProvider
         var scope = await TaskAsync(org, request.ScopeWorkItemId, ct);
         await RequireScopeReaderAsync(org, installation, scope, ct);
         if (scope.Kind is not (WorkItemKind.Story or WorkItemKind.Epic)) throw new ArgumentException("A saved preference belongs to a story or epic.");
-        var actor = await ChatManagerAsync(org, installation, request.SourceMessageId, ct);
+        var actor = await ChatManagerAsync(org, installation, request.SourceMessageId, ct, scope.BoardId);
         var scopeDeveloper = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == org && x.AgentInstallationId == scope.AssignedAgentInstallationId && x.IsActive, ct);
-        if ((await ManagerAsync(org, scopeDeveloper, ct)).Id != actor.Id)
+        if ((await ManagerAsync(org, scopeDeveloper, ct, scope.BoardId)).Id != actor.Id)
             throw new UnauthorizedAccessException("Only the scope owner's manager can change this preference.");
         var existing = await db.TaskMergePreferences.SingleOrDefaultAsync(x => x.OrganizationId == org && x.ScopeWorkItemId == scope.Id, ct);
         if (existing?.IdempotencyKey == request.IdempotencyKey) return await PreferenceAsync(org, installation, scope.Id, ct);
@@ -233,9 +237,15 @@ public sealed partial class TaskDeliveryService(CSweetDbContext db, TimeProvider
         return effective is { Mode: "Auto" } && effective.ManagerOrganizationUserId == review.ManagerOrganizationUserId;
     }
 
-    internal async Task<OrganizationUser> ManagerAsync(Guid org, OrganizationUser developer, CancellationToken ct)
+    internal async Task<OrganizationUser> ManagerAsync(Guid org, OrganizationUser developer, CancellationToken ct, Guid? boardId = null)
     {
-        var id = developer.ReportsToOrganizationUserId; var seen = new HashSet<Guid>();
+        var id = developer.ReportsToOrganizationUserId;
+        if (boardId.HasValue)
+        {
+            var projectManager = await db.WorkBoards.Where(x => x.Id == boardId && x.OrganizationId == org && x.WorkstreamId != null).Select(x => x.ManagerOrganizationUserId).SingleOrDefaultAsync(ct);
+            if (projectManager.HasValue) id = projectManager;
+        }
+        var seen = new HashSet<Guid>();
         while (id is { } managerId && seen.Add(managerId) && seen.Count <= 32)
         {
             var manager = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == managerId && x.OrganizationId == org && x.IsActive && x.ArchivedAt == null, ct);
@@ -257,9 +267,10 @@ public sealed partial class TaskDeliveryService(CSweetDbContext db, TimeProvider
     {
         var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == org && x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null, ct);
         var board = await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == root.BoardId && x.OrganizationId == org, ct);
-        if (root.AssignedAgentInstallationId != installation || board.OwnerOrganizationUserId != owner.Id ||
+        if (root.AssignedAgentInstallationId != installation || (board.Kind == WorkBoardKind.Personal ? board.OwnerOrganizationUserId != owner.Id : root.AssignedEmployeeId != owner.Id) ||
             root.Status != WorkTaskStatus.Running || root.ClaimEventId is null || root.ClaimExpiresAt <= clock.GetUtcNow() || root.ClaimExpiresAt is null)
             throw new UnauthorizedAccessException("A live owned project claim is required.");
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequireIfConfiguredAsync(root, ct);
     }
     internal async Task<WorkTask> TaskAsync(Guid org, Guid id, CancellationToken ct) =>
         await db.CoreWorkTasks.SingleOrDefaultAsync(x => x.OrganizationId == org && x.Id == id && x.ArchivedAt == null, ct)

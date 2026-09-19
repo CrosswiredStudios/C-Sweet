@@ -109,7 +109,8 @@ public partial class EmployeePersonalBoard
 
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
-        if (!PersonalBoardRealtime.Matches(envelope, OrganizationId, Board.BoardId)) return;
+        if (!PersonalBoardRealtime.Matches(envelope, OrganizationId, Board.BoardId) &&
+            !(envelope.OrganizationId == OrganizationId && envelope.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.WorkBoardChanged)) return;
         _realtimeRefreshPending = true;
         if (!_realtimeRefreshRunning) _ = InvokeAsync(RefreshFromRealtimeAsync);
     }

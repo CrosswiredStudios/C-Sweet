@@ -21,7 +21,7 @@ public sealed class SourceControlWorkspaceRenderingTests
         var html = await RenderAsync<SourceControl>(api, new() { [nameof(SourceControl.OrganizationId)] = api.Business });
 
         Assert.Contains("A home for your team", html);
-        Assert.Contains("New repository", html);
+        Assert.Contains("Create repository", html);
         Assert.Contains("Connections</button>", html);
         Assert.Contains("Activity</button>", html);
         Assert.Contains("Settings</button>", html);
@@ -141,8 +141,83 @@ public sealed class SourceControlWorkspaceRenderingTests
         Assert.Contains("Source-control setup is not finished", html);
     }
 
+    [Fact]
+    public async Task RepositoryListShowsCreatedAndLastEventSubtitles()
+    {
+        var api = new WorkspaceApi();
+        var connection = Connection("InternalGit");
+        var created = DateTimeOffset.UtcNow.AddDays(-3);
+        var occurred = DateTimeOffset.UtcNow.AddHours(-2);
+        var repository = Repository(connection.Id, "orbit-game", "Ready") with
+        {
+            CreatedAt = created,
+            LastEventType = "SourceControl.Repository.Ref",
+            LastEventOccurredAt = occurred,
+            LastEventActor = "Daniel Kim",
+            LastEventOutcome = "Completed"
+        };
+        var quiet = Repository(connection.Id, "quiet-game", "Ready") with { CreatedAt = created };
+        api.Repositories = [repository, quiet];
+        var html = await RenderAsync<InternalRepositoryManager>(api, new()
+        {
+            [nameof(InternalRepositoryManager.OrganizationId)] = api.Business,
+            [nameof(InternalRepositoryManager.Repositories)] = Array.Empty<SourceControlRepositorySummary>(),
+            [nameof(InternalRepositoryManager.Connections)] = new[] { connection }
+        });
+
+        Assert.Contains(created.ToLocalTime().ToString("MMM d, yyyy"), html);
+        Assert.Contains("Updated a branch or tag", html);
+        Assert.Contains("Daniel Kim", html);
+        Assert.Contains("2 hours ago", html);
+        Assert.Contains("No activity yet", html);
+    }
+
+    [Fact]
+    public async Task DirectoryShowsProjectsAndAgentOnlyCountsInActivityOrder()
+    {
+        var api = new WorkspaceApi();
+        var connection = Connection("InternalGit");
+        var project = new RepositoryProjectSummary(Guid.NewGuid(), "Customer portal");
+        var recent = Repository(connection.Id, "z-recent", "Ready") with
+        {
+            LastEventOccurredAt = DateTimeOffset.UtcNow.AddHours(-2),
+            LastEventType = "SourceControl.Publication.Merged",
+            Projects = [project],
+            Access = [new(Guid.NewGuid(), "Developer", "Agent", "Engineering", "Team access", "Delivery"),
+                new(Guid.NewGuid(), "Owner", "Human", null, "Admin", "Business membership")]
+        };
+        var quiet = Repository(connection.Id, "a-quiet", "Ready") with { Access = [] };
+        var html = await RenderAsync<RepositoryDirectory>(api, new()
+        {
+            [nameof(RepositoryDirectory.OrganizationId)] = api.Business,
+            [nameof(RepositoryDirectory.Repositories)] = new[] { quiet, recent },
+            [nameof(RepositoryDirectory.Connections)] = new[] { connection }
+        });
+        Assert.Contains("Customer portal", html);
+        Assert.Contains($"/projects/{project.Id:D}", html);
+        Assert.Contains("1 agent has team access to z-recent", html);
+        Assert.Contains("0 agents have team access to a-quiet", html);
+        Assert.Contains("aria-expanded=\"false\"", html);
+        Assert.DoesNotContain("Who has access", html);
+        Assert.Contains("Not assigned", html);
+        Assert.True(html.IndexOf("z-recent", StringComparison.Ordinal) < html.IndexOf("a-quiet", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(-1, "Just now")]
+    [InlineData(0, "Just now")]
+    [InlineData(1, "1 minute ago")]
+    [InlineData(60, "1 hour ago")]
+    [InlineData(120, "2 hours ago")]
+    [InlineData(1440, "1 day ago")]
+    public void ActivityTimeHasReadableUnits(int minutes, string expected)
+    {
+        var now = DateTimeOffset.Parse("2026-09-18T12:00:00Z");
+        Assert.Equal(expected, RepositoryDirectoryPresentation.RelativeTime(now.AddMinutes(-minutes), now));
+    }
+
     private static SourceControlConnectionSummary Connection(string provider) => new(Guid.NewGuid(), provider, provider, provider, "studio", "Business", "Ready", true, false, 1, null, null, 1);
-    private static SourceControlRepositorySummary Repository(Guid connection, string name, string status) => new(Guid.NewGuid(), connection, name, "studio/" + name, "main", status, true, false, null, null);
+    private static SourceControlRepositorySummary Repository(Guid connection, string name, string status) => new(Guid.NewGuid(), connection, name, "studio/" + name, "main", status, true, false, null, null, DateTimeOffset.UtcNow);
 
     private static async Task<string> RenderAsync<T>(WorkspaceApi api, Dictionary<string, object?> parameters) where T : IComponent
     {

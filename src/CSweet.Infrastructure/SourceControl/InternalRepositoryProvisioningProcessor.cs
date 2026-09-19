@@ -23,6 +23,18 @@ public sealed partial class RepositoryProvisioningProcessor
             Fail(request, "assignment_revoked", "The requesting agent must remain an active member of the provisioning team assigned to the product.", now);
             await db.SaveChangesAsync(ct); return true;
         }
+        var projects = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, timeProvider);
+        if (await projects.RequiresProjectAsync(request.OrganizationId, request.RequestedByAgentInstallationId.Value, ct))
+        {
+            var board = await db.WorkBoards.Where(x => x.OrganizationId == request.OrganizationId && x.WorkstreamId == request.WorkstreamId && x.ArchivedAt == null)
+                .Select(x => (Guid?)x.Id).FirstOrDefaultAsync(ct);
+            try { await projects.RequireAsync(request.OrganizationId, employee.Id, board ?? Guid.Empty, ct); }
+            catch (Exception e) when (e is InvalidOperationException or UnauthorizedAccessException)
+            {
+                Fail(request, "project_assignment_revoked", e.Message, now);
+                await db.SaveChangesAsync(ct); return true;
+            }
+        }
         var grant = authorization is null ? null : await authorization.AuthorizeAsync(request.OrganizationId,
             CSweet.Domain.Security.GrantSubjectKind.AgentInstallation, request.RequestedByAgentInstallationId.Value,
             CSweet.Agent.SDK.SourceControlCapabilities.ProvisionRepository, CSweet.Domain.Security.GrantScopeKind.Organization, request.OrganizationId, ct);

@@ -66,6 +66,8 @@ public sealed record PluginToolchainAdapterContribution
 
 public sealed record PluginRolePolicy
 {
+    /// <summary>Delivery requires an active project, explicit participation and scoped grants. Setup and clarification remain available.</summary>
+    public bool RequiresProject { get; init; }
     public string Profile { get; init; } = string.Empty;
     public IReadOnlyList<string> DeclaredRoleKeys { get; init; } = [];
     public IReadOnlyList<string> SpecializationKeys { get; init; } = [];

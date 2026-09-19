@@ -22,6 +22,7 @@ public sealed partial class TaskDeliveryService
             if (review.Status is not ("AwaitingApproval" or "Merging")) return;
             var task = await TaskAsync(org, review.TaskId, ct);
             var epic = await TaskAsync(org, review.EpicId, ct);
+            await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequireIfConfiguredAsync(epic, ct);
             if (epic.Status != WorkTaskStatus.Running || task.Status != WorkTaskStatus.WaitingForApproval)
                 throw new InvalidOperationException("The task or its epic was stopped. Resume the approved work before merging.");
             publication = await db.SourceControlPublications.SingleAsync(x => x.OrganizationId == org && x.Id == review.PublicationId, ct);
@@ -40,7 +41,7 @@ public sealed partial class TaskDeliveryService
             if (review.Status != "Merging")
             {
                 var developer = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == org && x.AgentInstallationId == review.DeveloperInstallationId && x.IsActive && x.ArchivedAt == null, ct);
-                var manager = await ManagerAsync(org, developer, ct);
+                var manager = await ManagerAsync(org, developer, ct, review.BoardId);
                 if (manager.Id != review.ManagerOrganizationUserId)
                 {
                     review.ManagerOrganizationUserId = manager.Id; review.ApprovedCommitSha = null;

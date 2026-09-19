@@ -28,7 +28,9 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
             {
                 var input = Read<ReadInput>(request);
                 if (input.Defaults == true && input.OperationId is null && input.EnvironmentId is null)
-                    response = await (defaults ?? throw new InvalidOperationException()).ReadAsync(organizationId, installationId, token);
+                    response = input.WorkstreamId is { } projectId
+                        ? await (defaults ?? throw new InvalidOperationException()).ReadProjectAsync(organizationId, installationId, projectId, token)
+                        : await (defaults ?? throw new InvalidOperationException()).ReadAsync(organizationId, installationId, token);
                 else if (input.Defaults is not null) throw new ArgumentException();
                 else if (input.OperationId is { } operationId && input.EnvironmentId is null)
                     response = await broker.ReadOperationAsync(organizationId, installationId, operationId, token);
@@ -72,7 +74,7 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
 
     private static T Read<T>(RequestCapability request) => JsonSerializer.Deserialize<T>(request.Payload.Span, ComputeProtocol.Json)
         ?? throw new JsonException("Compute input is missing.");
-    private sealed record ReadInput(Guid? EnvironmentId = null, Guid? OperationId = null, bool? Defaults = null);
+    private sealed record ReadInput(Guid? EnvironmentId = null, Guid? OperationId = null, bool? Defaults = null, Guid? WorkstreamId = null);
     private sealed record ListInput(Guid WorkstreamId, Guid? AfterId = null, int Limit = 50);
     private sealed record LifecycleInput(Guid EnvironmentId, long ExpectedGeneration, string IdempotencyKey);
 }

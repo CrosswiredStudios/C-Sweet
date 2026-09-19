@@ -14,8 +14,10 @@
         <MudText Typo="Typo.h3">Projects</MudText>
         <MudText Color="Color.Secondary">Inspect delivery status, evidence, decisions, communications, and audit history from one project-scoped view.</MudText>
     </div>
+    <MudButton Href="@($"/organizations/{OrganizationId}/projects/new")" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">New project</MudButton>
     @if (WorkstreamId.HasValue)
     {
+        <MudButton Href="@($"/organizations/{OrganizationId}/projects/{WorkstreamId}/members")" Variant="Variant.Outlined">Manage members</MudButton>
         <MudButton Href="@PortfolioHref" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.ArrowBack">Portfolio</MudButton>
     }
 </MudPaper>
@@ -94,7 +96,7 @@ else if (_portfolio is not null)
             <MudTd DataLabel="Target">@context.TargetDate?.LocalDateTime.ToShortDateString()</MudTd>
             <MudTd DataLabel="Latest build">@(context.LatestBuildStatus ?? "No build")</MudTd>
         </RowTemplate>
-        <NoRecordsContent><MudText Class="pa-4">No authorized projects match these filters.</MudText></NoRecordsContent>
+        <NoRecordsContent><MudText Class="pa-4">No authorized projects match these filters.</MudText><MudButton Href="@($"/organizations/{OrganizationId}/projects/new")" Color="Color.Primary" Class="ma-4">New project</MudButton></NoRecordsContent>
     </MudTable>
 }
 

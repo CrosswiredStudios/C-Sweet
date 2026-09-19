@@ -26,11 +26,11 @@ public sealed class ComputePublicationAccess(CSweetDbContext db, ComputeProvider
             var current = await broker.GrantsAsync(environment.OrganizationId, environment.InstallationId, environment.WorkstreamId, token);
             foreach (var grant in evidence)
             {
-                await broker.RequireActorAsync(environment.OrganizationId, environment.InstallationId, environment.WorkstreamId, grant.Action, token);
+                await broker.RequireActorAsync(environment.OrganizationId, environment.InstallationId, environment.WorkstreamId, grant.Action, token, environment.Id);
                 if (!current.Any(x => x.Id == grant.GrantId && x.Revision == grant.Revision && x.Action == grant.Action && x.ExpiresAt == grant.ExpiresAt)) return new(id, false);
             }
             return new(id, true);
         }
-        catch (Exception error) when (error is UnauthorizedAccessException or JsonException) { return new(id, false); }
+        catch (Exception error) when (error is UnauthorizedAccessException or JsonException or InvalidOperationException) { return new(id, false); }
     }
 }

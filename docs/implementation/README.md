@@ -68,6 +68,8 @@ Cross-cutting features are documented as a phased series in their own folder:
 - [Chat turn diagnostics](./chat-turn-diagnostics.md) - use the persisted error code, turn trace,
   agent work-item error, and console locations to diagnose a failed Communications answer.
 
+- [Repository directory](./features/repository-directory.md) - repository activity, project associations, C-Sweet access semantics, and click-only access popovers.
+
 ## Recommended implementation order
 
 Do not start by building the marketplace or a complex autonomous company brain. Build in this order:
@@ -142,3 +144,5 @@ The first full vertical slice is complete when:
 - An artifact is created and shown in the UI.
 - The user can approve or reject the artifact.
 - Errors are visible in logs and task run history.
+
+- [Project-required development](features/project-required-development.md) — SDK prerequisite policy, human setup, durable intake, Chief handoff, repository binding and rollout.

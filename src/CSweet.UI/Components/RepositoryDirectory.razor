@@ -1,0 +1,76 @@
+@using CSweet.Contracts.SourceControl
+
+<div class="repository-directory">
+    <div class="repository-directory-heading"><span>@Repositories.Count @(Repositories.Count == 1 ? "repository" : "repositories")</span><span>Most recent activity first</span></div>
+    <div class="repository-directory-surface">
+        <table aria-label="Repositories">
+            <thead><tr><th scope="col">Repository</th><th scope="col">Project</th><th scope="col">Created</th><th scope="col">Agents</th></tr></thead>
+            <tbody>
+                @foreach (var repository in OrderedRepositories)
+                {
+                    <tr @key="repository.Id">
+                        <td class="repository-identity">
+                            <div class="repository-identifier">
+                                <MudIcon Icon="@Icons.Material.Outlined.AccountTree" Size="Size.Small" Class="repository-directory-icon" />
+                                <MudLink Href="@($"/organizations/{OrganizationId:D}/source-control/{repository.Id:D}")" Class="repository-directory-name"
+                                         title="@($"{Provider(repository)} · {(repository.IsPrivate ? "Private" : "Public")} · {repository.DefaultBranch}")">@repository.Name</MudLink>
+                                @if (repository.Status is not ("Ready" or "Connected"))
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@StatusColor(repository.Status)">@StatusLabel(repository.Status)</MudChip>
+                                }
+                            </div>
+                            <div class="repository-recent-activity">
+                                @if (repository.LastEventOccurredAt is { } occurred && !string.IsNullOrWhiteSpace(repository.LastEventType))
+                                {
+                                    <span class="repository-activity-summary">@RepositoryDirectoryPresentation.Activity(repository)</span>
+                                    <span class="repository-activity-caption"><time datetime="@occurred.ToString("O")" title="@occurred.ToLocalTime().ToString("f")">@RepositoryDirectoryPresentation.RelativeTime(occurred, DateTimeOffset.UtcNow)</time>@if (!string.IsNullOrWhiteSpace(repository.LastEventActor)) {<span> · @repository.LastEventActor</span>}</span>
+                                }
+                                else
+                                {
+                                    <span class="repository-activity-caption">No activity yet</span>
+                                }
+                            </div>
+                        </td>
+                        <td class="repository-projects"><span class="repository-mobile-label">Project</span>
+                            @if (repository.Projects is { Count: > 0 })
+                            {
+                                @foreach (var project in repository.Projects)
+                                {
+                                    <MudLink Href="@($"/organizations/{OrganizationId:D}/projects/{project.Id:D}")">@project.Name</MudLink>
+                                }
+                            }
+                            else { <span class="repository-directory-muted">Not assigned</span> }
+                        </td>
+                        <td class="repository-created"><span class="repository-mobile-label">Created</span>
+                            @if (repository.CreatedAt is { } created)
+                            {
+                                <time datetime="@created.ToString("O")" title="@created.ToLocalTime().ToString("f")">@created.ToLocalTime().ToString("MMM d, yyyy")</time>
+                            }
+                            else { <span class="repository-directory-muted">Not available</span> }
+                        </td>
+                        <td class="repository-agents"><RepositoryAccessPopover @key="(OrganizationId, repository.Id)" Repository="repository" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="repository-directory-caption"><MudIcon Icon="@Icons.Material.Outlined.PeopleOutline" Size="Size.Small" />Counts show agents. Click to see everyone with C-Sweet access.</p>
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public IReadOnlyList<SourceControlRepositorySummary> Repositories { get; set; } = [];
+    [Parameter] public IReadOnlyList<SourceControlConnectionSummary> Connections { get; set; } = [];
+    private IEnumerable<SourceControlRepositorySummary> OrderedRepositories => Repositories
+        .OrderByDescending(r => r.LastEventOccurredAt).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase);
+    private string Provider(SourceControlRepositorySummary repository) =>
+        Connections.FirstOrDefault(c => c.Id == repository.ConnectionId)?.Provider is { } provider && provider != "InternalGit" ? provider : "C-Sweet storage";
+    private static string StatusLabel(string status) => status switch
+    {
+        "AttentionRequired" => "Needs attention", "Provisioning" or "Pending" => "Setup in progress", _ => status
+    };
+    private static Color StatusColor(string status) => status switch
+    {
+        "AttentionRequired" => Color.Warning, "Disconnected" => Color.Error, _ => Color.Default
+    };
+}

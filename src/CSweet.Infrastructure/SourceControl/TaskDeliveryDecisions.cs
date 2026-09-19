@@ -13,7 +13,7 @@ public sealed partial class TaskDeliveryService
     {
         var review = await db.TaskDeliveryReviews.SingleAsync(x => x.OrganizationId == org && x.Id == request.ReviewId, ct);
         if (review.DeveloperInstallationId != installation) throw new UnauthorizedAccessException("This task belongs to another developer.");
-        var actor = await ChatManagerAsync(org, installation, request.SourceMessageId, ct);
+        var actor = await ChatManagerAsync(org, installation, request.SourceMessageId, ct, review.BoardId);
         var key = $"task-review-chat:{request.SourceMessageId:N}:{review.Id:N}";
         if (await db.WorkItemActivities.AnyAsync(x => x.OrganizationId == org && x.IdempotencyKey == key, ct))
             return Result(review, await TaskAsync(org, review.TaskId, ct));
@@ -28,13 +28,13 @@ public sealed partial class TaskDeliveryService
         return Result(review, await TaskAsync(org, review.TaskId, ct));
     }
 
-    private async Task<OrganizationUser> ChatManagerAsync(Guid org, Guid installation, Guid messageId, CancellationToken ct)
+    private async Task<OrganizationUser> ChatManagerAsync(Guid org, Guid installation, Guid messageId, CancellationToken ct, Guid? boardId = null)
     {
         var message = await db.CoreConversationMessages.AsNoTracking().Include(x => x.Conversation)
             .SingleOrDefaultAsync(x => x.Id == messageId && x.Conversation!.OrganizationId == org, ct)
             ?? throw new UnauthorizedAccessException("A retained manager instruction is required.");
         var developer = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == org && x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null, ct);
-        var manager = await ManagerAsync(org, developer, ct);
+        var manager = await ManagerAsync(org, developer, ct, boardId);
         if (message.SenderOrganizationUserId != manager.Id || message.Conversation?.ArchivedAt is not null ||
             await db.CoreConversationMessages.AnyAsync(x => x.ConversationId == message.ConversationId && x.SenderOrganizationUserId == manager.Id && x.Sequence > message.Sequence, ct) ||
             !await db.ConversationParticipants.AnyAsync(x => x.ConversationId == message.ConversationId && x.OrganizationUserId == developer.Id && x.LeftAt == null, ct))
@@ -50,7 +50,7 @@ public sealed partial class TaskDeliveryService
         if (review is null || review.Revision != choice.Revision || review.Status is not ("AwaitingApproval" or "ManualReview"))
             return "This task changed. Review its current publication before deciding.";
         var developer = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == org && x.AgentInstallationId == review.DeveloperInstallationId, ct);
-        if ((await ManagerAsync(org, developer, ct)).Id != managerId || review.ManagerOrganizationUserId != managerId)
+        if ((await ManagerAsync(org, developer, ct, review.BoardId)).Id != managerId || review.ManagerOrganizationUserId != managerId)
             return "Only this task's current manager may approve its merge.";
         if (option is not ("task" or "story" or "epic" or "review")) return "Choose a merge scope or review the task first.";
         var currentTask = await TaskAsync(org, review.TaskId, ct);
@@ -75,7 +75,7 @@ public sealed partial class TaskDeliveryService
         if (review.Status != "AwaitingApproval" || review.DecisionId is not null ||
             review.ApprovedCommitSha == review.CommitSha || await AutoApprovedAsync(review, ct)) return;
         var developer = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == review.OrganizationId && x.AgentInstallationId == review.DeveloperInstallationId, ct);
-        var manager = await ManagerAsync(review.OrganizationId, developer, ct);
+        var manager = await ManagerAsync(review.OrganizationId, developer, ct, review.BoardId);
         var task = await TaskAsync(review.OrganizationId, review.TaskId, ct);
         var repo = await db.SourceControlRepositories.AsNoTracking().SingleAsync(x => x.Id == review.RepositoryId && x.OrganizationId == review.OrganizationId, ct);
         var story = await TaskAsync(review.OrganizationId, review.StoryId, ct);

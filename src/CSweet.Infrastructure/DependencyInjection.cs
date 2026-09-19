@@ -374,6 +374,9 @@ public static class DependencyInjection
         builder.Services.AddScoped<ISoftwareDevelopmentWorkService, SoftwareDevelopmentWorkService>();
         builder.Services.AddScoped<RepositoryProvisioningProcessor>();
         builder.Services.AddScoped<TaskDeliveryService>();
+        builder.Services.AddScoped<CSweet.Infrastructure.Core.ProjectWorkPolicy>();
+        builder.Services.AddScoped<CSweet.Infrastructure.Core.ProjectSetupService>();
+        builder.Services.AddScoped<CSweet.Infrastructure.Core.ProjectIntakeService>();
         builder.Services.AddScoped<SourceControlPlatformSetupService>();
         builder.Services.AddScoped<ISourceControlPlatformSetupService>(services =>
             services.GetRequiredService<SourceControlPlatformSetupService>());

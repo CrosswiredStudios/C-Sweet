@@ -42,19 +42,7 @@
         }
         else if (AllRepositories.Count > 0 && SelectedRepository is null)
         {
-            <div class="repository-list-heading"><span>@AllRepositories.Count @(AllRepositories.Count == 1 ? "repository" : "repositories")</span><span>All providers</span></div>
-            <MudTable Items="AllRepositories" Hover="true" Elevation="0" Class="repository-list">
-                <HeaderContent><MudTh>Repository</MudTh><MudTh>Default branch</MudTh><MudTh>Status</MudTh><MudTh><span class="sr-only">Open repository</span></MudTh></HeaderContent>
-                <RowTemplate>
-                    <MudTd DataLabel="Repository">
-                        <MudButton Class="repository-name" OnClick="() => OpenRepositoryAsync(context)" Disabled="_busy">@context.Name</MudButton>
-                        <MudText Typo="Typo.caption" Class="repository-muted">@ProviderLabel(context) · @(context.IsPrivate ? "Private" : "Public")</MudText>
-                    </MudTd>
-                    <MudTd DataLabel="Default branch"><span class="repository-branch">@context.DefaultBranch</span></MudTd>
-                    <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@RepositoryStatusColor(context.Status)">@RepositoryStatusLabel(context.Status)</MudChip></MudTd>
-                    <MudTd><MudButton OnClick="() => OpenRepositoryAsync(context)" Disabled="_busy" aria-label="@($"Open {context.Name}")">Open</MudButton></MudTd>
-                </RowTemplate>
-            </MudTable>
+            <RepositoryDirectory OrganizationId="OrganizationId" Repositories="AllRepositories" Connections="Connections" />
         }
         @if (_externalRepository is { } external)
         {

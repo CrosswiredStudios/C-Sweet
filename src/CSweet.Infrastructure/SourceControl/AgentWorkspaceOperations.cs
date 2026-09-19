@@ -117,6 +117,8 @@ public sealed partial class AgentWorkspaceBroker
             !await db.AgentInstallations.AsNoTracking().AnyAsync(i => i.Id == workspace.AgentInstallationId && i.IsEnabled &&
                 i.BusinessId == workspace.OrganizationId.ToString("D"), cancellationToken))
             throw new UnauthorizedAccessException("Workspace assignment is stale.");
+        var work = await db.CoreWorkTasks.AsNoTracking().SingleAsync(x => x.OrganizationId == workspace.OrganizationId && x.Id == workspace.WorkItemId, cancellationToken);
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System).RequireIfConfiguredAsync(work, cancellationToken);
         await AuthorizeWorkspaceTeamAsync(workspace, cancellationToken);
         return workspace;
     }

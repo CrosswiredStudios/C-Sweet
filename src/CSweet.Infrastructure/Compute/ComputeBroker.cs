@@ -131,7 +131,7 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
         catch { db.ChangeTracker.Clear(); throw; }
     }
 
-    internal async Task RequireActorAsync(Guid organizationId, Guid installationId, Guid workstreamId, string action, CancellationToken token)
+    internal async Task RequireActorAsync(Guid organizationId, Guid installationId, Guid workstreamId, string action, CancellationToken token, Guid? environmentId = null)
     {
         var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == installationId &&
             x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active && x.SetupState == PluginSetupState.Ready, token);
@@ -143,6 +143,18 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
             ?? throw new UnauthorizedAccessException("A current agent employee is required.");
         var workstream = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(x => x.Id == workstreamId && x.OrganizationId == organizationId, token)
             ?? throw new UnauthorizedAccessException("The Workstream is unavailable.");
+        var projectPolicy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock);
+        var legacyEnvironment = environmentId.HasValue && await db.LegacyProjectComputeAuthorizations.AnyAsync(x => x.OrganizationId == organizationId && x.InstallationId == installationId && x.EnvironmentId == environmentId, token) &&
+            await db.CoreWorkTasks.AnyAsync(t => t.OrganizationId == organizationId && t.AssignedAgentInstallationId == installationId && t.ArchivedAt == null &&
+                t.Status != CSweet.Domain.Core.WorkTaskStatus.Completed && t.Status != CSweet.Domain.Core.WorkTaskStatus.Cancelled &&
+                db.LegacyDevelopmentAuthorizations.Any(a => a.WorkItemId == t.Id && a.OrganizationId == organizationId), token);
+        if (action is not (InfrastructureActions.Read or InfrastructureActions.List or InfrastructureActions.Stop or InfrastructureActions.Destroy) &&
+            !legacyEnvironment && await projectPolicy.RequiresProjectAsync(organizationId, installationId, token))
+        {
+            var board = await db.WorkBoards.Where(x => x.OrganizationId == organizationId && x.WorkstreamId == workstreamId && x.ArchivedAt == null).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(token);
+            if (board is null) throw new InvalidOperationException("project.required: Select an active project before provisioning or executing compute.");
+            await projectPolicy.RequireAsync(organizationId, actor.Id, board.Value, token);
+        }
         if (workstream.AccountableManagerOrganizationUserId == actor.Id || await db.WorkstreamSupervisionAssignments.AsNoTracking()
             .AnyAsync(x => x.WorkstreamId == workstreamId && x.SupervisorOrganizationUserId == actor.Id && x.EndsAt == null, token)) return;
         var teams = await db.WorkstreamTeamAssignments.AsNoTracking().Where(x => x.WorkstreamId == workstreamId && x.EndsAt == null)

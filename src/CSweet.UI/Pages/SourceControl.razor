@@ -11,13 +11,13 @@
     <div class="source-surface @(RepositoryId is null ? null : "repository-open")">
     <div class="source-header">
         <div>
-            <MudText Typo="Typo.h4">Source control</MudText>
-            <MudText Class="source-description">Your repositories, access, and code history.</MudText>
+            <MudText Typo="Typo.h3">Source control</MudText>
+            <MudText Class="source-description">Your repositories, the latest work, and who has access.</MudText>
         </div>
         @if (_dashboard is { CanManageSourceControl: true })
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
-                       Disabled="_loading" OnClick="BeginCreate">New repository</MudButton>
+                       Disabled="_loading" OnClick="BeginCreate">Create repository</MudButton>
         }
     </div>
     @if (!string.IsNullOrWhiteSpace(_error))

@@ -817,7 +817,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             return new AssignmentContext(item, origin.TeamId, repo, access, review.CommitSha);
         }
         var personalBoard = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.Id == item.BoardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Personal, cancellationToken);
+            x.Id == item.BoardId && x.OrganizationId == organizationId && (x.Kind == WorkBoardKind.Personal || (x.WorkstreamId != null && item.SourceConversationId != null && item.ClaimEventId != null)), cancellationToken);
         if (personalBoard is not null)
             return await RequirePersonalAssignmentAsync(organizationId, installationId, item, personalBoard,
                 assignmentRevision, action, cancellationToken);
