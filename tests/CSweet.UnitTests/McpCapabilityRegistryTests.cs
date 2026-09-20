@@ -442,4 +442,27 @@ public sealed class McpCapabilityRegistryTests
             JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
             tool.InputSchema);
     }
+
+    [Fact]
+    public void ProjectIntakeListTools_DeclareArrayOutputForTypedListResponses()
+    {
+        var registry = new McpToolCatalog([]);
+        var listCapabilities = new[]
+        {
+            ProjectIntakeCapabilities.List,
+            ProjectIntakeCapabilities.AssistanceList,
+            ProjectIntakeCapabilities.Discover
+        };
+        var response = JsonSerializer.SerializeToElement(
+            new[] { new { intakeId = Guid.NewGuid(), status = "Retained" } },
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        foreach (var capability in listCapabilities)
+        {
+            var tool = Assert.Single(registry.List(new HashSet<string>([capability], StringComparer.Ordinal)));
+            Assert.NotNull(tool.OutputSchema);
+            Assert.Equal("array", tool.OutputSchema!.Value.GetProperty("type").GetString());
+            JsonSchemaValidator.Validate(response, tool.OutputSchema.Value);
+        }
+    }
 }

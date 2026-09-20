@@ -556,7 +556,9 @@ public sealed class McpToolCatalog(
         W.DeliveryEvidenceCapabilityNames.PreviewReadV2 or
         W.DeliveryEvidenceCapabilityNames.EvaluationReadV1 or
         W.DeliveryEvidenceCapabilityNames.ReleaseReadinessReadV1 or
-        SourceControlCapabilities.TeamRepositoryOptions or TaskDeliveryCapabilities.List => ArrayOutput,
+        SourceControlCapabilities.TeamRepositoryOptions or TaskDeliveryCapabilities.List or
+        ProjectIntakeCapabilities.List or ProjectIntakeCapabilities.AssistanceList or
+        ProjectIntakeCapabilities.Discover => ArrayOutput,
         _ => ObjectOutput
     };
 
