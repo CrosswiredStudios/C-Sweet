@@ -126,7 +126,7 @@ configuration is still required; this is the first step toward a Windows install
 ### Start your company workspace
 
 1. Clone this repository and start Docker Desktop.
-2. Double-click [`Start-CSweet.cmd`](Start-CSweet.cmd). It checks .NET and Docker, attempts to start Docker Desktop when necessary, launches Aspire, and opens the browser.
+2. Double-click [`Start-CSweet.cmd`](Start-CSweet.cmd). It checks .NET and Docker, attempts to start Docker Desktop when necessary, prepares or verifies the local HTTPS development certificate with an HTTP fallback, launches Aspire, and opens the browser.
 3. Create the root administrator, save the **ten offline recovery codes**, and complete guided setup for models and optional services. Email is optional.
 4. In **Agent Execution** setup, follow the separate Office installation flow. Verify the installer signature, create a one-use enrollment, compare the claimed fingerprint with the Office machine, and approve it. Wait for healthy status and current builder/runtime certification.
 5. Create a business and follow onboarding to configure your Chief of Staff and workforce.
@@ -202,9 +202,14 @@ dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
 dotnet test tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj
 ```
 
-The solution files include the sibling Agent SDK, Memory, WorkManagement Contracts, and Office Contracts projects under `dependencies`. Keep those checkouts alongside C-Sweet when building the full solution. This lets Visual Studio restore and build the local dependencies instead of reusing stale assemblies. Reload the solution after dependency projects are added.
-
-Individual project builds automatically detect these sibling checkouts. Without them, project builds use the package versions pinned in [`Directory.Packages.props`](Directory.Packages.props). The switches and paths live in [`Directory.Build.props`](Directory.Build.props). When explicitly switching between local and packaged dependencies, restore using the same switches before building.
+Solution and individual project builds automatically detect sibling Agent SDK, Memory,
+WorkManagement Contracts, Office Contracts, and Isolation checkouts. When a sibling checkout is
+absent, the build uses the package version pinned in
+[`Directory.Packages.props`](Directory.Packages.props), so a standalone clone can restore and build
+without additional repositories. Keep local dependency checkouts beside C-Sweet when developing
+them from source; conditional project references will use them automatically. The switches and
+paths live in [`Directory.Build.props`](Directory.Build.props). When explicitly switching between
+local and packaged dependencies, restore using the same switches before building.
 
 </details>
 

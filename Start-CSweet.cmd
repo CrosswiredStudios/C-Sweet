@@ -36,11 +36,28 @@ timeout.exe /t 2 /nobreak >nul
 goto wait_for_docker
 
 :docker_ready
+set "launch_profile=https"
+dotnet.exe dev-certs https --check --trust >nul 2>nul
+if not errorlevel 1 goto certificate_ready
+
+echo Trusting the local HTTPS development certificate...
+echo Windows may ask you to confirm this one-time developer certificate setup.
+dotnet.exe dev-certs https --trust
+if errorlevel 1 goto certificate_fallback
+dotnet.exe dev-certs https --check --trust >nul 2>nul
+if not errorlevel 1 goto certificate_ready
+
+:certificate_fallback
+echo HTTPS certificate trust is unavailable. Starting the local dashboard over HTTP.
+echo You can repair certificate trust later with: dotnet dev-certs https --trust
+set "launch_profile=http"
+
+:certificate_ready
 echo Starting C-Sweet...
 echo The browser will open automatically when the application is ready.
 echo Keep this window open while using C-Sweet.
 echo.
-dotnet.exe run --project "src\CSweet.AppHost\CSweet.AppHost.csproj" --launch-profile https
+dotnet.exe run --project "src\CSweet.AppHost\CSweet.AppHost.csproj" --launch-profile "%launch_profile%"
 if errorlevel 1 goto failed
 exit /b 0
 

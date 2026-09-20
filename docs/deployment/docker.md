@@ -24,7 +24,8 @@ After cloning the repository, double-click `Start-CSweet.cmd` in the repository 
 2. Verifies the Docker CLI and engine.
 3. Attempts to start Docker Desktop when it is installed but stopped.
 4. Waits up to two minutes for the engine while reporting elapsed time.
-5. Starts the Aspire AppHost, which provisions PostgreSQL, runs migrations, and starts the C-Sweet projects.
+5. Verifies the local HTTPS development certificate, asks Windows to trust it when needed, and falls back to the local HTTP profile if certificate trust is unavailable.
+6. Starts the Aspire AppHost, which provisions PostgreSQL, runs migrations, and starts the C-Sweet projects.
 
 Developers can start the same topology from an IDE or with:
 
