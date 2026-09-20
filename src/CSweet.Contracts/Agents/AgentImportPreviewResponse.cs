@@ -33,4 +33,8 @@ public sealed record AgentImportPreviewResponse(
     public IReadOnlyList<PluginConnectionDeclaration> Connections { get; init; } = [];
     public PluginSetupManifest? Setup { get; init; }
     public int? DefaultTickFrequencySeconds { get; init; }
+    public string PackageSourceMode { get; init; } = "SourceBuild";
+    public string? ReleaseTag { get; init; }
+    public string? ReleaseAssetName { get; init; }
+    public string? ReleaseAssetUrl { get; init; }
 }

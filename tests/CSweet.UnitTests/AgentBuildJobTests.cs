@@ -171,10 +171,125 @@ public sealed class AgentBuildJobTests
         Assert.False(executor.CloneCalled);
     }
 
+    [Fact]
+    public async Task RecoverInterruptedAsync_RequeuesStrandedSourceBuild()
+    {
+        await using var dbContext = CreateDbContext();
+        var (package, job) = await SeedAsync(dbContext);
+        job.StepsJson = AgentBuildStepStore.CreateInitialJson(job.QueuedAt);
+        job.TransitionTo(AgentBuildStatus.Cloning, DateTimeOffset.UtcNow);
+        await dbContext.SaveChangesAsync();
+        var service = CreateService(dbContext, new FakeBuildExecutor());
+
+        var reconciled = await service.RecoverInterruptedAsync();
+
+        Assert.Equal(1, reconciled);
+        Assert.Equal(AgentBuildStatus.Cancelled, job.Status);
+        var retry = await dbContext.AgentBuildJobs.SingleAsync(x => x.Attempt == 2);
+        Assert.Equal(AgentBuildStatus.Queued, retry.Status);
+        Assert.False(AgentBuildStepStore.IsPrebuilt(retry));
+        Assert.Equal(AgentPackageVersionStatus.Approved, package.Status);
+    }
+
+    [Fact]
+    public async Task RecoverInterruptedAsync_ResumesStrandedPrebuiltInstallInline()
+    {
+        await using var dbContext = CreateDbContext();
+        var (package, job) = await SeedAsync(dbContext);
+        package.ReleaseTag = "v1.11.3";
+        package.ReleaseAssetName = "agent-1.11.3-linux-x64.csab";
+        package.ReleaseAssetUrl = "https://github.com/example/agent/releases/download/v1.11.3/agent.csab";
+        package.ReleaseBundleDigest = "sha256:" + PrebuiltBundleInstallServiceTests.BundleDigest;
+        job.StepsJson = AgentBuildStepStore.CreatePrebuiltInitialJson(job.QueuedAt);
+        job.TransitionTo(AgentBuildStatus.Building, DateTimeOffset.UtcNow);
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+        var prebuilt = PrebuiltBundleInstallServiceTests.CreateServiceForRecovery(
+            dbContext,
+            new PrebuiltBundleInstallServiceTests.BundleHandlerForRecovery(
+                PrebuiltBundleInstallServiceTests.BundleBytes,
+                Sidecar: null));
+        var service = CreateService(dbContext, new FakeBuildExecutor(), prebuilt);
+
+        var reconciled = await service.RecoverInterruptedAsync();
+
+        Assert.Equal(1, reconciled);
+        var jobs = await dbContext.AgentBuildJobs.OrderBy(x => x.Attempt).ToListAsync();
+        Assert.Equal(2, jobs.Count);
+        Assert.Equal(AgentBuildStatus.Cancelled, jobs[0].Status);
+        Assert.Equal(AgentBuildStatus.Succeeded, jobs[1].Status);
+        Assert.Equal(AgentPackageVersionStatus.Built, package.Status);
+    }
+
+    [Fact]
+    public async Task RecoverInterruptedAsync_FallsBackToSourceBuildWhenPrebuiltResumeFails()
+    {
+        await using var dbContext = CreateDbContext();
+        var (package, job) = await SeedAsync(dbContext);
+        package.ReleaseTag = "v1.11.3";
+        package.ReleaseAssetName = "agent-1.11.3-linux-x64.csab";
+        package.ReleaseAssetUrl = "https://github.com/example/agent/releases/download/v1.11.3/agent.csab";
+        job.StepsJson = AgentBuildStepStore.CreatePrebuiltInitialJson(job.QueuedAt);
+        job.TransitionTo(AgentBuildStatus.Cloning, DateTimeOffset.UtcNow);
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+        // No checksum sidecar and no stored digest: the resume fails closed,
+        // so recovery must queue a source build instead of leaving the update stuck.
+        var prebuilt = PrebuiltBundleInstallServiceTests.CreateServiceForRecovery(
+            dbContext,
+            new PrebuiltBundleInstallServiceTests.BundleHandlerForRecovery(
+                PrebuiltBundleInstallServiceTests.BundleBytes,
+                Sidecar: null));
+        var service = CreateService(dbContext, new FakeBuildExecutor(), prebuilt);
+
+        var reconciled = await service.RecoverInterruptedAsync();
+
+        Assert.Equal(1, reconciled);
+        var jobs = await dbContext.AgentBuildJobs.OrderBy(x => x.Attempt).ToListAsync();
+        Assert.Equal(3, jobs.Count);
+        Assert.Equal(AgentBuildStatus.Cancelled, jobs[0].Status);
+        Assert.Equal(AgentBuildStatus.Failed, jobs[1].Status);
+        Assert.Equal(AgentBuildStatus.Queued, jobs[2].Status);
+        Assert.False(AgentBuildStepStore.IsPrebuilt(jobs[2]));
+    }
+
+    [Fact]
+    public async Task RecoverInterruptedAsync_SkipsPackagesThatAlreadyBuilt()
+    {
+        await using var dbContext = CreateDbContext();
+        var (package, job) = await SeedAsync(dbContext);
+        package.Status = AgentPackageVersionStatus.Built;
+        package.PackageDigest = "sha256:" + new string('b', 64);
+        package.ArtifactSignature = "signature";
+        job.StepsJson = AgentBuildStepStore.CreateInitialJson(job.QueuedAt);
+        job.TransitionTo(AgentBuildStatus.Building, DateTimeOffset.UtcNow);
+        await dbContext.SaveChangesAsync();
+        var service = CreateService(dbContext, new FakeBuildExecutor());
+
+        var reconciled = await service.RecoverInterruptedAsync();
+
+        Assert.Equal(1, reconciled);
+        Assert.Equal(AgentBuildStatus.Cancelled, job.Status);
+        Assert.Single(await dbContext.AgentBuildJobs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task RecoverInterruptedAsync_IgnoresTerminalJobs()
+    {
+        await using var dbContext = CreateDbContext();
+        var (_, job) = await SeedAsync(dbContext);
+        var service = CreateService(dbContext, new FakeBuildExecutor());
+
+        Assert.Equal(0, await service.RecoverInterruptedAsync());
+        Assert.Equal(AgentBuildStatus.Queued, job.Status);
+    }
+
     private static AgentBuildService CreateService(
         CSweetDbContext dbContext,
-        IAgentBuildExecutor executor) =>
-        new(dbContext, executor, new TestAuditEventWriter(), NullLogger<AgentBuildService>.Instance);
+        IAgentBuildExecutor executor,
+        PrebuiltBundleInstallService? prebuilt = null) =>
+        new(dbContext, executor, new TestAuditEventWriter(), NullLogger<AgentBuildService>.Instance,
+            prebuiltInstallService: prebuilt);
 
     private static async Task<(AgentPackageVersion Package, AgentBuildJob Job)> SeedAsync(
         CSweetDbContext dbContext,

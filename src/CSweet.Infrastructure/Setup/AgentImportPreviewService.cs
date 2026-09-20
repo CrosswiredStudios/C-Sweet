@@ -159,6 +159,29 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         await PersistWorkstreamProfileDefinitionsAsync(manifest, profileDefinitions, now, cancellationToken);
         await PersistToolchainAdapterDefinitionsAsync(manifest, toolchainDefinitions, now, cancellationToken);
 
+        var prebuilt = await ResolvePrebuiltReleaseAsync(
+            repository.Owner, repository.Name, cancellationToken);
+        if (prebuilt is not null &&
+            PrebuiltBundleAssets.ParseVersionFromTag(prebuilt.Release.TagName) is { } releaseVersion &&
+            SemanticVersionComparer.Compare(releaseVersion, version.Version) == 0)
+        {
+            version.ReleaseTag = prebuilt.Release.TagName;
+            version.ReleaseAssetName = prebuilt.Bundle.Name;
+            version.ReleaseAssetUrl = prebuilt.Bundle.BrowserDownloadUrl;
+        }
+        else if (prebuilt is not null)
+        {
+            // The latest tagged release does not match the previewed manifest
+            // version (for example an uncommitted version bump at HEAD). Stamping
+            // its bundle onto this row would install the wrong payload under the
+            // wrong version, so leave the row without prebuilt provenance and let
+            // the update fall back to a source build.
+            version.ReleaseTag = null;
+            version.ReleaseAssetName = null;
+            version.ReleaseAssetUrl = null;
+            version.ReleaseBundleDigest = null;
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         if (isNewVersion)
@@ -376,15 +399,24 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         AgentPackageVersion version,
         AgentPackageSource source,
         PluginManifest manifest,
-        IReadOnlyList<AgentManifestWarningResponse> warnings) =>
-        new AgentImportPreviewResponse(
+        IReadOnlyList<AgentManifestWarningResponse> warnings)
+    {
+        var prebuilt = version.ReleaseTag is not null && version.ReleaseAssetName is not null;
+        // The stored row version is authoritative: it is the manifest version at the
+        // previewed commit. A tagged release may be ahead of the manifest at HEAD
+        // (uncommitted version bump), but installing that bundle under a higher
+        // version number would mislabel the package and break update comparisons.
+        // The effective version is therefore the row version; the release tag is
+        // carried as provenance for the bundle download only.
+        var effectiveVersion = version.Version;
+        return new AgentImportPreviewResponse(
             version.Id,
             source.RepositoryUrl,
             version.CommitSha,
             version.ManifestDigest,
             manifest.Id,
             manifest.Name,
-            manifest.Version,
+            effectiveVersion,
             manifest.Publisher.Id,
             manifest.Publisher.Name,
             manifest.Runtime.Type,
@@ -407,8 +439,40 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             CredentialBindings = manifest.Credentials,
             Connections = manifest.Connections,
             Setup = manifest.Setup,
-            DefaultTickFrequencySeconds = manifest.Runtime.DefaultTickFrequencySeconds
+            DefaultTickFrequencySeconds = manifest.Runtime.DefaultTickFrequencySeconds,
+            PackageSourceMode = prebuilt ? "PrebuiltRelease" : "SourceBuild",
+            ReleaseTag = version.ReleaseTag,
+            ReleaseAssetName = version.ReleaseAssetName,
+            ReleaseAssetUrl = version.ReleaseAssetUrl
         };
+    }
+
+    private async Task<PrebuiltReleaseSelection?> ResolvePrebuiltReleaseAsync(
+        string repositoryOwner,
+        string repositoryName,
+        CancellationToken cancellationToken)
+    {
+        GitHubReleaseInfo? release;
+        try
+        {
+            release = await _repositoryClient.GetLatestReleaseAsync(
+                repositoryOwner, repositoryName, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // A release lookup failure must not block source-based preview.
+            return null;
+        }
+
+        if (release is null || release.Draft || release.Prerelease)
+            return null;
+        var bundle = PrebuiltBundleAssets.SelectBundle(release);
+        return bundle is null ? null : new PrebuiltReleaseSelection(release, bundle);
+    }
+
+    private sealed record PrebuiltReleaseSelection(
+        GitHubReleaseInfo Release,
+        GitHubReleaseAssetInfo Bundle);
 
     public static IReadOnlyList<string> WebGrantTokens(PluginManifest manifest) => manifest.WebAccess.Mode switch
     {

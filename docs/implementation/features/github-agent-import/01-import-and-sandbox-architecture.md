@@ -221,6 +221,40 @@ Changing any of these requires a new approval:
 - Runtime type.
 - Publisher identity.
 
+### Prebuilt release bundles (.csab)
+
+Maintainers may attach a prebuilt `.csab` bundle (produced by `pack-csab.py`) to a tagged GitHub
+release instead of requiring every install to compile from source:
+
+- Preview calls `GET /repos/{owner}/{repo}/releases/latest` and selects the `*-linux-x64.csab`
+  asset when the release is final (drafts and prereleases are ignored). The bundle is stamped
+  onto the previewed row only when the release tag parses to exactly the manifest version at
+  the previewed commit; a tag that is ahead of (or behind) the manifest — for example an
+  uncommitted version bump at HEAD — is ignored so the row never advertises one version while
+  carrying another version's payload. The stored row version is authoritative everywhere
+  (update comparisons, install labeling); the tag is provenance for the download only.
+  Without matching provenance the update falls back to a source build.
+- Approval downloads the bundle (2 GiB cap), resolves the expected SHA-256 digest from the stored
+  provenance or the `<bundle>.csab.sha256` sidecar, and imports it through the same
+  `IAgentArtifactStore.ImportAsync` validation gate as builder-produced artifacts. A missing or
+  mismatched checksum fails closed; the install never proceeds unverified.
+- A failed prebuilt install falls back to the classic fleet source build (recorded as the next
+  build attempt), so a bad release asset never blocks installation. Seal-phase failures
+  (validation passed but the artifact store move/sign/persist failed) are reported on the
+  install step with a "could not be sealed" message, and the update/retry endpoints return
+  `AgentBuildException` text as a 400 `{ error }` body so the UI banner names the failure
+  instead of showing a generic message.
+- Provenance (`ReleaseTag`, `ReleaseAssetName`, `ReleaseAssetUrl`, `ReleaseBundleDigest`) is
+  persisted on the package version, and the install popup reports download / verify / install
+  steps with the release tag instead of the compile steps.
+- Startup reconciliation (`IAgentBuildService.RecoverInterruptedAsync`, run by
+  `AgentRuntimeStartupCleanupWorker` independently of workload cleanup) cancels jobs stranded
+  in `Cloning`/`Building` by a restart and resumes them on the same path: prebuilt jobs
+  re-run the bounded download/verify/install inline, source jobs are re-queued for the build
+  worker, and jobs whose package already reached `Built` are cancelled without a new attempt.
+  Manual retries (`RetryBuildAsync`) also prefer the prebuilt reinstall when the package
+  carries release provenance.
+
 Revocation should:
 
 - Stop new assignments.

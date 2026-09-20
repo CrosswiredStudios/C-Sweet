@@ -29,6 +29,10 @@ public sealed class AgentPackageVersion
     public string ArtifactArchitecture { get; set; } = "x64";
     public DateTimeOffset? BuiltAt { get; set; }
     public DateTimeOffset ImportedAt { get; set; }
+    public string? ReleaseTag { get; set; }
+    public string? ReleaseAssetName { get; set; }
+    public string? ReleaseAssetUrl { get; set; }
+    public string? ReleaseBundleDigest { get; set; }
 
     public AgentPackageSource? PackageSource { get; set; }
     public ICollection<AgentBuildJob> BuildJobs { get; set; } = [];

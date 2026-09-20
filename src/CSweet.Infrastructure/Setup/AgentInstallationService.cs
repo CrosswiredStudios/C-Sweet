@@ -1757,7 +1757,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 schedule.IsEnabled),
             installation.CreatedAt,
             installation.UpdatedAt,
-            AgentBuildSummaryMapper.Create(build),
+            AgentBuildSummaryMapper.Create(build, package),
             runtime is null ? null : ToRunResponse(runtime))
         {
             ImageUrl = catalog.ImageUrl,

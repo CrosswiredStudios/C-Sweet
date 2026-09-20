@@ -78,6 +78,7 @@ public static class AgentManagementEndpoints
         {
             try { return Results.Ok(await definitions.UpdateAsync(definitionId, request, cancellationToken)); }
             catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+            catch (AgentBuildException exception) { return Results.BadRequest(new { error = exception.Message }); }
         })
             .RequireAuthorization("PluginAdministration")
             .RequireRateLimiting(AgentRateLimiting.BuildPolicy);
@@ -98,6 +99,7 @@ public static class AgentManagementEndpoints
         {
             try { return Results.Ok(await definitions.RetryBuildAsync(definitionId, cancellationToken)); }
             catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
+            catch (AgentBuildException exception) { return Results.BadRequest(new { error = exception.Message }); }
         })
             .RequireAuthorization("PluginAdministration")
             .RequireRateLimiting(AgentRateLimiting.BuildPolicy);

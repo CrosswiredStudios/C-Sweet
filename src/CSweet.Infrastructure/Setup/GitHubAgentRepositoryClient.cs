@@ -78,6 +78,59 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
         return await ResolveCommitShaAsync(repository.Owner, repository.Name, reference, cancellationToken);
     }
 
+    public async Task<GitHubReleaseInfo?> GetLatestReleaseAsync(
+        string repositoryOwner,
+        string repositoryName,
+        CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient.GetAsync(
+            $"repos/{Escape(repositoryOwner)}/{Escape(repositoryName)}/releases/latest",
+            cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        await EnsureSuccessAsync(response, "The latest GitHub release could not be read.", cancellationToken);
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("tag_name", out var tagElement) ||
+            string.IsNullOrWhiteSpace(tagElement.GetString()))
+        {
+            throw new AgentImportPreviewException("GitHub returned a release without a tag name.");
+        }
+
+        var assets = new List<GitHubReleaseAssetInfo>();
+        if (root.TryGetProperty("assets", out var assetsElement) &&
+            assetsElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var asset in assetsElement.EnumerateArray())
+            {
+                if (!asset.TryGetProperty("name", out var nameElement) ||
+                    string.IsNullOrWhiteSpace(nameElement.GetString()) ||
+                    !asset.TryGetProperty("browser_download_url", out var urlElement) ||
+                    string.IsNullOrWhiteSpace(urlElement.GetString()))
+                {
+                    continue;
+                }
+
+                var size = asset.TryGetProperty("size", out var sizeElement) &&
+                    sizeElement.ValueKind == JsonValueKind.Number &&
+                    sizeElement.TryGetInt64(out var parsedSize)
+                    ? parsedSize
+                    : 0;
+                assets.Add(new GitHubReleaseAssetInfo(
+                    nameElement.GetString()!,
+                    urlElement.GetString()!,
+                    size));
+            }
+        }
+
+        var draft = root.TryGetProperty("draft", out var draftElement) &&
+            draftElement.ValueKind == JsonValueKind.True;
+        var prerelease = root.TryGetProperty("prerelease", out var prereleaseElement) &&
+            prereleaseElement.ValueKind == JsonValueKind.True;
+        return new GitHubReleaseInfo(tagElement.GetString()!, draft, prerelease, assets);
+    }
+
     public async Task<byte[]> GetRootManifestAsync(
         string repositoryOwner,
         string repositoryName,

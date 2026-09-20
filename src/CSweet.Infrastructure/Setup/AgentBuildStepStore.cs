@@ -18,10 +18,28 @@ internal static class AgentBuildStepStore
         (AgentBuildStepKeys.Package, "Verify package", "Validate and seal the immutable agent package.")
     ];
 
+    private static readonly (string Key, string Label, string PendingDetail)[] PrebuiltCatalog =
+    [
+        (AgentBuildStepKeys.Queued, "Install queued", "Waiting to fetch the release bundle."),
+        (AgentBuildStepKeys.Download, "Download release", "Download the tagged .csab release bundle."),
+        (AgentBuildStepKeys.Verify, "Verify bundle", "Check the SHA-256 digest and validate the bundle."),
+        (AgentBuildStepKeys.Install, "Install package", "Seal the immutable agent package for hire.")
+    ];
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static string CreateInitialJson(DateTimeOffset queuedAt) =>
         Serialize(CreateInitial(queuedAt));
+
+    public static string CreatePrebuiltInitialJson(DateTimeOffset queuedAt) =>
+        Serialize(CreateInitial(queuedAt, PrebuiltCatalog));
+
+    /// <summary>
+    /// Reports whether the job was created for the prebuilt release path
+    /// (download/verify/install) rather than the fleet source build.
+    /// </summary>
+    public static bool IsPrebuilt(AgentBuildJob job) =>
+        Read(job).Any(step => string.Equals(step.Key, AgentBuildStepKeys.Download, StringComparison.Ordinal));
 
     public static IReadOnlyList<AgentBuildStepResponse> Read(AgentBuildJob job)
     {
@@ -199,7 +217,12 @@ internal static class AgentBuildStepStore
     }
 
     private static List<AgentBuildStepResponse> CreateInitial(DateTimeOffset queuedAt) =>
-        Catalog.Select((definition, index) => new AgentBuildStepResponse(
+        CreateInitial(queuedAt, Catalog);
+
+    private static List<AgentBuildStepResponse> CreateInitial(
+        DateTimeOffset queuedAt,
+        (string Key, string Label, string PendingDetail)[] catalog) =>
+        catalog.Select((definition, index) => new AgentBuildStepResponse(
             definition.Key,
             definition.Label,
             index == 0 ? AgentBuildStepStatuses.InProgress : AgentBuildStepStatuses.Pending,

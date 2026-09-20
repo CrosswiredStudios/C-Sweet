@@ -56,6 +56,7 @@ public sealed record AgentDefinitionUpdateAvailabilityResponse(
     public string? ReleaseNotes { get; init; }
     public string? ReleaseNotesPath { get; init; }
     public string? ReleaseNotesError { get; init; }
+    public string UpdateApproach { get; init; } = "SourceBuild";
 }
 
 public sealed record UpdateAgentDefinitionRequest(Guid PackageVersionId);

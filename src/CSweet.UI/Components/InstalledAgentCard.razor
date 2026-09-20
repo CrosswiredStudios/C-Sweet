@@ -15,7 +15,11 @@
                                aria-label="@($"Update {Installation.AgentName} to {Update.AvailableVersion}")"
                                Disabled="@(Busy || Building)" OnClick="OnUpdate" />
                 <div class="agent-card-popover" role="tooltip">
-                    <MudText Typo="Typo.subtitle2">@($"Update to v{Update.AvailableVersion}")</MudText>
+                    <div class="agent-update-heading">
+                        <MudText Typo="Typo.subtitle2">@($"Update to v{Update.AvailableVersion}")</MudText>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Custom.Brands.GitHub"
+                                  title="@UpdateApproachTitle">@UpdateApproachLabel</MudChip>
+                    </div>
                     <div class="agent-release-notes">@(string.IsNullOrWhiteSpace(Update.ReleaseNotes) ? Update.ReleaseNotesError ?? "No release notes were published for this version." : Update.ReleaseNotes)</div>
                 </div>
             </div>
@@ -101,7 +105,11 @@
         @if (Update is not null)
         {
             <MudDivider Class="my-4" />
-            <MudText Typo="Typo.overline">Available update · @($"v{Update.AvailableVersion}")</MudText>
+            <div class="agent-update-heading">
+                <MudText Typo="Typo.overline">Available update · @($"v{Update.AvailableVersion}")</MudText>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Custom.Brands.GitHub"
+                          title="@UpdateApproachTitle">@UpdateApproachLabel</MudChip>
+            </div>
             <div class="agent-release-notes">@(string.IsNullOrWhiteSpace(Update.ReleaseNotes) ? Update.ReleaseNotesError ?? "No release notes were published for this version." : Update.ReleaseNotes)</div>
             <MudButton Color="Color.Primary" Disabled="@(Busy || Building)" OnClick="OnUpdate">@($"Update to v{Update.AvailableVersion}")</MudButton>
         }
@@ -134,6 +142,11 @@
     private bool _updatePreviewOpen;
     private bool _portraitFailed;
     private bool Building => InstalledAgentPresentation.IsBuilding(Installation, BuildPending);
+    private bool UpdateIsPrebuilt => string.Equals(Update?.UpdateApproach, "PrebuiltRelease", StringComparison.Ordinal);
+    private string UpdateApproachLabel => UpdateIsPrebuilt ? "CSAB" : "Code";
+    private string UpdateApproachTitle => UpdateIsPrebuilt
+        ? "Updates from a prebuilt release bundle"
+        : "Updates by building from source";
     private string StatusLabel => Building ? "Build in progress" : Installation.Build?.Status switch
     {
         "Failed" => "Build failed",

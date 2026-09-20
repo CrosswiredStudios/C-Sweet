@@ -37,6 +37,9 @@ public static class AgentBuildStepKeys
     public const string Restore = "restore";
     public const string Publish = "publish";
     public const string Package = "package";
+    public const string Download = "download";
+    public const string Verify = "verify";
+    public const string Install = "install";
 }
 
 public static class AgentBuildStepStatuses

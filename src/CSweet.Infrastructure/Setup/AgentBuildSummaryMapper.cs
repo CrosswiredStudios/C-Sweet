@@ -7,7 +7,7 @@ namespace CSweet.Infrastructure.Setup;
 
 internal static partial class AgentBuildSummaryMapper
 {
-    public static AgentBuildSummaryResponse? Create(AgentBuildJob? build)
+    public static AgentBuildSummaryResponse? Create(AgentBuildJob? build, AgentPackageVersion? package = null)
     {
         if (build is null) return null;
         var steps = AgentBuildStepStore.Read(build);
@@ -52,7 +52,12 @@ internal static partial class AgentBuildSummaryMapper
         }
         return new AgentBuildSummaryResponse(
             build.Id, build.Status.ToString(), build.Attempt, build.QueuedAt, build.StartedAt, build.CompletedAt,
-            !string.IsNullOrWhiteSpace(build.LogPath) || !string.IsNullOrWhiteSpace(diagnostic), failure, steps);
+            !string.IsNullOrWhiteSpace(build.LogPath) || !string.IsNullOrWhiteSpace(diagnostic), failure, steps)
+        {
+            SourceMode = package?.ReleaseTag is not null ? "PrebuiltRelease" : "SourceBuild",
+            ReleaseTag = package?.ReleaseTag,
+            ReleaseAssetName = package?.ReleaseAssetName
+        };
     }
 
     private static string Clean(string value) => new(value

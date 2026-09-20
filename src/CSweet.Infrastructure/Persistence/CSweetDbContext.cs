@@ -1149,6 +1149,10 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.Property(x => x.ArtifactFormatVersion).HasMaxLength(32).IsRequired();
             entity.Property(x => x.ArtifactOperatingSystem).HasMaxLength(32).IsRequired();
             entity.Property(x => x.ArtifactArchitecture).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ReleaseTag).HasMaxLength(64);
+            entity.Property(x => x.ReleaseAssetName).HasMaxLength(512);
+            entity.Property(x => x.ReleaseAssetUrl).HasMaxLength(2048);
+            entity.Property(x => x.ReleaseBundleDigest).HasMaxLength(128);
             entity.HasIndex(x => new { x.PackageSourceId, x.CommitSha, x.ManifestDigest }).IsUnique();
             entity.HasOne(x => x.PackageSource)
                 .WithMany()

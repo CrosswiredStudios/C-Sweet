@@ -48,7 +48,12 @@ public sealed record AgentBuildSummaryResponse(
     DateTimeOffset? CompletedAt,
     bool HasLog,
     string? FailureMessage,
-    IReadOnlyList<AgentBuildStepResponse>? Steps = null);
+    IReadOnlyList<AgentBuildStepResponse>? Steps = null)
+{
+    public string SourceMode { get; init; } = "SourceBuild";
+    public string? ReleaseTag { get; init; }
+    public string? ReleaseAssetName { get; init; }
+}
 
 public sealed record AgentBuildStepResponse(
     string Key,

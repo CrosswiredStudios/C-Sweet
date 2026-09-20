@@ -28,19 +28,22 @@ public sealed class AgentBuildService : IAgentBuildService
     private readonly IAuditEventWriter _auditWriter;
     private readonly ILogger<AgentBuildService> _logger;
     private readonly IExecutionFleetService? _executionFleet;
+    private readonly PrebuiltBundleInstallService? _prebuiltInstallService;
 
     public AgentBuildService(
         CSweetDbContext dbContext,
         IAgentBuildExecutor executor,
         IAuditEventWriter auditWriter,
         ILogger<AgentBuildService> logger,
-        IExecutionFleetService? executionFleet = null)
+        IExecutionFleetService? executionFleet = null,
+        PrebuiltBundleInstallService? prebuiltInstallService = null)
     {
         _dbContext = dbContext;
         _executor = executor;
         _auditWriter = auditWriter;
         _logger = logger;
         _executionFleet = executionFleet;
+        _prebuiltInstallService = prebuiltInstallService;
     }
 
     public async Task<Guid> QueueAsync(
@@ -370,6 +373,77 @@ public sealed class AgentBuildService : IAgentBuildService
         package.Status = AgentPackageVersionStatus.Approved;
         await _dbContext.SaveChangesAsync(CancellationToken.None);
         await WriteAuditAsync(job, "agent-build.cancelled", reason, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Reconciles build jobs stranded in a worker-owned state by an ungraceful host
+    /// shutdown. Each stranded job is cancelled and replaced with a fresh attempt that
+    /// preserves the original install path: prebuilt release jobs re-run the bounded
+    /// download/verify/install inline, source jobs are re-queued for the build worker.
+    /// Jobs whose package already reached <c>Built</c> are cancelled without a new
+    /// attempt. Returns the number of reconciled jobs.
+    /// </summary>
+    public async Task<int> RecoverInterruptedAsync(CancellationToken cancellationToken = default)
+    {
+        var stranded = await _dbContext.AgentBuildJobs
+            .Include(x => x.PackageVersion)
+            .Where(x => x.Status == AgentBuildStatus.Cloning || x.Status == AgentBuildStatus.Building)
+            .OrderBy(x => x.QueuedAt)
+            .ToListAsync(cancellationToken);
+        if (stranded.Count == 0)
+        {
+            return 0;
+        }
+
+        var reconciled = 0;
+        // Only the latest attempt per package can own the install; older rows are
+        // history left behind by retries that were themselves interrupted.
+        foreach (var group in stranded.GroupBy(x => x.PackageVersionId))
+        {
+            var job = group.OrderByDescending(x => x.Attempt).First();
+            var package = job.PackageVersion;
+            if (package is null)
+            {
+                continue;
+            }
+
+            var prebuilt = AgentBuildStepStore.IsPrebuilt(job);
+            await AgentBuildStepStore.FailCurrentAsync(
+                _dbContext, job, "The host restarted while this install was running.");
+            await CancelAsync(job, package, "The host restarted while this install was running.");
+            reconciled++;
+
+            if (package.Status == AgentPackageVersionStatus.Built)
+            {
+                // The package reached Built through another attempt; nothing left to do.
+                continue;
+            }
+
+            if (prebuilt && _prebuiltInstallService is not null)
+            {
+                try
+                {
+                    await _prebuiltInstallService.InstallAsync(package.Id, cancellationToken);
+                    await UpdateDefinitionBuildStateAsync(package, buildSucceeded: true, cancellationToken);
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // The prebuilt attempt recorded its own failed job row; fall back to a
+                    // source build so the update is not stuck behind a missing release asset.
+                    _logger.LogWarning(exception,
+                        "Interrupted prebuilt install for package {PackageVersionId} could not resume; falling back to source build.",
+                        package.Id);
+                    await QueueAsync(package.Id, cancellationToken);
+                }
+            }
+            else
+            {
+                await QueueAsync(package.Id, cancellationToken);
+            }
+        }
+
+        return reconciled;
     }
 
     private Task WriteAuditAsync(

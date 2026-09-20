@@ -187,6 +187,9 @@ public sealed class AgentUpdateService : IAgentUpdateService
             update?.AgentVersion,
             update?.CommitSha,
             checkedAt,
-            error);
+            error)
+        {
+            UpdateApproach = update?.PackageSourceMode ?? "SourceBuild"
+        };
     }
 }

@@ -168,6 +168,36 @@ public sealed class AgentApiClientTests
         Assert.Contains("WaitingForMcpSession", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task UpdateDefinitionAsync_ServerErrorWithoutBody_NamesStatusCode()
+    {
+        var definitionId = Guid.NewGuid();
+        var client = CreateClient(
+            HttpStatusCode.InternalServerError,
+            "<html>proxy error</html>");
+
+        var exception = await Assert.ThrowsAsync<ApiClientException>(() =>
+            client.UpdateDefinitionAsync(definitionId, new UpdateAgentDefinitionRequest(Guid.NewGuid())));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, exception.StatusCode);
+        Assert.Contains("500", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("action failed.", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpdateDefinitionAsync_KnownError_SurfacesServerMessage()
+    {
+        var definitionId = Guid.NewGuid();
+        var client = CreateClient(
+            HttpStatusCode.BadRequest,
+            """{"error":"The prebuilt release bundle could not be installed: disk full."}""");
+
+        var exception = await Assert.ThrowsAsync<ApiClientException>(() =>
+            client.UpdateDefinitionAsync(definitionId, new UpdateAgentDefinitionRequest(Guid.NewGuid())));
+
+        Assert.Contains("could not be installed", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static AgentApiClient CreateClient(HttpStatusCode statusCode, string body)
     {
         var handler = new StubHandler(_ => new HttpResponseMessage(statusCode)

@@ -34,6 +34,22 @@ public interface IGitHubAgentRepositoryClient
         CancellationToken cancellationToken) =>
         new("csweet-plugin.json", await GetRootManifestAsync(
             repositoryOwner, repositoryName, commitSha, cancellationToken));
+
+    Task<GitHubReleaseInfo?> GetLatestReleaseAsync(
+        string repositoryOwner,
+        string repositoryName,
+        CancellationToken cancellationToken) => Task.FromResult<GitHubReleaseInfo?>(null);
 }
 
 public sealed record PluginManifestSource(string FileName, byte[] Content);
+
+public sealed record GitHubReleaseAssetInfo(
+    string Name,
+    string BrowserDownloadUrl,
+    long Size);
+
+public sealed record GitHubReleaseInfo(
+    string TagName,
+    bool Draft,
+    bool Prerelease,
+    IReadOnlyList<GitHubReleaseAssetInfo> Assets);

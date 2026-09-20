@@ -2119,6 +2119,7 @@ body { color: var(--cs-navy); }
 .agent-card-popover { display: none; position: absolute; z-index: 20; top: 100%; right: 0; width: min(26rem, calc(100vw - 4rem)); max-height: 26rem; overflow: auto; padding: 1rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 10px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); box-shadow: var(--mud-elevation-8); text-align: left; font-weight: 400; }
 .agent-card-popover-host.is-open > .agent-card-popover { display: block; }
 .agent-release-notes { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .875rem; margin-top: .5rem; }
+.agent-update-heading { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .installed-agent-build-steps { list-style: none; padding: 0; margin: 1rem 0 0; }
 .installed-agent-build-steps li { margin-bottom: 1rem; overflow-wrap: anywhere; }
 .agent-step-status, .agent-detail-version { color: var(--mud-palette-text-secondary); font-size: .8rem; margin-left: .5rem; }

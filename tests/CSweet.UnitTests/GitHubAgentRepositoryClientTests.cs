@@ -142,6 +142,121 @@ public class GitHubAgentRepositoryClientTests
     private static GitHubAgentRepositoryClient CreateClient(HttpMessageHandler handler) =>
         new(new HttpClient(handler) { BaseAddress = new Uri("https://api.github.com/") });
 
+    [Fact]
+    public async Task GetLatestReleaseAsync_ReturnsTagAndAssets()
+    {
+        var handler = new RecordingHandler(request => request.RequestUri?.AbsolutePath switch
+        {
+            "/repos/example/research-agent/releases/latest" => Json("""
+                {
+                    "tag_name": "v1.11.1",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                        { "name": "CSweet.Agents.SoftwareDeveloper-1.11.1-linux-x64.csab", "browser_download_url": "https://github.com/example/research-agent/releases/download/v1.11.1/bundle.csab", "size": 1234 },
+                        { "name": "CSweet.Agents.SoftwareDeveloper-1.11.1-linux-x64.csab.sha256", "browser_download_url": "https://github.com/example/research-agent/releases/download/v1.11.1/bundle.csab.sha256", "size": 80 },
+                        { "name": "notes.txt", "browser_download_url": "https://example.com/notes.txt", "size": 10 }
+                    ]
+                }
+                """),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        });
+        var client = CreateClient(handler);
+
+        var release = await client.GetLatestReleaseAsync("example", "research-agent", CancellationToken.None);
+
+        Assert.NotNull(release);
+        Assert.Equal("v1.11.1", release!.TagName);
+        Assert.False(release.Draft);
+        Assert.False(release.Prerelease);
+        Assert.Equal(3, release.Assets.Count);
+        Assert.Equal("/repos/example/research-agent/releases/latest", handler.Requests[0]);
+    }
+
+    [Fact]
+    public async Task GetLatestReleaseAsync_ReturnsNullWhenNoReleases()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        var client = CreateClient(handler);
+
+        var release = await client.GetLatestReleaseAsync("example", "research-agent", CancellationToken.None);
+
+        Assert.Null(release);
+    }
+
+    [Fact]
+    public async Task GetLatestReleaseAsync_RejectsReleaseWithoutTag()
+    {
+        var handler = new RecordingHandler(_ => Json("""{ "tag_name": "", "assets": [] }"""));
+        var client = CreateClient(handler);
+
+        await Assert.ThrowsAsync<AgentImportPreviewException>(() =>
+            client.GetLatestReleaseAsync("example", "research-agent", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("v1.11.1", "1.11.1")]
+    [InlineData("1.11.1", "1.11.1")]
+    [InlineData("v2.0.0-beta.1", "2.0.0-beta.1")]
+    [InlineData("not-a-version", null)]
+    [InlineData("", null)]
+    public void ParseVersionFromTag_ParsesSemanticVersions(string tag, string? expected)
+    {
+        Assert.Equal(expected, PrebuiltBundleAssets.ParseVersionFromTag(tag));
+    }
+
+    [Fact]
+    public void SelectBundle_PrefersLinuxX64Asset()
+    {
+        var release = new GitHubReleaseInfo(
+            "v1.11.1",
+            false,
+            false,
+            [
+                new GitHubReleaseAssetInfo("agent-docs.zip", "https://example.com/docs.zip", 10),
+                new GitHubReleaseAssetInfo("agent-1.11.1-linux-x64.csab", "https://example.com/a.csab", 20),
+                new GitHubReleaseAssetInfo("agent-1.11.1-win-x64.csab", "https://example.com/b.csab", 30)
+            ]);
+
+        var selected = PrebuiltBundleAssets.SelectBundle(release);
+
+        Assert.NotNull(selected);
+        Assert.Equal("agent-1.11.1-linux-x64.csab", selected!.Name);
+        var sidecar = release.Assets.FirstOrDefault(x => x.Name == "agent-1.11.1-linux-x64.csab.sha256");
+        Assert.Null(sidecar);
+    }
+
+    [Fact]
+    public void SelectBundle_ReturnsNullWhenNoBundleAsset()
+    {
+        var release = new GitHubReleaseInfo(
+            "v1.11.1",
+            false,
+            false,
+            [new GitHubReleaseAssetInfo("notes.txt", "https://example.com/notes.txt", 10)]);
+
+        Assert.Null(PrebuiltBundleAssets.SelectBundle(release));
+    }
+
+    [Fact]
+    public void FindChecksumSidecar_MatchesBundleName()
+    {
+        var bundle = new GitHubReleaseAssetInfo("agent-1.11.1-linux-x64.csab", "https://example.com/a.csab", 20);
+        var release = new GitHubReleaseInfo(
+            "v1.11.1",
+            false,
+            false,
+            [
+                bundle,
+                new GitHubReleaseAssetInfo("agent-1.11.1-linux-x64.csab.sha256", "https://example.com/a.csab.sha256", 80)
+            ]);
+
+        var sidecar = PrebuiltBundleAssets.FindChecksumSidecar(release, bundle);
+
+        Assert.NotNull(sidecar);
+        Assert.EndsWith(".sha256", sidecar!.Name, StringComparison.Ordinal);
+    }
+
     private static HttpResponseMessage Json(string json) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(json, Encoding.UTF8, "application/json")

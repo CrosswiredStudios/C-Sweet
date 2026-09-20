@@ -135,8 +135,46 @@ public sealed class AgentUpdateServiceTests
         Assert.Null(result.Error);
     }
 
-    private static AgentImportPreviewResponse CreatePreview(string version) => new(
-        Guid.NewGuid(),
+    [Theory]
+    [InlineData("PrebuiltRelease", "PrebuiltRelease")]
+    [InlineData("SourceBuild", "SourceBuild")]
+    public async Task CheckDefinitionsAsync_SurfacesUpdateApproachFromPreview(string mode, string expected)
+    {
+        await using var dbContext = CreateDbContext();
+        var source = new AgentPackageSource
+        {
+            Id = Guid.NewGuid(), RepositoryUrl = "https://github.com/example/research-agent",
+            RepositoryOwner = "example", RepositoryName = "research-agent", DefaultBranch = "main"
+        };
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(), PackageSourceId = source.Id, PackageSource = source,
+            AgentId = "com.example.research-agent", AgentName = "Research Agent", Version = "1.2.3",
+            CommitSha = new string('1', 40), ManifestDigest = new string('a', 64), ManifestJson = "{}",
+            PublisherId = "com.example", PublisherName = "Example", RuntimeType = "dotnet-project"
+        };
+        var definition = new AgentDefinition
+        {
+            Id = Guid.NewGuid(), PackageSourceId = source.Id, AgentId = package.AgentId,
+            PackageVersionId = package.Id, PackageVersion = package, CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.AddRange(source, package, definition);
+        await dbContext.SaveChangesAsync();
+        var preview = CreatePreview("1.3.0") with { PackageSourceMode = mode };
+        var service = new AgentUpdateService(
+            dbContext,
+            new StubPreviewService(preview),
+            NullLogger<AgentUpdateService>.Instance,
+            new NotesRepository("missing"));
+
+        var result = Assert.Single(await service.CheckDefinitionsAsync());
+
+        Assert.True(result.UpdateAvailable);
+        Assert.Equal(expected, result.UpdateApproach);
+    }
+
+    private static AgentImportPreviewResponse CreatePreview(string version) => new(        Guid.NewGuid(),
         "https://github.com/example/research-agent",
         new string('2', 40),
         new string('b', 64),

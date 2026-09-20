@@ -2,6 +2,10 @@
 
 <section class="agent-build-progress-content" aria-label="Build progress" aria-live="polite">
     <MudText Typo="Typo.subtitle2" Class="agent-build-progress-title">@(ProgressTitle ?? BuildTitle)</MudText>
+    @if (string.Equals(Build?.SourceMode, "PrebuiltRelease", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(Build?.ReleaseTag))
+    {
+        <MudText Typo="Typo.caption" Color="Color.Secondary">Prebuilt release @Build.ReleaseTag@(string.IsNullOrWhiteSpace(Build?.ReleaseAssetName) ? string.Empty : $" · {Build.ReleaseAssetName}")</MudText>
+    }
     @if (!string.IsNullOrWhiteSpace(ProgressDetail))
     {
         <MudText Typo="Typo.body2" Color="Color.Secondary">@ProgressDetail</MudText>
@@ -52,10 +56,21 @@
 </section>
 
 @code {
-    private string BuildTitle => Build?.Status switch
+    private bool IsPrebuilt => string.Equals(Build?.SourceMode, "PrebuiltRelease", StringComparison.Ordinal);
+    private string BuildTitle => (IsPrebuilt, Build?.Status) switch
     {
-        "Queued" => "Build queued", "Cloning" => "Fetching source", "Building" => "Building package",
-        "Succeeded" => "Build complete", "Failed" => "Build failed", "Cancelled" => "Build cancelled",
+        (true, "Queued") => "Install queued",
+        (true, "Cloning") => "Downloading release",
+        (true, "Building") => "Installing release",
+        (true, "Succeeded") => string.IsNullOrWhiteSpace(Build?.ReleaseTag) ? "Release installed" : $"Release {Build.ReleaseTag} installed",
+        (true, "Failed") => "Release install failed",
+        (true, "Cancelled") => "Release install cancelled",
+        (_, "Queued") => "Build queued",
+        (_, "Cloning") => "Fetching source",
+        (_, "Building") => "Building package",
+        (_, "Succeeded") => "Build complete",
+        (_, "Failed") => "Build failed",
+        (_, "Cancelled") => "Build cancelled",
         _ => "Build information"
     };
     private static string StepStatus(string status) => status switch

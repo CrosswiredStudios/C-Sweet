@@ -16,7 +16,8 @@ public sealed class AgentDefinitionService(
     IAgentBuildService buildService,
     IModelCatalogClient? modelCatalog = null,
     ILogger<AgentDefinitionService>? logger = null,
-    IAgentInstallationService? installationService = null) : IAgentDefinitionService
+    IAgentInstallationService? installationService = null,
+    PrebuiltBundleInstallService? prebuiltInstallService = null) : IAgentDefinitionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -127,12 +128,36 @@ public sealed class AgentDefinitionService(
             package.Status = AgentPackageVersionStatus.Approved;
             if (package.BuildJobs.Count == 0)
             {
-                var job = new AgentBuildJob
+                if (await TryInstallPrebuiltReleaseAsync(package, cancellationToken))
                 {
-                    Id = Guid.NewGuid(), PackageVersionId = package.Id, Attempt = 1, QueuedAt = now
-                };
-                job.StepsJson = AgentBuildStepStore.CreateInitialJson(now);
-                db.AgentBuildJobs.Add(job);
+                    // The prebuilt install marked the package Built and signed;
+                    // refresh the tracked entity and recompute availability.
+                    await db.Entry(package).ReloadAsync(cancellationToken);
+                    builtAndSigned = package.Status == AgentPackageVersionStatus.Built &&
+                                     !string.IsNullOrWhiteSpace(package.PackageDigest) &&
+                                     !string.IsNullOrWhiteSpace(package.ArtifactSignature);
+                    definition.IsAvailableForHire = builtAndSigned && configurationComplete;
+                    definition.Status = builtAndSigned
+                        ? configurationComplete ? AgentDefinitionStatus.Available : AgentDefinitionStatus.NeedsConfiguration
+                        : AgentDefinitionStatus.Building;
+                }
+                else
+                {
+                    // The prebuilt attempt (if any) recorded a failed job row;
+                    // number the source-build attempt after it.
+                    var attempt = await db.AgentBuildJobs
+                        .Where(x => x.PackageVersionId == package.Id)
+                        .Select(x => (int?)x.Attempt)
+                        .MaxAsync(cancellationToken) is { } max
+                        ? max + 1
+                        : 1;
+                    var job = new AgentBuildJob
+                    {
+                        Id = Guid.NewGuid(), PackageVersionId = package.Id, Attempt = attempt, QueuedAt = now
+                    };
+                    job.StepsJson = AgentBuildStepStore.CreateInitialJson(now);
+                    db.AgentBuildJobs.Add(job);
+                }
             }
         }
 
@@ -144,6 +169,33 @@ public sealed class AgentDefinitionService(
             $"Imported {package.AgentId} {package.Version} as a global definition; no runtime installation was created.",
             cancellationToken: cancellationToken);
         return ToResponse(definition, package);
+    }
+
+    private async Task<bool> TryInstallPrebuiltReleaseAsync(
+        AgentPackageVersion package,
+        CancellationToken cancellationToken)
+    {
+        if (prebuiltInstallService is null ||
+            package.ReleaseTag is null ||
+            package.ReleaseAssetUrl is null ||
+            package.ReleaseAssetName is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            await prebuiltInstallService.InstallAsync(package.Id, cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Fall back to the fleet source build; the prebuilt job row records the failure.
+            logger?.LogWarning(exception,
+                "Prebuilt release install failed for package {PackageVersionId}; falling back to source build.",
+                package.Id);
+            return false;
+        }
     }
 
     public async Task<IReadOnlyList<AgentDefinitionResponse>> ListAsync(CancellationToken cancellationToken = default)
@@ -216,7 +268,8 @@ public sealed class AgentDefinitionService(
         {
             nextPackage.Status = AgentPackageVersionStatus.Approved;
             await db.SaveChangesAsync(cancellationToken);
-            await buildService.QueueAsync(nextPackage.Id, cancellationToken);
+            if (!await TryInstallPrebuiltReleaseAsync(nextPackage, cancellationToken))
+                await buildService.QueueAsync(nextPackage.Id, cancellationToken);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -392,6 +445,31 @@ public sealed class AgentDefinitionService(
             ?? throw new AgentInstallationException("The agent definition was not found.");
         var package = definition.PackageVersion
             ?? throw new AgentInstallationException("The agent definition package was not found.");
+        if (await TryInstallPrebuiltReleaseAsync(package, cancellationToken))
+        {
+            // The prebuilt install marked the package Built and signed; refresh the
+            // tracked entity and recompute availability instead of queueing a build.
+            await db.Entry(package).ReloadAsync(cancellationToken);
+            var manifest = AgentConfigurationRules.DeserializeManifest(package.ManifestJson);
+            var settings = DeserializeSettings(definition.Configuration?.SettingsJson ?? "{}");
+            var configurationComplete = AgentConfigurationRules.HasAllRequired(manifest, settings);
+            var builtAndSigned = package.Status == AgentPackageVersionStatus.Built &&
+                                 !string.IsNullOrWhiteSpace(package.PackageDigest) &&
+                                 !string.IsNullOrWhiteSpace(package.ArtifactSignature);
+            definition.IsAvailableForHire = builtAndSigned && configurationComplete;
+            definition.Status = builtAndSigned
+                ? configurationComplete ? AgentDefinitionStatus.Available : AgentDefinitionStatus.NeedsConfiguration
+                : AgentDefinitionStatus.Building;
+            definition.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+            await auditWriter.WriteAsync(
+                "agent-definition.build-retry-requested",
+                nameof(AgentDefinition),
+                definition.Id,
+                $"Reinstalled prebuilt release for global definition {package.AgentId} {package.Version}.",
+                cancellationToken: cancellationToken);
+            return ToResponse(definition, package);
+        }
         await buildService.QueueAsync(package.Id, cancellationToken);
         definition.Status = AgentDefinitionStatus.Building;
         definition.IsAvailableForHire = false;
@@ -421,7 +499,7 @@ public sealed class AgentDefinitionService(
             definition.DefaultOverlapPolicy.ToString(), definition.DefaultMaxRuntimeSeconds,
             definition.DefaultMemoryMb, definition.DefaultCpuPercent, definition.Configuration?.Revision ?? 0,
             definition.CreatedAt, definition.UpdatedAt,
-            AgentBuildSummaryMapper.Create(build))
+            AgentBuildSummaryMapper.Create(build, package))
         {
             ImageUrl = catalog.ImageUrl,
             AccentColor = catalog.AccentColor,

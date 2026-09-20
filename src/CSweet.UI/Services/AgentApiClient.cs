@@ -353,8 +353,35 @@ public sealed class AgentApiClient : IAgentApiClient
                 ?? throw new ApiClientException(response.StatusCode, "Agent management response was empty.");
         }
 
-        var error = await response.Content.ReadFromJsonAsync<AgentApiErrorResponse>(cancellationToken);
-        throw new ApiClientException(response.StatusCode, error?.Error ?? "Agent management action failed.");
+        throw await ManagementExceptionAsync(response, cancellationToken);
+    }
+
+    private static async Task<ApiClientException> ManagementExceptionAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        // The server returns { error } for known failures. When the body is not
+        // JSON (proxy error page, empty 500, truncated stream), fall back to the
+        // status code and reason phrase so the banner names the failure instead
+        // of showing a generic message.
+        string? error = null;
+        try
+        {
+            error = (await response.Content.ReadFromJsonAsync<AgentApiErrorResponse>(cancellationToken))?.Error;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException)
+        {
+        }
+        if (!string.IsNullOrWhiteSpace(error))
+        {
+            return new ApiClientException(response.StatusCode, error);
+        }
+        var detail = string.IsNullOrWhiteSpace(response.ReasonPhrase)
+            ? string.Empty
+            : $" ({response.ReasonPhrase})";
+        return new ApiClientException(
+            response.StatusCode,
+            $"Agent management action failed with {(int)response.StatusCode}{detail}. Check the app logs for details.");
     }
 
     private sealed record AgentApiErrorResponse(string? Error);

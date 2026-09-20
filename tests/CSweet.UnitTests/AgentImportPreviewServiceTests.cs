@@ -407,6 +407,64 @@ public class AgentImportPreviewServiceTests
         Assert.Contains("rootPath", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task PreviewAsync_StampsPrebuiltProvenanceWhenTagMatchesManifest()
+    {
+        await using var dbContext = CreateDbContext();
+        var release = new GitHubReleaseInfo(
+            "v1.2.3",
+            false,
+            false,
+            [new GitHubReleaseAssetInfo(
+                "research-agent-1.2.3-linux-x64.csab",
+                "https://github.com/example/research-agent/releases/download/v1.2.3/research-agent.csab",
+                10)]);
+        var service = new AgentImportPreviewService(
+            dbContext,
+            new FakeGitHubAgentRepositoryClient(ValidManifest(), release),
+            new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest(
+            "https://github.com/example/research-agent"));
+
+        Assert.Equal("1.2.3", result.AgentVersion);
+        Assert.Equal("PrebuiltRelease", result.PackageSourceMode);
+        Assert.Equal("v1.2.3", result.ReleaseTag);
+        Assert.Equal("research-agent-1.2.3-linux-x64.csab", result.ReleaseAssetName);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_IgnoresReleaseBundleWhenTagMismatchesManifest()
+    {
+        // A tagged release ahead of the manifest at HEAD (uncommitted version
+        // bump) must not be stamped onto this row: installing that bundle under
+        // the manifest version would mislabel the package and break updates.
+        await using var dbContext = CreateDbContext();
+        var release = new GitHubReleaseInfo(
+            "v1.2.2",
+            false,
+            false,
+            [new GitHubReleaseAssetInfo(
+                "research-agent-1.2.2-linux-x64.csab",
+                "https://github.com/example/research-agent/releases/download/v1.2.2/research-agent.csab",
+                10)]);
+        var service = new AgentImportPreviewService(
+            dbContext,
+            new FakeGitHubAgentRepositoryClient(ValidManifest(), release),
+            new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest(
+            "https://github.com/example/research-agent"));
+
+        Assert.Equal("1.2.3", result.AgentVersion);
+        Assert.Equal("SourceBuild", result.PackageSourceMode);
+        Assert.Null(result.ReleaseTag);
+        Assert.Null(result.ReleaseAssetName);
+        var version = Assert.Single(await dbContext.AgentPackageVersions.ToListAsync());
+        Assert.Null(version.ReleaseTag);
+        Assert.Null(version.ReleaseAssetUrl);
+    }
+
     private static CSweetDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<CSweetDbContext>()
@@ -489,10 +547,12 @@ public class AgentImportPreviewServiceTests
     {
         public const string CommitSha = "0123456789abcdef0123456789abcdef01234567";
         private readonly byte[] _manifest;
+        private readonly GitHubReleaseInfo? _release;
 
-        public FakeGitHubAgentRepositoryClient(string manifest)
+        public FakeGitHubAgentRepositoryClient(string manifest, GitHubReleaseInfo? release = null)
         {
             _manifest = Encoding.UTF8.GetBytes(manifest);
+            _release = release;
         }
 
         public Task<string> GetDefaultBranchAsync(
@@ -511,5 +571,10 @@ public class AgentImportPreviewServiceTests
             string repositoryName,
             string commitSha,
             CancellationToken cancellationToken) => Task.FromResult(_manifest);
+
+        public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(
+            string repositoryOwner,
+            string repositoryName,
+            CancellationToken cancellationToken) => Task.FromResult(_release);
     }
 }

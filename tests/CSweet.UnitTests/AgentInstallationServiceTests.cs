@@ -1196,6 +1196,9 @@ public sealed class AgentInstallationServiceTests
 
         public Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
+
+        public Task<int> RecoverInterruptedAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
     }
 
     private sealed class RecordingLogger<T> : ILogger<T>
