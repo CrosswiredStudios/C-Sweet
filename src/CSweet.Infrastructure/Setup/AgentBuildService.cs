@@ -54,9 +54,9 @@ public sealed class AgentBuildService : IAgentBuildService
             .SingleOrDefaultAsync(x => x.Id == packageVersionId, cancellationToken)
             ?? throw new AgentBuildException("The agent package version was not found.");
 
-        if (packageVersion.Status is not (AgentPackageVersionStatus.Approved or AgentPackageVersionStatus.Failed))
+        if (packageVersion.Status is not (AgentPackageVersionStatus.Previewed or AgentPackageVersionStatus.Approved or AgentPackageVersionStatus.Failed))
         {
-            throw new AgentBuildException("Only approved or failed agent package versions can be queued for build.");
+            throw new AgentBuildException("Only previewed, approved, or failed agent package versions can be queued for build.");
         }
 
         var activeJob = await _dbContext.AgentBuildJobs
@@ -407,17 +407,22 @@ public sealed class AgentBuildService : IAgentBuildService
                 continue;
             }
 
+            if (package.Status == AgentPackageVersionStatus.Built)
+            {
+                // The package reached Built through another attempt; cancel the
+                // stranded row without queueing a replacement.
+                await AgentBuildStepStore.FailCurrentAsync(
+                    _dbContext, job, "The host restarted while this install was running.");
+                await CancelAsync(job, package, "The host restarted while this install was running.");
+                reconciled++;
+                continue;
+            }
+
             var prebuilt = AgentBuildStepStore.IsPrebuilt(job);
             await AgentBuildStepStore.FailCurrentAsync(
                 _dbContext, job, "The host restarted while this install was running.");
             await CancelAsync(job, package, "The host restarted while this install was running.");
             reconciled++;
-
-            if (package.Status == AgentPackageVersionStatus.Built)
-            {
-                // The package reached Built through another attempt; nothing left to do.
-                continue;
-            }
 
             if (prebuilt && _prebuiltInstallService is not null)
             {

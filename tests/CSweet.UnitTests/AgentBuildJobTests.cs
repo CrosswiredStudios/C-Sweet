@@ -274,6 +274,44 @@ public sealed class AgentBuildJobTests
     }
 
     [Fact]
+    public async Task QueueAsync_AcceptsPreviewedPackageForPrebuiltFallback()
+    {
+        await using var dbContext = CreateDbContext();
+        var (package, _) = await SeedAsync(dbContext);
+        package.Status = AgentPackageVersionStatus.Previewed;
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+        var service = CreateService(dbContext, new FakeBuildExecutor());
+
+        var jobId = await service.QueueAsync(package.Id);
+
+        var job = await dbContext.AgentBuildJobs.SingleAsync(x => x.Id == jobId);
+        Assert.Equal(AgentBuildStatus.Queued, job.Status);
+        Assert.Equal(AgentPackageVersionStatus.Approved, package.Status);
+    }
+
+    [Fact]
+    public async Task RecoverInterruptedAsync_BuiltPackageKeepsApprovedStatus()
+    {
+        // Regression test: recovery must not flip a Built package back to
+        // Approved while cancelling its stranded duplicate job row.
+        await using var dbContext = CreateDbContext();
+        var (package, job) = await SeedAsync(dbContext);
+        package.Status = AgentPackageVersionStatus.Built;
+        package.PackageDigest = "sha256:" + new string('b', 64);
+        package.ArtifactSignature = "signature";
+        job.StepsJson = AgentBuildStepStore.CreateInitialJson(job.QueuedAt);
+        job.TransitionTo(AgentBuildStatus.Building, DateTimeOffset.UtcNow);
+        await dbContext.SaveChangesAsync();
+        var service = CreateService(dbContext, new FakeBuildExecutor());
+
+        await service.RecoverInterruptedAsync();
+
+        Assert.Equal(AgentPackageVersionStatus.Built, package.Status);
+        Assert.Equal(AgentBuildStatus.Cancelled, job.Status);
+    }
+
+    [Fact]
     public async Task RecoverInterruptedAsync_IgnoresTerminalJobs()
     {
         await using var dbContext = CreateDbContext();
