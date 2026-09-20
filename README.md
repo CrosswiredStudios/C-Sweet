@@ -196,8 +196,8 @@ Explore the [plugin platform](docs/plugin-platform/README.md) and [agent runtime
 Use the SDK selected by [`global.json`](global.json):
 
 ```bash
-dotnet restore CSweet.sln
-dotnet build CSweet.sln --no-restore
+dotnet restore CSweet.slnx
+dotnet build CSweet.slnx --no-restore
 dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
 dotnet test tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj
 ```

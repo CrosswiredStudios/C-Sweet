@@ -8,6 +8,7 @@
     <Project Path="src/CSweet.App/CSweet.App.csproj" />
     <Project Path="src/CSweet.AppHost/CSweet.AppHost.csproj" />
     <Project Path="src/CSweet.Application/CSweet.Application.csproj" />
+    <Project Path="src/CSweet.Communications.Abstractions/CSweet.Communications.Abstractions.csproj" />
     <Project Path="src/CSweet.Compute.Contracts/CSweet.Compute.Contracts.csproj" />
     <Project Path="src/CSweet.Compute.Guest/CSweet.Compute.Guest.csproj" />
     <Project Path="src/CSweet.Compute.HyperV/CSweet.Compute.HyperV.csproj" />

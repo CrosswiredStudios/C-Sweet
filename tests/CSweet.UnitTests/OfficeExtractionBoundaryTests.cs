@@ -15,8 +15,7 @@ public sealed class OfficeExtractionBoundaryTests
         var root = FindRepositoryRoot();
         var definitionFiles = Directory
             .EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories)
-            .Append(Path.Combine(root, "CSweet.slnx"))
-            .Append(Path.Combine(root, "CSweet.sln"));
+            .Append(Path.Combine(root, "CSweet.slnx"));
 
         foreach (var file in definitionFiles)
         {
