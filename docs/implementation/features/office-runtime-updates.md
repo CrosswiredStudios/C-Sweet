@@ -4,24 +4,24 @@ The Offices page checks the available source used to install each Office.
 
 ## Local assisted setup
 
-On the configured Windows development host, initial setup builds and certifies a payload from the sibling
-Office repository. The update check reads that source's VersionPrefix from Directory.Build.props and
-compares it with the Office's last reported runtime version. A newer version offers Update even when
-GitHub has no published releases. The page labels this source as local setup.
+On the configured Windows development host, setup, reconnect, repair, and upgrade all resolve a verified
+stable prebuilt bundle first. The elevated launcher downloads the bundle, performs mandatory target-host
+certification and local development signing, packages it, and invokes the installer. It does not compile
+Office or construct a guest image. An upgrade still requires a drained Office with zero active assignments
+and preserves the existing identity.
 
-The local update action uses the same elevated setup builder as first installation. It requires a drained
-Office with zero active assignments, rebuilds the payload, and invokes the installer with the upgrade
-action and no enrollment token. This preserves the existing Office identity. The installed configurator
-is not used to rebuild the source because its packaged payload may be older.
-
-Local candidates require the configured launcher and bootstrap scripts to exist and match this server's
-machine, Windows OS, and process architecture. Remote Offices cannot use this source.
+The update check uses a configured sibling source only as an availability fallback when published package
+lookup fails. When a published package is available, it wins even if a sibling checkout has a newer
+VersionPrefix. Local fallback candidates require the configured launcher and bootstrap scripts to exist
+and match this server's machine, Windows OS, and process architecture; remote Offices cannot use them.
 
 ## Published installers
 
 Other Offices use CSweet:ExecutionFleet:ReleaseManifestUrl over HTTPS, with a ten-second timeout and
 a one-MiB response limit. Schema 1 and protocol 1.0 are required. Assets match OS and architecture.
-Missing or inaccessible releases remain unavailable for remote Offices; local setup can still proceed.
+Missing or inaccessible releases remain unavailable for remote Offices; local setup can still fall back
+to configured source. The launcher independently checks compatible hosted development bundles before using
+that source fallback.
 A failed lookup never means an Office is current. Equal or newer installed versions do not offer downgrades.
 
 GitHub currently has no published Office releases. The first signed release must publish installers and
@@ -35,8 +35,9 @@ Office 0.5.2 sends its running Node assembly version on HTTP and gRPC heartbeats
 Headquarters persists the reported value and refreshes the UI. Earlier runtimes omit the new field;
 their last recorded version is retained. Local source changes need version bumps to be detected.
 
-Validation includes local-source discovery when GitHub returns 404, remote-office exclusion, numeric
-version comparison, heartbeat updates, source-to-launch routing, and existing maintenance checks.
+Validation includes published-package precedence over a configured sibling checkout, local-source fallback
+when release lookup fails, remote-office exclusion, numeric version comparison, heartbeat updates, and
+existing maintenance checks.
 An actual elevated installation is not performed by these tests.
 
 ## Upgrade preflight regression (Office 0.5.3)

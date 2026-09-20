@@ -14,9 +14,14 @@ local checkout fallback; malformed metadata and bad downloads fail with a visibl
 `Start-CSweetDevelopmentOfficeSetup.ps1` downloads the small support asset before preflight and
 the full bundle after handoff redemption. The Office bootstrap's `PrebuiltRoot` path runs real
 Hyper-V certification and local development signing without invoking a compiler or building an
-image. Full bundles use a short unique `b-<16 hex digits>` staging directory under
-`%ProgramData%\CSweet\Setup` because Hyper-V appends VM names and GUIDs during certification.
-The existing source path remains available. Explicit debug upgrades keep using source.
+image. It does not enter the source-build mutex. Full bundles use a short unique
+`b-<16 hex digits>` staging directory under `%ProgramData%\CSweet\Setup` because Hyper-V appends
+VM names and GUIDs during certification. The existing source path remains an availability fallback;
+setup, reconnect, repair, and upgrade all prefer the newest compatible stable prebuilt bundle.
+
+`ExecutionFleetService.ReadWindowsSetupProgress` verifies that a running progress record still has
+its original live owner. A dead owner becomes `office_setup_interrupted` after 30 seconds so an
+AppHost restart or terminated elevated launcher cannot leave onboarding at a stale percentage forever.
 
 `ExecutionFleetService.RefreshLocalSetupEnrollmentAsync` lets the machine-bound setup receipt
 refresh an unused enrollment's 15-minute claim window immediately before installation. Receipt

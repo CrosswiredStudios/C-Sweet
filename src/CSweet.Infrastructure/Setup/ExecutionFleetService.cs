@@ -479,8 +479,10 @@ public sealed class ExecutionFleetService(
         await dbContext.SaveChangesAsync(cancellationToken);
         if (launchMethod == "server")
         {
-            var launch = TryStartWindowsDevelopmentSetup(session.Id, launchUri,
-                session.RecoveryAction == "upgrade" && LocalOfficeDevelopmentSource.IsConfigured(FleetPolicy));
+            // The launcher resolves a verified prebuilt release first and falls back to the
+            // configured source checkout only when release discovery is unavailable. Do not
+            // force source builds merely because this development machine has a sibling checkout.
+            var launch = TryStartWindowsDevelopmentSetup(session.Id, launchUri);
             if (!launch.Started)
             {
                 session.AdministratorApprovalRequestedAt = null;
@@ -1936,7 +1938,7 @@ public sealed class ExecutionFleetService(
         var effectiveErrorCode = session.ErrorCode;
         var effectiveErrorMessage = session.ErrorMessage;
         var effectiveRecoveryCanReconnect = session.RecoveryCanReconnect;
-        var windowsProgress = ReadWindowsSetupProgress(session.Id);
+        var windowsProgress = ReadWindowsSetupProgress(session.Id, timeProvider.GetUtcNow());
         if (windowsProgress is { } progress && status != LocalOfficeSetupSessionStatus.Ready &&
             progress.ObservedAt >= session.UpdatedAt)
         {
@@ -2151,7 +2153,7 @@ public sealed class ExecutionFleetService(
         return null;
     }
 
-    private DevelopmentLaunchResult TryStartWindowsDevelopmentSetup(Guid sessionId, string launchUri, bool useLocalSource)
+    private DevelopmentLaunchResult TryStartWindowsDevelopmentSetup(Guid sessionId, string launchUri)
     {
         var launcher = fleetOptions!.Value.WindowsDevelopmentLauncherScript!;
         var bootstrap = fleetOptions.Value.WindowsDevelopmentOfficeBootstrapScript!;
@@ -2187,7 +2189,6 @@ public sealed class ExecutionFleetService(
                 startInfo.ArgumentList.Add("-OfficeBootstrapScript");
                 startInfo.ArgumentList.Add(bootstrap);
             }
-            if (useLocalSource) startInfo.ArgumentList.Add("-UseLocalSource");
             using var process = Process.Start(startInfo);
             if (process is null)
                 throw new InvalidOperationException("Windows did not start the elevated Office setup process.");
@@ -2216,7 +2217,7 @@ public sealed class ExecutionFleetService(
 
     private sealed record DevelopmentLaunchResult(bool Started, string? ErrorCode, string? ErrorMessage);
 
-    private static WindowsSetupProgressDocument? ReadWindowsSetupProgress(Guid sessionId)
+    private static WindowsSetupProgressDocument? ReadWindowsSetupProgress(Guid sessionId, DateTimeOffset now)
     {
         if (!OperatingSystem.IsWindows()) return null;
         try
@@ -2245,6 +2246,19 @@ public sealed class ExecutionFleetService(
             progress.EstimatedRemainingMinimumSeconds = ClampEta(progress.EstimatedRemainingMinimumSeconds);
             progress.EstimatedRemainingMaximumSeconds = ClampEta(progress.EstimatedRemainingMaximumSeconds);
             progress.ObservedAt = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
+            if (IsInterruptedWindowsSetupProgress(progress.State, progress.ObservedAt, now,
+                    IsWindowsSetupOwnerAlive(progress.OwnerProcessId, progress.StartedAt)))
+            {
+                progress.State = "failed";
+                progress.PhaseKey = "setup-interrupted";
+                progress.PhaseDisplayName = "Office setup was interrupted";
+                progress.Message = "The Windows setup process stopped before completion. Start the Office setup again.";
+                progress.PercentComplete = 0;
+                progress.EstimatedRemainingMinimumSeconds = null;
+                progress.EstimatedRemainingMaximumSeconds = null;
+                progress.ErrorCode = "office_setup_interrupted";
+                progress.ErrorMessage = "No live Windows setup process owns this progress record.";
+            }
             return progress;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
@@ -2254,6 +2268,38 @@ public sealed class ExecutionFleetService(
     }
 
     private static int? ClampEta(int? value) => value is null ? null : Math.Clamp(value.Value, 0, 86_400);
+
+    internal static bool IsInterruptedWindowsSetupProgress(
+        string state,
+        DateTimeOffset observedAt,
+        DateTimeOffset now,
+        bool ownerAlive) =>
+        state == "running" && !ownerAlive && now - observedAt >= TimeSpan.FromSeconds(30);
+
+    private static bool IsWindowsSetupOwnerAlive(int ownerProcessId, DateTimeOffset progressStartedAt)
+    {
+        if (ownerProcessId <= 0) return false;
+        try
+        {
+            using var process = Process.GetProcessById(ownerProcessId);
+            if (process.HasExited) return false;
+            try
+            {
+                // A recycled PID must not keep an abandoned setup alive. The setup process exists
+                // before its first progress write, with a small allowance for timestamp precision.
+                return process.StartTime.ToUniversalTime() <= progressStartedAt.UtcDateTime.AddSeconds(5);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+            {
+                // Existence is still useful when Windows denies StartTime for an elevated peer.
+                return true;
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
+        {
+            return false;
+        }
+    }
 
     private sealed class WindowsSetupProgressDocument
     {
@@ -2266,6 +2312,9 @@ public sealed class ExecutionFleetService(
         public int PercentComplete { get; set; }
         public int? EstimatedRemainingMinimumSeconds { get; set; }
         public int? EstimatedRemainingMaximumSeconds { get; set; }
+        public DateTimeOffset StartedAt { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; }
+        public int OwnerProcessId { get; set; }
         public string? ErrorCode { get; set; }
         public string? ErrorMessage { get; set; }
         public DateTimeOffset ObservedAt { get; set; }

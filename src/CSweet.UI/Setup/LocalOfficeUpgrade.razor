@@ -67,7 +67,7 @@ else
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@CannotStart" OnClick="() => _confirmRemoval = true">Review reinstall</MudButton>
         }
-        <MudButton Variant="@(_session is null ? Variant.Filled : Variant.Text)" Color="Color.Primary" Disabled="@CannotStart" OnClick="StartAsync" StartIcon="@Icons.Material.Outlined.Build">@(_busy ? "Starting…" : _operation == "upgrade" ? (DevelopmentBuild ? "Build and update (debug)" : "Install update") : _session is null ? "Repair connection" : "Try repair again")</MudButton>
+        <MudButton Variant="@(_session is null ? Variant.Filled : Variant.Text)" Color="Color.Primary" Disabled="@CannotStart" OnClick="StartAsync" StartIcon="@Icons.Material.Outlined.SystemUpdateAlt">@(_busy ? "Starting…" : _operation == "upgrade" ? "Install update" : _session is null ? "Repair connection" : "Try repair again")</MudButton>
         @if (_session is null && _operation == "repair" && OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow))
         {
             <MudButton Disabled="@CannotStart" OnClick="BeginUpdate">Update Office</MudButton>
@@ -197,7 +197,7 @@ else
         "redeemed" => "Keep the computer on. We'll take care of the services and connection.",
         "connected" => "The repair has finished. We're waiting for this Office to reconnect.",
         "ready" => "The connection has been verified. You can start work again when you're ready.",
-        _ when _operation == "upgrade" && DevelopmentBuild => "Build the configured local Office source, certify its guest image, then update this computer. Existing builds are allowed to finish first. Repeated clicks reopen the current operation.",
+        _ when _operation == "upgrade" && DevelopmentBuild => "We'll prefer the latest verified prebuilt Office bundle. The configured local source is used only if release discovery is unavailable.",
         _ when _operation == "upgrade" => "We'll finish current work, install the available software, and check the connection.",
         _ => "We'll check the computer, repair its connection, and confirm it is working."
     };

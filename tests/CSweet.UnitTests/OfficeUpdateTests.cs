@@ -57,6 +57,91 @@ public sealed class OfficeUpdateTests
         Assert.True(factory.RequestedFresh);
     }
 
+    [Fact]
+    public async Task PublishedPackageWinsOverConfiguredLocalSource()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "office-update-" + Guid.NewGuid().ToString("N"));
+        var scripts = Path.Combine(root, "scripts", "windows");
+        Directory.CreateDirectory(scripts);
+        try
+        {
+            var bootstrap = Path.Combine(scripts, "bootstrap.ps1");
+            var launcher = Path.Combine(scripts, "launcher.ps1");
+            File.WriteAllText(bootstrap, "# test");
+            File.WriteAllText(launcher, "# test");
+            File.WriteAllText(Path.Combine(root, "Directory.Build.props"),
+                "<Project><PropertyGroup><VersionPrefix>9.9.9</VersionPrefix></PropertyGroup></Project>");
+            await using var db = new CSweet.Infrastructure.Persistence.CSweetDbContext(
+                new DbContextOptionsBuilder<CSweet.Infrastructure.Persistence.CSweetDbContext>()
+                    .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+            var local = new ExecutionNode { Id = Guid.NewGuid(), MachineName = Environment.MachineName,
+                OperatingSystem = "windows", Architecture = "x64" };
+            db.ExecutionNodes.Add(local);
+            await db.SaveChangesAsync();
+            var json = $$"""
+                {"schemaVersion":1,"protocolVersion":"1.0","officeVersion":"0.6.2","assets":[
+                  {"operatingSystem":"windows","architecture":"x64","packageType":"msi","sha256":"{{new string('a', 64)}}","url":"https://example.test/office.msi"}]}
+                """;
+
+            var result = await OfficeUpdateEndpoints.CheckAsync(db, new ManifestClientFactory(json),
+                Microsoft.Extensions.Options.Options.Create(new CSweet.Infrastructure.Setup.ExecutionFleetOptions {
+                    WindowsDevelopmentLauncherScript = launcher, WindowsDevelopmentOfficeBootstrapScript = bootstrap }),
+                TimeProvider.System, default);
+
+            var response = Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok<CSweet.Contracts.Setup.OfficeUpdateCheckResponse>>(result).Value!;
+            var candidate = Assert.Single(response.Packages);
+            Assert.Equal(local.Id, candidate.OfficeId);
+            Assert.Equal("github", candidate.Source);
+            Assert.Equal("https://example.test/office.msi", candidate.Url);
+            Assert.Equal("0.6.2", response.LatestVersion);
+            Assert.Equal("github", response.Source);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public async Task LocalSourceFillsOnlyMissingPublishedPackage()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "office-update-" + Guid.NewGuid().ToString("N"));
+        var scripts = Path.Combine(root, "scripts", "windows");
+        Directory.CreateDirectory(scripts);
+        try
+        {
+            var bootstrap = Path.Combine(scripts, "bootstrap.ps1");
+            var launcher = Path.Combine(scripts, "launcher.ps1");
+            File.WriteAllText(bootstrap, "# test");
+            File.WriteAllText(launcher, "# test");
+            File.WriteAllText(Path.Combine(root, "Directory.Build.props"),
+                "<Project><PropertyGroup><VersionPrefix>9.9.9</VersionPrefix></PropertyGroup></Project>");
+            await using var db = new CSweet.Infrastructure.Persistence.CSweetDbContext(
+                new DbContextOptionsBuilder<CSweet.Infrastructure.Persistence.CSweetDbContext>()
+                    .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+            var local = new ExecutionNode { Id = Guid.NewGuid(), MachineName = Environment.MachineName,
+                OperatingSystem = "windows", Architecture = "x64" };
+            db.ExecutionNodes.Add(local);
+            await db.SaveChangesAsync();
+            var json = $$"""
+                {"schemaVersion":1,"protocolVersion":"1.0","officeVersion":"0.6.2","assets":[
+                  {"operatingSystem":"linux","architecture":"x64","packageType":"deb","sha256":"{{new string('a', 64)}}","url":"https://example.test/office.deb"}]}
+                """;
+
+            var result = await OfficeUpdateEndpoints.CheckAsync(db, new ManifestClientFactory(json),
+                Microsoft.Extensions.Options.Options.Create(new CSweet.Infrastructure.Setup.ExecutionFleetOptions {
+                    WindowsDevelopmentLauncherScript = launcher, WindowsDevelopmentOfficeBootstrapScript = bootstrap }),
+                TimeProvider.System, default);
+
+            var response = Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok<CSweet.Contracts.Setup.OfficeUpdateCheckResponse>>(result).Value!;
+            var candidate = Assert.Single(response.Packages);
+            Assert.Equal(local.Id, candidate.OfficeId);
+            Assert.Equal("local-setup", candidate.Source);
+            Assert.Null(candidate.Url);
+            Assert.Equal("9.9.9", candidate.Version);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [Theory]
     [InlineData(System.Net.HttpStatusCode.ServiceUnavailable, "Could not check")]
     [InlineData(System.Net.HttpStatusCode.NotFound, "No published Office release manifest")]

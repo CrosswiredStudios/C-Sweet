@@ -208,26 +208,32 @@ Now listening on: https://localhost:15887
 ### "Unable to Connect" in Blazor App
 When running `CSweet.App` standalone (without AppHost), the app tries to call `/api/health` relative to its own base URI. Since no API is running there, it shows "Disconnected". This is expected — run via AppHost for full connectivity.
 
-## Local debug build and update
+## Local Office update source selection
 
-With the Windows development launcher and Office bootstrap configured for the current host,
-ExecutionFleet offers **Build and update (debug)** even when the installed version matches the
-source version. Remote Offices continue to use published updates. The action opens the existing
-LocalOfficeUpgrade workflow, preserving drain, zero-active-work, UAC, certification, and
-identity-preserving installation checks.
+With the Windows development launcher configured for the current host, ExecutionFleet offers an
+Office update even when only the local source fallback is available. Every setup, reconnect, repair,
+and upgrade asks the launcher for the latest compatible stable prebuilt bundle first. The configured
+sibling checkout is used only when release discovery is unavailable. The LocalOfficeUpgrade workflow
+still preserves drain, zero-active-work, UAC, certification, and identity-preserving installation checks.
 
 ExecutionFleetService.LaunchLocalSetupSessionAsync claims the launch in the database before starting
 an elevated process. Repeated requests for that session return its current state; a failed process
 start releases the launch claim. An interrupted server cannot launch the same handoff again merely
 because the browser retries.
 
-Initialize-CSweetWindowsIsolationTest.ps1 uses CSweet.DevelopmentBuild.ps1 to serialize local builds
-across PowerShell and the guided launcher. It waits for live developer-bootstrap progress owners
-from older, already-running scripts as well as the shared mutex. It never stops another build.
-If an older build completes, its fingerprint-ready image can be reused; certification may run
-again for the new operation. Unreadable progress fails closed, and waiting is bounded at two hours.
-Only completed builds return PayloadResultPath; Start-CSweetDevelopmentOfficeSetup.ps1 consumes
-that exact result instead of selecting the newest directory.
+Initialize-CSweetWindowsIsolationTest.ps1 uses CSweet.DevelopmentBuild.ps1 to serialize source builds
+across PowerShell and the guided launcher. Verified prebuilt bundles bypass that source-build mutex;
+their unique staging roots proceed directly to target-host certification, local signing, packaging,
+and installation. Source fallback still waits for live developer-bootstrap progress owners from older
+scripts as well as the shared mutex and never stops another build. Only completed preparations return
+PayloadResultPath; Start-CSweetDevelopmentOfficeSetup.ps1 consumes that exact result instead of
+selecting the newest directory.
+
+ExecutionFleetService.ReadWindowsSetupProgress checks the owner PID for running progress records.
+After a 30-second grace period, a record whose owner has exited is surfaced as
+`office_setup_interrupted`, allowing onboarding to start a new session instead of polling stale
+progress indefinitely. A matching live owner remains authoritative even when a long download or
+certification phase has not recently rewritten the file.
 
 Verification: scripts/tests/Test-DevelopmentBuildCoordination.ps1 in CSweet.Office covers competing
 processes, a legacy progress owner, completed records, and waiting peers. ExecutionFleetServiceTests
@@ -345,12 +351,12 @@ Node-suite failures entering bounded repair without issuing a review link.
 
 ## Office onboarding uses a tagged development bundle
 
-The Windows AppHost launcher no longer needs a sibling Office checkout. It first checks stable
-GitHub Office releases for `office-bootstrap.json`, verifies the selected bundle, then certifies
-and development-signs the guest on this machine. No production signing key is needed.
-`CSweet.OfficeRelease.ps1` reports a download/integrity failure; it only uses configured source
-when release discovery is unavailable. Source fallback still needs its SDK, image tooling, and
-cached dependencies. **Build and update (debug)** intentionally retains the source build path.
+The Windows AppHost launcher no longer needs a sibling Office checkout. Setup, reconnect, repair,
+and upgrade first check stable GitHub Office releases for `office-bootstrap.json`, verify the selected
+bundle, then certify and development-sign the guest on this machine. No production signing key is
+needed. `CSweet.OfficeRelease.ps1` reports a download/integrity failure; it only uses configured source
+when release discovery is unavailable. Source fallback still needs its SDK, image tooling, and cached
+dependencies.
 
 The launcher stages full bundles under a short unique `%ProgramData%\CSweet\Setup\b-<16 hex digits>`
 path. Longer extraction roots can exceed Hyper-V path limits when it appends certification VM files.

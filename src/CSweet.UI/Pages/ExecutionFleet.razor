@@ -113,7 +113,7 @@
                                     {
                                         @if (HasUpdate(node) || CanBuildLocally(node))
                                         {
-                                            <MudButton Href="@(OfficeUrl(node.Id) + "#update")" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="@ActionsDisabled">@(CanBuildLocally(node) ? "Build and update (debug)" : "Update")</MudButton>
+                                            <MudButton Href="@(OfficeUrl(node.Id) + "#update")" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="@ActionsDisabled">Update</MudButton>
                                         }
                                         <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">Repair</MudButton>
                                     }
@@ -269,8 +269,8 @@
             <MudText Typo="Typo.h5">@(_careInProgress ? "Maintenance in progress" : "Office care")</MudText>
             @if ((HasUpdate(node) || CanBuildLocally(node)) && !_careInProgress)
             {
-                <MudAlert Severity="Severity.Info" Class="mt-2">@(CanBuildLocally(node) ? "Local development source is available, including changes that keep the same version." : $"Office {OfficeUpdatePresentation.TargetVersion(node, _updates!)} is available.")</MudAlert>
-                <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="OpenUpdateAsync">@(CanBuildLocally(node) ? "Build and update (debug)" : "Update Office")</MudButton>
+                <MudAlert Severity="Severity.Info" Class="mt-2">@(CanBuildLocally(node) ? "A local source fallback is available. C-Sweet will prefer the latest verified prebuilt Office bundle." : $"Office {OfficeUpdatePresentation.TargetVersion(node, _updates!)} is available.")</MudAlert>
+                <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="OpenUpdateAsync">Update Office</MudButton>
             }
             <MudText Class="mt-2">@(_careInProgress ? "You can check progress at any time." : "Repair the connection or update the Office software with step-by-step help.")</MudText>
             @if (node.Status is "revoked" or "pendingapproval")

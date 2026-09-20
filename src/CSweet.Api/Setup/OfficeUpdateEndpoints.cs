@@ -45,9 +45,14 @@ public static class OfficeUpdateEndpoints
             var manifest = document.RootElement;
             var version = ReadReleaseVersion(manifest);
             if (version is null) throw new InvalidDataException("The Office release manifest is invalid or incompatible.");
-            var packages = nodes.Select(node => new OfficeUpdatePackageResponse(node.Id,
+            // A configured sibling checkout is a fallback, not an override. When a verified
+            // published package exists, every compatible Office should use it.
+            var publishedPackages = nodes.Select(node => new OfficeUpdatePackageResponse(node.Id,
                 ExecutionFleetEndpoints.FindRecoveryPackage(manifest, node.OperatingSystem, node.Architecture) ?? ""))
-                .Where(x => !string.IsNullOrEmpty(x.Url) && !localPackages.Any(local => local.OfficeId == x.OfficeId)).Concat(localPackages).ToArray();
+                .Where(x => !string.IsNullOrEmpty(x.Url)).ToArray();
+            var publishedOfficeIds = publishedPackages.Select(x => x.OfficeId).ToHashSet();
+            var packages = publishedPackages.Concat(localPackages
+                .Where(x => !publishedOfficeIds.Contains(x.OfficeId))).ToArray();
             return Results.Ok(new OfficeUpdateCheckResponse(version, clock.GetUtcNow(), packages));
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or
