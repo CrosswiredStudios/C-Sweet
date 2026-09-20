@@ -94,10 +94,11 @@ if (OperatingSystem.IsWindows())
         "Start-CSweetDevelopmentOfficeSetup.ps1");
     var officeBootstrap = string.IsNullOrWhiteSpace(workspaceRoot) ? null : Path.Combine(workspaceRoot,
         "CSweet.Office", "scripts", "windows", "Initialize-CSweetWindowsIsolationTest.ps1");
-    if (File.Exists(launcher) && officeBootstrap is not null && File.Exists(officeBootstrap))
+    if (File.Exists(launcher))
     {
-        api.WithEnvironment("CSweet__ExecutionFleet__WindowsDevelopmentLauncherScript", launcher)
-            .WithEnvironment("CSweet__ExecutionFleet__WindowsDevelopmentOfficeBootstrapScript", officeBootstrap);
+        api.WithEnvironment("CSweet__ExecutionFleet__WindowsDevelopmentLauncherScript", launcher);
+        if (officeBootstrap is not null && File.Exists(officeBootstrap))
+            api.WithEnvironment("CSweet__ExecutionFleet__WindowsDevelopmentOfficeBootstrapScript", officeBootstrap);
     }
 }
 

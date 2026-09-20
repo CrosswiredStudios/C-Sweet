@@ -37,13 +37,13 @@
             @if (Building)
             {
                 <div class="agent-card-popover-host installed-agent-progress @(_progressOpen ? "is-open" : "")" @onkeydown="ClosePopupOnEscape">
-                    <button type="button" class="installed-agent-updating" aria-label="Show build progress for @Installation.AgentName"
+                    <button type="button" class="installed-agent-updating" aria-label="Show update progress for @Installation.AgentName"
                             aria-expanded="@_progressOpen" @onclick="ToggleProgress"
                             @onmouseenter="@(() => _progressOpen = true)" @onfocus="@(() => _progressOpen = true)" @onblur="CloseUnpinnedProgress">
                         <MudProgressCircular Indeterminate="true" Size="Size.Small" /> Updating
                     </button>
                     <div class="agent-card-popover">
-                        <AgentBuildProgressContent Build="Installation.Build" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
+                        <AgentBuildProgressContent Build="@(BuildPending ? null : Installation.Build)" SourceMode="@(BuildPending ? Update?.UpdateApproach ?? Installation.Build?.SourceMode : null)" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
                     </div>
                 </div>
             }
@@ -97,7 +97,7 @@
             <div><dt>Network access</dt><dd>@List(Installation.GrantedNetworkAccess)</dd></div>
         </dl>
         <MudDivider Class="my-4" />
-        <AgentBuildProgressContent Build="Installation.Build" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
+        <AgentBuildProgressContent Build="@(BuildPending ? null : Installation.Build)" SourceMode="@(BuildPending ? Update?.UpdateApproach ?? Installation.Build?.SourceMode : null)" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
         @if (Installation.Build?.HasLog == true)
         {
             <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description" OnClick="OnBuildLog">View full build log</MudButton>

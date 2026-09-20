@@ -342,3 +342,24 @@ serves a scaffold. Historical completed deployments are not automatically rerun 
 Verification: `ReviewDeliveryTests` covers delivery ordering, interrupted delivery/reporting,
 expired or unverified URLs, and retained technical evidence; deployment recovery tests cover
 Node-suite failures entering bounded repair without issuing a review link.
+
+## Office onboarding uses a tagged development bundle
+
+The Windows AppHost launcher no longer needs a sibling Office checkout. It first checks stable
+GitHub Office releases for `office-bootstrap.json`, verifies the selected bundle, then certifies
+and development-signs the guest on this machine. No production signing key is needed.
+`CSweet.OfficeRelease.ps1` reports a download/integrity failure; it only uses configured source
+when release discovery is unavailable. Source fallback still needs its SDK, image tooling, and
+cached dependencies. **Build and update (debug)** intentionally retains the source build path.
+
+The launcher stages full bundles under a short unique `%ProgramData%\CSweet\Setup\b-<16 hex digits>`
+path. Longer extraction roots can exceed Hyper-V path limits when it appends certification VM files.
+
+See [release-first onboarding](features/office-assisted-installation.md) for the code map and
+receipt-bound enrollment refresh. Release `v0.6.1` passed live download validation and real Hyper-V runtime/builder certification
+from the short staging path, including development signing and payload creation without installation.
+For the fresh-install test, remove the configured
+Office source path (or start AppHost without the sibling checkout), create a fresh setup session,
+and verify download, Hyper-V certification, enrollment, approval/heartbeat, and readiness.
+A fresh database does not remove an installed Office: use the existing explicit reconnect/remove
+recovery flow when setup detects retained services or identity.

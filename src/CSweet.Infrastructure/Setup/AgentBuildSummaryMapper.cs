@@ -54,7 +54,7 @@ internal static partial class AgentBuildSummaryMapper
             build.Id, build.Status.ToString(), build.Attempt, build.QueuedAt, build.StartedAt, build.CompletedAt,
             !string.IsNullOrWhiteSpace(build.LogPath) || !string.IsNullOrWhiteSpace(diagnostic), failure, steps)
         {
-            SourceMode = package?.ReleaseTag is not null ? "PrebuiltRelease" : "SourceBuild",
+            SourceMode = AgentBuildStepStore.IsPrebuilt(build) ? "PrebuiltRelease" : "SourceBuild",
             ReleaseTag = package?.ReleaseTag,
             ReleaseAssetName = package?.ReleaseAssetName
         };

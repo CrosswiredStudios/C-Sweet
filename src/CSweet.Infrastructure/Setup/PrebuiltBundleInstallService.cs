@@ -63,13 +63,17 @@ public sealed class PrebuiltBundleInstallService(
             QueuedAt = now,
             StepsJson = AgentBuildStepStore.CreatePrebuiltInitialJson(now)
         };
+        // Claim the inline install before the source-build worker can see it.
+        job.TransitionTo(AgentBuildStatus.Cloning, now);
         db.AgentBuildJobs.Add(job);
         await db.SaveChangesAsync(cancellationToken);
 
         var progress = new PersistedAgentBuildProgressReporter(db, job);
         try
         {
-            job.TransitionTo(AgentBuildStatus.Cloning, DateTimeOffset.UtcNow);
+            await progress.ReportAsync(
+                new AgentBuildProgressUpdate(AgentBuildStepKeys.Queued, AgentBuildStepStatuses.Succeeded),
+                cancellationToken);
             await progress.ReportAsync(
                 new AgentBuildProgressUpdate(
                     AgentBuildStepKeys.Download,
@@ -123,14 +127,19 @@ public sealed class PrebuiltBundleInstallService(
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 throw new AgentBuildException(
-                    $"The release bundle passed validation but could not be sealed into the artifact store: {Sanitize(exception.Message)}",
+                    $"The release bundle could not be validated and sealed into the artifact store: {Sanitize(exception.Message)}",
                     AgentBuildStepKeys.Install,
                     exception);
             }
 
-            job.PackageDigest = reference.Digest;
+            // Package rows use bare SHA-256 hex, as in FleetAgentBuildExecutor.
+            // Artifact references and release provenance retain the sha256: prefix.
+            var packageDigest = reference.Digest.StartsWith("sha256:", StringComparison.Ordinal)
+                ? reference.Digest[7..]
+                : reference.Digest;
+            job.PackageDigest = packageDigest;
             job.TransitionTo(AgentBuildStatus.Succeeded, DateTimeOffset.UtcNow);
-            package.PackageDigest = reference.Digest;
+            package.PackageDigest = packageDigest;
             package.ArtifactSignature = reference.Signature;
             package.ArtifactFormatVersion = reference.FormatVersion;
             package.ArtifactOperatingSystem = reference.OperatingSystem;
@@ -139,19 +148,15 @@ public sealed class PrebuiltBundleInstallService(
             package.BuiltAt = job.CompletedAt;
             package.Status = AgentPackageVersionStatus.Built;
             await AgentBuildStepStore.CompleteRemainingAsync(db, job, cancellationToken);
-            await db.SaveChangesAsync(cancellationToken);
-            await auditWriter.WriteAsync(
-                "agent-build.prebuilt-installed",
-                nameof(AgentPackageVersion),
-                package.Id,
-                $"Installed prebuilt release {package.ReleaseTag} ({package.ReleaseAssetName}) as {reference.Digest}.",
-                cancellationToken: cancellationToken);
-            return job.Id;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             var message = Sanitize(exception.Message);
             var stepKey = (exception as AgentBuildException)?.StepKey;
+            // A failed completion save leaves tracked entities Built/Succeeded. Reload
+            // before recording failure so invalid pending values are not saved again.
+            await db.Entry(job).ReloadAsync(CancellationToken.None);
+            await db.Entry(package).ReloadAsync(CancellationToken.None);
             await AgentBuildStepStore.FailCurrentAsync(db, job, message, stepKey);
             job.FailureMessage = message;
             job.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
@@ -161,6 +166,22 @@ public sealed class PrebuiltBundleInstallService(
                 package.Id);
             throw new AgentBuildException($"The prebuilt release bundle could not be installed: {message}", exception);
         }
+
+        // Audit errors must not turn an installed package into a source-build fallback.
+        try
+        {
+            await auditWriter.WriteAsync(
+                "agent-build.prebuilt-installed",
+                nameof(AgentPackageVersion),
+                package.Id,
+                $"Installed prebuilt release {package.ReleaseTag} ({package.ReleaseAssetName}) as {package.ReleaseBundleDigest}.",
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger?.LogWarning(exception, "Could not audit prebuilt install for package {PackageVersionId}.", package.Id);
+        }
+        return job.Id;
     }
 
     private async Task<string> ResolveExpectedDigestAsync(

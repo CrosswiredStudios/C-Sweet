@@ -20,8 +20,9 @@ public sealed class InstalledAgentCardTests
     {
         var html = await Render(Installation(status), pending);
         Assert.Contains("Updating", html);
-        Assert.Contains("Show build progress", html);
-        Assert.Contains("Restore dependencies", html);
+        Assert.Contains("Show update progress", html);
+        if (pending) Assert.DoesNotContain("Restore dependencies", html);
+        else Assert.Contains("Restore dependencies", html);
         Assert.DoesNotContain(">Rebuild<", html);
         Assert.Contains("View details for Agent", html);
     }
@@ -61,6 +62,33 @@ public sealed class InstalledAgentCardTests
         Assert.DoesNotContain(">Details<", card);
     }
 
+    [Fact]
+    public async Task PendingPrebuiltUpdate_HidesPreviousSourceBuildAndShowsReleaseSteps()
+    {
+        var update = new AgentDefinitionUpdateAvailabilityResponse(Guid.NewGuid(), "agent", "Agent", "1.2.0", "old",
+            true, Guid.NewGuid(), "1.3.0", "new", DateTimeOffset.UtcNow) { UpdateApproach = "PrebuiltRelease" };
+        var html = await Render(Installation("Succeeded"), pending: true, update: update);
+        Assert.Contains("Download release", html);
+        Assert.Contains("Verify bundle", html);
+        Assert.Contains("Install package", html);
+        Assert.DoesNotContain("Restore dependencies", html);
+        Assert.DoesNotContain("Compile and publish", html);
+        Assert.DoesNotContain("Build complete", html);
+    }
+
+    [Theory]
+    [InlineData("Queued", "Install queued")]
+    [InlineData("Cloning", "Downloading release")]
+    [InlineData("Building", "Installing release")]
+    public void PrebuiltProgressDoesNotDescribeSourceBuild(string status, string expected)
+    {
+        var build = Installation(status).Build! with { SourceMode = "PrebuiltRelease" };
+        var (title, detail) = CSweet.UI.Services.InstalledAgentPresentation.BuildProgress(build);
+        Assert.Equal(expected, title);
+        Assert.DoesNotContain("Compiling", detail);
+        Assert.DoesNotContain("Cloning", detail);
+    }
+
     private static AgentInstallationResponse Installation(string status) => new(
         Guid.NewGuid(), Guid.NewGuid(), "global", "agent", "Agent", "1.2.0", "Publisher", "commit", true,
         [], [], [], [], [], 1024, 50,
@@ -76,6 +104,7 @@ public sealed class InstalledAgentCardTests
         var services = new ServiceCollection().AddLogging();
         services.AddMudServices();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton<NavigationManager, TestNavigationManager>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
@@ -90,6 +119,11 @@ public sealed class InstalledAgentCardTests
             return component.ToHtmlString();
         });
     }
+    private sealed class TestNavigationManager : NavigationManager
+    {
+        public TestNavigationManager() => Initialize("http://localhost/", "http://localhost/settings/agents");
+    }
+
     private sealed class NoJavaScript : IJSRuntime
     {
         public ValueTask<T> InvokeAsync<T>(string identifier, object?[]? args) => ValueTask.FromResult(default(T)!);

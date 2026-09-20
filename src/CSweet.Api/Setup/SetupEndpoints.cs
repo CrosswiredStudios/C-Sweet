@@ -269,6 +269,13 @@ public static class SetupEndpoints
             var result = await service.PreflightLocalSetupSessionAsync(request, cancellationToken);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         });
+        group.MapPost("/local-sessions/enrollment-ready", async (
+            RefreshLocalOfficeEnrollmentRequest request,
+            IExecutionFleetService service,
+            CancellationToken cancellationToken) =>
+            await service.RefreshLocalSetupEnrollmentAsync(request, cancellationToken)
+                ? Results.NoContent()
+                : Results.Unauthorized());
         group.MapPost("/local-sessions/result", async (
             ReportAssistedOfficeSetupResultRequest request,
             IExecutionFleetService service,

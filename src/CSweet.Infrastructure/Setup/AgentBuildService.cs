@@ -370,7 +370,8 @@ public sealed class AgentBuildService : IAgentBuildService
         {
             job.TransitionTo(AgentBuildStatus.Cancelled, DateTimeOffset.UtcNow);
         }
-        package.Status = AgentPackageVersionStatus.Approved;
+        if (package.Status != AgentPackageVersionStatus.Built)
+            package.Status = AgentPackageVersionStatus.Approved;
         await _dbContext.SaveChangesAsync(CancellationToken.None);
         await WriteAuditAsync(job, "agent-build.cancelled", reason, CancellationToken.None);
     }

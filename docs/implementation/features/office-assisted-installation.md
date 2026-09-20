@@ -1,7 +1,60 @@
 # C-Sweet Office Assisted Installation Plan
 
 Status: Windows assisted installation and stale-installation recovery implemented  
-Last updated: 2026-08-16
+Last updated: 2026-09-20
+
+## Release-first development onboarding (2026-09-19)
+
+`CSweet.AppHost/Program.cs` enables the Windows launcher without requiring a sibling Office
+checkout. `CSweet.OfficeRelease.ps1` selects the newest compatible stable tagged development
+bundle within the 20 most recent releases. It requires canonical versioned GitHub URLs, size and
+SHA-256 agreement, and safe bounded ZIP extraction. Missing/offline releases allow a configured
+local checkout fallback; malformed metadata and bad downloads fail with a visible recovery error.
+
+`Start-CSweetDevelopmentOfficeSetup.ps1` downloads the small support asset before preflight and
+the full bundle after handoff redemption. The Office bootstrap's `PrebuiltRoot` path runs real
+Hyper-V certification and local development signing without invoking a compiler or building an
+image. Full bundles use a short unique `b-<16 hex digits>` staging directory under
+`%ProgramData%\CSweet\Setup` because Hyper-V appends VM names and GUIDs during certification.
+The existing source path remains available. Explicit debug upgrades keep using source.
+
+`ExecutionFleetService.RefreshLocalSetupEnrollmentAsync` lets the machine-bound setup receipt
+refresh an unused enrollment's 15-minute claim window immediately before installation. Receipt
+authority ends two hours after redemption; claimed/revoked enrollments and failed sessions cannot
+be revived. The browser handoff still expires after five minutes and can be redeemed only once.
+The API and `OfficeLocalSetupEndpoints.MapOfficeLocalSetupEndpoints` in ExecutionGateway both
+map `POST /api/offices/local-sessions/enrollment-ready`; the launcher uses the gateway origin.
+This endpoint is internal to the C-Sweet launcher and does not change Office.Contracts.
+
+Compute image preparation is deferred to `Install-ComputeLocalProvider.ps1` for published Office
+installs. The source development path retains its eager preparation. Office installation therefore
+does not require the sibling Isolation image-build tools when a hosted bundle is available.
+
+Hosted bundles are development artifacts, described by `office-bootstrap.json`. They are separate
+from the production signed-installer `office-release.json` design below. Linux x64 bundles use
+the portable root installation command in Office's `docs/60-release/07-hosted-development-bundles.md`;
+the automated local browser flow remains Windows-only.
+
+Validation: `tests/OfficeRelease.Tests.ps1`, `ExecutionFleetServiceTests`, `OfficeSchemaRepairTests`,
+`OfficeLocalSetupEndpointTests`, and `OfficeUpdateTests`. All 27 release checks and 93 selected
+Office service/HTTP endpoint tests passed with
+sibling Office.Contracts references disabled. On 2026-09-20, the real Windows PowerShell consumer
+selected published `v0.6.1` and verified/extracted both Windows assets. The downloaded Windows
+bundle passed real Hyper-V runtime and builder certification (`csweet-hardware-vm-smoke-v14`),
+local development signing, and payload assembly with a host compiler-invocation guard. The short
+staging path was used, and installation was deliberately skipped to preserve the existing Office.
+
+The published Linux `v0.6.1` tarball passed download integrity, executable-mode checks, Firecracker
+and jailer version checks, ext4 integrity, and compiler-free payload assembly. Packaging used
+explicitly labeled signature/evidence fixtures; Linux KVM boot/certification remains unverified.
+Version 0.6.1 fixes the missing Linux apphost execute permissions in 0.6.0.
+
+Fresh-database browser onboarding exercised explicit removal of the existing Office, release
+download, certification, development signing, and payload assembly. The run then exposed a missing
+ExecutionGateway enrollment-refresh route (HTTP 404), now covered by HTTP endpoint tests and fixed.
+A restarted C-Sweet run still needs to verify installation, enrollment, approval, heartbeat, and
+readiness together. Clearing the database does not remove Office services or their former identity;
+retain the explicit reconnect/remove recovery flow.
 
 ## Summary
 

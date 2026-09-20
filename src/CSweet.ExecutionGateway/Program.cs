@@ -90,34 +90,7 @@ app.MapPost("/api/offices/claim", async (
         };
     return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
 });
-app.MapPost("/api/offices/local-sessions/redeem", async (
-    RedeemAssistedOfficeSetupRequest request,
-    IExecutionFleetService fleet,
-    CancellationToken cancellationToken) =>
-{
-    var result = await fleet.RedeemLocalSetupSessionAsync(request, cancellationToken);
-    return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
-});
-app.MapPost("/api/offices/local-sessions/preflight", async (
-    AssistedOfficePreflightRequest request,
-    IExecutionFleetService fleet,
-    CancellationToken cancellationToken) =>
-{
-    var result = await fleet.PreflightLocalSetupSessionAsync(request, cancellationToken);
-    return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
-});
-app.MapPost("/api/offices/local-sessions/result", async (
-    ReportAssistedOfficeSetupResultRequest request,
-    IExecutionFleetService fleet,
-    CancellationToken cancellationToken) =>
-    await fleet.ReportLocalSetupResultAsync(request, cancellationToken)
-        ? Results.NoContent() : Results.Unauthorized());
-app.MapPost("/api/offices/local-sessions/removal-complete", async (
-    CompleteAssistedOfficeRemovalRequest request,
-    IExecutionFleetService fleet,
-    CancellationToken cancellationToken) =>
-    await fleet.CompleteLocalOfficeRemovalAsync(request, cancellationToken)
-        ? Results.NoContent() : Results.Unauthorized());
+app.MapOfficeLocalSetupEndpoints();
 app.MapPost("/api/offices/{officeId:guid}/heartbeat", async (
     Guid officeId,
     OfficeHeartbeatRequest request,

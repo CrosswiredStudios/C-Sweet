@@ -201,6 +201,7 @@ public sealed class AgentBuildJobTests
         package.ReleaseAssetUrl = "https://github.com/example/agent/releases/download/v1.11.3/agent.csab";
         package.ReleaseBundleDigest = "sha256:" + PrebuiltBundleInstallServiceTests.BundleDigest;
         job.StepsJson = AgentBuildStepStore.CreatePrebuiltInitialJson(job.QueuedAt);
+        job.TransitionTo(AgentBuildStatus.Cloning, DateTimeOffset.UtcNow);
         job.TransitionTo(AgentBuildStatus.Building, DateTimeOffset.UtcNow);
         await dbContext.SaveChangesAsync();
         dbContext.ChangeTracker.Clear();
@@ -218,7 +219,7 @@ public sealed class AgentBuildJobTests
         Assert.Equal(2, jobs.Count);
         Assert.Equal(AgentBuildStatus.Cancelled, jobs[0].Status);
         Assert.Equal(AgentBuildStatus.Succeeded, jobs[1].Status);
-        Assert.Equal(AgentPackageVersionStatus.Built, package.Status);
+        Assert.Equal(AgentPackageVersionStatus.Built, (await dbContext.AgentPackageVersions.SingleAsync()).Status);
     }
 
     [Fact]
@@ -262,6 +263,7 @@ public sealed class AgentBuildJobTests
         package.PackageDigest = "sha256:" + new string('b', 64);
         package.ArtifactSignature = "signature";
         job.StepsJson = AgentBuildStepStore.CreateInitialJson(job.QueuedAt);
+        job.TransitionTo(AgentBuildStatus.Cloning, DateTimeOffset.UtcNow);
         job.TransitionTo(AgentBuildStatus.Building, DateTimeOffset.UtcNow);
         await dbContext.SaveChangesAsync();
         var service = CreateService(dbContext, new FakeBuildExecutor());
@@ -277,7 +279,8 @@ public sealed class AgentBuildJobTests
     public async Task QueueAsync_AcceptsPreviewedPackageForPrebuiltFallback()
     {
         await using var dbContext = CreateDbContext();
-        var (package, _) = await SeedAsync(dbContext);
+        var (package, previous) = await SeedAsync(dbContext);
+        previous.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
         package.Status = AgentPackageVersionStatus.Previewed;
         await dbContext.SaveChangesAsync();
         dbContext.ChangeTracker.Clear();
@@ -287,7 +290,7 @@ public sealed class AgentBuildJobTests
 
         var job = await dbContext.AgentBuildJobs.SingleAsync(x => x.Id == jobId);
         Assert.Equal(AgentBuildStatus.Queued, job.Status);
-        Assert.Equal(AgentPackageVersionStatus.Approved, package.Status);
+        Assert.Equal(AgentPackageVersionStatus.Approved, (await dbContext.AgentPackageVersions.SingleAsync()).Status);
     }
 
     [Fact]
@@ -301,6 +304,7 @@ public sealed class AgentBuildJobTests
         package.PackageDigest = "sha256:" + new string('b', 64);
         package.ArtifactSignature = "signature";
         job.StepsJson = AgentBuildStepStore.CreateInitialJson(job.QueuedAt);
+        job.TransitionTo(AgentBuildStatus.Cloning, DateTimeOffset.UtcNow);
         job.TransitionTo(AgentBuildStatus.Building, DateTimeOffset.UtcNow);
         await dbContext.SaveChangesAsync();
         var service = CreateService(dbContext, new FakeBuildExecutor());

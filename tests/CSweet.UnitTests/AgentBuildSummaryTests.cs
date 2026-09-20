@@ -17,7 +17,7 @@ public sealed class AgentBuildSummaryTests
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
-        var package = new AgentPackageVersion { Id = Guid.NewGuid(), AgentId = "test", AgentName = "Test agent" };
+        var package = new AgentPackageVersion { Id = Guid.NewGuid(), AgentId = "test", AgentName = "Test agent", ManifestJson = "{}" };
         var definition = new AgentDefinition { Id = Guid.NewGuid(), PackageVersion = package, PackageVersionId = package.Id };
         var build = FailedBuild("/run/build/Agent.csproj : " + MissingSdk + "\nRequired command 'dotnet' failed with exit code 1.");
         build.PackageVersion = package;
@@ -106,6 +106,21 @@ public sealed class AgentBuildSummaryTests
         Assert.Equal(MissingSdk, summary!.FailureMessage);
         summary = AgentBuildSummaryMapper.Create(FailedBuild(MissingSdk + new string('x', 8000)));
         Assert.Equal(1500, summary!.FailureMessage!.Length);
+    }
+
+    [Theory]
+    [InlineData(true, "PrebuiltRelease")]
+    [InlineData(false, "SourceBuild")]
+    public void SourceModeReflectsAttemptEvenWhenPackageHasReleaseProvenance(bool prebuilt, string expected)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var job = new AgentBuildJob { QueuedAt = now, StepsJson = prebuilt
+            ? AgentBuildStepStore.CreatePrebuiltInitialJson(now) : AgentBuildStepStore.CreateInitialJson(now) };
+        var package = new AgentPackageVersion { ReleaseTag = "v1.2.3", ReleaseAssetName = "agent.csab" };
+        var summary = AgentBuildSummaryMapper.Create(job, package)!;
+        Assert.Equal(expected, summary.SourceMode);
+        Assert.Equal(prebuilt, summary.Steps!.Any(x => x.Key == AgentBuildStepKeys.Download));
+        Assert.Equal(!prebuilt, summary.Steps!.Any(x => x.Key == AgentBuildStepKeys.Publish));
     }
 
     private static AgentBuildJob FailedBuild(string? diagnostic)

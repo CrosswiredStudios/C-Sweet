@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string] $HandoffInputPath,
-    [Parameter(Mandatory = $true)][string] $OfficeBootstrapScript
+    [string] $OfficeBootstrapScript,
+    [switch] $UseLocalSource
 )
 
 Set-StrictMode -Version Latest
@@ -103,9 +104,6 @@ $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'The C-Sweet development Office launcher must run with administrator approval.'
 }
-if (-not (Test-Path -LiteralPath $OfficeBootstrapScript -PathType Leaf)) {
-    throw 'The C-Sweet Office development bootstrap script is unavailable.'
-}
 
 $tokenPath = $null
 $progressPath = $null
@@ -117,6 +115,8 @@ $architecture = $null
 $redemption = $null
 $expectedControlPlaneCertificateSha256 = $null
 $controlPlaneRequestFailed = $false
+$release = $null
+$prebuiltRoot = $null
 try {
     $handoff = [IO.File]::ReadAllText($HandoffInputPath, [Text.Encoding]::UTF8).Trim()
     Remove-TransientFile $HandoffInputPath
@@ -146,7 +146,25 @@ try {
     $setupRoot = Join-Path $env:ProgramData 'CSweet\Setup'
     New-Item -ItemType Directory -Path $setupRoot -Force | Out-Null
     $progressPath = Join-Path $setupRoot "windows-isolation-$($sessionId.ToString('N')).json"
-    $officeScriptRoot = Split-Path -Parent $OfficeBootstrapScript
+    # Protect downloaded scripts before executing them with this setup session's UAC approval.
+    & "$env:SystemRoot\System32\icacls.exe" $setupRoot '/inheritance:r' '/grant:r' `
+        "*$($identity.User.Value):(OI)(CI)R" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'The Office download directory could not be protected.' }
+    . (Join-Path $PSScriptRoot 'CSweet.OfficeRelease.ps1')
+    if (-not $UseLocalSource) { $release = Resolve-CSweetOfficeRelease -Architecture $architecture }
+    if ($null -ne $release) {
+        # This small support asset supplies the preflight scripts. The large image is fetched only AFTER
+        # redemption, so a slow image download cannot consume the five-minute one-use handoff lifetime.
+        $supportRoot = Receive-CSweetOfficeAsset -Asset $release.Support -TimeoutSeconds 60 `
+            -Destination (Join-Path $setupRoot "office-support-$([guid]::NewGuid().ToString('N'))")
+        $officeScriptRoot = Join-Path $supportRoot 'scripts\windows'
+        $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
+    } elseif ($OfficeBootstrapScript -and (Test-Path -LiteralPath $OfficeBootstrapScript -PathType Leaf)) {
+        $officeScriptRoot = Split-Path -Parent $OfficeBootstrapScript
+        Write-Host 'No compatible published Office bundle is available. Using the configured local Office source.'
+    } else {
+        throw 'No compatible Office release could be found and no local Office source is configured. Connect to GitHub or provide a local CSweet.Office checkout and retry.'
+    }
     $progressHelper = Join-Path $officeScriptRoot 'CSweet.WindowsSetupProgress.ps1'
     . $progressHelper
     $progressHelperLoaded = $true
@@ -187,7 +205,7 @@ try {
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = '0.5.0'
+        officeVersion = if ($null -ne $release) { $release.Version } else { '0.5.0' }
         existingInstallationState = $existingInstallationState
     } | ConvertTo-Json -Compress
     $preflight = $null
@@ -241,7 +259,7 @@ try {
                 machineName = [Environment]::MachineName
                 operatingSystem = 'windows'
                 architecture = $architecture
-                officeVersion = '0.5.0'
+                officeVersion = if ($null -ne $release) { $release.Version } else { '0.5.0' }
                 existingInstallationState = 'none'
             } | ConvertTo-Json -Compress
             $preflight = Invoke-CSweetPinnedRestMethod -Method Post `
@@ -296,7 +314,7 @@ try {
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = '0.5.0'
+        officeVersion = if ($null -ne $release) { $release.Version } else { '0.5.0' }
     } | ConvertTo-Json -Compress
     $redemption = Invoke-CSweetPinnedRestMethod -Method Post `
         -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/redeem') -Body $request
@@ -346,15 +364,31 @@ try {
         -Message 'Administrator approval was received. C-Sweet is starting the Windows and Hyper-V checks.' `
         -PercentComplete 1 -EstimatedRemainingMinimumSeconds 1200 -EstimatedRemainingMaximumSeconds 3000
     try {
+        if ($null -ne $release) {
+            Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+                -State running -PhaseKey download-office -PhaseDisplayName 'Downloading Office' `
+                -Message "Downloading prebuilt Office $($release.Version). The downloaded image will be checked on this machine." `
+                -PercentComplete 5
+            # Hyper-V appends VM names and GUIDs beneath this bundle during certification.
+            # Keep its unique staging name short enough for Hyper-V's legacy path limits.
+            $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
+                -Destination (Join-Path $setupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
+            $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
+            $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
+        }
         $officeRepositoryRoot = [IO.Path]::GetFullPath((Join-Path $officeScriptRoot '..\..'))
         $certificationRoot = Join-Path $officeRepositoryRoot 'artifacts\windows-test'
         $payloadResultPath = Join-Path $setupRoot "office-payload-$($sessionId.ToString('N')).txt"
         Remove-TransientFile $payloadResultPath
-        & $OfficeBootstrapScript -ControlPlaneUserSid $identity.User.Value `
+        $bootstrapArguments = @{}
+        if ($prebuiltRoot) { $bootstrapArguments.PrebuiltRoot = $prebuiltRoot }
+        & $OfficeBootstrapScript @bootstrapArguments -ControlPlaneUserSid $identity.User.Value `
             -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) `
             -ProgressPath $progressPath -ProgressJobId $sessionId -NoElevation -SkipInstall -PayloadResultPath $payloadResultPath
         if ($LASTEXITCODE -ne 0) { throw "Secure VM runtime setup exited with code $LASTEXITCODE." }
 
+        $preparationProgress = Get-Content -LiteralPath $progressPath -Raw | ConvertFrom-Json
+        if ([string]$preparationProgress.state -ceq 'restart-required') { return }
         if (-not (Test-Path -LiteralPath $payloadResultPath -PathType Leaf)) {
             throw 'The Office build did not return a completed payload.'
         }
@@ -367,13 +401,17 @@ try {
         }
         # Reuse this setup session's UAC approval and progress channel. Image preparation
         # is an application step, never a command the user has to run.
-        $headquartersRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-        $computePreparation = Join-Path $headquartersRoot 'scripts\Ensure-ComputeLinuxImage.ps1'
-        if (-not (Test-Path -LiteralPath $computePreparation -PathType Leaf)) {
-            throw 'This C-Sweet build is missing its Linux preparation component. Update C-Sweet and retry setup.'
+        # Compute has its own on-demand preparation in Install-ComputeLocalProvider.ps1.
+        # Preserve eager preparation for source developers; published Office setup needs no sibling tool checkout.
+        if (-not $prebuiltRoot) {
+            $headquartersRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+            $computePreparation = Join-Path $headquartersRoot 'scripts\Ensure-ComputeLinuxImage.ps1'
+            if (-not (Test-Path -LiteralPath $computePreparation -PathType Leaf)) {
+                throw 'This C-Sweet build is missing its Linux preparation component. Update C-Sweet and retry setup.'
+            }
+            & $computePreparation -ProgressPath $progressPath -ProgressJobId $sessionId `
+                -ProgressHelperPath $progressHelper | Out-Host
         }
-        & $computePreparation -ProgressPath $progressPath -ProgressJobId $sessionId `
-            -ProgressHelperPath $progressHelper | Out-Host
         $officeInstaller = Join-Path $officeScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1'
         if (-not (Test-Path -LiteralPath $officeInstaller -PathType Leaf)) {
             throw 'The C-Sweet Office installer is unavailable.'
@@ -382,6 +420,14 @@ try {
             -State running -PhaseKey install-office -PhaseDisplayName 'Applying your Office capacity' `
             -Message 'C-Sweet is installing the Office services with the CPU, memory, and storage you selected.' `
             -PercentComplete 95 -EstimatedRemainingMinimumSeconds 15 -EstimatedRemainingMaximumSeconds 120
+        if (-not $isUpgrade) {
+            $readyRequest = @{
+                assistedSetupSessionId = $sessionId; setupReceipt = [string]$redemption.setupReceipt
+                machineName = [Environment]::MachineName; operatingSystem = 'windows'; architecture = $architecture
+            } | ConvertTo-Json -Compress
+            Invoke-CSweetPinnedRestMethod -Method Post `
+                -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/enrollment-ready') -Body $readyRequest | Out-Null
+        }
         & $officeInstaller -PayloadRoot $payloadRoot -ControlPlaneUserSid $identity.User.Value `
             -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) `
             -ControlPlaneCertificateSha256 $controlPlaneCertificateSha256 `
@@ -452,6 +498,14 @@ try {
 }
 catch {
     $failureMessage = $_.Exception.Message
+    if (-not $progressHelperLoaded -and $progressPath -and $sessionId -ne [guid]::Empty) {
+        @{ schemaVersion = 1; jobId = $sessionId; workflow = 'developer-bootstrap'; state = 'failed';
+            phaseKey = 'resolve-office'; phaseDisplayName = 'Office download needs attention';
+            message = 'Office could not be prepared. Check the release source or local checkout and retry.';
+            percentComplete = 0; errorCode = 'office_setup_failed'; errorMessage = $failureMessage;
+            startedAt = [DateTimeOffset]::UtcNow.ToString('O'); updatedAt = [DateTimeOffset]::UtcNow.ToString('O'); ownerProcessId = $PID
+        } | ConvertTo-Json | Set-Content -LiteralPath $progressPath -Encoding UTF8
+    }
     if ($progressHelperLoaded -and $sessionId -ne [guid]::Empty -and
         -not [String]::IsNullOrWhiteSpace($progressPath)) {
         try {

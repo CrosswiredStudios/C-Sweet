@@ -7,6 +7,7 @@ using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using CSweet.Office.Contracts.Workloads;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CSweet.UnitTests;
@@ -164,11 +165,52 @@ public sealed class PrebuiltBundleInstallServiceTests
         Assert.Equal(AgentBuildStatus.Succeeded, job.Status);
         var refreshed = await db.AgentPackageVersions.SingleAsync(x => x.Id == package.Id);
         Assert.Equal(AgentPackageVersionStatus.Built, refreshed.Status);
-        Assert.Equal("sha256:" + BundleDigest, refreshed.PackageDigest);
+        Assert.Equal(BundleDigest, refreshed.PackageDigest);
+        Assert.Equal(BundleDigest, job.PackageDigest);
+        Assert.True(refreshed.PackageDigest!.Length <= db.Model.FindEntityType(typeof(AgentPackageVersion))!
+            .FindProperty(nameof(AgentPackageVersion.PackageDigest))!.GetMaxLength());
+        Assert.True(job.PackageDigest!.Length <= db.Model.FindEntityType(typeof(AgentBuildJob))!
+            .FindProperty(nameof(AgentBuildJob.PackageDigest))!.GetMaxLength());
         Assert.Equal("sha256:" + BundleDigest, refreshed.ReleaseBundleDigest);
         Assert.Equal(AgentBuildStepStatuses.Succeeded, StepStatus(job, AgentBuildStepKeys.Download));
         Assert.Equal(AgentBuildStepStatuses.Succeeded, StepStatus(job, AgentBuildStepKeys.Verify));
         Assert.Equal(AgentBuildStepStatuses.Succeeded, StepStatus(job, AgentBuildStepKeys.Install));
+    }
+
+    [Fact]
+    public async Task InstallAsync_CompletionSaveFailureRecordsFailureAndClearsUnpersistedPackage()
+    {
+        var interceptor = new FailCompletionSave();
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).AddInterceptors(interceptor).Options);
+        var package = NewPackage();
+        db.Add(package);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new BundleHandler(BundleBytes, $"{BundleDigest}  bundle.csab"), new FakeArtifactStore());
+
+        var error = await Assert.ThrowsAsync<AgentBuildException>(() => service.InstallAsync(package.Id));
+
+        Assert.Contains("completion save failed", error.Message);
+        db.ChangeTracker.Clear();
+        var job = await db.AgentBuildJobs.SingleAsync();
+        Assert.Equal(AgentBuildStatus.Failed, job.Status);
+        Assert.Equal(AgentBuildStepStatuses.Failed, StepStatus(job, AgentBuildStepKeys.Install));
+        var persisted = await db.AgentPackageVersions.SingleAsync();
+        Assert.Null(persisted.PackageDigest);
+        Assert.Null(persisted.ArtifactSignature);
+        Assert.NotEqual(AgentPackageVersionStatus.Built, persisted.Status);
+    }
+
+    private sealed class FailCompletionSave : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context!.ChangeTracker.Entries<AgentBuildJob>()
+                .Any(x => x.Entity.Status == AgentBuildStatus.Succeeded))
+                throw new DbUpdateException("completion save failed");
+            return ValueTask.FromResult(result);
+        }
     }
 
     [Fact]

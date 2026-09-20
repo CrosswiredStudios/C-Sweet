@@ -5,6 +5,9 @@ namespace CSweet.Application.Setup;
 
 public interface IExecutionFleetService
 {
+    Task<bool> RefreshLocalSetupEnrollmentAsync(RefreshLocalOfficeEnrollmentRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<string?> ClaimOfficeMaintenanceAsync(Guid officeId, string thumbprint, string serialNumber,
         CancellationToken cancellationToken = default);
 

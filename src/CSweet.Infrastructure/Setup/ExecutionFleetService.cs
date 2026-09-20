@@ -479,7 +479,8 @@ public sealed class ExecutionFleetService(
         await dbContext.SaveChangesAsync(cancellationToken);
         if (launchMethod == "server")
         {
-            var launch = TryStartWindowsDevelopmentSetup(session.Id, launchUri);
+            var launch = TryStartWindowsDevelopmentSetup(session.Id, launchUri,
+                session.RecoveryAction == "upgrade" && LocalOfficeDevelopmentSource.IsConfigured(FleetPolicy));
             if (!launch.Started)
             {
                 session.AdministratorApprovalRequestedAt = null;
@@ -854,6 +855,9 @@ public sealed class ExecutionFleetService(
         session.Status = LocalOfficeSetupSessionStatus.Redeemed;
         session.SetupReceiptHash = Hash(setupReceipt);
         session.RedeemedAt = now;
+        // The handoff is consumed. Its machine-bound receipt authorizes bounded preparation;
+        // the enrollment token still has only a fifteen-minute claim window.
+        session.ExpiresAt = now.AddHours(2);
         session.UpdatedAt = now;
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditWriter.WriteAsync("office.local-setup.redeemed", nameof(LocalOfficeSetupSession), session.Id,
@@ -862,6 +866,39 @@ public sealed class ExecutionFleetService(
             session.Id, enrollmentToken, session.ControlPlaneOrigin, session.ControlPlaneCertificateSha256,
             session.AllocatableCpuCount, session.AllocatableMemoryMb, session.AllocatableDiskMb,
             session.MaximumConcurrentWorkloads, true, session.RecoveryAction, setupReceipt);
+    }
+
+    public async Task<bool> RefreshLocalSetupEnrollmentAsync(RefreshLocalOfficeEnrollmentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.SetupReceipt) || request.SetupReceipt.Length > 256 ||
+            string.IsNullOrWhiteSpace(request.MachineName) || request.MachineName.Length > 255 ||
+            string.IsNullOrWhiteSpace(request.OperatingSystem) || request.OperatingSystem.Length > 32 ||
+            string.IsNullOrWhiteSpace(request.Architecture) || request.Architecture.Length > 32) return false;
+        var now = timeProvider.GetUtcNow();
+        var receiptHash = Hash(request.SetupReceipt);
+        var machineHash = MachineBindingHash(request.MachineName, request.OperatingSystem, request.Architecture);
+        var sessions = dbContext.LocalOfficeSetupSessions.Where(x =>
+            x.Id == request.AssistedSetupSessionId && x.SetupReceiptHash == receiptHash &&
+            x.MachineBindingHash == machineHash && x.Status == LocalOfficeSetupSessionStatus.Redeemed &&
+            x.ExpiresAt > now && x.RedeemedAt > now.AddHours(-2) && x.RecoveryAction != "upgrade" && x.RecoveryAction != "repair");
+        var session = await sessions.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+        if (session?.ExecutionNodeEnrollmentId is not { } enrollmentId) return false;
+        var expires = now.Add(EnrollmentLifetime) < session.ExpiresAt ? now.Add(EnrollmentLifetime) : session.ExpiresAt;
+        var enrollments = dbContext.ExecutionNodeEnrollments.Where(x => x.Id == enrollmentId &&
+            (x.Status == ExecutionEnrollmentStatus.Available || x.Status == ExecutionEnrollmentStatus.Expired) &&
+            sessions.Any(s => s.ExecutionNodeEnrollmentId == x.Id));
+        // Conditional update cannot resurrect a claimed or revoked enrollment.
+        if (dbContext.Database.IsRelational())
+            return await enrollments.ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, ExecutionEnrollmentStatus.Available)
+                .SetProperty(x => x.ExpiresAt, expires), cancellationToken) == 1;
+        var enrollment = await enrollments.SingleOrDefaultAsync(cancellationToken);
+        if (enrollment is null) return false;
+        enrollment.Status = ExecutionEnrollmentStatus.Available;
+        enrollment.ExpiresAt = expires;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     public async Task<bool> ReportLocalSetupResultAsync(
@@ -2077,9 +2114,7 @@ public sealed class ExecutionFleetService(
 
     private bool DevelopmentLauncherConfigured => OperatingSystem.IsWindows() &&
         fleetOptions?.Value.WindowsDevelopmentLauncherScript is { Length: > 0 } launcher &&
-        fleetOptions.Value.WindowsDevelopmentOfficeBootstrapScript is { Length: > 0 } bootstrap &&
-        Path.IsPathFullyQualified(launcher) && Path.IsPathFullyQualified(bootstrap) &&
-        File.Exists(launcher) && File.Exists(bootstrap);
+        Path.IsPathFullyQualified(launcher) && File.Exists(launcher);
 
     private bool TryReadLaunchHandoff(
         string value,
@@ -2116,7 +2151,7 @@ public sealed class ExecutionFleetService(
         return null;
     }
 
-    private DevelopmentLaunchResult TryStartWindowsDevelopmentSetup(Guid sessionId, string launchUri)
+    private DevelopmentLaunchResult TryStartWindowsDevelopmentSetup(Guid sessionId, string launchUri, bool useLocalSource)
     {
         var launcher = fleetOptions!.Value.WindowsDevelopmentLauncherScript!;
         var bootstrap = fleetOptions.Value.WindowsDevelopmentOfficeBootstrapScript!;
@@ -2145,9 +2180,14 @@ public sealed class ExecutionFleetService(
             foreach (var argument in new[]
             {
                 "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                "-File", launcher, "-HandoffInputPath", handoffPath,
-                "-OfficeBootstrapScript", bootstrap
+                "-File", launcher, "-HandoffInputPath", handoffPath
             }) startInfo.ArgumentList.Add(argument);
+            if (!string.IsNullOrWhiteSpace(bootstrap))
+            {
+                startInfo.ArgumentList.Add("-OfficeBootstrapScript");
+                startInfo.ArgumentList.Add(bootstrap);
+            }
+            if (useLocalSource) startInfo.ArgumentList.Add("-UseLocalSource");
             using var process = Process.Start(startInfo);
             if (process is null)
                 throw new InvalidOperationException("Windows did not start the elevated Office setup process.");

@@ -240,13 +240,23 @@ release instead of requiring every install to compile from source:
   mismatched checksum fails closed; the install never proceeds unverified.
 - A failed prebuilt install falls back to the classic fleet source build (recorded as the next
   build attempt), so a bad release asset never blocks installation. Seal-phase failures
-  (validation passed but the artifact store move/sign/persist failed) are reported on the
-  install step with a "could not be sealed" message, and the update/retry endpoints return
+  (artifact validation, move, signing, or persistence failed) are reported on the
+  install step with the underlying error, and the update/retry endpoints return
   `AgentBuildException` text as a 400 `{ error }` body so the UI banner names the failure
   instead of showing a generic message.
 - Provenance (`ReleaseTag`, `ReleaseAssetName`, `ReleaseAssetUrl`, `ReleaseBundleDigest`) is
   persisted on the package version, and the install popup reports download / verify / install
-  steps with the release tag instead of the compile steps.
+  steps with the release tag instead of the compile steps. `AgentBuildSummaryMapper.Create`
+  derives the source mode from the attempt's persisted steps, so a fallback source build is
+  labeled accurately. `InstalledAgentCard` suppresses the previous attempt while an update
+  request is pending; a known prebuilt update shows download / verify / install immediately.
+- `PrebuiltBundleInstallService.InstallAsync` stores bare 64-character SHA-256 hex in
+  `AgentPackageVersion.PackageDigest` and `AgentBuildJob.PackageDigest`, matching
+  `FleetAgentBuildExecutor.Result` and the database column limits. Artifact-store references
+  and `ReleaseBundleDigest` retain the `sha256:` prefix. A failed completion save reloads
+  durable package/job state before recording failure, preventing an unsaved success state
+  from leaving the install stuck. Inline install jobs enter `Cloning` before their first save
+  so the source-build worker cannot claim them.
 - Startup reconciliation (`IAgentBuildService.RecoverInterruptedAsync`, run by
   `AgentRuntimeStartupCleanupWorker` independently of workload cleanup) cancels jobs stranded
   in `Cloning`/`Building` by a restart and resumes them on the same path: prebuilt jobs

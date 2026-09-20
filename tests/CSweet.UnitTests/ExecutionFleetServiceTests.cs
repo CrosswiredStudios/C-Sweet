@@ -217,7 +217,15 @@ public sealed class ExecutionFleetServiceTests
         Assert.False(replay.Succeeded);
         Assert.Equal("invalid_handoff", replay.ErrorCode);
 
-        clock.Advance(TimeSpan.FromMinutes(6)); // The redeemed installer may run beyond handoff expiry.
+        clock.Advance(TimeSpan.FromMinutes(26)); // Download and certification outlive the initial enrollment token.
+        var refresh = new RefreshLocalOfficeEnrollmentRequest(created.Session!.Id, redeemed.SetupReceipt!,
+            Environment.MachineName, "windows", architecture);
+        Assert.False(await fleet.RefreshLocalSetupEnrollmentAsync(refresh with { SetupReceipt = "incorrect" }));
+        Assert.False(await fleet.RefreshLocalSetupEnrollmentAsync(refresh with { MachineName = "other-machine" }));
+        await fleet.GetOnboardingStatusAsync(); // Expire the initial token as the real UI poll does.
+        Assert.Equal(ExecutionEnrollmentStatus.Expired, (await db.ExecutionNodeEnrollments.SingleAsync()).Status);
+        Assert.True(await fleet.RefreshLocalSetupEnrollmentAsync(refresh));
+        Assert.Equal(clock.GetUtcNow().AddMinutes(15), (await db.ExecutionNodeEnrollments.SingleAsync()).ExpiresAt);
         var claim = Claim(Assert.IsType<string>(redeemed.EnrollmentToken), officeVersion: "0.2.0") with
         {
             MachineName = Environment.MachineName,
@@ -232,6 +240,7 @@ public sealed class ExecutionFleetServiceTests
         var claimed = await fleet.ClaimNodeAsync(claim);
 
         Assert.True(claimed.Succeeded);
+        Assert.False(await fleet.RefreshLocalSetupEnrollmentAsync(refresh)); // A used token cannot be reopened.
         Assert.Equal(ExecutionNodeStatus.Ready, (await db.ExecutionNodes.SingleAsync()).Status);
         Assert.Equal(LocalOfficeSetupSessionStatus.Connected,
             (await db.LocalOfficeSetupSessions.SingleAsync()).Status);
@@ -251,6 +260,35 @@ public sealed class ExecutionFleetServiceTests
         Assert.Equal("Your Office is ready", readySession?.PhaseDisplayName);
         Assert.True((await fleet.GetOnboardingStatusAsync()).IsReady);
         Assert.True((await new SetupService(db, fleet).CompleteStepAsync("agent-execution")).Succeeded);
+    }
+
+    [Theory]
+    [InlineData("expired")]
+    [InlineData("revoked")]
+    [InlineData("failed")]
+    public async Task AssistedEnrollmentRefreshCannotRestoreInvalidAuthority(string invalidation)
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["CSweet:ExecutionGateway:PublicUrl"] = "https://office.example.test/",
+            ["CSweet:ExecutionGateway:PublicCertificateSha256"] = new string('a', 64)
+        }).Build();
+        var capacity = LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 100L << 30, true);
+        var fleet = CreateFleet(db, clock, configuration, capacityProbe: new FixedCapacityProbe(capacity));
+        var preset = capacity.Presets.Single(x => x.Key == "balanced");
+        var created = await fleet.CreateLocalSetupSessionAsync(new("balanced", preset.CpuCount, preset.MemoryMb, preset.DiskMb), Guid.NewGuid());
+        var handoff = Uri.UnescapeDataString(new Uri(created.Session!.LaunchUri!).Fragment["#handoff=".Length..]);
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+        var redeemed = await fleet.RedeemLocalSetupSessionAsync(new(handoff, Environment.MachineName, "windows", architecture, "0.6.0"));
+        Assert.True(redeemed.Succeeded);
+        if (invalidation == "expired") clock.Advance(TimeSpan.FromHours(2));
+        if (invalidation == "revoked") (await db.ExecutionNodeEnrollments.SingleAsync()).Status = ExecutionEnrollmentStatus.Revoked;
+        if (invalidation == "failed") (await db.LocalOfficeSetupSessions.SingleAsync()).Status = LocalOfficeSetupSessionStatus.Failed;
+        await db.SaveChangesAsync();
+        Assert.False(await fleet.RefreshLocalSetupEnrollmentAsync(new(created.Session.Id, redeemed.SetupReceipt!, Environment.MachineName, "windows", architecture)));
     }
 
     [Fact]
@@ -311,15 +349,17 @@ public sealed class ExecutionFleetServiceTests
             redeemed.SetupReceipt!, "reconnect_unsafe", Environment.MachineName, "windows", architecture)));
     }
 
-    [Fact]
-    public async Task AssistedLocalSetup_DevelopmentLauncherUsesLoopbackBootstrapOriginButKeepsHttpsOfficeOrigin()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AssistedLocalSetup_DevelopmentLauncherUsesLoopbackBootstrapOriginButKeepsHttpsOfficeOrigin(bool hasLocalSource)
     {
         var scriptRoot = Path.Combine(Path.GetTempPath(), $"csweet-local-setup-{Guid.NewGuid():N}");
         Directory.CreateDirectory(scriptRoot);
         var launcher = Path.Combine(scriptRoot, "launcher.ps1");
         var bootstrap = Path.Combine(scriptRoot, "bootstrap.ps1");
         await File.WriteAllTextAsync(launcher, "# launcher");
-        await File.WriteAllTextAsync(bootstrap, "# bootstrap");
+        if (hasLocalSource) await File.WriteAllTextAsync(bootstrap, "# bootstrap");
         try
         {
             await using var db = CreateDb();
@@ -337,7 +377,7 @@ public sealed class ExecutionFleetServiceTests
             {
                 PublicLaunchEnabled = true,
                 WindowsDevelopmentLauncherScript = launcher,
-                WindowsDevelopmentOfficeBootstrapScript = bootstrap
+                WindowsDevelopmentOfficeBootstrapScript = hasLocalSource ? bootstrap : null
             };
             var fleet = CreateFleet(db, clock, configuration, capacityProbe: new FixedCapacityProbe(capacity),
                 fleetOptions: options);

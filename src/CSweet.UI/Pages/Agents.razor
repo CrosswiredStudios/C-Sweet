@@ -1279,7 +1279,9 @@
         _isManagingInstallation = true;
         _pendingBuildRequests.Add(installation.Id);
         var progressKey = InstallationProgressKey(installation);
-        SetBuildProgress(progressKey, "Preparing update", "Queuing the new definition package.");
+        SetBuildProgress(progressKey, "Preparing update", update.UpdateApproach == "PrebuiltRelease"
+            ? "Downloading, verifying, and installing the prebuilt release package."
+            : "Queuing the new definition package.");
         try
         {
             var updated = await AgentApi.UpdateDefinitionAsync(
@@ -1317,7 +1319,7 @@
             if (build is null || string.Equals(build.Status, "Succeeded", StringComparison.Ordinal))
             {
                 var completionTitle = isUpdate ? "Update complete" : "Agent ready";
-                SetBuildProgress(InstallationProgressKey(installation), completionTitle, $"{installation.AgentName} {installation.AgentVersion} is built and ready.", true, Severity.Success);
+                SetBuildProgress(InstallationProgressKey(installation), completionTitle, $"{installation.AgentName} {installation.AgentVersion} is installed and ready.", true, Severity.Success);
                 SetInstallationMessage(
                     isUpdate
                         ? $"{installation.AgentName} updated to {installation.AgentVersion} and is ready."
@@ -1332,22 +1334,16 @@
                 var failureDetail = failedStep is null
                     ? build.FailureMessage ?? $"The build ended with status {build.Status}."
                     : $"{failedStep.Label} failed: {failedStep.Error}";
-                SetBuildProgress(InstallationProgressKey(installation), "Agent build failed", failureDetail, true, Severity.Error);
+                SetBuildProgress(InstallationProgressKey(installation), "Agent package failed", failureDetail, true, Severity.Error);
                 SetInstallationMessage(
                     isUpdate
-                        ? $"{installation.AgentName} was updated, but its new package could not be built."
-                        : $"{installation.AgentName} was installed, but its package could not be built.",
+                        ? $"{installation.AgentName} was updated, but its new package could not be installed."
+                        : $"{installation.AgentName} was installed, but its package could not be installed.",
                     false);
                 return;
             }
 
-            var (title, detail) = build.Status switch
-            {
-                "Queued" => ("Build queued", "Waiting for an available build worker."),
-                "Cloning" => ("Fetching source", "Cloning the approved GitHub commit."),
-                "Building" => ("Building package", "Compiling and packaging the new agent version."),
-                _ => ("Updating agent", $"Build status: {build.Status}.")
-            };
+            var (title, detail) = InstalledAgentPresentation.BuildProgress(build);
             SetBuildProgress(InstallationProgressKey(installation), title, detail);
             await InvokeAsync(StateHasChanged);
 
@@ -1500,7 +1496,9 @@
 
         _isManagingInstallation = true;
         _pendingBuildRequests.Add(installation.Id);
-        SetBuildProgress(InstallationProgressKey(installation), "Queuing build", "Requesting another build of this agent package.");
+        SetBuildProgress(InstallationProgressKey(installation), "Retrying package", installation.Build?.SourceMode == "PrebuiltRelease"
+            ? "Downloading, verifying, and installing the prebuilt release package."
+            : "Requesting another build of this agent package.");
         try
         {
             var updated = await AgentApi.RetryDefinitionBuildAsync(installation.Id, _disposeCts.Token);
