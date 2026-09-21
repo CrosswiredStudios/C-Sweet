@@ -2247,7 +2247,7 @@ public sealed class ExecutionFleetService(
             progress.EstimatedRemainingMaximumSeconds = ClampEta(progress.EstimatedRemainingMaximumSeconds);
             progress.ObservedAt = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
             if (IsInterruptedWindowsSetupProgress(progress.State, progress.ObservedAt, now,
-                    IsWindowsSetupOwnerAlive(progress.OwnerProcessId, progress.StartedAt)))
+                    IsWindowsSetupOwnerAlive(progress.OwnerProcessId, progress.ObservedAt)))
             {
                 progress.State = "failed";
                 progress.PhaseKey = "setup-interrupted";
@@ -2276,7 +2276,7 @@ public sealed class ExecutionFleetService(
         bool ownerAlive) =>
         state == "running" && !ownerAlive && now - observedAt >= TimeSpan.FromSeconds(30);
 
-    private static bool IsWindowsSetupOwnerAlive(int ownerProcessId, DateTimeOffset progressStartedAt)
+    internal static bool IsWindowsSetupOwnerAlive(int ownerProcessId, DateTimeOffset progressWrittenAt)
     {
         if (ownerProcessId <= 0) return false;
         try
@@ -2285,9 +2285,9 @@ public sealed class ExecutionFleetService(
             if (process.HasExited) return false;
             try
             {
-                // A recycled PID must not keep an abandoned setup alive. The setup process exists
-                // before its first progress write, with a small allowance for timestamp precision.
-                return process.StartTime.ToUniversalTime() <= progressStartedAt.UtcDateTime.AddSeconds(5);
+                // A recycled PID must not keep an abandoned setup alive. Recovery can reuse the
+                // progress file with a new owner, so compare against this write, not startedAt.
+                return process.StartTime.ToUniversalTime() <= progressWrittenAt.UtcDateTime.AddSeconds(5);
             }
             catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
             {

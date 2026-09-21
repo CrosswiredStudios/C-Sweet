@@ -178,6 +178,14 @@ public static class HiringEndpoints
             {
                 return Results.Conflict(new { error = "installation_rejected", message = exception.Message });
             }
+            catch (AgentImportPreviewException exception)
+            {
+                return Results.Conflict(new { error = "agent_source_unavailable", message = exception.Message });
+            }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = "invalid_hire", message = exception.Message });
+            }
         });
         group.MapPost("/workflows/{workflowId:guid}/decide", async (Guid organizationId, Guid workflowId,
             DecideHiringWorkflowRequest request, HttpContext http, IHiringService service,

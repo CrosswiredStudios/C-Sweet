@@ -12,6 +12,7 @@ using CSweet.Domain.Notifications;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using AgentAvailabilityState = CSweet.Agent.SDK.AgentAvailabilityState;
 using AgentCatalogSource = CSweet.Agent.SDK.AgentCatalogSource;
 
@@ -29,7 +30,8 @@ public sealed class HiringService(
     IPluginArchiveImportService? archiveImport = null,
     IResourceChangeService? resourceChanges = null,
     ITeamService? teams = null,
-    IBusinessOnboardingService? businessOnboarding = null) : IHiringService, IAgentHireOrchestrator, IAgentHireOperationService
+    IBusinessOnboardingService? businessOnboarding = null,
+    ILogger<HiringService>? logger = null) : IHiringService, IAgentHireOrchestrator, IAgentHireOperationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     // Retained only for binary/source compatibility with older composition roots; imports now use definitions.
@@ -1003,7 +1005,11 @@ public sealed class HiringService(
         var candidateId = ParseCandidateReference(workflow.CandidateId);
         var candidate = await db.WorkforceCandidates.SingleAsync(x => x.Id == candidateId &&
             x.OrganizationId == organizationId, cancellationToken);
-        await RevalidateAsync(organizationId, candidate, snapshot, workflowId, cancellationToken);
+        (Guid UserId, Guid InstallationId)? existingMarketplaceHire = null;
+        if (workflow.ActionType == "marketplace-install-and-hire" && snapshot.EmbeddedAgent?.DefinitionId is Guid definitionId)
+            existingMarketplaceHire = await FindExistingMarketplaceHireAsync(workflow, snapshot, definitionId, cancellationToken);
+        if (!existingMarketplaceHire.HasValue)
+            await RevalidateAsync(organizationId, candidate, snapshot, workflowId, cancellationToken);
 
         var role = await db.CoreRoles.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
             x.Name == snapshot.RoleTitle, cancellationToken);
@@ -1018,6 +1024,16 @@ public sealed class HiringService(
         }
 
         Guid resultUserId;
+        if (existingMarketplaceHire.HasValue)
+        {
+            resultUserId = existingMarketplaceHire.Value.UserId;
+            snapshot = snapshot with { EmbeddedAgent = snapshot.EmbeddedAgent! with
+            {
+                InstallationId = existingMarketplaceHire.Value.InstallationId
+            } };
+            workflow.PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions);
+            goto CompleteWorkflow;
+        }
         if (candidate.Source == "CurrentStaff")
         {
             var workerId = Guid.Parse(candidate.ExternalCandidateId);
@@ -1494,6 +1510,45 @@ CompleteWorkflow:
         return approvedRole?.ReportsToOrganizationUserId ?? requestedReportsToOrganizationUserId;
     }
 
+    private async Task<(Guid UserId, Guid InstallationId)?> FindExistingMarketplaceHireAsync(
+        StaffingActionProposal workflow, WorkflowSnapshot snapshot, Guid definitionId, CancellationToken token)
+    {
+        var embedded = snapshot.EmbeddedAgent;
+        if (embedded is null || string.IsNullOrWhiteSpace(snapshot.EmployeeDisplayName))
+            return null;
+        var matches = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == workflow.OrganizationId && x.IsActive &&
+                        x.EmployeeType == EmployeeType.Agent &&
+                        x.DisplayName == snapshot.EmployeeDisplayName &&
+                        x.CreatedAt >= workflow.CreatedAt &&
+                        x.ReportsToOrganizationUserId == snapshot.ReportsToOrganizationUserId &&
+                        x.Role != null && x.Role.Name == snapshot.RoleTitle &&
+                        x.AgentInstallation != null &&
+                        x.AgentInstallation.AgentDefinitionId == definitionId &&
+                        x.AgentInstallation.PackageVersionId == embedded.ImportId)
+            .Select(x => new { x.Id, x.AgentInstallationId })
+            .ToListAsync(token);
+        (Guid UserId, Guid InstallationId)? marketplaceMatch = null;
+        foreach (var match in matches)
+        {
+            if (match.AgentInstallationId is not { } installationId) continue;
+            var hireEventJson = await db.AgentPlatformEventOutbox.AsNoTracking()
+                .Where(x => x.OrganizationId == workflow.OrganizationId &&
+                            x.IdempotencyKey == $"employee-hired:{match.Id:D}")
+                .Select(x => x.DataJson)
+                .SingleOrDefaultAsync(token);
+            if (hireEventJson is null ||
+                !string.Equals(JsonSerializer.Deserialize<EmployeeHiredEvent>(hireEventJson, JsonOptions)?.Source,
+                    "Marketplace", StringComparison.Ordinal))
+                continue;
+            if (marketplaceMatch.HasValue)
+                throw new InvalidOperationException(
+                    "Multiple employees match this interrupted hire. Review the team before retrying.");
+            marketplaceMatch = (match.Id, installationId);
+        }
+        return marketplaceMatch;
+    }
+
     private async Task RevalidateAsync(Guid organizationId, WorkforceCandidate candidate, WorkflowSnapshot snapshot,
         Guid workflowId, CancellationToken token)
     {
@@ -1548,17 +1603,19 @@ CompleteWorkflow:
             }
             else
             {
-                var previewService = importPreview
-                    ?? throw new InvalidOperationException("The agent import preview service is unavailable.");
-                var current = await previewService.PreviewAsync(
-                    new PreviewAgentImportRequest(embedded.RepositoryUrl, embedded.CommitSha),
-                    token);
-                if (!string.Equals(current.CommitSha, embedded.CommitSha, StringComparison.OrdinalIgnoreCase) ||
+                // Preview pinned the commit and stored the reviewed manifest. Confirm against that
+                // immutable local record so approval does not depend on a second GitHub request.
+                var current = await db.AgentPackageVersions.AsNoTracking()
+                    .Include(x => x.PackageSource)
+                    .SingleOrDefaultAsync(x => x.Id == embedded.ImportId, token);
+                if (current is null ||
+                    !string.Equals(current.PackageSource?.RepositoryUrl, embedded.RepositoryUrl, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(current.CommitSha, embedded.CommitSha, StringComparison.OrdinalIgnoreCase) ||
                     !string.Equals(current.ManifestDigest, embedded.ManifestDigest, StringComparison.OrdinalIgnoreCase) ||
                     !string.Equals(current.AgentId, embedded.AgentId, StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException(
-                        "The catalog agent source changed after approval was staged; create a new approval.");
+                        "The approved catalog agent snapshot changed or was removed; create a new approval.");
                 }
             }
         }
@@ -1955,7 +2012,7 @@ CompleteWorkflow:
             AgentHireOperationStatus.Succeeded => "Hire complete",
             AgentHireOperationStatus.NeedsSetup => "Setup required",
             AgentHireOperationStatus.Failed => "Hire failed",
-            _ => "Hire interrupted"
+            _ => "Review hire status"
         };
         var detail = operation.Status switch
         {
@@ -1971,7 +2028,7 @@ CompleteWorkflow:
             AgentHireOperationStatus.Succeeded => $"{employeeName} joined the team.",
             AgentHireOperationStatus.NeedsSetup => $"{employeeName} joined the team and needs setup.",
             AgentHireOperationStatus.Failed => operation.Error ?? "The agent hire could not be completed.",
-            AgentHireOperationStatus.AwaitingConfirmation => $"The previous {employeeName} hire was interrupted. Review it before continuing.",
+            AgentHireOperationStatus.AwaitingConfirmation => $"The result of the previous {employeeName} hire could not be confirmed. Check your team before resuming.",
             _ => $"Preparing {employeeName}…"
         };
         var needsSetup = snapshot?.EmbeddedAgent?.NeedsSetup == true;
@@ -1995,27 +2052,101 @@ CompleteWorkflow:
         IReadOnlySet<Guid> organizationIds,
         CancellationToken cancellationToken)
     {
-        var existingWorkflowIds = await db.AgentHireOperations.AsNoTracking()
-            .Select(x => x.WorkflowId).ToHashSetAsync(cancellationToken);
+        var interruptedWorkflowIds = await db.AgentHireOperations.AsNoTracking()
+            .Where(x => x.Status == AgentHireOperationStatus.AwaitingConfirmation || x.Status == AgentHireOperationStatus.Failed)
+            .Select(x => x.WorkflowId)
+            .ToHashSetAsync(cancellationToken);
         var candidates = await db.StaffingActionProposals
             .Where(x => organizationIds.Contains(x.OrganizationId) &&
                         x.ActionType == "marketplace-install-and-hire" &&
-                        x.Status == ProposalStatus.Pending &&
-                        !existingWorkflowIds.Contains(x.Id))
+                        (x.Status == ProposalStatus.Pending ||
+                         (x.Status == ProposalStatus.Approved && interruptedWorkflowIds.Contains(x.Id))))
+            .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
-        var now = DateTimeOffset.UtcNow;
         foreach (var workflow in candidates)
         {
             var snapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions);
             if (snapshot?.EmbeddedAgent?.DefinitionId is not Guid definitionId) continue;
+            var operation = await db.AgentHireOperations.SingleOrDefaultAsync(
+                x => x.WorkflowId == workflow.Id, cancellationToken);
+            if (operation is not null && operation.Status is not (AgentHireOperationStatus.AwaitingConfirmation or AgentHireOperationStatus.Failed))
+                continue;
+            if (workflow.Status == ProposalStatus.Approved && workflow.ResultOrganizationUserId.HasValue &&
+                operation is not null)
+            {
+                operation.Status = snapshot.EmbeddedAgent?.NeedsSetup == true
+                    ? AgentHireOperationStatus.NeedsSetup
+                    : AgentHireOperationStatus.Succeeded;
+                operation.Error = null;
+                operation.CompletedAt = DateTimeOffset.UtcNow;
+                operation.UpdatedAt = operation.CompletedAt.Value;
+                QueueOperationChanged(operation);
+                await db.SaveChangesAsync(cancellationToken);
+                continue;
+            }
+
+            (Guid UserId, Guid InstallationId)? employee;
+            try
+            {
+                employee = await FindExistingMarketplaceHireAsync(workflow, snapshot, definitionId, cancellationToken);
+            }
+            catch (InvalidOperationException exception)
+            {
+                logger?.LogWarning(exception,
+                    "Could not identify the employee for marketplace hire workflow {WorkflowId}.", workflow.Id);
+                continue;
+            }
+            if (employee.HasValue)
+            {
+                var owner = await db.CoreOrganizationUsers.AsNoTracking().FirstOrDefaultAsync(x =>
+                    x.OrganizationId == workflow.OrganizationId && x.IsActive &&
+                    x.PermissionLevel == OrganizationPermissionLevel.Owner && x.ApplicationUserId.HasValue,
+                    cancellationToken);
+                if (owner?.ApplicationUserId is { } applicationUserId)
+                {
+                    try
+                    {
+                        var completed = await ConfirmWorkflowAsync(
+                            workflow.OrganizationId, workflow.Id, applicationUserId,
+                            new ConfirmHiringWorkflowRequest($"recover-marketplace-hire:{workflow.Id:D}"),
+                            cancellationToken);
+                        if (completed?.ResultOrganizationUserId == employee.Value.UserId)
+                        {
+                            operation ??= NewOperation(workflow.Id, workflow.OrganizationId, owner.Id);
+                            operation.InitiatedByOrganizationUserId = owner.Id;
+                            operation.AgentDefinitionId = definitionId;
+                            operation.Status = completed.ResultAgentRequiresSetup
+                                ? AgentHireOperationStatus.NeedsSetup
+                                : AgentHireOperationStatus.Succeeded;
+                            operation.Error = null;
+                            operation.CompletedAt = DateTimeOffset.UtcNow;
+                            operation.UpdatedAt = operation.CompletedAt.Value;
+                            if (db.Entry(operation).State == EntityState.Detached)
+                                db.AgentHireOperations.Add(operation);
+                            QueueOperationChanged(operation);
+                            await db.SaveChangesAsync(cancellationToken);
+                            continue;
+                        }
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        logger?.LogWarning(exception,
+                            "Could not reconcile completed marketplace hire workflow {WorkflowId}.", workflow.Id);
+                        db.ChangeTracker.Clear();
+                        continue;
+                    }
+                }
+            }
+
+            if (operation is not null) continue;
             db.AgentHireOperations.Add(new AgentHireOperation
             {
                 Id = Guid.NewGuid(), WorkflowId = workflow.Id, OrganizationId = workflow.OrganizationId,
                 AgentDefinitionId = definitionId, Status = AgentHireOperationStatus.AwaitingConfirmation,
-                CreatedAt = now, UpdatedAt = now
+                CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
             });
+            await db.SaveChangesAsync(cancellationToken);
         }
-        if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync(cancellationToken);
     }
 
     private void QueueOperationChanged(AgentHireOperation operation)

@@ -7,6 +7,17 @@ public sealed class WindowsSetupProgressTests
     private static readonly DateTimeOffset Now = new(2026, 9, 20, 22, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public void RecoveryProgressUsesCurrentWriteToValidateNewOwner()
+    {
+        using var owner = System.Diagnostics.Process.GetCurrentProcess();
+        var currentWrite = DateTimeOffset.UtcNow;
+        var previousAttemptStarted = new DateTimeOffset(owner.StartTime.ToUniversalTime(), TimeSpan.Zero).AddMinutes(-10);
+
+        Assert.True(ExecutionFleetService.IsWindowsSetupOwnerAlive(owner.Id, currentWrite));
+        Assert.False(ExecutionFleetService.IsWindowsSetupOwnerAlive(owner.Id, previousAttemptStarted));
+    }
+
+    [Fact]
     public void DeadOwnerAfterGracePeriodIsInterrupted() =>
         Assert.True(ExecutionFleetService.IsInterruptedWindowsSetupProgress(
             "running", Now.AddSeconds(-31), Now, ownerAlive: false));

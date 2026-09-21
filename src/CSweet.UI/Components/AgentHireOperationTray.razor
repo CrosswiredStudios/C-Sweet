@@ -59,10 +59,10 @@
                                        EndIcon="@Icons.Material.Outlined.ArrowForward"
                                        OnClick="@(() => Open(operation))">Finish setup</MudButton>
                         }
-                        else if (operation.Status == AgentHireOperationStatuses.Failed)
+                        else if (operation.Status is AgentHireOperationStatuses.Failed or AgentHireOperationState.UnconfirmedStatus)
                         {
                             <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
-                                       OnClick="@(() => RetryAsync(operation))">Retry</MudButton>
+                                       OnClick="@(() => RetryAsync(operation))">@(operation.Status == AgentHireOperationState.UnconfirmedStatus ? "Check status" : "Retry")</MudButton>
                             @if (!string.IsNullOrWhiteSpace(operation.ActionUri))
                             {
                                 <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => Open(operation))">View details</MudButton>
@@ -194,12 +194,13 @@
         $"agent-hire-toast agent-hire-toast-{operation.Status.ToLowerInvariant()}";
 
     private static bool CanDismiss(string status) =>
-        status is AgentHireOperationStatuses.Succeeded or AgentHireOperationStatuses.NeedsSetup or AgentHireOperationStatuses.Failed;
+        status is AgentHireOperationStatuses.Succeeded or AgentHireOperationStatuses.NeedsSetup or AgentHireOperationStatuses.Failed or AgentHireOperationState.UnconfirmedStatus;
 
     private static string StatusLabel(string status) => status switch
     {
         AgentHireOperationStatuses.Succeeded => "AGENT HIRED",
         AgentHireOperationStatuses.Failed => "HIRING INTERRUPTED",
+        AgentHireOperationState.UnconfirmedStatus => "HIRE STATUS UNKNOWN",
         AgentHireOperationStatuses.NeedsSetup => "SETUP REQUIRED",
         AgentHireOperationStatuses.AwaitingConfirmation => "ACTION REQUIRED",
         _ => "AGENT HIRING"
@@ -209,6 +210,7 @@
     {
         AgentHireOperationStatuses.Succeeded => Icons.Material.Filled.CheckCircle,
         AgentHireOperationStatuses.Failed => Icons.Material.Filled.Error,
+        AgentHireOperationState.UnconfirmedStatus => Icons.Material.Filled.Info,
         AgentHireOperationStatuses.NeedsSetup => Icons.Material.Filled.Settings,
         AgentHireOperationStatuses.AwaitingConfirmation => Icons.Material.Filled.Restore,
         _ => Icons.Material.Filled.PersonAdd

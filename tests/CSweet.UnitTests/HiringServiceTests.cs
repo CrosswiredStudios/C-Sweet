@@ -5,6 +5,7 @@ using CSweet.Contracts.Agents;
 using CSweet.Contracts.Core;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Core;
+using CSweet.Domain.Notifications;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
@@ -507,7 +508,7 @@ public sealed class HiringServiceTests
             .Select(user => user.Id)
             .SingleAsync();
 
-        var preview = new RecordingImportPreview(repositoryUrl);
+        var preview = new RecordingImportPreview(db, repositoryUrl);
         var installations = new RecordingInstallationService(organizationId);
         var definitions = new RecordingDefinitionService { IsAvailableForHire = false };
         var organizationUsers = new RecordingOrganizationUserService();
@@ -588,9 +589,8 @@ public sealed class HiringServiceTests
 
         Assert.Equal(AgentHireOperationStatuses.Succeeded, approved?.Status);
         Assert.Equal(approved, duplicate);
-        Assert.Equal(3, preview.Requests.Count);
+        Assert.Single(preview.Requests);
         Assert.Equal(repositoryUrl, preview.Requests[0].RepositoryUrl);
-        Assert.All(preview.Requests.Skip(1), request => Assert.Equal(preview.CommitSha, request.Ref));
         Assert.NotNull(definitions.Request);
         Assert.Equal(1, definitions.ImportCount);
         Assert.Equal(preview.RequestedCapabilities, definitions.Request!.GrantedRequestedCapabilities);
@@ -685,7 +685,7 @@ public sealed class HiringServiceTests
             db,
             new RecordingOrganizationUserService(),
             new TestAuditEventWriter(),
-            new RecordingImportPreview(repositoryUrl),
+            new RecordingImportPreview(db, repositoryUrl),
             new RecordingInstallationService(organizationId),
             new RecordingAgentCatalog(available),
             new RecordingDefinitionService());
@@ -835,10 +835,10 @@ public sealed class HiringServiceTests
             repositoryUrl,
             .99m,
             "First-party verified");
-        var import = new RecordingImportPreview(repositoryUrl);
+        var import = new RecordingImportPreview(db, repositoryUrl);
         var installations = new RecordingInstallationService(organizationId);
         var definitions = new RecordingDefinitionService();
-        var organizationUsers = new RecordingOrganizationUserService();
+        var organizationUsers = new RecordingOrganizationUserService(db) { ThrowAfterPersistedCreate = true };
         var service = new HiringService(
             db,
             organizationUsers,
@@ -865,7 +865,14 @@ public sealed class HiringServiceTests
             organizationId,
             applicationUserId,
             new("first-party:product-manager", "Product Manager", "  Avery  ", ownerId, "marketplace-preview"));
-        var confirmed = await orchestrator.ConfirmAsync(
+        var package = await db.AgentPackageVersions.SingleAsync(x => x.Id == Guid.Parse("7547f772-e46b-4918-a290-f4fba1f04457"));
+        package.ManifestDigest = "tampered";
+        await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.ConfirmAsync(
+            organizationId, preview.WorkflowId, applicationUserId, new("tampered-confirm")));
+        package.ManifestDigest = new string('b', 64);
+        await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.ConfirmAsync(
             organizationId,
             preview.WorkflowId,
             applicationUserId,
@@ -877,7 +884,8 @@ public sealed class HiringServiceTests
                     ["llmModel"] = JsonSerializer.SerializeToElement("test-model"),
                     ["responseTone"] = JsonSerializer.SerializeToElement("concise")
                 }
-            });
+            }));
+        var confirmed = Assert.Single(await service.ListForUserAsync(applicationUserId));
         var duplicate = await orchestrator.ConfirmAsync(
             organizationId,
             preview.WorkflowId,
@@ -888,7 +896,7 @@ public sealed class HiringServiceTests
         Assert.Equal(AgentHireOperationStatuses.Succeeded, confirmed?.Status);
         Assert.Equal(confirmed, duplicate);
         Assert.False(confirmed?.RequiresSetup);
-        Assert.Equal(2, import.Requests.Count);
+        Assert.Single(import.Requests);
         Assert.Equal(3, preview.ConfigurationFields.Count);
         var tone = preview.ConfigurationFields.Single(field => field.Key == "responseTone");
         Assert.Equal("Controls response detail.", tone.Description);
@@ -902,6 +910,13 @@ public sealed class HiringServiceTests
         Assert.Equal("concise", organizationUsers.CreatedRequest.ConfigurationOverrides["responseTone"].GetString());
         Assert.Equal("Avery", organizationUsers.CreatedRequest?.DisplayName);
         Assert.Equal(definitions.DefinitionId, organizationUsers.CreatedRequest?.AgentDefinitionId);
+        Assert.Equal(1, organizationUsers.CreateCount);
+        var interruptedOperation = await db.AgentHireOperations.SingleAsync();
+        interruptedOperation.Status = AgentHireOperationStatus.Failed;
+        interruptedOperation.Error = "A stale worker response";
+        await db.SaveChangesAsync();
+        var reconciled = Assert.Single(await service.ListForUserAsync(applicationUserId));
+        Assert.Equal(AgentHireOperationStatuses.Succeeded, reconciled.Status);
         Assert.Equal(1, organizationUsers.CreateCount);
     }
 
@@ -1064,7 +1079,7 @@ public sealed class HiringServiceTests
         return (conversation.Id, turn.Id);
     }
 
-    private sealed class RecordingImportPreview(string repositoryUrl) : IAgentImportPreviewService
+    private sealed class RecordingImportPreview(CSweetDbContext db, string repositoryUrl) : IAgentImportPreviewService
     {
         public string CommitSha { get; } = new('a', 40);
         public IReadOnlyList<string> ProvidedCapabilities { get; } =
@@ -1073,13 +1088,29 @@ public sealed class HiringServiceTests
             ["platform.llm.chat-stream.v1", "platform.business-profile.read.v1"];
         public List<PreviewAgentImportRequest> Requests { get; } = [];
 
-        public Task<AgentImportPreviewResponse> PreviewAsync(
+        public async Task<AgentImportPreviewResponse> PreviewAsync(
             PreviewAgentImportRequest request,
             CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
-            return Task.FromResult(new AgentImportPreviewResponse(
-                Guid.Parse("7547f772-e46b-4918-a290-f4fba1f04457"),
+            var importId = Guid.Parse("7547f772-e46b-4918-a290-f4fba1f04457");
+            if (!await db.AgentPackageVersions.AnyAsync(x => x.Id == importId, cancellationToken))
+            {
+                var source = new AgentPackageSource
+                {
+                    Id = Guid.NewGuid(), RepositoryUrl = repositoryUrl
+                };
+                db.AgentPackageSources.Add(source);
+                db.AgentPackageVersions.Add(new AgentPackageVersion
+                {
+                    Id = importId, PackageSourceId = source.Id, PackageSource = source,
+                    CommitSha = CommitSha, ManifestDigest = new string('b', 64),
+                    AgentId = "com.csweet.product-manager"
+                });
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            return new AgentImportPreviewResponse(
+                importId,
                 repositoryUrl,
                 CommitSha,
                 new string('b', 64),
@@ -1126,7 +1157,7 @@ public sealed class HiringServiceTests
                         ]
                     }
                 ]
-            });
+            };
         }
     }
 
@@ -1283,12 +1314,13 @@ public sealed class HiringServiceTests
         }
     }
 
-    private sealed class RecordingOrganizationUserService : IOrganizationUserService
+    private sealed class RecordingOrganizationUserService(CSweetDbContext? db = null) : IOrganizationUserService
     {
         public CreateOrganizationUserRequest? CreatedRequest { get; private set; }
         public int CreateCount { get; private set; }
+        public bool ThrowAfterPersistedCreate { get; set; }
 
-        public Task<CoreActionResponse> CreateAsync(
+        public async Task<CoreActionResponse> CreateAsync(
             Guid organizationId,
             CreateOrganizationUserRequest request,
             CancellationToken cancellationToken = default,
@@ -1297,7 +1329,43 @@ public sealed class HiringServiceTests
         {
             CreateCount++;
             CreatedRequest = request;
-            return Task.FromResult(new CoreActionResponse(
+            if (ThrowAfterPersistedCreate)
+            {
+                if (db is null || !request.AgentDefinitionId.HasValue)
+                    throw new InvalidOperationException("The test hire requires a database and definition.");
+                ThrowAfterPersistedCreate = false;
+                var installation = new AgentInstallation
+                {
+                    Id = Guid.NewGuid(), AgentDefinitionId = request.AgentDefinitionId,
+                    PackageVersionId = Guid.Parse("7547f772-e46b-4918-a290-f4fba1f04457"),
+                    BusinessId = organizationId.ToString("D"), CreatedAt = DateTimeOffset.UtcNow
+                };
+                db.AgentInstallations.Add(installation);
+                var employeeId = Guid.NewGuid();
+                db.CoreOrganizationUsers.Add(new OrganizationUser
+                {
+                    Id = employeeId, OrganizationId = organizationId,
+                    ReportsToOrganizationUserId = request.ReportsToOrganizationUserId,
+                    RoleId = request.RoleId, AgentInstallationId = installation.Id,
+                    AgentInstallation = installation, DisplayName = request.DisplayName,
+                    EmployeeType = EmployeeType.Agent,
+                    PermissionLevel = OrganizationPermissionLevel.Contributor,
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+                db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+                {
+                    Id = Guid.NewGuid(), OrganizationId = organizationId,
+                    EventType = HiringEvents.EmployeeHired,
+                    IdempotencyKey = $"employee-hired:{employeeId:D}",
+                    DataJson = JsonSerializer.Serialize(new EmployeeHiredEvent(
+                        organizationId, employeeId, "Agent", request.RoleId, null, installation.Id,
+                        null, request.ReportsToOrganizationUserId, null, hiringSource, DateTimeOffset.UtcNow)),
+                    OccurredAt = DateTimeOffset.UtcNow
+                });
+                await db.SaveChangesAsync(cancellationToken);
+                throw new InvalidOperationException("The employee committed before the response failed.");
+            }
+            return new CoreActionResponse(
                 true,
                 null,
                 "Created",
@@ -1314,7 +1382,7 @@ public sealed class HiringServiceTests
                     DateTimeOffset.UtcNow)
                 {
                     AgentInstallationId = request.AgentInstallationId ?? Guid.NewGuid()
-                }));
+                });
         }
 
         public Task<IReadOnlyList<OrganizationUserResponse>> ListByOrganizationAsync(Guid organizationId, CancellationToken cancellationToken = default) =>

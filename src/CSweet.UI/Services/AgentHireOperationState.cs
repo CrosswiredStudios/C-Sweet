@@ -7,6 +7,8 @@ namespace CSweet.UI.Services;
 
 public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState realtime) : IDisposable
 {
+    public const string UnconfirmedStatus = "Unconfirmed";
+
     private readonly Dictionary<Guid, PendingStart> _pendingStarts = [];
     private readonly HashSet<Guid> _autoDismissScheduled = [];
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -43,6 +45,21 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
     {
         if (_pendingStarts.TryGetValue(operation.WorkflowId, out var pending))
         {
+            try
+            {
+                await RefreshAsync(_disposeCts.Token);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                Merge(operation with
+                {
+                    Detail = "The hire status could not be checked. Try again shortly.",
+                    Error = exception.Message,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+                return;
+            }
+            if (!_pendingStarts.ContainsKey(operation.WorkflowId)) return;
             Merge(Starting(pending));
             await StartCoreAsync(pending, _disposeCts.Token);
             return;
@@ -76,15 +93,17 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
-        if (!await _refreshLock.WaitAsync(0, cancellationToken)) return;
+        await _refreshLock.WaitAsync(cancellationToken);
         try
         {
             var serverOperations = await http.GetFromJsonAsync<IReadOnlyList<AgentHireOperationResponse>>(
                 "api/core/hiring/operations", cancellationToken) ?? [];
+            // A server operation is authoritative even when a later transport error gave the
+            // optimistic notification a newer timestamp.
+            foreach (var workflowId in serverOperations.Select(x => x.WorkflowId))
+                _pendingStarts.Remove(workflowId);
             var optimistic = Operations.Where(x => _pendingStarts.ContainsKey(x.WorkflowId)).ToList();
             Operations = serverOperations.Concat(optimistic)
-                .GroupBy(x => x.WorkflowId)
-                .Select(x => x.OrderByDescending(y => y.UpdatedAt).First())
                 .OrderBy(x => x.UpdatedAt)
                 .ToList();
             Changed?.Invoke();
@@ -109,7 +128,7 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
                 pending.Request,
                 cancellationToken);
             if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException(await ErrorMessageAsync(response, "The agent hire could not be started."));
+                throw new InvalidOperationException(await ErrorMessageAsync(response, "The hire request did not return a result."));
             var operation = await response.Content.ReadFromJsonAsync<AgentHireOperationResponse>(cancellationToken)
                 ?? throw new InvalidOperationException("The agent hire response was empty.");
             _pendingStarts.Remove(pending.WorkflowId);
@@ -121,11 +140,22 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
         }
         catch (Exception exception)
         {
+            // Confirmation may have committed before its HTTP response failed. Read the
+            // durable operation before telling the user that the hire failed.
+            try
+            {
+                await RefreshAsync(cancellationToken);
+                if (!_pendingStarts.ContainsKey(pending.WorkflowId)) return;
+            }
+            catch (Exception refreshException) when (refreshException is not OperationCanceledException)
+            {
+                // Keep the actionable local retry when the status read is unavailable too.
+            }
             Merge(Starting(pending) with
             {
-                Status = AgentHireOperationStatuses.Failed,
-                Phase = "Hire could not start",
-                Detail = exception.Message,
+                Status = UnconfirmedStatus,
+                Phase = "Could not confirm hire status",
+                Detail = $"The hire result is unknown. {exception.Message}",
                 Error = exception.Message,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
@@ -221,12 +251,16 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
         try
         {
             var error = await response.Content.ReadFromJsonAsync<ApiError>();
-            return error?.Message ?? fallback;
+            if (!string.IsNullOrWhiteSpace(error?.Message)) return error.Message;
+            if (!string.IsNullOrWhiteSpace(error?.Detail)) return error.Detail;
+            if (!string.IsNullOrWhiteSpace(error?.Title) && (int)response.StatusCode < 500)
+                return error.Title;
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or NotSupportedException)
         {
-            return fallback;
+            // An HTML or empty error response has no application message.
         }
+        return $"{fallback} (HTTP {(int)response.StatusCode}). Check the API logs for the failed request.";
     }
 
     public void Dispose()
@@ -245,5 +279,5 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
         string EmployeeDisplayName,
         ConfirmHiringWorkflowRequest Request);
 
-    private sealed record ApiError(string? Error, string? Message);
+    private sealed record ApiError(string? Error, string? Message, string? Title, string? Detail);
 }

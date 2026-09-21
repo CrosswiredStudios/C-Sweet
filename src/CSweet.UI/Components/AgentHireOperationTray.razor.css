@@ -74,12 +74,14 @@
     color: #a93641;
 }
 
+.agent-hire-toast-unconfirmed,
 .agent-hire-toast-needssetup,
 .agent-hire-toast-awaitingconfirmation {
     border-color: #ead8a8;
     background: linear-gradient(135deg, #fffdf8, #fff8e9);
 }
 
+.agent-hire-toast-unconfirmed .agent-hire-toast-icon,
 .agent-hire-toast-needssetup .agent-hire-toast-icon,
 .agent-hire-toast-awaitingconfirmation .agent-hire-toast-icon {
     background: linear-gradient(145deg, #d9a52d, #a97413);
