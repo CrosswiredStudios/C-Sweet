@@ -1,16 +1,20 @@
 using System.Text.Json;
+using CSweet.Application.Communications;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.BusinessOnboarding;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
+using CSweet.Domain.Notifications;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.BusinessOnboarding;
 using CSweet.Infrastructure.Auth;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace CSweet.UnitTests;
 
@@ -81,7 +85,9 @@ public class BusinessOnboardingServiceTests
         Assert.Equal(BusinessOnboardingOperationStatuses.Starting, started.Status);
         Assert.Equal(started.Id, replayed.Id);
         Assert.NotNull(started.OrganizationId);
-        Assert.Equal($"/organizations/{started.OrganizationId:D}/command-center", started.ActionUri);
+        Assert.Equal(
+            $"/organizations/{started.OrganizationId:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}",
+            started.ActionUri);
         var activeBusiness = Assert.Single(await dbContext.CoreOrganizations.ToListAsync());
         Assert.Equal(OrganizationStatus.Active, activeBusiness.Status);
         var owner = Assert.Single(await dbContext.CoreOrganizationUsers.ToListAsync());
@@ -323,7 +329,7 @@ public class BusinessOnboardingServiceTests
     }
 
     [Fact]
-    public async Task CompleteAsync_RequiresBusinessNameAndChiefAgent()
+    public async Task CompleteAsync_RequiresBusinessNameButAllowsMissingChief()
     {
         await using var dbContext = CreateDbContext();
         var auditWriter = new TestAuditEventWriter();
@@ -341,17 +347,209 @@ public class BusinessOnboardingServiceTests
             " ",
             null,
             "Launch",
-            Guid.Empty));
-        var missingChief = await service.CompleteAsync(new CompleteBusinessOnboardingRequest(
-            "Example Co",
-            null,
-            "Launch",
-            Guid.Empty));
+            null));
 
         Assert.False(missingName.Succeeded);
         Assert.Equal("validation_error", missingName.ErrorCode);
-        Assert.False(missingChief.Succeeded);
-        Assert.Equal("chief_agent_required", missingChief.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_CreatesBusinessWithoutChiefAndRoutesToMarketplace()
+    {
+        await using var dbContext = CreateDbContext();
+        var auditWriter = new TestAuditEventWriter();
+        var roleService = new RoleService(dbContext, auditWriter);
+        var service = new BusinessOnboardingService(
+            new CoreOrganizationService(dbContext, auditWriter, roleService),
+            roleService,
+            new StrategicObjectiveService(dbContext, auditWriter),
+            new WorkerService(dbContext, auditWriter),
+            auditWriter,
+            new ExecutiveBriefingService(dbContext, auditWriter, TimeProvider.System),
+            dbContext);
+        var applicationUser = new ApplicationUser
+        {
+            Id = Guid.NewGuid(),
+            DisplayName = "Chief-less Owner",
+            UserName = "chiefless@example.com",
+            NormalizedUserName = "CHIEFLESS@EXAMPLE.COM",
+            Email = "chiefless@example.com",
+            NormalizedEmail = "CHIEFLESS@EXAMPLE.COM",
+            EmailConfirmed = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(applicationUser);
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.CompleteAsync(new CompleteBusinessOnboardingRequest(
+            "Chief-less Co", "Software", "Operate without a chief for now.", null),
+            applicationUserId: applicationUser.Id);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(result.Onboarding);
+        Assert.Null(result.Onboarding.ChiefOrganizationUserId);
+        Assert.Equal(
+            $"/organizations/{result.Onboarding.OrganizationId:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}",
+            result.Onboarding.NextRoute);
+        var organization = await dbContext.CoreOrganizations.SingleAsync(x => x.Id == result.Onboarding.OrganizationId);
+        Assert.Equal(OrganizationStatus.Active, organization.Status);
+        Assert.False(await dbContext.LeadershipAssignments.AnyAsync(x =>
+            x.OrganizationId == organization.Id && x.PositionKey == "chief-of-staff" && x.EndsAt == null));
+    }
+
+    [Fact]
+    public async Task AssignExistingChiefAsync_ParticipatesInExistingTransactionWithoutDuplicatingHire()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseSqlite(connection)
+            .AddInterceptors(new SqliteRealtimeSequenceInterceptor())
+            .Options;
+        await using var dbContext = new CSweetDbContext(options);
+        await dbContext.Database.EnsureCreatedAsync();
+        var auditWriter = new TestAuditEventWriter();
+        var roleService = new RoleService(dbContext, auditWriter);
+        var service = new BusinessOnboardingService(
+            new CoreOrganizationService(dbContext, auditWriter, roleService),
+            roleService,
+            new StrategicObjectiveService(dbContext, auditWriter),
+            new WorkerService(dbContext, auditWriter),
+            auditWriter,
+            new ExecutiveBriefingService(dbContext, auditWriter, TimeProvider.System),
+            dbContext,
+            agentOnboarding: new SuccessfulOnboarding());
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var organization = new Organization
+        {
+            Id = organizationId,
+            Name = "Existing Chief Co",
+            Status = OrganizationStatus.Active,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        var ceoRole = new Role
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, Name = "CEO",
+            Description = "Owner", AuthorityLevel = AuthorityLevel.Autonomous,
+            CreatedAt = now, UpdatedAt = now
+        };
+        var chiefRole = new Role
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, Name = "Chief of Staff",
+            Description = "Chief", AuthorityLevel = AuthorityLevel.ExecutionWithApproval,
+            CreatedAt = now, UpdatedAt = now
+        };
+        var owner = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, RoleId = ceoRole.Id,
+            DisplayName = "Owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true, CreatedAt = now
+        };
+        var packageSource = new AgentPackageSource
+        {
+            Id = Guid.NewGuid(),
+            RepositoryUrl = "https://example.com/existing-chief.git",
+            RepositoryOwner = "example",
+            RepositoryName = "existing-chief",
+            DefaultBranch = "main",
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(),
+            PackageSourceId = packageSource.Id,
+            AgentId = "example.existing-chief",
+            AgentName = "Existing Chief",
+            Version = "1.0.0",
+            PluginKind = PluginKind.Agent,
+            ManifestJson = """{"kind":"agent","provides":[{"name":"assistant.converse.v1"}]}""",
+            Status = AgentPackageVersionStatus.Built,
+            PackageDigest = new string('a', 64),
+            ArtifactSignature = "test-signature",
+            ImportedAt = DateTimeOffset.UtcNow
+        };
+        var definition = CreateDefinition(package, ActivationMode.OnDemand);
+        var installation = OrganizationUserService.CreateHiredInstallation(
+            definition, organizationId, DateTimeOffset.UtcNow);
+        var employee = new OrganizationUser
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            RoleId = chiefRole.Id,
+            AgentInstallationId = installation.Id,
+            DisplayName = "Evelyn Brooks",
+            EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Contributor,
+            IsActive = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.CoreOrganizations.Add(organization);
+        dbContext.CoreRoles.AddRange(ceoRole, chiefRole);
+        dbContext.CoreOrganizationUsers.Add(owner);
+        dbContext.AgentPackageSources.Add(packageSource);
+        dbContext.AgentDefinitions.Add(definition);
+        dbContext.AgentInstallations.Add(installation);
+        dbContext.CoreOrganizationUsers.Add(employee);
+        await dbContext.SaveChangesAsync();
+
+        await using var outerTransaction = await dbContext.Database.BeginTransactionAsync();
+        var result = await service.AssignExistingChiefAsync(organizationId, employee.Id);
+        await outerTransaction.CommitAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Single(await dbContext.AgentInstallations.ToListAsync());
+        Assert.Single(await dbContext.CoreOrganizationUsers
+            .Where(x => x.EmployeeType == EmployeeType.Agent).ToListAsync());
+        var assignedEmployee = await dbContext.CoreOrganizationUsers.SingleAsync(x => x.Id == employee.Id);
+        Assert.Equal(OrganizationPermissionLevel.Manager, assignedEmployee.PermissionLevel);
+        Assert.NotNull(assignedEmployee.ReportsToOrganizationUserId);
+        var leadership = await dbContext.LeadershipAssignments.SingleAsync();
+        Assert.Equal(employee.Id, leadership.OrganizationUserId);
+    }
+
+    private sealed class SuccessfulOnboarding : IAgentCommunicationOnboardingService
+    {
+        public Task<AgentCommunicationOnboardingResult> EnsureAsync(
+            Guid organizationId,
+            OrganizationUser agent,
+            Guid? hiringApplicationUserId = null,
+            bool queueLifecycleEvent = true,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AgentCommunicationOnboardingResult(
+                true, null, "Ready", Guid.NewGuid(), Guid.NewGuid()));
+    }
+
+    private sealed class SqliteRealtimeSequenceInterceptor : SaveChangesInterceptor
+    {
+        private long _nextSequence;
+
+        public override InterceptionResult<int> SavingChanges(
+            DbContextEventData eventData,
+            InterceptionResult<int> result)
+        {
+            AssignSequences(eventData.Context);
+            return result;
+        }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            AssignSequences(eventData.Context);
+            return ValueTask.FromResult(result);
+        }
+
+        private void AssignSequences(DbContext? context)
+        {
+            if (context is null) return;
+            foreach (var entry in context.ChangeTracker.Entries<ApplicationRealtimeOutboxItem>()
+                         .Where(x => x.State == EntityState.Added && x.Entity.Sequence == 0))
+                entry.Entity.Sequence = ++_nextSequence;
+        }
     }
 
     private static AgentDefinition CreateDefinition(AgentPackageVersion package, ActivationMode activationMode)

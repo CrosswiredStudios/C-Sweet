@@ -1,17 +1,9 @@
-@using System.Text.Json
-@using CSweet.Contracts.Agents
 @using CSweet.Contracts.BusinessOnboarding
 @using CSweet.Contracts.Core
-@using CSweet.Contracts.Llm
-@using CSweet.Contracts.Plugins
-@using CSweet.Contracts.Setup
 @using Microsoft.JSInterop
 @implements IDisposable
 @inject IOrganizationApiClient OrganizationApi
 @inject BusinessOnboardingOperationState BusinessOnboardingOperations
-@inject IAgentApiClient AgentApi
-@inject ILlmProviderApiClient LlmProviderApi
-@inject IAgentRuntimeSettingsApiClient AgentRuntimeSettingsApi
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject IBusinessContext BusinessContext
@@ -104,9 +96,9 @@
                     <span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Filled.Business" /></span>
                     <div>
                         <span class="business-kicker">@(_editingOrg is null ? "New business" : "Business profile")</span>
-                        <h2 id="business-dialog-title">@(_editingOrg is null ? "Build your command team." : $"Edit {_editingOrg.Name}")</h2>
+                        <h2 id="business-dialog-title">@(_editingOrg is null ? "Start a new business." : $"Edit {_editingOrg.Name}")</h2>
                         <p>@(_editingOrg is null
-                            ? "Give C-Sweet the essentials, then choose the first agent your business can talk to."
+                            ? "Give C-Sweet the essentials, then hire your Chief of Staff from the agent marketplace."
                             : "Keep the business context your team and agents use up to date.")</p>
                     </div>
                 </div>
@@ -115,40 +107,244 @@
                 </button>
             </header>
 
-            @if (_editingOrg is null)
+            <div class="business-dialog-stage">
+                <section class="business-profile-step">
+                    <div class="business-step-heading">
+                        <span class="business-kicker">Basic information</span>
+                        <h3>Start with the business itself.</h3>
+                        <p>A short mission statement gives every employee and agent a shared north star. You can refine it later. After creation you will hire a Chief of Staff from the agent marketplace.</p>
+                    </div>
+                    <div class="business-form-grid">
+                        <MudTextField Label="Business name" @bind-Value="_formName" Required="true" Placeholder="Acme Corp"
+                                      Variant="Variant.Outlined" Disabled="@_saving" Class="business-form-wide" />
+                        <MudTextField Label="Industry" @bind-Value="_formIndustry" Placeholder="Software, retail, healthcare..."
+                                      Variant="Variant.Outlined" Disabled="@_saving" />
+                        <MudTextField Label="Mission statement" @bind-Value="_formMission" Lines="4"
+                                      Placeholder="Describe who you serve, what you help them achieve, and why it matters."
+                                      HelperText="Aim for one or two clear sentences."
+                                      Variant="Variant.Outlined" Disabled="@_saving" Class="business-form-wide" />
+                    </div>
+                </section>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_formError))
             {
-                <nav class="business-progress" aria-label="New business progress">
-                    <div class="@StepClass(0)"><span>@StepGlyph(0)</span><div><strong>Business</strong><small>Name and purpose</small></div></div>
-                    <i></i>
-                    <div class="@StepClass(1)"><span>@StepGlyph(1)</span><div><strong>Chief of Staff</strong><small>Your first agent</small></div></div>
-                </nav>
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_formError</MudAlert>
             }
 
-            <div class="business-dialog-stage" @key="_wizardStep">
-                @if (_editingOrg is not null || _wizardStep == 0)
+            <footer class="business-dialog-actions">
+                @if (_editingOrg is not null)
                 {
-                    <section class="business-profile-step">
-                        <div class="business-step-heading">
-                            <span class="business-kicker">Basic information</span>
-                            <h3>Start with the business itself.</h3>
-                            <p>A short mission statement gives every employee and agent a shared north star. You can refine it later.</p>
-                        </div>
-                        <div class="business-form-grid">
-                            <MudTextField Label="Business name" @bind-Value="_formName" Required="true" Placeholder="Acme Corp"
-                                          Variant="Variant.Outlined" Disabled="@_saving" Class="business-form-wide" />
-                            <MudTextField Label="Industry" @bind-Value="_formIndustry" Placeholder="Software, retail, healthcare..."
-                                          Variant="Variant.Outlined" Disabled="@_saving" />
-                            <MudTextField Label="Mission statement" @bind-Value="_formMission" Lines="4"
-                                          Placeholder="Describe who you serve, what you help them achieve, and why it matters."
-                                          HelperText="Aim for one or two clear sentences."
-                                          Variant="Variant.Outlined" Disabled="@_saving" Class="business-form-wide" />
-                        </div>
-                    </section>
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_saving" OnClick="HideForm">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_saving || !IsBasicInfoComplete)" OnClick="SaveEditAsync">
+                        @(_saving ? "Saving…" : "Save changes")
+                    </MudButton>
                 }
                 else
                 {
-                    <section class="chief-step">
-                        <div class="business-step-heading chief-heading">
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_saving" OnClick="HideForm">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AddBusiness"
+                               Disabled="@(_saving || !IsBasicInfoComplete)" OnClick="CreateBusinessAsync">
+                        @(_saving ? "Creating business…" : "Create business")
+                    </MudButton>
+                }
+            </footer>
+        </section>
+    </DialogContent>
+</MudDialog>
+
+@code {
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
+
+    [Parameter] public bool CreateRequested { get; set; }
+
+    private IReadOnlyList<OrganizationResponse> _organizations = [];
+    private OrganizationResponse? _editingOrg;
+    private bool _loading = true;
+    private bool _showForm;
+    private bool _saving;
+    private bool _refreshingOnboardingOrganizations;
+    private Guid? _deletingOrganizationId;
+    private bool _deleteSucceeded;
+    private string _formName = string.Empty;
+    private string _formIndustry = string.Empty;
+    private string _formMission = string.Empty;
+    private string? _formError;
+    private string? _deleteMessage;
+
+    private bool IsBasicInfoComplete => !string.IsNullOrWhiteSpace(_formName);
+
+    protected override async Task OnInitializedAsync()
+    {
+        BusinessOnboardingOperations.Changed += OnBusinessOnboardingChanged;
+        await LoadAsync();
+        if (CreateRequested) ShowCreateForm();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (CreateRequested && !_showForm && !_loading) ShowCreateForm();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _organizations = await OrganizationApi.ListAsync();
+        }
+        catch (Exception exception)
+        {
+            _formError = $"Unable to load businesses: {exception.Message}";
+        }
+        finally { _loading = false; }
+    }
+
+    private void OnBusinessOnboardingChanged()
+    {
+        var needsRefresh = BusinessOnboardingOperations.Operations.Any(operation =>
+            operation.OrganizationId is { } organizationId &&
+            (!_organizations.Any(organization => organization.Id == organizationId) ||
+             operation.Status == BusinessOnboardingOperationStatuses.Succeeded &&
+             _organizations.Any(organization => organization.Id == organizationId && organization.NeedsChiefSetup)));
+        if (needsRefresh)
+            _ = InvokeAsync(RefreshOrganizationsForOnboardingAsync);
+    }
+
+    private async Task RefreshOrganizationsForOnboardingAsync()
+    {
+        if (_refreshingOnboardingOrganizations) return;
+        _refreshingOnboardingOrganizations = true;
+        try
+        {
+            _organizations = await OrganizationApi.ListAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            _refreshingOnboardingOrganizations = false;
+        }
+    }
+
+    private void ShowCreateForm()
+    {
+        ResetForm();
+        _editingOrg = null;
+        _showForm = true;
+    }
+
+    private void ShowEditForm(OrganizationResponse organization)
+    {
+        ResetForm();
+        _editingOrg = organization;
+        _formName = organization.Name;
+        _formIndustry = organization.Industry ?? string.Empty;
+        _formMission = organization.Mission ?? string.Empty;
+        _showForm = true;
+    }
+
+    private void ResetForm()
+    {
+        _formName = string.Empty;
+        _formIndustry = string.Empty;
+        _formMission = string.Empty;
+        _formError = null;
+    }
+
+    private async Task CreateBusinessAsync()
+    {
+        if (_saving || !IsBasicInfoComplete) return;
+        _saving = true;
+        _formError = null;
+        try
+        {
+            var operation = await BusinessOnboardingOperations.StartAsync(new StartBusinessOnboardingRequest(
+                _formName.Trim(),
+                TrimOrNull(_formIndustry),
+                TrimOrNull(_formMission),
+                null,
+                null,
+                Guid.NewGuid().ToString("N"),
+                null));
+            _showForm = false;
+            var destination = operation.ActionUri;
+            if (string.IsNullOrWhiteSpace(destination) && operation.OrganizationId.HasValue)
+                destination = $"/organizations/{operation.OrganizationId:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}";
+            if (!string.IsNullOrWhiteSpace(destination))
+                Navigation.NavigateTo(destination);
+            else if (CreateRequested)
+                Navigation.NavigateTo("/", replace: true);
+        }
+        catch (Exception exception)
+        {
+            _formError = exception.Message;
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (_editingOrg is null || !IsBasicInfoComplete) return;
+        _saving = true;
+        _formError = null;
+        try
+        {
+            await OrganizationApi.UpdateAsync(_editingOrg.Id, new UpdateOrganizationRequest(
+                _formName.Trim(), TrimOrNull(_formIndustry), TrimOrNull(_formMission), null, null, null));
+            HideForm();
+            await LoadAsync();
+            await BusinessContext.RefreshAsync();
+        }
+        catch (Exception exception) { _formError = exception.Message; }
+        finally { _saving = false; }
+    }
+
+    private Task OnDialogVisibilityChanged(bool visible) { if (!visible && !_saving) HideForm(); return Task.CompletedTask; }
+    private void HideForm()
+    {
+        if (_saving) return;
+        _showForm = false;
+        if (CreateRequested) Navigation.NavigateTo("/", replace: true);
+    }
+
+    private async Task ConfirmDelete(OrganizationResponse organization)
+    {
+        if (_deletingOrganizationId is not null) return;
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{organization.Name}'? This will also delete all associated business data.")) return;
+        _deletingOrganizationId = organization.Id;
+        _deleteMessage = null;
+        _deleteSucceeded = false;
+        try
+        {
+            await OrganizationApi.DeleteAsync(organization.Id);
+            _organizations = _organizations.Where(x => x.Id != organization.Id).ToList();
+            await BusinessContext.RemoveDeletedBusinessAsync(organization.Id);
+            _deleteSucceeded = true;
+            _deleteMessage = $"'{organization.Name}' was deleted.";
+        }
+        catch (Exception exception)
+        {
+            _deleteMessage = $"'{organization.Name}' could not be deleted. {exception.Message}";
+        }
+        finally
+        {
+            _deletingOrganizationId = null;
+        }
+    }
+
+    private void NavigateToCommandCenter(Guid organizationId) => Navigation.NavigateTo($"/organizations/{organizationId}/command-center");
+    private bool IsDeleting(Guid organizationId) => _deletingOrganizationId == organizationId;
+    private string OrganizationCardClass(Guid organizationId) =>
+        IsDeleting(organizationId) ? "organization-card organization-card-deleting" : "organization-card";
+    private bool IsChiefOnboarding(Guid organizationId) => BusinessOnboardingOperations.Operations.Any(operation =>
+        operation.OrganizationId == organizationId && BusinessOnboardingOperationStatuses.IsActive(operation.Status));
+    private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static string Truncate(string value, int maxLength) => value.Length <= maxLength ? value : value[..maxLength] + "...";
+
+    public void Dispose() => BusinessOnboardingOperations.Changed -= OnBusinessOnboardingChanged;
+}
+@*
+                        <div class="LEGACY-REMOVED chief-heading">
                             <span class="business-kicker">First employee · required</span>
                             <h3>Choose a Chief of Staff.</h3>
                             <p>The title is only the initial assignment. Any valid C-Sweet agent can fill it, but every new business starts with one agent you can immediately interact with.</p>
@@ -369,22 +565,13 @@
                         @(_saving ? "Saving…" : "Save changes")
                     </MudButton>
                 }
-                else if (_wizardStep == 0)
-                {
-                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_saving" OnClick="HideForm">Cancel</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward"
-                               Disabled="@(!IsBasicInfoComplete)" OnClick="ContinueToChiefAsync">Choose Chief of Staff</MudButton>
-                }
                 else
                 {
-                    <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.ArrowBack" Disabled="@_saving" OnClick="BackToProfile">Back</MudButton>
-                    <div class="business-create-action">
-                        <span>@BusinessCreationStatus</span>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AddBusiness"
-                                   Disabled="@(_saving || !CanCreateBusiness)" OnClick="CreateBusinessAsync">
-                            @(_saving ? "Preparing your Chief of Staff…" : "Create business")
-                        </MudButton>
-                    </div>
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_saving" OnClick="HideForm">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AddBusiness"
+                               Disabled="@(_saving || !IsBasicInfoComplete)" OnClick="CreateBusinessAsync">
+                        @(_saving ? "Creating business…" : "Create business")
+                    </MudButton>
                 }
             </footer>
         </section>
@@ -859,3 +1046,4 @@
     public void Dispose() => BusinessOnboardingOperations.Changed -= OnBusinessOnboardingChanged;
 
 }
+*@

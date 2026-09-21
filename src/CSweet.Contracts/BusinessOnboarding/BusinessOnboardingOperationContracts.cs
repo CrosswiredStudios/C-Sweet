@@ -21,10 +21,10 @@ public sealed record StartBusinessOnboardingRequest(
     [Required, StringLength(256)] string BusinessName,
     [StringLength(160)] string? Industry,
     [StringLength(4096)] string? MissionStatement,
-    [Required] Guid ChiefAgentPackageVersionId,
+    Guid? ChiefAgentPackageVersionId,
     [StringLength(160)] string? ChiefDisplayName,
     [Required, StringLength(160)] string IdempotencyKey,
-    [Required] InstallAgentRequest ChiefAgentInstallRequest);
+    InstallAgentRequest? ChiefAgentInstallRequest);
 
 public sealed record BusinessOnboardingOperationResponse(
     Guid Id,

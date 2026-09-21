@@ -29,6 +29,13 @@
         </MudButton>
     </MudPaper>
 
+    @if (_needsChiefSetup)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+            <strong>Finish setting up this business.</strong> Hire your Chief of Staff to unlock conversations, planning, and management check-ins. The catalog is pre-filtered to Chief of Staff roles.
+        </MudAlert>
+    }
+
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudGrid>
             <MudItem xs="12" md="4">
@@ -367,6 +374,7 @@
 
     private AvailableAgentSearchResult? _result;
     private bool _loading;
+    private bool _needsChiefSetup;
     private string? _search;
     private string? _role;
     private string? _category;
@@ -409,7 +417,22 @@
             _appliedRouteRole = RequestedRole;
             _role = string.IsNullOrWhiteSpace(RequestedRole) ? null : RequestedRole.Trim();
         }
+        await LoadOrganizationAsync();
         await SearchAsync();
+    }
+
+    private async Task LoadOrganizationAsync()
+    {
+        try
+        {
+            var organization = await Http.GetFromJsonAsync<OrganizationResponse>(
+                $"api/core/organizations/{OrganizationId:D}");
+            _needsChiefSetup = organization?.NeedsChiefSetup == true;
+        }
+        catch
+        {
+            _needsChiefSetup = false;
+        }
     }
 
     private async Task SearchAsync()

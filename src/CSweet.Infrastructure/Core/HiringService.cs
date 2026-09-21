@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CSweet.Application.BusinessOnboarding;
 using CSweet.Application.Core;
 using CSweet.Application.Agents;
 using CSweet.Application.Setup;
@@ -27,7 +28,8 @@ public sealed class HiringService(
     ILocalAgentSourceArchiveService? localAgentArchives = null,
     IPluginArchiveImportService? archiveImport = null,
     IResourceChangeService? resourceChanges = null,
-    ITeamService? teams = null) : IHiringService, IAgentHireOrchestrator, IAgentHireOperationService
+    ITeamService? teams = null,
+    IBusinessOnboardingService? businessOnboarding = null) : IHiringService, IAgentHireOrchestrator, IAgentHireOperationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     // Retained only for binary/source compatibility with older composition roots; imports now use definitions.
@@ -1202,6 +1204,7 @@ CompleteWorkflow:
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("hiring.workflow.approved", nameof(StaffingActionProposal), workflow.Id,
             $"Owner approved and completed the {snapshot.RoleTitle} workflow.", cancellationToken: cancellationToken);
+        await TryAutoAssignChiefOfStaffAsync(organizationId, resultUserId, snapshot.RoleTitle, cancellationToken);
         if (fulfilledPlan is not null)
             await audit.WriteAsync(
                 recommendationCompleted ? "hiring.recommendation.fulfilled" : "hiring.recommendation.progressed",
@@ -1210,6 +1213,49 @@ CompleteWorkflow:
                 $"Recorded employee {resultUserId:D} for {fulfilledPlan.Title} ({fulfilledPlan.FulfilledHeadcount}/{fulfilledPlan.Headcount}).",
                 cancellationToken: cancellationToken);
         return ToWorkflow(workflow);
+    }
+
+    private async Task TryAutoAssignChiefOfStaffAsync(
+        Guid organizationId,
+        Guid resultUserId,
+        string roleTitle,
+        CancellationToken cancellationToken)
+    {
+        if (businessOnboarding is null || !IsChiefOfStaffRole(roleTitle))
+            return;
+        var hasChief = await db.LeadershipAssignments.AsNoTracking().AnyAsync(x =>
+            x.OrganizationId == organizationId && x.PositionKey == "chief-of-staff" && x.EndsAt == null,
+            cancellationToken);
+        if (hasChief)
+            return;
+        var employee = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == resultUserId && x.OrganizationId == organizationId && x.IsActive,
+            cancellationToken);
+        if (employee?.AgentInstallationId is null)
+            return;
+        var chiefResult = await businessOnboarding.AssignExistingChiefAsync(
+            organizationId,
+            resultUserId,
+            cancellationToken);
+        if (!chiefResult.Succeeded)
+            throw new InvalidOperationException(
+                chiefResult.Message ?? "The hired Chief of Staff could not be assigned to organization leadership.");
+        await audit.WriteAsync("leadership_assignment.auto_created", nameof(OrganizationUser), resultUserId,
+            $"Auto-assigned '{roleTitle}' hire as Chief of Staff.", cancellationToken: cancellationToken);
+    }
+
+    private static bool IsChiefOfStaffRole(string? roleTitle) =>
+        !string.IsNullOrWhiteSpace(roleTitle) &&
+        (string.Equals(roleTitle.Trim(), "Chief of Staff", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(NormalizeRoleKey(roleTitle), "chief-of-staff", StringComparison.OrdinalIgnoreCase));
+
+    private static string NormalizeRoleKey(string value)
+    {
+        var trimmed = value.Trim().ToLowerInvariant();
+        var builder = new System.Text.StringBuilder(trimmed.Length);
+        foreach (var ch in trimmed)
+            builder.Append(char.IsLetterOrDigit(ch) ? ch : '-');
+        return System.Text.RegularExpressions.Regex.Replace(builder.ToString(), "-{2,}", "-").Trim('-');
     }
 
     private async Task<HiringWorkflowResponse?> RejectWorkflowCoreAsync(

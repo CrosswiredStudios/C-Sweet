@@ -13,4 +13,9 @@ public interface IBusinessOnboardingService
         Guid organizationId,
         CompleteChiefSetupRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<ChiefSetupActionResponse> AssignExistingChiefAsync(
+        Guid organizationId,
+        Guid organizationUserId,
+        CancellationToken cancellationToken = default);
 }

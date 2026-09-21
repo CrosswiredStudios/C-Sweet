@@ -38,6 +38,20 @@ public sealed class BusinessOnboardingOperationState(
         _ = StartCoreAsync(pending, _disposeCts.Token);
     }
 
+    public async Task<BusinessOnboardingOperationResponse> StartAsync(
+        StartBusinessOnboardingRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await http.PostAsJsonAsync(
+            "api/business-onboarding/operations", request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ErrorMessageAsync(response, "Business onboarding could not be started."));
+        var operation = await response.Content.ReadFromJsonAsync<BusinessOnboardingOperationResponse>(cancellationToken)
+            ?? throw new InvalidOperationException("The business onboarding response was empty.");
+        Merge(operation);
+        return operation;
+    }
+
     public async Task RetryAsync(BusinessOnboardingOperationResponse operation)
     {
         if (_pendingStarts.TryGetValue(operation.Id, out var pending))

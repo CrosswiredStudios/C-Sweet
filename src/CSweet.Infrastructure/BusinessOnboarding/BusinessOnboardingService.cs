@@ -78,7 +78,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             return Failure("validation_error", "Business name is required.");
         }
 
-        if (request.ChiefAgentDefinitionId == Guid.Empty)
+        if (request.ChiefAgentDefinitionId is { } chiefDefinitionId && chiefDefinitionId == Guid.Empty)
         {
             return Failure("chief_agent_required", "Select and approve a Chief of Staff agent before creating the business.");
         }
@@ -89,9 +89,12 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             return Failure("validation_error", "Chief of Staff name cannot exceed 160 characters.");
         }
 
-        var chiefValidation = await ValidateChiefDefinitionAsync(request.ChiefAgentDefinitionId, cancellationToken);
-        if (!chiefValidation.Succeeded)
-            return Failure(chiefValidation.ErrorCode!, chiefValidation.Message!);
+        if (request.ChiefAgentDefinitionId is { } requiredChiefDefinitionId)
+        {
+            var chiefValidation = await ValidateChiefDefinitionAsync(requiredChiefDefinitionId, cancellationToken);
+            if (!chiefValidation.Succeeded)
+                return Failure(chiefValidation.ErrorCode!, chiefValidation.Message!);
+        }
 
         await using var transaction = _dbContext.Database.IsRelational()
             ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
@@ -210,27 +213,30 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             return Failure(workerResult.ErrorCode ?? "worker_create_failed", workerResult.Message ?? "Default local strategy worker could not be registered.");
         }
 
-        var assignment = await CreateChiefAssignmentAsync(
-            organizationId,
-            request.ChiefAgentDefinitionId,
-            chiefDisplayName,
-            durableOperation is null
-                ? new Dictionary<string, JsonElement>()
-                : (JsonSerializer.Deserialize<InstallAgentRequest>(durableOperation.ChiefAgentInstallRequestJson, JsonOptions)
-                    ?? throw new InvalidOperationException("The saved Chief of Staff configuration is invalid.")).ConfigurationSettings,
-            cancellationToken);
-        if (!assignment.Succeeded)
+        var assignment = request.ChiefAgentDefinitionId is { } chiefAgentDefinitionId
+            ? await CreateChiefAssignmentAsync(
+                organizationId,
+                chiefAgentDefinitionId,
+                chiefDisplayName,
+                durableOperation is null
+                    ? new Dictionary<string, JsonElement>()
+                    : (JsonSerializer.Deserialize<InstallAgentRequest>(durableOperation.ChiefAgentInstallRequestJson, JsonOptions)
+                        ?? throw new InvalidOperationException("The saved Chief of Staff configuration is invalid.")).ConfigurationSettings,
+                cancellationToken)
+            : null;
+        if (assignment is not null && !assignment.Succeeded)
         {
             return Failure(
                 assignment.ErrorCode ?? "chief_assignment_failed",
                 assignment.Message ?? "The selected Chief of Staff agent could not be assigned.");
         }
 
-        var chiefOrganizationUserId = assignment.OrganizationUserId!.Value;
-        var chiefReadinessWarnings = assignment.Warnings.ToList();
+        Guid? chiefOrganizationUserId = assignment?.OrganizationUserId;
+        var chiefReadinessWarnings = (assignment?.Warnings ?? []).ToList();
         organization.Status = OrganizationStatus.Active;
         await _dbContext.SaveChangesAsync(cancellationToken);
-        await _executiveBriefings.QueueActivationAsync(organizationId, chiefOrganizationUserId, cancellationToken);
+        if (chiefOrganizationUserId.HasValue)
+            await _executiveBriefings.QueueActivationAsync(organizationId, chiefOrganizationUserId.Value, cancellationToken);
         roles = await _roleService.ListByOrganizationAsync(organizationId, cancellationToken);
 
         await _auditEventWriter.WriteAsync(
@@ -240,7 +246,9 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             $"Business onboarding completed for '{organization.Name}'.",
             cancellationToken: cancellationToken);
 
-        var nextRoute = $"/organizations/{organizationId}/communications/{assignment.ConversationId:D}";
+        var nextRoute = assignment is null
+            ? $"/organizations/{organizationId:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}"
+            : $"/organizations/{organizationId}/communications/{assignment.ConversationId:D}";
         if (durableOperation is not null)
         {
             durableOperation.Status = BusinessOnboardingOperationStatus.Succeeded;
@@ -258,11 +266,14 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         if (transaction is not null)
             await transaction.CommitAsync(cancellationToken);
 
-        var runtimeWarning = await QueueChiefRuntimeAsync(
-            assignment.AgentInstallationId!.Value,
-            cancellationToken);
-        if (runtimeWarning is not null)
-            chiefReadinessWarnings.Add(runtimeWarning);
+        if (assignment?.AgentInstallationId is { } chiefInstallationId)
+        {
+            var runtimeWarning = await QueueChiefRuntimeAsync(
+                chiefInstallationId,
+                cancellationToken);
+            if (runtimeWarning is not null)
+                chiefReadinessWarnings.Add(runtimeWarning);
+        }
 
         var response = new CompleteBusinessOnboardingResponse(
             organizationId,
@@ -296,9 +307,9 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             throw new ArgumentException("Mission statement cannot exceed 4096 characters.");
         if (request.ChiefDisplayName?.Trim().Length > 160)
             throw new ArgumentException("Chief of Staff name cannot exceed 160 characters.");
-        if (request.ChiefAgentPackageVersionId == Guid.Empty)
+        if (request.ChiefAgentPackageVersionId is { } chiefPackageVersionId && chiefPackageVersionId == Guid.Empty)
             throw new ArgumentException("A Chief of Staff package is required.");
-        if (request.ChiefAgentInstallRequest is null)
+        if (request.ChiefAgentPackageVersionId.HasValue != (request.ChiefAgentInstallRequest is not null))
             throw new ArgumentException("Chief of Staff installation settings are required.");
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
             throw new ArgumentException("An idempotency key is required.");
@@ -339,6 +350,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             organization.UpdatedAt = DateTimeOffset.UtcNow;
 
             var now = DateTimeOffset.UtcNow;
+            var marketplaceActionUri = $"/organizations/{organization.Id:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}";
             var operation = new BusinessOnboardingOperation
             {
                 Id = Guid.NewGuid(),
@@ -348,11 +360,13 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
                 Industry = TrimOrNull(request.Industry),
                 MissionStatement = TrimOrNull(request.MissionStatement),
                 ChiefDisplayName = TrimOrNull(request.ChiefDisplayName),
-                ChiefAgentPackageVersionId = request.ChiefAgentPackageVersionId,
-                ChiefAgentInstallRequestJson = JsonSerializer.Serialize(request.ChiefAgentInstallRequest, JsonOptions),
+                ChiefAgentPackageVersionId = request.ChiefAgentPackageVersionId ?? Guid.Empty,
+                ChiefAgentInstallRequestJson = request.ChiefAgentInstallRequest is null
+                    ? "{}"
+                    : JsonSerializer.Serialize(request.ChiefAgentInstallRequest, JsonOptions),
                 Status = BusinessOnboardingOperationStatus.Starting,
                 ResultOrganizationId = organization.Id,
-                ResultActionUri = $"/organizations/{organization.Id:D}/command-center",
+                ResultActionUri = marketplaceActionUri,
                 CreatedAt = now,
                 UpdatedAt = now
             };
@@ -482,6 +496,29 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         var completedAtomically = false;
         try
         {
+            var hasChiefPackage = operation.ChiefAgentPackageVersionId != Guid.Empty;
+            if (!hasChiefPackage)
+            {
+                operation.Status = BusinessOnboardingOperationStatus.CreatingBusiness;
+                operation.Error = null;
+                operation.UpdatedAt = DateTimeOffset.UtcNow;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                var chiefLessResult = await CompleteCoreAsync(
+                    new CompleteBusinessOnboardingRequest(
+                        operation.BusinessName,
+                        operation.Industry,
+                        operation.MissionStatement,
+                        null,
+                        operation.ChiefDisplayName),
+                    cancellationToken,
+                    operation.InitiatedByApplicationUserId,
+                    operation);
+                if (!chiefLessResult.Succeeded)
+                    throw new InvalidOperationException(chiefLessResult.Message ?? "Business onboarding could not be completed.");
+                completedAtomically = true;
+                return true;
+            }
+
             if (_agentDefinitions is null)
                 throw new InvalidOperationException("The agent definition service is unavailable.");
 
@@ -573,7 +610,8 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         if (current)
             return new(false, "chief_already_assigned", "The organization already has an active Chief of Staff assignment.");
 
-        await using var transaction = _dbContext.Database.IsRelational()
+        await using var transaction = _dbContext.Database.IsRelational() &&
+            _dbContext.Database.CurrentTransaction is null
             ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
             : null;
         var assignment = await CreateChiefAssignmentAsync(organizationId, request.AgentDefinitionId, null,
@@ -596,6 +634,117 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             assignment.OrganizationUserId!.Value,
             warnings,
             $"/organizations/{organizationId}/communications/{assignment.ConversationId:D}");
+        return new(true, null, "Chief of Staff setup completed.", response);
+    }
+
+    public async Task<ChiefSetupActionResponse> AssignExistingChiefAsync(
+        Guid organizationId,
+        Guid organizationUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var organization = await _dbContext.CoreOrganizations.SingleOrDefaultAsync(
+            x => x.Id == organizationId, cancellationToken);
+        if (organization is null)
+            return new(false, "not_found", "The organization was not found.");
+
+        var current = await _dbContext.LeadershipAssignments.SingleOrDefaultAsync(
+            x => x.OrganizationId == organizationId && x.PositionKey == "chief-of-staff" && x.EndsAt == null,
+            cancellationToken);
+        if (current is not null)
+        {
+            return current.OrganizationUserId == organizationUserId
+                ? new(true, null, "Chief of Staff setup was already completed.")
+                : new(false, "chief_already_assigned", "The organization already has an active Chief of Staff assignment.");
+        }
+
+        var chief = await _dbContext.CoreOrganizationUsers
+            .Include(x => x.AgentInstallation!)
+                .ThenInclude(x => x.PackageVersion)
+            .SingleOrDefaultAsync(x =>
+                x.Id == organizationUserId &&
+                x.OrganizationId == organizationId &&
+                x.IsActive,
+                cancellationToken);
+        if (chief?.EmployeeType != EmployeeType.Agent || chief.AgentInstallationId is null)
+            return new(false, "chief_employee_invalid", "The selected Chief of Staff must be an active agent employee in this organization.");
+
+        await using var transaction = _dbContext.Database.IsRelational() &&
+            _dbContext.Database.CurrentTransaction is null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+        var chiefRole = await _dbContext.CoreRoles.SingleOrDefaultAsync(
+            x => x.OrganizationId == organizationId && x.Name == "Chief of Staff", cancellationToken);
+        if (chiefRole is null)
+        {
+            var now = DateTimeOffset.UtcNow;
+            chiefRole = new Role
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = organizationId,
+                Name = "Chief of Staff",
+                Description = "Coordinates leadership, workstreams, management cadence, and workforce planning on behalf of the CEO.",
+                ResponsibilitiesJson = JsonSerializer.Serialize(new[]
+                {
+                    "Maintain authoritative business understanding",
+                    "Coordinate accountable workstream managers",
+                    "Surface staffing, financial, capacity, and execution risks"
+                }, JsonOptions),
+                AuthorityLevel = AuthorityLevel.ExecutionWithApproval,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _dbContext.CoreRoles.Add(chiefRole);
+        }
+
+        var leaders = await _dbContext.CoreOrganizationUsers
+            .Include(x => x.Role)
+            .Where(x => x.OrganizationId == organizationId && x.IsActive && x.Id != organizationUserId)
+            .OrderByDescending(x => x.PermissionLevel)
+            .ToListAsync(cancellationToken);
+        var ceo = leaders.FirstOrDefault(x => x.Role?.Name == "CEO")
+            ?? leaders.FirstOrDefault(x => x.PermissionLevel == OrganizationPermissionLevel.Owner);
+        if (ceo is null)
+            return new(false, "chief_ceo_missing", "A CEO organization user is required before assigning the Chief of Staff.");
+
+        var assignedAt = DateTimeOffset.UtcNow;
+        chief.RoleId = chiefRole.Id;
+        chief.ReportsToOrganizationUserId = ceo.Id;
+        chief.PermissionLevel = OrganizationPermissionLevel.Manager;
+        _dbContext.LeadershipAssignments.Add(new LeadershipAssignment
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            OrganizationUserId = chief.Id,
+            PositionKey = "chief-of-staff",
+            StartsAt = assignedAt
+        });
+        var onboarding = await _agentOnboarding.EnsureAsync(
+            organizationId, chief, cancellationToken: cancellationToken);
+        if (!onboarding.Succeeded)
+            return new(false, onboarding.ErrorCode, onboarding.Message);
+
+        organization.Status = OrganizationStatus.Active;
+        organization.UpdatedAt = assignedAt;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await _executiveBriefings.QueueActivationAsync(organizationId, chief.Id, cancellationToken);
+        await _auditEventWriter.WriteAsync(
+            "leadership_assignment.created",
+            "LeadershipAssignment",
+            chief.Id,
+            $"Assigned existing employee '{chief.DisplayName}' as Chief of Staff.",
+            cancellationToken: cancellationToken);
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
+
+        var warnings = chief.AgentInstallation?.PackageVersion is { } package
+            ? GetReadinessWarnings(package.ManifestJson)
+            : [];
+        var response = new CompleteChiefSetupResponse(
+            organizationId,
+            chief.Id,
+            warnings,
+            $"/organizations/{organizationId}/communications/{onboarding.ConversationId:D}");
         return new(true, null, "Chief of Staff setup completed.", response);
     }
 
@@ -835,6 +984,8 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         };
         var detail = operation.Status switch
         {
+            BusinessOnboardingOperationStatus.Starting when operation.ChiefAgentPackageVersionId == Guid.Empty =>
+                $"{operation.BusinessName} is active. Preparing its marketplace setup…",
             BusinessOnboardingOperationStatus.Starting => $"{operation.BusinessName} is active. Preparing its Chief of Staff…",
             BusinessOnboardingOperationStatus.InstallingAgent => $"Importing and configuring {agentName}…",
             BusinessOnboardingOperationStatus.BuildingAgent when activeStep is not null =>
