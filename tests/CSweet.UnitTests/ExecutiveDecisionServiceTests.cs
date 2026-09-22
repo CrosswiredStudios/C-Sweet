@@ -127,7 +127,7 @@ public sealed partial class ExecutiveDecisionServiceTests
         db.CoreOrganizations.Add(new Organization { Id = organizationId, Name = "Example", CreatedAt = now, UpdatedAt = now });
         db.CoreOrganizationUsers.AddRange(
             new OrganizationUser { Id = ownerId, OrganizationId = organizationId, DisplayName = "Owner", EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner, CreatedAt = now },
-            new OrganizationUser { Id = agentId, OrganizationId = organizationId, AgentInstallationId = installationId, DisplayName = "Chief", EmployeeType = EmployeeType.Agent, PermissionLevel = OrganizationPermissionLevel.Manager, CreatedAt = now });
+            new OrganizationUser { Id = agentId, OrganizationId = organizationId, AgentInstallationId = installationId, ReportsToOrganizationUserId = ownerId, DisplayName = "Chief", EmployeeType = EmployeeType.Agent, PermissionLevel = OrganizationPermissionLevel.Manager, CreatedAt = now });
         db.CoreConversations.Add(new Conversation { Id = conversationId, OrganizationId = organizationId, AgentOrganizationUserId = agentId,
             InitiatedByOrganizationUserId = ownerId, Kind = ConversationKind.DirectHumanAgent, CreatedAt = now, UpdatedAt = now });
         db.ConversationParticipants.AddRange(

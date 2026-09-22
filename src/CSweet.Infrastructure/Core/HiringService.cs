@@ -506,6 +506,18 @@ public sealed class HiringService(
         var catalog = agentCatalog ?? throw new InvalidOperationException("The agent catalog service is unavailable.");
         var agent = await catalog.ResolveAsync(organizationId, request.AgentReference, cancellationToken)
             ?? throw new ArgumentException("The selected catalog agent could not be resolved.");
+        if (linkedRecommendation?.SourceResourceChangeRequestId is { } approvedRequestId &&
+            !string.IsNullOrWhiteSpace(linkedRecommendation.RoleKey))
+        {
+            var approvedRole = await db.ResourceChangeRoles.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.ResourceChangeRequestId == approvedRequestId &&
+                x.RoleKey == linkedRecommendation.RoleKey && x.IsDesired,
+                cancellationToken);
+            if (!string.IsNullOrWhiteSpace(approvedRole?.RoleCategoryKey) &&
+                !CSweet.Agent.SDK.RoleTaxonomy.SatisfiesRole(
+                    agent.RoleCategoryKeys ?? [], approvedRole.RoleCategoryKey))
+                throw new ArgumentException($"The selected agent does not declare the approved {approvedRole.RoleCategoryKey} role.");
+        }
         if (agent.Availability is not AgentAvailabilityState.AvailableToInstall and
             not AgentAvailabilityState.InstalledEnabled)
             throw new InvalidOperationException("The selected agent is not currently available to hire.");
@@ -1005,6 +1017,8 @@ public sealed class HiringService(
         var candidateId = ParseCandidateReference(workflow.CandidateId);
         var candidate = await db.WorkforceCandidates.SingleAsync(x => x.Id == candidateId &&
             x.OrganizationId == organizationId, cancellationToken);
+        if (workflow.ActionType == "marketplace-install-and-hire")
+            await ValidateMarketplaceRecommendationRoleAsync(candidate, snapshot, cancellationToken);
         (Guid UserId, Guid InstallationId)? existingMarketplaceHire = null;
         if (workflow.ActionType == "marketplace-install-and-hire" && snapshot.EmbeddedAgent?.DefinitionId is Guid definitionId)
             existingMarketplaceHire = await FindExistingMarketplaceHireAsync(workflow, snapshot, definitionId, cancellationToken);
@@ -1547,6 +1561,30 @@ CompleteWorkflow:
             marketplaceMatch = (match.Id, installationId);
         }
         return marketplaceMatch;
+    }
+
+    private async Task ValidateMarketplaceRecommendationRoleAsync(
+        WorkforceCandidate candidate, WorkflowSnapshot snapshot, CancellationToken token)
+    {
+        if (candidate.WorkforcePlanId is not { } planId || snapshot.EmbeddedAgent is null)
+            return;
+        var plan = await db.WorkforcePlans.AsNoTracking().SingleAsync(x => x.Id == planId, token);
+        if (plan.SourceResourceChangeRequestId is not { } approvedRequestId ||
+            string.IsNullOrWhiteSpace(plan.RoleKey))
+            return;
+        var approvedRole = await db.ResourceChangeRoles.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.ResourceChangeRequestId == approvedRequestId && x.RoleKey == plan.RoleKey && x.IsDesired,
+            token);
+        if (string.IsNullOrWhiteSpace(approvedRole?.RoleCategoryKey))
+            return;
+        var package = await db.AgentPackageVersions.AsNoTracking().SingleAsync(x =>
+            x.Id == snapshot.EmbeddedAgent.ImportId, token);
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(package.ManifestJson, JsonOptions)
+            ?? throw new InvalidOperationException("The approved agent manifest is unavailable.");
+        if (!CSweet.Agent.SDK.RoleTaxonomy.SatisfiesRole(
+                manifest.RolePolicy?.DeclaredRoleKeys ?? [], approvedRole.RoleCategoryKey))
+            throw new InvalidOperationException(
+                $"The selected agent does not declare the approved {approvedRole.RoleCategoryKey} role.");
     }
 
     private async Task RevalidateAsync(Guid organizationId, WorkforceCandidate candidate, WorkflowSnapshot snapshot,

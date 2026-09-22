@@ -51,6 +51,16 @@
 
 ## Product decision
 
+`RoleTaxonomy.SatisfiesRole` checks the core role family when the catalog, linked
+hiring recommendation, team assignment, or execution gate evaluates an agent.
+`game-engineer` and `software-developer` share a core role, as do
+`game-quality-assurance` and `software-qa`. A game-specific job label and its
+preferred specialization keys rank candidates without excluding a user's
+same-core hire. `RoleTaxonomy.IsEligible` still requires the installation's
+execution capabilities and any explicitly required specializations on the work
+item. Producer proposals use `RoleTaxonomy.CoreRoleKey` for the hiring category
+while retaining the game-specific accountable role on tickets.
+
 C-Sweet has one canonical application-wide work item. Every work item belongs to
 exactly one operational board and has one workflow state. Cross-board searches,
 portfolio dashboards, reports, and saved views may display items from several

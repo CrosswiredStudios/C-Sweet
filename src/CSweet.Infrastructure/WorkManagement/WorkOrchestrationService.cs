@@ -755,8 +755,8 @@ public sealed class WorkOrchestrationService(
                 .Select(x => x.GetString()).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
             var skills = rolePolicy.GetProperty("specializationKeys").EnumerateArray()
                 .Select(x => x.GetString()).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
-            if (!roles.Contains(requirements.RequiredRoleKey))
-                return "Assigned installation no longer declares the exact accountable role.";
+            if (!CSweet.Agent.SDK.RoleTaxonomy.SatisfiesRole(roles, requirements.RequiredRoleKey))
+                return "Assigned installation no longer declares a compatible core role.";
             if (requirements.RequiredSpecializationKeys.Any(x => !skills.Contains(x)))
                 return "Assigned installation no longer declares every required specialization.";
             if (requirements.RequiredSpecializationKeys.Any(x =>

@@ -291,8 +291,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
                     .Select(x => x.PackageVersion!.ManifestJson)
                     .SingleAsync(cancellationToken);
             var policy = AgentConfigurationRules.DeserializeManifest(manifestJson).RolePolicy;
-            if (policy is not null && !policy.DeclaredRoleKeys.Contains(
-                    request.RoleCategoryKey!, StringComparer.Ordinal))
+            if (policy is not null && !CSweet.Agent.SDK.RoleTaxonomy.SatisfiesRole(
+                    policy.DeclaredRoleKeys, request.RoleCategoryKey!))
             {
                 declaredRoleMismatch =
                     $"Assigned role category '{request.RoleCategoryKey}' does not match declared package roles: {string.Join(", ", policy.DeclaredRoleKeys)}.";

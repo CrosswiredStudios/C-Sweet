@@ -61,6 +61,71 @@ public sealed partial class ExecutiveDecisionServiceTests
     }
 
     [Fact]
+    public async Task ProducerDecisionDoesNotBypassItsAgentManagerToReachOwner()
+    {
+        await using var db = CreateDb();
+        var setup = await SeedAsync(db);
+        var director = await db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == setup.InstallationId);
+        var producerInstallation = Guid.NewGuid();
+        var producer = new OrganizationUser {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            AgentInstallationId = producerInstallation, ReportsToOrganizationUserId = director.Id,
+            DisplayName = "Producer", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Contributor, CreatedAt = DateTimeOffset.UtcNow
+        };
+        var stream = new Workstream { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, Name = "Game", ProfileKey = "game" };
+        var source = new WorkstreamDecisionRecord {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkstreamId = stream.Id,
+            RequestedByInstallationId = producerInstallation, RequestedByOrganizationUserId = producer.Id,
+            Summary = "Choose planning direction", AuthorityRuleKey = "material-strategy-change",
+            Status = "Pending", Revision = 1,
+            OptionsJson = JsonSerializer.Serialize(new[] { new W.DecisionOption("continue", "Continue", null),
+                new W.DecisionOption("pause", "Pause", null) }), RecommendedOptionId = "continue"
+        };
+        db.CoreOrganizationUsers.Add(producer);
+        db.Workstreams.Add(stream);
+        db.WorkstreamDecisions.Add(source);
+        await db.SaveChangesAsync();
+        var turns = new ChatTurnService(db);
+        var decisions = new ExecutiveDecisionService(db, turns);
+        await CSweet.AgentHost.Broker.WorkstreamDecisionChatReview.PresentAsync(db,
+            new CommunicationHubService(db, new TestAuditEventWriter(), turns, decisions),
+            decisions, source, default);
+        Assert.Empty(await db.ExecutiveDecisions.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProjectReviewCardsOnlyAppearWhenHumanAuthorityIsRequired(bool humanRequired)
+    {
+        await using var db = CreateDb();
+        var setup = await SeedAsync(db);
+        var agent = await db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == setup.InstallationId);
+        var stream = new Workstream { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, Name = "Game", ProfileKey = "game" };
+        var source = new WorkstreamDecisionRecord {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkstreamId = stream.Id,
+            RequestedByInstallationId = setup.InstallationId, RequestedByOrganizationUserId = agent.Id,
+            Summary = "Choose planning direction", AuthorityRuleKey = "work-planning", Status = "Pending", Revision = 1,
+            OptionsJson = JsonSerializer.Serialize(new[] { new W.DecisionOption("continue", "Continue", "Use accepted scope"),
+                new W.DecisionOption("pause", "Pause", "Hold work") }), RecommendedOptionId = "continue"
+        };
+        db.Workstreams.Add(stream);
+        db.WorkstreamDecisions.Add(source);
+        db.WorkstreamAuthorityEnvelopes.Add(new WorkstreamAuthorityEnvelopeRecord {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkstreamId = stream.Id,
+            AgentAuthorizedActionKeysJson = "[\"work-planning\"]",
+            HumanRequiredActionKeysJson = humanRequired ? "[\"work-planning\"]" : "[]"
+        });
+        await db.SaveChangesAsync();
+        var turns = new ChatTurnService(db);
+        await CSweet.AgentHost.Broker.WorkstreamDecisionChatReview.PresentAsync(db,
+            new CommunicationHubService(db, new TestAuditEventWriter(), turns,
+                new ExecutiveDecisionService(db, turns)), new ExecutiveDecisionService(db, turns), source, default);
+        Assert.Equal(humanRequired ? 1 : 0, await db.ExecutiveDecisions.CountAsync());
+    }
+
+    [Fact]
     public async Task ProjectCardsRemainPendingIndependentlyAndAnswerTheAuthoritativeDecision()
     {
         await using var db = CreateDb();

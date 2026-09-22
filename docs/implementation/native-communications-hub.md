@@ -30,6 +30,17 @@ Modify, archive, and send payloads include `chatId`. Send also includes `content
 
 Agents may also attach a platform-resolved workflow action with `platform.user-action.suggest.v1`. Hiring actions (`hiring.marketplace.browse.v1`) render as the suggestion carousel described in [Hiring suggestion lifecycle](./features/hiring-suggestion-lifecycle.md).
 
+## Project decision routing
+
+`WorkstreamGovernanceCapabilityHandler.RequestDecisionAsync` records a decision and emits
+`DecisionRequestedV1` for subscribed project agents. `WorkstreamDecisionChatReview.PresentAsync`
+creates a human review card only when the requesting agent reports directly to an active
+human owner and the requested action is not solely agent authorized under the approved
+`WorkstreamAuthorityEnvelopeRecord`. An agent manager receives the durable event and
+resolves delegated decisions or explicitly escalates a material change under a human
+required action key. `ExecutiveDecisionService` keeps superseded or decided cards
+outdated so an old answer cannot overwrite the current project decision.
+
 ## Human authority
 
 - Active organization members can create direct messages and participate in chats to which they belong.

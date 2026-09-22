@@ -604,8 +604,11 @@ public sealed class HiringServiceTests
         Assert.Empty(await service.ListForUserAsync(applicationUserId));
     }
 
-    [Fact]
-    public async Task MarketplacePreview_LinksAndValidatesPendingRecommendation()
+    [Theory]
+    [InlineData("product-manager", "product-manager")]
+    [InlineData("game-engineer", "software-developer")]
+    public async Task MarketplacePreview_LinksAndValidatesPendingRecommendation(
+        string approvedRoleCategory, string candidateRoleCategory)
     {
         await using var db = CreateDb();
         var now = DateTimeOffset.UtcNow;
@@ -660,6 +663,7 @@ public sealed class HiringServiceTests
                     Id = Guid.NewGuid(),
                     ResourceChangeRequestId = approvedRequestId,
                     RoleKey = approvedRoleKey,
+                    RoleCategoryKey = approvedRoleCategory,
                     Team = "Product",
                     Title = "Product Manager",
                     Purpose = "Own product outcomes.",
@@ -680,7 +684,15 @@ public sealed class HiringServiceTests
             CSweet.Agent.SDK.AgentAvailabilityState.AvailableToInstall, null,
             "C-Sweet Product Manager", "Own product outcomes.", "C-Sweet", "Product",
             ["Product Manager"], ["product"], ["product.strategy"], null, null, null, 0,
-            null, repositoryUrl, .99m, "First-party verified");
+            null, repositoryUrl, .99m, "First-party verified", RoleCategoryKeys: [candidateRoleCategory]);
+        var mismatchedService = new HiringService(
+            db,
+            new RecordingOrganizationUserService(),
+            new TestAuditEventWriter(),
+            new RecordingImportPreview(db, repositoryUrl),
+            new RecordingInstallationService(organizationId),
+            new RecordingAgentCatalog(available with { RoleCategoryKeys = ["software-architect"] }),
+            new RecordingDefinitionService());
         var service = new HiringService(
             db,
             new RecordingOrganizationUserService(),
@@ -728,6 +740,14 @@ public sealed class HiringServiceTests
             {
                 RecommendationId = recommendation.Id,
                 TeamId = Guid.NewGuid()
+            }));
+        await Assert.ThrowsAsync<ArgumentException>(() => mismatchedService.PreviewMarketplaceHireAsync(
+            organizationId,
+            applicationUserId,
+            new PreviewMarketplaceHireRequest(
+                available.AgentReference, "Product Manager", "Avery", owner.Id, "mismatched-role")
+            {
+                RecommendationId = recommendation.Id
             }));
         var overriddenPreview = await service.PreviewMarketplaceHireAsync(
             organizationId,

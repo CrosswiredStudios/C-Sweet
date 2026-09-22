@@ -100,7 +100,8 @@ public sealed class AgentCatalogService(
             query.RequiredCapabilities.Except(agent.Capabilities, StringComparer.OrdinalIgnoreCase).Any())
             return false;
         if (!string.IsNullOrWhiteSpace(query.RoleCategoryKey) &&
-            !(agent.RoleCategoryKeys ?? []).Contains(query.RoleCategoryKey.Trim(), StringComparer.Ordinal))
+            !CSweet.Agent.SDK.RoleTaxonomy.SatisfiesRole(
+                agent.RoleCategoryKeys ?? [], query.RoleCategoryKey.Trim()))
             return false;
         if (!string.IsNullOrWhiteSpace(query.Category) &&
             !string.Equals(query.Category.Trim(), agent.Category, StringComparison.OrdinalIgnoreCase))

@@ -146,6 +146,31 @@ public sealed class AgentCatalogServiceTests
     }
 
     [Fact]
+    public async Task GameEngineerSearchIncludesGeneralSoftwareDeveloperAndPrefersGameExperience()
+    {
+        var specialist = Agent("first-party:game", AgentCatalogSource.FirstPartyCatalog) with
+        {
+            AgentId = "com.example.game-engineer", Name = "Game Engineer",
+            RoleCategoryKeys = ["game-engineer"], SpecializationKeys = ["game-development"]
+        };
+        var general = Agent("first-party:general", AgentCatalogSource.FirstPartyCatalog) with
+        {
+            AgentId = "com.example.software-developer", Name = "Software Developer",
+            RoleCategoryKeys = ["software-developer"], SpecializationKeys = []
+        };
+        var service = new AgentCatalogService(
+            [new StubProvider(AgentCatalogSource.FirstPartyCatalog, general, specialist)],
+            NullLogger<AgentCatalogService>.Instance);
+
+        var result = await service.GetAvailableAgentsAsync(null, new(
+            RoleCategoryKey: "game-engineer", PreferredSpecializationKeys: ["game-development"]));
+
+        Assert.Equal(2, result.Agents.Count);
+        Assert.Equal(specialist.AgentId, result.Agents[0].AgentId);
+        Assert.Equal(general.AgentId, result.Agents[1].AgentId);
+    }
+
+    [Fact]
     public async Task LocalDirectory_DiscoversManifestWithoutExposingPathOrExecutingSource()
     {
         var root = Path.Combine(Path.GetTempPath(), $"csweet-agent-catalog-{Guid.NewGuid():N}");

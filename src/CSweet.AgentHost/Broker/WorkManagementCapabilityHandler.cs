@@ -3566,7 +3566,7 @@ public sealed class WorkManagementCapabilityHandler(
 
             var (roles, specializations, capabilities) = ReadInstallationAssignmentSupply(
                 installed.PackageVersion?.ManifestJson, installed.Grant?.RequiredCapabilitiesJson);
-            if (!roles.Contains(requirements.RequiredRoleKey, StringComparer.Ordinal))
+            if (!CSweet.Agent.SDK.RoleTaxonomy.SatisfiesRole(roles, requirements.RequiredRoleKey))
                 throw new ArgumentException($"Stage '{assignment.StageKey}' assignee does not declare the required role.");
             var missingSkills = requirements.RequiredSpecializationKeys
                 .Where(x => !specializations.Contains(x, StringComparer.Ordinal)).ToArray();
