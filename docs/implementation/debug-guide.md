@@ -155,6 +155,23 @@ For a complete debug experience, create `.vscode/launch.json`:
 
 ## Troubleshooting
 
+### Hired agent is offline and has not sent an introduction
+
+`OrganizationUserService.CreateAsync` persists the employee and onboarding event before
+requesting an always-on runtime. `AgentOnboardingEventDispatcher` keeps the event durable until
+the hired installation acknowledges it. A successful `AgentHireOperation` therefore does not
+prove the agent started or sent its introduction.
+
+Check the installation's latest `AgentRuntimeInstance` status, reason, and log excerpt, its
+`AgentSchedule.AutomaticStartSuppressedAt`, and the matching `AgentOnboardingEventOutboxItem`
+status. An `AgentRuntimeWorker.ValidateIdentity` failure means the compiled agent's `AgentId`
+or `Version` differs from its packaged `csweet-plugin.json`; the agent exits before the MCP
+session and before processing onboarding. `McpAgentSessionService.EstablishAsync` also requires
+the exact approved package identity. Correct and publish a new package version, deploy it to
+the existing definition/installation, then use **Retry startup** if automatic startup remains
+suppressed. Do not rehire or clear the pending onboarding event: its delivery key includes the
+package revision, so the updated package can receive the original event and send its intro.
+
 ### A Chat Turn Failed With a Generic Message
 
 Communications shows "The agent couldn't complete that request. Please try again." when a durable chat
