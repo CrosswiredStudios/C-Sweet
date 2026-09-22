@@ -563,6 +563,13 @@
                                                 <span>Pending · read-only</span>
                                             </div>
                                         }
+                                        else if (decision.Status == "Outdated")
+                                        {
+                                            <div class="executive-decision-answer">
+                                                <MudIcon Icon="@Icons.Material.Outlined.Info" Color="Color.Warning" Size="Size.Small" />
+                                                <span>This request is outdated. Check the project status or ask the agent to request a new decision.</span>
+                                            </div>
+                                        }
                                         else
                                         {
                                             <div class="executive-decision-answer">
@@ -1386,10 +1393,13 @@
             var response = await Http.PostAsJsonAsync(
                 $"{BasePath}/chats/{_selected.Id}/decisions/{decision.Id}/respond", request, _disposeCts.Token);
             var result = await response.Content.ReadFromJsonAsync<AnswerExecutiveDecisionResponse>(_disposeCts.Token);
+            if (result?.Decision is not null)
+            {
+                var index = _messages.FindIndex(x => x.Id == message.Id);
+                if (index >= 0) _messages[index] = _messages[index] with { Decision = result.Decision };
+            }
             if (!response.IsSuccessStatusCode || result is null || !result.Succeeded)
                 throw new InvalidOperationException(result?.Message ?? "The answer could not be submitted.");
-            var index = _messages.FindIndex(x => x.Id == message.Id);
-            if (index >= 0) _messages[index] = _messages[index] with { Decision = result.Decision };
             if (result.Turn is not null)
             {
                 var view = new TurnView(result.Turn);

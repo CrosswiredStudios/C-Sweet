@@ -1,8 +1,8 @@
 # Adaptive game staffing and progressive planning
 
-New game projects use Creative Director 1.5.0, Producer 2.2.0, Technical Director 2.2.0,
-SDK 3.28.0 and Work Management Contracts 3.16.0. Production profile revision 4 is additive;
-existing projects retain their pinned revisions and approved staffing plans.
+This recovery path is implemented in Creative Director 1.11.3, Producer 2.8.1, and
+Technical Director 2.10.1. The current SDK and Work Management Contracts versions are in
+their project files. Existing projects retain pinned revisions and approved staffing plans.
 
 ## Behavior to test
 
@@ -13,8 +13,11 @@ existing projects retain their pinned revisions and approved staffing plans.
 3. Accept the brief. The first staffing proposal should contain **only the Producer**.
 4. Fulfill that hire and approve the project/workstream proposal. A board and Producer handoff
    should appear without waiting for technical, art, audio, QA, or implementation hires.
-5. The Producer should create a draft sprint and propose technical leadership. Once the
-   Technical Director joins, its accepted-brief-grounded proposal should produce concrete tickets.
+5. The Producer should propose one Technical Director, one game engineer, and one QA specialist
+   from the accepted brief as baseline coverage. Once the Technical Director joins, its
+   accepted-brief-grounded proposal should produce a small epic, story, and task hierarchy
+   with distinct engineering and QA tasks; those hires may remain pending while the draft
+   backlog is inspected.
 6. Leave implementation hires pending. The backlog and a bounded tentative sprint (up to eight
    tickets) should remain inspectable, with unassigned ownership visible and no invented capacity.
 7. Fulfill one required role. Its existing tickets should gain eligible assignments without
@@ -50,7 +53,8 @@ host's locked files. Restart the development host normally before interactive te
 
 ## Implementation boundaries
 
-- Project staffing requires the Producer; detailed decomposition requires a technical lead.
+- Project staffing requires the Producer; initial coverage includes technical direction,
+  implementation, and QA. Detailed decomposition requires a technical lead.
 - The accepted creative brief is sufficient design input when no dedicated Game Designer is needed.
 - Technical planning produces a scope-specific typed proposal with validated roles, skills,
   acceptance criteria, parents, and dependencies. Invalid/cyclic proposals fail visibly.

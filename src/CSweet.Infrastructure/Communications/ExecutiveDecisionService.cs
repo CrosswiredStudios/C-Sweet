@@ -162,8 +162,26 @@ public sealed partial class ExecutiveDecisionService(
                 x.Status != ExecutiveDecisionStatus.Cancelled)
             .OrderByDescending(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
+        var linked = decisions.Where(x => x.Status == ExecutiveDecisionStatus.Pending)
+            .Select(x => ReadDecisionOptions(x.OptionsJson).WorkstreamDecisionId)
+            .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToArray();
+        var sources = await db.WorkstreamDecisions.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && linked.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
         return decisions.GroupBy(x => x.ConversationMessageId ?? x.ChatTurnId!.Value)
-            .ToDictionary(group => group.Key, group => ToCard(group.First()));
+            .ToDictionary(group => group.Key, group =>
+            {
+                var decision = group.First();
+                var card = ToCard(decision);
+                var stored = ReadDecisionOptions(decision.OptionsJson);
+                return decision.Status == ExecutiveDecisionStatus.Pending &&
+                    stored.WorkstreamDecisionId is { } id &&
+                    (!sources.TryGetValue(id, out var source) ||
+                     source.Status != CSweet.WorkManagement.Contracts.DecisionStatuses.Pending ||
+                     source.Revision != stored.WorkstreamDecisionRevision)
+                    ? card with { Status = "Outdated" }
+                    : card;
+            });
     }
 
     public async Task<AnswerExecutiveDecisionResponse> AnswerAsync(
@@ -234,7 +252,8 @@ public sealed partial class ExecutiveDecisionService(
         }
         var linkedFailure = await ApplyWorkstreamDecisionAsync(decision, storedOptions, actorOrganizationUserId,
             selected?.Id, freeText, cancellationToken);
-        if (linkedFailure is not null) return Failure("decision_not_pending", linkedFailure);
+        if (linkedFailure is not null) return Failure("decision_not_pending", linkedFailure,
+            storedOptions.WorkstreamDecisionId.HasValue ? ToCard(decision) with { Status = "Outdated" } : null);
         var now = DateTimeOffset.UtcNow;
         decision.SelectedOptionId = selected?.Id;
         decision.FreeTextAnswer = freeText;

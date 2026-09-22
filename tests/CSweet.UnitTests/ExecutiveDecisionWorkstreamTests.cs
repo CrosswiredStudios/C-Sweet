@@ -114,9 +114,12 @@ public sealed partial class ExecutiveDecisionServiceTests
         sources[1].Revision++;
         await db.SaveChangesAsync();
         Assert.Empty(await service.ListPendingForUserAsync(setup.OrganizationId, setup.OwnerId));
+        var displayed = await service.ListForMessagesAsync(setup.OrganizationId, setup.ConversationId);
+        Assert.Equal("Outdated", displayed[setup.TurnId].Status);
         var stale = await service.AnswerAsync(setup.OrganizationId, setup.ConversationId, cards[1].Id, setup.OwnerId,
             new("continue-current-plan", null, "stale"));
         Assert.False(stale.Succeeded);
+        Assert.Equal("Outdated", stale.Decision?.Status);
         Assert.Equal("Pending", sources[1].Status);
     }
 }
