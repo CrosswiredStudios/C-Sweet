@@ -101,6 +101,50 @@ public sealed class OrganizationDataPurgeService(
                 artifact.Id == approval.ArtifactId && artifact.OrganizationId == organizationId))
             .ExecuteDeleteAsync(cancellationToken);
 
+        // Package members have no OrganizationId and restrict artifact deletion.
+        await dbContext.ArtifactPackageMembers
+            .Where(member => dbContext.CoreArtifacts.Any(artifact =>
+                artifact.Id == member.ArtifactId && artifact.OrganizationId == organizationId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        // Other indirect dependents can likewise restrict deletion of business-owned
+        // parents. Keep these deletes in the same transaction as the scoped purge.
+        await dbContext.BenchmarkAssessments
+            .Where(assessment => dbContext.BenchmarkTrials.Any(trial =>
+                trial.Id == assessment.TrialId && trial.OrganizationId == organizationId))
+            .ExecuteDeleteAsync(cancellationToken);
+        await dbContext.BenchmarkWakes
+            .Where(wake => wake.OrganizationId == organizationId ||
+                wake.TrialId != null && dbContext.BenchmarkTrials.Any(trial =>
+                    trial.Id == wake.TrialId && trial.OrganizationId == organizationId))
+            .ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ConversationParticipants
+            .Where(participant => dbContext.CoreOrganizationUsers.Any(user =>
+                user.Id == participant.OrganizationUserId && user.OrganizationId == organizationId))
+            .ExecuteDeleteAsync(cancellationToken);
+        await dbContext.AgentCoordinationTurns
+            .Where(turn => dbContext.CoreOrganizationUsers.Any(user =>
+                user.Id == turn.SpeakerOrganizationUserId && user.OrganizationId == organizationId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        var businessId = organizationId.ToString("D");
+        await dbContext.WorkExecutionAttempts
+            .Where(attempt => attempt.AgentWorkItemId != null &&
+                dbContext.AgentWorkItems.Any(workItem =>
+                    workItem.Id == attempt.AgentWorkItemId && workItem.OrganizationId == businessId))
+            .ExecuteDeleteAsync(cancellationToken);
+        await dbContext.WorkItemDependencies
+            .Where(dependency =>
+                dbContext.CoreWorkTasks.Any(workItem =>
+                    workItem.Id == dependency.WorkItemId && workItem.OrganizationId == organizationId) ||
+                dbContext.CoreWorkTasks.Any(workItem =>
+                    workItem.Id == dependency.DependsOnWorkItemId && workItem.OrganizationId == organizationId))
+            .ExecuteDeleteAsync(cancellationToken);
+        await dbContext.WorkItemExecutions
+            .Where(execution => dbContext.CoreWorkTasks.Any(workItem =>
+                workItem.Id == execution.WorkItemId && workItem.OrganizationId == organizationId))
+            .ExecuteDeleteAsync(cancellationToken);
+
         var scopedTypes = ScopedEntityTypes(dbContext.Model);
         var tables = PurgeTables(scopedTypes);
         var sqlHelper = dbContext.GetService<ISqlGenerationHelper>();

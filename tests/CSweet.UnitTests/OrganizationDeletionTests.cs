@@ -1,7 +1,10 @@
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
+using CSweet.Domain.Analytics;
+using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
@@ -63,6 +66,43 @@ public sealed class OrganizationDeletionTests
             VALUES ({approval.Id}, {approval.ArtifactId}, {approval.ArtifactRevisionId}, 'Pending', {approval.CreatedAt});
             """);
 
+        var packageId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "ArtifactPackages"
+                ("Id", "OrganizationId", "Name", "PackageType", "Version", "IdempotencyKey", "Status", "CreatedAt", "UpdatedAt")
+            VALUES
+                ({packageId}, {deleted.Id}, 'Deletion test package', 'Documents', 1, 'deletion-test', 'Draft', {deleted.CreatedAt}, {deleted.UpdatedAt});
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "ArtifactPackageMembers"
+                ("Id", "PackageId", "ArtifactId", "Position", "RequiredDocumentType")
+            VALUES
+                ({memberId}, {packageId}, {artifact.Id}, 0, 'Document');
+            """);
+
+        var definition = new BenchmarkDefinition
+        {
+            Id = Guid.NewGuid(), FamilyId = Guid.NewGuid(), Version = 1,
+            Name = "Deletion test", CreatedBy = Guid.NewGuid()
+        };
+        var campaign = new BenchmarkCampaign
+        {
+            Id = Guid.NewGuid(), DefinitionId = definition.Id,
+            CreatedBy = Guid.NewGuid(), IdempotencyKey = "deletion-test"
+        };
+        var trial = new BenchmarkTrial
+        {
+            Id = Guid.NewGuid(), CampaignId = campaign.Id, OrganizationId = deleted.Id
+        };
+        var assessment = new BenchmarkAssessment
+        {
+            Id = Guid.NewGuid(), TrialId = trial.Id, Kind = "Quality",
+            CriterionKey = "deletion-test", IdempotencyKey = "deletion-test"
+        };
+        db.AddRange(definition, campaign, trial, assessment);
+        await db.SaveChangesAsync();
+
         var service = new OrganizationDataPurgeService(
             db,
             new SuccessfulAgentCleanup(),
@@ -76,6 +116,11 @@ public sealed class OrganizationDeletionTests
         Assert.False(await db.BusinessProfiles.AnyAsync(x => x.Id == deletedProfile.Id));
         Assert.True(await db.BusinessProfiles.AnyAsync(x => x.Id == retainedProfile.Id));
         Assert.False(await db.CoreApprovals.AnyAsync(x => x.Id == approval.Id));
+        Assert.False(await db.ArtifactPackages.AnyAsync(x => x.Id == packageId));
+        Assert.False(await db.ArtifactPackageMembers.AnyAsync(x => x.Id == memberId));
+        Assert.False(await db.BenchmarkTrials.AnyAsync(x => x.Id == trial.Id));
+        Assert.False(await db.BenchmarkAssessments.AnyAsync(x => x.Id == assessment.Id));
+        Assert.True(await db.BenchmarkCampaigns.AnyAsync(x => x.Id == campaign.Id));
         Assert.Equal(deleted.Id, (await db.AuditEvents.SingleAsync(x => x.Id == audit.Id)).OrganizationId);
         Assert.Null((await db.CoreWorkers.SingleAsync(x => x.Id == sharedWorker.Id)).OrganizationId);
     }
@@ -165,6 +210,31 @@ public sealed class OrganizationDeletionTests
         Assert.Contains(typeof(ExecutionWorkloadAssignment), classified);
         Assert.DoesNotContain(typeof(AuditEvent), classified);
         Assert.DoesNotContain(typeof(Worker), classified);
+    }
+
+    [Fact]
+    public void PurgeClassification_CoversIndirectRestrictiveDependents()
+    {
+        var options = new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        using var db = new CSweetDbContext(options);
+        var scoped = OrganizationDataPurgeService.ScopedEntityTypes(db.Model).ToHashSet();
+        var actual = db.Model.GetEntityTypes()
+            .Where(entity => !scoped.Contains(entity) &&
+                entity.GetForeignKeys().Any(foreignKey =>
+                    scoped.Contains(foreignKey.PrincipalEntityType) &&
+                    foreignKey.DeleteBehavior is DeleteBehavior.Restrict or DeleteBehavior.NoAction))
+            .Select(entity => entity.ClrType.FullName)
+            .OrderBy(name => name)
+            .ToList();
+        var expected = new[]
+        {
+            typeof(Approval), typeof(ArtifactPackageMember), typeof(BenchmarkAssessment),
+            typeof(AgentCoordinationTurn), typeof(ConversationParticipant),
+            typeof(WorkExecutionAttempt), typeof(WorkItemDependency), typeof(WorkItemExecution)
+        }.Select(type => type.FullName).OrderBy(name => name).ToList();
+
+        Assert.Equal(expected, actual);
     }
 
     private static Organization Organization(string name) => new()
