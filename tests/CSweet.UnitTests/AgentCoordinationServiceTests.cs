@@ -266,9 +266,16 @@ public sealed class AgentCoordinationServiceTests
     }
 
     [Fact]
-    public async Task DeadLetteredTurn_StoresOperationalFailureWithoutImpersonatingInitiator()
+    public async Task DeadLetteredTurn_NotifiesSourceChatManagerWithoutImpersonatingInitiator()
     {
         await using var fixture = await Fixture.CreateAsync();
+        fixture.Db.ConversationParticipants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), ConversationId = fixture.SourceConversationId,
+            OrganizationUserId = fixture.ManagerId, Role = ConversationParticipantRole.Member,
+            JoinedAt = DateTimeOffset.UtcNow
+        });
+        await fixture.Db.SaveChangesAsync();
         var work = await fixture.Inbox.EnqueueAsync(
             fixture.OrganizationId.ToString("D"),
             fixture.TargetInstallationId,
@@ -301,6 +308,12 @@ public sealed class AgentCoordinationServiceTests
         Assert.Empty(await fixture.Db.CoreConversationMessages.Where(x =>
             x.ConversationId == fixture.SourceConversationId &&
             x.CoordinationSessionId == fixture.SessionId).ToListAsync());
+        var notification = Assert.Single(await fixture.Db.UserNotifications.ToListAsync());
+        Assert.Equal(fixture.ManagerId, notification.RecipientOrganizationUserId);
+        Assert.Equal("CoordinationFailure", notification.Category);
+        Assert.Equal($"/organizations/{fixture.OrganizationId:D}/communications/{fixture.SourceConversationId:D}",
+            notification.ActionUri);
+        Assert.DoesNotContain("runtime failure", notification.Body, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

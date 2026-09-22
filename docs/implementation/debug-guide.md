@@ -178,6 +178,24 @@ Communications shows "The agent couldn't complete that request. Please try again
 turn fails. The cause is persisted on the turn row, its trace events, and (for agent-side failures)
 the agent work item. Follow [Chat turn diagnostics](./chat-turn-diagnostics.md) before retrying.
 
+### Agent collaboration stopped after a model response
+
+A dead-lettered coordination work item moves its `AgentCoordinationSession` to `Failed`.
+`AgentWorkInbox.FailCoordinationForWorkAsync` also creates an important notification for
+human managers in the source chat, or the business owner when no manager is a participant.
+The notification opens Communications, where the failed collaboration card shows a safe
+failure explanation and **Retry collaboration**. The original transcript stays intact.
+After updating the agent package that caused the failure, use that action to resume the
+failed speaker. Repeated attempts before updating the package repeat the same failure.
+
+For Producer pitch refinement, inspect the `AgentWorkItem.LastError`, the matching
+`AgentWorkAttempts`, and `AgentRuntimeInstance.LogExcerpt`. A
+`agent.payload_invalid` / `JsonException` with extra content after one JSON value
+was addressed in `PitchProtocol.ParseProducerReview` (Producer 2.8.4). A Creative
+Director attention review failing `work.personal-todo.add.v1` because source
+conversation and message IDs were not supplied together was addressed in
+`VideoGameCreativeDirectorAgent.EnsurePortfolioAgendaAsync` (Creative Director 1.11.5).
+
 ### Docker Engine Is Unavailable
 
 Run:

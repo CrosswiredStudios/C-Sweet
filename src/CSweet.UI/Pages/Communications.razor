@@ -125,25 +125,25 @@
                     <div class="hub-section-title direct">
                         <button class="hub-mentions-toggle" @onclick="@(() => _showMentions = !_showMentions)"
                                 aria-expanded="@_showMentions">
-                            <span>Mentions</span>
-                            @if (UnreadMentions > 0) { <span class="hub-unread-count">@UnreadMentions</span> }
+                            <span>Notifications</span>
+                            @if (UnreadNotifications > 0) { <span class="hub-unread-count">@UnreadNotifications</span> }
                         </button>
                     </div>
                     @if (_showMentions)
                     {
                         <div class="hub-mentions-list">
-                            @foreach (var mention in MentionNotifications)
+                            @foreach (var notification in VisibleNotifications)
                             {
-                                <button class="hub-mention-entry @(mention.ReadAt is null ? "unread" : null)"
-                                        @onclick="@(() => OpenMentionAsync(mention))">
-                                    <strong>@mention.Title</strong>
-                                    <span>@mention.Body</span>
-                                    <small>@mention.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</small>
+                                <button class="hub-mention-entry @(notification.ReadAt is null ? "unread" : null)"
+                                        @onclick="@(() => OpenNotificationAsync(notification))">
+                                    <strong>@notification.Title</strong>
+                                    <span>@notification.Body</span>
+                                    <small>@notification.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</small>
                                 </button>
                             }
-                            @if (!MentionNotifications.Any())
+                            @if (!VisibleNotifications.Any())
                             {
-                                <p class="hub-nav-empty">No mentions yet</p>
+                                <p class="hub-nav-empty">No notifications yet</p>
                             }
                         </div>
                     }
@@ -902,7 +902,10 @@
     private IEnumerable<NotificationResponse> MentionNotifications => _notifications
         .Where(x => x.Category == "Mention" && x.DismissedAt is null)
         .OrderByDescending(x => x.CreatedAt);
-    private int UnreadMentions => MentionNotifications.Count(x => x.ReadAt is null);
+    private IEnumerable<NotificationResponse> VisibleNotifications => _notifications
+        .Where(x => x.Category is "Mention" or "CoordinationFailure" && x.DismissedAt is null)
+        .OrderByDescending(x => x.CreatedAt);
+    private int UnreadNotifications => VisibleNotifications.Count(x => x.ReadAt is null);
     private string ComposerPlaceholder => _selected is null ? "Message" :
         $"Message {(_selected.IsDirect ? _selected.Title : $"#{_selected.Title}")}";
     private bool HasActiveTurn => _turns.Values.Any(x => !IsTerminal(x.Turn.Status));
@@ -1148,11 +1151,11 @@
             _disposeCts.Token) ?? [];
     }
 
-    private async Task OpenMentionAsync(NotificationResponse mention)
+    private async Task OpenNotificationAsync(NotificationResponse notification)
     {
-        await MarkMentionReadAsync(mention);
-        if (!string.IsNullOrWhiteSpace(mention.ActionUri))
-            Navigation.NavigateTo(mention.ActionUri);
+        await MarkNotificationReadAsync(notification);
+        if (!string.IsNullOrWhiteSpace(notification.ActionUri))
+            Navigation.NavigateTo(notification.ActionUri);
     }
 
     private async Task MarkSourceMentionReadAsync(Guid messageId)
@@ -1161,10 +1164,10 @@
         foreach (var mention in MentionNotifications
                      .Where(x => x.ReadAt is null && x.ActionUri?.Contains(
                          token, StringComparison.OrdinalIgnoreCase) == true).ToList())
-            await MarkMentionReadAsync(mention);
+            await MarkNotificationReadAsync(mention);
     }
 
-    private async Task MarkMentionReadAsync(NotificationResponse mention)
+    private async Task MarkNotificationReadAsync(NotificationResponse mention)
     {
         if (mention.ReadAt.HasValue) return;
         var response = await Http.PostAsync(

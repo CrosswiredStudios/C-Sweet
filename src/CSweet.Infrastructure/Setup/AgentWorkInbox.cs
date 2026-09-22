@@ -740,10 +740,45 @@ public sealed class AgentWorkInbox(
         session.CurrentAgentWorkItemId = null;
         session.CompletedAt = session.UpdatedAt = now;
         session.FinalSummary = $"Collaboration failed because an agent turn could not continue: {detail}";
-        // Operational failures belong to durable work/session state. Rendering them as an
-        // initiator-authored chat message makes infrastructure look like coworker speech and can
-        // provoke semantic follow-ups for a transport problem. Bounded platform recovery retries transient delivery failures; owners inspect
-        // persistent failures without adding conversation noise.
+        // Notify human managers who can open the source chat and retry the failed session.
+        // The notification and failed session are saved together; no agent-authored chat
+        // message is invented for an execution failure.
+        var recipients = session.SourceConversationId is { } sourceConversationId
+            ? await db.CoreOrganizationUsers.AsNoTracking().Where(user =>
+                user.OrganizationId == session.OrganizationId && user.IsActive &&
+                user.EmployeeType == EmployeeType.Human &&
+                user.PermissionLevel >= OrganizationPermissionLevel.Manager &&
+                db.ConversationParticipants.Any(participant =>
+                    participant.ConversationId == sourceConversationId &&
+                    participant.OrganizationUserId == user.Id &&
+                    participant.LeftAt == null))
+                .Select(user => user.Id).ToListAsync(cancellationToken)
+            : [];
+        var chatId = session.SourceConversationId;
+        if (recipients.Count == 0)
+        {
+            recipients = await db.CoreOrganizationUsers.AsNoTracking().Where(user =>
+                user.OrganizationId == session.OrganizationId && user.IsActive &&
+                user.EmployeeType == EmployeeType.Human &&
+                user.PermissionLevel == OrganizationPermissionLevel.Owner)
+                .Select(user => user.Id).ToListAsync(cancellationToken);
+            chatId = null;
+        }
+        foreach (var recipientId in recipients)
+            db.UserNotifications.Add(new UserNotification
+            {
+                Id = Guid.NewGuid(), OrganizationId = session.OrganizationId,
+                RecipientOrganizationUserId = recipientId,
+                Severity = NotificationSeverity.Important,
+                Category = "CoordinationFailure",
+                Title = "Agent collaboration needs attention",
+                Body = $"The collaboration \"{session.Subject}\" stopped after an agent execution error. Review diagnostics and retry after correcting the cause.",
+                ActionUri = chatId is { } id
+                    ? $"/organizations/{session.OrganizationId:D}/communications/{id:D}"
+                    : $"/organizations/{session.OrganizationId:D}/communications",
+                DeduplicationKey = $"coordination-failed:{session.Id:N}:{session.Revision}:{recipientId:N}",
+                CreatedAt = now
+            });
     }
 
     private async Task<AgentWorkAttempt> GetActiveAttemptAsync(
