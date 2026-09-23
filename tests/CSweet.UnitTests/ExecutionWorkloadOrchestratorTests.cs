@@ -37,6 +37,27 @@ public sealed class ExecutionWorkloadOrchestratorTests
     }
 
     [Fact]
+    public async Task CapacityProbeHonorsTheOfficeConcurrentWorkloadLimit()
+    {
+        await using var db = CreateDb();
+        var pool = Pool();
+        var node = Node(pool, Guid.NewGuid());
+        node.MaximumConcurrentWorkloads = 1;
+        db.AddRange(pool, node, Assignment(pool.Id, node.Id, 1, 512));
+        await db.SaveChangesAsync();
+        var scheduler = new ExecutionWorkloadOrchestrator(db, new MutableTimeProvider(Now));
+        var request = Request(Guid.NewGuid(), pool.Id);
+
+        Assert.False(await scheduler.HasCapacityAsync(request));
+
+        node.MaximumConcurrentWorkloads = 2;
+        await db.SaveChangesAsync();
+
+        Assert.True(await scheduler.HasCapacityAsync(request));
+        Assert.Single(db.ExecutionWorkloadAssignments);
+    }
+
+    [Fact]
     public async Task DevelopmentPostureRequiresTwoSidedOptInAndCertifiedProvider()
     {
         await using var db = CreateDb();

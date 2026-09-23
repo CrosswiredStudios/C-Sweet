@@ -26,6 +26,34 @@ public sealed class ExecutionWorkloadOrchestrator(
         ExecutionAssignmentStatus.Stopping
     ];
 
+    public async Task<bool> HasCapacityAsync(
+        ExecutionWorkloadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        Validate(request);
+        var poolId = request.ExecutionPoolId ?? await DefaultPoolIdAsync(request.WorkloadKind, cancellationToken);
+        var specificationJson = BindSecurityPolicy(request.SpecificationJson, request.AllowDevelopmentSecurityPosture);
+        var candidate = new ExecutionWorkloadAssignment
+        {
+            Id = Guid.NewGuid(),
+            ExecutionPoolId = poolId,
+            BusinessId = Bound(request.BusinessId, 128),
+            WorkloadKind = request.WorkloadKind,
+            Status = ExecutionAssignmentStatus.Pending,
+            ProviderId = request.PreferredProviderId ?? string.Empty,
+            GuestImageDigest = request.GuestImageDigest,
+            ArtifactDigest = request.ArtifactDigest,
+            SpecificationJson = specificationJson,
+            SpecificationDigest = AssignmentEnvelope.Digest(specificationJson),
+            ReservedCpuCount = request.CpuCount,
+            ReservedMemoryMb = request.MemoryMb,
+            ReservedDiskMb = request.DiskMb,
+            QueuedAt = timeProvider.GetUtcNow()
+        };
+        return await SelectNodeAsync(candidate, timeProvider.GetUtcNow(), cancellationToken) is not null;
+    }
+
     public async Task<ExecutionWorkloadReference> SubmitAsync(
         ExecutionWorkloadRequest request,
         CancellationToken cancellationToken = default)

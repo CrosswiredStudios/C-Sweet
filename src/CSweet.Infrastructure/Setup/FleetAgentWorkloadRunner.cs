@@ -26,7 +26,7 @@ public sealed class FleetAgentWorkloadRunner(
 
         var installation = await dbContext.AgentInstallations.AsNoTracking()
             .SingleAsync(x => x.Id == workload.Identity.InstallationId, cancellationToken);
-        var reference = await orchestrator.SubmitAsync(new ExecutionWorkloadRequest(
+        var request = new ExecutionWorkloadRequest(
             ExecutionWorkloadKind.Runtime,
             null,
             workload.WorkloadId,
@@ -38,7 +38,12 @@ public sealed class FleetAgentWorkloadRunner(
             workload.ResourceLimits.VirtualCpuCount,
             workload.ResourceLimits.MemoryMegabytes,
             workload.ResourceLimits.WritableDiskMegabytes,
-            JsonSerializer.Serialize(workload)), cancellationToken);
+            JsonSerializer.Serialize(workload));
+        if (!await orchestrator.HasCapacityAsync(request, cancellationToken))
+            throw new AgentWorkloadCapacityUnavailableException(
+                "Waiting for certified Office capacity. The agent will start automatically when a slot is available.");
+
+        var reference = await orchestrator.SubmitAsync(request, cancellationToken);
 
         try
         {
@@ -56,8 +61,12 @@ public sealed class FleetAgentWorkloadRunner(
         }
         catch (OperationCanceledException)
         {
+            var pending = await ReadAsync(reference.AssignmentId, CancellationToken.None);
             await orchestrator.CancelAsync(reference.AssignmentId,
                 "Runtime startup was cancelled by the control plane.", CancellationToken.None);
+            if (pending.Status == ExecutionAssignmentStatus.Pending)
+                throw new AgentWorkloadCapacityUnavailableException(
+                    "Waiting for certified Office capacity. The agent will start automatically when a slot is available.");
             throw;
         }
     }

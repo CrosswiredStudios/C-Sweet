@@ -954,7 +954,10 @@ public sealed class CommunicationHubService(
             AgentRuntimeStatus.CompletionReported or
             AgentRuntimeStatus.Stopping => new(
                 CommunicationPresenceStatuses.Starting,
-                $"Agent runtime is {latestRuntime.Status}."),
+                $"Agent runtime is {latestRuntime.Status}." +
+                (string.IsNullOrWhiteSpace(latestRuntime.Reason)
+                    ? string.Empty
+                    : $" {latestRuntime.Reason}")),
             AgentRuntimeStatus.StartFailed or
             AgentRuntimeStatus.McpSessionTimedOut or
             AgentRuntimeStatus.RuntimeTimedOut or

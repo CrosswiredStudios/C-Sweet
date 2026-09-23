@@ -151,6 +151,7 @@ public sealed class ApprovalDashboardServiceTests
                 Title = "Product brief",
                 Content = "Brief",
                 Version = 1,
+                SubmittedRevisionId = Guid.NewGuid(),
                 ApprovalStatus = ApprovalStatus.Pending,
                 CreatedAt = createdAt,
                 UpdatedAt = createdAt
@@ -177,6 +178,15 @@ public sealed class ApprovalDashboardServiceTests
             result.Items,
             x => x.Kind == ApprovalDashboardKinds.HiringWorkflow &&
                  x.Title.Contains("Web Game Developer"));
+        var artifactApproval = Assert.Single(
+            result.Items,
+            x => x.Kind == ApprovalDashboardKinds.Artifact);
+        Assert.True(artifactApproval.CanDecide);
+        var artifactCard = Assert.IsType<ArtifactApprovalCardResponse>(artifactApproval.Artifact);
+        Assert.NotNull(artifactCard.SubmittedRevisionId);
+        Assert.Equal(
+            $"/organizations/{organizationId:D}/documents?artifact={artifactApproval.Id:D}",
+            artifactApproval.ActionUri);
     }
 
     private sealed class StubResourceChangeService(

@@ -38,6 +38,10 @@ public sealed record ExecutionWorkloadResult(
 
 public interface IExecutionWorkloadOrchestrator
 {
+    Task<bool> HasCapacityAsync(
+        ExecutionWorkloadRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<ExecutionWorkloadReference> SubmitAsync(
         ExecutionWorkloadRequest request,
         CancellationToken cancellationToken = default);

@@ -839,6 +839,14 @@ public sealed class AgentRuntimeManager(
                 $"Hardware-isolated workload {handle.ProviderInstanceId} started with broker-only communication; awaiting authenticated broker session.");
             AgentRuntimeMetrics.WorkloadStarted();
         }
+        catch (AgentWorkloadCapacityUnavailableException exception)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            instance.BrokerTokenHash = string.Empty;
+            instance.IsolationProviderId = null;
+            instance.ProviderInstanceId = null;
+            Transition(instance, AgentRuntimeStatus.Queued, DateTimeOffset.UtcNow, exception.Message);
+        }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             await TryRemoveFailedStartAsync(instance, cancellationToken);

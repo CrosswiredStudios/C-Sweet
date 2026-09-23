@@ -28,12 +28,17 @@ public sealed record ApprovalDashboardItemResponse(
     SourceControlApprovalCardResponse? SourceControl = null)
 {
     public ManagedAgentActionApprovalResponse? AgentAction { get; init; }
+    public ArtifactApprovalCardResponse? Artifact { get; init; }
     public ArtifactAccessRequestResponse? ArtifactAccess { get; init; }
     public string? RequestingTeam { get; init; }
     public string? ActualDecisionMaker { get; init; }
     public Guid? SourceResourceChangeRequestId { get; init; }
     public bool CanManageStandingPolicy { get; init; }
 }
+
+public sealed record ArtifactApprovalCardResponse(
+    Guid ArtifactId,
+    Guid? SubmittedRevisionId);
 
 public sealed record ManagedAgentActionApprovalResponse(
     Guid ProposalId,

@@ -646,6 +646,31 @@ public sealed class AgentRuntimeManagerTests
     }
 
     [Fact]
+    public async Task ExhaustedOfficeCapacity_RemainsQueuedWithoutSuppressingAlwaysOnStartup()
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db);
+        installation.Schedule!.ActivationMode = ActivationMode.AlwaysOn;
+        await db.SaveChangesAsync();
+        var workloads = new FakeRunner
+        {
+            StartException = new AgentWorkloadCapacityUnavailableException(
+                "Waiting for certified Office capacity. The agent will start automatically when a slot is available.")
+        };
+        var manager = CreateManager(db, workloads);
+
+        await manager.ProcessDueSchedulesAsync();
+        await manager.ReconcileAsync();
+
+        var runtime = await db.AgentRuntimeInstances.SingleAsync();
+        Assert.Equal(AgentRuntimeStatus.Queued, runtime.Status);
+        Assert.Contains("start automatically", runtime.Reason, StringComparison.Ordinal);
+        Assert.Equal(0, installation.Schedule.ConsecutiveStartupFailures);
+        Assert.Null(installation.Schedule.AutomaticStartSuppressedAt);
+        Assert.Empty(workloads.Starts);
+    }
+
+    [Fact]
     public async Task CompletionSignal_StopsContainerAndCompletesRuntime()
     {
         await using var db = CreateDb();

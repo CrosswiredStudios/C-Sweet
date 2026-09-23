@@ -34,3 +34,9 @@ public sealed class AgentWorkloadException : Exception
     public AgentWorkloadException(string message) : base(message) { }
     public AgentWorkloadException(string message, Exception innerException) : base(message, innerException) { }
 }
+
+/// <summary>
+/// The certified execution fleet is healthy, but no Office currently has room for the workload.
+/// This is a queueing condition rather than a workload startup failure.
+/// </summary>
+public sealed class AgentWorkloadCapacityUnavailableException(string message) : Exception(message);

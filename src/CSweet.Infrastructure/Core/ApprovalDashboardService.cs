@@ -253,8 +253,13 @@ public sealed class ApprovalDashboardService(
             ownerLabel,
             artifact.CreatedAt,
             artifact.ApprovalStatus == ApprovalStatus.Pending ? null : artifact.UpdatedAt,
-            $"/organizations/{organizationId:D}/command-center",
-            false)));
+            $"/organizations/{organizationId:D}/documents?artifact={artifact.Id:D}",
+            artifact.ApprovalStatus == ApprovalStatus.Pending)
+        {
+            Artifact = new ArtifactApprovalCardResponse(
+                artifact.Id,
+                artifact.SubmittedRevisionId)
+        }));
 
         var accessRequests = await db.ArtifactAccessRequests.AsNoTracking()
             .Include(x => x.Artifact)

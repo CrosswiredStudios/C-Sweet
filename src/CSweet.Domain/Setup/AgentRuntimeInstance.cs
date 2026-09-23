@@ -59,7 +59,7 @@ public sealed class AgentRuntimeInstance
         current == next || (current, next) switch
         {
             (AgentRuntimeStatus.Queued, AgentRuntimeStatus.Starting or AgentRuntimeStatus.Stopping or AgentRuntimeStatus.Failed or AgentRuntimeStatus.PolicyDenied or AgentRuntimeStatus.Skipped or AgentRuntimeStatus.Cancelled) => true,
-            (AgentRuntimeStatus.Starting, AgentRuntimeStatus.WaitingForMcpSession or AgentRuntimeStatus.Stopping or AgentRuntimeStatus.StartFailed or AgentRuntimeStatus.Cancelled) => true,
+            (AgentRuntimeStatus.Starting, AgentRuntimeStatus.Queued or AgentRuntimeStatus.WaitingForMcpSession or AgentRuntimeStatus.Stopping or AgentRuntimeStatus.StartFailed or AgentRuntimeStatus.Cancelled) => true,
             (AgentRuntimeStatus.WaitingForMcpSession, AgentRuntimeStatus.Running or AgentRuntimeStatus.Stopping or AgentRuntimeStatus.McpSessionTimedOut or AgentRuntimeStatus.StartFailed or AgentRuntimeStatus.Cancelled) => true,
             (AgentRuntimeStatus.Running, AgentRuntimeStatus.CompletionReported or AgentRuntimeStatus.Stopping or AgentRuntimeStatus.RuntimeTimedOut or AgentRuntimeStatus.ExitedWithoutCompletion or AgentRuntimeStatus.Failed or AgentRuntimeStatus.Cancelled) => true,
             (AgentRuntimeStatus.CompletionReported, AgentRuntimeStatus.Stopping or AgentRuntimeStatus.Completed or AgentRuntimeStatus.Failed) => true,
