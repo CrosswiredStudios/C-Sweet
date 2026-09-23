@@ -77,6 +77,113 @@ public sealed class AgentTicketFeedbackTests
         });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LaterRepeatedFailureReusesExistingEscalationChannel(bool agentManager)
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, manager) = Seed(db, agentManager);
+        var now = DateTimeOffset.UtcNow;
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "attempt-1", Error, true, now, default);
+        await db.SaveChangesAsync();
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId.Value,
+            "attempt-2", Error, true, now.AddMinutes(1), default);
+        await db.SaveChangesAsync();
+        var original = Assert.Single(db.CoreConversations);
+
+        ticket.Status = WorkTaskStatus.Running;
+        ticket.BlockReason = null;
+        await db.SaveChangesAsync();
+        Assert.True(await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId.Value,
+            "attempt-3", Error, true, now.AddMinutes(2), default));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(original.Id, Assert.Single(db.CoreConversations).Id);
+        Assert.Equal(2, await db.CoreConversationMessages.CountAsync());
+        Assert.Equal(2, await db.ConversationMessageMentions.CountAsync());
+        Assert.Equal(2, await db.ConversationParticipants.CountAsync());
+        Assert.Equal(agentManager ? 2 : 0, await db.AgentPlatformEventOutbox.CountAsync());
+        Assert.All(db.UserNotifications, notification =>
+        {
+            Assert.Equal(manager.Id, notification.RecipientOrganizationUserId);
+            Assert.EndsWith(original.Id.ToString("D"), notification.ActionUri);
+        });
+    }
+
+    [Fact]
+    public async Task SameTitleOnDifferentTicketsKeepsEscalationsSeparate()
+    {
+        await using var db = CreateDb();
+        var (first, owner, _) = Seed(db, false);
+        var second = new WorkTask
+        {
+            Id = Guid.NewGuid(), OrganizationId = first.OrganizationId, BoardId = first.BoardId,
+            Kind = WorkItemKind.Task, Title = first.Title, Status = WorkTaskStatus.Running,
+            AssignedEmployeeId = owner.Id, AssignedAgentInstallationId = owner.AgentInstallationId
+        };
+        db.CoreWorkTasks.Add(second);
+        await db.SaveChangesAsync();
+        var now = DateTimeOffset.UtcNow;
+        foreach (var ticket in new[] { first, second })
+        {
+            await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+                $"{ticket.Id:N}-1", Error, true, now, default);
+            await db.SaveChangesAsync();
+            await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId.Value,
+                $"{ticket.Id:N}-2", Error, true, now.AddMinutes(1), default);
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(2, await db.CoreConversations.CountAsync());
+    }
+
+    [Fact]
+    public async Task ExistingDuplicateEscalationsContinueInTheNewestChannel()
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, manager) = Seed(db, false);
+        var now = DateTimeOffset.UtcNow;
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "attempt-1", Error, true, now, default);
+        await db.SaveChangesAsync();
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId.Value,
+            "attempt-2", Error, true, now.AddMinutes(1), default);
+        await db.SaveChangesAsync();
+        var older = Assert.Single(db.CoreConversations);
+        var newer = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = ticket.OrganizationId,
+            Kind = ConversationKind.AgentChannel, IsPrivate = true,
+            InitiatedByOrganizationUserId = owner.Id, Title = older.Title,
+            CreatedAt = now.AddMinutes(2), UpdatedAt = now.AddMinutes(2)
+        };
+        foreach (var id in new[] { owner.Id, manager.Id })
+            newer.Participants.Add(new ConversationParticipant
+            {
+                Id = Guid.NewGuid(), ConversationId = newer.Id, OrganizationUserId = id
+            });
+        newer.Messages.Add(new ConversationMessage
+        {
+            Id = Guid.NewGuid(), ConversationId = newer.Id, SenderOrganizationUserId = owner.Id,
+            IdempotencyKey = $"ticket-repeat:historical:{ticket.Id:N}", CreatedAt = now.AddMinutes(2)
+        });
+        db.CoreConversations.Add(newer);
+        await db.SaveChangesAsync();
+
+        ticket.Status = WorkTaskStatus.Running;
+        ticket.BlockReason = null;
+        await db.SaveChangesAsync();
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId.Value,
+            "attempt-3", Error, true, now.AddMinutes(3), default);
+        await db.SaveChangesAsync();
+
+        Assert.Equal(2, await db.CoreConversations.CountAsync());
+        Assert.Equal(1, await db.CoreConversationMessages.CountAsync(x => x.ConversationId == older.Id));
+        Assert.Equal(2, await db.CoreConversationMessages.CountAsync(x => x.ConversationId == newer.Id));
+        Assert.EndsWith(newer.Id.ToString("D"), db.UserNotifications.OrderByDescending(x => x.CreatedAt).First().ActionUri);
+    }
+
     [Fact]
     public async Task PlanFailureCommentsOnRunningTaskAndBlocksItsCoordinator()
     {

@@ -5,6 +5,7 @@
     --hub-purple: #6750d8;
     display: grid;
     grid-template-columns: 264px minmax(420px, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     height: 100%;
     min-height: 0;
     background: #fff;
@@ -13,7 +14,7 @@
 }
 
 .hub-centered, .hub-empty { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 40px; }
-.hub-sidebar { display: flex; flex-direction: column; min-width: 0; background: #f6f5fb; border-right: 1px solid var(--hub-line); }
+.hub-sidebar { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #f6f5fb; border-right: 1px solid var(--hub-line); }
 .hub-perspective { display: grid; gap: 6px; margin: 14px 14px 0; }
 .hub-perspective > label { color: #737b88; font-size: .66rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .hub-perspective-select { display: flex; align-items: center; gap: 7px; padding: 8px 9px; border: 1px solid #d9d7e5; border-radius: 8px; background: #fff; color: #6655bd; }
@@ -22,7 +23,7 @@
 .hub-readonly-badge ::deep .mud-icon-root { font-size: 14px; }
 .hub-search { display: flex; align-items: center; gap: 8px; margin: 10px 14px 9px; padding: 8px 10px; border: 1px solid #dedee7; border-radius: 8px; background: #fff; color: var(--hub-muted); }
 .hub-search input { min-width: 0; width: 100%; outline: 0; border: 0; background: transparent; font: inherit; font-size: .84rem; }
-.hub-nav { overflow-y: auto; padding: 5px 9px 15px; }
+.hub-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 5px 9px 15px; }
 .hub-section-title { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 6px; color: #7b8290; font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .hub-section-title.direct { margin-top: 14px; }
 .hub-section-title button, .hub-dialog header button { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 2px; display: grid; place-items: center; }

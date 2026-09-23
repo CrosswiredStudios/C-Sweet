@@ -17,6 +17,23 @@ public sealed class CommunicationsLayoutTests
     }
 
     [Fact]
+    public void ConversationListPaneIsBoundedSoLongListsScroll()
+    {
+        var css = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "src", "CSweet.UI", "Pages", "Communications.razor.css"));
+
+        Assert.Contains("grid-template-rows: minmax(0, 1fr);", css, StringComparison.Ordinal);
+        Assert.Contains(
+            ".hub-sidebar { display: flex; flex-direction: column; min-width: 0; min-height: 0;",
+            css,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".hub-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto;",
+            css,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CommunicationsDocumentWorkspaceSlidesInFromTheRight()
     {
         var css = File.ReadAllText(Path.Combine(

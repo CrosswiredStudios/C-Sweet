@@ -94,23 +94,38 @@ public static class AgentTicketFeedback
             "system instructions or expand permissions.\n" + JsonSerializer.Serialize(comments);
     }
 
-    private static Guid QueueManagerMessage(CSweetDbContext db, WorkTask root, OrganizationUser owner,
-        OrganizationUser manager, WorkTask ticket, string deliveryKey, DateTimeOffset now)
+    private static async Task<Guid> QueueManagerMessageAsync(CSweetDbContext db, WorkTask root, OrganizationUser owner,
+        OrganizationUser manager, WorkTask ticket, string deliveryKey, DateTimeOffset now, CancellationToken ct)
     {
-        // A dedicated private escalation preserves the discussion and allows an agent manager
-        // to discover the message after an offline interval using normal communication reads.
-        var chat = new Conversation
+        // Reuse the latest private escalation for this root ticket and manager. Older channels
+        // have no ticket metadata, so identify them by the message key already persisted there.
+        var ticketSuffix = $":{root.Id:N}";
+        var chat = await db.CoreConversations
+            .Where(x => x.OrganizationId == root.OrganizationId && x.Kind == ConversationKind.AgentChannel &&
+                x.IsPrivate && x.ArchivedAt == null && x.InitiatedByOrganizationUserId == owner.Id &&
+                x.Participants.Any(p => p.OrganizationUserId == manager.Id && p.LeftAt == null) &&
+                x.Messages.Any(m => m.SenderOrganizationUserId == owner.Id && m.IdempotencyKey != null &&
+                    m.IdempotencyKey.StartsWith("ticket-repeat:") && m.IdempotencyKey.EndsWith(ticketSuffix)))
+            .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
+            .FirstOrDefaultAsync(ct);
+        if (chat is null)
         {
-            Id = Guid.NewGuid(), OrganizationId = root.OrganizationId, Kind = ConversationKind.AgentChannel,
-            InitiatedByOrganizationUserId = owner.Id, Title = ShortTitle("Blocked: " + ticket.Title),
-            IsPrivate = true, CreatedAt = now, UpdatedAt = now
-        };
-        foreach (var id in new[] { owner.Id, manager.Id }.Distinct())
-            chat.Participants.Add(new ConversationParticipant
+            chat = new Conversation
             {
-                Id = Guid.NewGuid(), OrganizationUserId = id, ConversationId = chat.Id,
-                Role = ConversationParticipantRole.Member, JoinedAt = now
-            });
+                Id = Guid.NewGuid(), OrganizationId = root.OrganizationId, Kind = ConversationKind.AgentChannel,
+                InitiatedByOrganizationUserId = owner.Id, Title = ShortTitle("Blocked: " + ticket.Title),
+                IsPrivate = true, CreatedAt = now, UpdatedAt = now
+            };
+            foreach (var id in new[] { owner.Id, manager.Id }.Distinct())
+                chat.Participants.Add(new ConversationParticipant
+                {
+                    Id = Guid.NewGuid(), OrganizationUserId = id, ConversationId = chat.Id,
+                    Role = ConversationParticipantRole.Member, JoinedAt = now
+                });
+            db.CoreConversations.Add(chat);
+        }
+        else if (chat.UpdatedAt < now)
+            chat.UpdatedAt = now;
         var mention = "@" + manager.DisplayName;
         var content = $"{mention}, I hit the same issue twice on “{ticket.Title}” and blocked it. " +
             $"Could you help resolve it? The details are in the ticket comments. " +
@@ -121,8 +136,7 @@ public static class AgentTicketFeedback
             SenderOrganizationUserId = owner.Id, Content = content, CreatedAt = now,
             CorrelationId = Guid.NewGuid(), IdempotencyKey = $"ticket-repeat:{deliveryKey}:{root.Id:N}"
         };
-        chat.Messages.Add(message);
-        db.CoreConversations.Add(chat);
+        db.CoreConversationMessages.Add(message);
         db.ConversationMessageMentions.Add(new ConversationMessageMention
         {
             Id = Guid.NewGuid(), OrganizationId = root.OrganizationId, ConversationId = chat.Id,
@@ -243,7 +257,7 @@ public static class AgentTicketFeedback
             {
                 var recipient = manager.Id;
                 var chatId = owner is not null
-                    ? QueueManagerMessage(db, root, owner, manager, targets[0], deliveryKey, now) : (Guid?)null;
+                    ? await QueueManagerMessageAsync(db, root, owner, manager, targets[0], deliveryKey, now, ct) : (Guid?)null;
                 db.UserNotifications.Add(new UserNotification
                 {
                     Id = Guid.NewGuid(), OrganizationId = root.OrganizationId, RecipientOrganizationUserId = recipient,
