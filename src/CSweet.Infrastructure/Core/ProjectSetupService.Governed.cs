@@ -39,7 +39,7 @@ public sealed partial class ProjectSetupService
         if (!teamId.HasValue) db.WorkstreamTeamAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = project.OrganizationId, WorkstreamId = project.Id, TeamId = team.Id, StartsAt = clock.GetUtcNow() });
         var board = CreateBoard(project, team.Id, manager.Id);
         db.ProjectDeliveryBindings.Add(new() { WorkstreamId = project.Id, OrganizationId = project.OrganizationId, BoardId = board.Id, TeamId = team.Id, CreationKey = $"approved:{project.SourceProposalId:N}" });
-        await ApplyParticipantsAsync(project, board, people, approver, ct);
+        var added = await ApplyParticipantsAsync(project, board, people, approver, ct);
         if (intake is not null)
         {
             intake.ProjectId = project.Id; intake.BoardId = board.Id; intake.TeamId = team.Id;
@@ -48,5 +48,6 @@ public sealed partial class ProjectSetupService
             intake.Revision++; intake.UpdatedAt = clock.GetUtcNow(); QueueIntake(intake);
         }
         QueueProject(project);
+        QueueProjectAssignmentChanges(project, board.Id, team.Id, added, []);
     }
 }

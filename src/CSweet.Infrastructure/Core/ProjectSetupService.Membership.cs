@@ -71,22 +71,25 @@ public sealed partial class ProjectSetupService
         foreach (var previous in await db.ProjectManagerReservations.Where(x => x.WorkstreamId == id && x.OrganizationUserId != request.ManagerId).ToListAsync(ct))
             db.ProjectManagerReservations.Remove(previous);
         var board = await db.WorkBoards.SingleAsync(x => x.Id == binding.BoardId, ct);
+        var removedUsers = new List<OrganizationUser>();
         foreach (var removed in await db.ProjectParticipants.Where(x => x.WorkstreamId == id && x.RemovedAt == null && !ids.Contains(x.OrganizationUserId)).ToListAsync(ct))
         {
             removed.RemovedAt = clock.GetUtcNow(); removed.Revision++;
             var user = await db.CoreOrganizationUsers.SingleAsync(x => x.Id == removed.OrganizationUserId, ct);
+            removedUsers.Add(user);
             var subject = user.AgentInstallationId ?? user.Id;
             foreach (var grant in await db.ScopedActionGrants.Where(x => x.OrganizationId == actor.OrganizationId && x.SubjectId == subject && x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id && x.RevokedAt == null).ToListAsync(ct))
             { grant.RevokedAt = clock.GetUtcNow(); grant.Revision++; }
         }
         project.AccountableManagerOrganizationUserId = request.ManagerId;
-        await ApplyParticipantsAsync(project, board, people, actor, ct);
+        var addedUsers = await ApplyParticipantsAsync(project, board, people, actor, ct);
         board.ManagerOrganizationUserId = request.ManagerId;
         project.Revision++; board.Revision++; binding.Revision++;
         project.UpdatedAt = clock.GetUtcNow(); board.UpdatedAt = clock.GetUtcNow();
         await db.SaveChangesAsync(ct);
         await RefreshIntakesAsync(actor.OrganizationId, id, ct);
         QueueProject(project);
+        QueueProjectAssignmentChanges(project, binding.BoardId, binding.TeamId, addedUsers, removedUsers);
         await db.SaveChangesAsync(ct);
         return new(id, board.Id, project.Revision);
     }

@@ -87,11 +87,12 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
         db.WorkstreamTeamAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = org, WorkstreamId = project.Id, TeamId = team.Id, StartsAt = now });
         var board = CreateBoard(project, team.Id, request.ManagerId);
         db.ProjectDeliveryBindings.Add(new() { WorkstreamId = project.Id, OrganizationId = org, BoardId = board.Id, TeamId = team.Id, RepositoryId = request.RepositoryId, CreationKey = request.IdempotencyKey });
-        await ApplyParticipantsAsync(project, board, people, actor, ct);
+        var added = await ApplyParticipantsAsync(project, board, people, actor, ct);
         if (intake is not null) { intake.ProjectId = project.Id; intake.BoardId = board.Id; intake.TeamId = team.Id; intake.ManagerId = request.ManagerId; }
         await db.SaveChangesAsync(ct);
         await RefreshIntakesAsync(org, project.Id, ct);
         QueueProject(project);
+        QueueProjectAssignmentChanges(project, board.Id, team.Id, added, []);
         await db.SaveChangesAsync(ct);
         return new(project.Id, board.Id, 1);
     }
@@ -164,14 +165,23 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
         else { reservation.WorkstreamId = project; reservation.IntakeId = intake; reservation.Revision++; }
     }
 
-    private async Task ApplyParticipantsAsync(Workstream project, WorkBoard board, List<OrganizationUser> people, OrganizationUser actor, CancellationToken ct)
+    private async Task<List<OrganizationUser>> ApplyParticipantsAsync(Workstream project, WorkBoard board, List<OrganizationUser> people, OrganizationUser actor, CancellationToken ct)
     {
         var now = clock.GetUtcNow();
+        var added = new List<OrganizationUser>();
         foreach (var person in people)
         {
             var participant = await db.ProjectParticipants.SingleOrDefaultAsync(x => x.WorkstreamId == project.Id && x.OrganizationUserId == person.Id, ct);
-            if (participant is null) db.ProjectParticipants.Add(new() { OrganizationId = project.OrganizationId, WorkstreamId = project.Id, OrganizationUserId = person.Id, AddedByOrganizationUserId = actor.Id, JoinedAt = now });
-            else { participant.RemovedAt = null; participant.Revision++; }
+            if (participant is null)
+            {
+                db.ProjectParticipants.Add(new() { OrganizationId = project.OrganizationId, WorkstreamId = project.Id, OrganizationUserId = person.Id, AddedByOrganizationUserId = actor.Id, JoinedAt = now });
+                added.Add(person);
+            }
+            else if (participant.RemovedAt.HasValue)
+            {
+                participant.RemovedAt = null; participant.Revision++;
+                added.Add(person);
+            }
             var subject = person.AgentInstallationId ?? person.Id;
             var kind = person.AgentInstallationId.HasValue ? GrantSubjectKind.AgentInstallation : GrantSubjectKind.OrganizationUser;
             var manager = person.Id == project.AccountableManagerOrganizationUserId;
@@ -188,7 +198,43 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
                 else { grant.RevokedAt = null; grant.ExpiresAt = null; grant.Revision++; }
             }
         }
+        return added;
     }
+
+    private void QueueProjectAssignmentChanges(
+        Workstream project,
+        Guid boardId,
+        Guid teamId,
+        IReadOnlyList<OrganizationUser> added,
+        IReadOnlyList<OrganizationUser> removed)
+    {
+        var now = clock.GetUtcNow();
+        foreach (var person in added.Where(x => x.AgentInstallationId.HasValue))
+            QueueProjectAssignmentEvent(project, boardId, teamId, person.AgentInstallationId!.Value, ProjectAssignmentEvents.Assigned, "Assigned", now);
+        foreach (var person in removed.Where(x => x.AgentInstallationId.HasValue))
+            QueueProjectAssignmentEvent(project, boardId, teamId, person.AgentInstallationId!.Value, ProjectAssignmentEvents.Removed, "Removed", now);
+    }
+
+    private void QueueProjectAssignmentEvent(
+        Workstream project,
+        Guid boardId,
+        Guid teamId,
+        Guid installationId,
+        string eventType,
+        string changeKind,
+        DateTimeOffset now) =>
+        db.AgentPlatformEventOutbox.Add(new()
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = project.OrganizationId,
+            TargetInstallationId = installationId,
+            EventType = eventType,
+            DataJson = JsonSerializer.Serialize(new ProjectAssignmentChangedEvent(
+                project.OrganizationId, project.Id, teamId, boardId, changeKind, project.Revision, now)),
+            IdempotencyKey = $"project-assignment:{project.Id:N}:{project.Revision}:{installationId:N}:{changeKind}",
+            NextAttemptAt = now,
+            OccurredAt = now
+        });
 
     public async Task RefreshIntakesAsync(Guid org, Guid project, CancellationToken ct)
     {

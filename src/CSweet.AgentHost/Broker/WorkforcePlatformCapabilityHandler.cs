@@ -52,7 +52,8 @@ public sealed class WorkforcePlatformCapabilityHandler(
         StaffingReplenishmentCapabilities.Decide,
         HiringCapabilities.StageWorkflow
         ,
-        PlatformCapabilities.TeamRosterRead
+        PlatformCapabilities.TeamRosterRead,
+        PlatformCapabilities.ProjectAssignmentRead
     };
     private static readonly HashSet<string> ExplicitFields = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -153,6 +154,9 @@ public sealed class WorkforcePlatformCapabilityHandler(
                         session,
                         Read<TeamRosterRequest>(request),
                         token)),
+                PlatformCapabilities.ProjectAssignmentRead => Success(
+                    request.RequestId,
+                    await ReadProjectAssignmentForCallerAsync(session, token)),
                 _ => Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound, "The platform capability is not implemented.")
             };
         }
@@ -190,6 +194,12 @@ public sealed class WorkforcePlatformCapabilityHandler(
                 "This agent employee is not an active member of an eligible team.");
         return response;
     }
+
+    private async Task<ProjectAssignmentResponse> ReadProjectAssignmentForCallerAsync(
+        AgentSession session,
+        CancellationToken cancellationToken) =>
+        new(await (identityResolver ?? new AgentEmployeeIdentityResolver(db))
+            .ReadProjectAssignmentAsync(session, cancellationToken));
 
     private async Task<BusinessProfileResponse> ReadBusinessProfileAsync(Guid organizationId, CancellationToken token)
     {

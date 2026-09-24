@@ -74,7 +74,57 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
                     .ToListAsync(cancellationToken)
             };
         }
+        if (session.Grant.RequestedCapabilities?.Contains(
+                PlatformCapabilities.ProjectAssignmentRead,
+                StringComparer.Ordinal) == true)
+        {
+            identity = identity with
+            {
+                AssignedProject = await ReadProjectAssignmentAsync(session, cancellationToken)
+            };
+        }
         return identity;
+    }
+
+    public async Task<AssignedProjectContext?> ReadProjectAssignmentAsync(
+        AgentSession session,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(session.InstallationId, out var installationId) ||
+            !Guid.TryParse(session.BusinessId, out var organizationId))
+            return null;
+        var caller = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId &&
+            x.AgentInstallationId == installationId &&
+            x.EmployeeType == EmployeeType.Agent &&
+            x.IsActive,
+            cancellationToken);
+        if (caller is null) return null;
+        var participant = await db.ProjectParticipants.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId &&
+                        x.OrganizationUserId == caller.Id &&
+                        x.RemovedAt == null)
+            .OrderByDescending(x => x.JoinedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (participant is null) return null;
+        var project = await db.Workstreams.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.Id == participant.WorkstreamId, cancellationToken);
+        if (project is null) return null;
+        var binding = await db.ProjectDeliveryBindings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.WorkstreamId == project.Id, cancellationToken);
+        var teamId = binding?.TeamId ?? await db.WorkstreamTeamAssignments.AsNoTracking()
+            .Where(x => x.WorkstreamId == project.Id && x.EndsAt == null)
+            .Select(x => (Guid?)x.TeamId)
+            .FirstOrDefaultAsync(cancellationToken);
+        var role = caller.Id == project.AccountableManagerOrganizationUserId ? "Manager" : "Developer";
+        return new AssignedProjectContext(
+            project.Id,
+            project.Name,
+            teamId,
+            binding?.BoardId,
+            role,
+            project.Revision,
+            participant.JoinedAt.UtcDateTime == default ? project.CreatedAt : participant.JoinedAt);
     }
 
     public async Task<TeamRosterResponse> ReadTeamRosterAsync(
@@ -266,6 +316,7 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
                 displayName = EmptyToNull(identity.ManagerDisplayName)
             },
             team = identity.TeamContext,
+            assignedProject = identity.AssignedProject,
             managedWorkstreams = identity.ManagedWorkstreams
         }, JsonOptions);
 

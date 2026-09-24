@@ -85,6 +85,8 @@ public sealed class McpToolCatalog(
             "Read current staff, roles, reporting lines, objectives, workstreams, workers, and operating signals."),
         Read(PlatformCapabilities.TeamRosterRead, "read_team_roster",
             "Read only this agent employee's active team roster, with bounded teammate identity and role facts."),
+        Read(PlatformCapabilities.ProjectAssignmentRead, "read_project_assignment",
+            "Read this agent employee's single assigned project (workstream, team, board, role, revision), or null when unassigned."),
         HiddenRead(PlatformCapabilities.AgentOperatingStateRead, "read_agent_operating_state",
             "Read this installation's revision-controlled operating assessment checkpoint."),
         HiddenWrite(PlatformCapabilities.AgentOperatingStateWrite, "write_agent_operating_state",
