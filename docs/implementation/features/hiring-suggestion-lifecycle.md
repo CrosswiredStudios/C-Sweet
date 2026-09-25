@@ -79,6 +79,17 @@ the new suggestion supersedes it with "Cancelled — replaced by <role>" lineage
 gets its own widget. Covered by `UserActionServiceTests`, `HiringServiceTests`
 (`WithdrawRecommendation_CancelsPendingMarketplaceSuggestion`) and `CommunicationsLayoutTests`.
 
+## Repeat hires from Marketplace
+
+`HiringService.PreviewMarketplaceHireAsync` treats **Review and Hire** as a new employee
+request. When the catalog selects an installed agent instance that already belongs to an
+employee, `BuildWorkflowSnapshotAsync` pins its approved package and grants, then
+`ConfirmWorkflowCoreAsync` creates a new employee from the same agent definition. For
+older installations without a definition, confirmation first reuses the approved package
+to create one. Each employee receives a separate business-scoped agent instance and
+configuration; the package is not fetched or installed again. The package manifest must
+declare `supportsMultipleInstallations`.
+
 ## Configuration isolation during hiring
 
 `HiringService.ConfirmWorkflowCoreAsync` requests

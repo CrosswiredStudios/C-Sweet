@@ -1045,6 +1045,97 @@ public sealed class HiringServiceTests
         Assert.Equal(1, organizationUsers.CreateCount);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MarketplacePreview_HiresAnotherEmployeeFromStaffedAgentPackage(bool hasDefinition)
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organizationId = Guid.NewGuid();
+        var applicationUserId = Guid.NewGuid();
+        var owner = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, ApplicationUserId = applicationUserId,
+            DisplayName = "Owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, CreatedAt = now
+        };
+        var definitions = new RecordingDefinitionService();
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(), AgentId = "com.csweet.product-manager",
+            AgentName = "C-Sweet Product Manager", Version = "1.4.0",
+            PublisherId = "com.csweet", PublisherName = "C-Sweet",
+            ManifestDigest = new string('b', 64), PackageDigest = new string('c', 64),
+            ArtifactSignature = "signed", Status = AgentPackageVersionStatus.Built,
+            ManifestJson = "{\"runtime\":{\"supportsMultipleInstallations\":true}}",
+            RuntimeType = "dotnet-project", ImportedAt = now
+        };
+        var definition = new AgentDefinition
+        {
+            Id = definitions.DefinitionId, PackageVersionId = package.Id,
+            AgentId = package.AgentId, IsAvailableForHire = true,
+            Status = AgentDefinitionStatus.Available,
+            DefaultRequiredCapabilitiesJson = "[\"tool.coding\"]",
+            CreatedAt = now, UpdatedAt = now
+        };
+        var installationId = Guid.NewGuid();
+        var installation = new AgentInstallation
+        {
+            Id = installationId, InstallationKey = installationId,
+            AgentDefinitionId = hasDefinition ? definition.Id : null, PackageVersionId = package.Id,
+            PackageVersion = package, BusinessId = organizationId.ToString("D"),
+            CreatedAt = now, UpdatedAt = now,
+            Grant = new AgentInstallationGrant
+            {
+                Id = Guid.NewGuid(), AgentInstallationId = installationId, ApprovedAt = now
+            }
+        };
+        var firstEmployee = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, DisplayName = "First PM",
+            EmployeeType = EmployeeType.Agent, PermissionLevel = OrganizationPermissionLevel.Contributor,
+            AgentInstallationId = installationId, ReportsToOrganizationUserId = owner.Id,
+            IsActive = true, CreatedAt = now
+        };
+        db.CoreOrganizations.Add(new Organization
+        {
+            Id = organizationId, Name = "Product Company", CreatedAt = now, UpdatedAt = now
+        });
+        db.CoreOrganizationUsers.AddRange(owner, firstEmployee);
+        if (hasDefinition) db.AgentDefinitions.Add(definition);
+        db.AgentInstallations.Add(installation);
+        await db.SaveChangesAsync();
+        if (hasDefinition) definitions.SeedExisting(package.Id);
+        var agent = new CSweet.Agent.SDK.AvailableAgent(
+            $"installed:{installationId:N}", package.AgentId,
+            CSweet.Agent.SDK.AgentCatalogSource.Installed, [],
+            CSweet.Agent.SDK.AgentAvailabilityState.InstalledEnabled,
+            installationId, package.AgentName, "Own product outcomes.", package.PublisherName,
+            "Product", ["Product Manager"], ["product"], ["product.strategy"],
+            null, null, null, 0, null, null, 1m, "Installed");
+        var organizationUsers = new RecordingOrganizationUserService();
+        IAgentHireOrchestrator orchestrator = new HiringService(
+            db, organizationUsers, new TestAuditEventWriter(),
+            agentCatalog: new RecordingAgentCatalog(agent), agentDefinitions: definitions);
+
+        var preview = await orchestrator.PreviewAsync(
+            organizationId, applicationUserId,
+            new(agent.AgentReference, "Product Manager", "Second PM", owner.Id, "second-pm-preview"));
+        var confirmed = await orchestrator.ConfirmAsync(
+            organizationId, preview.WorkflowId, applicationUserId, new("second-pm-confirm"));
+
+        Assert.Equal("Second PM", preview.EmployeeDisplayName);
+        Assert.Contains("another employee", preview.InstallationConsequence);
+        Assert.Equal(hasDefinition ? ["tool.coding"] : [], preview.RequestedCapabilities);
+        Assert.Equal(AgentHireOperationStatuses.Succeeded, confirmed?.Status);
+        Assert.Equal(definition.Id, organizationUsers.CreatedRequest?.AgentDefinitionId);
+        Assert.Null(organizationUsers.CreatedRequest?.AgentInstallationId);
+        Assert.Equal("Second PM", organizationUsers.CreatedRequest?.DisplayName);
+        Assert.Equal(hasDefinition ? 0 : 1, definitions.ImportCount);
+        Assert.Equal(1, organizationUsers.CreateCount);
+    }
+
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
@@ -1298,7 +1389,7 @@ public sealed class HiringServiceTests
             Task.FromResult<IReadOnlyList<AgentDefinitionResponse>>([]);
 
         public Task<AgentDefinitionResponse?> GetAsync(Guid definitionId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<AgentDefinitionResponse?>(definitionId == DefinitionId && Request is not null
+            Task.FromResult<AgentDefinitionResponse?>(definitionId == DefinitionId && PackageVersionId != Guid.Empty
                 ? Response()
                 : null);
 
@@ -1317,6 +1408,7 @@ public sealed class HiringServiceTests
             Task.FromResult(Response());
 
         public void CompleteBuild() => IsAvailableForHire = true;
+        public void SeedExisting(Guid packageVersionId) => PackageVersionId = packageVersionId;
 
         private AgentDefinitionResponse Response()
         {

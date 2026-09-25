@@ -11,6 +11,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Notifications;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using AgentAvailabilityState = CSweet.Agent.SDK.AgentAvailabilityState;
@@ -521,12 +522,6 @@ public sealed class HiringService(
         if (agent.Availability is not AgentAvailabilityState.AvailableToInstall and
             not AgentAvailabilityState.InstalledEnabled)
             throw new InvalidOperationException("The selected agent is not currently available to hire.");
-        if (agent.InstallationId.HasValue && await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
-                x.OrganizationId == organizationId &&
-                x.AgentInstallationId == agent.InstallationId &&
-                x.IsActive,
-                cancellationToken))
-            throw new InvalidOperationException("The selected agent installation already belongs to an active employee.");
         if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
                 x.Id == reportsToOrganizationUserId.Value &&
                 x.OrganizationId == organizationId &&
@@ -1063,7 +1058,7 @@ public sealed class HiringService(
             await db.SaveChangesAsync(cancellationToken);
             resultUserId = employee.Id;
         }
-        else if (candidate.Source == "InstalledPlugin")
+        else if (candidate.Source == "InstalledPlugin" && snapshot.EmbeddedAgent is null)
         {
             var installationId = Guid.Parse(candidate.ExternalCandidateId);
             var existingEmployee = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
@@ -1087,7 +1082,8 @@ public sealed class HiringService(
                 throw new InvalidOperationException(result.Message);
             resultUserId = result.OrganizationUser.Id;
         }
-        else if (IsInstallableAgentCatalogSource(candidate.Source))
+        else if (IsInstallableAgentCatalogSource(candidate.Source) ||
+                 candidate.Source == "InstalledPlugin" && snapshot.EmbeddedAgent is not null)
         {
             var embedded = snapshot.EmbeddedAgent
                 ?? throw new InvalidOperationException("The catalog agent definition snapshot is missing.");
@@ -1410,8 +1406,44 @@ CompleteWorkflow:
                 .SingleAsync(x => x.Id == installationId, token);
             digest = installation.PackageVersion?.PackageDigest ?? installation.PackageVersion?.ManifestDigest;
             currentGrants = ReadStrings(installation.Grant?.RequiredCapabilitiesJson);
-            if (requiredGrants.Except(currentGrants, StringComparer.Ordinal).Any())
+            var isStaffed = await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == candidate.OrganizationId && x.AgentInstallationId == installationId &&
+                x.IsActive, token);
+            if (!isStaffed && requiredGrants.Except(currentGrants, StringComparer.Ordinal).Any())
                 throw new InvalidOperationException("The installed agent does not currently have all required grants.");
+            if (isStaffed)
+            {
+                var definition = installation.AgentDefinitionId.HasValue
+                    ? await db.AgentDefinitions.AsNoTracking().SingleOrDefaultAsync(x =>
+                        x.Id == installation.AgentDefinitionId && x.IsAvailableForHire, token)
+                    : null;
+                var package = installation.PackageVersion;
+                if (package is null || (installation.AgentDefinitionId.HasValue &&
+                    (definition is null || definition.PackageVersionId != package.Id)) ||
+                    package.Status != AgentPackageVersionStatus.Built ||
+                    string.IsNullOrWhiteSpace(package.PackageDigest) ||
+                    string.IsNullOrWhiteSpace(package.ArtifactSignature))
+                    throw new InvalidOperationException("This agent package is not available for another hire.");
+                var manifest = AgentConfigurationRules.DeserializeManifest(package.ManifestJson);
+                if (!manifest.Runtime.SupportsMultipleInstallations)
+                    throw new InvalidOperationException("This agent package does not support multiple employees in one business.");
+                if (definition is not null)
+                    currentGrants = ReadStrings(definition.DefaultRequiredCapabilitiesJson);
+                if (requiredGrants.Except(currentGrants, StringComparer.Ordinal).Any())
+                    throw new InvalidOperationException("The agent hire does not have all required grants.");
+                approvedRequiredGrants = currentGrants;
+                embeddedAgent = new EmbeddedAgentInstallSnapshot(
+                    package.Id, string.Empty, package.CommitSha ?? string.Empty,
+                    package.ManifestDigest, package.AgentId,
+                    definition?.DefaultActivationMode.ToString() ?? manifest.Runtime.DefaultActivationMode,
+                    ReadStrings(definition?.DefaultProvidedCapabilitiesJson ?? installation.Grant?.ProvidedCapabilitiesJson),
+                    currentGrants,
+                    ReadStrings(definition?.DefaultEventSubscriptionsJson ?? installation.Grant?.EventSubscriptionsJson), [],
+                    ReadStrings(definition?.DefaultNetworkAccessJson ?? installation.Grant?.NetworkAccessJson),
+                    manifest.Configuration.Where(field => !field.Secret).ToArray(),
+                    manifest.Setup?.Required == true, IsLocalArchive: true,
+                    DefinitionId: definition?.Id);
+            }
         }
         else if (IsInstallableAgentCatalogSource(candidate.Source))
         {
@@ -1620,8 +1652,27 @@ CompleteWorkflow:
             var digest = current.PackageVersion?.PackageDigest ?? current.PackageVersion?.ManifestDigest;
             if (!string.Equals(digest, snapshot.PackageDigest, StringComparison.Ordinal))
                 throw new InvalidOperationException("The agent package digest changed; create a new approval.");
-            var grants = ReadStrings(current.Grant?.RequiredCapabilitiesJson);
-            if (snapshot.RequiredGrants.Except(grants, StringComparer.Ordinal).Any())
+            if (snapshot.EmbeddedAgent is { } embedded)
+            {
+                var definition = embedded.DefinitionId.HasValue
+                    ? await db.AgentDefinitions.AsNoTracking().SingleOrDefaultAsync(x =>
+                        x.Id == embedded.DefinitionId && x.IsAvailableForHire &&
+                        x.PackageVersionId == embedded.ImportId, token)
+                    : null;
+                if (embedded.DefinitionId.HasValue && definition is null)
+                    throw new InvalidOperationException("The agent definition changed; create a new approval.");
+                var granted = definition?.DefaultRequiredCapabilitiesJson ?? current.Grant?.RequiredCapabilitiesJson;
+                var provided = definition?.DefaultProvidedCapabilitiesJson ?? current.Grant?.ProvidedCapabilitiesJson;
+                var subscriptions = definition?.DefaultEventSubscriptionsJson ?? current.Grant?.EventSubscriptionsJson;
+                var network = definition?.DefaultNetworkAccessJson ?? current.Grant?.NetworkAccessJson;
+                if (!SameGrantSet(snapshot.RequiredGrants, ReadStrings(granted)) ||
+                    !SameGrantSet(embedded.ProvidedCapabilities, ReadStrings(provided)) ||
+                    !SameGrantSet(embedded.Subscriptions, ReadStrings(subscriptions)) ||
+                    !SameGrantSet(embedded.NetworkAccess, ReadStrings(network)))
+                    throw new InvalidOperationException("The approved agent access changed; create a new approval.");
+            }
+            else if (snapshot.RequiredGrants.Except(
+                         ReadStrings(current.Grant?.RequiredCapabilitiesJson), StringComparer.Ordinal).Any())
                 throw new InvalidOperationException("The approved grants changed; create a new approval.");
         }
         else if (IsInstallableAgentCatalogSource(candidate.Source))
@@ -1892,7 +1943,9 @@ CompleteWorkflow:
                 : null,
             workflow.Status.ToString(),
             candidate.Source == "InstalledPlugin"
-                ? "Use the existing enabled installation and create the employee."
+                ? embedded is null
+                    ? "Use the existing enabled agent instance and create the employee."
+                    : "Create another employee from this approved agent package."
                 : candidate.Source == "CurrentStaff"
                     ? "Assign the approved role to the existing employee."
                     : "Import the reviewed source snapshot, install it with the approved access, and create the employee.",
@@ -1932,7 +1985,9 @@ CompleteWorkflow:
             embedded?.Subscriptions ?? [],
             embedded?.NetworkAccess ?? [],
             candidate.Source == "InstalledPlugin"
-                ? "Use the existing enabled installation."
+                ? embedded is null
+                    ? "Use the existing enabled agent instance."
+                    : "Create another employee from this approved agent package."
                 : "Import an immutable source snapshot, install it with the reviewed grants, then create the employee.",
             workflow.Status.ToString())
         {
@@ -1946,6 +2001,9 @@ CompleteWorkflow:
         reference.StartsWith("candidate:", StringComparison.Ordinal) && Guid.TryParseExact(reference[10..], "N", out var id)
             ? id : throw new ArgumentException("The candidate reference is invalid.");
     private static List<Guid> ReadIds(string json) => JsonSerializer.Deserialize<List<Guid>>(json, JsonOptions) ?? [];
+    private static bool SameGrantSet(IReadOnlyList<string> approved, IReadOnlyList<string> current) =>
+        approved.ToHashSet(StringComparer.Ordinal).SetEquals(current);
+
     private static IReadOnlyList<string> ReadStrings(string? json)
     {
         try { return string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<IReadOnlyList<string>>(json, JsonOptions) ?? []; }
