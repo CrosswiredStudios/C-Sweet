@@ -24,6 +24,15 @@ public sealed class OrganizationDataPurgeService(
 
     public async Task PurgeAsync(Guid organizationId, CancellationToken cancellationToken = default)
     {
+        // The provider owns VM and private-disk teardown. Keep its durable records
+        // until it has confirmed physical cleanup. Stopped VMs may still have disks.
+        if (await dbContext.ComputeEnvironments.AsNoTracking().AnyAsync(
+                environment => environment.OrganizationId == organizationId &&
+                    environment.TeardownConfirmedAt == null, cancellationToken))
+        {
+            throw new OrganizationDeletionException(
+                "The business still has compute environments awaiting confirmed VM and disk teardown. Destroy those environments and retry the deletion after cleanup is confirmed.");
+        }
         try
         {
             await agentCleanup.QuiesceAsync(organizationId, cancellationToken);

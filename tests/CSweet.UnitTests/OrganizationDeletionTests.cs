@@ -2,6 +2,7 @@ using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Domain.Analytics;
 using CSweet.Domain.Communications;
+using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
@@ -123,6 +124,37 @@ public sealed class OrganizationDeletionTests
         Assert.True(await db.BenchmarkCampaigns.AnyAsync(x => x.Id == campaign.Id));
         Assert.Equal(deleted.Id, (await db.AuditEvents.SingleAsync(x => x.Id == audit.Id)).OrganizationId);
         Assert.Null((await db.CoreWorkers.SingleAsync(x => x.Id == sharedWorker.Id)).OrganizationId);
+    }
+
+    [Fact]
+    public async Task PurgeAsync_RejectsUnconfirmedComputeTeardownBeforeQuiescingAgents()
+    {
+        var options = new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new CSweetDbContext(options);
+        var organization = Organization("Compute owner");
+        db.CoreOrganizations.Add(organization);
+        db.ComputeEnvironments.Add(new ComputeEnvironment
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organization.Id,
+            InstallationId = Guid.NewGuid(),
+            WorkstreamId = Guid.NewGuid(),
+            LeaseExpiresAt = DateTimeOffset.UtcNow.AddHours(-1)
+        });
+        await db.SaveChangesAsync();
+        var cleanup = new CountingAgentCleanup();
+        var purge = new OrganizationDataPurgeService(
+            db, cleanup, NullLogger<OrganizationDataPurgeService>.Instance);
+
+        var error = await Assert.ThrowsAsync<OrganizationDeletionException>(
+            () => purge.PurgeAsync(organization.Id));
+
+        Assert.Contains("confirmed VM and disk teardown", error.Message);
+        Assert.Equal(0, cleanup.Attempts);
+        Assert.True(await db.CoreOrganizations.AnyAsync(x => x.Id == organization.Id));
+        Assert.True(await db.ComputeEnvironments.AnyAsync(x => x.OrganizationId == organization.Id));
     }
 
     [Fact]
@@ -313,6 +345,16 @@ public sealed class OrganizationDeletionTests
         ArtifactRevisionId = revisionId,
         CreatedAt = DateTimeOffset.UtcNow
     };
+
+    private sealed class CountingAgentCleanup : IBusinessAgentInstallationCleanup
+    {
+        public int Attempts { get; private set; }
+        public Task QuiesceAsync(Guid organizationId, CancellationToken cancellationToken = default)
+        {
+            Attempts++;
+            return Task.CompletedTask;
+        }
+    }
 
     private sealed class SuccessfulAgentCleanup : IBusinessAgentInstallationCleanup
     {
