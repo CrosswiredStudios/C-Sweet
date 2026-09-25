@@ -10,9 +10,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
 
-public sealed class ProjectIntakeCapabilityHandler(CSweetDbContext db, ProjectIntakeService service, ProjectWorkPolicy policy, IWorkItemMutationEngine engine) : IPlatformCapabilityHandler
+public sealed class ProjectIntakeCapabilityHandler(CSweetDbContext db, ProjectIntakeService service, ProjectWorkPolicy policy, IWorkItemMutationEngine engine, ProjectSetupService setup) : IPlatformCapabilityHandler
 {
-    public bool CanHandle(string capability) => ProjectIntakeCapabilities.All.Contains(capability);
+    public bool CanHandle(string capability) => ProjectIntakeCapabilities.All.Contains(capability) || ProjectDeliveryCapabilities.All.Contains(capability);
     public async IAsyncEnumerable<CapabilityResult> HandleAsync(AgentSession session, RequestCapability request,
         [EnumeratorCancellation] CancellationToken ct)
     {
@@ -35,6 +35,7 @@ public sealed class ProjectIntakeCapabilityHandler(CSweetDbContext db, ProjectIn
             await policy.LockAsync(org, ct);
             object result = request.Capability switch
             {
+                ProjectDeliveryCapabilities.Prepare => await setup.PrepareDeliveryAsync(org, agent, Read<PrepareProjectDeliveryRequest>(), ct),
                 ProjectIntakeCapabilities.Retain => await service.RetainAsync(org, agent, Read<RetainProjectIntakeRequest>(), ct),
                 ProjectIntakeCapabilities.Read => await service.ReadAsync(org, agent, Read<ProjectIntakeReference>().IntakeId, ct),
                 ProjectIntakeCapabilities.List => await service.ListAsync(org, agent, ct),

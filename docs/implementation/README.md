@@ -55,6 +55,9 @@ Cross-cutting features are documented as a phased series in their own folder:
 - [Game production reliability](./features/game-production-reliability/README.md) - add
   deterministic game-production evaluations, criterion coverage, persistent review remediation,
   generated effective assignment contracts, curated playbooks, and safe proactive programs.
+- [Producer vision-to-delivery review](./features/producer-vision-to-delivery-review.md) -
+  observed Breakout FX Demo failures, disconnected kickoff and planning paths, and the required
+  project/team setup, technical planning, and multi-sprint acceptance scenarios.
 - [Collaborative documents](./features/collaborative-documents.md) - keep document creation,
   revisions, access, review, chat links, and agent capabilities on one canonical artifact model.
 - [Work item comments](./features/work-item-comments.md) - make ticket discussion author-scoped,

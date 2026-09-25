@@ -2805,6 +2805,17 @@ public sealed class WorkManagementCapabilityHandler(
             .OrderBy(x => x.Position)
             .ToListAsync(cancellationToken);
         var target = ResolveTransitionColumn(action, input.TargetColumnId, item, columns);
+        if (action == WorkItemActions.Move && !item.IsExecutable && target.Category == WorkBoardColumnCategory.Done)
+        {
+            var boardManager = await db.WorkBoards.Where(x => x.Id == input.BoardId && x.OrganizationId == organizationId)
+                .Select(x => x.ManagerOrganizationUserId).SingleAsync(cancellationToken);
+            if (!await db.CoreOrganizationUsers.AnyAsync(x => x.Id == boardManager && x.OrganizationId == organizationId &&
+                x.AgentInstallationId == installation.Id && x.IsActive && x.ArchivedAt == null, cancellationToken))
+                throw new UnauthorizedAccessException("Only the current board manager can close a grouping ticket.");
+            if (await db.CoreWorkTasks.AnyAsync(x => x.OrganizationId == organizationId && x.ParentWorkTaskId == item.Id &&
+                x.ArchivedAt == null && x.Status != WorkTaskStatus.Completed && x.Status != WorkTaskStatus.Cancelled, cancellationToken))
+                throw new InvalidOperationException("Finish or cancel the grouping ticket's children before closing it.");
+        }
         if (RequiresApprovedPlanning(target) &&
             await db.WorkItemApprovals.AnyAsync(x =>
                 x.WorkItemId == item.Id &&
@@ -2888,7 +2899,8 @@ public sealed class WorkManagementCapabilityHandler(
                 target.Category is WorkBoardColumnCategory.ToDo or WorkBoardColumnCategory.InProgress,
             WorkItemActions.Move =>
                 item.Status is not (WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) &&
-                target.Category is WorkBoardColumnCategory.ToDo or WorkBoardColumnCategory.InProgress,
+                (target.Category is WorkBoardColumnCategory.ToDo or WorkBoardColumnCategory.InProgress ||
+                 !item.IsExecutable && target.Category == WorkBoardColumnCategory.Done),
             _ => false
         };
         if (!valid)
@@ -3313,7 +3325,7 @@ public sealed class WorkManagementCapabilityHandler(
         item.AssignedEmployeeId,
         item.AssignedAgentInstallationId,
         null,
-        DeserializeDevelopmentBrief(item.DevelopmentBriefJson))
+        DeserializeDevelopmentBrief(item.DevelopmentBriefJson) ?? DeliveryDevelopmentBrief(item.DeliverySpecificationJson))
     {
         TypeKey = item.TypeKey,
         ExecutionMode = item.IsExecutable
@@ -3714,6 +3726,13 @@ public sealed class WorkManagementCapabilityHandler(
             : null;
         var result = ToAgentItem(item);
         return result with { AssignedDisplayName = employeeName };
+    }
+
+    private static Wire.SoftwareDevelopmentBrief? DeliveryDevelopmentBrief(string? json)
+    {
+        var delivery = DeserializeJson<Wire.WorkItemDeliverySpecification>(json);
+        return delivery is null ? null : new(delivery.RepositoryId, "software-development-polyglot-v1",
+            delivery.Requirements, delivery.AcceptanceCriteria, delivery.Constraints) { QualityGateColumnId = delivery.QualityGateColumnId };
     }
 
     private static Wire.SoftwareDevelopmentBrief? DeserializeDevelopmentBrief(string? json)

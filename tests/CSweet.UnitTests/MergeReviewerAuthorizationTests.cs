@@ -14,6 +14,7 @@ public sealed class MergeReviewerAuthorizationTests
     [Theory]
     [InlineData("active", true)]
     [InlineData("technical-review", true)]
+    [InlineData("quality", true)]
     [InlineData("dispatching", true)]
     [InlineData("canonical-lead", true)]
     [InlineData("membership", false)]
@@ -46,6 +47,7 @@ public sealed class MergeReviewerAuthorizationTests
         var auth = new Authorization { Allowed = scenario != "grant" };
         switch (scenario)
         {
+            case "quality": stage.StageKey = execution.CurrentStageKey = "quality"; break;
             case "technical-review": stage.StageKey = execution.CurrentStageKey = "technical-review"; break;
             case "dispatching": stage.Status = WorkStageExecutionStatus.Dispatching; break;
             case "canonical-lead": team.LeadOrganizationUserId = employee; stage.Status = WorkStageExecutionStatus.Completed; break;
@@ -66,7 +68,7 @@ public sealed class MergeReviewerAuthorizationTests
         foreach (var action in new[] { GitMergeCapabilities.Review, GitMergeCapabilities.Authorize })
         {
             var task = handler.RequireMergeReviewerAsync(org, installation, item.Id, scenario == "revision" ? 6 : 7, action, default);
-            if (allowed && !(scenario == "technical-review" && action == GitMergeCapabilities.Authorize))
+            if (allowed && !((scenario == "technical-review" || scenario == "quality") && action == GitMergeCapabilities.Authorize))
             {
                 var reviewer = await task;
                 Assert.Equal(employee, reviewer.OrganizationUserId);

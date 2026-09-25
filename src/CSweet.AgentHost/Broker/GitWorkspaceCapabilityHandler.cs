@@ -700,7 +700,8 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             repositoryName, publication.CommitSha,
             Uri.TryCreate(publication.PullRequestUrl, UriKind.Absolute, out var pr) ? pr : null,
             RequireReviewPatch(publication.ReviewPatch),
-            evidence, ["Passing QA for the exact candidate SHA"], publication.Status.ToString());
+            evidence, ["Passing QA for the exact candidate SHA"], publication.Status.ToString())
+        { ImplementationEvidence = JsonSerializer.Deserialize<GitValidationResult[]>(publication.ValidationResultsJson, JsonOptions) ?? [] };
     }
 
     private async Task<GitMergeAuthorizationResult> AuthorizeMergeAsync(
@@ -943,7 +944,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
                       sprint.Status == WorkSprintExecutionStatus.Active && execution.WorkItemId == workItemId &&
                       execution.Status == WorkItemExecutionStatus.Running &&
                       (execution.CurrentStageKey == "merge-decision" ||
-                       (action == GitMergeCapabilities.Review && execution.CurrentStageKey == "technical-review")) &&
+                       (action == GitMergeCapabilities.Review && (execution.CurrentStageKey == "technical-review" || execution.CurrentStageKey == "quality"))) &&
                       stage.StageKey == execution.CurrentStageKey && stage.Traversal == execution.Traversal &&
                       stage.AgentInstallationId == installationId && stage.OrganizationUserId == caller.Id &&
                       (stage.Status == WorkStageExecutionStatus.Dispatching || stage.Status == WorkStageExecutionStatus.Running)

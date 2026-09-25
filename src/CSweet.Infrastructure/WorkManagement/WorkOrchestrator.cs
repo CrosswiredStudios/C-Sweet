@@ -89,6 +89,18 @@ public sealed partial class WorkOrchestrator(
             var sprint = await db.WorkSprints.SingleAsync(x => x.Id == execution.SprintId, cancellationToken);
             sprint.Status = WorkSprintStatus.Completed; sprint.CompletedAt = now; sprint.UpdatedAt = now; sprint.Revision++;
             AddEvent(execution, null, null, null, "sprint.execution.completed", new { execution.SprintId });
+            // Persist the wake hint with the completed sprint; reconnect recovery reads current state.
+            var board = await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == execution.BoardId && x.OrganizationId == execution.OrganizationId, cancellationToken);
+            if (board.WorkstreamId is { } projectId)
+            {
+                var wake = new Shared.GenericResourceEvent(Guid.NewGuid(), now,
+                    new(execution.OrganizationId, projectId, board.TeamId, board.Id, null, null, null, execution.Id, null, null),
+                    "Sprint", sprint.Id, sprint.Revision, "work-sprint", "completed",
+                    JsonSerializer.SerializeToElement(new { executionId = execution.Id }, JsonOptions));
+                db.AgentPlatformEventOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId,
+                    EventType = Shared.WorkstreamEventNames.SprintChangedV1, DataJson = JsonSerializer.Serialize(wake, JsonOptions),
+                    IdempotencyKey = $"sprint-completed:{sprint.Id:N}:{sprint.Revision}", OccurredAt = now, NextAttemptAt = now });
+            }
             await db.SaveChangesAsync(cancellationToken);
             return;
         }
@@ -818,6 +830,7 @@ public sealed partial class WorkOrchestrator(
         }
         else if (string.Equals(stageKey, "quality", StringComparison.Ordinal))
         {
+            actions.Add(CSweet.Agent.SDK.GitMergeCapabilities.Review);
             actions.UnionWith([
                 CSweet.Agent.SDK.GitWorkspaceCapabilities.Prepare,
                 CSweet.Agent.SDK.GitWorkspaceCapabilities.Inspect,

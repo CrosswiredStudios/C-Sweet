@@ -26,7 +26,7 @@ public static class WorkstreamProfileUpgrade
             x.Version == workstream.ProfileVersion && x.DefinitionDigest == workstream.ProfileDefinitionDigest, token);
         using var oldDefinition = JsonDocument.Parse(source.DefinitionJson);
         using var newDefinition = JsonDocument.Parse(target.DefinitionJson);
-        var allowed = new HashSet<string>(["version", "boardWorkflow", "orchestration"], StringComparer.Ordinal);
+        var allowed = new HashSet<string>(["version", "boardWorkflow", "orchestration", "assignmentPolicy"], StringComparer.Ordinal);
         var keys = oldDefinition.RootElement.EnumerateObject().Select(x => x.Name)
             .Union(newDefinition.RootElement.EnumerateObject().Select(x => x.Name));
         foreach (var property in keys.Where(x => !allowed.Contains(x)))

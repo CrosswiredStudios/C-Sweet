@@ -207,12 +207,12 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
         else ApplyChanges(workstream, profile, request.Changes);
         var projectSetup = new ProjectSetupService(db, clock, new(db, clock));
         await new ProjectWorkPolicy(db, clock).LockAsync(proposal.OrganizationId, token);
-        if (workstream.LifecycleStage is "Completed" or "Cancelled")
+        if (workstream.LifecycleStage.Equals("Completed", StringComparison.OrdinalIgnoreCase) || workstream.LifecycleStage.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
         {
-            if (workstream.LifecycleStage == "Completed" && await db.CoreWorkTasks.AnyAsync(x => x.Board != null && x.Board.WorkstreamId == workstream.Id &&
+            if (workstream.LifecycleStage.Equals("Completed", StringComparison.OrdinalIgnoreCase) && await db.CoreWorkTasks.AnyAsync(x => x.Board != null && x.Board.WorkstreamId == workstream.Id &&
                 x.ArchivedAt == null && x.Status != WorkTaskStatus.Completed && x.Status != WorkTaskStatus.Cancelled, token))
                 throw new InvalidOperationException("Finish or cancel the project's open tickets before completing it.");
-            workstream.Status = workstream.LifecycleStage == "Completed" ? WorkstreamStatus.Completed : WorkstreamStatus.Cancelled;
+            workstream.Status = workstream.LifecycleStage.Equals("Completed", StringComparison.OrdinalIgnoreCase) ? WorkstreamStatus.Completed : WorkstreamStatus.Cancelled;
             foreach (var reservation in await db.ProjectManagerReservations.Where(x => x.WorkstreamId == workstream.Id).ToListAsync(token))
                 db.ProjectManagerReservations.Remove(reservation);
         }

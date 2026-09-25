@@ -30,6 +30,10 @@ public sealed class InternalGitProvisioningTests
         Assert.True((await db.TeamRepositoryPolicies.SingleAsync()).IsPrimary);
         Assert.Equal(fixture.Team, (await db.TeamRepositoryPolicies.SingleAsync()).TeamId);
         Assert.Equal(RepositoryProvisioningStatus.Completed, request.Status); Assert.Equal(1, host.Calls);
+        var wake = Assert.Single(db.AgentPlatformEventOutbox.Where(x => x.EventType == SourceControlEvents.RepositoryProvisioningChanged));
+        Assert.Equal(request.RequestedByAgentInstallationId, wake.TargetInstallationId);
+        Assert.False(await Processor(db, host, auth).TryProcessNextAsync());
+        Assert.Single(db.AgentPlatformEventOutbox.Where(x => x.EventType == SourceControlEvents.RepositoryProvisioningChanged));
     }
 
     [Fact]
@@ -61,6 +65,7 @@ public sealed class InternalGitProvisioningTests
         await Processor(db, host, auth).TryProcessNextAsync();
         Assert.Equal(0, host.Calls); Assert.Empty(db.SourceControlRepositories);
         Assert.Equal(RepositoryProvisioningStatus.Failed, (await db.RepositoryProvisioningRequests.SingleAsync()).Status);
+        Assert.Single(db.AgentPlatformEventOutbox.Where(x => x.EventType == SourceControlEvents.RepositoryProvisioningChanged));
     }
 
     [Fact]

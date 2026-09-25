@@ -85,6 +85,7 @@ public sealed partial class RepositoryProvisioningProcessor
         repository.Status = SourceControlRepositoryStatus.Ready; repository.LastHealthError = null; repository.LastVerifiedAt = timeProvider.GetUtcNow(); repository.Revision++;
         request.Status = RepositoryProvisioningStatus.Completed; request.CompletedAt = timeProvider.GetUtcNow(); request.UpdatedAt = request.CompletedAt.Value;
         request.FailureCode = null; request.FailureMessage = null; request.Revision++;
+        QueueProvisioningChange(request);
         await db.SaveChangesAsync(ct); return true;
     }
 }

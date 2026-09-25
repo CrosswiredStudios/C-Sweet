@@ -148,6 +148,7 @@ public sealed partial class RepositoryProvisioningProcessor(
         request.CompletedAt = now;
         request.UpdatedAt = now;
         request.Revision++;
+        QueueProvisioningChange(request);
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -187,7 +188,7 @@ public sealed partial class RepositoryProvisioningProcessor(
         return null;
     }
 
-    private static void Fail(
+    private void Fail(
         RepositoryProvisioningRequest request,
         string code,
         string message,
@@ -199,5 +200,14 @@ public sealed partial class RepositoryProvisioningProcessor(
         request.CompletedAt = now;
         request.UpdatedAt = now;
         request.Revision++;
+        QueueProvisioningChange(request);
+    }
+    private void QueueProvisioningChange(RepositoryProvisioningRequest request)
+    {
+        if (request.RequestedByAgentInstallationId is not { } installation) return;
+        db.AgentPlatformEventOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId,
+            TargetInstallationId = installation, EventType = CSweet.Agent.SDK.SourceControlEvents.RepositoryProvisioningChanged,
+            DataJson = System.Text.Json.JsonSerializer.Serialize(new { requestId = request.Id, workstreamId = request.WorkstreamId, revision = request.Revision }),
+            IdempotencyKey = $"repository-provisioning:{request.Id:N}:{request.Revision}", OccurredAt = request.UpdatedAt, NextAttemptAt = request.UpdatedAt });
     }
 }
